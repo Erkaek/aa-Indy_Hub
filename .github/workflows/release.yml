@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  release:
+    # https://docs.github.com/en/actions/reference/events-that-trigger-workflows#release
+    types: [released, prereleased]
+
+jobs:
+  release:
+    # Release
+    name: Release
+    runs-on: ubuntu-latest
+
+    steps:
+      # Checkout the repository
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Set up Python
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: 'pyproject.toml' # Read the Python version from the pyproject.toml file
+
+      # Install Tools
+      - name: Install Tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --upgrade build
+          python -m pip install --upgrade setuptools wheel twine
+
+      # Package and Upload to PyPI
+      - name: Package and Upload to PyPI
+        env:
+          STACKMANAGER_VERSION: ${{ github.event.release.tag_name }}
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_APIKEY }}
+        run: |
+          python -m build
+          python -m twine upload dist/*
+
+      # Add Assets to Release on GitHub
+      - name: Add Assets to Release on GitHub
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # The name of the file(s) to upload
+          files: |
+            dist/*

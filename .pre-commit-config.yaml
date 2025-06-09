@@ -1,0 +1,320 @@
+# Apply to all files without committing:
+#   pre-commit run --all-files
+# Update this file:
+#   pre-commit autoupdate --freeze
+
+# Set the default language versions for the hooks
+default_language_version:
+  python: python3  # Force all Python hooks to use Python 3
+  node: 22.13.1  # Force all Node hooks to use the latest Node LTS
+
+# https://pre-commit.ci/
+ci:
+  autofix_commit_msg: |
+    [pre-commit.ci] auto fixes from pre-commit.com hooks
+
+    for more information, see https://pre-commit.ci
+  autofix_prs: false
+  autoupdate_branch: ''
+  autoupdate_commit_msg: '[pre-commit.ci] pre-commit autoupdate'
+  autoupdate_schedule: monthly
+  skip:
+    - eslint  # Fails due to missing node environment in CI
+  submodules: false
+
+# Globally exclude files
+# https://pre-commit.com/#top_level-exclude
+exclude: |
+  (?x)(
+    .github/|
+    LICENSE|
+    .min(.css|.css.map|.js|.js.map)|
+    locale/|
+    static/(.*)/libs/
+  )
+
+# pre-commit setup
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: cef0300fd0fc4d2a87a85fa2093c6b283ea36f4b  # frozen: v5.0.0
+    hooks:
+      # Identify invalid files
+      - id: check-ast
+        name: check-ast (Python)
+        description: Check for syntax errors in Python files.
+
+      - id: check-yaml
+        name: check-yaml (YAML)
+        description: Check for syntax errors in YAML files.
+
+      - id: check-json
+        name: check-json (JSON)
+        description: Check for syntax errors in JSON files.
+
+      - id: check-toml
+        name: check-toml (TOML)
+        description: Check for syntax errors in TOML files.
+
+      - id: check-xml
+        name: check-xml (XML)
+        description: Check for syntax errors in XML files.
+
+      # git checks
+      - id: check-merge-conflict
+        name: Check for merge conflict strings
+        description: Check for files that contain merge conflict strings.
+
+      - id: check-added-large-files
+        name: Check for large files
+        description: Check for large files that were added to the repository.
+        args:
+          - --maxkb=1000
+
+      - id: detect-private-key
+        name: Detect private key
+        description: Check for private keys in the repository.
+
+      - id: check-case-conflict
+        name: Check for case conflicts
+        description: Check for files with names that differ only in case.
+
+      # Python checks
+      - id: check-docstring-first
+        name: Check for docstring in first line
+        description: Check that the first line of a file is a docstring.
+
+      - id: debug-statements
+        name: Check for debug statements
+        description: Check for print statements and pdb imports.
+
+      - id: requirements-txt-fixer
+        name: Fix requirements.txt
+        description: Fix the formatting of requirements.txt files.
+
+      - id: fix-encoding-pragma
+        name: Fix encoding pragma
+        description: Fix the encoding pragma in Python files.
+        args:
+          - --remove
+
+      - id: fix-byte-order-marker
+        name: Fix byte order marker
+        description: Fix the byte order marker in Python files.
+
+      - id: check-builtin-literals
+        name: Check for built-in literals
+        description: Check for built-in literals in Python code.
+
+      # General quality checks
+      - id: mixed-line-ending
+        name: Mixed line ending
+        description: Check for mixed line endings.
+        args:
+          - --fix=lf
+
+      - id: trailing-whitespace
+        name: Trailing whitespace
+        description: Check for trailing whitespace.
+        args:
+          - --markdown-linebreak-ext=md
+
+      - id: check-executables-have-shebangs
+        name: Check for shebangs in executables
+        description: Check that executables have shebangs.
+
+      - id: end-of-file-fixer
+        name: End of file fixer
+        description: Ensure that files end with a newline.
+
+  - repo: https://github.com/eslint/eslint
+    rev: e81ba92a6d86968cacab5d06f83a7c9b154e5906  # frozen: v9.28.0
+    hooks:
+      - id: eslint
+        name: ESLint
+        description: Check for problems in JavaScript files.
+        language: node
+        additional_dependencies:
+          # eslint itself needs to be here when using additional_dependencies.
+          - eslint@9.26.0 # https://github.com/eslint/eslint/releases/latest
+          - globals@16.0.0  # https://github.com/sindresorhus/globals/releases/latest
+
+  - repo: https://github.com/thibaudcolas/pre-commit-stylelint
+    rev: 2aae575fddbe3f26961115860542dbd9d0e8f91d  # frozen: v16.20.0
+    hooks:
+      - id: stylelint
+        name: Stylelint
+        description: Check for problems in CSS files.
+        language: node
+        args:
+          - --formatter=compact
+        additional_dependencies:
+          # stylelint itself needs to be here when using additional_dependencies.
+          - stylelint@16.19.1  # https://github.com/stylelint/stylelint/releases/latest
+          - stylelint-config-standard@38.0.0  # https://github.com/stylelint/stylelint-config-standard/releases/latest
+
+  - repo: https://github.com/pre-commit/pygrep-hooks
+    rev: 3a6eb0fadf60b3cccfd80bad9dbb6fae7e47b316  # frozen: v1.10.0
+    hooks:
+      - id: python-check-blanket-noqa  # Enforce that noqa annotations always occur with specific codes. Sample annotations: # noqa: F401, # noqa: F401,W203
+        name: Check for blanket noqa
+        description: Check for blanket noqa annotations.
+
+      - id: python-check-blanket-type-ignore  # Enforce that # type: ignore annotations always occur with specific codes. Sample annotations: # type: ignore[attr-defined], # type: ignore[attr-defined, name-defined]
+        name: Check for blanket type ignore
+        description: Check for blanket type ignore annotations.
+
+      - id: python-check-mock-methods  # Prevent common mistakes of assert mck.not_called(), assert mck.called_once_with(...) and mck.assert_called
+        name: Check for mock methods
+        description: Check for common mistakes of mock methods.
+
+      - id: python-no-eval  # A quick check for the eval() built-in function
+        name: Check for eval
+        description: Check for the eval() built-in function.
+
+      - id: python-no-log-warn  #  A quick check for the deprecated .warn() method of python loggers
+        name: Check for log warn
+        description: Check for the deprecated .warn() method of python loggers.
+
+      - id: python-use-type-annotations  # Enforce that python3.6+ type annotations are used instead of type comments
+        name: Use type annotations
+        description: Enforce that python3.6+ type annotations are used instead of type comments.
+
+  - repo: https://github.com/editorconfig-checker/editorconfig-checker.python
+    rev: 3bea62898235acc3f05c1d9c33023345f6cd3c6f  # frozen: 3.2.1
+    hooks:
+      - id: editorconfig-checker
+        name: EditorConfig Checker
+        description: Check for compliance with the definitions in the EditorConfig file.
+
+  - repo: https://github.com/adamchainz/django-upgrade
+    rev: 700530171ecf380bc829a64388f49d14ecd61c53  # frozen: 1.25.0
+    hooks:
+      - id: django-upgrade
+        name: Django upgrade
+        description: Upgrade Django code to a target version.
+        args:
+          - --target-version=4.2  # Minimum supported Django version for AA. Update as needed.
+
+  - repo: https://github.com/asottile/pyupgrade
+    rev: 37bfa06d791fd38fb4e54910b36a2ff57641b074  # frozen: v3.20.0
+    hooks:
+      - id: pyupgrade
+        name: PyUpgrade
+        description: Upgrade syntax to newer versions of Python.
+        args:
+          - --py310-plus  # Minimum required Python version for AA. Update as needed.
+
+  - repo: https://github.com/pycqa/flake8
+    rev: 4b5e89b4b108a6c1a000c591d334a99a80d34c7b  # frozen: 7.2.0
+    hooks:
+      - id: flake8
+        name: Flake8
+        description: Check for style and complexity issues in Python code.
+
+  - repo: https://github.com/asottile/yesqa
+    rev: f2ae90cf9e1661ade79d0881186ce4fd7ba6ee79  # frozen: v1.5.0
+    hooks:
+      - id: yesqa
+        name: YesQA
+        description: Check for extraneous `# noqa` comments.
+
+  - repo: https://github.com/PyCQA/isort
+    rev: c8ab4a5b21bac924d106e3103dd7c979fdd0f9bc  # frozen: 6.0.1
+    hooks:
+      - id: isort
+        name: Isort
+        description: Sort imports.
+
+  - repo: https://github.com/Pierre-Sassoulas/black-disable-checker/
+    rev: e37d202bbc277a1e0b2ecbdd6ececd74c8b0352e  # frozen: v1.1.3
+    hooks:
+      - id: black-disable-checker
+        name: Black disable checker
+        description: Check for black disable comments.
+
+  - repo: https://github.com/psf/black
+    rev: 8a737e727ac5ab2f1d4cf5876720ed276dc8dc4b  # frozen: 25.1.0
+    hooks:
+      - id: black
+        name: Black
+        description: Format Python code.
+        args:
+          - --target-version=py310  # Minimum required Python version for AA. Update as needed.
+
+  - repo: https://github.com/asottile/blacken-docs
+    rev: 78a9dcbecf4f755f65d1f3dec556bc249d723600  # frozen: 1.19.1
+    hooks:
+      - id: blacken-docs
+        name: Blacken docs
+        description: Format Python code in documentation files.
+        additional_dependencies:
+          - black==25.1.0  # https://github.com/psf/black/releases/latest
+        args:
+          - --target-version=py310  # Minimum required Python version for AA. Update as needed.
+
+  - repo: https://github.com/executablebooks/mdformat
+    rev: ff29be1a1ba8029d9375882aa2c812b62112a593  # frozen: 0.7.22
+    hooks:
+      - id: mdformat
+        name: Mdformat
+        description: Format Markdown files.
+        additional_dependencies:
+          - mdformat-gfm==0.4.1  # Mdformat plugin for GitHub Flavored Markdown compatibility » https://github.com/hukkin/mdformat-gfm/tags
+          - mdformat-toc==0.3.0  # Mdformat plugin to generate a table of contents » https://github.com/hukkin/mdformat-toc/tags
+          - mdformat-black==0.1.1  # Mdformat plugin to Blacken Python code blocks » https://github.com/hukkin/mdformat-black/tags
+          - mdformat-shfmt==0.2.0  # Mdformat plugin to format shell code blocks » https://github.com/hukkin/mdformat-shfmt/tags
+
+  - repo: https://github.com/tox-dev/tox-ini-fmt
+    rev: e732f664aa3fd7b32cce3de8abbac43f4c3c375d  # frozen: 1.5.0
+    hooks:
+      - id: tox-ini-fmt
+        name: tox.ini formatter
+        description: Format the tox.ini file.
+
+  - repo: https://github.com/tox-dev/pyproject-fmt
+    rev: 8184a5b72f4a8fcd003b041ecb04c41a9f34fd2b  # frozen: v2.6.0
+    hooks:
+      - id: pyproject-fmt
+        name: pyproject.toml formatter
+        description: Format the pyproject.toml file.
+        args:
+          - --indent=4
+        additional_dependencies:
+          - tox==4.25.0  # https://github.com/tox-dev/tox/releases/latest
+
+  - repo: https://github.com/abravalheri/validate-pyproject
+    rev: 78f5e0f104cfa803d0597eaa924b4de3becd3e3e  # frozen: v0.24.1
+    hooks:
+      - id: validate-pyproject
+        name: Validate pyproject.toml
+        description: Validate the pyproject.toml file.
+
+#  - repo: https://github.com/pylint-dev/pylint
+#    rev: f798a4a3508bcbb8ad0773ae14bf32d28dcfdcbe  # frozen: v3.3.7
+#    hooks:
+#      - id: pylint
+#        name: Pylint
+#        description: Check for errors and code smells in Python code.
+#        args:
+#          - --py-version=3.10  # Minimum required Python version for AA. Update as needed.
+
+  - repo: https://github.com/python-jsonschema/check-jsonschema
+    rev: 06e4cc849d03f3a59ca223a4046f4bb5bb2aba6d  # frozen: 0.33.0
+    hooks:
+      - id: check-github-actions
+        name: Check GitHub Actions
+        description: This hook checks that GitHub Actions files are valid.
+        args:
+          - --verbose
+
+      - id: check-github-workflows
+        name: Check GitHub Workflows
+        description: This hook checks that GitHub Workflows files are valid.
+        args:
+          - --verbose
+
+      - id: check-dependabot
+        name: Check Dependabot Configuration
+        description: This hook checks that Dependabot configuration files are valid.
+        args:
+          - --verbose

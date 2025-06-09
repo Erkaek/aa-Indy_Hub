@@ -1,0 +1,531 @@
+/**
+ * Industry Jobs CSS - Optimized for performance and usability
+ */
+
+/* Base Styles */
+.job-item {
+    transition: background-color 0.2s ease;
+}
+
+.job-item:hover {
+    background-color: rgba(0, 123, 255, 0.05) !important;
+}
+
+/* Statistics Cards */
+.stats-card {
+    background: linear-gradient(135deg, #fff 0%, #f8f9fa 100%);
+    border: 1px solid #e9ecef;
+    border-radius: 12px;
+    padding: 1.5rem;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    transition: all 0.3s ease;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.stats-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.stats-icon {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    color: white;
+}
+
+.stats-content {
+    flex: 1;
+}
+
+.stats-number {
+    font-size: 2rem;
+    font-weight: 700;
+    color: #2c3e50;
+    line-height: 1;
+}
+
+.stats-label {
+    font-size: 0.875rem;
+    color: #6c757d;
+    font-weight: 500;
+    margin-top: 0.25rem;
+}
+
+/* Specific card colors */
+.active-jobs .stats-icon {
+    background: linear-gradient(135deg, #28a745, #20c997);
+}
+
+.completed-jobs .stats-icon {
+    background: linear-gradient(135deg, #17a2b8, #6610f2);
+}
+
+.manufacturing-jobs .stats-icon {
+    background: linear-gradient(135deg, #fd7e14, #e83e8c);
+}
+
+.research-jobs .stats-icon {
+    background: linear-gradient(135deg, #6f42c1, #e83e8c);
+}
+
+.copying-jobs .stats-icon {
+    background: linear-gradient(135deg, #007bff, #6610f2);
+}
+
+.total-jobs .stats-icon {
+    background: linear-gradient(135deg, #6c757d, #495057);
+}
+
+/* Filter Controls */
+.filter-controls {
+    background: #fff;
+    border: 1px solid #e9ecef;
+    border-radius: 12px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.filter-controls .form-control,
+.filter-controls .form-select {
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    transition: all 0.2s ease;
+}
+
+.filter-controls .form-control:focus,
+.filter-controls .form-select:focus {
+    border-color: #007bff;
+    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.1);
+}
+
+/* Activity Badges */
+.activity-badge {
+    display: inline-block;
+    padding: 0.4rem 0.8rem;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.activity-1 { /* Manufacturing */
+    background: linear-gradient(135deg, #fd7e14, #ff6b35);
+    color: white;
+}
+
+.activity-3 { /* TE Research */
+    background: linear-gradient(135deg, #6f42c1, #8e44ad);
+    color: white;
+}
+
+.activity-4 { /* ME Research */
+    background: linear-gradient(135deg, #e83e8c, #d63384);
+    color: white;
+}
+
+.activity-5 { /* Copying */
+    background: linear-gradient(135deg, #007bff, #0056b3);
+    color: white;
+}
+
+.activity-8 { /* Invention */
+    background: linear-gradient(135deg, #28a745, #198754);
+    color: white;
+}
+
+.activity-9 { /* Reverse Engineering */
+    background: linear-gradient(135deg, #dc3545, #c82333);
+    color: white;
+}
+
+.activity-11 { /* Reactions */
+    background: linear-gradient(135deg, #17a2b8, #138496);
+    color: white;
+}
+
+/* Status Badges */
+.status-badge {
+    display: inline-block;
+    padding: 0.4rem 0.8rem;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.status-active {
+    background: linear-gradient(135deg, #28a745, #20c997);
+    color: white;
+}
+
+.status-paused {
+    background: linear-gradient(135deg, #ffc107, #ffb300);
+    color: #212529;
+}
+
+.status-ready {
+    background: linear-gradient(135deg, #17a2b8, #138496);
+    color: white;
+}
+
+.status-delivered {
+    background: linear-gradient(135deg, #6f42c1, #8e44ad);
+    color: white;
+}
+
+.status-cancelled {
+    background: linear-gradient(135deg, #dc3545, #c82333);
+    color: white;
+}
+
+.status-reverted {
+    background: linear-gradient(135deg, #6c757d, #495057);
+    color: white;
+}
+
+/* Progress Bars */
+.job-progress .progress-bar {
+    background: linear-gradient(90deg, #007bff, #0056b3);
+    transition: width 0.3s ease;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.job-progress .progress-bar.bg-success {
+    background: linear-gradient(90deg, #28a745, #20c997) !important;
+}
+
+.job-progress-bar {
+    height: 14px;
+    background: #e3e8ef;
+    border-radius: 6px;
+    overflow: hidden;
+    width: 100%;
+    margin-top: 2px;
+    margin-bottom: 2px;
+    position: relative;
+}
+
+.job-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #60a5fa, #34d399);
+    transition: width 0.5s;
+    position: absolute;
+    left: 0; top: 0;
+    z-index: 1;
+}
+
+.job-progress-label {
+    position: relative;
+    z-index: 2;
+    text-align: center;
+    font-size: 1em;
+    font-weight: 700;
+    color: #222;
+    line-height: 14px;
+    pointer-events: none;
+    letter-spacing: 0.5px;
+    text-shadow: 0 1px 2px #fff, 0 0 2px #e3e8ef;
+}
+
+.job-progress-percent {
+    font-variant-numeric: tabular-nums;
+    color: #1565c0;
+    font-size: 1.1em;
+    font-weight: 700;
+    margin-right: 0.5em;
+}
+
+.job-progress-eta {
+    font-variant-numeric: tabular-nums;
+    color: #2e7d32;
+    font-size: 1.1em;
+    font-weight: 700;
+    margin-left: 0.5em;
+}
+
+.job-progress-row {
+    background: #f8fafc;
+    border-bottom: 2px solid #e3e8ef;
+}
+
+/* Item Info */
+.item-info strong {
+    color: #2c3e50;
+    font-weight: 600;
+}
+
+.item-info small {
+    font-size: 0.75rem;
+    color: #6c757d;
+}
+
+/* Pagination Controls */
+.pagination-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.pagination-controls button {
+    border-radius: 8px;
+    transition: all 0.2s ease;
+}
+
+.pagination-controls button:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.pagination-controls button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Export Button */
+.export-button {
+    background: linear-gradient(135deg, #28a745, #20c997);
+    border: none;
+    color: white;
+    border-radius: 8px;
+    transition: all 0.2s ease;
+}
+
+.export-button:hover {
+    background: linear-gradient(135deg, #20c997, #28a745);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    color: white;
+}
+
+/* Table Enhancements */
+.table thead th {
+    background: linear-gradient(135deg, #343a40, #495057);
+    color: white;
+    border: none;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-size: 0.875rem;
+    padding: 1rem;
+}
+
+.table tbody td {
+    padding: 1rem;
+    vertical-align: middle;
+    border-color: #e9ecef;
+}
+
+.table-striped tbody tr:nth-of-type(odd) {
+    background-color: rgba(0, 123, 255, 0.02);
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .stats-card {
+        padding: 1rem;
+        flex-direction: column;
+        text-align: center;
+        gap: 0.5rem;
+    }
+    
+    .stats-icon {
+        width: 40px;
+        height: 40px;
+        font-size: 1.25rem;
+    }
+    
+    .stats-number {
+        font-size: 1.5rem;
+    }
+    
+    .filter-controls .row {
+        gap: 0.5rem;
+    }
+    
+    .table-responsive {
+        font-size: 0.875rem;
+    }
+    
+    .activity-badge,
+    .status-badge {
+        padding: 0.3rem 0.6rem;
+        font-size: 0.7rem;
+    }
+}
+
+@media (max-width: 991px) {
+    .table-responsive {
+        font-size: 0.92em;
+    }
+    .job-progress-bar {
+        min-width: 60px;
+        max-width: 100%;
+    }
+    .job-progress-label {
+        font-size: 0.85em;
+        padding: 0 2px;
+    }
+    .table thead th, .table tbody td {
+        padding: 0.4rem 0.2rem;
+        font-size: 0.92em;
+    }
+    .d-flex.gap-2, .d-flex.gap-3 {
+        gap: 0.3rem !important;
+    }
+    .d-flex.align-items-center.gap-2.flex-nowrap {
+        flex-wrap: wrap !important;
+        gap: 0.2rem !important;
+    }
+    .job-progress-bar {
+        margin-top: 0.15em;
+        margin-bottom: 0.15em;
+    }
+    .activity-badge, .status-badge {
+        font-size: 0.7em;
+        padding: 0.2em 0.5em;
+    }
+}
+@media (max-width: 700px) {
+    .table-responsive {
+        font-size: 0.80em;
+    }
+    .job-progress-bar {
+        min-width: 40px;
+        max-width: 100%;
+    }
+    .job-progress-label {
+        font-size: 0.75em;
+        padding: 0 1px;
+    }
+    .table thead th, .table tbody td {
+        padding: 0.25rem 0.08rem;
+        font-size: 0.78em;
+    }
+    .d-flex.align-items-center.gap-2.flex-nowrap {
+        flex-direction: column !important;
+        align-items: flex-start !important;
+    }
+    .job-progress-bar {
+        margin-top: 0.1em;
+        margin-bottom: 0.1em;
+    }
+}
+@media (max-width: 500px) {
+    .table-responsive {
+        font-size: 0.70em;
+    }
+    .job-progress-bar {
+        min-width: 20px;
+        max-width: 100%;
+    }
+    .job-progress-label {
+        font-size: 0.65em;
+        padding: 0 0.5px;
+    }
+    .table thead th, .table tbody td {
+        padding: 0.12rem 0.04rem;
+        font-size: 0.65em;
+    }
+    .activity-badge, .status-badge {
+        font-size: 0.6em;
+        padding: 0.12em 0.3em;
+    }
+}
+
+/* Loading States */
+.loading {
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+.loading::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 20px;
+    height: 20px;
+    border: 2px solid #f3f3f3;
+    border-top: 2px solid #007bff;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: translate(-50%, -50%) rotate(0deg); }
+    100% { transform: translate(-50%, -50%) rotate(360deg); }
+}
+
+/* Performance Optimizations */
+.job-item,
+.stats-card,
+.filter-controls {
+    will-change: transform;
+    backface-visibility: hidden;
+    perspective: 1000px;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+    .stats-card {
+        border: 2px solid #000;
+    }
+    
+    .activity-badge,
+    .status-badge {
+        border: 1px solid rgba(255, 255, 255, 0.3);
+    }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+    .stats-card,
+    .job-item,
+    .export-button,
+    .pagination-controls button {
+        transition: none;
+    }
+    
+    .stats-card:hover,
+    .export-button:hover,
+    .pagination-controls button:hover {
+        transform: none;
+    }
+}
+
+/* Print styles */
+@media print {
+    .filter-controls,
+    .pagination-controls,
+    .export-button {
+        display: none !important;
+    }
+    
+    .stats-card {
+        break-inside: avoid;
+        box-shadow: none;
+        border: 1px solid #000;
+    }
+    
+    .table {
+        font-size: 0.75rem;
+    }
+    
+    .activity-badge,
+    .status-badge {
+        background: #f8f9fa !important;
+        color: #000 !important;
+        border: 1px solid #000;
+    }
+}

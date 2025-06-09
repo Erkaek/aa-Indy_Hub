@@ -1,0 +1,192 @@
+name: Tests
+
+env:
+  COVERAGE_DATABASE_VERSION: mariadb:10.11
+  COVERAGE_PYTHON_VERSION: 3.12
+  NODE_VERSION: 22 # [LTS] End of Life: 30 Apr 2027 (https://endoflife.date/nodejs)
+  REDIS_VERSION: latest
+
+on:
+  push:
+    branches:
+      - '**'
+
+    tags-ignore:
+      - '**'
+
+  pull_request:
+    branches:
+      - '**'
+
+    tags-ignore:
+      - '**'
+
+jobs:
+  # Run pre-commit Checks
+  pre-commit:
+    name: Pre Commit Checks
+    runs-on: ubuntu-latest
+
+    steps:
+      # Checkout the repository
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Set up Python
+#      - name: Set up Python
+#        uses: actions/setup-python@v5
+#        with:
+#          python-version-file: 'pyproject.toml' # Read the Python version from the pyproject.toml file
+
+      # Set up Node.js
+#      - name: Setup Node.js
+#        uses: actions/setup-node@v4
+#        with:
+#          # https://endoflife.date/nodejs
+#          node-version: ${{ env.NODE_VERSION }}
+#          cache: 'npm'
+#          cache-dependency-path: 'package-lock.json'
+#      - run: npm install
+
+      - name: Run Pre Commit Checks
+        uses: pre-commit/action@v3.0.1
+
+  # Run Test Coverage
+  test-coverage:
+    needs: [pre-commit]
+    name: AA Latest (Python ${{ matrix.python-version }} with ${{ matrix.database }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      # Set Python versions to test against
+      matrix:
+        python-version:
+          # https://endoflife.date/python
+          - '3.10'  # [EOL] End of Life: 31 Oct 2026
+          - '3.11'  # [EOL] End of Life: 31 Dec 2027
+          - '3.12'  # [EOL] End of Life: 31 Dec 2028
+#        # MySQL versions to test against
+#        database:
+#          # https://endoflife.date/mysql
+#          - mysql:8.0     # [LTS] Maintained until: 30 Apr 2026
+#          - mysql:8.4     # [LTS] Maintained until: 30 Apr 2032
+#          # https://endoflife.date/mariadb and https://mariadb.com/kb/en/mariadb-server-release-dates/
+#          - mariadb:10.5  # [LTS] Maintained until: 24 Jun 2025
+#          - mariadb:10.6  # [LTS] Maintained until: 06 Jul 2026
+#          - mariadb:10.11 # [LTS] Maintained until: 16 Feb 2028
+#          - mariadb:11.4  # [LTS] Maintained until: 29 May 2029
+#
+##    continue-on-error: ${{ matrix.python-version == '3.12' }}
+#
+#    # Set up services
+#    services:
+#      database:
+#        image: ${{ matrix.database }}
+#        env:
+#          MYSQL_ROOT_PASSWORD: temp_password_aa_tox_tests
+#          MYSQL_DATABASE: tox_allianceauth
+#        ports:
+#          - 3306:3306
+#        options: --tmpfs /var/lib/mysql
+
+    steps:
+      # Checkout the repository
+      - name: Checkout
+        uses: actions/checkout@v4
+
+        # Install redis
+      - name: Install redis
+        uses: shogo82148/actions-setup-redis@v1
+        with:
+          redis-version: ${{ env.REDIS_VERSION }}
+
+      # Verify that redis is up
+      - name: Verify that redis is up
+        run: redis-cli ping
+
+      # Set up Python
+      - name: Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # Install Tox and any other packages
+      - name: Install Tox and any other packages
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --upgrade tox tox-gh-actions
+
+      # Run Tox with the specified environment
+      - name: Run Tox
+#        env:
+#          TOX_ENV: allianceauth-latest
+#          DB_HOST: 127.0.0.1
+#          DB_USER: root
+#          DB_PASSWORD: temp_password_aa_tox_tests
+#        run: tox -v -e ${{ env.TOX_ENV }}
+        run: tox -v
+
+      # Upload coverage to Codecov
+#      - name: Upload Coverage
+#        if: ${{
+#              (
+#                github.event_name == 'pull_request'
+#                || (
+#                  github.event_name == 'push'
+#                  && github.ref == 'refs/heads/master'
+#                )
+#              )
+#              && (
+#                matrix.python-version == env.COVERAGE_PYTHON_VERSION
+#                && matrix.database == env.COVERAGE_DATABASE_VERSION
+#              )
+#            }}
+#        uses: codecov/codecov-action@v5
+#        with:
+##          token: ${{ secrets.CODECOV_TOKEN }}
+#          files: coverage.xml # optional
+##          flags: unittests # optional
+##          name: codecov-umbrella # optional
+##          fail_ci_if_error: true # optional (default = false)
+#          verbose: true # optional (default = false)
+#        env:
+#          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  # Run PyPi Build Test
+  pypi-build-test:
+    needs: [ test-coverage ]
+    name: PyPi Build Test
+    runs-on: ubuntu-latest
+
+    steps:
+      # Checkout the repository
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Set up Python
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: 'pyproject.toml' # Read the Python version from the pyproject.toml file
+
+      # Install Tools
+      - name: Install Tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --upgrade build
+          python -m pip install --upgrade setuptools wheel
+
+      # Build Package
+      - name: Package Build
+        env:
+          STACKMANAGER_VERSION: 9999
+        run: |
+          python -m build
+
+      # Upload Build Artifacts
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ github.event_name }}-${{ github.sha }}
+          path: dist
+          if-no-files-found: ignore

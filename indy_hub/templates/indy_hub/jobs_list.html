@@ -1,0 +1,225 @@
+{% extends "allianceauth/base-bs5.html" %}
+{% load i18n %}
+{% load evelinks %}
+{% load static %}
+{% load dict_get %}
+
+{% block page_title %}{% trans "Industry Jobs" %}{% endblock page_title %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'indy_hub/css/jobs.css' %}">
+{% endblock extra_css %}
+
+{% block content %}
+<div class="container-fluid my-4">
+  <div class="blueprint-header mb-4">
+    <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+      <div>
+        <h1 class="h2 mb-1">
+          <i class="fas fa-industry text-success me-2"></i>
+          {% trans "Industry Jobs" %}
+        </h1>
+        <p class="mb-0 opacity-75">{% trans "Track your industry jobs and progress in real time" %}</p>
+      </div>
+      <div class="d-flex gap-2">
+        <a href="{% url 'indy_hub:index' %}" class="btn btn-outline-light">
+          <i class="fas fa-arrow-left me-1"></i>{% trans "Back to Dashboard" %}
+        </a>
+        <button type="button" class="btn btn-success export-button" onclick="location.href='?refresh=1'">
+          <i class="fas fa-sync-alt me-1"></i>{% trans "Refresh Data" %}
+        </button>
+      </div>
+    </div>
+    <i class="fas fa-cogs header-bg"></i>
+  </div>
+
+  <!-- Filter Section -->
+  <div class="filter-section mb-4">
+    <form method="get">
+      <div class="row g-3 align-items-end">
+        <div class="col-lg-3">
+          <label class="form-label text-muted fw-bold">{% trans 'Search' %}</label>
+          <input type="text" name="search" value="{{ current_filters.search }}" class="form-control" id="jobSearch" placeholder="{% trans 'Job, blueprint, character...' %}">
+        </div>
+        <div class="col-lg-2">
+          <label class="form-label text-muted fw-bold">{% trans 'Status' %}</label>
+          <select name="status" class="form-select" id="statusFilter">
+            <option value="">{% trans 'All Status' %}</option>
+            {% for s in statuses %}
+              <option value="{{ s }}" {% if current_filters.status == s %}selected{% endif %}>{{ s|title }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-lg-2">
+          <label class="form-label text-muted fw-bold">{% trans 'Activity' %}</label>
+          <select name="activity" class="form-select" id="activityFilter">
+            <option value="">{% trans 'All Activities' %}</option>
+            {% for aid,name in activities %}
+              <option value="{{ aid }}" {% if current_filters.activity == aid %}selected{% endif %}>{{ name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-lg-3">
+          <label class="form-label text-muted fw-bold">{% trans 'Character' %}</label>
+          <select name="character" class="form-select" id="characterFilter">
+            <option value="">{% trans 'All Characters' %}</option>
+            {% for cid in character_ids %}
+              <option value="{{ cid }}" {% if current_filters.character|stringformat:'s' == cid|stringformat:'s' %}selected{% endif %}>
+                {% with name=character_map|dict_get:cid %}{{ name|default_if_none:cid }}{% endwith %}
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-lg-2 d-flex align-items-end">
+          <button type="submit" class="btn btn-primary w-100">
+            <i class="fas fa-filter me-1"></i>{% trans 'Apply Filters' %}
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <!-- Stats Summary -->
+  <div class="row g-3 mb-4">
+    <div class="col-md-3">
+      <div class="stats-card">
+        <div class="card-body text-center">
+          <div class="h3 text-info mb-1">{{ statistics.total|default:0 }}</div>
+          <small class="text-muted fw-bold">{% trans 'Total Jobs' %}</small>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="stats-card">
+        <div class="card-body text-center">
+          <div class="h3 text-warning mb-1">{{ statistics.active|default:0 }}</div>
+          <small class="text-muted fw-bold">{% trans 'Active Jobs' %}</small>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="stats-card">
+        <div class="card-body text-center">
+          <div class="h3 text-success mb-1">{{ statistics.completed|default:0 }}</div>
+          <small class="text-muted fw-bold">{% trans 'Completed' %}</small>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="stats-card">
+        <div class="card-body text-center">
+          <div class="h3 text-secondary mb-1">{{ character_ids|length }}</div>
+          <small class="text-muted fw-bold">{% trans 'Characters' %}</small>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Jobs Table (unchanged) -->
+  <div class="table-responsive" id="jobsContainer">
+    <table class="table table-striped align-middle mb-0">
+      <thead>
+        <tr>
+          <th class="align-middle">{% trans "Character" %}</th>
+          <th class="align-middle">{% trans "Activity" %}</th>
+          <th class="align-middle">{% trans "Blueprint Type" %}</th>
+          <th class="align-middle">{% trans "Status" %}</th>
+          <th class="align-middle">{% trans "Runs" %}</th>
+          <th class="align-middle">{% trans "Start Date" %}</th>
+          <th class="align-middle">{% trans "End Date" %}</th>
+          <th class="align-middle text-center" style="min-width:120px;">{% trans "Progress" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for job in jobs %}
+        <tr class="job-item">
+          <td class="align-middle text-break">{% with name=character_map|dict_get:job.character_id %}{{ name|default_if_none:job.character_id }}{% endwith %}</td>
+          <td class="align-middle">
+            {% if job.activity_id == 1 %}<span class="activity-badge activity-1">Mfg</span>
+            {% elif job.activity_id == 3 %}<span class="activity-badge activity-3">TE</span>
+            {% elif job.activity_id == 4 %}<span class="activity-badge activity-4">ME</span>
+            {% elif job.activity_id == 5 %}<span class="activity-badge activity-5">Copy</span>
+            {% elif job.activity_id == 8 %}<span class="activity-badge activity-8">Inv</span>
+            {% elif job.activity_id == 9 %}<span class="activity-badge activity-9">Rx</span>
+            {% else %}<span class="activity-badge">{{ job.activity_id }}</span>{% endif %}
+          </td>
+          <td class="align-middle">
+            <div class="d-flex align-items-center gap-2 flex-nowrap">
+              <img src="{{ job.icon_url }}" alt="{{ job.blueprint_type_name }}" class="me-1 flex-shrink-0" style="width: 32px; height: 32px; border-radius: 4px;object-fit:cover;" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline';" />
+              <i class="fas fa-industry text-muted" style="display: none;"></i>
+              <span class="text-break">{{ job.blueprint_type_name|default:job.blueprint_type_id }}</span>
+            </div>
+          </td>
+          <td class="align-middle"><span class="status-badge status-{{ job.status|lower }}">{{ job.status|title }}</span></td>
+          <td class="align-middle">{{ job.runs }}</td>
+          <td class="align-middle text-nowrap">{{ job.start_date|date:"Y-m-d H:i" }}</td>
+          <td class="align-middle text-nowrap">{{ job.display_end_date }}</td>
+          <td class="align-middle text-center" style="min-width:120px;max-width:220px;">
+            {% if job.start_date and job.end_date %}
+            <div class="job-progress-bar mx-auto" style="max-width:180px;">
+              <div class="job-progress-fill" data-start="{{ job.start_date|date:'U' }}" data-end="{{ job.end_date|date:'U' }}"></div>
+              <div class="job-progress-label d-flex justify-content-between align-items-center px-1" style="font-size:0.95em;">
+                <span class="job-progress-percent"></span>
+                <span class="job-progress-eta"></span>
+              </div>
+            </div>
+            {% else %}
+            <span class="text-muted small">—</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% empty %}
+        <tr>
+          <td colspan="8" class="text-center text-muted">{% trans "No industry jobs found." %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock content %}
+
+{% block extra_javascript %}
+<script src="{% static 'indy_hub/js/jobs.js' %}"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  document.querySelectorAll('img').forEach(function(img) {
+    img.onerror = function() {
+      this.style.display = 'none';
+      if (this.nextElementSibling) {
+        this.nextElementSibling.style.display = 'inline';
+      }
+    };
+  });
+  // Progress bar for jobs (live update)
+  function updateJobProgressBars() {
+    document.querySelectorAll('.job-progress-bar').forEach(function(bar) {
+      var fill = bar.querySelector('.job-progress-fill');
+      var percentLabel = bar.querySelector('.job-progress-percent');
+      var etaLabel = bar.querySelector('.job-progress-eta');
+      if (!fill) return;
+      var start = parseInt(fill.getAttribute('data-start'));
+      var end = parseInt(fill.getAttribute('data-end'));
+      var now = Math.floor(Date.now() / 1000);
+      if (end > start) {
+        var percent = Math.max(0, Math.min(100, ((now - start) / (end - start)) * 100));
+        fill.style.width = percent + '%';
+        if (percentLabel) percentLabel.textContent = Math.round(percent) + '%';
+        var secondsLeft = end - now;
+        if (secondsLeft < 0) secondsLeft = 0;
+        var h = Math.floor(secondsLeft / 3600);
+        var m = Math.floor((secondsLeft % 3600) / 60);
+        var s = secondsLeft % 60;
+        if (etaLabel) etaLabel.textContent = (h > 0 ? h+":" : "") + (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s;
+      } else {
+        fill.style.width = '0%';
+        if (percentLabel) percentLabel.textContent = '0%';
+        if (etaLabel) etaLabel.textContent = '--:--:--';
+      }
+    });
+  }
+  updateJobProgressBars();
+  setInterval(updateJobProgressBars, 1000);
+});
+</script>
+{% endblock extra_javascript %}
