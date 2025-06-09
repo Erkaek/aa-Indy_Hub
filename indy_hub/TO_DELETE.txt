@@ -1,9 +1,0 @@
-debug_views.py
-validate.py
-templates/indy_hub/blueprints_list_old.html
-templates/indy_hub/debug_progress.html
-templates/indy_hub/blueprints_list_modern.html
-templates/indy_hub/blueprints_list_optimized.html
-Makefile
-tox.ini
-pyproject.toml

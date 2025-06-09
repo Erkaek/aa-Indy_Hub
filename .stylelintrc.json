@@ -1,0 +1,18 @@
+{
+    "extends": ["stylelint-config-standard"],
+    "rules": {
+        "shorthand-property-no-redundant-values": null,
+        "color-function-notation": "modern",
+        "alpha-value-notation": "percentage",
+        "rule-empty-line-before": null,
+        "declaration-block-no-redundant-longhand-properties": null,
+        "declaration-block-no-duplicate-properties": null,
+        "declaration-property-value-keyword-no-deprecated": null,
+        "declaration-block-single-line-max-declarations": null,
+        "media-feature-range-notation": "prefix",
+        "no-descending-specificity": null,
+        "media-feature-name-value-no-unknown": null,
+        "no-duplicate-selectors": null,
+        "at-rule-empty-line-before": null
+    }
+}

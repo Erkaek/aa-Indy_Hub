@@ -8,7 +8,7 @@
 }
 
 .job-item:hover {
-    background-color: rgba(0, 123, 255, 0.05) !important;
+    background-color: rgb(0 123 255 / 5%) !important;
 }
 
 /* Statistics Cards */
@@ -17,7 +17,7 @@
     border: 1px solid #e9ecef;
     border-radius: 12px;
     padding: 1.5rem;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    box-shadow: 0 2px 4px rgb(0 0 0 / 5%);
     transition: all 0.3s ease;
     height: 100%;
     display: flex;
@@ -27,7 +27,7 @@
 
 .stats-card:hover {
     transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 4px 12px rgb(0 0 0 / 10%);
 }
 
 .stats-icon {
@@ -89,7 +89,7 @@
     background: #fff;
     border: 1px solid #e9ecef;
     border-radius: 12px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    box-shadow: 0 2px 4px rgb(0 0 0 / 5%);
 }
 
 .filter-controls .form-control,
@@ -102,7 +102,7 @@
 .filter-controls .form-control:focus,
 .filter-controls .form-select:focus {
     border-color: #007bff;
-    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.1);
+    box-shadow: 0 0 0 0.2rem rgb(0 123 255 / 10%);
 }
 
 /* Activity Badges */
@@ -283,11 +283,11 @@
 
 .pagination-controls button:hover:not(:disabled) {
     transform: translateY(-1px);
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 2px 4px rgb(0 0 0 / 10%);
 }
 
 .pagination-controls button:disabled {
-    opacity: 0.5;
+    opacity: 50%;
     cursor: not-allowed;
 }
 
@@ -303,7 +303,7 @@
 .export-button:hover {
     background: linear-gradient(135deg, #20c997, #28a745);
     transform: translateY(-1px);
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 2px 4px rgb(0 0 0 / 10%);
     color: white;
 }
 
@@ -326,7 +326,7 @@
 }
 
 .table-striped tbody tr:nth-of-type(odd) {
-    background-color: rgba(0, 123, 255, 0.02);
+    background-color: rgb(0 123 255 / 2%);
 }
 
 /* Responsive Design */
@@ -337,25 +337,25 @@
         text-align: center;
         gap: 0.5rem;
     }
-    
+
     .stats-icon {
         width: 40px;
         height: 40px;
         font-size: 1.25rem;
     }
-    
+
     .stats-number {
         font-size: 1.5rem;
     }
-    
+
     .filter-controls .row {
         gap: 0.5rem;
     }
-    
+
     .table-responsive {
         font-size: 0.875rem;
     }
-    
+
     .activity-badge,
     .status-badge {
         padding: 0.3rem 0.6rem;
@@ -444,7 +444,7 @@
 
 /* Loading States */
 .loading {
-    opacity: 0.6;
+    opacity: 60%;
     pointer-events: none;
 }
 
@@ -481,10 +481,10 @@
     .stats-card {
         border: 2px solid #000;
     }
-    
+
     .activity-badge,
     .status-badge {
-        border: 1px solid rgba(255, 255, 255, 0.3);
+        border: 1px solid rgb(255 255 255 / 30%);
     }
 }
 
@@ -496,7 +496,7 @@
     .pagination-controls button {
         transition: none;
     }
-    
+
     .stats-card:hover,
     .export-button:hover,
     .pagination-controls button:hover {
@@ -511,17 +511,17 @@
     .export-button {
         display: none !important;
     }
-    
+
     .stats-card {
         break-inside: avoid;
         box-shadow: none;
         border: 1px solid #000;
     }
-    
+
     .table {
         font-size: 0.75rem;
     }
-    
+
     .activity-badge,
     .status-badge {
         background: #f8f9fa !important;

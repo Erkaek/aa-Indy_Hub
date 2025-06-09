@@ -1,217 +1,217 @@
 /* Blueprint header */
 .blueprint-header {
-  background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-  border-radius: 18px;
-  color: #fff;
-  padding: 2.5rem 2rem 2rem 2rem;
-  margin-bottom: 2.5rem;
-  box-shadow: 0 0.5rem 2rem rgba(102,126,234,0.10);
-  position: relative;
-  overflow: hidden;
+    background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+    border-radius: 18px;
+    color: #fff;
+    padding: 2.5rem 2rem 2rem 2rem;
+    margin-bottom: 2.5rem;
+    box-shadow: 0 0.5rem 2rem rgb(0 0 0 / 10%);
+    position: relative;
+    overflow: hidden;
 }
 .blueprint-header .fa-scroll {
-  font-size: 2.5rem;
-  opacity: 0.85;
+    font-size: 2.5rem;
+    opacity: 85%;
 }
 .blueprint-header .header-bg {
-  position: absolute;
-  right: 0; bottom: 0; width: 180px; opacity: 0.15;
-  pointer-events: none;
+    position: absolute;
+    right: 0; bottom: 0; width: 180px; opacity: 15%;
+    pointer-events: none;
 }
 
 /* Blueprint list group */
 .blueprint-list-group {
-  width: 100%;
-  margin: 0;
-  background: #fff;
-  border-radius: 16px;
-  box-shadow: 0 0.25rem 1.5rem rgba(118,75,162,0.10);
-  overflow: hidden;
+    width: 100%;
+    margin: 0;
+    background: #fff;
+    border-radius: 16px;
+    box-shadow: 0 0.25rem 1.5rem rgb(118 75 162 / 10%);
+    overflow: hidden;
 }
 
 /* Blueprint list item */
 .blueprint-list-item {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding-top: 0.05rem;
-  padding-bottom: 0.05rem;
-  padding-left: 1.5rem;
-  padding-right: 1.5rem;
-  border-bottom: 1px solid #e0e7ff;
-  transition: background 0.15s;
-  position: relative;
-  min-height: 28px;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding-top: 0.05rem;
+    padding-bottom: 0.05rem;
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+    border-bottom: 1px solid #e0e7ff;
+    transition: background 0.15s;
+    position: relative;
+    min-height: 28px;
 }
 .blueprint-list-item:last-child {
-  border-bottom: none;
+    border-bottom: none;
 }
 .blueprint-list-item:hover {
-  background: #f5f7fa;
+    background: #f5f7fa;
 }
 
 /* Blueprint icon */
 .blueprint-icon {
-  width: 64px;
-  height: 64px;
-  border-radius: 12px;
-  background: #f3f4f6;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+    width: 64px;
+    height: 64px;
+    border-radius: 12px;
+    background: #f3f4f6;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 .blueprint-icon img {
-  width: 64px;
-  height: 64px;
-  max-width: 64px;
-  max-height: 64px;
-  border-radius: 12px;
+    width: 64px;
+    height: 64px;
+    max-width: 64px;
+    max-height: 64px;
+    border-radius: 12px;
 }
 .blueprint-icon .fallback {
-  position: absolute;
-  left: 0; top: 0; width: 100%; height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #bbb;
-  font-size: 2rem;
-  background: #e0e7ff;
-  border-radius: 12px;
-  z-index: 2;
-  display: none;
+    position: absolute;
+    left: 0; top: 0; width: 100%; height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #bbb;
+    font-size: 2rem;
+    background: #e0e7ff;
+    border-radius: 12px;
+    z-index: 2;
+    display: none;
 }
 
 /* Blueprint list content */
 .blueprint-list-content {
-  flex: 1 1 0%;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
+    flex: 1 1 0%;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
 }
 
 /* Blueprint title */
 .blueprint-title {
-  font-size: 1.15rem;
-  font-weight: 600;
-  color: #4f3ca7;
-  margin-bottom: 0.1rem;
-  word-break: break-word;
+    font-size: 1.15rem;
+    font-weight: 600;
+    color: #4f3ca7;
+    margin-bottom: 0.1rem;
+    word-break: break-word;
 }
 
 /* Blueprint meta */
 .blueprint-meta {
-  font-size: 1rem;
-  color: #6c757d;
-  margin-bottom: 0.1rem;
+    font-size: 1rem;
+    color: #6c757d;
+    margin-bottom: 0.1rem;
 }
 .character-tag, .location-tag {
-  background: #e0e7ff;
-  color: #4f3ca7;
-  border-radius: 8px;
-  padding: 0.15rem 0.6rem;
-  font-size: 0.85em;
-  margin-right: 0.2rem;
-  display: inline-block;
+    background: #e0e7ff;
+    color: #4f3ca7;
+    border-radius: 8px;
+    padding: 0.15rem 0.6rem;
+    font-size: 0.85em;
+    margin-right: 0.2rem;
+    display: inline-block;
 }
 
 /* Blueprint badges */
 .blueprint-badges {
-  display: flex;
-  gap: 0.4rem;
-  flex-wrap: wrap;
-  margin-bottom: 0.1rem;
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.1rem;
 }
 .type-badge {
-  border-radius: 8px;
-  padding: 0.18em 0.7em;
-  font-size: 0.95rem;
-  font-weight: 500;
-  color: #fff;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3em;
+    border-radius: 8px;
+    padding: 0.18em 0.7em;
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3em;
 }
 .type-badge.original { background: linear-gradient(90deg,#4f8cff,#6a82fb); }
 .type-badge.copy { background: linear-gradient(90deg,#43e97b,#38f9d7); color: #1b3a2b; }
 .type-badge.stack { background: linear-gradient(90deg,#f7971e,#ffd200); color: #5a4100; }
 .runs-badge {
-  background: #f3f4f6;
-  color: #764ba2;
-  border-radius: 8px;
-  padding: 0.15em 0.7em;
-  font-size: 0.95rem;
-  font-weight: 500;
-  margin-left: 0.2em;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3em;
+    background: #f3f4f6;
+    color: #764ba2;
+    border-radius: 8px;
+    padding: 0.15em 0.7em;
+    font-size: 0.95rem;
+    font-weight: 500;
+    margin-left: 0.2em;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3em;
 }
 
 /* Efficiency grid and items */
 .efficiency-grid {
-  display: flex;
-  gap: 0.6rem;
-  flex-wrap: wrap;
-  margin-bottom: 0.1rem;
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.1rem;
 }
 .efficiency-item {
-  min-width: 90px;
-  flex: 1 1 90px;
+    min-width: 90px;
+    flex: 1 1 90px;
 }
 .efficiency-value {
-  font-size: 1rem;
-  font-weight: 600;
-  margin-bottom: 0.1em;
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: 0.1em;
 }
 .efficiency-label {
-  font-size: 0.92em;
-  color: #6c757d;
-  margin-bottom: 0.1em;
+    font-size: 0.92em;
+    color: #6c757d;
+    margin-bottom: 0.1em;
 }
 .efficiency-bar {
-  background: #e0e7ff;
-  border-radius: 6px;
-  height: 8px;
-  width: 100%;
-  overflow: hidden;
-  margin-bottom: 0.1em;
+    background: #e0e7ff;
+    border-radius: 6px;
+    height: 8px;
+    width: 100%;
+    overflow: hidden;
+    margin-bottom: 0.1em;
 }
 .efficiency-fill {
-  height: 100%;
-  border-radius: 6px;
-  transition: width 1.1s cubic-bezier(.77,0,.18,1);
+    height: 100%;
+    border-radius: 6px;
+    transition: width 1.1s cubic-bezier(.77,0,.18,1);
 }
 .efficiency-fill.me { background: linear-gradient(90deg, #dc3545 0%, #ffc107 50%, #28a745 100%); }
 .efficiency-fill.te { background: linear-gradient(90deg, #6f42c1 0%, #007bff 50%, #20c997 100%); }
 
 /* Update time */
 .update-time {
-  font-size: 0.92em;
-  color: #a0aec0;
-  background: #f3f4f6;
-  border-radius: 8px;
-  padding: 0.18em 0.7em;
-  display: inline-block;
-  margin-top: 0.2em;
+    font-size: 0.92em;
+    color: #a0aec0;
+    background: #f3f4f6;
+    border-radius: 8px;
+    padding: 0.18em 0.7em;
+    display: inline-block;
+    margin-top: 0.2em;
 }
 
 /* Responsive */
 @media (max-width: 991px) {
-  .blueprint-list-group {
-    border-radius: 8px;
-  }
-  .blueprint-list-item {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.7rem;
-    padding: 1rem 0.7rem;
-  }
-  .blueprint-icon {
-    margin-bottom: 0.5rem;
-  }
+    .blueprint-list-group {
+        border-radius: 8px;
+    }
+    .blueprint-list-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.7rem;
+        padding: 1rem 0.7rem;
+    }
+    .blueprint-icon {
+        margin-bottom: 0.5rem;
+    }
 }
 
 body {
-  background: linear-gradient(135deg, #e0e7ff 0%, #f5f7fa 100%);
+    background: linear-gradient(135deg, #e0e7ff 0%, #f5f7fa 100%);
 }

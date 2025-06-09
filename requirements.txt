@@ -1,5 +1,2 @@
-# Requirements for indy_hub module
-# Les dépendances principales sont déjà incluses dans AllianceAuth
 
-# Dépendances additionnelles nécessaires uniquement si utilisées explicitement dans le code
 pytz>=2022.1

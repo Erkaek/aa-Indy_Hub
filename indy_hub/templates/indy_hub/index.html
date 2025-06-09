@@ -5,372 +5,371 @@
 
 {% block extra_css %}
 <style>
-  .dashboard-card {
-    transition: all 0.3s ease;
-    border: none;
-    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
-  }
-  .dashboard-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
-  }
-  .stat-icon {
-    width: 60px;
-    height: 60px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 12px;
-    font-size: 1.5rem;
-  }
-  .feature-card {
-    height: 100%;
-    transition: all 0.3s ease;
-  }
-  .feature-card:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 0.75rem 1.5rem rgba(0, 0, 0, 0.12);
-  }
-  .hero-section {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    border-radius: 15px;
-    color: white;
-    padding: 3rem 2rem;
-    margin-bottom: 2rem;
-  }
-  .quick-stats {
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 10px;
-    padding: 1.5rem;
-    backdrop-filter: blur(10px);
-  }
+    .dashboard-card {
+        transition: all 0.3s ease;
+        border: none;
+        box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+    }
+
+    .dashboard-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+    }
+
+    .stat-icon {
+        width: 60px;
+        height: 60px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 12px;
+        font-size: 1.5rem;
+    }
+
+    .feature-card {
+        height: 100%;
+        transition: all 0.3s ease;
+    }
+
+    .feature-card:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 0.75rem 1.5rem rgba(0, 0, 0, 0.12);
+    }
+
+    .hero-section {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 15px;
+        color: white;
+        padding: 3rem 2rem;
+        margin-bottom: 2rem;
+    }
+
+    .quick-stats {
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 10px;
+        padding: 1.5rem;
+        backdrop-filter: blur(10px);
+    }
 </style>
 {% endblock extra_css %}
 
 {% block content %}
 <div class="container-fluid my-4">
-  <!-- Token Status Alert -->
-  {% if not has_blueprint_tokens or not has_jobs_tokens %}
-    <div class="alert alert-warning alert-dismissible fade show" role="alert">
-      <h5 class="alert-heading">
-        <i class="fas fa-key me-2"></i>
-        {% trans "ESI Authorization Required" %}
-      </h5>
-      <p class="mb-3">
-        {% trans "To access your EVE Online data, you need to authorize ESI access for:" %}
-      </p>
-      <ul class="mb-3">
-        {% if not has_blueprint_tokens %}
-          <li>{% trans "Blueprint data access" %}</li>
-        {% endif %}
-        {% if not has_jobs_tokens %}
-          <li>{% trans "Industry jobs data access" %}</li>
-        {% endif %}
-      </ul>
-      <a href="{% url 'indy_hub:token_management' %}" class="btn btn-warning">
-        <i class="fas fa-cog me-2"></i>
-        {% trans "Manage ESI Tokens" %}
-      </a>
-      <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-    </div>
-  {% endif %}
-
-  <!-- Hero Section -->
-  <div class="hero-section">
-    <div class="row align-items-center">
-      <div class="col-lg-8">
-        <h1 class="display-5 fw-bold mb-3">
-          <i class="fas fa-industry me-3"></i>
-          {% trans "Welcome to Indy Hub" %}
-        </h1>
-        <p class="lead mb-4">
-          {% trans "Your comprehensive EVE Online industrial management dashboard. Track blueprints, monitor jobs, and optimize your manufacturing operations." %}
-        </p>
-        {% if not has_blueprint_tokens or not has_jobs_tokens %}
-        <div class="alert alert-warning bg-white bg-opacity-10 border-0 text-white">
-          <i class="fas fa-exclamation-triangle me-2"></i>
-          {% trans "Complete your ESI setup to unlock all features" %}
-        </div>
-        {% endif %}
-      </div>
-      <div class="col-lg-4">
-        <div class="quick-stats">
-          <h5 class="mb-3">{% trans "Quick Stats" %}</h5>
-          <div class="row g-3">
-            <div class="col-6">
-              <div class="text-center">
-                <div class="h4 mb-1">{{ blueprint_count|default:0 }}</div>
-                <small>{% trans "Blueprints" %}</small>
-              </div>
-            </div>
-            <div class="col-6">
-              <div class="text-center">
-                <div class="h4 mb-1">{{ active_jobs_count|default:0 }}</div>
-                <small>{% trans "Active Jobs" %}</small>
-              </div>
-            </div>
-            <div class="col-6">
-              <div class="text-center">
-                <div class="h4 mb-1">{{ blueprint_token_count|default:0 }}</div>
-                <small>{% trans "Characters" %}</small>
-              </div>
-            </div>
-            <div class="col-6">
-              <div class="text-center">
-                <div class="h4 mb-1">{{ completed_jobs_today|default:0 }}</div>
-                <small>{% trans "Completed" %}</small>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Main Dashboard Cards -->
-  <div class="row g-4 mb-5">
-    <!-- Blueprints Card -->
-    <div class="col-lg-6">
-      <div class="card dashboard-card h-100">
-        <div class="card-body p-4">
-          <div class="d-flex align-items-center mb-3">
-            <div class="stat-icon bg-primary bg-opacity-10 text-primary me-3">
-              <i class="fas fa-scroll"></i>
-            </div>
-            <div>
-              <h5 class="card-title mb-1">{% trans "Blueprint Library" %}</h5>
-              <p class="text-muted small mb-0">{% trans "Manage your blueprints and research" %}</p>
-            </div>
-          </div>
-          
-          {% if has_blueprint_tokens %}
-            <div class="row g-3 mb-4">
-              <div class="col-4">
-                <div class="text-center">
-                  <div class="h4 text-success mb-1">{{ original_blueprints|default:0 }}</div>
-                  <small class="text-muted">{% trans "Originals" %}</small>
+    <div id="indy-hub-popup" class="alert alert-info d-none position-fixed top-0 start-50 translate-middle-x mt-3" style="z-index: 2000; min-width: 300px; max-width: 90vw; text-align: center;"></div>
+    <!-- Hero Section -->
+    <div class="hero-section">
+        <div class="row align-items-center">
+            <div class="col-lg-8">
+                <h1 class="display-5 fw-bold mb-3">
+                    <i class="fas fa-industry me-3"></i>
+                    {% trans "Welcome to Indy Hub" %}
+                </h1>
+                <p class="lead mb-4">
+                    {% trans "Your comprehensive EVE Online industrial management dashboard. Track blueprints, monitor jobs, and optimize your manufacturing operations." %}
+                </p>
+                {% if not has_blueprint_tokens or not has_jobs_tokens %}
+                <div class="alert alert-warning bg-white bg-opacity-10 border-0 text-white">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    {% trans "Complete your ESI setup to unlock all features" %}
                 </div>
-              </div>
-              <div class="col-4">
-                <div class="text-center">
-                  <div class="h4 text-info mb-1">{{ copy_blueprints|default:0 }}</div>
-                  <small class="text-muted">{% trans "Copies" %}</small>
+                {% endif %}
+            </div>
+            <div class="col-lg-4">
+                <div class="quick-stats">
+                    <h5 class="mb-3">{% trans "Quick Stats" %}</h5>
+                    <div class="row g-3">
+                        <div class="col-6">
+                            <div class="text-center">
+                                <div class="h4 mb-1">{{ blueprint_count|default:0 }}</div>
+                                <small>{% trans "Blueprints" %}</small>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="text-center">
+                                <div class="h4 mb-1">{{ active_jobs_count|default:0 }}</div>
+                                <small>{% trans "Active Jobs" %}</small>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="text-center">
+                                <div class="h4 mb-1">{{ blueprint_token_count|default:0 }}</div>
+                                <small>{% trans "Characters" %}</small>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="text-center">
+                                <div class="h4 mb-1">{{ completed_jobs_count|default:0 }}</div>
+                                <small>{% trans "Completed" %}</small>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-              </div>
-              <div class="col-4">
-                <div class="text-center">
-                  <div class="h4 text-warning mb-1">{{ stack_blueprints|default:0 }}</div>
-                  <small class="text-muted">{% trans "Stacks" %}</small>
-                </div>
-              </div>
             </div>
-            
-            <div class="d-grid gap-2">
-              <a href="{% url 'indy_hub:blueprints_list' %}" class="btn btn-primary">
-                <i class="fas fa-list me-2"></i>{% trans "View All Blueprints" %}
-              </a>
-              <a href="{% url 'indy_hub:token_management' %}" class="btn btn-outline-primary btn-sm">
-                <i class="fas fa-plus me-2"></i>{% trans "Add Characters" %}
-              </a>
-            </div>
-          {% else %}
-            <div class="text-center py-4">
-              <i class="fas fa-exclamation-triangle text-warning fa-3x mb-3"></i>
-              <h6 class="text-muted mb-3">{% trans "Blueprint access not configured" %}</h6>
-              <a href="{% url 'indy_hub:token_management' %}" class="btn btn-warning">
-                <i class="fas fa-key me-2"></i>{% trans "Setup Access" %}
-              </a>
-            </div>
-          {% endif %}
         </div>
-      </div>
     </div>
 
-    <!-- Industry Jobs Card -->
-    <div class="col-lg-6">
-      <div class="card dashboard-card h-100">
-        <div class="card-body p-4">
-          <div class="d-flex align-items-center mb-3">
-            <div class="stat-icon bg-success bg-opacity-10 text-success me-3">
-              <i class="fas fa-industry"></i>
-            </div>
-            <div>
-              <h5 class="card-title mb-1">{% trans "Industry Jobs" %}</h5>
-              <p class="text-muted small mb-0">{% trans "Monitor manufacturing and research" %}</p>
-            </div>
-          </div>
-          
-          {% if has_jobs_tokens %}
-            <div class="row g-3 mb-4">
-              <div class="col-4">
-                <div class="text-center">
-                  <div class="h4 text-warning mb-1">{{ active_jobs_count|default:0 }}</div>
-                  <small class="text-muted">{% trans "Active" %}</small>
+    <!-- Main Dashboard Cards -->
+    <div class="row g-4 mb-5">
+        <!-- Blueprints Card -->
+        <div class="col-lg-6 col-md-6">
+            <div class="card dashboard-card h-100">
+                <div class="card-body p-4">
+                    <div class="d-flex align-items-center mb-3">
+                        <div class="stat-icon bg-primary bg-opacity-10 text-primary me-3">
+                            <i class="fas fa-scroll"></i>
+                        </div>
+                        <div>
+                            <h5 class="card-title mb-1">{% trans "Blueprint Library" %}</h5>
+                            <p class="text-muted small mb-0">{% trans "Manage your blueprints and research" %}</p>
+                        </div>
+                    </div>
+                    {% if has_blueprint_tokens %}
+                    <div class="row g-3 mb-4">
+                        <div class="col-4">
+                            <div class="text-center">
+                                <div class="h4 text-success mb-1">{{ original_blueprints|default:0 }}</div>
+                                <small class="text-muted">{% trans "Originals" %}</small>
+                            </div>
+                        </div>
+                        <div class="col-4">
+                            <div class="text-center">
+                                <div class="h4 text-info mb-1">{{ copy_blueprints|default:0 }}</div>
+                                <small class="text-muted">{% trans "Copies" %}</small>
+                            </div>
+                        </div>
+                        <div class="col-4">
+                            <div class="text-center">
+                                <div class="h4 text-warning mb-1">{{ stack_blueprints|default:0 }}</div>
+                                <small class="text-muted">{% trans "Stacks" %}</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="d-grid gap-2">
+                        <a href="{% url 'indy_hub:personnal_bp_list' %}" class="btn btn-primary">
+                            <i class="fas fa-list me-2"></i>{% trans "View My Blueprints" %}
+                        </a>
+                    </div>
+                    {% else %}
+                    <div class="text-center py-4">
+                        <i class="fas fa-exclamation-triangle text-warning fa-3x mb-3"></i>
+                        <h6 class="text-muted mb-3">{% trans "Blueprint access not configured" %}</h6>
+                        <a href="{% url 'indy_hub:token_management' %}" class="btn btn-warning">
+                            <i class="fas fa-key me-2"></i>{% trans "Setup Access" %}
+                        </a>
+                    </div>
+                    {% endif %}
                 </div>
-              </div>
-              <div class="col-4">
-                <div class="text-center">
-                  <div class="h4 text-success mb-1">{{ completed_jobs_today|default:0 }}</div>
-                  <small class="text-muted">{% trans "Completed" %}</small>
-                </div>
-              </div>
-              <div class="col-4">
-                <div class="text-center">
-                  <div class="h4 text-primary mb-1">{{ jobs_token_count }}</div>
-                  <small class="text-muted">{% trans "Characters" %}</small>
-                </div>
-              </div>
             </div>
-            
-            <div class="d-grid gap-2">
-              <a href="{% url 'indy_hub:jobs_list' %}" class="btn btn-success">
-                <i class="fas fa-list me-2"></i>{% trans "View All Jobs" %}
-              </a>
-              <a href="{% url 'indy_hub:token_management' %}" class="btn btn-outline-success btn-sm">
-                <i class="fas fa-plus me-2"></i>{% trans "Add Characters" %}
-              </a>
-            </div>
-          {% else %}
-            <div class="text-center py-4">
-              <i class="fas fa-exclamation-triangle text-warning fa-3x mb-3"></i>
-              <h6 class="text-muted mb-3">{% trans "Industry jobs access not configured" %}</h6>
-              <a href="{% url 'indy_hub:token_management' %}" class="btn btn-warning">
-                <i class="fas fa-key me-2"></i>{% trans "Setup Access" %}
-              </a>
-            </div>
-          {% endif %}
         </div>
-      </div>
-    </div>
-  </div>
 
-  <!-- Features Section -->
-  <div class="row mb-5">
-    <div class="col-12">
-      <h3 class="text-center mb-4">
-        <i class="fas fa-star text-primary me-2"></i>
-        {% trans "Key Features" %}
-      </h3>
-      <div class="row g-4">
-        <div class="col-md-4">
-          <div class="card feature-card border-0 text-center">
-            <div class="card-body">
-              <div class="stat-icon bg-primary bg-opacity-10 text-primary mx-auto mb-3">
-                <i class="fas fa-sync"></i>
-              </div>
-              <h5>{% trans "Real-time Sync" %}</h5>
-              <p class="text-muted">{% trans "Automatically synchronize your blueprint and job data from EVE Online using the official ESI API." %}</p>
-            </div>
-          </div>
-        </div>
-        <div class="col-md-4">
-          <div class="card feature-card border-0 text-center">
-            <div class="card-body">
-              <div class="stat-icon bg-success bg-opacity-10 text-success mx-auto mb-3">
-                <i class="fas fa-chart-line"></i>
-              </div>
-              <h5>{% trans "Analytics" %}</h5>
-              <p class="text-muted">{% trans "Track your industrial efficiency, research progress, and manufacturing performance over time." %}</p>
-            </div>
-          </div>
-        </div>
-        <div class="col-md-4">
-          <div class="card feature-card border-0 text-center">
-            <div class="card-body">
-              <div class="stat-icon bg-info bg-opacity-10 text-info mx-auto mb-3">
-                <i class="fas fa-users"></i>
-              </div>
-              <h5>{% trans "Multi-Character" %}</h5>
-              <p class="text-muted">{% trans "Manage blueprints and jobs across multiple characters in your Alliance Auth account." %}</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
+        <!-- Industry Jobs Card -->
+        <div class="col-lg-6 col-md-6">
+            <div class="card dashboard-card h-100">
+                <div class="card-body p-4">
+                    <div class="d-flex align-items-center mb-3">
+                        <div class="stat-icon bg-success bg-opacity-10 text-success me-3">
+                            <i class="fas fa-industry"></i>
+                        </div>
+                        <div>
+                            <h5 class="card-title mb-1">{% trans "Industry Jobs" %}</h5>
+                            <p class="text-muted small mb-0">{% trans "Monitor manufacturing and research" %}</p>
+                        </div>
+                    </div>
 
-  <!-- Quick Actions -->
-  <div class="row">
-    <div class="col-12">
-      <div class="card border-0 shadow-sm">
-        <div class="card-header bg-light border-0">
-          <h5 class="card-title mb-0">
-            <i class="fas fa-bolt text-warning me-2"></i>
-            {% trans "Quick Actions" %}
-          </h5>
+                    {% if has_jobs_tokens %}
+                    <div class="row g-3 mb-4">
+                        <div class="col-4">
+                            <div class="text-center">
+                                <div class="h4 text-warning mb-1">{{ active_jobs_count|default:0 }}</div>
+                                <small class="text-muted">{% trans "Active" %}</small>
+                            </div>
+                        </div>
+                        <div class="col-4">
+                            <div class="text-center">
+                                <div class="h4 text-success mb-1">{{ completed_jobs_count|default:0 }}</div>
+                                <small class="text-muted">{% trans "Completed" %}</small>
+                            </div>
+                        </div>
+                        <div class="col-4">
+                            <div class="text-center">
+                                <div class="h4 text-primary mb-1">{{ jobs_token_count }}</div>
+                                <small class="text-muted">{% trans "Characters" %}</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="d-grid gap-2 mb-3">
+                        <a href="{% url 'indy_hub:personnal_job_list' %}" class="btn btn-success">
+                            <i class="fas fa-list me-2"></i>{% trans "View All Jobs" %}
+                        </a>
+                    </div>
+                    <div class="mb-3 d-flex gap-2">
+                        <button id="toggle-job-notify" class="btn {% if jobs_notify_completed %}btn-success{% else %}btn-outline-secondary{% endif %} flex-fill" type="button" data-enabled="{{ jobs_notify_completed|yesno:'true,false' }}">
+                            <i class="fas fa-bell me-1"></i>
+                            <span id="notify-label">{% if jobs_notify_completed %}{% trans "Notifications ON" %}{% else %}{% trans "Notifications OFF" %}{% endif %}</span>
+                        </button>
+                    </div>
+                    <script>
+                    document.addEventListener('DOMContentLoaded', function() {
+                        var notifyBtn = document.getElementById('toggle-job-notify');
+                        if (notifyBtn) {
+                            notifyBtn.addEventListener('click', function() {
+                                fetch("{% url 'indy_hub:toggle_job_notifications' %}", {
+                                    method: 'POST',
+                                    headers: {
+                                        'X-CSRFToken': '{{ csrf_token }}',
+                                        'Accept': 'application/json',
+                                    },
+                                })
+                                .then(r => r.json())
+                                .then(data => {
+                                    notifyBtn.dataset.enabled = data.enabled ? 'true' : 'false';
+                                    notifyBtn.className = 'btn flex-fill ' + (data.enabled ? 'btn-success' : 'btn-outline-secondary');
+                                    document.getElementById('notify-label').textContent = data.enabled ? "{{ _('Notifications ON') }}" : "{{ _('Notifications OFF') }}";
+                                    showIndyHubPopup(data.enabled ? "Notifications de jobs activées." : "Notifications de jobs désactivées.", data.enabled ? 'success' : 'secondary');
+                                });
+                            });
+                        }
+                    });
+                    </script>
+                    {% else %}
+                    <div class="text-center py-4">
+                        <i class="fas fa-exclamation-triangle text-warning fa-3x mb-3"></i>
+                        <h6 class="text-muted mb-3">{% trans "Industry jobs access not configured" %}</h6>
+                        <a href="{% url 'indy_hub:token_management' %}" class="btn btn-warning">
+                            <i class="fas fa-key me-2"></i>{% trans "Setup Access" %}
+                        </a>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
         </div>
-        <div class="card-body">
-          <div class="row g-3">
-            <div class="col-md-3">
-              <a href="{% url 'indy_hub:token_management' %}" class="btn btn-outline-primary w-100">
-                <i class="fas fa-key me-2"></i>
-                {% trans "Manage Tokens" %}
-              </a>
+
+        <!-- All EVE Blueprints Card -->
+        <div class="col-lg-6 col-md-6">
+            <div class="card dashboard-card h-100">
+                <div class="card-body p-4">
+                    <div class="d-flex align-items-center mb-3">
+                        <div class="stat-icon bg-info bg-opacity-10 text-info me-3">
+                            <i class="fas fa-database"></i>
+                        </div>
+                        <div>
+                            <h5 class="card-title mb-1">{% trans "All EVE Blueprints" %}</h5>
+                            <p class="text-muted small mb-0">{% trans "Browse the full reference of all blueprints in EVE Online." %}</p>
+                        </div>
+                    </div>
+                    <div class="d-grid gap-2">
+                        <a href="{% url 'indy_hub:all_bp_list' %}" class="btn btn-outline-info">
+                            <i class="fas fa-list me-2"></i>{% trans "View All EVE Blueprints" %}
+                        </a>
+                    </div>
+                </div>
             </div>
-            <div class="col-md-3">
-              {% if has_blueprint_tokens %}
-                <a href="{% url 'indy_hub:blueprints_list' %}" class="btn btn-outline-secondary w-100">
-                  <i class="fas fa-scroll me-2"></i>
-                  {% trans "Browse Blueprints" %}
-                </a>
-              {% else %}
-                <button class="btn btn-outline-secondary w-100" disabled>
-                  <i class="fas fa-scroll me-2"></i>
-                  {% trans "Browse Blueprints" %}
-                </button>
-              {% endif %}
-            </div>
-            <div class="col-md-3">
-              {% if has_jobs_tokens %}
-                <a href="{% url 'indy_hub:jobs_list' %}" class="btn btn-outline-secondary w-100">
-                  <i class="fas fa-industry me-2"></i>
-                  {% trans "View Active Jobs" %}
-                </a>
-              {% else %}
-                <button class="btn btn-outline-secondary w-100" disabled>
-                  <i class="fas fa-industry me-2"></i>
-                  {% trans "View Active Jobs" %}
-                </button>
-              {% endif %}
-            </div>
-            <div class="col-md-3">
-              <button type="button" class="btn btn-outline-info w-100" onclick="refreshAllData()">
-                <i class="fas fa-sync-alt me-2"></i>
-                {% trans "Refresh Data" %}
-              </button>
-            </div>
-          </div>
         </div>
-      </div>
+
+        <!-- Blueprint Copy Sharing Card -->
+        <div class="col-lg-6 col-md-6">
+            <div class="card dashboard-card h-100">
+                <div class="card-body p-4">
+                    <div class="d-flex align-items-center mb-3">
+                        <div class="stat-icon bg-warning bg-opacity-10 text-warning me-3">
+                            <i class="fas fa-copy"></i>
+                        </div>
+                        <div>
+                            <h5 class="card-title mb-1">{% trans "Blueprint Copy Sharing" %}</h5>
+                            <p class="text-muted small mb-0">{% trans "Request copies from the community or share your own originals." %}</p>
+                        </div>
+                    </div>
+                    <div class="mb-3 d-flex gap-2">
+                        <button id="toggle-copy-sharing" class="btn {% if allow_copy_requests %}btn-success{% else %}btn-outline-secondary{% endif %} flex-fill" data-enabled="{{ allow_copy_requests|yesno:'true,false' }}">
+                            <i class="fas fa-share-alt me-1"></i>
+                            <span id="copy-sharing-label">{% if allow_copy_requests %}{% trans "Sharing ON" %}{% else %}{% trans "Sharing OFF" %}{% endif %}</span>
+                        </button>
+                    </div>
+                    <div class="d-grid gap-2">
+                        <a href="{% url 'indy_hub:bp_copy_request_page' %}" class="btn btn-warning">
+                            <i class="fas fa-copy me-2"></i>{% trans "Request a Copy" %}
+                        </a>
+                        <a href="{% url 'indy_hub:bp_copy_fulfill_requests' %}" class="btn btn-outline-success">
+                            <i class="fas fa-handshake me-2"></i>{% trans "Fulfill Requests" %}
+                        </a>
+                        <a href="{% url 'indy_hub:bp_copy_my_requests' %}" class="btn btn-outline-primary">
+                            <i class="fas fa-list me-2"></i>{% trans "My Requests" %}
+                        </a>
+                    </div>
+                    <script>
+                    function showIndyHubPopup(message, type) {
+                        var popup = document.getElementById('indy-hub-popup');
+                        popup.className = 'alert alert-' + (type || 'info') + ' position-fixed top-0 start-50 translate-middle-x mt-3';
+                        popup.textContent = message;
+                        popup.classList.remove('d-none');
+                        setTimeout(function() { popup.classList.add('d-none'); }, 2500);
+                    }
+                    document.addEventListener('DOMContentLoaded', function() {
+                        var shareBtn = document.getElementById('toggle-copy-sharing');
+                        if (shareBtn) {
+                            shareBtn.addEventListener('click', function() {
+                                fetch("{% url 'indy_hub:toggle_copy_sharing' %}", {
+                                    method: 'POST',
+                                    headers: {
+                                        'X-CSRFToken': '{{ csrf_token }}',
+                                        'Accept': 'application/json',
+                                    },
+                                })
+                                .then(r => r.json())
+                                .then(data => {
+                                    shareBtn.dataset.enabled = data.enabled ? 'true' : 'false';
+                                    shareBtn.className = 'btn flex-fill ' + (data.enabled ? 'btn-success' : 'btn-outline-secondary');
+                                    document.getElementById('copy-sharing-label').textContent = data.enabled ? "{{ _('Sharing ON') }}" : "{{ _('Sharing OFF') }}";
+                                    showIndyHubPopup(data.enabled ? "Le partage de blueprints est activé." : "Le partage de blueprints est désactivé.", data.enabled ? 'success' : 'secondary');
+                                });
+                            });
+                        }
+                    });
+                    </script>
+                </div>
+            </div>
+        </div>
     </div>
-  </div>
+    <!-- End Dashboard Cards -->
+
+    <!-- ESI Token Quick Status & Management Link -->
+    <div class="row mb-4">
+        <div class="col-lg-6 mx-auto">
+            <div class="card border-info shadow-sm">
+                <div class="card-body d-flex align-items-center justify-content-between">
+                    <div>
+                        <div class="fw-bold mb-1">
+                            <i class="fas fa-key text-info me-2"></i>{% trans "ESI Access" %}
+                        </div>
+                        <div class="small text-muted">
+                            {% if has_blueprint_tokens %}
+                                <span class="me-2"><i class="fas fa-scroll text-success me-1"></i>{{ blueprint_token_count }} {% trans "blueprint" %}</span>
+                            {% else %}
+                                <span class="me-2"><i class="fas fa-scroll text-danger me-1"></i>{% trans "No blueprint access" %}</span>
+                            {% endif %}
+                            |
+                            {% if has_jobs_tokens %}
+                                <span class="ms-2"><i class="fas fa-industry text-success me-1"></i>{{ jobs_token_count }} {% trans "jobs" %}</span>
+                            {% else %}
+                                <span class="ms-2"><i class="fas fa-industry text-danger me-1"></i>{% trans "No jobs access" %}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <a href="{% url 'indy_hub:token_management' %}" class="btn btn-outline-info ms-3">
+                        <i class="fas fa-cog me-1"></i>{% trans "Manage ESI" %}
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dashboard Footer -->
+    <footer class="mt-5 pt-4 border-top text-center text-muted small">
+        <div class="container">
+            <span>Indy Hub &copy; {{ year|default:2024 }} &mdash; Powered by Alliance Auth</span>
+            <span class="mx-2">|</span>
+            <a href="https://github.com/your-org/indy_hub" target="_blank" class="text-muted">GitHub</a>
+        </div>
+    </footer>
 </div>
-{% endblock content %}
-
-{% block extra_javascript %}
-<script>
-function refreshAllData() {
-    const button = event.target;
-    const originalContent = button.innerHTML;
-    
-    // Show loading state
-    button.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>{% trans "Refreshing..." %}';
-    button.disabled = true;
-    
-    // Simulate refresh (you can implement actual AJAX refresh here)
-    setTimeout(() => {
-        location.reload();
-    }, 1000);
-}
-
-document.addEventListener('DOMContentLoaded', function() {
-    // Add smooth animations for dashboard cards
-    const dashboardCards = document.querySelectorAll('.dashboard-card, .feature-card');
-    dashboardCards.forEach(card => {
-        card.addEventListener('mouseenter', function() {
-            this.style.transition = 'all 0.3s ease';
-        });
-    });
-});
-</script>
-{% endblock extra_javascript %}
+{% endblock %}

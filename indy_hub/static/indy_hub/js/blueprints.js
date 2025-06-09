@@ -17,17 +17,17 @@ class BlueprintManager {
             type: '',
             characterId: ''
         };
-        
+
         this.init();
     }
-    
+
     init() {
         this.loadBlueprints();
         this.bindEvents();
         this.setupIntersectionObserver();
         this.updateDisplay();
     }
-    
+
     loadBlueprints() {
         const blueprintElements = document.querySelectorAll('.blueprint-item');
         this.blueprints = Array.from(blueprintElements).map(el => ({
@@ -40,10 +40,10 @@ class BlueprintManager {
             characterId: el.dataset.characterId,
             quantity: parseInt(el.dataset.quantity || 1)
         }));
-        
+
         this.filteredBlueprints = [...this.blueprints];
     }
-    
+
     bindEvents() {
         // Search input with debouncing
         const searchInput = document.getElementById('blueprintSearch');
@@ -57,7 +57,7 @@ class BlueprintManager {
                 }, 300);
             });
         }
-        
+
         // Filter selects
         ['efficiencyFilter', 'typeFilter', 'characterFilter'].forEach(id => {
             const element = document.getElementById(id);
@@ -69,7 +69,7 @@ class BlueprintManager {
                 });
             }
         });
-        
+
         // Sort controls
         const sortControls = document.querySelectorAll('.sort-control');
         sortControls.forEach(control => {
@@ -85,7 +85,7 @@ class BlueprintManager {
                 this.updateSortIndicators();
             });
         });
-        
+
         // View mode toggles
         const viewToggles = document.querySelectorAll('.view-toggle button');
         viewToggles.forEach(toggle => {
@@ -94,7 +94,7 @@ class BlueprintManager {
                 this.updateViewMode();
             });
         });
-        
+
         // Page size selector
         const pageSizeSelect = document.getElementById('pageSize');
         if (pageSizeSelect) {
@@ -104,13 +104,13 @@ class BlueprintManager {
                 this.updateDisplay();
             });
         }
-        
+
         // Export button
         const exportBtn = document.getElementById('exportBtn');
         if (exportBtn) {
             exportBtn.addEventListener('click', () => this.exportData());
         }
-        
+
         // Bulk selection
         document.addEventListener('change', (e) => {
             if (e.target.classList.contains('blueprint-checkbox')) {
@@ -118,7 +118,7 @@ class BlueprintManager {
             }
         });
     }
-    
+
     setupIntersectionObserver() {
         this.observer = new IntersectionObserver((entries) => {
             entries.forEach(entry => {
@@ -132,7 +132,7 @@ class BlueprintManager {
             rootMargin: '50px'
         });
     }
-    
+
     applyFilters() {
         this.filteredBlueprints = this.blueprints.filter(bp => {
             // Search filter
@@ -142,7 +142,7 @@ class BlueprintManager {
                     return false;
                 }
             }
-            
+
             // Efficiency filter
             if (this.filters.efficiency) {
                 switch (this.filters.efficiency) {
@@ -157,7 +157,7 @@ class BlueprintManager {
                         break;
                 }
             }
-            
+
             // Type filter
             if (this.filters.type) {
                 switch (this.filters.type) {
@@ -169,24 +169,24 @@ class BlueprintManager {
                         break;
                 }
             }
-            
+
             // Character filter
             if (this.filters.character && bp.characterId !== this.filters.character) {
                 return false;
             }
-            
+
             return true;
         });
-        
+
         this.currentPage = 1;
         this.applySort();
         this.updateDisplay();
     }
-    
+
     applySort() {
         this.filteredBlueprints.sort((a, b) => {
             let aVal, bVal;
-            
+
             switch (this.sortBy) {
                 case 'type_name':
                     aVal = a.typeName;
@@ -211,34 +211,34 @@ class BlueprintManager {
                 default:
                     return 0;
             }
-            
+
             if (typeof aVal === 'string') {
-                return this.sortDirection === 'asc' 
+                return this.sortDirection === 'asc'
                     ? aVal.localeCompare(bVal)
                     : bVal.localeCompare(aVal);
             } else {
-                return this.sortDirection === 'asc' 
+                return this.sortDirection === 'asc'
                     ? aVal - bVal
                     : bVal - aVal;
             }
         });
     }
-    
+
     updateDisplay() {
         const container = document.getElementById('blueprintsContainer');
         if (!container) return;
-        
+
         // Calculate pagination
         const totalItems = this.filteredBlueprints.length;
         const totalPages = Math.ceil(totalItems / this.itemsPerPage);
         const startIndex = (this.currentPage - 1) * this.itemsPerPage;
         const endIndex = Math.min(startIndex + this.itemsPerPage, totalItems);
-        
+
         // Hide all blueprint items first
         this.blueprints.forEach(bp => {
             bp.element.style.display = 'none';
         });
-        
+
         // Show current page items
         for (let i = startIndex; i < endIndex; i++) {
             const bp = this.filteredBlueprints[i];
@@ -248,29 +248,29 @@ class BlueprintManager {
                 this.observer.observe(bp.element);
             }
         }
-        
+
         // Update pagination info
         this.updatePaginationInfo(startIndex + 1, endIndex, totalItems, totalPages);
         this.updatePaginationControls(totalPages);
         this.updateFilteredStatistics();
     }
-    
+
     updatePaginationInfo(start, end, total, totalPages) {
         const paginationInfo = document.getElementById('paginationInfo');
         if (paginationInfo) {
             paginationInfo.textContent = `Showing ${start}-${end} of ${total} blueprints`;
         }
-        
+
         const pageInfo = document.getElementById('pageInfo');
         if (pageInfo) {
             pageInfo.textContent = `Page ${this.currentPage} of ${totalPages}`;
         }
     }
-    
+
     updatePaginationControls(totalPages) {
         const prevBtn = document.getElementById('prevPage');
         const nextBtn = document.getElementById('nextPage');
-        
+
         if (prevBtn) {
             prevBtn.disabled = this.currentPage <= 1;
             prevBtn.onclick = () => {
@@ -280,7 +280,7 @@ class BlueprintManager {
                 }
             };
         }
-        
+
         if (nextBtn) {
             nextBtn.disabled = this.currentPage >= totalPages;
             nextBtn.onclick = () => {
@@ -291,15 +291,15 @@ class BlueprintManager {
             };
         }
     }
-    
+
     updateSortIndicators() {
         const sortControls = document.querySelectorAll('.sort-control');
         sortControls.forEach(control => {
             const icon = control.querySelector('i');
             if (control.dataset.sort === this.sortBy) {
                 control.classList.add('active');
-                icon.className = this.sortDirection === 'asc' 
-                    ? 'fas fa-sort-up' 
+                icon.className = this.sortDirection === 'asc'
+                    ? 'fas fa-sort-up'
                     : 'fas fa-sort-down';
             } else {
                 control.classList.remove('active');
@@ -307,22 +307,22 @@ class BlueprintManager {
             }
         });
     }
-    
+
     updateViewMode() {
         const container = document.getElementById('blueprintsContainer');
         const viewToggles = document.querySelectorAll('.view-toggle button');
-        
+
         viewToggles.forEach(toggle => {
             toggle.classList.toggle('active', toggle.dataset.view === this.currentView);
         });
-        
+
         if (container) {
-            container.className = this.currentView === 'list' 
-                ? 'list-group' 
+            container.className = this.currentView === 'list'
+                ? 'list-group'
                 : 'row blueprint-grid';
         }
     }
-    
+
     updateFilteredStatistics() {
         const stats = this.calculateStatistics(this.filteredBlueprints);
         const filteredStats = document.getElementById('filteredStats');
@@ -334,7 +334,7 @@ class BlueprintManager {
             `;
         }
     }
-    
+
     calculateStatistics(blueprints) {
         return {
             total: blueprints.length,
@@ -342,7 +342,7 @@ class BlueprintManager {
             copies: blueprints.filter(bp => bp.runs > 0).length
         };
     }
-    
+
     exportData() {
         const data = this.filteredBlueprints.map(bp => ({
             'Type ID': bp.typeId,
@@ -353,19 +353,19 @@ class BlueprintManager {
             'Quantity': bp.quantity,
             'Character ID': bp.characterId
         }));
-        
+
         this.downloadCSV(data, 'blueprints.csv');
     }
-    
+
     downloadCSV(data, filename) {
         if (data.length === 0) return;
-        
+
         const headers = Object.keys(data[0]);
         const csvContent = [
             headers.join(','),
             ...data.map(row => headers.map(header => `"${row[header]}"`).join(','))
         ].join('\n');
-        
+
         const blob = new Blob([csvContent], { type: 'text/csv' });
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -374,15 +374,15 @@ class BlueprintManager {
         a.click();
         window.URL.revokeObjectURL(url);
     }
-    
+
     updateBulkActions() {
         const checkedBoxes = document.querySelectorAll('.blueprint-checkbox:checked');
         const bulkActions = document.getElementById('bulkActions');
-        
+
         if (bulkActions) {
             bulkActions.classList.toggle('active', checkedBoxes.length > 0);
         }
-        
+
         const selectedCount = document.getElementById('selectedCount');
         if (selectedCount) {
             selectedCount.textContent = checkedBoxes.length;
@@ -401,11 +401,11 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         };
     });
-    
+
     if (document.querySelector('.blueprint-item')) {
         window.blueprintManager = new BlueprintManager();
     }
-    
+
     // Performance monitoring
     if (window.performance && window.performance.mark) {
         window.performance.mark('blueprint-js-loaded');

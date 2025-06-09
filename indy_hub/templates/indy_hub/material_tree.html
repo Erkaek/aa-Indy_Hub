@@ -1,0 +1,25 @@
+{% load humanize %}
+{# Recursive details-based tree for production materials #}
+{% for mat in materials %}
+  <details class="mb-2 ps-{{ level|add:1 }}" {% if level == 0 %}open{% endif %}>
+    <summary class="d-flex align-items-center gap-2" data-type-id="{{ mat.type_id }}" data-type-name="{{ mat.type_name }}" data-qty="{{ mat.quantity }}">
+      {% if mat.sub_materials and mat.sub_materials|length > 0 %}
+        <input type="checkbox" class="form-check-input mat-checkbox me-2" data-type-id="{{ mat.type_id }}" data-type-name="{{ mat.type_name }}" data-qty="{{ mat.quantity }}" checked>
+      {% else %}
+        <span class="me-2" style="width:1rem;display:inline-block;"></span>
+      {% endif %}
+      {% if mat.sub_materials and mat.sub_materials|length > 0 %}
+      <span class="summary-icon"><i class="fas fa-caret-right"></i></span>
+      {% endif %}
+      <span class="blueprint-icon" style="width:28px;height:28px;">
+        <img src="https://images.evetech.net/types/{{ mat.type_id }}/icon?size=32" alt="{{ mat.type_name }}" style="width:28px;height:28px;object-fit:cover;border-radius:6px;background:#f3f4f6;" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <span class="fallback" style="display:none;"><i class="fas fa-cube"></i></span>
+      </span>
+      <span class="fw-bold">{{ mat.type_name }}</span>
+      <span class="text-muted">x{{ mat.quantity|intcomma }}</span>
+    </summary>
+    {% if mat.sub_materials and mat.sub_materials|length > 0 %}
+      {% include "indy_hub/material_tree.html" with materials=mat.sub_materials level=level|add:1 %}
+    {% endif %}
+  </details>
+{% endfor %}

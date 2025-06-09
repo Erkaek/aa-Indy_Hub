@@ -1,0 +1,81 @@
+{% extends "allianceauth/base-bs5.html" %}
+{% load i18n %}
+{% load static %}
+{% block extra_css %}<link rel="stylesheet" href="{% static 'indy_hub/css/blueprints.css' %}">{% endblock %}
+{% block content %}
+<div class="container-fluid my-4">
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="fas fa-user-check me-2"></i>{% trans "Requests to Fulfill" %}</h2>
+    <a href="{% url 'indy_hub:index' %}" class="btn btn-secondary btn-sm">
+      <i class="fas fa-arrow-left me-1"></i>{% trans "Back" %}
+    </a>
+  </div>
+  <div class="blueprint-list-group">
+    <div class="blueprint-list">
+      {% for req in requests %}
+      <div class="blueprint-list-item list-group-item d-flex align-items-center justify-content-between py-3 px-3">
+        <div class="d-flex align-items-center">
+          <img src="{{ req.icon_url }}" alt="{{ req.type_name }}" class="rounded me-2" style="width:48px;height:48px;object-fit:cover;" loading="lazy" onerror="this.onerror=null;this.src='https://images.evetech.net/types/{{ req.type_id }}/icon?size=48'" />
+          <span class="fw-semibold text-truncate">{{ req.type_name }}</span>
+        </div>
+        <div class="d-flex align-items-center">
+          <span class="badge bg-primary text-white me-2">ME {{ req.material_efficiency }}</span>
+          <span class="badge bg-success text-white me-2">TE {{ req.time_efficiency }}</span>
+          <span class="badge bg-info text-white me-2">{% trans 'Copy' %} {{ req.copies_requested }}</span>
+          <span class="badge bg-warning text-dark me-3">{% trans 'Run' %} {{ req.runs_requested }}</span>
+          <span class="badge bg-secondary text-white me-3">{% trans 'Requested by' %} {{ req.requester }}</span>
+          {% if not req.my_offer or req.my_offer.status == 'rejected' %}
+            <div class="d-flex">
+              <!-- Accept -->
+              <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}" class="me-2">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="accept" />
+                <button type="submit" class="btn btn-sm btn-success">
+                  <i class="fas fa-check me-1"></i>{% trans "Accept" %}
+                </button>
+              </form>
+              <!-- Reject -->
+              <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}" class="me-2">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="reject" />
+                <button type="submit" class="btn btn-sm btn-danger">
+                  <i class="fas fa-times me-1"></i>{% trans "Reject" %}
+                </button>
+              </form>
+              <!-- Conditional Accept Toggle -->
+              <button class="btn btn-sm btn-outline-primary" data-bs-toggle="collapse" data-bs-target="#cond-{{ req.id }}">
+                <i class="fas fa-comment-alt me-1"></i>{% trans "Condition" %}
+              </button>
+            </div>
+            <!-- Conditional Message Form -->
+            <div class="collapse mt-2" id="cond-{{ req.id }}">
+              <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="conditional" />
+                 <div class="input-group">
+                   <textarea name="message" class="form-control" placeholder="{% trans 'Enter condition message' %}" required></textarea>
+                   <button type="submit" class="btn btn-primary">{% trans 'Send' %}</button>
+                 </div>
+               </form>
+             </div>
+          {% elif req.my_offer and req.my_offer.status == 'accepted' or req.my_offer.status == 'conditional' and not req.delivered %}
+            <form method="post" action="{% url 'indy_hub:bp_mark_copy_delivered' req.id %}" class="ms-2">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-sm btn-primary">
+                <i class="fas fa-box me-1"></i>{% trans "Mark as Delivered" %}
+              </button>
+            </form>
+          {% elif req.delivered %}
+            <span class="badge bg-success ms-2">{% trans 'Delivered' %}</span>
+          {% else %}
+            <span class="badge bg-info">{% trans 'Offer sent' %} ({{ req.my_offer.status }})</span>
+          {% endif %}
+        </div>
+      </div>
+      {% empty %}
+      <div class="text-center text-muted py-4">{% trans "No requests to fulfill." %}</div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}
