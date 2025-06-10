@@ -1,21 +1,34 @@
 # User-related views
-from django.contrib.auth.decorators import login_required
-from django.shortcuts import render, redirect
-from django.contrib import messages
-from django.urls import reverse
-from allianceauth.authentication.models import CharacterOwnership
-from ..models import CharacterUpdateTracker, get_character_name, Blueprint, IndustryJob, BlueprintCopyShareSetting
-from ..tasks.industry import update_blueprints_for_user, update_industry_jobs_for_user
-from esi.models import Token, CallbackRedirect
+# Standard Library
 import logging
 import secrets
 from urllib.parse import urlencode
-from django.views.decorators.http import require_POST
-from django.http import JsonResponse
-from ..decorators import indy_hub_access_required
+
+# Django
 from django.conf import settings
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.http import JsonResponse
+from django.shortcuts import redirect, render
+from django.urls import reverse
+from django.views.decorators.http import require_POST
+
+# Alliance Auth
+from allianceauth.authentication.models import CharacterOwnership
+from esi.models import CallbackRedirect, Token
+
+from ..decorators import indy_hub_access_required
+from ..models import (
+    Blueprint,
+    BlueprintCopyShareSetting,
+    CharacterUpdateTracker,
+    IndustryJob,
+    get_character_name,
+)
+from ..tasks.industry import update_blueprints_for_user, update_industry_jobs_for_user
 
 logger = logging.getLogger(__name__)
+
 
 # --- User views (token management, sync, etc.) ---
 @indy_hub_access_required
@@ -36,12 +49,12 @@ def index(request):
             )
             # Deduplicate by character_id
             blueprint_char_ids = (
-                list(blueprint_tokens.values_list('character_id', flat=True).distinct())
+                list(blueprint_tokens.values_list("character_id", flat=True).distinct())
                 if blueprint_tokens
                 else []
             )
             jobs_char_ids = (
-                list(jobs_tokens.values_list('character_id', flat=True).distinct())
+                list(jobs_tokens.values_list("character_id", flat=True).distinct())
                 if jobs_tokens
                 else []
             )
@@ -76,15 +89,21 @@ def index(request):
     stack_blueprints = blueprints_qs.filter(quantity__gt=0).count()
     # Jobs stats
     jobs_qs = IndustryJob.objects.filter(owner_user=request.user)
+    # Django
     from django.utils import timezone
+
     now = timezone.now()
     today = now.date()
     active_jobs_count = jobs_qs.filter(status="active", end_date__gt=now).count()
     completed_jobs_count = jobs_qs.filter(end_date__lte=now).count()
-    completed_jobs_today = jobs_qs.filter(end_date__date=today, end_date__lte=now).count()
+    completed_jobs_today = jobs_qs.filter(
+        end_date__date=today, end_date__lte=now
+    ).count()
     # Notification preference
-    tracker, _ = CharacterUpdateTracker.objects.get_or_create(user=request.user, character_id=0)
-    jobs_notify_completed = getattr(tracker, 'jobs_notify_completed', True)
+    tracker, _ = CharacterUpdateTracker.objects.get_or_create(
+        user=request.user, character_id=0
+    )
+    jobs_notify_completed = getattr(tracker, "jobs_notify_completed", True)
     # Blueprint copy sharing preference
     setting, _ = BlueprintCopyShareSetting.objects.get_or_create(user=request.user)
     allow_copy_requests = setting.allow_copy_requests
@@ -106,6 +125,7 @@ def index(request):
     }
     return render(request, "indy_hub/index.html", context)
 
+
 @indy_hub_access_required
 @login_required
 def token_management(request):
@@ -121,12 +141,12 @@ def token_management(request):
             )
             # Deduplicate by character_id
             blueprint_char_ids = (
-                list(blueprint_tokens.values_list('character_id', flat=True).distinct())
+                list(blueprint_tokens.values_list("character_id", flat=True).distinct())
                 if blueprint_tokens
                 else []
             )
             jobs_char_ids = (
-                list(jobs_tokens.values_list('character_id', flat=True).distinct())
+                list(jobs_tokens.values_list("character_id", flat=True).distinct())
                 if jobs_tokens
                 else []
             )
@@ -168,15 +188,19 @@ def token_management(request):
     }
     return render(request, "indy_hub/token_management.html", context)
 
+
 @indy_hub_access_required
 @login_required
 def authorize_blueprints(request):
     # Only skip if ALL characters are already authorized for blueprint scope
-    all_chars = CharacterOwnership.objects.filter(user=request.user) \
-        .values_list('character__character_id', flat=True)
-    authorized = Token.objects.filter(user=request.user).require_scopes(
-        ["esi-characters.read_blueprints.v1" ]
-    ).values_list('character_id', flat=True)
+    all_chars = CharacterOwnership.objects.filter(user=request.user).values_list(
+        "character__character_id", flat=True
+    )
+    authorized = (
+        Token.objects.filter(user=request.user)
+        .require_scopes(["esi-characters.read_blueprints.v1"])
+        .values_list("character_id", flat=True)
+    )
     missing = set(all_chars) - set(authorized)
     if not missing:
         messages.info(request, "All characters already have blueprint access.")
@@ -214,15 +238,19 @@ def authorize_blueprints(request):
         messages.error(request, f"Error setting up ESI authorization: {e}")
         return redirect("indy_hub:token_management")
 
+
 @indy_hub_access_required
 @login_required
 def authorize_jobs(request):
     # Only skip if ALL characters have jobs access
-    all_chars = CharacterOwnership.objects.filter(user=request.user) \
-        .values_list('character__character_id', flat=True)
-    authorized = Token.objects.filter(user=request.user).require_scopes(
-        ["esi-industry.read_character_jobs.v1"]
-    ).values_list('character_id', flat=True)
+    all_chars = CharacterOwnership.objects.filter(user=request.user).values_list(
+        "character__character_id", flat=True
+    )
+    authorized = (
+        Token.objects.filter(user=request.user)
+        .require_scopes(["esi-industry.read_character_jobs.v1"])
+        .values_list("character_id", flat=True)
+    )
     missing = set(all_chars) - set(authorized)
     if not missing:
         messages.info(request, "All characters already have jobs access.")
@@ -262,18 +290,24 @@ def authorize_jobs(request):
         messages.error(request, f"Error setting up ESI authorization: {e}")
         return redirect("indy_hub:token_management")
 
+
 @indy_hub_access_required
 @login_required
 def authorize_all(request):
     # Only skip if ALL characters have both blueprint and jobs access
-    all_chars = CharacterOwnership.objects.filter(user=request.user) \
-        .values_list('character__character_id', flat=True)
-    blueprint_auth = Token.objects.filter(user=request.user).require_scopes([
-        "esi-characters.read_blueprints.v1"
-    ]).values_list('character_id', flat=True)
-    jobs_auth = Token.objects.filter(user=request.user).require_scopes([
-        "esi-industry.read_character_jobs.v1"
-    ]).values_list('character_id', flat=True)
+    all_chars = CharacterOwnership.objects.filter(user=request.user).values_list(
+        "character__character_id", flat=True
+    )
+    blueprint_auth = (
+        Token.objects.filter(user=request.user)
+        .require_scopes(["esi-characters.read_blueprints.v1"])
+        .values_list("character_id", flat=True)
+    )
+    jobs_auth = (
+        Token.objects.filter(user=request.user)
+        .require_scopes(["esi-industry.read_character_jobs.v1"])
+        .values_list("character_id", flat=True)
+    )
     missing = set(all_chars) - (set(blueprint_auth) & set(jobs_auth))
     if not missing:
         messages.info(request, "All characters already authorized for all scopes.")
@@ -313,6 +347,7 @@ def authorize_all(request):
         messages.error(request, f"Error setting up ESI authorization: {e}")
         return redirect("indy_hub:token_management")
 
+
 @indy_hub_access_required
 @login_required
 def sync_all_tokens(request):
@@ -336,6 +371,7 @@ def sync_all_tokens(request):
         messages.error(request, "ESI module not available.")
     return redirect("indy_hub:token_management")
 
+
 @indy_hub_access_required
 @login_required
 def sync_blueprints(request):
@@ -357,6 +393,7 @@ def sync_blueprints(request):
     else:
         messages.error(request, "ESI module not available.")
     return redirect("indy_hub:token_management")
+
 
 @indy_hub_access_required
 @login_required
@@ -380,14 +417,18 @@ def sync_jobs(request):
         messages.error(request, "ESI module not available.")
     return redirect("indy_hub:token_management")
 
+
 @indy_hub_access_required
 @login_required
 @require_POST
 def toggle_job_notifications(request):
-    tracker, _ = CharacterUpdateTracker.objects.get_or_create(user=request.user, character_id=0)
-    tracker.jobs_notify_completed = not getattr(tracker, 'jobs_notify_completed', True)
+    tracker, _ = CharacterUpdateTracker.objects.get_or_create(
+        user=request.user, character_id=0
+    )
+    tracker.jobs_notify_completed = not getattr(tracker, "jobs_notify_completed", True)
     tracker.save(update_fields=["jobs_notify_completed"])
     return JsonResponse({"enabled": tracker.jobs_notify_completed})
+
 
 # Toggle blueprint copy sharing on/off
 @indy_hub_access_required

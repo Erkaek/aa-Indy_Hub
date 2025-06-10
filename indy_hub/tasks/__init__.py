@@ -1,23 +1,7 @@
 # Package marker for indy_hub.tasks
 
-from .industry import (
-    update_blueprints_for_user, 
-    update_industry_jobs_for_user, 
-    notify_completed_jobs,
-    update_all_blueprints,
-    update_all_industry_jobs,
-    cleanup_old_jobs,
-    update_type_names
-)
 
-from .user import (
-    cleanup_inactive_user_data,
-    update_user_preferences_defaults,
-    sync_user_character_names,
-    generate_user_activity_report
-)
-
-# Import the setup function from the main tasks module  
+# Import the setup function from the main tasks module
 def setup_periodic_tasks():
     """Setup periodic tasks for IndyHub module."""
     # Standard Library
@@ -54,5 +38,6 @@ def setup_periodic_tasks():
                 },
             )
     logging.getLogger(__name__).info("IndyHub cron tasks registered.")
+
 
 # ...importez ici d'autres tâches si besoin...

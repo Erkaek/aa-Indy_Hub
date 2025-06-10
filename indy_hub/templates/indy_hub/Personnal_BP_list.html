@@ -9,19 +9,20 @@
 {% block page_title %}{% trans "My Blueprints" %}{% endblock page_title %}
 
 {% block extra_css %}
+<link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
 <link rel="stylesheet" href="{% static 'indy_hub/css/blueprints.css' %}">
 {% endblock extra_css %}
 
 {% block content %}
-<div class="container-fluid my-4">
-    <div class="blueprint-header mb-4">
+<div class="container-fluid my-4 bg-body">
+    <div class="page-header mb-4">
         <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
             <div>
                 <h1 class="h2 mb-1">
                     <i class="fas fa-scroll me-2"></i>
                     {% trans "My Blueprints" %}
                 </h1>
-                <p class="mb-0 opacity-75">{% trans "Manage your blueprint library and research progress" %}</p>
+                <p class="description">{% trans "Manage your blueprint library and research progress" %}</p>
             </div>
             <div class="d-flex gap-2">
                 <a href="{% url 'indy_hub:index' %}" class="btn btn-outline-light">
@@ -35,7 +36,7 @@
                 </button>
             </div>
         </div>
-        <i class="fas fa-industry header-bg"></i>
+        <i class="fas fa-scroll header-bg"></i>
     </div>
 
     <!-- Filter Section -->
@@ -126,7 +127,14 @@
     <div class="blueprint-list-group w-100" style="max-width:100%;">
         <div class="blueprint-list" id="blueprintsContainer">
             {% for bp in blueprints %}
-            <div class="blueprint-list-item list-group-item d-flex flex-wrap align-items-center gap-3 py-3 px-2">
+            <div class="blueprint-item blueprint-list-item list-group-item d-flex flex-wrap align-items-center gap-3 py-3 px-2"
+                    data-type-id="{{ bp.type_id }}"
+                    data-type-name="{{ bp.type_name|default:'Unknown Blueprint' }}"
+                    data-me="{{ bp.material_efficiency|default:0 }}"
+                    data-te="{{ bp.time_efficiency|default:0 }}"
+                    data-runs="{% if bp.is_original %}-1{% else %}{{ bp.runs|default:0 }}{% endif %}"
+                    data-character-id="{{ bp.character_id }}"
+                    data-quantity="{{ bp.quantity|default:1 }}">
                 <div class="blueprint-icon flex-shrink-0 me-3">
                     {% if bp.is_copy %}
                     <img src="https://images.evetech.net/types/{{ bp.type_id }}/bpc?size=64"
@@ -289,29 +297,5 @@
 
 {% block extra_javascript %}
 <script src="{% static 'indy_hub/js/blueprints.js' %}"></script>
-<script>
-function refreshBlueprints() {
-    const btns = document.querySelectorAll('button[onclick="refreshBlueprints()"]');
-    btns.forEach(btn => {
-        const original = btn.innerHTML;
-        btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>' + btn.textContent.trim();
-        btn.disabled = true;
-    });
-    // Actually trigger the refresh by reloading with ?refresh=1
-    const url = new URL(window.location.href);
-    url.searchParams.set('refresh', '1');
-    window.location.href = url.toString();
-}
-
-document.addEventListener('DOMContentLoaded', function() {
-    document.querySelectorAll('.blueprint-icon img').forEach(function(img) {
-        img.onerror = function() {
-            this.style.display = 'none';
-            if (this.nextElementSibling) {
-                this.nextElementSibling.style.display = 'flex';
-            }
-        };
-    });
-});
-</script>
+<script src="{% static 'indy_hub/js/personal_bp_list.js' %}"></script>
 {% endblock extra_javascript %}

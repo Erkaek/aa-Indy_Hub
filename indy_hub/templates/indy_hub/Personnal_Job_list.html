@@ -7,25 +7,26 @@
 {% block page_title %}{% trans "Industry Jobs" %}{% endblock page_title %}
 
 {% block extra_css %}
+<link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
 <link rel="stylesheet" href="{% static 'indy_hub/css/jobs.css' %}">
 {% endblock extra_css %}
 
 {% block content %}
 <div class="container-fluid my-4">
-    <div class="blueprint-header mb-4">
+    <div class="page-header mb-4">
         <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
             <div>
                 <h1 class="h2 mb-1">
-                    <i class="fas fa-industry text-success me-2"></i>
+                    <i class="fas fa-industry me-2"></i>
                     {% trans "Industry Jobs" %}
                 </h1>
-                <p class="mb-0 opacity-75">{% trans "Track your industry jobs and progress in real time" %}</p>
+                <p class="description">{% trans "Track your industry jobs and progress in real time" %}</p>
             </div>
             <div class="d-flex gap-2">
                 <a href="{% url 'indy_hub:index' %}" class="btn btn-outline-light">
                     <i class="fas fa-arrow-left me-1"></i>{% trans "Back to Dashboard" %}
                 </a>
-                <button type="button" class="btn btn-success export-button" onclick="location.href='?refresh=1'">
+                <button type="button" class="btn btn-light text-primary" onclick="location.href='?refresh=1'">
                     <i class="fas fa-sync-alt me-1"></i>{% trans "Refresh Data" %}
                 </button>
             </div>
@@ -116,116 +117,71 @@
         </div>
     </div>
 
-    <!-- Jobs Table (unchanged) -->
-    <div class="table-responsive" id="jobsContainer">
-        <table class="table table-striped align-middle mb-0">
-            <thead>
-                <tr>
-                    <th class="align-middle">{% trans "Character" %}</th>
-                    <th class="align-middle">{% trans "Activity" %}</th>
-                    <th class="align-middle">{% trans "Blueprint Type" %}</th>
-                    <th class="align-middle">{% trans "Status" %}</th>
-                    <th class="align-middle">{% trans "Runs" %}</th>
-                    <th class="align-middle">{% trans "Start Date" %}</th>
-                    <th class="align-middle">{% trans "End Date" %}</th>
-                    <th class="align-middle text-center" style="min-width:120px;">{% trans "Progress" %}</th>
-                </tr>
-            </thead>
-            <tbody>
-            {% for job in jobs %}
-                <tr class="job-item">
-                    <td class="align-middle text-break">{% with name=character_map|dict_get:job.character_id %}{{ name|default_if_none:job.character_id }}{% endwith %}</td>
-                    <td class="align-middle">
-                        {% if job.activity_id == 1 %}<span class="activity-badge activity-1">Mfg</span>
-                        {% elif job.activity_id == 3 %}<span class="activity-badge activity-3">TE</span>
-                        {% elif job.activity_id == 4 %}<span class="activity-badge activity-4">ME</span>
-                        {% elif job.activity_id == 5 %}<span class="activity-badge activity-5">Copy</span>
-                        {% elif job.activity_id == 8 %}<span class="activity-badge activity-8">Inv</span>
-                        {% elif job.activity_id == 9 %}<span class="activity-badge activity-9">Rx</span>
-                        {% else %}<span class="activity-badge">{{ job.activity_id }}</span>{% endif %}
-                    </td>
-                    <td class="align-middle">
-                        <div class="d-flex align-items-center gap-2 flex-nowrap">
-                            <img src="{{ job.icon_url }}" alt="{{ job.blueprint_type_name }}" class="me-1 flex-shrink-0"
-                                style="width: 32px; height: 32px; border-radius: 4px;object-fit:cover;"
-                                onerror="this.style.display='none'; this.nextElementSibling.style.display='inline';" />
-                            <i class="fas fa-industry text-muted" style="display: none;"></i>
-                            <span class="text-break">{{ job.blueprint_type_name|default:job.blueprint_type_id }}</span>
+    <!-- Jobs List Display as cards -->
+    <div class="row g-4" id="jobsContainer">
+        {% for job in jobs %}
+        <div class="col-md-6 col-lg-4">
+            <div class="card h-100 bg-body border">
+                <div class="card-body d-flex flex-column">
+                    <div class="d-flex align-items-center mb-3">
+                        <img src="{{ job.icon_url }}" alt="{{ job.blueprint_type_name }}" class="rounded"
+                            style="width:48px;height:48px;object-fit:cover;" loading="lazy"
+                            onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+                        <span class="fallback fs-3 text-secondary" style="display:none;"><i class="fas fa-industry"></i>
+                        </span>
+                        <div class="ms-3">
+                            <h5 class="card-title mb-1 text-truncate">
+                                {{ job.blueprint_type_name|default:job.blueprint_type_id }}</h5>
+                            {% with name=character_map|dict_get:job.character_id %}
+                            <small class="text-muted">{{ name|default:job.character_id }}</small>
+                            {% endwith %}
                         </div>
-                    </td>
-                    <td class="align-middle"><span class="status-badge status-{{ job.status|lower }}">{{ job.status|title }}</span>
-                    </td>
-                    <td class="align-middle">{{ job.runs }}</td>
-                    <td class="align-middle text-nowrap">{{ job.start_date|date:"Y-m-d H:i" }}</td>
-                    <td class="align-middle text-nowrap">{{ job.display_end_date }}</td>
-                    <td class="align-middle text-center" style="min-width:120px;max-width:220px;">
-                        {% if job.start_date and job.end_date %}
-                        <div class="progress job-progress mx-auto" style="max-width:200px;">
-                            <div class="progress-bar" role="progressbar" style="width:0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" data-start="{{ job.start_date|date:'U' }}" data-end="{{ job.end_date|date:'U' }}">
-                                <span class="job-progress-percent">0%</span>
+                    </div>
+                    <div class="mb-3">
+                        <!-- Activity Badge -->
+                        {% if job.activity_id == 1 %}<span class="activity-badge activity-1 me-2">Mfg</span>
+                        {% elif job.activity_id == 3 %}<span class="activity-badge activity-3 me-2">TE</span>
+                        {% elif job.activity_id == 4 %}<span class="activity-badge activity-4 me-2">ME</span>
+                        {% elif job.activity_id == 5 %}<span class="activity-badge activity-5 me-2">Copy</span>
+                        {% elif job.activity_id == 8 %}<span class="activity-badge activity-8 me-2">Inv</span>
+                        {% elif job.activity_id == 9 %}<span class="activity-badge activity-9 me-2">Rx</span>
+                        {% else %}<span class="activity-badge me-2">{{ job.activity_id }}</span>{% endif %}
+                        <!-- Runs and Status -->
+                        <span class="runs-badge me-2">{{ job.runs }} {% trans 'runs' %}</span>
+                        {% if job.is_completed %}
+                        <span class="status-badge status-{{ job.status|lower }} rounded-pill px-3 py-1">{% trans "Completed" %}</span>
+                        {% elif job.is_active %}
+                        <span class="status-badge status-active rounded-pill px-3 py-1">{% trans "Active" %}</span>
+                        {% else %}
+                        <span class="status-badge status-{{ job.status|lower }} rounded-pill px-3 py-1">{{ job.status|title }}</span>
+                        {% endif %}
+                    </div>
+                    <div class="mb-3">
+                        <!-- Progress Bar -->
+                        <div class="progress">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar"
+                                style="width: {{ job.progress_percent|default:0 }}%;" aria-valuenow="{{ job.progress_percent|default:0 }}"
+                                aria-valuemin="0" aria-valuemax="100">
+                                {{ job.progress_percent|default:0 }}%
                             </div>
                         </div>
-                        <small class="text-muted d-block text-center">ETA: <span class="job-progress-eta">--:--:--</span></small>
-                        {% else %}
-                        <span class="text-muted small">—</span>
-                        {% endif %}
-                    </td>
-                </tr>
-            {% empty %}
-                <tr>
-                    <td colspan="8" class="text-center text-muted">{% trans "No industry jobs found." %}</td>
-                </tr>
-            {% endfor %}
-            </tbody>
-        </table>
+                        <small class="text-muted">ETA: {{ job.display_eta|default:'--:--:--' }}</small>
+                    </div>
+                </div>
+                <div class="card-footer bg-transparent border-0 d-flex justify-content-between">
+                    <small class="text-muted">Start: {{ job.start_date|date:"Y-m-d H:i" }}</small>
+                    <small class="text-muted">{% if job.is_completed %}Completed: {{ job.end_date|date:"Y-m-d H:i" }}{% else %}Ends: {{ job.end_date|date:"Y-m-d H:i" }}{% endif %}</small>
+                </div>
+            </div>
+        </div>
+        {% empty %}
+        <div class="col-12 text-center text-muted py-4">{% trans "No industry jobs found." %}</div>
+        {% endfor %}
     </div>
 </div>
 {% endblock content %}
 
 {% block extra_javascript %}
 <script src="{% static 'indy_hub/js/jobs.js' %}"></script>
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    // Image onerror handler
-    document.querySelectorAll('img').forEach(function(img) {
-        img.onerror = function() {
-            this.style.display = 'none';
-            if (this.nextElementSibling) {
-                this.nextElementSibling.style.display = 'inline';
-            }
-        };
-    });
-
-    // Updated job progress update function
-    function updateJobProgressBars() {
-        document.querySelectorAll('.progress.job-progress').forEach(function(bar) {
-            var fill = bar.querySelector('.progress-bar');
-            var percentLabel = fill.querySelector('.job-progress-percent');
-            var etaLabel = bar.nextElementSibling.querySelector('.job-progress-eta');
-            if (!fill) return;
-            var start = parseInt(fill.getAttribute('data-start'));
-            var end = parseInt(fill.getAttribute('data-end'));
-            var now = Math.floor(Date.now()/1000);
-            if (end > start) {
-                var percent = Math.max(0, Math.min(100, ((now-start)/(end-start))*100));
-                fill.style.width = percent + '%';
-                fill.setAttribute('aria-valuenow', Math.round(percent));
-                if (percentLabel) percentLabel.textContent = Math.round(percent) + '%';
-                var secLeft = Math.max(0, end-now);
-                var h = Math.floor(secLeft/3600);
-                var m = Math.floor((secLeft%3600)/60);
-                var s = secLeft%60;
-                if (etaLabel) etaLabel.textContent = (h>0?h+':':'') + (m<10?'0':'')+m + ':' + (s<10?'0':'')+s;
-            } else {
-                fill.style.width = '0%';
-                fill.setAttribute('aria-valuenow', 0);
-                if (percentLabel) percentLabel.textContent = '0%';
-                if (etaLabel) etaLabel.textContent = '--:--:--';
-            }
-        });
-    }
-    updateJobProgressBars();
-    setInterval(updateJobProgressBars,1000);
-});
-</script>
+<script src="{% static 'indy_hub/js/personal_job_list.js' %}"></script>
 {% endblock extra_javascript %}

@@ -1,0 +1,48 @@
+/* Common page headers for Indy Hub */
+
+.page-header {
+    background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+    border-radius: 18px;
+    color: #fff;
+    padding: 2.5rem 2rem 2rem 2rem;
+    margin-bottom: 2.5rem;
+    box-shadow: 0 0.5rem 2rem rgb(0 0 0 / 10%);
+    position: relative;
+    overflow: hidden;
+}
+
+.page-header h1 {
+    color: #fff;
+    margin-bottom: 0.5rem;
+}
+
+.page-header .header-bg {
+    position: absolute;
+    right: 0; 
+    bottom: 0; 
+    width: 180px; 
+    opacity: 15%;
+    pointer-events: none;
+    font-size: 8rem;
+}
+
+.page-header .description {
+    opacity: 85%;
+    margin-bottom: 0;
+}
+
+/* Specific icons for different pages */
+.page-header .fa-industry { font-size: 2.5rem; }
+.page-header .fa-scroll { font-size: 2.5rem; }
+.page-header .fa-briefcase { font-size: 2.5rem; }
+.page-header .fa-copy { font-size: 2.5rem; }
+.page-header .fa-handshake { font-size: 2.5rem; }
+.page-header .fa-list { font-size: 2.5rem; }
+.page-header .fa-database { font-size: 2.5rem; }
+.page-header .fa-key { font-size: 2.5rem; }
+.page-header .fa-cogs { font-size: 2.5rem; }
+
+/* Ensure main content area background matches theme */
+main {
+    background-color: var(--bs-body-bg);
+}

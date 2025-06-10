@@ -13,8 +13,8 @@
 
 /* Statistics Cards */
 .stats-card {
-    background: linear-gradient(135deg, #fff 0%, #f8f9fa 100%);
-    border: 1px solid #e9ecef;
+    background-color: var(--bs-body-bg);
+    border: 1px solid var(--bs-border-color);
     border-radius: 12px;
     padding: 1.5rem;
     box-shadow: 0 2px 4px rgb(0 0 0 / 5%);
@@ -154,48 +154,77 @@
 /* Status Badges */
 .status-badge {
     display: inline-block;
-    padding: 0.4rem 0.8rem;
-    border-radius: 20px;
-    font-size: 0.75rem;
+    padding: 0.25rem 0.75rem;
+    border-radius: var(--bs-border-radius-pill);
+    font-size: 0.875rem;
     font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
 }
 
 .status-active {
-    background: linear-gradient(135deg, #28a745, #20c997);
-    color: white;
+    background-color: var(--bs-success);
+    color: var(--bs-light);
 }
 
 .status-paused {
-    background: linear-gradient(135deg, #ffc107, #ffb300);
-    color: #212529;
+    background-color: var(--bs-warning);
+    color: var(--bs-dark);
 }
 
 .status-ready {
-    background: linear-gradient(135deg, #17a2b8, #138496);
-    color: white;
+    background-color: var(--bs-info);
+    color: var(--bs-light);
 }
 
 .status-delivered {
-    background: linear-gradient(135deg, #6f42c1, #8e44ad);
-    color: white;
+    background-color: var(--bs-primary);
+    color: var(--bs-light);
 }
 
 .status-cancelled {
-    background: linear-gradient(135deg, #dc3545, #c82333);
-    color: white;
+    background-color: var(--bs-danger);
+    color: var(--bs-light);
 }
 
 .status-reverted {
-    background: linear-gradient(135deg, #6c757d, #495057);
-    color: white;
+    background-color: var(--bs-dark);
+    color: var(--bs-light);
+}
+
+/* Completed alias */
+.status-completed {
+    background-color: var(--bs-secondary);
+    color: var(--bs-light);
+}
+
+/* Runs Badge styling */
+.runs-badge {
+    display: inline-block;
+    background-color: var(--bs-info);
+    color: var(--bs-light);
+    border-radius: var(--bs-border-radius-pill);
+    font-size: 0.875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 0.25rem 0.75rem;
 }
 
 /* Progress Bars */
-.job-progress .progress-bar {
-    background: linear-gradient(90deg, #007bff, #0056b3);
-    transition: width 0.3s ease;
+.progress {
+    height: 1rem !important;
+    background-color: var(--bs-border-color);
+    border-radius: var(--bs-border-radius);
+    overflow: hidden;
+    border: 1px solid var(--bs-border-color);
+}
+
+.job-progress .progress-bar,
+.progress-bar {
+    background-color: var(--bs-primary);
+    color: var(--bs-light);
+    transition: width 0.6s ease-in-out, background-color 0.3s ease;
+    border-radius: var(--bs-border-radius);
     font-size: 0.75rem;
     font-weight: 600;
 }

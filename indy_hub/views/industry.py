@@ -1,19 +1,36 @@
 # Industry-related views
+# Standard Library
+import logging
+
+# Third Party
+import requests
+
+# Django
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
-from django.db.models import Q
-from django.shortcuts import render, redirect, get_object_or_404
-from django.contrib import messages
-from django.utils import timezone
 from django.db import connection
+from django.db.models import Q
 from django.http import JsonResponse
-from ..models import Blueprint, BlueprintCopyRequest, BlueprintCopyOffer, BlueprintCopyShareSetting, IndustryJob, CharacterUpdateTracker, get_character_name, get_type_name
-from ..notifications import notify_user
-from ..tasks import update_blueprints_for_user, update_industry_jobs_for_user
+from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
+
 from ..decorators import indy_hub_access_required
-import logging
-import requests
+from ..models import (
+    Blueprint,
+    BlueprintCopyOffer,
+    BlueprintCopyRequest,
+    BlueprintCopyShareSetting,
+    CharacterUpdateTracker,
+    IndustryJob,
+    get_character_name,
+    get_type_name,
+)
+from ..notifications import notify_user
+from ..tasks.industry import update_blueprints_for_user, update_industry_jobs_for_user
+
 logger = logging.getLogger(__name__)
+
 
 # --- Blueprint and job views ---
 @indy_hub_access_required
@@ -27,7 +44,6 @@ def personnal_bp_list(request):
             logger.info(
                 f"User {request.user.username} requested blueprint refresh; enqueuing Celery task"
             )
-            from django.utils import timezone
             CharacterUpdateTracker.objects.filter(user=request.user).update(
                 last_refresh_request=timezone.now()
             )
@@ -80,7 +96,9 @@ def personnal_bp_list(request):
         if character_filter:
             blueprints_qs = blueprints_qs.filter(character_id=character_filter)
         blueprints_qs = blueprints_qs.order_by("type_name")
+        # Django
         from django.core.paginator import Paginator
+
         paginator = Paginator(blueprints_qs, per_page)
         blueprints_page = paginator.get_page(page)
         total_blueprints = blueprints_qs.count()
@@ -135,6 +153,7 @@ def personnal_bp_list(request):
         logger.error(f"Error displaying blueprints: {e}")
         messages.error(request, f"Error displaying blueprints: {e}")
         return redirect("indy_hub:index")
+
 
 @indy_hub_access_required
 @login_required
@@ -209,6 +228,7 @@ def all_bp_list(request):
         },
     )
 
+
 @indy_hub_access_required
 @login_required
 def personnal_job_list(request):
@@ -218,7 +238,6 @@ def personnal_job_list(request):
             logger.info(
                 f"User {request.user.username} requested jobs refresh; enqueuing Celery task"
             )
-            from django.utils import timezone
             CharacterUpdateTracker.objects.filter(user=request.user).update(
                 last_refresh_request=timezone.now()
             )
@@ -243,6 +262,9 @@ def personnal_job_list(request):
         if per_page < 1:
             per_page = 1
     jobs_qs = IndustryJob.objects.filter(owner_user=request.user)
+    # Base queryset for this user
+    base_jobs_qs = IndustryJob.objects.filter(owner_user=request.user)
+    jobs_qs = base_jobs_qs
     all_character_ids = list(jobs_qs.values_list("character_id", flat=True).distinct())
     character_map = (
         {cid: get_character_name(cid) for cid in all_character_ids}
@@ -266,7 +288,15 @@ def personnal_job_list(request):
                 | char_name_q
             )
         if status_filter:
-            jobs_qs = jobs_qs.filter(status=status_filter.strip())
+            sf = status_filter.strip().lower()
+            # Completed jobs are those with end_date <= now
+            if sf == "completed":
+                jobs_qs = jobs_qs.filter(end_date__lte=timezone.now())
+            # Active jobs are those still running (status active and end_date > now)
+            elif sf == "active":
+                jobs_qs = jobs_qs.filter(status="active", end_date__gt=timezone.now())
+            else:
+                jobs_qs = jobs_qs.filter(status=sf)
         if activity_filter:
             try:
                 activity_filter_int = int(activity_filter.strip())
@@ -291,7 +321,7 @@ def personnal_job_list(request):
         paginator = Paginator(jobs_qs, per_page)
         jobs_page = paginator.get_page(page)
         total_jobs = jobs_qs.count()
-        from django.utils import timezone
+        # Django
         now = timezone.now()
         active_jobs = jobs_qs.filter(status="active", end_date__gt=now).count()
         completed_jobs = jobs_qs.filter(end_date__lte=now).count()
@@ -300,17 +330,29 @@ def personnal_job_list(request):
             "active": active_jobs,
             "completed": completed_jobs,
         }
-        statuses = (
-            IndustryJob.objects.filter(owner_user=request.user)
-            .values_list("status", flat=True)
-            .distinct()
-        )
+        # Only show computed statuses for filtering: 'active' and 'completed'
+        statuses = ["active", "completed"]
+        # Static mapping for activity filter with labels
+        activity_labels = {
+            1: "Manufacturing",
+            3: "TE Research",
+            4: "ME Research",
+            5: "Copying",
+            8: "Invention",
+            9: "Reactions",
+        }
+        # Include only activities from base jobs (unfiltered) for filter options
+        present_ids = base_jobs_qs.values_list("activity_id", flat=True).distinct()
+        activities = [
+            (str(aid), activity_labels.get(aid, str(aid))) for aid in present_ids
+        ]
         update_status = CharacterUpdateTracker.objects.filter(user=request.user).first()
         context = {
             "jobs": jobs_page,
             "statistics": statistics,
             "character_ids": all_character_ids,
             "statuses": statuses,
+            "activities": activities,
             "current_filters": {
                 "search": search,
                 "status": status_filter,
@@ -323,12 +365,15 @@ def personnal_job_list(request):
             "per_page_options": [10, 25, 50, 100, 200],
             "update_status": update_status,
             "character_map": character_map,
+            "jobs_page": jobs_page,
         }
+        # progress_percent and display_eta now available via model properties in template
         return render(request, "indy_hub/Personnal_Job_list.html", context)
     except Exception as e:
         logger.error(f"Error displaying industry jobs: {e}")
         messages.error(request, f"Error displaying industry jobs: {e}")
         return redirect("indy_hub:index")
+
 
 @indy_hub_access_required
 @login_required
@@ -368,8 +413,11 @@ def craft_bp(request, type_id):
             )
             product_row = cursor.fetchone()
             product_type_id = product_row[0] if product_row else None
-            output_qty_per_run = product_row[1] if product_row and len(product_row) > 1 else 1
+            output_qty_per_run = (
+                product_row[1] if product_row and len(product_row) > 1 else 1
+            )
             final_product_qty = output_qty_per_run * num_runs
+
         def get_materials_tree(bp_id, runs, depth=0, max_depth=10, seen=None):
             if seen is None:
                 seen = set()
@@ -419,7 +467,9 @@ def craft_bp(request, type_id):
                         )
                         prod_qty_row = sub_cursor.fetchone()
                         output_qty = prod_qty_row[0] if prod_qty_row else 1
+                        # Standard Library
                         from math import ceil
+
                         runs_for_sub = ceil(mat["quantity"] / output_qty)
                         mat["sub_materials"] = get_materials_tree(
                             sub_bp_id, runs_for_sub, depth + 1, max_depth, seen.copy()
@@ -428,7 +478,9 @@ def craft_bp(request, type_id):
                         mat["sub_materials"] = []
                 result.append(mat)
             return result
+
         materials_tree = get_materials_tree(type_id, num_runs)
+
         def flatten_materials(materials):
             return [
                 {
@@ -438,6 +490,7 @@ def craft_bp(request, type_id):
                 }
                 for m in materials
             ]
+
         return render(
             request,
             "indy_hub/Craft_BP.html",
@@ -475,6 +528,7 @@ def craft_bp(request, type_id):
                 "te": 0,
             },
         )
+
 
 @indy_hub_access_required
 @login_required
@@ -517,9 +571,12 @@ def fuzzwork_price(request):
                 result[tid] = 0.0
         return JsonResponse(result)
     except Exception as e:
+        # Standard Library
         import traceback
+
         print(traceback.format_exc())
         return JsonResponse({"error": str(e)}, status=200)
+
 
 @indy_hub_access_required
 @login_required
@@ -579,7 +636,9 @@ def bp_copy_request_page(request):
             runs_requested=runs,
             copies_requested=copies,
         )
+        # Django
         from django.contrib.auth.models import User
+
         owner_ids = (
             Blueprint.objects.filter(type_id=type_id, quantity=-1)
             .values_list("owner_user", flat=True)
@@ -615,9 +674,8 @@ def bp_copy_request_page(request):
 @login_required
 def bp_copy_fulfill_requests(request):
     """List requests for blueprints the user owns and allows copy requests for."""
-    from django.views.decorators.http import require_GET, require_POST
-    # Use share setting model to check permission
     from ..models import BlueprintCopyShareSetting
+
     setting = BlueprintCopyShareSetting.objects.filter(
         user=request.user, allow_copy_requests=True
     ).first()
@@ -635,9 +693,9 @@ def bp_copy_fulfill_requests(request):
             fulfilled=False,
         )
     # Only show requests that are accepted (fulfilled=True) but not yet delivered
-    qset = BlueprintCopyRequest.objects.filter(q, fulfilled=True, delivered=False).order_by(
-        "-created_at"
-    )
+    qset = BlueprintCopyRequest.objects.filter(
+        q, fulfilled=True, delivered=False
+    ).order_by("-created_at")
     requests_to_fulfill = []
     for req in qset:
         my_offer = BlueprintCopyOffer.objects.filter(
@@ -670,11 +728,6 @@ def bp_copy_fulfill_requests(request):
 @login_required
 def bp_offer_copy_request(request, request_id):
     """Handle offering to fulfill a blueprint copy request."""
-    from django.views.decorators.http import require_POST
-    
-    if request.method != 'POST':
-        return redirect("indy_hub:bp_copy_fulfill_requests")
-        
     req = get_object_or_404(BlueprintCopyRequest, id=request_id, fulfilled=False)
     action = request.POST.get("action")
     message = request.POST.get("message", "").strip()
@@ -727,11 +780,6 @@ def bp_offer_copy_request(request, request_id):
 @login_required
 def bp_buyer_accept_offer(request, offer_id):
     """Allow buyer to accept a conditional offer."""
-    from django.views.decorators.http import require_POST
-    
-    if request.method != 'POST':
-        return redirect("indy_hub:bp_copy_request_page")
-        
     offer = get_object_or_404(
         BlueprintCopyOffer, id=offer_id, status="conditional", accepted_by_buyer=False
     )
@@ -759,11 +807,6 @@ def bp_buyer_accept_offer(request, offer_id):
 @login_required
 def bp_accept_copy_request(request, request_id):
     """Accept a blueprint copy request and notify requester."""
-    from django.views.decorators.http import require_POST
-    
-    if request.method != 'POST':
-        return redirect("indy_hub:bp_copy_fulfill_requests")
-        
     req = get_object_or_404(BlueprintCopyRequest, id=request_id, fulfilled=False)
     req.fulfilled = True
     req.fulfilled_at = timezone.now()
@@ -783,11 +826,6 @@ def bp_accept_copy_request(request, request_id):
 @login_required
 def bp_cond_copy_request(request, request_id):
     """Send conditional acceptance message for a blueprint copy request."""
-    from django.views.decorators.http import require_POST
-    
-    if request.method != 'POST':
-        return redirect("indy_hub:bp_copy_fulfill_requests")
-        
     req = get_object_or_404(BlueprintCopyRequest, id=request_id, fulfilled=False)
     message = request.POST.get("message", "").strip()
     if message:
@@ -804,11 +842,6 @@ def bp_cond_copy_request(request, request_id):
 @login_required
 def bp_reject_copy_request(request, request_id):
     """Reject a blueprint copy request and notify requester."""
-    from django.views.decorators.http import require_POST
-    
-    if request.method != 'POST':
-        return redirect("indy_hub:bp_copy_fulfill_requests")
-        
     req = get_object_or_404(BlueprintCopyRequest, id=request_id, fulfilled=False)
     notify_user(
         req.requested_by,
@@ -825,19 +858,16 @@ def bp_reject_copy_request(request, request_id):
 @login_required
 def bp_cancel_copy_request(request, request_id):
     """Allow user to cancel their own unfulfilled copy request."""
-    from django.views.decorators.http import require_POST
-    
-    if request.method != 'POST':
-        return redirect("indy_hub:bp_copy_request_page")
-        
-    req = get_object_or_404(BlueprintCopyRequest, id=request_id, requested_by=request.user, fulfilled=False)
+    req = get_object_or_404(
+        BlueprintCopyRequest, id=request_id, requested_by=request.user, fulfilled=False
+    )
     offers = req.offers.all()
     for offer in offers:
         notify_user(
             offer.owner,
-            'Blueprint Copy Request Cancelled',
-            f'{request.user.username} cancelled their copy request for {get_type_name(req.type_id)} (ME{req.material_efficiency}, TE{req.time_efficiency}).',
-            'warning'
+            "Blueprint Copy Request Cancelled",
+            f"{request.user.username} cancelled their copy request for {get_type_name(req.type_id)} (ME{req.material_efficiency}, TE{req.time_efficiency}).",
+            "warning",
         )
     offers.delete()
     req.delete()
@@ -849,12 +879,9 @@ def bp_cancel_copy_request(request, request_id):
 @login_required
 def bp_mark_copy_delivered(request, request_id):
     """Mark a fulfilled blueprint copy request as delivered (provider action)."""
-    from django.views.decorators.http import require_POST
-    
-    if request.method != 'POST':
-        return redirect("indy_hub:bp_copy_fulfill_requests")
-        
-    req = get_object_or_404(BlueprintCopyRequest, id=request_id, fulfilled=True, delivered=False)
+    req = get_object_or_404(
+        BlueprintCopyRequest, id=request_id, fulfilled=True, delivered=False
+    )
     req.delivered = True
     req.delivered_at = timezone.now()
     req.save()
@@ -867,29 +894,38 @@ def bp_mark_copy_delivered(request, request_id):
     messages.success(request, "Request marked as delivered.")
     return redirect("indy_hub:bp_copy_fulfill_requests")
 
+
 @indy_hub_access_required
 @login_required
 def bp_copy_my_requests(request):
     """List copy requests made by the current user."""
-    qs = BlueprintCopyRequest.objects.filter(requested_by=request.user).order_by('-created_at')
+    qs = BlueprintCopyRequest.objects.filter(requested_by=request.user).order_by(
+        "-created_at"
+    )
     my_requests = []
     for req in qs:
         offers = req.offers.all()
-        accepted_offer = offers.filter(status='accepted').first()
-        cond_accepted = offers.filter(status='conditional', accepted_by_buyer=True).first()
-        cond_offers = offers.filter(status='conditional', accepted_by_buyer=False)
-        my_requests.append({
-            'id': req.id,
-            'type_id': req.type_id,
-            'type_name': get_type_name(req.type_id),
-            'icon_url': f"https://images.evetech.net/types/{req.type_id}/bp?size=64",
-            'material_efficiency': req.material_efficiency,
-            'time_efficiency': req.time_efficiency,
-            'copies_requested': req.copies_requested,
-            'runs_requested': req.runs_requested,
-            'accepted_offer': accepted_offer,
-            'cond_accepted': cond_accepted,
-            'cond_offers': cond_offers,
-            'delivered': req.delivered,
-        })
-    return render(request, 'indy_hub/bp_copy_my_requests.html', {'my_requests': my_requests})
+        accepted_offer = offers.filter(status="accepted").first()
+        cond_accepted = offers.filter(
+            status="conditional", accepted_by_buyer=True
+        ).first()
+        cond_offers = offers.filter(status="conditional", accepted_by_buyer=False)
+        my_requests.append(
+            {
+                "id": req.id,
+                "type_id": req.type_id,
+                "type_name": get_type_name(req.type_id),
+                "icon_url": f"https://images.evetech.net/types/{req.type_id}/bp?size=64",
+                "material_efficiency": req.material_efficiency,
+                "time_efficiency": req.time_efficiency,
+                "copies_requested": req.copies_requested,
+                "runs_requested": req.runs_requested,
+                "accepted_offer": accepted_offer,
+                "cond_accepted": cond_accepted,
+                "cond_offers": cond_offers,
+                "delivered": req.delivered,
+            }
+        )
+    return render(
+        request, "indy_hub/bp_copy_my_requests.html", {"my_requests": my_requests}
+    )

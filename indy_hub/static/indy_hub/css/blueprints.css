@@ -19,14 +19,27 @@
     pointer-events: none;
 }
 
-/* Blueprint list group */
+/* Theme-adaptive blueprint list container */
 .blueprint-list-group {
     width: 100%;
     margin: 0;
-    background: #fff;
+    background-color: var(--bs-body-bg);
+    border: 1px solid var(--bs-border-color);
     border-radius: 16px;
     box-shadow: 0 0.25rem 1.5rem rgb(118 75 162 / 10%);
     overflow: hidden;
+}
+
+/* Force list-group items in blueprint pages to use theme background */
+.blueprint-list-item.list-group-item {
+    background-color: var(--bs-body-bg) !important;
+    border-color: var(--bs-border-color) !important;
+}
+
+/* Ensure blueprint list container also uses theme background */
+.blueprint-list-group {
+    background-color: var(--bs-body-bg) !important;
+    border: 1px solid var(--bs-border-color) !important;
 }
 
 /* Blueprint list item */
@@ -38,16 +51,17 @@
     padding-bottom: 0.05rem;
     padding-left: 1.5rem;
     padding-right: 1.5rem;
-    border-bottom: 1px solid #e0e7ff;
+    border-bottom: 1px solid var(--bs-border-color);
     transition: background 0.15s;
     position: relative;
     min-height: 28px;
+    background-color: var(--bs-body-bg);
 }
 .blueprint-list-item:last-child {
     border-bottom: none;
 }
 .blueprint-list-item:hover {
-    background: #f5f7fa;
+    background-color: var(--bs-body-emphasis);
 }
 
 /* Blueprint icon */

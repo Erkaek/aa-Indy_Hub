@@ -1,56 +1,11 @@
 {% extends "allianceauth/base-bs5.html" %}
 {% load i18n %}
+{% load static %}
 
 {% block page_title %}{% trans "Indy Hub" %}{% endblock page_title %}
 
 {% block extra_css %}
-<style>
-    .dashboard-card {
-        transition: all 0.3s ease;
-        border: none;
-        box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
-    }
-
-    .dashboard-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
-    }
-
-    .stat-icon {
-        width: 60px;
-        height: 60px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: 12px;
-        font-size: 1.5rem;
-    }
-
-    .feature-card {
-        height: 100%;
-        transition: all 0.3s ease;
-    }
-
-    .feature-card:hover {
-        transform: translateY(-3px);
-        box-shadow: 0 0.75rem 1.5rem rgba(0, 0, 0, 0.12);
-    }
-
-    .hero-section {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        border-radius: 15px;
-        color: white;
-        padding: 3rem 2rem;
-        margin-bottom: 2rem;
-    }
-
-    .quick-stats {
-        background: rgba(255, 255, 255, 0.1);
-        border-radius: 10px;
-        padding: 1.5rem;
-        backdrop-filter: blur(10px);
-    }
-</style>
+<link rel="stylesheet" href="{% static 'indy_hub/css/index.css' %}">
 {% endblock extra_css %}
 
 {% block content %}
@@ -208,32 +163,6 @@
                             <span id="notify-label">{% if jobs_notify_completed %}{% trans "Notifications ON" %}{% else %}{% trans "Notifications OFF" %}{% endif %}</span>
                         </button>
                     </div>
-                    <script>
-                    document.addEventListener('DOMContentLoaded', function() {
-                        var notifyBtn = document.getElementById('toggle-job-notify');
-                        if (notifyBtn) {
-                            notifyBtn.addEventListener('click', function() {
-                                fetch("{% url 'indy_hub:toggle_job_notifications' %}", {
-                                    method: 'POST',
-                                    headers: {
-                                        'X-CSRFToken': '{{ csrf_token }}',
-                                        'Accept': 'application/json',
-                                    },
-                                })
-                                .then(r => r.json())
-                                .then(data => {
-                                    notifyBtn.dataset.enabled = data.enabled ? 'true' : 'false';
-                                    notifyBtn.className = 'btn flex-fill ' + (data.enabled ? 'btn-success' : 'btn-outline-secondary');
-                                    document.getElementById('notify-label').textContent = data.enabled ? "{{ _('Notifications ON') }}" : "{{ _('Notifications OFF') }}";
-                                    showIndyHubPopup(
-                                        data.enabled ? "Job notifications enabled." : "Job notifications disabled.",
-                                        data.enabled ? 'success' : 'secondary'
-                                    );
-                                });
-                            });
-                        }
-                    });
-                    </script>
                     {% else %}
                     <div class="text-center py-4">
                         <i class="fas fa-exclamation-triangle text-warning fa-3x mb-3"></i>
@@ -299,39 +228,6 @@
                             <i class="fas fa-list me-2"></i>{% trans "My Requests" %}
                         </a>
                     </div>
-                    <script>
-                    function showIndyHubPopup(message, type) {
-                        var popup = document.getElementById('indy-hub-popup');
-                        popup.className = 'alert alert-' + (type || 'info') + ' position-fixed top-0 start-50 translate-middle-x mt-3';
-                        popup.textContent = message;
-                        popup.classList.remove('d-none');
-                        setTimeout(function() { popup.classList.add('d-none'); }, 2500);
-                    }
-                    document.addEventListener('DOMContentLoaded', function() {
-                        var shareBtn = document.getElementById('toggle-copy-sharing');
-                        if (shareBtn) {
-                            shareBtn.addEventListener('click', function() {
-                                fetch("{% url 'indy_hub:toggle_copy_sharing' %}", {
-                                    method: 'POST',
-                                    headers: {
-                                        'X-CSRFToken': '{{ csrf_token }}',
-                                        'Accept': 'application/json',
-                                    },
-                                })
-                                .then(r => r.json())
-                                .then(data => {
-                                    shareBtn.dataset.enabled = data.enabled ? 'true' : 'false';
-                                    shareBtn.className = 'btn flex-fill ' + (data.enabled ? 'btn-success' : 'btn-outline-secondary');
-                                    document.getElementById('copy-sharing-label').textContent = data.enabled ? "{{ _('Sharing ON') }}" : "{{ _('Sharing OFF') }}";
-                                    showIndyHubPopup(
-                                        data.enabled ? "Blueprint sharing enabled." : "Blueprint sharing disabled.",
-                                        data.enabled ? 'success' : 'secondary'
-                                    );
-                                });
-                            });
-                        }
-                    });
-                    </script>
                 </div>
             </div>
         </div>
@@ -378,4 +274,18 @@
         </div>
     </footer>
 </div>
+
+{% block extra_javascript %}
+<script src="{% static 'indy_hub/js/index.js' %}"></script>
+<script>
+// Configure URLs and text for the JavaScript module
+window.csrfToken = '{{ csrf_token }}';
+window.toggleJobNotificationsUrl = '{% url 'indy_hub:toggle_job_notifications' %}';
+window.toggleCopySharingUrl = '{% url 'indy_hub:toggle_copy_sharing' %}';
+window.notificationsOnText = '{% trans "Notifications ON" %}';
+window.notificationsOffText = '{% trans "Notifications OFF" %}';
+window.sharingOnText = '{% trans "Sharing ON" %}';
+window.sharingOffText = '{% trans "Sharing OFF" %}';
+</script>
+{% endblock extra_javascript %}
 {% endblock %}

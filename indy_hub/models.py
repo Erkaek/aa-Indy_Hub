@@ -211,16 +211,25 @@ class IndustryJob(models.Model):
 
     @property
     def is_active(self):
-        return self.status == "active"
+        # Active only if status is active and end_date is in the future
+        return (
+            self.status == "active" and self.end_date and self.end_date > timezone.now()
+        )
 
     @property
     def is_completed(self):
-        return self.status in ["delivered", "ready"]
+        # Completed when status flags delivered/ready or if end_date has passed
+        if self.status in ["delivered", "ready"]:
+            return True
+        # treat overdue active jobs as completed
+        return self.end_date and self.end_date <= timezone.now()
 
     @property
     def display_end_date(self):
-        if self.end_date and self.end_date <= timezone.now():
+        # Only mark as Completed if status indicates completion
+        if self.is_completed:
             return "Completed"
+        # Otherwise show the scheduled end date
         return self.end_date.strftime("%Y-%m-%d %H:%M") if self.end_date else ""
 
     @property
@@ -259,6 +268,31 @@ class IndustryJob(models.Model):
         else:
             # Fallback for unknown activities - show blueprint icon
             return f"https://images.evetech.net/types/{self.blueprint_type_id}/bp?size={size}"
+
+    @property
+    def progress_percent(self):
+        """Compute job progress percentage based on start and end dates"""
+        if self.start_date and self.end_date:
+            total = (self.end_date - self.start_date).total_seconds()
+            if total <= 0:
+                return 100
+            elapsed = (timezone.now() - self.start_date).total_seconds()
+            percent = (elapsed / total) * 100
+            return int(max(0, min(100, percent)))
+        return 0
+
+    @property
+    def display_eta(self):
+        """Return formatted remaining time or Completed for jobs"""
+        if self.end_date and self.end_date > timezone.now():
+            remaining = self.end_date - timezone.now()
+            total_seconds = int(remaining.total_seconds())
+            hours, remainder = divmod(total_seconds, 3600)
+            minutes, seconds = divmod(remainder, 60)
+            return f"{hours:d}:{minutes:02d}:{seconds:02d}"
+        if self.end_date:
+            return "Completed"
+        return ""
 
 
 class CharacterUpdateTracker(models.Model):

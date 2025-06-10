@@ -3,7 +3,10 @@
 Notification helpers for Indy Hub, inspired by FortunaISK's notification system.
 Supports Alliance Auth notifications and (future) Discord/webhook fallback.
 """
+# Standard Library
 import logging
+
+# Alliance Auth
 from allianceauth.notifications import notify as aa_notify
 
 logger = logging.getLogger(__name__)
@@ -14,6 +17,7 @@ LEVELS = {
     "warning": "warning",
     "error": "danger",
 }
+
 
 def notify_user(user, title, message, level="info"):
     """

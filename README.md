@@ -1,183 +1,80 @@
-# 🚧 IN ACTIVE DEVELOPPEMENT / DO NOT USE 🚧
-
 # Indy Hub for Alliance Auth
 
-A comprehensive industry management module for [Alliance Auth](https://allianceauth.org/), designed to streamline blueprint management, job tracking, and industrial collaboration for EVE Online alliances and corporations.
+A modern industry management module for [Alliance Auth](https://allianceauth.org/), focused on blueprint and job tracking for EVE Online alliances and corporations.
 
 ______________________________________________________________________
 
-## Features
+## ✨ Features (Current)
 
-- **Blueprint Management**: Track, share, and request blueprint copies (BPCs) within your alliance.
-- **Industry Job Tracking**: View, filter, and manage all your EVE Online industry jobs in one place.
-- **Copy Sharing & Requests**: Members can offer, request, and deliver blueprint copies, with notifications for all steps.
-- **ESI Integration**: Automatic synchronization of blueprints and jobs using ESI (EVE Swagger Interface).
-- **Notifications**: In-app notifications for job completions, copy offers, and requests. Optional Discord notifications via [aa-discordnotify](https://apps.allianceauth.org/apps/detail/aa-discordnotify).
-- **Celery Tasks**: Periodic background updates for ESI data and job status.
-- **Admin Tools**: Management commands for ESI cache and status, and admin dashboard for oversight.
-- **Modern UI**: Responsive dashboard and user flows (screenshots section below).
+- **Blueprint Library**: View, filter, and search all your EVE Online blueprints by character, type, and efficiency.
+- **Industry Job Tracking**: Monitor and filter your manufacturing, research, and invention jobs in real time.
+- **Blueprint Copy Sharing**: Request, offer, and deliver blueprint copies (BPCs) within your alliance, with notifications for each step.
+- **ESI Integration**: Secure OAuth2-based sync for blueprints and jobs, with periodic background updates (Celery required).
+- **Notifications**: In-app alerts for job completions, copy offers, and deliveries. Optional Discord notifications (via aa-discordnotify).
+- **Modern UI**: Responsive Bootstrap 5 interface, theme-compatible, with accessibility and i18n support.
+
+______________________________________________________________________
+
+## 🚧 In Development
+
+- **Alliance-wide Blueprint Library**: Browse all blueprints available in the alliance (admin-controlled visibility).
+- **Advanced Copy Request Fulfillment**: Streamlined workflows for fulfilling and tracking copy requests.
+- **Improved Job Analytics**: More detailed job statistics, filtering, and export options.
+- **Better Admin Tools**: Enhanced dashboards and management commands for admins.
+
+______________________________________________________________________
+
+## 🛣️ Planned / Coming Soon
+
+- **Blueprint Lending/Loan System**: Track and manage temporary blueprint loans between members.
+- **Production Cost Estimation**: Integrated cost calculators and market price lookups.
+- **More ESI Scopes**: Support for additional ESI endpoints (e.g., assets, wallet, reactions).
+- **API/Export**: Public API endpoints and improved CSV/Excel export for all lists.
+- **More Notifications**: Customizable notification rules and Discord webhooks.
 
 ______________________________________________________________________
 
 ## Requirements
 
-- **Alliance Auth**: v4.0 or higher
-- **Python**: 3.10+
-- **Django**: As required by your AA version
-- **django-eveuniverse**: Must be installed and populated (see below)
-- **Celery**: For background tasks
-- **Optional**: [aa-discordnotify](https://apps.allianceauth.org/apps/detail/aa-discordnotify) for Discord notifications
+- Alliance Auth v4+
+- Python 3.10+
+- Django (as required by AA)
+- django-eveuniverse (populated with industry data)
+- Celery (for background sync)
+- (Optional) aa-discordnotify for Discord alerts
 
 ______________________________________________________________________
 
-## Installation
+## Quick Install
 
-1. **Install the app**
+1. Add `eveuniverse` and `indy_hub` to `INSTALLED_APPS` in your AA settings.
 
-```bash
-pip install django-eveuniverse
-# (or add to your requirements.txt)
-```
+1. Run migrations: `python manage.py migrate`
 
-2. **Add to `INSTALLED_APPS` in your AA settings:**
+1. Populate EveUniverse with industry data `python manage.py eveuniverse_load_data types --types-enabled-sections industry_activities type_materials`.
 
-```python
-INSTALLED_APPS = [
-    # ...existing apps...
-    "eveuniverse",
-    "indy_hub",
-]
-```
+1. Collect static files: `python manage.py collectstatic`
 
-3. **Configure EveUniverse for industry data**
+1. Restart your auth.
 
-Add these lines to your `local.py` before running the data load command:
-
-```python
-EVEUNIVERSE_LOAD_TYPE_MATERIALS = True
-EVEUNIVERSE_LOAD_INDUSTRY_ACTIVITIES = True
-```
-
-4. **Populate EveUniverse with industry data**
-
-```bash
-python manage.py eveuniverse_load_data types --types-enabled-sections industry_activities type_materials
-```
-
-5. **Migrate database**
-
-```bash
-python manage.py migrate
-```
-
-6. **(Optional) Enable Discord notifications**
-
-Install and configure [aa-discordnotify](https://apps.allianceauth.org/apps/detail/aa-discordnotify) if you want Discord notifications for industry events.
-
-7. **Collect static files**
-
-```bash
-python manage.py collectstatic
-```
-
-______________________________________________________________________
-
-## Configuration
-
-- No special configuration is required beyond the steps above.
-- All ESI scopes and settings are managed via Alliance Auth.
-- For Discord notifications, follow the aa-discordnotify setup guide.
-
-______________________________________________________________________
-
-## Permissions
-
-- Only one permission is required: `can access indy_hub`.
-- Assign this permission to the groups/users who should access the module.
-- (Note: The app models will be updated to use only this permission.)
+1. Assign the `can access indy_hub` permission to users/groups.
 
 ______________________________________________________________________
 
 ## Usage
 
-### User
-
-- View your blueprints and industry jobs on the dashboard.
-- Request blueprint copies from other members.
-- Offer and deliver blueprint copies.
-- Receive notifications for job completions and copy transactions.
-
-### Admin
-
-- Access the admin dashboard for oversight of all blueprints, jobs, and copy requests.
-- Use management commands to refresh ESI data and check ESI status.
+- Go to the Indy Hub dashboard in Alliance Auth.
+- Authorize ESI for blueprints and jobs.
+- View/manage your blueprints and jobs, request/offer BPCs, and receive notifications.
 
 ______________________________________________________________________
 
-## Notifications
+## Support & Contributing
 
-- In-app notifications for:
-  - Job completions
-  - Blueprint copy offers and requests
-  - Delivery of copies
-- Optional Discord notifications (requires aa-discordnotify)
-
-______________________________________________________________________
-
-## ESI Integration
-
-- Uses ESI to synchronize blueprints and industry jobs for all linked characters.
-- Requires appropriate ESI scopes (handled by Alliance Auth).
-- ESI data is cached and periodically refreshed via Celery tasks.
-
-______________________________________________________________________
-
-## Celery & Periodic Tasks
-
-- Background tasks update ESI data and job statuses automatically.
-- Ensure Celery is running for timely updates.
-
-______________________________________________________________________
-
-## Templates & Static Files
-
-- Custom templates for dashboards, job lists, and copy management.
-- Static files (JS, CSS) for interactive UI features.
-
-______________________________________________________________________
-
-## Management Commands
-
-- `python manage.py cache_esi_data` — Manually refresh ESI data cache.
-- `python manage.py esi_status` — Check ESI integration status.
-
-______________________________________________________________________
-
-## Screenshots
-
-*Screenshots of the dashboard, job list, and copy management will be added here.*
-
-______________________________________________________________________
-
-## Updating
-
-- Pull the latest version and run migrations as needed.
-- Re-run EveUniverse data load if new industry types are added.
-
-______________________________________________________________________
-
-## Contributing
-
-Direct contributions are welcome! Please open a pull request on GitHub.
-
-______________________________________________________________________
-
-## Support
-
-For support, open an issue on GitHub.
+- Open an issue or pull request on GitHub for help or to contribute.
 
 ______________________________________________________________________
 
 ## License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+MIT License. See [LICENSE](LICENSE) for details.

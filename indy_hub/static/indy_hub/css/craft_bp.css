@@ -1,0 +1,70 @@
+/* Enhanced tree styling */
+details {
+    margin-bottom: 0.5rem;
+    padding-left: 0.5rem;
+    border-left: 2px solid #e9ecef;
+}
+
+details summary {
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+}
+
+details summary:hover {
+    background-color: #f8f9fa;
+}
+
+.summary-icon i {
+    display: inline-block;
+    transition: transform 0.2s ease-in-out;
+}
+
+details[open] summary .summary-icon i {
+    transform: rotate(90deg);
+}
+
+/* Custom pill-style tabs */
+ul.nav-pills {
+    margin-bottom: 1.5rem;
+}
+
+ul.nav-pills .nav-link {
+    border-radius: 1rem;
+    background-color: #e9ecef;
+    color: #495057;
+    padding: 0.5rem 1rem;
+    margin: 0 0.5rem;
+    transition: background-color 0.2s, color 0.2s;
+}
+
+ul.nav-pills .nav-link.active {
+    background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+    color: #ffffff;
+}
+
+ul.nav-pills .nav-link:hover:not(.active) {
+    background-color: #d1c4e9;
+    color: #ffffff;
+}
+
+/* Blueprint icons */
+.blueprint-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.blueprint-icon .fallback {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background-color: #f3f4f6;
+    border-radius: 12px;
+    font-size: 1.5rem;
+    color: #6b7280;
+}

@@ -1,15 +1,15 @@
 {
-  "name": "indy_hub",
-  "version": "1.0.0",
-  "description": "This is an example plugin app for [Alliance Auth](https://gitlab.com/allianceauth/allianceauth) (AA) that can be used as a starting point to develop custom plugins.",
-  "main": "eslint.config.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "dependencies": {
-    "globals": "^16.2.0"
-  }
+    "name": "indy_hub",
+    "version": "1.0.0",
+    "description": "This is an example plugin app for [Alliance Auth](https://gitlab.com/allianceauth/allianceauth) (AA) that can be used as a starting point to develop custom plugins.",
+    "main": "eslint.config.js",
+    "scripts": {
+        "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "dependencies": {
+        "globals": "^16.2.0"
+    }
 }

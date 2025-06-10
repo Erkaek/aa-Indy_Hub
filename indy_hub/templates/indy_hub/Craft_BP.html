@@ -7,58 +7,11 @@
 
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'indy_hub/css/blueprints.css' %}">
-<style>
-/* Enhanced tree styling */
-details {
-  margin-bottom: 0.5rem;
-  padding-left: 0.5rem;
-  border-left: 2px solid #e9ecef;
-}
-details summary {
-  list-style: none;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  cursor: pointer;
-  padding: 0.25rem 0.5rem;
-  border-radius: 4px;
-}
-details summary:hover {
-  background-color: #f8f9fa;
-}
-.summary-icon i {
-  display: inline-block;
-  transition: transform 0.2s ease-in-out;
-}
-details[open] summary .summary-icon i {
-  transform: rotate(90deg);
-}
-
-/* Custom pill-style tabs */
-ul.nav-pills {
-  margin-bottom: 1.5rem;
-}
-ul.nav-pills .nav-link {
-  border-radius: 1rem;
-  background-color: #e9ecef;
-  color: #495057;
-  padding: 0.5rem 1rem;
-  margin: 0 0.5rem;
-  transition: background-color 0.2s, color 0.2s;
-}
-ul.nav-pills .nav-link.active {
-  background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-  color: #ffffff;
-}
-ul.nav-pills .nav-link:hover:not(.active) {
-  background-color: #d1c4e9;
-  color: #ffffff;
-}
-</style>
+<link rel="stylesheet" href="{% static 'indy_hub/css/craft_bp.css' %}">
 {% endblock extra_css %}
 
 {% block content %}
-<div class="container my-4">
+<div class="container my-4 bg-body">
     <div class="blueprint-header mb-4">
         <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
             <div class="d-flex align-items-center gap-3">
@@ -88,9 +41,9 @@ ul.nav-pills .nav-link:hover:not(.active) {
         <i class="fas fa-industry header-bg"></i>
     </div>
     <div class="mb-3">
-      <div class="card bg-light border-light">
-        <div class="card-body py-2 px-3">
-          <form method="get" class="mb-0">
+        <div class="card bg-light border-light">
+            <div class="card-body py-2 px-3">
+                <form method="get" class="mb-0">
             <div class="input-group input-group-sm">
                 <span class="input-group-text fw-bold">{% trans "Runs" %}</span>
                 <input type="number" min="1" name="runs" id="runsInput" value="{{ num_runs|default:1 }}" class="form-control">
@@ -105,9 +58,9 @@ ul.nav-pills .nav-link:hover:not(.active) {
             {% endif %}
             <!-- Preserve active tab -->
             <input type="hidden" name="active_tab" id="activeTabInput" value="{{ request.GET.active_tab|default:'materials' }}">
-          </form>
+                </form>
+            </div>
         </div>
-      </div>
     </div>
     <div style="color: #fff; background: #c00; font-size: 2rem; font-weight: bold; text-align: center; padding: 1rem; margin-bottom: 2rem; border-radius: 0.5rem;">
     🚧 IN ACTIVE DEVELOPMENT / DO NOT USE 🚧
@@ -276,195 +229,13 @@ ul.nav-pills .nav-link:hover:not(.active) {
 {% endblock content %}
 
 {% block extra_javascript %}
+<script src="{% static 'indy_hub/js/craft_bp.js' %}"></script>
 <script>
+// Initialize CraftBP module with Django context
 document.addEventListener('DOMContentLoaded', function() {
-    document.querySelectorAll('.blueprint-icon img').forEach(function(img) {
-        img.onerror = function() {
-            this.style.display = 'none';
-            if (this.nextElementSibling) {
-                this.nextElementSibling.style.display = 'flex';
-            }
-        };
-    });
-    // Manage collapse/expand of sub-levels
-    document.querySelectorAll('.toggle-subtree').forEach(function(btn) {
-        btn.addEventListener('click', function() {
-            var targetId = btn.getAttribute('data-target');
-            var subtree = document.getElementById(targetId);
-            var icon = btn.querySelector('i');
-            if (subtree) {
-                var expanded = btn.getAttribute('aria-expanded') === 'true';
-                subtree.classList.toggle('show', !expanded);
-                btn.setAttribute('aria-expanded', !expanded);
-                if (!expanded) {
-                    icon.classList.remove('fa-chevron-right');
-                    icon.classList.add('fa-chevron-down');
-                } else {
-                    icon.classList.remove('fa-chevron-down');
-                    icon.classList.add('fa-chevron-right');
-                }
-            }
-        });
-    });
-});
-
-// New function to format prices as 000,000,000.00 ISK
-function formatPrice(num) {
-    return num.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' ISK';
-}
-
-/* New function to format numbers as 000,000,000.00 */
-function formatNumber(num) {
-    return num.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2});
-}
-
-// Live recalculation of financials
-function recalcFinancials() {
-    let costTotal = 0, revTotal = 0;
-    document.querySelectorAll('#tab-financial tbody tr').forEach(tr => {
-        const qty = parseFloat(tr.children[1].getAttribute('data-qty')) || 0;
-        const costInput = tr.querySelector('.unit-cost');
-        const revInput = tr.querySelector('.sale-price-unit');
-        if (costInput) {
-            const cost = (parseFloat(costInput.value) || 0) * qty;
-            tr.querySelector('.total-cost').textContent = formatPrice(cost);
-            costTotal += cost;
-        }
-        if (revInput) {
-            const rev = (parseFloat(revInput.value) || 0) * qty;
-            tr.querySelector('.total-revenue').textContent = formatPrice(rev);
-            revTotal += rev;
-        }
-    });
-    document.querySelector('.grand-total-cost').textContent = formatPrice(costTotal);
-    document.querySelector('.grand-total-rev').textContent = formatPrice(revTotal);
-    const profit = revTotal - costTotal;
-    document.querySelector('.profit').childNodes[0].textContent = formatPrice(profit) + ' ';
-    const pct = costTotal > 0 ? ((profit / costTotal * 100).toFixed(1)) : '0.0';
-    document.querySelector('.profit-pct').textContent = `(${pct}%)`;
-}
-
-// Batch fetch prices from Fuzzwork
-async function fetchAllPrices(typeIds) {
-    try {
-        const resp = await fetch(`{% url 'indy_hub:fuzzwork_price' %}?type_id=${typeIds.join(',')}`);
-        return await resp.json();
-    } catch (e) {
-        console.error('Error fetching prices from Fuzzwork', e);
-        return {};
-    }
-}
-
-document.addEventListener('DOMContentLoaded', function(){
-    // On change recalc
-    const allInputs = Array.from(document.querySelectorAll('.unit-cost, .sale-price-unit'));
-    allInputs.forEach(inp=>{
-        inp.addEventListener('input', recalcFinancials);
-    });
-    // Batch fetch Fuzzwork prices
-    let typeIds = allInputs.map(inp => inp.getAttribute('data-type-id')).filter(Boolean);
-    // Forcer l'inclusion du vrai type_id du produit final (depuis le contexte Django)
-    const productTypeId = '{{ product_type_id }}';
-    if (productTypeId && !typeIds.includes(productTypeId)) {
-        typeIds.push(productTypeId);
-    }
-    typeIds = [...new Set(typeIds)];
-    fetchAllPrices(typeIds).then(prices => {
-        // Populate all material and sale price inputs by parsing returned values
-        allInputs.forEach(inp => {
-            const tid = inp.getAttribute('data-type-id');
-            const raw = prices[tid];
-            let price = raw != null ? parseFloat(raw) : NaN;
-            if (isNaN(price)) price = 0;
-            inp.value = price.toFixed(2);
-            if (price <= 0) {
-                inp.classList.add('bg-warning', 'border-warning');
-                inp.setAttribute('title', 'Price not available (Fuzzwork)');
-            } else {
-                inp.classList.remove('bg-warning', 'border-warning');
-                inp.removeAttribute('title');
-            }
-        });
-        // Override final product sale price using its true type_id
-        if (productTypeId) {
-            const rawFinal = prices[productTypeId];
-            let finalPrice = rawFinal != null ? parseFloat(rawFinal) : NaN;
-            if (isNaN(finalPrice)) finalPrice = 0;
-            const saleInput = document.querySelector('.sale-price-unit');
-            if (saleInput) {
-                saleInput.value = finalPrice.toFixed(2);
-                if (finalPrice <= 0) {
-                    saleInput.classList.add('bg-warning', 'border-warning');
-                    saleInput.setAttribute('title', 'Price not available (Fuzzwork)');
-                } else {
-                    saleInput.classList.remove('bg-warning', 'border-warning');
-                    saleInput.removeAttribute('title');
-                }
-            }
-        }
-        // Initial calculation after fetching prices
-        recalcFinancials();
-    });
-});
-
-// Compute needed purchase list
-document.getElementById('compute-needed').addEventListener('click', function(){
-    const purchases = {};
-    function traverse(summary) {
-        const detail = summary.parentElement;
-        const childDetails = detail.querySelectorAll(':scope > details');
-        if (childDetails.length > 0) {
-            // Non-leaf
-            const cb = summary.querySelector('.mat-checkbox');
-            if (cb && !cb.checked) {
-                // User chooses to buy this intermediate product
-                const tid = summary.dataset.typeId;
-                const name = summary.dataset.typeName;
-                const qty = parseInt(summary.dataset.qty) || 0;
-                purchases[tid] = purchases[tid] || {name: name, qty: 0};
-                purchases[tid].qty += qty;
-            } else {
-                // Produce: recurse into children
-                childDetails.forEach(child => {
-                    const childSum = child.querySelector('summary');
-                    if (childSum) traverse(childSum);
-                });
-            }
-        } else {
-            // Leaf: always purchase raw material
-            const tid = summary.dataset.typeId;
-            const name = summary.dataset.typeName;
-            const qty = parseInt(summary.dataset.qty) || 0;
-            purchases[tid] = purchases[tid] || {name: name, qty: 0};
-            purchases[tid].qty += qty;
-        }
-    }
-    // Start from roots
-    document.querySelectorAll('#tab-tree details > summary').forEach(rootSum => {
-        traverse(rootSum);
-    });
-    // Render purchases
-    const tbody = document.querySelector('#needed-table tbody');
-    tbody.innerHTML = '';
-    let totalCost = 0;
-    // Fetch prices for purchase items
-    const pIds = Object.keys(purchases);
-    fetchAllPrices(pIds).then(prices => {
-         let totalCost = 0;
-        Object.entries(purchases).forEach(([tid, item]) => {
-            const unit = parseFloat(prices[tid]) || 0;
-            const line = unit * item.qty;
-            totalCost += line;
-            const row = document.createElement('tr');
-            row.innerHTML = `
-                <td>${item.name}</td>
-                <td class="text-end">${formatNumber(item.qty)}</td>
-                <td class="text-end">${formatPrice(unit)}</td>
-                <td class="text-end">${formatPrice(line)}</td>
-            `;
-            tbody.appendChild(row);
-        });
-        document.querySelector('.purchase-total').textContent = formatPrice(totalCost);
+    window.CraftBP.init({
+        productTypeId: '{{ product_type_id }}',
+        fuzzworkPriceUrl: '{% url 'indy_hub:fuzzwork_price' %}'
     });
 });
 </script>

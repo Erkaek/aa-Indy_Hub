@@ -1,26 +1,28 @@
 # Django
 from django.urls import path
 
-from .views import bp_copy_my_requests  # new view for my requests
-from .views import (
+from .views.industry import (
     all_bp_list,
-    authorize_all,
-    authorize_blueprints,
-    authorize_jobs,
     bp_accept_copy_request,
     bp_buyer_accept_offer,
     bp_cancel_copy_request,
     bp_cond_copy_request,
     bp_copy_fulfill_requests,
+    bp_copy_my_requests,
     bp_copy_request_page,
     bp_mark_copy_delivered,
     bp_offer_copy_request,
     bp_reject_copy_request,
     craft_bp,
     fuzzwork_price,
-    index,
     personnal_bp_list,
     personnal_job_list,
+)
+from .views.user import (
+    authorize_all,
+    authorize_blueprints,
+    authorize_jobs,
+    index,
     sync_all_tokens,
     sync_blueprints,
     sync_jobs,
