@@ -225,7 +225,10 @@
                                     notifyBtn.dataset.enabled = data.enabled ? 'true' : 'false';
                                     notifyBtn.className = 'btn flex-fill ' + (data.enabled ? 'btn-success' : 'btn-outline-secondary');
                                     document.getElementById('notify-label').textContent = data.enabled ? "{{ _('Notifications ON') }}" : "{{ _('Notifications OFF') }}";
-                                    showIndyHubPopup(data.enabled ? "Notifications de jobs activées." : "Notifications de jobs désactivées.", data.enabled ? 'success' : 'secondary');
+                                    showIndyHubPopup(
+                                        data.enabled ? "Job notifications enabled." : "Job notifications disabled.",
+                                        data.enabled ? 'success' : 'secondary'
+                                    );
                                 });
                             });
                         }
@@ -320,7 +323,10 @@
                                     shareBtn.dataset.enabled = data.enabled ? 'true' : 'false';
                                     shareBtn.className = 'btn flex-fill ' + (data.enabled ? 'btn-success' : 'btn-outline-secondary');
                                     document.getElementById('copy-sharing-label').textContent = data.enabled ? "{{ _('Sharing ON') }}" : "{{ _('Sharing OFF') }}";
-                                    showIndyHubPopup(data.enabled ? "Le partage de blueprints est activé." : "Le partage de blueprints est désactivé.", data.enabled ? 'success' : 'secondary');
+                                    showIndyHubPopup(
+                                        data.enabled ? "Blueprint sharing enabled." : "Blueprint sharing disabled.",
+                                        data.enabled ? 'success' : 'secondary'
+                                    );
                                 });
                             });
                         }

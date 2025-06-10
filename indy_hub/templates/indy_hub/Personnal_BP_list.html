@@ -1,5 +1,5 @@
-<!-- Template restauré : blueprints_list_optimized.html -->
-<!-- À personnaliser selon la dernière version connue ou à restaurer depuis un backup si besoin. -->
+<!-- My Blueprints list template -->
+<!-- Customize as needed -->
 
 {% extends "allianceauth/base-bs5.html" %}
 {% load i18n %}
@@ -161,7 +161,7 @@
                             {% endif %}
                         </div>
                         <a href="{% url 'indy_hub:craft_bp' bp.type_id %}?next={{ request.get_full_path|urlencode }}" class="btn btn-outline-info btn-sm ms-2">
-                            <i class="fas fa-tools me-1"></i>{% trans "Voir craft" %}
+                            <i class="fas fa-tools me-1"></i>{% trans "View Craft" %}
                         </a>
                     </div>
                     <div class="blueprint-meta mb-1">

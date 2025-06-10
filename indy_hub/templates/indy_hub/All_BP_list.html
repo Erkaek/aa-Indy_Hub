@@ -28,7 +28,7 @@
         <i class="fas fa-industry header-bg"></i>
     </div>
 
-    <!-- Filtres -->
+    <!-- Filters -->
     <form method="get" class="mb-4">
         <div class="row g-3 align-items-end">
             <div class="col-lg-4">
@@ -79,7 +79,7 @@
                     <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
                         <h4 class="blueprint-title mb-0">{{ bp.type_name|default:"Unknown Blueprint" }}</h4>
                         <a href="{% url 'indy_hub:craft_bp' bp.type_id %}?next={{ request.get_full_path|urlencode }}" class="btn btn-outline-info btn-sm ms-2">
-                            <i class="fas fa-tools me-1"></i>{% trans "Voir craft" %}
+                            <i class="fas fa-tools me-1"></i>{% trans "View Craft" %}
                         </a>
                     </div>
                     <div class="blueprint-meta mb-1">

@@ -1,5 +1,5 @@
 {% load humanize %}
-{# Recursive details-based tree for production materials #}
+{# Recursive tree for production materials #}
 {% for mat in materials %}
   <details class="mb-2 ps-{{ level|add:1 }}" {% if level == 0 %}open{% endif %}>
     <summary class="d-flex align-items-center gap-2" data-type-id="{{ mat.type_id }}" data-type-name="{{ mat.type_name }}" data-qty="{{ mat.quantity }}">

@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 @indy_hub_access_required
 @login_required
 def personnal_bp_list(request):
-    # Copie du code de l'ancienne blueprints_list
+    # Copy of the old blueprints_list code
     try:
         # Check if we need to sync data
         force_update = request.GET.get("refresh") == "1"
@@ -359,7 +359,7 @@ def craft_bp(request, type_id):
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                    SELECT product_eve_type_id
+                    SELECT product_eve_type_id, quantity
                     FROM eveuniverse_eveindustryactivityproduct
                     WHERE eve_type_id = %s AND activity_id IN (1, 11)
                     LIMIT 1
@@ -368,6 +368,8 @@ def craft_bp(request, type_id):
             )
             product_row = cursor.fetchone()
             product_type_id = product_row[0] if product_row else None
+            output_qty_per_run = product_row[1] if product_row and len(product_row) > 1 else 1
+            final_product_qty = output_qty_per_run * num_runs
         def get_materials_tree(bp_id, runs, depth=0, max_depth=10, seen=None):
             if seen is None:
                 seen = set()
@@ -446,6 +448,7 @@ def craft_bp(request, type_id):
                 "materials_tree": materials_tree,
                 "num_runs": num_runs,
                 "product_type_id": product_type_id,
+                "final_product_qty": final_product_qty,
                 "me": me,
                 "te": te,
             },
@@ -578,7 +581,7 @@ def bp_copy_request_page(request):
         )
         from django.contrib.auth.models import User
         owner_ids = (
-            Blueprint.objects.filter(type_id=type_id, fulfilled=False)
+            Blueprint.objects.filter(type_id=type_id, quantity=-1)
             .values_list("owner_user", flat=True)
             .distinct()
         )

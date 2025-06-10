@@ -110,9 +110,9 @@ ul.nav-pills .nav-link:hover:not(.active) {
       </div>
     </div>
     <div style="color: #fff; background: #c00; font-size: 2rem; font-weight: bold; text-align: center; padding: 1rem; margin-bottom: 2rem; border-radius: 0.5rem;">
-    🚧 IN ACTIVE DEVELOPPEMENT / DO NOT USE 🚧
+    🚧 IN ACTIVE DEVELOPMENT / DO NOT USE 🚧
     </div>
-    {# Onglets pour basculer entre matériaux requis et arbre complet #}
+    {# Tabs to switch between required materials and full production tree #}
     <ul class="nav nav-pills nav-justified mb-4" role="tablist">
         <li class="nav-item" role="presentation">
             <button class="nav-link active" id="materials-tab" data-bs-toggle="tab" data-bs-target="#tab-materials" type="button" role="tab">
@@ -161,7 +161,7 @@ ul.nav-pills .nav-link:hover:not(.active) {
                                     </span>
                                 </td>
                                 <td>{{ mat.type_name }}</td>
-                                <td>{{ mat.quantity|intcomma }}</td>
+                                <td class="text-end" data-qty="{{ mat.quantity }}">{{ mat.quantity }}</td>
                             </tr>
                             {% endfor %}
                         </tbody>
@@ -210,14 +210,14 @@ ul.nav-pills .nav-link:hover:not(.active) {
                                 {% for mat in materials %}
                                 <tr>
                                     <td>{{ mat.type_name }}</td>
-                                    <td class="text-end">{{ mat.quantity }}</td>
+                                    <td class="text-end" data-qty="{{ mat.quantity }}">{{ mat.quantity }}</td>
                                     <td class="text-end"><input type="number" min="0" step="0.01" class="form-control form-control-sm unit-cost text-end" data-type-id="{{ mat.type_id }}" value="0"></td>
                                     <td class="text-end total-cost">0</td>
                                 </tr>
                                 {% endfor %}
                                 <tr class="table-success fw-bold">
                                     <td>{% trans "Final Product" %}</td>
-                                    <td class="text-end">{{ num_runs }}</td>
+                                    <td class="text-end" data-qty="{{ final_product_qty|default:num_runs }}">{{ final_product_qty|default:num_runs }}</td>
                                     <td class="text-end"><input type="number" min="0" step="0.01" class="form-control form-control-sm sale-price-unit text-end" data-type-id="{{ product_type_id }}" value="0"></td>
                                     <td class="text-end total-revenue">0</td>
                                 </tr>
@@ -286,7 +286,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         };
     });
-    // Gestion du collapse/dépliage des sous-niveaux
+    // Manage collapse/expand of sub-levels
     document.querySelectorAll('.toggle-subtree').forEach(function(btn) {
         btn.addEventListener('click', function() {
             var targetId = btn.getAttribute('data-target');
@@ -308,12 +308,12 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
-// Nouvelle fonction pour formater les prix en 000.000.000,00 ISK
+// New function to format prices as 000,000,000.00 ISK
 function formatPrice(num) {
     return num.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' ISK';
 }
 
-/* Nouvelle fonction pour formater les nombres en 000.000.000,00 */
+/* New function to format numbers as 000,000,000.00 */
 function formatNumber(num) {
     return num.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2});
 }
@@ -322,9 +322,7 @@ function formatNumber(num) {
 function recalcFinancials() {
     let costTotal = 0, revTotal = 0;
     document.querySelectorAll('#tab-financial tbody tr').forEach(tr => {
-        const rawQty = parseFloat(tr.children[1].textContent.replace(/\./g, '').replace(/,/g, '.')) || 0;
-        const qty = rawQty;
-        tr.children[1].textContent = formatNumber(qty);
+        const qty = parseFloat(tr.children[1].getAttribute('data-qty')) || 0;
         const costInput = tr.querySelector('.unit-cost');
         const revInput = tr.querySelector('.sale-price-unit');
         if (costInput) {
@@ -346,13 +344,13 @@ function recalcFinancials() {
     document.querySelector('.profit-pct').textContent = `(${pct}%)`;
 }
 
-// Nouvelle fonction pour batch fetch
+// Batch fetch prices from Fuzzwork
 async function fetchAllPrices(typeIds) {
     try {
         const resp = await fetch(`{% url 'indy_hub:fuzzwork_price' %}?type_id=${typeIds.join(',')}`);
         return await resp.json();
     } catch (e) {
-        console.error('Erreur lors de la récupération des prix Fuzzwork', e);
+        console.error('Error fetching prices from Fuzzwork', e);
         return {};
     }
 }
@@ -381,7 +379,7 @@ document.addEventListener('DOMContentLoaded', function(){
             inp.value = price.toFixed(2);
             if (price <= 0) {
                 inp.classList.add('bg-warning', 'border-warning');
-                inp.setAttribute('title', 'Prix non disponible (Fuzzwork)');
+                inp.setAttribute('title', 'Price not available (Fuzzwork)');
             } else {
                 inp.classList.remove('bg-warning', 'border-warning');
                 inp.removeAttribute('title');
@@ -397,7 +395,7 @@ document.addEventListener('DOMContentLoaded', function(){
                 saleInput.value = finalPrice.toFixed(2);
                 if (finalPrice <= 0) {
                     saleInput.classList.add('bg-warning', 'border-warning');
-                    saleInput.setAttribute('title', 'Prix non disponible (Fuzzwork)');
+                    saleInput.setAttribute('title', 'Price not available (Fuzzwork)');
                 } else {
                     saleInput.classList.remove('bg-warning', 'border-warning');
                     saleInput.removeAttribute('title');
