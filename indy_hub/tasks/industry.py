@@ -68,28 +68,30 @@ def update_blueprints_for_user(self, user_id):
                         },
                     )
                     continue
+                esi_ids = set()
                 # Update blueprints in DB
                 with transaction.atomic():
-                    # Remove old blueprints for this character
-                    Blueprint.objects.filter(
-                        owner_user=user, character_id=char_id
-                    ).delete()
                     for bp in blueprints:
-                        Blueprint.objects.create(
+                        obj, created = Blueprint.objects.update_or_create(
                             owner_user=user,
                             character_id=char_id,
                             item_id=bp.get("item_id"),
-                            blueprint_id=bp.get("blueprint_id", None),
-                            type_id=bp.get("type_id"),
-                            location_id=bp.get("location_id"),
-                            location_flag=bp.get("location_flag", ""),
-                            quantity=bp.get("quantity"),
-                            time_efficiency=bp.get("time_efficiency", 0),
-                            material_efficiency=bp.get("material_efficiency", 0),
-                            runs=bp.get("runs", 0),
-                            character_name=get_character_name(char_id),
-                            type_name=get_type_name(bp.get("type_id")),
+                            defaults={
+                                "blueprint_id": bp.get("blueprint_id", None),
+                                "type_id": bp.get("type_id"),
+                                "location_id": bp.get("location_id"),
+                                "location_flag": bp.get("location_flag", ""),
+                                "quantity": bp.get("quantity"),
+                                "time_efficiency": bp.get("time_efficiency", 0),
+                                "material_efficiency": bp.get("material_efficiency", 0),
+                                "runs": bp.get("runs", 0),
+                                "character_name": get_character_name(char_id),
+                                "type_name": get_type_name(bp.get("type_id")),
+                            }
                         )
+                        esi_ids.add(bp.get("item_id"))
+                    # Supprimer les blueprints qui ne sont plus dans l'ESI
+                    Blueprint.objects.filter(owner_user=user, character_id=char_id).exclude(item_id__in=esi_ids).delete()
                     CharacterUpdateTracker.objects.update_or_create(
                         user=user,
                         character_id=char_id,
@@ -138,7 +140,6 @@ def update_industry_jobs_for_user(self, user_id):
             char_id = ownership.character.character_id
             try:
                 from esi.models import Token
-                
                 token = (
                     Token.objects.filter(character_id=char_id, user=user)
                     .require_scopes(["esi-industry.read_character_jobs.v1"])
@@ -160,54 +161,54 @@ def update_industry_jobs_for_user(self, user_id):
                         },
                     )
                     continue
+                esi_job_ids = set()
                 with transaction.atomic():
-                    IndustryJob.objects.filter(
-                        owner_user=user, character_id=char_id
-                    ).delete()
                     for job in jobs:
-                        IndustryJob.objects.create(
+                        obj, created = IndustryJob.objects.update_or_create(
                             owner_user=user,
                             character_id=char_id,
                             job_id=job.get("job_id"),
-                            installer_id=job.get("installer_id"),
-                            facility_id=job.get("facility_id"),
-                            station_id=job.get("station_id"),
-                            activity_id=job.get("activity_id"),
-                            blueprint_id=job.get("blueprint_id"),
-                            blueprint_type_id=job.get("blueprint_type_id"),
-                            blueprint_location_id=job.get("blueprint_location_id"),
-                            output_location_id=job.get("output_location_id"),
-                            runs=job.get("runs"),
-                            cost=job.get("cost"),
-                            licensed_runs=job.get("licensed_runs"),
-                            probability=job.get("probability"),
-                            product_type_id=job.get("product_type_id"),
-                            status=job.get("status"),
-                            duration=job.get("duration"),
-                            start_date=job.get("start_date"),
-                            end_date=job.get("end_date"),
-                            pause_date=job.get("pause_date"),
-                            completed_date=job.get("completed_date"),
-                            completed_character_id=job.get("completed_character_id"),
-                            successful_runs=job.get("successful_runs"),
-                            blueprint_type_name=get_type_name(
-                                job.get("blueprint_type_id")
-                            ),
-                            product_type_name=get_type_name(job.get("product_type_id")),
-                            character_name=get_character_name(char_id),
+                            defaults={
+                                "installer_id": job.get("installer_id"),
+                                "facility_id": job.get("facility_id"),
+                                "station_id": job.get("station_id"),
+                                "activity_id": job.get("activity_id"),
+                                "blueprint_id": job.get("blueprint_id"),
+                                "blueprint_type_id": job.get("blueprint_type_id"),
+                                "blueprint_location_id": job.get("blueprint_location_id"),
+                                "output_location_id": job.get("output_location_id"),
+                                "runs": job.get("runs"),
+                                "cost": job.get("cost"),
+                                "licensed_runs": job.get("licensed_runs"),
+                                "probability": job.get("probability"),
+                                "product_type_id": job.get("product_type_id"),
+                                "status": job.get("status"),
+                                "duration": job.get("duration"),
+                                "start_date": job.get("start_date"),
+                                "end_date": job.get("end_date"),
+                                "pause_date": job.get("pause_date"),
+                                "completed_date": job.get("completed_date"),
+                                "completed_character_id": job.get("completed_character_id"),
+                                "successful_runs": job.get("successful_runs"),
+                                "blueprint_type_name": get_type_name(job.get("blueprint_type_id")),
+                            }
                         )
+                        esi_job_ids.add(job.get("job_id"))
+                    # Supprimer les jobs qui ne sont plus dans l'ESI
+                    IndustryJob.objects.filter(owner_user=user, character_id=char_id).exclude(job_id__in=esi_job_ids).delete()
                     CharacterUpdateTracker.objects.update_or_create(
                         user=user,
                         character_id=char_id,
-                        defaults={"jobs_last_update": timezone.now(), "last_error": ""},
+                        defaults={
+                            "jobs_last_update": timezone.now(),
+                            "last_error": "",
+                        },
                     )
                     updated_count += len(jobs)
             except Exception as e:
-                logger.error(
-                    f"Error updating industry jobs for character {char_id}: {e}"
-                )
+                logger.error(f"Error updating jobs for character {char_id}: {e}")
                 error_messages.append(f"Char {char_id}: {e}")
-        logger.info(f"Updated {updated_count} industry jobs for user {user.username}")
+        logger.info(f"Updated {updated_count} jobs for user {user.username}")
         if error_messages:
             logger.warning(
                 f"Industry jobs sync errors for user {user.username}: {'; '.join(error_messages)}"
@@ -218,7 +219,7 @@ def update_industry_jobs_for_user(self, user_id):
             "errors": error_messages,
         }
     except Exception as e:
-        logger.error(f"Error updating industry jobs for user {user_id}: {e}")
+        logger.error(f"Error updating jobs for user {user_id}: {e}")
         try:
             user = User.objects.get(id=user_id)
             for tracker in CharacterUpdateTracker.objects.filter(user=user):
@@ -231,14 +232,41 @@ def update_industry_jobs_for_user(self, user_id):
 
 @shared_task
 def cleanup_old_jobs():
-    cutoff_date = timezone.now() - timezone.timedelta(days=30)
-    old_jobs = IndustryJob.objects.filter(
-        status__in=["delivered", "cancelled", "reverted"], end_date__lt=cutoff_date
-    )
-    count = old_jobs.count()
-    old_jobs.delete()
-    logger.info(f"Cleaned up {count} old industry jobs")
-    return {"deleted_jobs": count}
+    """
+    Supprime uniquement les jobs orphelins :
+    - jobs dont le owner_user n'existe plus
+    - jobs dont le character_id ne correspond à aucun CharacterOwnership
+    - jobs dont le token ESI n'existe plus pour ce user/char
+    """
+    from django.contrib.auth import get_user_model
+    User = get_user_model()
+    from allianceauth.authentication.models import CharacterOwnership
+    from esi.models import Token
+
+    # Jobs sans user
+    jobs_no_user = IndustryJob.objects.filter(owner_user__isnull=True)
+    count_no_user = jobs_no_user.count()
+    jobs_no_user.delete()
+
+    # Jobs sans character ownership
+    jobs = IndustryJob.objects.all()
+    char_ids = set(CharacterOwnership.objects.values_list("character__character_id", flat=True))
+    jobs_no_char = jobs.exclude(character_id__in=char_ids)
+    count_no_char = jobs_no_char.count()
+    jobs_no_char.delete()
+
+    # Jobs sans token valide (aucun token pour ce user/char)
+    jobs = IndustryJob.objects.all()
+    deleted_tokenless = 0
+    for job in jobs:
+        has_token = Token.objects.filter(user=job.owner_user, character_id=job.character_id).exists()
+        if not has_token:
+            job.delete()
+            deleted_tokenless += 1
+
+    total_deleted = count_no_user + count_no_char + deleted_tokenless
+    logger.info(f"Cleaned up {total_deleted} orphaned industry jobs (no user: {count_no_user}, no char: {count_no_char}, no token: {deleted_tokenless})")
+    return {"deleted_jobs": total_deleted, "no_user": count_no_user, "no_char": count_no_char, "no_token": deleted_tokenless}
 
 
 @shared_task
