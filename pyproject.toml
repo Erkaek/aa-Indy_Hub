@@ -43,7 +43,7 @@ classifiers = [
 dependencies = [
     "aa-discordnotify>=2",
     "allianceauth>=4,<5",
-    "eveuniverse>=1.5.7",
+    "django-eveuniverse>=1.5.7",
 ]
 urls.Home = "https://github.com/Erkaek/aa-Indy_Hub"
 urls.Source = "https://github.com/Erkaek/aa-Indy_Hub"
