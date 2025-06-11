@@ -1,0 +1,65 @@
+[build-system]
+build-backend = "flit_core.buildapi"
+requires = [
+    "flit-core>=3.2,<4",
+]
+
+[project]
+name = "indy-hub"
+version = "0.1.0"
+description = "Indy Hub Plugin for Alliance Auth"
+readme = "README.md"
+keywords = [
+    "allianceauth",
+    "eveonline",
+    "indy",
+    "industry",
+    "hub",
+]
+license = { file = "LICENSE" }
+authors = [
+    { name = "erka Ekanon", email = "erkaekanon@outlook.com" },
+]
+requires-python = ">=3.10"
+classifiers = [
+    "Environment :: Web Environment",
+    "Framework :: Celery",
+    "Framework :: Django",
+    "Framework :: Django :: 4.0",
+    "Framework :: Django :: 4.2",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Internet :: WWW/HTTP :: Dynamic Content",
+]
+dependencies = [
+    "aa-discordnotify>=2",
+    "allianceauth>=4,<5",
+    "eveuniverse>=1.5.7",
+]
+urls.Home = "https://github.com/Erkaek/aa-Indy_Hub"
+urls.Source = "https://github.com/Erkaek/aa-Indy_Hub"
+urls.Tracker = "https://github.com/Erkaek/aa-Indy_Hub/issues"
+
+[tool.flit.module]
+name = "indy_hub"
+skip_gitignore = true
+
+[tool.flake8]
+exclude = [ ".git", "*migrations*", ".tox", "dist", "htmlcov" ]
+max-line-length = 119
+select = [ "C", "E", "F", "W", "B", "B950" ]
+ignore = [ "E203", "E231", "E501", "W503", "W291", "W293" ]
+
+[tool.djlint]
+max_attribute_length = 119
+max_line_length = 119
+max_blank_lines = 1
