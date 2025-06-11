@@ -16,7 +16,7 @@ window.CraftBP = {
     init: function(config) {
         CRAFT_BP.fuzzworkUrl = config.fuzzworkPriceUrl;
         CRAFT_BP.productTypeId = config.productTypeId;
-        
+
         // Initialize financial calculations after configuration
         initializeFinancialCalculations();
     }
@@ -82,7 +82,7 @@ function initializeFinancialCalculations() {
 
     // Batch fetch Fuzzwork prices
     let typeIds = allInputs.map(inp => inp.getAttribute('data-type-id')).filter(Boolean);
-    
+
     // Include the final product type_id
     if (CRAFT_BP.productTypeId && !typeIds.includes(CRAFT_BP.productTypeId)) {
         typeIds.push(CRAFT_BP.productTypeId);
@@ -124,28 +124,28 @@ function formatNumber(num) {
  */
 function recalcFinancials() {
     let costTotal = 0, revTotal = 0;
-    
+
     document.querySelectorAll('#tab-financial tbody tr').forEach(tr => {
         const qty = parseFloat(tr.children[1].getAttribute('data-qty')) || 0;
         const costInput = tr.querySelector('.unit-cost');
         const revInput = tr.querySelector('.sale-price-unit');
-        
+
         if (costInput) {
             const cost = (parseFloat(costInput.value) || 0) * qty;
             tr.querySelector('.total-cost').textContent = formatPrice(cost);
             costTotal += cost;
         }
-        
+
         if (revInput) {
             const rev = (parseFloat(revInput.value) || 0) * qty;
             tr.querySelector('.total-revenue').textContent = formatPrice(rev);
             revTotal += rev;
         }
     });
-    
+
     document.querySelector('.grand-total-cost').textContent = formatPrice(costTotal);
     document.querySelector('.grand-total-rev').textContent = formatPrice(revTotal);
-    
+
     const profit = revTotal - costTotal;
     document.querySelector('.profit').childNodes[0].textContent = formatPrice(profit) + ' ';
     const pct = costTotal > 0 ? ((profit / costTotal * 100).toFixed(1)) : '0.0';
@@ -179,9 +179,9 @@ function populatePrices(allInputs, prices) {
         const raw = prices[tid];
         let price = raw != null ? parseFloat(raw) : NaN;
         if (isNaN(price)) price = 0;
-        
+
         inp.value = price.toFixed(2);
-        
+
         if (price <= 0) {
             inp.classList.add('bg-warning', 'border-warning');
             inp.setAttribute('title', 'Price not available (Fuzzwork)');
@@ -190,13 +190,13 @@ function populatePrices(allInputs, prices) {
             inp.removeAttribute('title');
         }
     });
-    
+
     // Override final product sale price using its true type_id
     if (CRAFT_BP.productTypeId) {
         const rawFinal = prices[CRAFT_BP.productTypeId];
         let finalPrice = rawFinal != null ? parseFloat(rawFinal) : NaN;
         if (isNaN(finalPrice)) finalPrice = 0;
-        
+
         const saleInput = document.querySelector('.sale-price-unit');
         if (saleInput) {
             saleInput.value = finalPrice.toFixed(2);
@@ -216,11 +216,11 @@ function populatePrices(allInputs, prices) {
  */
 function computeNeededPurchases() {
     const purchases = {};
-    
+
     function traverse(summary) {
         const detail = summary.parentElement;
         const childDetails = detail.querySelectorAll(':scope > details');
-        
+
         if (childDetails.length > 0) {
             // Non-leaf
             const cb = summary.querySelector('.mat-checkbox');
@@ -247,16 +247,16 @@ function computeNeededPurchases() {
             purchases[tid].qty += qty;
         }
     }
-    
+
     // Start from roots
     document.querySelectorAll('#tab-tree details > summary').forEach(rootSum => {
         traverse(rootSum);
     });
-    
+
     // Render purchases
     const tbody = document.querySelector('#needed-table tbody');
     tbody.innerHTML = '';
-    
+
     // Fetch prices for purchase items
     const pIds = Object.keys(purchases);
     fetchAllPrices(pIds).then(prices => {
@@ -265,7 +265,7 @@ function computeNeededPurchases() {
             const unit = parseFloat(prices[tid]) || 0;
             const line = unit * item.qty;
             totalCost += line;
-            
+
             const row = document.createElement('tr');
             row.innerHTML = `
                 <td>${item.name}</td>

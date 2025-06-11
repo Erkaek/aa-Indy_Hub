@@ -44,12 +44,12 @@ ul.nav-pills .nav-link {
 
 ul.nav-pills .nav-link.active {
     background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-    color: #ffffff;
+    color: #fff;
 }
 
 ul.nav-pills .nav-link:hover:not(.active) {
     background-color: #d1c4e9;
-    color: #ffffff;
+    color: #fff;
 }
 
 /* Blueprint icons */

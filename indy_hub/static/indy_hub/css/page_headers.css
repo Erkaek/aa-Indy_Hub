@@ -18,9 +18,9 @@
 
 .page-header .header-bg {
     position: absolute;
-    right: 0; 
-    bottom: 0; 
-    width: 180px; 
+    right: 0;
+    bottom: 0;
+    width: 180px;
     opacity: 15%;
     pointer-events: none;
     font-size: 8rem;
