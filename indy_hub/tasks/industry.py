@@ -43,16 +43,8 @@ def update_blueprints_for_user(self, user_id):
             char_id = ownership.character.character_id
             # Find a valid token for this character with blueprint scope
             try:
-                Token = None
-                try:
-                    # Alliance Auth
-                    from allianceauth.eveonline.models import Token as AuthToken
-
-                    Token = AuthToken
-                except ImportError:
-                    pass
-                if not Token:
-                    raise Exception("Token model not found")
+                from esi.models import Token
+                
                 token = (
                     Token.objects.filter(character_id=char_id, user=user)
                     .require_scopes(["esi-characters.read_blueprints.v1"])
@@ -145,16 +137,8 @@ def update_industry_jobs_for_user(self, user_id):
         for ownership in ownerships:
             char_id = ownership.character.character_id
             try:
-                Token = None
-                try:
-                    # Alliance Auth
-                    from allianceauth.eveonline.models import Token as AuthToken
-
-                    Token = AuthToken
-                except ImportError:
-                    pass
-                if not Token:
-                    raise Exception("Token model not found")
+                from esi.models import Token
+                
                 token = (
                     Token.objects.filter(character_id=char_id, user=user)
                     .require_scopes(["esi-industry.read_character_jobs.v1"])

@@ -59,34 +59,42 @@ def setup_indyhub_periodic_tasks(sender, **kwargs):
         )
 
 
-# --- NEW: Trigger blueprint sync after ESI token is saved ---
+# --- NEW: Combined token sync trigger ---
 if Token:
 
     @receiver(post_save, sender=Token)
-    def trigger_blueprint_sync_on_token_save(sender, instance, created, **kwargs):
+    def trigger_sync_on_token_save(sender, instance, created, **kwargs):
         """
-        When a new ESI token is saved (or updated), trigger blueprint sync if it has the blueprint scope.
-        """
-        if not instance.user_id:
-            return
-        # Only trigger if the token has blueprint scope
-        if instance.scopes.filter(name="esi-characters.read_blueprints.v1").exists():
-            update_blueprints_for_user.delay(instance.user_id)
-
-
-# --- NEW: Trigger jobs sync after ESI token is saved ---
-if Token:
-
-    @receiver(post_save, sender=Token)
-    def trigger_jobs_sync_on_token_save(sender, instance, created, **kwargs):
-        """
-        When a new ESI token is saved (or updated), trigger jobs sync if it has the jobs scope.
+        When a new ESI token is saved, trigger appropriate sync based on scopes.
         """
         if not instance.user_id:
+            logger.debug(f"Token {instance.pk} has no user_id, skipping sync")
             return
-        # Only trigger if the token has jobs scope
-        if instance.scopes.filter(name="esi-industry.read_character_jobs.v1").exists():
-            update_industry_jobs_for_user.delay(instance.user_id)
+            
+        # Only trigger sync for newly created tokens or significant updates
+        if not created:
+            logger.debug(f"Token {instance.pk} updated but not created, skipping sync")
+            return
+            
+        logger.info(f"New token created for user {instance.user_id}, character {instance.character_id}")
+        
+        # Check blueprint scope
+        blueprint_scopes = instance.scopes.filter(name="esi-characters.read_blueprints.v1")
+        if blueprint_scopes.exists():
+            logger.info(f"Triggering blueprint sync for user {instance.user_id}")
+            try:
+                update_blueprints_for_user.delay(instance.user_id)
+            except Exception as e:
+                logger.error(f"Failed to trigger blueprint sync: {e}")
+        
+        # Check jobs scope
+        jobs_scopes = instance.scopes.filter(name="esi-industry.read_character_jobs.v1")
+        if jobs_scopes.exists():
+            logger.info(f"Triggering jobs sync for user {instance.user_id}")
+            try:
+                update_industry_jobs_for_user.delay(instance.user_id)
+            except Exception as e:
+                logger.error(f"Failed to trigger jobs sync: {e}")
 
 
 @receiver(post_save, sender=Token)
