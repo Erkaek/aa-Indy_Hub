@@ -47,15 +47,22 @@ ______________________________________________________________________
 
 ## Quick Install
 
+1. `pip install django-eveuniverse` and `pip install indy_hub`
+
 1. Add `eveuniverse` and `indy_hub` to `INSTALLED_APPS` in your AA settings.
 
-1. Run migrations: `python manage.py migrate`
+1. Add to your local.py:
+- EVEUNIVERSE_LOAD_TYPE_MATERIALS = True
+- EVEUNIVERSE_LOAD_MARKET_GROUPS = True
+- EVEUNIVERSE_LOAD_TYPE_MATERIALS = True
 
-1. Populate EveUniverse with industry data `python manage.py eveuniverse_load_data types --types-enabled-sections industry_activities type_materials`.
+1. Run migrations: `python manage.py migrate`
 
 1. Collect static files: `python manage.py collectstatic`
 
 1. Restart your auth.
+
+1. Populate EveUniverse with industry data `python manage.py eveuniverse_load_data types --types-enabled-sections industry_activities type_materials`.
 
 1. Assign the `can access indy_hub` permission to users/groups.
 
