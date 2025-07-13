@@ -11,17 +11,19 @@ from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
+from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 # Alliance Auth
 from allianceauth.authentication.models import CharacterOwnership
 from esi.models import CallbackRedirect, Token
 
+# AA Example App
+from indy_hub.models import CharacterSettings
+
 from ..decorators import indy_hub_access_required
 from ..models import (
     Blueprint,
-    BlueprintCopyShareSetting,
-    CharacterUpdateTracker,
     IndustryJob,
     get_character_name,
 )
@@ -89,8 +91,6 @@ def index(request):
     stack_blueprints = blueprints_qs.filter(quantity__gt=0).count()
     # Jobs stats
     jobs_qs = IndustryJob.objects.filter(owner_user=request.user)
-    # Django
-    from django.utils import timezone
 
     now = timezone.now()
     today = now.date()
@@ -99,14 +99,12 @@ def index(request):
     completed_jobs_today = jobs_qs.filter(
         end_date__date=today, end_date__lte=now
     ).count()
-    # Notification preference
-    tracker, _ = CharacterUpdateTracker.objects.get_or_create(
+    # Récupère ou crée les préférences utilisateur
+    settings, _ = CharacterSettings.objects.get_or_create(
         user=request.user, character_id=0
     )
-    jobs_notify_completed = getattr(tracker, "jobs_notify_completed", True)
-    # Blueprint copy sharing preference
-    setting, _ = BlueprintCopyShareSetting.objects.get_or_create(user=request.user)
-    allow_copy_requests = setting.allow_copy_requests
+    jobs_notify_completed = settings.jobs_notify_completed
+    allow_copy_requests = settings.allow_copy_requests
     context = {
         "has_blueprint_tokens": bool(blueprint_char_ids),
         "has_jobs_tokens": bool(jobs_char_ids),
@@ -418,24 +416,28 @@ def sync_jobs(request):
     return redirect("indy_hub:token_management")
 
 
+# Toggle notification des travaux
 @indy_hub_access_required
 @login_required
 @require_POST
 def toggle_job_notifications(request):
-    tracker, _ = CharacterUpdateTracker.objects.get_or_create(
+    # Basculer la préférence de notification
+    settings, _ = CharacterSettings.objects.get_or_create(
         user=request.user, character_id=0
     )
-    tracker.jobs_notify_completed = not getattr(tracker, "jobs_notify_completed", True)
-    tracker.save(update_fields=["jobs_notify_completed"])
-    return JsonResponse({"enabled": tracker.jobs_notify_completed})
+    settings.jobs_notify_completed = not settings.jobs_notify_completed
+    settings.save(update_fields=["jobs_notify_completed"])
+    return JsonResponse({"enabled": settings.jobs_notify_completed})
 
 
-# Toggle blueprint copy sharing on/off
+# Toggle pooling de partage de copies
 @indy_hub_access_required
 @login_required
 @require_POST
 def toggle_copy_sharing(request):
-    setting, _ = BlueprintCopyShareSetting.objects.get_or_create(user=request.user)
-    setting.allow_copy_requests = not setting.allow_copy_requests
-    setting.save(update_fields=["allow_copy_requests"])
-    return JsonResponse({"enabled": setting.allow_copy_requests})
+    settings, _ = CharacterSettings.objects.get_or_create(
+        user=request.user, character_id=0
+    )
+    settings.allow_copy_requests = not settings.allow_copy_requests
+    settings.save(update_fields=["allow_copy_requests"])
+    return JsonResponse({"enabled": settings.allow_copy_requests})

@@ -20,12 +20,19 @@ def get_user_preferences(user):
     Returns:
         dict: User preferences
     """
-    from ..models import CharacterUpdateTracker
+    from ..models import CharacterSettings
 
-    tracker, created = CharacterUpdateTracker.objects.get_or_create(user=user)
+    settings, created = CharacterSettings.objects.get_or_create(
+        user=user,
+        character_id=0,  # Global settings
+        defaults={
+            "jobs_notify_completed": True,
+            "allow_copy_requests": False,
+        },
+    )
     return {
-        "jobs_notify_completed": tracker.jobs_notify_completed,
-        "last_refresh_request": tracker.last_refresh_request,
+        "jobs_notify_completed": settings.jobs_notify_completed,
+        "allow_copy_requests": settings.allow_copy_requests,
     }
 
 
@@ -40,15 +47,25 @@ def update_user_preferences(user, preferences):
     Returns:
         bool: Success status
     """
-    from ..models import CharacterUpdateTracker
+    from ..models import CharacterSettings
 
     try:
-        tracker, created = CharacterUpdateTracker.objects.get_or_create(user=user)
+        settings, created = CharacterSettings.objects.get_or_create(
+            user=user,
+            character_id=0,  # Global settings
+            defaults={
+                "jobs_notify_completed": True,
+                "allow_copy_requests": False,
+            },
+        )
 
         if "jobs_notify_completed" in preferences:
-            tracker.jobs_notify_completed = preferences["jobs_notify_completed"]
+            settings.jobs_notify_completed = preferences["jobs_notify_completed"]
 
-        tracker.save()
+        if "allow_copy_requests" in preferences:
+            settings.allow_copy_requests = preferences["allow_copy_requests"]
+
+        settings.save()
         return True
     except Exception as e:
         logger.error(f"Failed to update user preferences: {e}")

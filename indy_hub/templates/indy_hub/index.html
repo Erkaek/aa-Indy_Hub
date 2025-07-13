@@ -103,6 +103,10 @@
                         <a href="{% url 'indy_hub:personnal_bp_list' %}" class="btn btn-primary">
                             <i class="fas fa-list me-2"></i>{% trans "View My Blueprints" %}
                         </a>
+                        <button id="toggle-copy-sharing" class="btn {% if allow_copy_requests %}btn-success{% else %}btn-outline-secondary{% endif %} flex-fill" data-enabled="{{ allow_copy_requests|yesno:'true,false' }}">
+                            <i class="fas fa-share-alt me-1"></i>
+                            <span id="copy-sharing-label">{% if allow_copy_requests %}{% trans "Sharing ON" %}{% else %}{% trans "Sharing OFF" %}{% endif %}</span>
+                        </button>
                     </div>
                     {% else %}
                     <div class="text-center py-4">
@@ -153,11 +157,9 @@
                         </div>
                     </div>
                     <div class="d-grid gap-2 mb-3">
-                        <a href="{% url 'indy_hub:personnal_job_list' %}" class="btn btn-success">
+                        <a href="{% url 'indy_hub:personnal_job_list' %}" class="btn btn-primary">
                             <i class="fas fa-list me-2"></i>{% trans "View All Jobs" %}
                         </a>
-                    </div>
-                    <div class="mb-3 d-flex gap-2">
                         <button id="toggle-job-notify" class="btn {% if jobs_notify_completed %}btn-success{% else %}btn-outline-secondary{% endif %} flex-fill" type="button" data-enabled="{{ jobs_notify_completed|yesno:'true,false' }}">
                             <i class="fas fa-bell me-1"></i>
                             <span id="notify-label">{% if jobs_notify_completed %}{% trans "Notifications ON" %}{% else %}{% trans "Notifications OFF" %}{% endif %}</span>
@@ -210,12 +212,6 @@
                             <h5 class="card-title mb-1">{% trans "Blueprint Copy Sharing" %}</h5>
                             <p class="text-muted small mb-0">{% trans "Request copies from the community or share your own originals." %}</p>
                         </div>
-                    </div>
-                    <div class="mb-3 d-flex gap-2">
-                        <button id="toggle-copy-sharing" class="btn {% if allow_copy_requests %}btn-success{% else %}btn-outline-secondary{% endif %} flex-fill" data-enabled="{{ allow_copy_requests|yesno:'true,false' }}">
-                            <i class="fas fa-share-alt me-1"></i>
-                            <span id="copy-sharing-label">{% if allow_copy_requests %}{% trans "Sharing ON" %}{% else %}{% trans "Sharing OFF" %}{% endif %}</span>
-                        </button>
                     </div>
                     <div class="d-grid gap-2">
                         <a href="{% url 'indy_hub:bp_copy_request_page' %}" class="btn btn-warning">
@@ -288,4 +284,4 @@ window.sharingOnText = '{% trans "Sharing ON" %}';
 window.sharingOffText = '{% trans "Sharing OFF" %}';
 </script>
 {% endblock extra_javascript %}
-{% endblock %}
+{% endblock content %}

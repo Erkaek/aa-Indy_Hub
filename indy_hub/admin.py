@@ -5,7 +5,7 @@ Django admin configuration for indy_hub models
 # Django
 from django.contrib import admin
 
-from .models import Blueprint, CharacterUpdateTracker, IndustryJob
+from .models import Blueprint, CharacterSettings, IndustryJob
 
 
 @admin.register(Blueprint)
@@ -128,46 +128,29 @@ class IndustryJobAdmin(admin.ModelAdmin):
     )
 
 
-@admin.register(CharacterUpdateTracker)
-class CharacterUpdateTrackerAdmin(admin.ModelAdmin):
+@admin.register(CharacterSettings)
+class CharacterSettingsAdmin(admin.ModelAdmin):
     list_display = [
         "user",
         "character_id",
-        "blueprints_last_update",
-        "jobs_last_update",
-        "last_refresh_request",
-        "updated_at",
-        "has_error",
-    ]
-    list_filter = [
-        "user",
-        "blueprints_last_update",
-        "jobs_last_update",
-        "last_refresh_request",
+        "jobs_notify_completed",
+        "allow_copy_requests",
         "updated_at",
     ]
+    list_filter = ["jobs_notify_completed", "allow_copy_requests", "updated_at"]
     search_fields = ["user__username", "character_id"]
     readonly_fields = ["updated_at"]
-
-    @admin.display(
-        description="Has Error",
-        boolean=True,
-    )
-    def has_error(self, obj):
-        return bool(obj.last_error)
-
     fieldsets = (
-        ("Character Information", {"fields": ("user", "character_id")}),
         (
-            "Update Status",
+            "Character Settings",
             {
                 "fields": (
-                    "blueprints_last_update",
-                    "jobs_last_update",
-                    "last_refresh_request",
+                    "user",
+                    "character_id",
+                    "jobs_notify_completed",
+                    "allow_copy_requests",
                     "updated_at",
                 )
             },
         ),
-        ("Error Information", {"fields": ("last_error",), "classes": ("collapse",)}),
     )

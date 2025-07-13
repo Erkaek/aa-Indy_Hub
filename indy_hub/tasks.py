@@ -13,7 +13,7 @@ import logging
 from django.contrib.auth.models import User  # noqa: F401
 
 # Indy Hub
-from .models import Blueprint, CharacterUpdateTracker, IndustryJob  # noqa: F401
+from .models import Blueprint, IndustryJob  # noqa: F401
 
 # Import the setup function from tasks module
 from .tasks import setup_periodic_tasks  # noqa: F401

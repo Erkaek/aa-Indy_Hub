@@ -3,12 +3,12 @@
 .dashboard-card {
     transition: all 0.3s ease;
     border: none;
-    box-shadow: 0 0.125rem 0.25rem rgb(0 0 0 / 7.5%);
+    box-shadow: 0 0.25rem 0.5rem rgb(0 0 0 / 15%);
 }
 
 .dashboard-card:hover {
     transform: translateY(-2px);
-    box-shadow: 0 0.5rem 1rem rgb(0 0 0 / 15%);
+    box-shadow: 0 1rem 2rem rgb(0 0 0 / 25%);
 }
 
 .stat-icon {
@@ -28,7 +28,7 @@
 
 .feature-card:hover {
     transform: translateY(-3px);
-    box-shadow: 0 0.75rem 1.5rem rgb(0 0 0 / 12%);
+    box-shadow: 0 1rem 2rem rgb(0 0 0 / 18%);
 }
 
 .hero-section {

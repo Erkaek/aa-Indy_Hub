@@ -4,7 +4,6 @@
 
 # Standard Library
 import logging
-from datetime import timedelta
 
 # Third Party
 from celery import shared_task
@@ -12,15 +11,16 @@ from celery import shared_task
 # Django
 from django.contrib.auth.models import User
 from django.db import transaction
-from django.utils import timezone
 
 # Alliance Auth
 from allianceauth.authentication.models import CharacterOwnership
 
+# AA Example App
+from indy_hub.models import CharacterSettings
+
 from ..esi_helpers import fetch_character_blueprints
 from ..models import (
     Blueprint,
-    CharacterUpdateTracker,
     IndustryJob,
     get_character_name,
     get_type_name,
@@ -41,8 +41,8 @@ def update_blueprints_for_user(self, user_id):
         ownerships = CharacterOwnership.objects.filter(user=user)
         for ownership in ownerships:
             char_id = ownership.character.character_id
-            # Find a valid token for this character with blueprint scope
             try:
+                # Find a valid token for this character with blueprint scope
                 # Alliance Auth
                 from esi.models import Token
 
@@ -59,15 +59,7 @@ def update_blueprints_for_user(self, user_id):
                     blueprints = fetch_character_blueprints(char_id)
                 except Exception as e:
                     error_messages.append(f"Char {char_id}: {e}")
-                    # Mark error in tracker
-                    CharacterUpdateTracker.objects.update_or_create(
-                        user=user,
-                        character_id=char_id,
-                        defaults={
-                            "last_error": str(e),
-                            "blueprints_last_update": timezone.now(),
-                        },
-                    )
+                    # Tracking of errors removed in unified settings
                     continue
                 esi_ids = set()
                 # Update blueprints in DB
@@ -95,14 +87,7 @@ def update_blueprints_for_user(self, user_id):
                     Blueprint.objects.filter(
                         owner_user=user, character_id=char_id
                     ).exclude(item_id__in=esi_ids).delete()
-                    CharacterUpdateTracker.objects.update_or_create(
-                        user=user,
-                        character_id=char_id,
-                        defaults={
-                            "blueprints_last_update": timezone.now(),
-                            "last_error": "",
-                        },
-                    )
+                    # Tracking updates removed in unified settings
                     updated_count += len(blueprints)
             except Exception as e:
                 logger.error(f"Error updating blueprints for character {char_id}: {e}")
@@ -119,13 +104,7 @@ def update_blueprints_for_user(self, user_id):
         }
     except Exception as e:
         logger.error(f"Error updating blueprints for user {user_id}: {e}")
-        try:
-            user = User.objects.get(id=user_id)
-            for tracker in CharacterUpdateTracker.objects.filter(user=user):
-                tracker.last_error = str(e)
-                tracker.save()
-        except Exception:
-            pass
+        # Error tracking removed in unified settings
         raise self.retry(exc=e, countdown=60 * (2**self.request.retries))
 
 
@@ -157,14 +136,7 @@ def update_industry_jobs_for_user(self, user_id):
                     jobs = fetch_character_industry_jobs(char_id)
                 except Exception as e:
                     error_messages.append(f"Char {char_id}: {e}")
-                    CharacterUpdateTracker.objects.update_or_create(
-                        user=user,
-                        character_id=char_id,
-                        defaults={
-                            "last_error": str(e),
-                            "jobs_last_update": timezone.now(),
-                        },
-                    )
+                    # Error tracking removed in unified settings
                     continue
                 esi_job_ids = set()
                 with transaction.atomic():
@@ -209,14 +181,7 @@ def update_industry_jobs_for_user(self, user_id):
                     IndustryJob.objects.filter(
                         owner_user=user, character_id=char_id
                     ).exclude(job_id__in=esi_job_ids).delete()
-                    CharacterUpdateTracker.objects.update_or_create(
-                        user=user,
-                        character_id=char_id,
-                        defaults={
-                            "jobs_last_update": timezone.now(),
-                            "last_error": "",
-                        },
-                    )
+                    # Job tracking removed in unified settings
                     updated_count += len(jobs)
             except Exception as e:
                 logger.error(f"Error updating jobs for character {char_id}: {e}")
@@ -233,13 +198,7 @@ def update_industry_jobs_for_user(self, user_id):
         }
     except Exception as e:
         logger.error(f"Error updating jobs for user {user_id}: {e}")
-        try:
-            user = User.objects.get(id=user_id)
-            for tracker in CharacterUpdateTracker.objects.filter(user=user):
-                tracker.last_error = str(e)
-                tracker.save()
-        except Exception:
-            pass
+        # Error tracking removed in unified settings
         raise self.retry(exc=e, countdown=60 * (2**self.request.retries))
 
 
@@ -345,10 +304,13 @@ def notify_completed_jobs(self):
                 continue
 
             # Check user's notification preference
-            tracker = CharacterUpdateTracker.objects.filter(user=user).first()
+            # Look for global user settings (character_id=0)
+            settings = CharacterSettings.objects.filter(
+                user=user, character_id=0
+            ).first()
 
-            # Skip notification if user has disabled job completion notifications
-            if tracker and not tracker.jobs_notify_completed:
+            # Skip notification if user has no settings or has disabled job completion notifications
+            if not settings or not settings.jobs_notify_completed:
                 job.job_completed_notified = True
                 job.save(update_fields=["job_completed_notified"])
                 continue
@@ -394,13 +356,9 @@ def update_all_blueprints():
     logger.info("Starting bulk blueprint update for all users")
 
     # Get users who have ESI tokens and haven't been updated recently
-    cutoff_time = timezone.now() - timedelta(minutes=25)  # Allow 5-minute buffer
 
-    users_to_update = (
-        User.objects.filter(token__isnull=False)
-        .exclude(characterupdatetracker__blueprints_last_update__gte=cutoff_time)
-        .distinct()
-    )
+    # Since we removed tracking, just update all users with tokens
+    users_to_update = User.objects.filter(token__isnull=False).distinct()
 
     for user in users_to_update:
         update_blueprints_for_user.delay(user.id)
@@ -416,14 +374,10 @@ def update_all_industry_jobs():
     """
     logger.info("Starting bulk industry jobs update for all users")
 
-    # Get users who have ESI tokens and haven't been updated récemment
-    cutoff_time = timezone.now() - timedelta(minutes=8)  # Allow 2-minute buffer
+    # Get users who have ESI tokens and haven't been updated recently
 
-    users_to_update = (
-        User.objects.filter(token__isnull=False)
-        .exclude(characterupdatetracker__jobs_last_update__gte=cutoff_time)
-        .distinct()
-    )
+    # Since we removed tracking, just update all users with tokens
+    users_to_update = User.objects.filter(token__isnull=False).distinct()
 
     for user in users_to_update:
         update_industry_jobs_for_user.delay(user.id)

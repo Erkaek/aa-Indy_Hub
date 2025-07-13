@@ -15,13 +15,14 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
+# AA Example App
+from indy_hub.models import CharacterSettings
+
 from ..decorators import indy_hub_access_required
 from ..models import (
     Blueprint,
     BlueprintCopyOffer,
     BlueprintCopyRequest,
-    BlueprintCopyShareSetting,
-    CharacterUpdateTracker,
     IndustryJob,
     get_character_name,
     get_type_name,
@@ -44,9 +45,7 @@ def personnal_bp_list(request):
             logger.info(
                 f"User {request.user.username} requested blueprint refresh; enqueuing Celery task"
             )
-            CharacterUpdateTracker.objects.filter(user=request.user).update(
-                last_refresh_request=timezone.now()
-            )
+            # Removed tracking update since unified settings don't track refresh times
             update_blueprints_for_user.delay(request.user.id)
     except Exception as e:
         logger.error(f"Error handling blueprint refresh: {e}")
@@ -211,7 +210,7 @@ def personnal_bp_list(request):
             .distinct()
         )
         character_map = {cid: get_character_name(cid) for cid in character_ids}
-        update_status = CharacterUpdateTracker.objects.filter(user=request.user).first()
+        # Removed update status tracking since unified settings don't track this
 
         # Apply consistent activity labels
         activity_labels = {
@@ -257,7 +256,6 @@ def personnal_bp_list(request):
             },
             "per_page_options": [10, 25, 50, 100, 200],
             "activity_options": activity_options,
-            "update_status": update_status,
             # List of character IDs for filter dropdown
             "character_ids": character_ids,
             "character_map": character_map,
@@ -394,9 +392,7 @@ def personnal_job_list(request):
             logger.info(
                 f"User {request.user.username} requested jobs refresh; enqueuing Celery task"
             )
-            CharacterUpdateTracker.objects.filter(user=request.user).update(
-                last_refresh_request=timezone.now()
-            )
+            # Removed last_refresh_request tracking since unified settings don't track this
             update_industry_jobs_for_user.delay(request.user.id)
     except Exception as e:
         logger.error(f"Error handling jobs refresh: {e}")
@@ -483,7 +479,7 @@ def personnal_job_list(request):
         activities = [
             (str(aid), activity_labels.get(aid, str(aid))) for aid in present_ids
         ]
-        update_status = CharacterUpdateTracker.objects.filter(user=request.user).first()
+        # Removed update status tracking since unified settings don't track this
         context = {
             "jobs": jobs_page,
             "statistics": statistics,
@@ -500,7 +496,6 @@ def personnal_job_list(request):
                 "per_page": per_page,
             },
             "per_page_options": [10, 25, 50, 100, 200],
-            "update_status": update_status,
             "character_map": character_map,
             "jobs_page": jobs_page,
         }
@@ -725,7 +720,9 @@ def bp_copy_request_page(request):
     per_page = int(request.GET.get("per_page", 50))
     # Fetch users who enabled copy sharing, excluding current user
     allowed_users = (
-        BlueprintCopyShareSetting.objects.filter(allow_copy_requests=True)
+        CharacterSettings.objects.filter(
+            character_id=0, allow_copy_requests=True  # Global settings only
+        )
         .exclude(user=request.user)
         .values_list("user", flat=True)
     )
@@ -813,10 +810,12 @@ def bp_copy_request_page(request):
 @login_required
 def bp_copy_fulfill_requests(request):
     """List requests for blueprints the user owns and allows copy requests for."""
-    from ..models import BlueprintCopyShareSetting
+    from ..models import CharacterSettings
 
-    setting = BlueprintCopyShareSetting.objects.filter(
-        user=request.user, allow_copy_requests=True
+    setting = CharacterSettings.objects.filter(
+        user=request.user,
+        character_id=0,  # Global settings only
+        allow_copy_requests=True,
     ).first()
     if not setting:
         return render(

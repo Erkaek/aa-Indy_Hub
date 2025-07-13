@@ -16,7 +16,7 @@ from django.contrib.auth.models import User
 from django.utils import timezone
 
 # Indy Hub
-from ..models import Blueprint, CharacterUpdateTracker, IndustryJob
+from ..models import Blueprint, CharacterSettings, IndustryJob
 
 logger = logging.getLogger(__name__)
 
@@ -30,19 +30,14 @@ def cleanup_inactive_user_data():
     # Define inactive threshold (6 months)
     inactive_threshold = timezone.now() - timedelta(days=180)
 
-    # Find users with no recent activity
-    inactive_trackers = CharacterUpdateTracker.objects.filter(
-        last_refresh_request__lt=inactive_threshold
-    ).exclude(last_refresh_request__isnull=True)
+    # Since CharacterSettings don't track last_refresh_request anymore,
+    # we'll identify inactive users by their Django last_login timestamp
+    inactive_users = User.objects.filter(last_login__lt=inactive_threshold).exclude(
+        last_login__isnull=True
+    )
 
     count = 0
-    for tracker in inactive_trackers:
-        user = tracker.user
-
-        # Check if user has any recent login (if available)
-        if hasattr(user, "last_login") and user.last_login:
-            if user.last_login > inactive_threshold:
-                continue  # Skip, user is still active
+    for user in inactive_users:
 
         # Clean up old blueprint data for inactive users
         old_blueprints = Blueprint.objects.filter(
@@ -67,14 +62,19 @@ def update_user_preferences_defaults():
     Ensure all users have proper default notification preferences.
     Useful after adding new preference fields.
     """
-    users_without_tracker = User.objects.filter(characterupdatetracker__isnull=True)
+    # Alternative: find users with no global settings (character_id=0)
+    users_without_global_settings = User.objects.exclude(
+        charactersettings__character_id=0
+    )
 
     count = 0
-    for user in users_without_tracker:
-        tracker, created = CharacterUpdateTracker.objects.get_or_create(
+    for user in users_without_global_settings:
+        settings, created = CharacterSettings.objects.get_or_create(
             user=user,
+            character_id=0,  # Global settings
             defaults={
                 "jobs_notify_completed": True,  # Default to enabled
+                "allow_copy_requests": False,  # Default to disabled
             },
         )
         if created:
@@ -134,9 +134,12 @@ def generate_user_activity_report():
     Can be used for analytics and monitoring.
     """
     total_users = User.objects.count()
-    active_users = CharacterUpdateTracker.objects.filter(
-        last_refresh_request__gte=timezone.now() - timedelta(days=30)
-    ).count()
+    # Since we no longer track last_refresh_request, use login activity for "active"
+    active_users = (
+        User.objects.filter(last_login__gte=timezone.now() - timedelta(days=30))
+        .exclude(last_login__isnull=True)
+        .count()
+    )
 
     users_with_blueprints = (
         User.objects.filter(blueprint__isnull=False).distinct().count()
@@ -144,8 +147,8 @@ def generate_user_activity_report():
 
     users_with_jobs = User.objects.filter(industryjob__isnull=False).distinct().count()
 
-    users_with_notifications = CharacterUpdateTracker.objects.filter(
-        jobs_notify_completed=True
+    users_with_notifications = CharacterSettings.objects.filter(
+        character_id=0, jobs_notify_completed=True  # Global settings only
     ).count()
 
     report = {

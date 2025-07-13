@@ -295,37 +295,6 @@ class IndustryJob(models.Model):
         return ""
 
 
-class CharacterUpdateTracker(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    character_id = models.BigIntegerField()
-    blueprints_last_update = models.DateTimeField(null=True, blank=True)
-    jobs_last_update = models.DateTimeField(null=True, blank=True)
-    last_refresh_request = models.DateTimeField(null=True, blank=True)
-    last_error = models.TextField(blank=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    jobs_notify_completed = models.BooleanField(default=True)
-
-    class Meta:
-        unique_together = ("user", "character_id")
-        default_permissions = ()
-
-    def __str__(self):
-        return f"Tracker for {self.user.username}#{self.character_id}"
-
-
-class BlueprintCopyShareSetting(models.Model):
-    user = models.OneToOneField(
-        User, on_delete=models.CASCADE, related_name="bp_copy_share_setting"
-    )
-    allow_copy_requests = models.BooleanField(default=False)
-
-    def __str__(self):
-        return f"Copy requests allowed: {self.allow_copy_requests} for {self.user.username}"
-
-    class Meta:
-        default_permissions = ()
-
-
 class BlueprintCopyRequest(models.Model):
     # Blueprint identity (anonymized, deduped by type_id, ME, TE)
     type_id = models.IntegerField()
@@ -381,5 +350,21 @@ class BlueprintCopyOffer(models.Model):
         unique_together = ("request", "owner")
         default_permissions = ()
 
+
+class CharacterSettings(models.Model):
+    """
+    Regroupe les préférences utilisateur pour les notifications de jobs et le partage de copies.
+    """
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    character_id = models.BigIntegerField()
+    jobs_notify_completed = models.BooleanField(default=False)
+    allow_copy_requests = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("user", "character_id")
+        default_permissions = ()
+
     def __str__(self):
-        return f"Offer by {self.owner} for request {self.request_id} ({self.status})"
+        return f"Settings for {self.user.username}#{self.character_id}"

@@ -7,7 +7,7 @@
     color: #fff;
     padding: 2.5rem 2rem 2rem 2rem;
     margin-bottom: 2.5rem;
-    box-shadow: 0 0.5rem 2rem rgb(0 0 0 / 10%);
+    box-shadow: 0 12px 32px rgb(0 0 0 / 20%);
     position: relative;
     overflow: hidden;
 }
@@ -129,7 +129,7 @@
     gap: 0.3em;
     line-height: 1;
     cursor: pointer;
-    box-shadow: 0 0.2rem 0.5rem rgb(0 0 0 / 15%);
+    box-shadow: 0 6px 16px rgb(0 0 0 / 25%);
     transition: background 0.2s, transform 0.1s, box-shadow 0.2s;
 }
 
@@ -137,7 +137,7 @@
 .blueprint-meta .btn-outline-info.btn-sm:hover {
     background: linear-gradient(90deg, #356ac3, #475fd8);
     transform: scale(1.05);
-    box-shadow: 0 0.3rem 0.7rem rgb(0 0 0 / 20%);
+    box-shadow: 0 8px 20px rgb(0 0 0 / 35%);
 }
 
 /* Ensure icon inside button matches text size */
@@ -281,6 +281,33 @@
     margin-top: 0.2em;
 }
 
+/* Main page container with enhanced shadows */
+.container-fluid.bg-body {
+    background: var(--bs-body-bg);
+    border-radius: 16px;
+    box-shadow: 0 16px 48px rgb(0 0 0 / 12%);
+    padding: 2rem;
+    margin-top: 2rem;
+}
+
+/* Blueprint list container */
+.blueprint-list-group {
+    background: var(--bs-body-bg);
+    border-radius: 12px;
+    box-shadow: 0 12px 32px rgb(0 0 0 / 10%);
+    margin-bottom: 2rem;
+    overflow: hidden;
+}
+
+/* Filter section enhancement */
+.filter-section {
+    background: var(--bs-body-bg);
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgb(0 0 0 / 8%);
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+}
+
 /* Responsive */
 @media (max-width: 991px) {
     .blueprint-list-group {
@@ -297,8 +324,4 @@
     .blueprint-icon {
         margin-bottom: 0.5rem;
     }
-}
-
-body {
-    background: linear-gradient(135deg, #e0e7ff 0%, #f5f7fa 100%);
 }

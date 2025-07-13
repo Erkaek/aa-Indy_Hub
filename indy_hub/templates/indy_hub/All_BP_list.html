@@ -11,7 +11,7 @@
 
 {% block content %}
 <main class="bg-body p-4">
-    <div class="container-fluid my-0">
+    <div class="container-fluid my-0 bg-body">
         <div class="page-header mb-4">
             <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
                 <div>
@@ -31,8 +31,9 @@
         </div>
 
         <!-- Filters -->
-        <form method="get" class="mb-4">
-            <div class="row g-3 align-items-end">
+        <div class="filter-section mb-4">
+            <form method="get">
+                <div class="row g-3 align-items-end">
                 <div class="col-lg-4">
                     <label class="form-label text-muted fw-bold">{% trans 'Search' %}</label>
                     <input type="text" name="search" value="{% if request.GET.applied %}{{ filters.search }}{% endif %}" class="form-control"
@@ -65,10 +66,10 @@
                     </button>
                     <a href="{% url 'indy_hub:all_bp_list' %}" class="btn btn-outline-secondary ms-2">
                         <i class="fas fa-undo-alt me-1"></i>{% trans 'Reset Filters' %}
-                    </a>
+                    </a>                    </div>
                 </div>
-            </div>
-        </form>
+            </form>
+        </div>
 
         <div class="blueprint-list-group w-100" style="max-width:100%;">
             <div class="blueprint-list" id="blueprintsContainer">
