@@ -12,9 +12,9 @@ readme = "README.md"
 keywords = [
     "allianceauth",
     "eveonline",
-    "indy",
-    "industry",
     "hub",
+    "industry",
+    "indy",
 ]
 license = { file = "LICENSE" }
 authors = [

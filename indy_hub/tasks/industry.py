@@ -43,8 +43,9 @@ def update_blueprints_for_user(self, user_id):
             char_id = ownership.character.character_id
             # Find a valid token for this character with blueprint scope
             try:
+                # Alliance Auth
                 from esi.models import Token
-                
+
                 token = (
                     Token.objects.filter(character_id=char_id, user=user)
                     .require_scopes(["esi-characters.read_blueprints.v1"])
@@ -87,11 +88,13 @@ def update_blueprints_for_user(self, user_id):
                                 "runs": bp.get("runs", 0),
                                 "character_name": get_character_name(char_id),
                                 "type_name": get_type_name(bp.get("type_id")),
-                            }
+                            },
                         )
                         esi_ids.add(bp.get("item_id"))
                     # Supprimer les blueprints qui ne sont plus dans l'ESI
-                    Blueprint.objects.filter(owner_user=user, character_id=char_id).exclude(item_id__in=esi_ids).delete()
+                    Blueprint.objects.filter(
+                        owner_user=user, character_id=char_id
+                    ).exclude(item_id__in=esi_ids).delete()
                     CharacterUpdateTracker.objects.update_or_create(
                         user=user,
                         character_id=char_id,
@@ -139,7 +142,9 @@ def update_industry_jobs_for_user(self, user_id):
         for ownership in ownerships:
             char_id = ownership.character.character_id
             try:
+                # Alliance Auth
                 from esi.models import Token
+
                 token = (
                     Token.objects.filter(character_id=char_id, user=user)
                     .require_scopes(["esi-industry.read_character_jobs.v1"])
@@ -175,7 +180,9 @@ def update_industry_jobs_for_user(self, user_id):
                                 "activity_id": job.get("activity_id"),
                                 "blueprint_id": job.get("blueprint_id"),
                                 "blueprint_type_id": job.get("blueprint_type_id"),
-                                "blueprint_location_id": job.get("blueprint_location_id"),
+                                "blueprint_location_id": job.get(
+                                    "blueprint_location_id"
+                                ),
                                 "output_location_id": job.get("output_location_id"),
                                 "runs": job.get("runs"),
                                 "cost": job.get("cost"),
@@ -188,14 +195,20 @@ def update_industry_jobs_for_user(self, user_id):
                                 "end_date": job.get("end_date"),
                                 "pause_date": job.get("pause_date"),
                                 "completed_date": job.get("completed_date"),
-                                "completed_character_id": job.get("completed_character_id"),
+                                "completed_character_id": job.get(
+                                    "completed_character_id"
+                                ),
                                 "successful_runs": job.get("successful_runs"),
-                                "blueprint_type_name": get_type_name(job.get("blueprint_type_id")),
-                            }
+                                "blueprint_type_name": get_type_name(
+                                    job.get("blueprint_type_id")
+                                ),
+                            },
                         )
                         esi_job_ids.add(job.get("job_id"))
                     # Supprimer les jobs qui ne sont plus dans l'ESI
-                    IndustryJob.objects.filter(owner_user=user, character_id=char_id).exclude(job_id__in=esi_job_ids).delete()
+                    IndustryJob.objects.filter(
+                        owner_user=user, character_id=char_id
+                    ).exclude(job_id__in=esi_job_ids).delete()
                     CharacterUpdateTracker.objects.update_or_create(
                         user=user,
                         character_id=char_id,
@@ -238,8 +251,7 @@ def cleanup_old_jobs():
     - jobs dont le character_id ne correspond à aucun CharacterOwnership
     - jobs dont le token ESI n'existe plus pour ce user/char
     """
-    from django.contrib.auth import get_user_model
-    User = get_user_model()
+    # Alliance Auth
     from allianceauth.authentication.models import CharacterOwnership
     from esi.models import Token
 
@@ -250,7 +262,9 @@ def cleanup_old_jobs():
 
     # Jobs sans character ownership
     jobs = IndustryJob.objects.all()
-    char_ids = set(CharacterOwnership.objects.values_list("character__character_id", flat=True))
+    char_ids = set(
+        CharacterOwnership.objects.values_list("character__character_id", flat=True)
+    )
     jobs_no_char = jobs.exclude(character_id__in=char_ids)
     count_no_char = jobs_no_char.count()
     jobs_no_char.delete()
@@ -259,14 +273,23 @@ def cleanup_old_jobs():
     jobs = IndustryJob.objects.all()
     deleted_tokenless = 0
     for job in jobs:
-        has_token = Token.objects.filter(user=job.owner_user, character_id=job.character_id).exists()
+        has_token = Token.objects.filter(
+            user=job.owner_user, character_id=job.character_id
+        ).exists()
         if not has_token:
             job.delete()
             deleted_tokenless += 1
 
     total_deleted = count_no_user + count_no_char + deleted_tokenless
-    logger.info(f"Cleaned up {total_deleted} orphaned industry jobs (no user: {count_no_user}, no char: {count_no_char}, no token: {deleted_tokenless})")
-    return {"deleted_jobs": total_deleted, "no_user": count_no_user, "no_char": count_no_char, "no_token": deleted_tokenless}
+    logger.info(
+        f"Cleaned up {total_deleted} orphaned industry jobs (no user: {count_no_user}, no char: {count_no_char}, no token: {deleted_tokenless})"
+    )
+    return {
+        "deleted_jobs": total_deleted,
+        "no_user": count_no_user,
+        "no_char": count_no_char,
+        "no_token": deleted_tokenless,
+    }
 
 
 @shared_task

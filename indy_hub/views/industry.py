@@ -55,16 +55,30 @@ def personnal_bp_list(request):
     efficiency_filter = request.GET.get("efficiency", "")
     type_filter = request.GET.get("type", "")
     character_filter = request.GET.get("character", "")
+    activity_id = request.GET.get("activity_id", "")
     sort_order = request.GET.get("order", "asc")
     page = int(request.GET.get("page", 1))
     per_page = int(request.GET.get("per_page", 50))
+
+    # Determine which activity IDs to include based on filter
+    # Determine which activity IDs to include based on filter
+    if activity_id == "1":
+        filter_ids = [1]
+    elif activity_id == "9,11":
+        # Both IDs represent Reactions
+        filter_ids = [9, 11]
+    else:
+        # All activities: manufacturing (1) and reactions (9,11)
+        filter_ids = [1, 9, 11]
     try:
+        # Fetch allowed type IDs for the selected activities
+        id_list = ",".join(str(i) for i in filter_ids)
         with connection.cursor() as cursor:
             cursor.execute(
-                """
+                f"""
                 SELECT DISTINCT eve_type_id
                 FROM eveuniverse_eveindustryactivityproduct
-                WHERE activity_id IN (1, 11)
+                WHERE activity_id IN ({id_list})
                 """
             )
             allowed_type_ids = [row[0] for row in cursor.fetchall()]
@@ -96,10 +110,89 @@ def personnal_bp_list(request):
         if character_filter:
             blueprints_qs = blueprints_qs.filter(character_id=character_filter)
         blueprints_qs = blueprints_qs.order_by("type_name")
+        # Group identical items by type, ME, TE; count originals and stacks
+        bp_items = []
+        stack_map = {}
+        for bp in blueprints_qs:
+            # Reaction blueprints (activity_id 9,11) are always originals
+            if activity_id == "9,11":
+                category = "original"
+            else:
+                # separate originals, copies, and stacks into distinct groups
+                if bp.is_original:
+                    category = "original"
+                elif bp.is_copy:
+                    category = "copy"
+                else:
+                    category = "stack"
+            key = (bp.type_id, bp.material_efficiency, bp.time_efficiency, category)
+            if key not in stack_map:
+                # initialize counters for this combination
+                bp.orig_quantity = 0
+                bp.copy_quantity = 0
+                bp.stack_quantity = 0
+                stack_map[key] = bp
+                bp_items.append(bp)
+            agg = stack_map[key]
+            if activity_id == "9,11":
+                # count stacks by quantity and other entries as originals for reactions
+                if bp.is_stack:
+                    agg.stack_quantity += bp.quantity
+                else:
+                    agg.orig_quantity += 1
+            else:
+                if bp.is_original:
+                    # count each original entry
+                    agg.orig_quantity += 1
+                elif bp.is_copy:
+                    # count each blueprint copy entry
+                    agg.copy_quantity += 1
+                elif bp.is_stack:
+                    # sum all stack quantities
+                    agg.stack_quantity += bp.quantity
+        # Compute total quantity (originals + stacks) for each grouped blueprint
+        for bp in bp_items:
+            # total identical blueprints: originals + copies + stack quantities
+            bp.total_quantity = bp.orig_quantity + bp.copy_quantity + bp.stack_quantity
+        # Compute precise human-readable location path for each blueprint
+        try:
+            # Alliance Auth (External Libs)
+            from eveuniverse.models import EveStation, EveStructure
+        except ImportError:
+            EveStation = None
+            EveStructure = None
+
+        def get_location_path(location_id):
+            if EveStation:
+                try:
+                    st = EveStation.objects.get(id=location_id)
+                    sys = st.solar_system
+                    cons = sys.constellation
+                    reg = cons.region
+                    return f"{reg.name} > {cons.name} > {sys.name} > {st.name}"
+                except EveStation.DoesNotExist:
+                    pass
+            if EveStructure:
+                try:
+                    struct = EveStructure.objects.get(id=location_id)
+                    sys = struct.solar_system
+                    cons = sys.constellation
+                    reg = cons.region
+                    return f"{reg.name} > {cons.name} > {sys.name} > {struct.name}"
+                except EveStructure.DoesNotExist:
+                    pass
+            return None
+
+        for bp in bp_items:
+            path = get_location_path(bp.location_id)
+            bp.location_path = path if path else bp.location_flag
+            # flag reaction blueprints for template
+            bp.is_reaction = activity_id == "9,11"
+        # Django pagination on grouped items
         # Django
         from django.core.paginator import Paginator
 
-        paginator = Paginator(blueprints_qs, per_page)
+        paginator = Paginator(bp_items, per_page)
         blueprints_page = paginator.get_page(page)
         total_blueprints = blueprints_qs.count()
         originals_count = blueprints_qs.filter(quantity=-1).count()
@@ -119,6 +212,23 @@ def personnal_bp_list(request):
         )
         character_map = {cid: get_character_name(cid) for cid in character_ids}
         update_status = CharacterUpdateTracker.objects.filter(user=request.user).first()
+
+        # Apply consistent activity labels
+        activity_labels = {
+            1: "Manufacturing",
+            3: "TE Research",
+            4: "ME Research",
+            5: "Copying",
+            8: "Invention",
+            9: "Reactions",
+            11: "Reactions",
+        }
+        # Build grouped activity options: All, Manufacturing, Reactions
+        activity_options = [
+            ("", "All Activities"),
+            ("1", activity_labels[1]),
+            ("9,11", activity_labels[9]),
+        ]
         context = {
             "blueprints": blueprints_page,
             "statistics": {
@@ -140,12 +250,16 @@ def personnal_bp_list(request):
                 "efficiency": efficiency_filter,
                 "type": type_filter,
                 "character": character_filter,
+                "activity_id": activity_id,
                 "sort": request.GET.get("sort", "type_name"),
                 "order": sort_order,
                 "per_page": per_page,
             },
             "per_page_options": [10, 25, 50, 100, 200],
+            "activity_options": activity_options,
             "update_status": update_status,
+            # List of character IDs for filter dropdown
+            "character_ids": character_ids,
             "character_map": character_map,
         }
         return render(request, "indy_hub/Personnal_BP_list.html", context)
@@ -159,37 +273,61 @@ def personnal_bp_list(request):
 @login_required
 def all_bp_list(request):
     search = request.GET.get("search", "").strip()
-    activity_id = request.GET.get("activity_id", "1")
+    activity_id = request.GET.get("activity_id", "")
     market_group_id = request.GET.get("market_group_id", "")
-    if activity_id not in ["1", "11"]:
-        activity_id = "1"
+
+    # Base SQL
     sql = (
         "SELECT t.id, t.name "
         "FROM eveuniverse_evetype t "
         "JOIN eveuniverse_eveindustryactivityproduct a ON t.id = a.eve_type_id "
-        "WHERE t.published = 1 AND a.activity_id = %s"
+        "WHERE t.published = 1"
     )
-    params = [activity_id]
+    # Append activity filter
+    if activity_id == "1":
+        sql += " AND a.activity_id = 1"
+    elif activity_id == "reactions":
+        sql += " AND a.activity_id IN (9, 11)"
+    else:
+        sql += " AND a.activity_id IN (1, 9, 11)"
+    # Params for search and market_group filters
+    params = []
     if search:
         sql += " AND (t.name LIKE %s OR t.id LIKE %s)"
         params.extend([f"%{search}%", f"%{search}%"])
     if market_group_id:
-        sql += " AND t.eve_market_group_id = %s"
+        sql += " AND t.eve_group_id = %s"
         params.append(market_group_id)
     sql += " ORDER BY t.name ASC"
     page = int(request.GET.get("page", 1))
     per_page = int(request.GET.get("per_page", 50))
+    # Initial empty pagination before fetching data
     paginator = Paginator([], per_page)
     blueprints_page = paginator.get_page(page)
+    # Fetch raw activity options for activity dropdown
     with connection.cursor() as cursor:
         cursor.execute(
-            "SELECT id, name FROM eveuniverse_eveindustryactivity WHERE id IN (1,11) ORDER BY id"
+            "SELECT id, name FROM eveuniverse_eveindustryactivity WHERE id IN (1,9,11) ORDER BY id"
         )
-        activity_options = cursor.fetchall()
-        cursor.execute(
-            "SELECT DISTINCT eve_market_group_id FROM eveuniverse_evetype WHERE eve_market_group_id IS NOT NULL ORDER BY eve_market_group_id"
-        )
-        market_group_ids = [row[0] for row in cursor.fetchall()]
+        raw_activity_options = cursor.fetchall()
+    # Apply consistent activity labels
+    activity_labels = {
+        1: "Manufacturing",
+        3: "TE Research",
+        4: "ME Research",
+        5: "Copying",
+        8: "Invention",
+        9: "Reactions",
+        11: "Reactions",
+    }
+    # Build grouped activity options: All, Manufacturing, Reactions
+    raw_ids = [opt[0] for opt in raw_activity_options]
+    activity_options = [("", "All Activities")]
+    # Manufacturing
+    activity_options.append(("1", activity_labels[1]))
+    # Reactions group
+    if any(r in raw_ids for r in [9, 11]):
+        activity_options.append(("reactions", activity_labels[9]))
     blueprints = [
         {
             "type_id": row[0],
@@ -209,6 +347,23 @@ def all_bp_list(request):
             ]
         paginator = Paginator(blueprints, per_page)
         blueprints_page = paginator.get_page(page)
+        # Fetch market group options based on all matching blueprints, not just current page
+        with connection.cursor() as cursor:
+            type_ids = [bp["type_id"] for bp in blueprints]
+            if type_ids:
+                placeholders = ",".join(["%s"] * len(type_ids))
+                query = f"""
+                    SELECT DISTINCT t.eve_group_id, g.name
+                    FROM eveuniverse_evetype t
+                    JOIN eveuniverse_evegroup g ON t.eve_group_id = g.id
+                    WHERE t.eve_group_id IS NOT NULL
+                        AND t.id IN ({placeholders})
+                    ORDER BY g.name
+                """
+                cursor.execute(query, type_ids)
+                market_group_options = [(row[0], row[1]) for row in cursor.fetchall()]
+            else:
+                market_group_options = []
     except Exception as e:
         logger.error(f"Error fetching blueprints: {e}")
         messages.error(request, f"Error fetching blueprints: {e}")
@@ -223,7 +378,8 @@ def all_bp_list(request):
                 "market_group_id": market_group_id,
             },
             "activity_options": activity_options,
-            "market_group_ids": market_group_ids,
+            # Pass market group ID/name pairs for dropdown
+            "market_group_options": market_group_options,
             "per_page_options": [10, 25, 50, 100, 200],
         },
     )
@@ -287,25 +443,6 @@ def personnal_job_list(request):
                 | job_id_q
                 | char_name_q
             )
-        if status_filter:
-            sf = status_filter.strip().lower()
-            # Completed jobs are those with end_date <= now
-            if sf == "completed":
-                jobs_qs = jobs_qs.filter(end_date__lte=timezone.now())
-            # Active jobs are those still running (status active and end_date > now)
-            elif sf == "active":
-                jobs_qs = jobs_qs.filter(status="active", end_date__gt=timezone.now())
-            else:
-                jobs_qs = jobs_qs.filter(status=sf)
-        if activity_filter:
-            try:
-                activity_filter_int = int(activity_filter.strip())
-                jobs_qs = jobs_qs.filter(activity_id=activity_filter_int)
-            except (ValueError, TypeError):
-                logger.warning(
-                    f"[JOBS FILTER] Invalid activity_filter value: '{activity_filter}'"
-                )
-                pass
         if character_filter:
             try:
                 character_filter_int = int(character_filter.strip())
@@ -586,10 +723,12 @@ def bp_copy_request_page(request):
     min_te = request.GET.get("min_te", "")
     page = request.GET.get("page", 1)
     per_page = int(request.GET.get("per_page", 50))
-    # Fetch users who enabled copy sharing
-    allowed_users = BlueprintCopyShareSetting.objects.filter(
-        allow_copy_requests=True
-    ).values_list("user", flat=True)
+    # Fetch users who enabled copy sharing, excluding current user
+    allowed_users = (
+        BlueprintCopyShareSetting.objects.filter(allow_copy_requests=True)
+        .exclude(user=request.user)
+        .values_list("user", flat=True)
+    )
     qs = Blueprint.objects.filter(owner_user__in=allowed_users, quantity=-1).order_by(
         "type_name", "material_efficiency", "time_efficiency"
     )

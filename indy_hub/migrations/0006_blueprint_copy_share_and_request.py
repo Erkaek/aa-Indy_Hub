@@ -7,7 +7,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("indy_hub", "0005_fix_reaction_activity_id"),
+        ("indy_hub", "0004_alter_characterupdatetracker_options_and_more"),
     ]
 
     operations = [

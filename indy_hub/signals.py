@@ -70,23 +70,27 @@ if Token:
         if not instance.user_id:
             logger.debug(f"Token {instance.pk} has no user_id, skipping sync")
             return
-            
+
         # Only trigger sync for newly created tokens or significant updates
         if not created:
             logger.debug(f"Token {instance.pk} updated but not created, skipping sync")
             return
-            
-        logger.info(f"New token created for user {instance.user_id}, character {instance.character_id}")
-        
+
+        logger.info(
+            f"New token created for user {instance.user_id}, character {instance.character_id}"
+        )
+
         # Check blueprint scope
-        blueprint_scopes = instance.scopes.filter(name="esi-characters.read_blueprints.v1")
+        blueprint_scopes = instance.scopes.filter(
+            name="esi-characters.read_blueprints.v1"
+        )
         if blueprint_scopes.exists():
             logger.info(f"Triggering blueprint sync for user {instance.user_id}")
             try:
                 update_blueprints_for_user.delay(instance.user_id)
             except Exception as e:
                 logger.error(f"Failed to trigger blueprint sync: {e}")
-        
+
         # Check jobs scope
         jobs_scopes = instance.scopes.filter(name="esi-industry.read_character_jobs.v1")
         if jobs_scopes.exists():

@@ -52,6 +52,7 @@ ______________________________________________________________________
 1. Add `eveuniverse` and `indy_hub` to `INSTALLED_APPS` in your AA settings.
 
 1. Add to your local.py:
+
 - EVEUNIVERSE_LOAD_TYPE_MATERIALS = True
 - EVEUNIVERSE_LOAD_MARKET_GROUPS = True
 - EVEUNIVERSE_LOAD_TYPE_MATERIALS = True
