@@ -43,44 +43,56 @@
     <div class="filter-section mb-4">
         <form method="get">
             <div class="row g-3 align-items-end">
-                <div class="col-lg-3">
+                <div class="col-lg-2">
                     <label class="form-label text-muted fw-bold">{% trans 'Search' %}</label>
-                    <input type="text" name="search" value="{{ current_filters.search }}" class="form-control"
+                    <input type="text" name="search" value="{% if request.GET.applied %}{{ current_filters.search }}{% endif %}" class="form-control"
                         id="blueprintSearch" placeholder="{% trans 'Blueprint name or type ID' %}">
+                </div>
+                <div class="col-lg-2">
+                    <label class="form-label text-muted fw-bold">{% trans 'Activity' %}</label>
+                    <select name="activity_id" class="form-select" id="activityFilter">
+                        {% for activity_id, activity_name in activity_options %}
+                        <option value="{{ activity_id }}" {% if request.GET.applied and current_filters.activity_id|stringformat:'s' == activity_id|stringformat:'s' %}selected{% endif %}>
+                            {{ activity_name }}
+                        </option>
+                        {% endfor %}
+                    </select>
                 </div>
                 <div class="col-lg-2">
                     <label class="form-label text-muted fw-bold">{% trans 'Efficiency' %}</label>
                     <select name="efficiency" class="form-select" id="efficiencyFilter">
                         <option value="">{% trans 'All Levels' %}</option>
-                        <option value="perfect" {% if current_filters.efficiency == 'perfect' %}selected{% endif %}>{% trans 'Perfect (ME≥10 & TE≥20)' %}</option>
-                        <option value="researched" {% if current_filters.efficiency == 'researched' %}selected{% endif %}>{% trans 'Researched' %}</option>
-                        <option value="unresearched" {% if current_filters.efficiency == 'unresearched' %}selected{% endif %}>{% trans 'Unresearched' %}</option>
+                        <option value="perfect" {% if request.GET.applied and current_filters.efficiency == 'perfect' %}selected{% endif %}>{% trans 'Perfect (ME≥10 & TE≥20)' %}</option>
+                        <option value="researched" {% if request.GET.applied and current_filters.efficiency == 'researched' %}selected{% endif %}>{% trans 'Researched' %}</option>
+                        <option value="unresearched" {% if request.GET.applied and current_filters.efficiency == 'unresearched' %}selected{% endif %}>{% trans 'Unresearched' %}</option>
                     </select>
                 </div>
                 <div class="col-lg-2">
                     <label class="form-label text-muted fw-bold">{% trans 'Type' %}</label>
                     <select name="type" class="form-select" id="typeFilter">
                         <option value="">{% trans 'All Types' %}</option>
-                        <option value="original" {% if current_filters.type == 'original' %}selected{% endif %}>{% trans 'Originals' %}</option>
-                        <option value="copy" {% if current_filters.type == 'copy' %}selected{% endif %}>{% trans 'Copies' %}</option>
-                        <option value="stack" {% if current_filters.type == 'stack' %}selected{% endif %}>{% trans 'Stacks' %}</option>
+                        <option value="original" {% if request.GET.applied and current_filters.type == 'original' %}selected{% endif %}>{% trans 'Originals' %}</option>
+                        <option value="copy" {% if request.GET.applied and current_filters.type == 'copy' %}selected{% endif %}>{% trans 'Copies' %}</option>
                     </select>
                 </div>
-                <div class="col-lg-3">
+                <div class="col-lg-2">
                     <label class="form-label text-muted fw-bold">{% trans 'Character' %}</label>
                     <select name="character" class="form-select" id="characterFilter">
                         <option value="">{% trans 'All Characters' %}</option>
                         {% for cid in character_ids %}
-                        <option value="{{ cid }}" {% if current_filters.character|stringformat:'s' == cid|stringformat:'s' %}selected{% endif %}>
+                        <option value="{{ cid }}" {% if request.GET.applied and current_filters.character|stringformat:'s' == cid|stringformat:'s' %}selected{% endif %}>
                             {% with name=character_map|dict_get:cid %}{{ name|default_if_none:cid }}{% endwith %}
                         </option>
                         {% endfor %}
                     </select>
                 </div>
                 <div class="col-lg-2 d-flex align-items-end">
-                    <button type="submit" class="btn btn-primary w-100">
+                    <button type="submit" class="btn btn-primary" name="applied" value="1">
                         <i class="fas fa-filter me-1"></i>{% trans 'Apply Filters' %}
                     </button>
+                    <a href="{% url 'indy_hub:personnal_bp_list' %}" class="btn btn-outline-secondary ms-2">
+                        <i class="fas fa-undo-alt me-1"></i>{% trans 'Reset Filters' %}
+                    </a>
                 </div>
             </div>
         </form>
@@ -135,46 +147,58 @@
                     data-runs="{% if bp.is_original %}-1{% else %}{{ bp.runs|default:0 }}{% endif %}"
                     data-character-id="{{ bp.character_id }}"
                     data-quantity="{{ bp.quantity|default:1 }}">
+                <!-- Blueprint icon -->
                 <div class="blueprint-icon flex-shrink-0 me-3">
-                    {% if bp.is_copy %}
-                    <img src="https://images.evetech.net/types/{{ bp.type_id }}/bpc?size=64"
-                        alt="{{ bp.type_name|default:'Blueprint Copy' }}" loading="lazy"
-                        onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
-                    {% elif bp.is_original %}
+                    {% comment %} Reaction BPs always show original icon {% endcomment %}
+                    {% if bp.is_reaction %}
                     <img src="https://images.evetech.net/types/{{ bp.type_id }}/bp?size=64"
-                        alt="{{ bp.type_name|default:'Blueprint Original' }}" loading="lazy"
+                        alt="{{ bp.type_name|default:'Blueprint Reaction' }}" loading="lazy"
                         onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
                     {% else %}
-                    <img src="https://images.evetech.net/types/{{ bp.type_id }}/icon?size=64"
-                        alt="{{ bp.type_name|default:'Blueprint Stack' }}" loading="lazy"
-                        onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
+                        {% if bp.is_original %}
+                        <img src="https://images.evetech.net/types/{{ bp.type_id }}/bp?size=64"
+                            alt="{{ bp.type_name|default:'Blueprint Original' }}" loading="lazy"
+                            onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
+                        {% else %}
+                        <img src="https://images.evetech.net/types/{{ bp.type_id }}/bpc?size=64"
+                            alt="{{ bp.type_name|default:'Blueprint Copy' }}" loading="lazy"
+                            onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
+                        {% endif %}
                     {% endif %}
-                    <span class="fallback"><i class="fas fa-industry"></i></span>
                 </div>
+
                 <div class="flex-grow-1 min-width-0 blueprint-list-content">
                     <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
                         <h4 class="blueprint-title mb-0">{{ bp.type_name|default:"Unknown Blueprint" }}</h4>
                         <div class="blueprint-badges mb-0 ms-auto">
-                            {% if bp.is_original %}
-                            <span class="type-badge original"><i class="fas fa-certificate"></i> {% trans "Original" %}</span>
-                            {% elif bp.is_copy %}
-                            <span class="type-badge copy"><i class="fas fa-copy"></i> {% trans "Copy" %}</span>
-                            {% elif bp.is_stack %}
-                            <span class="type-badge stack"><i class="fas fa-layer-group"></i> {{ bp.quantity_display }}</span>
-                            {% endif %}
-                            {% if bp.is_copy and bp.runs > 0 %}
-                            <span class="runs-badge"><i class="fas fa-play me-1"></i>{{ bp.runs }} {% trans 'runs left' %}</span>
-                            {% elif bp.is_original %}
-                            <span class="runs-badge"><i class="fas fa-infinity me-1"></i>{% trans 'unlimited' %}</span>
+                            {% if bp.is_reaction %}
+                                <span class="type-badge reaction"><i class="fas fa-flask"></i> {% trans 'Reaction' %}</span>
+                                <span class="runs-badge"><i class="fas fa-infinity me-1"></i>{% trans 'unlimited' %}</span>
+                                <span class="type-badge stack"><i class="fas fa-layer-group"></i> {{ bp.total_quantity }}</span>
+                            {% else %}
+                                {% if bp.orig_quantity > 0 %}
+                                    <span class="type-badge original"><i class="fas fa-certificate"></i> {{ bp.orig_quantity }} {% trans 'Original' %}</span>
+                                    <span class="runs-badge"><i class="fas fa-infinity me-1"></i>{% trans 'unlimited' %}</span>
+                                {% endif %}
+                                {% if bp.copy_quantity > 0 %}
+                                    <span class="type-badge copy"><i class="fas fa-clone"></i> {{ bp.copy_quantity }} {% trans 'Copy' %}</span>
+                                    {% if bp.runs > 0 %}
+                                        <span class="runs-badge"><i class="fas fa-play me-1"></i>{{ bp.runs }} {% trans 'runs left' %}</span>
+                                    {% endif %}
+                                {% endif %}
+                                {% if bp.total_quantity > 0 %}
+                                    <span class="type-badge stack"><i class="fas fa-layer-group"></i> {{ bp.total_quantity }}</span>
+                                {% endif %}
                             {% endif %}
                         </div>
+                    </div>  {# end badges/title row #}
+                    <div class="blueprint-meta mb-1">
+                        <span class="character-tag"><i class="fas fa-user-astronaut"></i> {{ bp.character_name|default:bp.character_id }}</span>
                         <a href="{% url 'indy_hub:craft_bp' bp.type_id %}?next={{ request.get_full_path|urlencode }}" class="btn btn-outline-info btn-sm ms-2">
                             <i class="fas fa-tools me-1"></i>{% trans "View Craft" %}
                         </a>
-                    </div>
-                    <div class="blueprint-meta mb-1">
-                        <span class="character-tag"><i class="fas fa-user-astronaut"></i> {{ bp.character_name|default:bp.character_id }}</span>
-                        <span class="location-tag ms-2"><i class="fas fa-map-marker-alt me-1"></i>{{ bp.location_flag }}</span>
+                        {# Remove location display #}
+                        {# <span class="location-tag ms-2"><i class="fas fa-map-marker-alt me-1"></i>{{ bp.location_path }}</span> #}
                     </div>
                     <div class="efficiency-grid d-flex flex-wrap gap-4 align-items-center mb-1">
                         <div class="efficiency-item">
@@ -221,7 +245,7 @@
                 {% if blueprints.has_previous %}
                 <li class="page-item">
                     <a class="page-link"
-                        href="?page={{ blueprints.previous_page_number }}&per_page={{ blueprints.paginator.per_page }}&search={{ current_filters.search }}&efficiency={{ current_filters.efficiency }}&type={{ current_filters.type }}&character={{ current_filters.character }}"
+                        href="?page={{ blueprints.previous_page_number }}&per_page={{ blueprints.paginator.per_page }}&search={{ current_filters.search }}&efficiency={{ current_filters.efficiency }}&type={{ current_filters.type }}&character={{ current_filters.character }}&activity_id={{ current_filters.activity_id }}&applied=1"
                         aria-label="Previous">
                         <span aria-hidden="true">&laquo;</span>
                     </a>
@@ -232,11 +256,11 @@
                 <li class="page-item active"><span class="page-link">{{ num }}</span></li>
                 {% elif num >= blueprints.number|add:'-2' and num <= blueprints.number|add:'2' %}
                 <li class="page-item"><a class="page-link"
-                        href="?page={{ num }}&per_page={{ blueprints.paginator.per_page }}&search={{ current_filters.search }}&efficiency={{ current_filters.efficiency }}&type={{ current_filters.type }}&character={{ current_filters.character }}">{{ num }}</a>
+                        href="?page={{ num }}&per_page={{ blueprints.paginator.per_page }}&search={{ current_filters.search }}&efficiency={{ current_filters.efficiency }}&type={{ current_filters.type }}&character={{ current_filters.character }}&activity_id={{ current_filters.activity_id }}&applied=1">{{ num }}</a>
                 </li>
                 {% elif num == 1 or num == blueprints.paginator.num_pages %}
                 <li class="page-item"><a class="page-link"
-                        href="?page={{ num }}&per_page={{ blueprints.paginator.per_page }}&search={{ current_filters.search }}&efficiency={{ current_filters.efficiency }}&type={{ current_filters.type }}&character={{ current_filters.character }}">{{ num }}</a>
+                        href="?page={{ num }}&per_page={{ blueprints.paginator.per_page }}&search={{ current_filters.search }}&efficiency={{ current_filters.efficiency }}&type={{ current_filters.type }}&character={{ current_filters.character }}&activity_id={{ current_filters.activity_id }}&applied=1">{{ num }}</a>
                 </li>
                 {% if num < blueprints.number|add:'-2' or num > blueprints.number|add:'2' %}
                 <li class="page-item disabled"><span class="page-link">…</span></li>
@@ -246,7 +270,7 @@
                 {% if blueprints.has_next %}
                 <li class="page-item">
                     <a class="page-link"
-                        href="?page={{ blueprints.next_page_number }}&per_page={{ blueprints.paginator.per_page }}&search={{ current_filters.search }}&efficiency={{ current_filters.efficiency }}&type={{ current_filters.type }}&character={{ current_filters.character }}"
+                        href="?page={{ blueprints.next_page_number }}&per_page={{ blueprints.paginator.per_page }}&search={{ current_filters.search }}&efficiency={{ current_filters.efficiency }}&type={{ current_filters.type }}&character={{ current_filters.character }}&activity_id={{ current_filters.activity_id }}&applied=1"
                         aria-label="Next">
                         <span aria-hidden="true">&raquo;</span>
                     </a>
@@ -279,19 +303,18 @@
     </div>
     {% endif %}
 
-    {% if update_status %}
-    <div class="alert alert-info d-flex align-items-center gap-2 mb-3" role="alert">
-        <i class="fas fa-info-circle"></i>
-        <span>
-            {% if update_status.blueprints_last_update %}
-                {% trans "Last sync:" %} {{ update_status.blueprints_last_update|date:'Y-m-d H:i' }}.
-            {% endif %}
-            {% if update_status.last_error %}
-                <span class="text-danger">{% trans "Last error:" %} {{ update_status.last_error }}</span>
-            {% endif %}
-        </span>
+
+    <!-- Legend -->
+    <div class="legend mt-4">
+        <h5>{% trans "Legend" %}</h5>
+        <ul class="list-inline">
+            <li class="list-inline-item"><span class="type-badge original"><i class="fas fa-certificate"></i></span> {% trans "Original blueprint" %}</li>
+            <li class="list-inline-item"><span class="type-badge copy"><i class="fas fa-clone"></i></span> {% trans "Blueprint copy" %}</li>
+            <li class="list-inline-item"><span class="type-badge stack"><i class="fas fa-layer-group"></i></span> {% trans "Identical blueprints count" %}</li>
+            <li class="list-inline-item"><span class="runs-badge"><i class="fas fa-play me-1"></i></span> {% trans "Runs left" %}</li>
+            <li class="list-inline-item"><span class="runs-badge"><i class="fas fa-infinity me-1"></i></span> {% trans "Unlimited runs" %}</li>
+        </ul>
     </div>
-    {% endif %}
 </div>
 {% endblock content %}
 
