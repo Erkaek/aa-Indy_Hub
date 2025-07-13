@@ -20,13 +20,23 @@ def setup_periodic_tasks():
     for name, conf in INDY_HUB_BEAT_SCHEDULE.items():
         schedule = conf["schedule"]
         if hasattr(schedule, "_orig_minute"):  # crontab
-            crontab, _ = CrontabSchedule.objects.get_or_create(
+            crontabs = CrontabSchedule.objects.filter(
                 minute=str(schedule._orig_minute),
                 hour=str(schedule._orig_hour),
                 day_of_week=str(schedule._orig_day_of_week),
                 day_of_month=str(schedule._orig_day_of_month),
                 month_of_year=str(schedule._orig_month_of_year),
             )
+            if crontabs.exists():
+                crontab = crontabs.first()
+            else:
+                crontab = CrontabSchedule.objects.create(
+                    minute=str(schedule._orig_minute),
+                    hour=str(schedule._orig_hour),
+                    day_of_week=str(schedule._orig_day_of_week),
+                    day_of_month=str(schedule._orig_day_of_month),
+                    month_of_year=str(schedule._orig_month_of_year),
+                )
             PeriodicTask.objects.update_or_create(
                 name=name,
                 defaults={
