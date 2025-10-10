@@ -1,0 +1,56 @@
+{% extends "allianceauth/base-bs5.html" %}
+{% load i18n %}
+
+{% block page_title %}{% trans "Delete Simulation" %}{% endblock page_title %}
+
+{% block content %}
+<div class="container my-4">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <div class="card shadow-lg border-0">
+                <div class="card-header bg-danger bg-gradient text-white fw-bold">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    {% trans "Confirm Deletion" %}
+                </div>
+                <div class="card-body">
+                    <div class="text-center mb-4">
+                    {% with product_type_id=simulation.blueprint_type_id|add:"-1" %}
+                    <img src="https://images.evetech.net/types/{{ product_type_id }}/icon?size=64" alt="{{ simulation.blueprint_name }}" style="width:64px;height:64px;object-fit:cover;border-radius:12px;background:#f3f4f6;" onerror="this.src='https://images.evetech.net/types/{{ simulation.blueprint_type_id }}/bp?size=64';">
+                    {% endwith %}
+                    </div>
+
+                    <h5 class="text-center mb-3">{% trans "Are you sure you want to delete this simulation?" %}</h5>
+
+                    <div class="alert alert-warning" role="alert">
+                        <div class="fw-semibold">{{ simulation.display_name }}</div>
+                        <div class="small text-muted mt-1">
+                            {% trans "Blueprint:" %} {{ simulation.blueprint_name }} ({{ simulation.runs }} runs)<br>
+                            {% trans "Total items:" %} {{ simulation.total_items }}<br>
+                            {% trans "Created:" %} {{ simulation.created_at|date:"M d, Y H:i" }}
+                        </div>
+                    </div>
+
+                    <div class="alert alert-danger" role="alert">
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        <strong>{% trans "Warning:" %}</strong>
+                        {% trans "This action cannot be undone. All production configurations for this simulation will be permanently deleted." %}
+                    </div>
+                </div>
+                <div class="card-footer bg-transparent">
+                    <div class="d-flex gap-2 justify-content-end">
+                        <a href="{% url 'indy_hub:production_simulations_list' %}" class="btn btn-outline-secondary">
+                            <i class="fas fa-times me-1"></i>{% trans "Cancel" %}
+                        </a>
+                        <form method="post" class="d-inline">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-danger">
+                                <i class="fas fa-trash me-1"></i>{% trans "Delete Simulation" %}
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock content %}

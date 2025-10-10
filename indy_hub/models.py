@@ -1,38 +1,10 @@
-# Standard Library
-import logging
-
 # Django
 from django.contrib.auth.models import User
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
 
-# Alliance Auth
-from allianceauth.eveonline.models import EveCharacter
-
-# Assume SDE enrichment provides EveType model
-try:
-    # Alliance Auth (External Libs)
-    from eveuniverse.models import EveType
-except ImportError:
-    EveType = None
-
-logger = logging.getLogger(__name__)
-
-
-def get_type_name(type_id):
-    if EveType:
-        try:
-            return EveType.objects.get(id=type_id).name
-        except EveType.DoesNotExist:
-            return str(type_id)
-    return str(type_id)
-
-
-def get_character_name(character_id):
-    try:
-        return EveCharacter.objects.get(character_id=character_id).character_name
-    except EveCharacter.DoesNotExist:
-        return str(character_id)
+from .utils.eve import get_blueprint_product_type_id
 
 
 class BlueprintManager(models.Manager):
@@ -363,8 +335,235 @@ class CharacterSettings(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = ("user", "character_id")
         default_permissions = ()
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "character_id"],
+                name="charsettings_user_char_uq",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["user", "character_id"],
+                name="charsettings_user_char_idx",
+            )
+        ]
 
     def __str__(self):
         return f"Settings for {self.user.username}#{self.character_id}"
+
+
+class ProductionConfig(models.Model):
+    """
+    Stocke les configurations de production (Prod/Buy/Useless) pour chaque blueprint et utilisateur.
+    Maintenant lié à une simulation spécifique pour permettre de sauvegarder plusieurs configurations.
+    """
+
+    PRODUCTION_CHOICES = [
+        ("prod", "Produce"),
+        ("buy", "Buy"),
+        ("useless", "Useless"),
+    ]
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    simulation = models.ForeignKey(
+        "ProductionSimulation",
+        on_delete=models.CASCADE,
+        related_name="production_configs",
+        null=True,
+        blank=True,
+    )
+    blueprint_type_id = models.BigIntegerField()  # Type ID du blueprint principal
+    item_type_id = models.BigIntegerField()  # Type ID de l'item dans l'arbre
+    production_mode = models.CharField(
+        max_length=10, choices=PRODUCTION_CHOICES, default="prod"
+    )
+    quantity_needed = models.BigIntegerField(default=0)
+    runs = models.IntegerField(default=1)  # Nombre de runs du blueprint principal
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("simulation", "item_type_id")
+        default_permissions = ()
+        indexes = [
+            models.Index(fields=["user", "blueprint_type_id", "runs"]),
+            models.Index(fields=["user", "item_type_id"]),
+            models.Index(fields=["simulation", "item_type_id"]),
+        ]
+
+    def __str__(self):
+        return f"{self.user.username} - BP:{self.blueprint_type_id} - Item:{self.item_type_id} - {self.production_mode}"
+
+
+class BlueprintEfficiency(models.Model):
+    """
+    Stocke les valeurs ME/TE personnalisées définies par l'utilisateur pour chaque blueprint.
+    """
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    blueprint_type_id = models.BigIntegerField()
+    simulation = models.ForeignKey(
+        "ProductionSimulation",
+        on_delete=models.CASCADE,
+        related_name="blueprint_efficiencies",
+    )
+    material_efficiency = models.IntegerField(
+        default=0, validators=[MinValueValidator(0), MaxValueValidator(10)]
+    )
+    time_efficiency = models.IntegerField(
+        default=0, validators=[MinValueValidator(0), MaxValueValidator(20)]
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("simulation", "blueprint_type_id")
+        default_permissions = ()
+        indexes = [
+            models.Index(fields=["user", "blueprint_type_id"]),
+            models.Index(fields=["simulation", "blueprint_type_id"]),
+        ]
+
+    def __str__(self):
+        return f"{self.user.username} - BP:{self.blueprint_type_id} - ME:{self.material_efficiency} TE:{self.time_efficiency}"
+
+
+class CustomPrice(models.Model):
+    """
+    Stocke les prix manuels définis par l'utilisateur pour chaque item dans l'onglet Financial.
+    """
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    item_type_id = models.BigIntegerField()
+    simulation = models.ForeignKey(
+        "ProductionSimulation", on_delete=models.CASCADE, related_name="custom_prices"
+    )
+    unit_price = models.DecimalField(max_digits=20, decimal_places=2, default=0)
+    is_sale_price = models.BooleanField(
+        default=False
+    )  # True si c'est le prix de vente du produit final
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("simulation", "item_type_id")
+        default_permissions = ()
+        indexes = [
+            models.Index(fields=["user", "item_type_id"]),
+            models.Index(fields=["simulation", "item_type_id"]),
+        ]
+
+    def __str__(self):
+        price_type = "Sale" if self.is_sale_price else "Cost"
+        return f"{self.user.username} - Item:{self.item_type_id} - {price_type}: {self.unit_price}"
+
+
+class ProductionSimulation(models.Model):
+    """
+    Métadonnées des simulations de production sauvegardées par utilisateur.
+    Chaque simulation stocke toutes les configurations: switches, ME/TE, prix manuels, etc.
+    """
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    blueprint_type_id = models.BigIntegerField()
+    blueprint_name = models.CharField(max_length=255)
+    runs = models.IntegerField(default=1)
+    simulation_name = models.CharField(
+        max_length=255, blank=True
+    )  # Nom personnalisé optionnel
+
+    # Métadonnées de résumé
+    total_items = models.IntegerField(default=0)  # Nombre d'items dans la config
+    total_buy_items = models.IntegerField(default=0)  # Nombre d'items à acheter
+    total_prod_items = models.IntegerField(default=0)  # Nombre d'items à produire
+    estimated_cost = models.DecimalField(
+        max_digits=20, decimal_places=2, default=0
+    )  # Coût estimé
+    estimated_revenue = models.DecimalField(
+        max_digits=20, decimal_places=2, default=0
+    )  # Revenus estimés
+    estimated_profit = models.DecimalField(
+        max_digits=20, decimal_places=2, default=0
+    )  # Profit estimé
+
+    # Configuration générale de la simulation
+    active_tab = models.CharField(
+        max_length=50, default="materials"
+    )  # Onglet actif (materials, blueprints, financial)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("user", "blueprint_type_id", "runs")
+        default_permissions = ()
+        ordering = ["-updated_at"]
+        indexes = [
+            models.Index(fields=["user", "-updated_at"]),
+            models.Index(fields=["user", "blueprint_type_id"]),
+        ]
+
+    def __str__(self):
+        name = self.simulation_name or f"{self.blueprint_name} x{self.runs}"
+        return f"{self.user.username} - {name}"
+
+    @property
+    def display_name(self):
+        if self.simulation_name:
+            return f"{self.simulation_name} ({self.blueprint_name} x{self.runs})"
+        return f"{self.blueprint_name} x{self.runs}"
+
+    def get_production_configs(self):
+        """Retourne toutes les configurations Prod/Buy/Useless de cette simulation."""
+        return self.production_configs.all()
+
+    @property
+    def productionconfig_set(self):
+        """Compatibilité rétro pour l'ancien nom de relation Django."""
+        return self.production_configs
+
+    def get_blueprint_efficiencies(self):
+        """Retourne toutes les configurations ME/TE de cette simulation."""
+        return self.blueprint_efficiencies.all()
+
+    def get_custom_prices(self):
+        """Retourne tous les prix manuels de cette simulation."""
+        return self.custom_prices.all()
+
+    @property
+    def product_type_id(self) -> int | None:
+        """Return the likely manufactured item type id for icon display."""
+        product_id = get_blueprint_product_type_id(self.blueprint_type_id)
+        if product_id:
+            return product_id
+        if self.blueprint_type_id:
+            try:
+                return int(self.blueprint_type_id)
+            except (TypeError, ValueError):
+                return None
+        return None
+
+    @property
+    def product_icon_url(self) -> str | None:
+        """Return the product render URL if available (matching blueprint listing)."""
+        type_id = self.product_type_id
+        if not type_id:
+            return None
+        return f"https://images.evetech.net/types/{type_id}/render?size=32"
+
+    @property
+    def blueprint_icon_url(self) -> str | None:
+        """Return the blueprint icon URL for fallback display."""
+        if not self.blueprint_type_id:
+            return None
+        return (
+            f"https://images.evetech.net/types/{int(self.blueprint_type_id)}/bp?size=32"
+        )
+
+    @property
+    def profit_margin(self):
+        """Calcule la marge de profit en pourcentage."""
+        if self.estimated_revenue > 0:
+            return float((self.estimated_profit / self.estimated_revenue) * 100)
+        return 0.0

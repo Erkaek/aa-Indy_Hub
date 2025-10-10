@@ -1,0 +1,66 @@
+{% extends "allianceauth/base-bs5.html" %}
+{% load i18n %}
+
+{% block page_title %}{% trans "Edit Simulation Name" %}{% endblock page_title %}
+
+{% block content %}
+<div class="container my-4">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <div class="card shadow-lg border-0">
+                <div class="card-header bg-primary bg-gradient text-white fw-bold">
+                    <i class="fas fa-edit me-2"></i>
+                    {% trans "Edit Simulation Name" %}
+                </div>
+                <form method="post">
+                    {% csrf_token %}
+                    <div class="card-body">
+                        <div class="text-center mb-4">
+                            {% if simulation.product_icon_url %}
+                                <img src="{{ simulation.product_icon_url }}" alt="{{ simulation.blueprint_name }}" style="width:64px;height:64px;object-fit:cover;border-radius:12px;background:#f3f4f6;" onerror="if(!this.dataset.fallback){this.dataset.fallback='bp';this.src='{{ simulation.blueprint_icon_url }}';}else{this.onerror=null;this.src='https://images.evetech.net/types/{{ simulation.blueprint_type_id }}/bp?size=64';}">
+                            {% elif simulation.blueprint_icon_url %}
+                                <img src="{{ simulation.blueprint_icon_url }}" alt="{{ simulation.blueprint_name }}" style="width:64px;height:64px;object-fit:cover;border-radius:12px;background:#f3f4f6;">
+                            {% else %}
+                                <span class="text-muted" style="font-size:2.5rem;display:inline-flex;align-items:center;justify-content:center;width:64px;height:64px;border-radius:12px;background:#f3f4f6;">
+                                    <i class="fas fa-industry"></i>
+                                </span>
+                            {% endif %}
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="simulation_name" class="form-label fw-bold">
+                                {% trans "Custom Name" %}
+                            </label>
+                            <input type="text" class="form-control" id="simulation_name" name="simulation_name" value="{{ simulation.simulation_name }}" placeholder="{% trans 'Enter a custom name for this simulation (optional)' %}" maxlength="255">
+                            <div class="form-text">
+                                {% trans "Leave empty to use the default name:" %} {{ simulation.blueprint_name }} x{{ simulation.runs }}
+                            </div>
+                        </div>
+
+                        <div class="alert alert-info" role="alert">
+                            <div class="fw-semibold">{% trans "Simulation Details:" %}</div>
+                            <div class="small mt-1">
+                                {% trans "Blueprint:" %} {{ simulation.blueprint_name }}<br>
+                                {% trans "Runs:" %} {{ simulation.runs }}<br>
+                                {% trans "Total items:" %} {{ simulation.total_items }}<br>
+                                {% trans "Buy items:" %} {{ simulation.total_buy_items }}<br>
+                                {% trans "Prod items:" %} {{ simulation.total_prod_items }}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-footer bg-transparent">
+                        <div class="d-flex gap-2 justify-content-end">
+                            <a href="{% url 'indy_hub:production_simulations_list' %}" class="btn btn-outline-secondary">
+                                <i class="fas fa-times me-1"></i>{% trans "Cancel" %}
+                            </a>
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-save me-1"></i>{% trans "Save Changes" %}
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock content %}

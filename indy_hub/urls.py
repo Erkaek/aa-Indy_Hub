@@ -1,6 +1,11 @@
 # Django
 from django.urls import path
 
+from .views.api import (
+    fuzzwork_price,
+    load_production_config,
+    save_production_config,
+)
 from .views.industry import (
     all_bp_list,
     bp_accept_copy_request,
@@ -14,15 +19,23 @@ from .views.industry import (
     bp_offer_copy_request,
     bp_reject_copy_request,
     craft_bp,
-    fuzzwork_price,
+)
+from .views.industry import (
+    delete_production_simulation as delete_production_simulation_view,
+)
+from .views.industry import (
+    edit_simulation_name,
     personnal_bp_list,
     personnal_job_list,
+    production_simulations_list,
 )
 from .views.user import (
     authorize_all,
     authorize_blueprints,
     authorize_jobs,
     index,
+    production_simulations,
+    rename_production_simulation,
     sync_all_tokens,
     sync_blueprints,
     sync_jobs,
@@ -46,6 +59,39 @@ urlpatterns = [
     path("authorize/all/", authorize_all, name="authorize_all"),
     path("craft/<int:type_id>/", craft_bp, name="craft_bp"),
     path("api/fuzzwork-price/", fuzzwork_price, name="fuzzwork_price"),
+    path(
+        "api/production-config/save/",
+        save_production_config,
+        name="save_production_config",
+    ),
+    path(
+        "api/production-config/load/",
+        load_production_config,
+        name="load_production_config",
+    ),
+    path(
+        "simulations/", production_simulations_list, name="production_simulations_list"
+    ),
+    path(
+        "simulations/<int:simulation_id>/delete/",
+        delete_production_simulation_view,
+        name="delete_production_simulation",
+    ),
+    path(
+        "simulations/<int:simulation_id>/edit-name/",
+        edit_simulation_name,
+        name="edit_simulation_name",
+    ),
+    path(
+        "simulations/legacy/",
+        production_simulations,
+        name="production_simulations",
+    ),
+    path(
+        "simulations/<int:simulation_id>/rename/",
+        rename_production_simulation,
+        name="rename_production_simulation",
+    ),
     path("bp-copy/request/", bp_copy_request_page, name="bp_copy_request_page"),
     path("bp-copy/fulfill/", bp_copy_fulfill_requests, name="bp_copy_fulfill_requests"),
     path(

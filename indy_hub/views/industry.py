@@ -1,18 +1,28 @@
 # Industry-related views
 # Standard Library
+import json
 import logging
+from decimal import Decimal
+from math import ceil
 
 # Third Party
 import requests
+
+try:  # pragma: no cover - EveUniverse optional
+    # Alliance Auth (External Libs)
+    from eveuniverse.models import EveType
+except ImportError:  # pragma: no cover - fallback when EveUniverse absent
+    EveType = None
 
 # Django
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.db import connection
-from django.db.models import Q
+from django.db.models import Q, Sum
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 
 # AA Example App
@@ -24,11 +34,12 @@ from ..models import (
     BlueprintCopyOffer,
     BlueprintCopyRequest,
     IndustryJob,
-    get_character_name,
-    get_type_name,
+    ProductionConfig,
+    ProductionSimulation,
 )
 from ..notifications import notify_user
 from ..tasks.industry import update_blueprints_for_user, update_industry_jobs_for_user
+from ..utils.eve import get_character_name, get_type_name
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +68,7 @@ def personnal_bp_list(request):
     activity_id = request.GET.get("activity_id", "")
     sort_order = request.GET.get("order", "asc")
     page = int(request.GET.get("page", 1))
-    per_page = int(request.GET.get("per_page", 50))
+    per_page = int(request.GET.get("per_page", 25))
 
     # Determine which activity IDs to include based on filter
     # Determine which activity IDs to include based on filter
@@ -298,7 +309,7 @@ def all_bp_list(request):
         params.append(market_group_id)
     sql += " ORDER BY t.name ASC"
     page = int(request.GET.get("page", 1))
-    per_page = int(request.GET.get("per_page", 50))
+    per_page = int(request.GET.get("per_page", 25))
     # Initial empty pagination before fetching data
     paginator = Paginator([], per_page)
     blueprints_page = paginator.get_page(page)
@@ -507,15 +518,47 @@ def personnal_job_list(request):
         return redirect("indy_hub:index")
 
 
+def collect_blueprints_with_level(blueprint_configs):
+    """
+    Annoter chaque blueprint config avec un attribut 'level' correspondant à la profondeur maximale de l'arbre de matériaux.
+    """
+    # Mapping type_id -> blueprint config pour accès rapide
+    config_map = {bc["type_id"]: bc for bc in blueprint_configs}
+
+    def get_level(type_id):
+        bc = config_map.get(type_id)
+        if bc is None:
+            return 0
+        # Si déjà calculé, on retourne la valeur
+        if bc.get("level") is not None:
+            return bc["level"]
+        # Récupère les enfants (matériaux), ou liste vide si non défini
+        children = (
+            [m["type_id"] for m in bc.get("materials", [])] if "materials" in bc else []
+        )
+        # Calcul récursif du niveau
+        level = 1 + max((get_level(child_id) for child_id in children), default=0)
+        bc["level"] = level
+        return level
+
+    # Calcul du niveau pour chaque blueprint
+    for bc in blueprint_configs:
+        get_level(bc["type_id"])
+    return blueprint_configs
+
+
 @indy_hub_access_required
 @login_required
 def craft_bp(request, type_id):
+
+    # --- Paramètres de la requête ---
     try:
         num_runs = int(request.GET.get("runs", 1))
         if num_runs < 1:
             num_runs = 1
     except Exception:
         num_runs = 1
+
     try:
         me = int(request.GET.get("me", 0))
     except ValueError:
@@ -526,20 +569,42 @@ def craft_bp(request, type_id):
         te = 0
     me = max(0, min(me, 10))
     te = max(0, min(te, 20))
+
+    # --- Récupération de l'onglet actif depuis les paramètres ---
+    active_tab = request.GET.get("active_tab", "materials")  # Par défaut Materials
+
+    # --- Récupération des décisions buy/craft depuis les paramètres de la requête ---
+    buy_decisions = set()
+    buy_list = request.GET.get("buy", "")
+    if buy_list:
+        try:
+            # Parse comma-separated list of type_ids to buy instead of craft
+            buy_decisions = {
+                int(tid.strip()) for tid in buy_list.split(",") if tid.strip().isdigit()
+            }
+            logger.info(f"Buy decisions parsed: {buy_decisions}")  # Debug log
+        except ValueError:
+            buy_decisions = set()
+    else:
+        logger.info("No buy decisions found in URL parameters")  # Debug log
+
     try:
+        # --- Récupération du nom du blueprint ---
         with connection.cursor() as cursor:
             cursor.execute(
                 "SELECT name FROM eveuniverse_evetype WHERE id=%s", [type_id]
             )
             row = cursor.fetchone()
             bp_name = row[0] if row else str(type_id)
+
+        # --- Récupération du produit final et quantité ---
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                    SELECT product_eve_type_id, quantity
-                    FROM eveuniverse_eveindustryactivityproduct
-                    WHERE eve_type_id = %s AND activity_id IN (1, 11)
-                    LIMIT 1
+                SELECT product_eve_type_id, quantity
+                FROM eveuniverse_eveindustryactivityproduct
+                WHERE eve_type_id = %s AND activity_id IN (1, 11)
+                LIMIT 1
                 """,
                 [type_id],
             )
@@ -550,7 +615,11 @@ def craft_bp(request, type_id):
             )
             final_product_qty = output_qty_per_run * num_runs
 
-        def get_materials_tree(bp_id, runs, depth=0, max_depth=10, seen=None):
+        # --- Construction de l'arbre des matériaux ---
+        def get_materials_tree(
+            bp_id, runs, blueprint_me=0, depth=0, max_depth=10, seen=None
+        ):
+            """Construit récursivement l'arbre des matériaux pour un blueprint donné."""
             if seen is None:
                 seen = set()
             if depth > max_depth or bp_id in seen:
@@ -563,82 +632,523 @@ def craft_bp(request, type_id):
                     FROM eveuniverse_eveindustryactivitymaterial m
                     JOIN eveuniverse_evetype t ON m.material_eve_type_id = t.id
                     WHERE m.eve_type_id = %s AND m.activity_id IN (1, 11)
-                """,
+                    """,
                     [bp_id],
                 )
                 mats = []
                 for row in cursor.fetchall():
                     base_qty = row[2] * runs
-                    qty = base_qty * (100 - me) / 100
-                    mats.append(
-                        {"type_id": row[0], "type_name": row[1], "quantity": qty}
-                    )
-            result = []
-            for mat in mats:
-                with connection.cursor() as sub_cursor:
-                    sub_cursor.execute(
+                    # Utiliser le ME spécifique au blueprint et arrondir à l'unité supérieure
+                    # Standard Library
+
+                    qty = ceil(base_qty * (100 - blueprint_me) / 100)
+                    mat = {
+                        "type_id": row[0],
+                        "type_name": row[1],
+                        "quantity": qty,
+                        # Default values, will be overwritten if blueprint exists
+                        "cycles": None,
+                        "produced_per_cycle": None,
+                        "total_produced": None,
+                        "surplus": None,
+                    }
+                    # Check if this material can be produced by a blueprint (i.e. is a sub-product)
+                    with connection.cursor() as sub_cursor:
+                        sub_cursor.execute(
+                            """
+                            SELECT eve_type_id
+                            FROM eveuniverse_eveindustryactivityproduct
+                            WHERE product_eve_type_id = %s AND activity_id IN (1, 11)
+                            LIMIT 1
+                            """,
+                            [mat["type_id"]],
+                        )
+                        sub_bp_row = sub_cursor.fetchone()
+                        if sub_bp_row:
+                            sub_bp_id = sub_bp_row[0]
+                            sub_cursor.execute(
+                                """
+                                SELECT quantity
+                                FROM eveuniverse_eveindustryactivityproduct
+                                WHERE eve_type_id = %s AND activity_id IN (1, 11)
+                                LIMIT 1
+                                """,
+                                [sub_bp_id],
+                            )
+                            prod_qty_row = sub_cursor.fetchone()
+                            output_qty = prod_qty_row[0] if prod_qty_row else 1
+                            # Standard Library
+
+                            cycles = ceil(mat["quantity"] / output_qty)
+                            total_produced = cycles * output_qty
+                            surplus = total_produced - mat["quantity"]
+                            mat["cycles"] = cycles
+                            mat["produced_per_cycle"] = output_qty
+                            mat["total_produced"] = total_produced
+                            mat["surplus"] = surplus
+                            mat["sub_materials"] = get_materials_tree(
+                                sub_bp_id, cycles, 0, depth + 1, max_depth, seen.copy()
+                            )
+                        else:
+                            mat["sub_materials"] = []
+                    mats.append(mat)
+            return mats
+
+        materials_tree = get_materials_tree(type_id, num_runs, me)
+
+        # --- Fonction pour collecter tous les blueprints à exclure des configs ---
+        def collect_buy_exclusions(tree, buy_set, excluded=None):
+            """
+            Collecte tous les blueprint type_ids qui doivent être exclus des blueprints config.
+            Si un item est marqué pour achat, le blueprint qui le produit et tous ses enfants sont exclus.
+            """
+            if excluded is None:
+                excluded = set()
+
+            for mat in tree:
+                # Si ce matériau est marqué pour achat au lieu d'être produit
+                if mat["type_id"] in buy_set:
+                    # Trouver le blueprint qui produit ce matériau et l'exclure
+                    with connection.cursor() as cursor:
+                        cursor.execute(
+                            """
+                            SELECT eve_type_id
+                            FROM eveuniverse_eveindustryactivityproduct
+                            WHERE product_eve_type_id = %s AND activity_id IN (1, 11)
+                            LIMIT 1
+                            """,
+                            [mat["type_id"]],
+                        )
+                        bp_row = cursor.fetchone()
+                        if bp_row:
+                            excluded.add(
+                                bp_row[0]
+                            )  # Exclure le blueprint qui produit cet item
+
+                    # Récursivement exclure tous les blueprints enfants
+                    if mat.get("sub_materials"):
+                        collect_all_descendant_blueprints(
+                            mat["sub_materials"], excluded
+                        )
+                elif mat.get("sub_materials"):
+                    # Continuer la recherche dans les enfants
+                    collect_buy_exclusions(mat["sub_materials"], buy_set, excluded)
+
+            return excluded
+
+        def collect_all_descendant_blueprints(tree, excluded):
+            """Collecte récursivement tous les blueprints descendants d'un arbre."""
+            for mat in tree:
+                # Trouver le blueprint qui produit ce matériau
+                with connection.cursor() as cursor:
+                    cursor.execute(
                         """
                         SELECT eve_type_id
                         FROM eveuniverse_eveindustryactivityproduct
                         WHERE product_eve_type_id = %s AND activity_id IN (1, 11)
                         LIMIT 1
-                    """,
+                        """,
                         [mat["type_id"]],
                     )
-                    sub_bp_row = sub_cursor.fetchone()
+                    bp_row = cursor.fetchone()
+                    if bp_row:
+                        excluded.add(bp_row[0])
+
+                if mat.get("sub_materials"):
+                    collect_all_descendant_blueprints(mat["sub_materials"], excluded)
+
+        # Collecter les exclusions basées sur les décisions buy/craft
+        blueprint_exclusions = collect_buy_exclusions(materials_tree, buy_decisions)
+        logger.info(f"Blueprint exclusions: {blueprint_exclusions}")  # Debug log
+
+        def flatten_materials(materials, buy_as_final=None):
+            """Recursively flatten the materials tree into a flat list of terminal inputs.
+
+            Only leaf materials (or those explicitly marked for purchase) are retained so that
+            the resulting list reflects the final resources required to complete the build.
+            """
+            # Standard Library
+            from collections import defaultdict
+
+            if buy_as_final is None:
+                buy_as_final = set()
+
+            def _flatten(mats, accumulator):
+                for m in mats:
+                    sub_items = m.get("sub_materials") or []
+                    should_expand = bool(sub_items) and m["type_id"] not in buy_as_final
+
+                    if not should_expand:
+                        accumulator[m["type_id"]]["type_name"] = m["type_name"]
+                        accumulator[m["type_id"]]["quantity"] += m["quantity"]
+
+                    if should_expand:
+                        _flatten(sub_items, accumulator)
+
+            material_accumulator = defaultdict(lambda: {"type_name": "", "quantity": 0})
+            _flatten(materials, material_accumulator)
+
+            return [
+                {
+                    "type_id": type_id,
+                    "type_name": data["type_name"],
+                    "quantity": ceil(data["quantity"]),
+                }
+                for type_id, data in material_accumulator.items()
+            ]
+
+        # --- Extraction de tous les blueprints impliqués (racine + enfants) ---
+        def extract_all_blueprint_type_ids(bp_id, acc=None, depth=0, max_depth=10):
+            """Récupère récursivement tous les type_id de blueprints (racine + enfants)."""
+            if acc is None:
+                acc = set()
+            if depth > max_depth or bp_id in acc:
+                return acc
+            acc.add(bp_id)
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT m.material_eve_type_id
+                    FROM eveuniverse_eveindustryactivitymaterial m
+                    WHERE m.eve_type_id = %s AND m.activity_id IN (1, 11)
+                    """,
+                    [bp_id],
+                )
+                material_type_ids = [row[0] for row in cursor.fetchall()]
+            for mat_type_id in material_type_ids:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        SELECT eve_type_id
+                        FROM eveuniverse_eveindustryactivityproduct
+                        WHERE product_eve_type_id = %s AND activity_id IN (1, 11)
+                        LIMIT 1
+                        """,
+                        [mat_type_id],
+                    )
+                    sub_bp_row = cursor.fetchone()
                     if sub_bp_row:
                         sub_bp_id = sub_bp_row[0]
-                        sub_cursor.execute(
+                        extract_all_blueprint_type_ids(
+                            sub_bp_id, acc, depth + 1, max_depth
+                        )
+            return acc
+
+        all_bp_ids = extract_all_blueprint_type_ids(type_id)
+
+        # --- Récupération des configurations pour tous les blueprints collectés ---
+        if all_bp_ids:
+            placeholders = ",".join(["%s"] * len(all_bp_ids))
+            params = list(all_bp_ids)
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    SELECT
+                        t.id AS type_id,
+                        t.name AS type_name,
+                        t.eve_group_id AS group_id,
+                        g.name AS group_name,
+                        a.activity_id,
+                        COALESCE(NULLIF(a.product_eve_type_id, 0), NULLIF(a.eve_type_id, 0)) AS product_type_id,
+                        a.quantity,
+                        0 AS material_efficiency,
+                        0 AS time_efficiency
+                    FROM eveuniverse_evetype t
+                    JOIN eveuniverse_eveindustryactivityproduct a ON t.id = a.eve_type_id
+                    LEFT JOIN eveuniverse_evegroup g ON t.eve_group_id = g.id
+                    WHERE t.published = 1
+                        AND a.activity_id IN (1, 11)
+                        AND t.id IN ({placeholders})
+                    ORDER BY g.name, a.quantity DESC
+                """,
+                    params,
+                )
+                blueprint_configs = [
+                    {
+                        "type_id": row[0],
+                        "type_name": row[1],
+                        "group_id": row[2],
+                        "group_name": row[3],
+                        "activity_id": row[4],
+                        "product_type_id": row[5],
+                        "quantity": row[6],
+                        "material_efficiency": row[7],
+                        "time_efficiency": row[8],
+                    }
+                    for row in cursor.fetchall()
+                ]
+
+                # --- Mise à jour des valeurs ME/TE pour le blueprint principal ---
+                for bc in blueprint_configs:
+                    if bc["type_id"] == type_id:  # Blueprint principal
+                        bc["material_efficiency"] = me
+                        bc["time_efficiency"] = te
+                        break
+        else:
+            blueprint_configs = []
+
+        # --- Injection de la structure des matériaux dans chaque blueprint_config ---
+        config_map = {bc["type_id"]: bc for bc in blueprint_configs}
+
+        def inject_materials(tree):
+            """Injecte récursivement les enfants (matériaux) dans chaque blueprint_config."""
+            for node in tree:
+                bc = config_map.get(node["type_id"])
+                if bc is not None:
+                    if "materials" not in bc:
+                        bc["materials"] = []
+                    existing = {m["type_id"] for m in bc["materials"]}
+                    for sub in node.get("sub_materials", []):
+                        if sub["type_id"] not in existing:
+                            bc["materials"].append({"type_id": sub["type_id"]})
+                            existing.add(sub["type_id"])
+                        inject_materials([sub])
+
+        inject_materials([{"type_id": type_id, "sub_materials": materials_tree}])
+
+        # --- Calcul du niveau de profondeur pour chaque blueprint ---
+        blueprint_configs = collect_blueprints_with_level(blueprint_configs)
+
+        # --- Regroupement par groupe puis par niveau ---
+        grouping = {}
+        for bc in blueprint_configs:
+            # On ne garde que les blueprints utiles (matériaux non vides OU quantité > 0)
+            # Et on exclut les blueprints de réaction (activity_id 9, 11) car ils ne peuvent pas être modifiés en ME/TE
+            # Et on exclut les blueprints dont les items sont marqués pour achat
+            if (
+                bc["type_id"] is not None
+                and (
+                    (bc.get("materials") and len(bc["materials"]) > 0)
+                    or bc.get("quantity", 0) > 0
+                )
+                and bc.get("activity_id")
+                not in [9, 11]  # Exclure les Composite Reaction Formulas
+                and bc["type_id"] not in blueprint_exclusions
+            ):  # Exclure les blueprints marqués pour achat
+                grouping.setdefault(
+                    bc["group_id"], {"group_name": bc["group_name"], "levels": {}}
+                )
+                lvl = bc["level"]
+                grouping[bc["group_id"]]["levels"].setdefault(lvl, []).append(bc)
+
+        # --- Structuration finale pour le template ---
+        blueprint_configs_grouped = []
+        for group_id, info in grouping.items():
+            levels = []
+            for lvl in sorted(info["levels"].keys()):
+                # Filtrer les blueprints réellement utiles (ayant des matériaux ou quantité > 0)
+                # Et exclure les blueprints de réaction (activity_id 9, 11) car ils ne peuvent pas être modifiés en ME/TE
+                # Et exclure les blueprints dont les items sont marqués pour achat
+                blueprints_utiles = [
+                    bc
+                    for bc in info["levels"][lvl]
+                    if (
+                        (bc.get("materials") and len(bc["materials"]) > 0)
+                        or bc.get("quantity", 0) > 0
+                    )
+                    and bc.get("activity_id")
+                    not in [9, 11]  # Exclure les Composite Reaction Formulas
+                    and bc["type_id"]
+                    not in blueprint_exclusions  # Exclure les blueprints marqués pour achat
+                ]
+                if blueprints_utiles:
+                    levels.append({"level": lvl, "blueprints": blueprints_utiles})
+            # Ne garder que les groupes qui ont au moins un blueprint utile dans un niveau
+            if levels:
+                blueprint_configs_grouped.append(
+                    {
+                        "group_id": group_id,
+                        "group_name": info["group_name"],
+                        "levels": levels,
+                    }
+                )
+        if not blueprint_configs_grouped:
+            blueprint_configs_grouped = None
+
+        # --- Calcul cumulatif des cycles/produits/surplus pour chaque item craftable ---
+        # Standard Library
+        from collections import defaultdict
+
+        def collect_craftables(materials, craftables):
+            for mat in materials:
+                # On ne cumule que si l'item est craftable (produit par un blueprint)
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        SELECT eve_type_id
+                        FROM eveuniverse_eveindustryactivityproduct
+                        WHERE product_eve_type_id = %s AND activity_id IN (1, 11)
+                        LIMIT 1
+                        """,
+                        [mat["type_id"]],
+                    )
+                    sub_bp_row = cursor.fetchone()
+                    if sub_bp_row:
+                        # On cumule la quantité demandée
+                        craftables[mat["type_id"]]["type_name"] = mat["type_name"]
+                        craftables[mat["type_id"]]["total_needed"] += ceil(
+                            mat["quantity"]
+                        )
+                        # On récupère la quantité produite par cycle
+                        cursor.execute(
                             """
                             SELECT quantity
                             FROM eveuniverse_eveindustryactivityproduct
                             WHERE eve_type_id = %s AND activity_id IN (1, 11)
                             LIMIT 1
-                        """,
-                            [sub_bp_id],
+                            """,
+                            [sub_bp_row[0]],
                         )
-                        prod_qty_row = sub_cursor.fetchone()
+                        prod_qty_row = cursor.fetchone()
                         output_qty = prod_qty_row[0] if prod_qty_row else 1
-                        # Standard Library
-                        from math import ceil
+                        craftables[mat["type_id"]]["produced_per_cycle"] = output_qty
+                        # On continue dans les sous-matériaux
+                        if "sub_materials" in mat:
+                            collect_craftables(mat["sub_materials"], craftables)
 
-                        runs_for_sub = ceil(mat["quantity"] / output_qty)
-                        mat["sub_materials"] = get_materials_tree(
-                            sub_bp_id, runs_for_sub, depth + 1, max_depth, seen.copy()
-                        )
-                    else:
-                        mat["sub_materials"] = []
-                result.append(mat)
-            return result
-
-        materials_tree = get_materials_tree(type_id, num_runs)
-
-        def flatten_materials(materials):
-            return [
-                {
-                    "type_id": m["type_id"],
-                    "type_name": m["type_name"],
-                    "quantity": m["quantity"],
-                }
-                for m in materials
-            ]
-
-        return render(
-            request,
-            "indy_hub/Craft_BP.html",
-            {
-                "bp_type_id": type_id,
-                "bp_name": bp_name,
-                "materials": flatten_materials(materials_tree),
-                "materials_tree": materials_tree,
-                "num_runs": num_runs,
-                "product_type_id": product_type_id,
-                "final_product_qty": final_product_qty,
-                "me": me,
-                "te": te,
-            },
+        craftables = defaultdict(
+            lambda: {"type_name": "", "total_needed": 0, "produced_per_cycle": 1}
         )
+        collect_craftables(materials_tree, craftables)
+        # Calcul cycles, total_produced, surplus
+        for v in craftables.values():
+            # Standard Library
+
+            v["cycles"] = ceil(v["total_needed"] / v["produced_per_cycle"])
+            v["total_produced"] = v["cycles"] * v["produced_per_cycle"]
+            v["surplus"] = v["total_produced"] - v["total_needed"]
+
+        # --- Prepare direct materials list (only direct children of the main blueprint) ---
+        direct_materials_list = []
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT m.material_eve_type_id, t.name, m.quantity "
+                "FROM eveuniverse_eveindustryactivitymaterial m "
+                "JOIN eveuniverse_evetype t ON m.material_eve_type_id = t.id "
+                "WHERE m.eve_type_id = %s AND m.activity_id IN (1, 11)",
+                [type_id],
+            )
+            for row in cursor.fetchall():
+                base_qty = row[2] * num_runs
+                # Apply ME bonus if applicable and round up to integer
+                # Standard Library
+
+                qty = ceil(base_qty * (100 - me) / 100)
+                direct_materials_list.append(
+                    {
+                        "type_id": row[0],
+                        "type_name": row[1],
+                        "quantity": qty,
+                    }
+                )
+
+        # --- Prepare materials list (flattened), fallback to direct fetch if empty ---
+        materials_list = flatten_materials(materials_tree, buy_decisions)
+        if not materials_list:
+            # Use direct materials as fallback
+            materials_list = direct_materials_list
+        # --- Ajout du mapping type_id -> nom de groupe Eve pour l'onglet Financial ---
+        # Récupère tous les type_id utilisés dans les matériaux à acheter
+        all_type_ids = {mat["type_id"] for mat in materials_list}
+        eve_types_query = []
+        if EveType is not None:
+            eve_types_query = list(
+                EveType.objects.filter(id__in=all_type_ids).select_related("eve_group")
+            )
+        eve_types = eve_types_query
+        # On ne garde que les groupes ayant au moins un item dans materials_list
+        group_ids_used = set()
+        for mat in materials_list:
+            eve_type = next((et for et in eve_types if et.id == mat["type_id"]), None)
+            if eve_type and eve_type.eve_group:
+                group_ids_used.add(eve_type.eve_group.id)
+            elif eve_type:
+                group_ids_used.add(None)
+        market_group_map = {}
+        if EveType is not None:
+            for eve_type in eve_types:
+                group_id = eve_type.eve_group.id if eve_type.eve_group else None
+                group_name = eve_type.eve_group.name if eve_type.eve_group else "Other"
+                if group_id in group_ids_used:
+                    market_group_map[eve_type.id] = {
+                        "group_id": group_id,
+                        "group_name": group_name,
+                    }
+
+        # Nouveau: mapping group_id -> dict avec group_name et liste des items
+        materials_by_group = {}
+        for mat in materials_list:
+            eve_type = next((et for et in eve_types if et.id == mat["type_id"]), None)
+            group_id = (
+                eve_type.eve_group.id if eve_type and eve_type.eve_group else None
+            )
+            group_name = (
+                eve_type.eve_group.name if eve_type and eve_type.eve_group else "Other"
+            )
+            if group_id not in materials_by_group:
+                materials_by_group[group_id] = {"group_name": group_name, "items": []}
+            materials_by_group[group_id]["items"].append(mat)
+
+        def _to_serializable(value):
+            if isinstance(value, Decimal):
+                return float(value)
+            if isinstance(value, dict):
+                return {k: _to_serializable(v) for k, v in value.items()}
+            if isinstance(value, list):
+                return [_to_serializable(item) for item in value]
+            return value
+
+        blueprint_payload = {
+            "type_id": type_id,
+            "bp_type_id": type_id,
+            "name": bp_name,
+            "num_runs": num_runs,
+            "final_product_qty": final_product_qty,
+            "product_type_id": product_type_id,
+            "me": me,
+            "te": te,
+            "active_tab": active_tab,
+            "materials": _to_serializable(materials_list),
+            "direct_materials": _to_serializable(direct_materials_list),
+            "materials_tree": _to_serializable(materials_tree),
+            "craft_cycles_summary": _to_serializable(dict(craftables)),
+            "blueprint_configs_grouped": (
+                _to_serializable(blueprint_configs_grouped)
+                if blueprint_configs_grouped
+                else []
+            ),
+            "market_group_map": _to_serializable(market_group_map),
+            "materials_by_group": _to_serializable(materials_by_group),
+            "urls": {
+                "save": reverse("indy_hub:save_production_config"),
+                "load_list": reverse("indy_hub:production_simulations_list"),
+                "load_config": reverse("indy_hub:load_production_config"),
+                "fuzzwork_price": reverse("indy_hub:fuzzwork_price"),
+            },
+        }
+
+        context = {
+            "bp_type_id": type_id,
+            "bp_name": bp_name,
+            "materials": materials_list,
+            "direct_materials": direct_materials_list,
+            "materials_tree": materials_tree,
+            "num_runs": num_runs,
+            "product_type_id": product_type_id,
+            "final_product_qty": final_product_qty,
+            "me": me,
+            "te": te,
+            "active_tab": active_tab,
+            "blueprint_configs_grouped": blueprint_configs_grouped,
+            "craft_cycles_summary": dict(craftables),
+            "market_group_map": market_group_map,
+            "materials_by_group": materials_by_group,
+            "blueprint_payload": blueprint_payload,
+        }
+        return render(request, "indy_hub/Craft_BP.html", context)
+
     except Exception as e:
+        # Gestion d'erreur : on affiche la page avec un message d'erreur et des valeurs par défaut
         with connection.cursor() as cursor:
             cursor.execute(
                 "SELECT name FROM eveuniverse_evetype WHERE id=%s", [type_id]
@@ -653,6 +1163,7 @@ def craft_bp(request, type_id):
                 "bp_type_id": type_id,
                 "bp_name": bp_name,
                 "materials": [],
+                "direct_materials": [],
                 "materials_tree": [],
                 "num_runs": 1,
                 "product_type_id": None,
@@ -717,15 +1228,11 @@ def bp_copy_request_page(request):
     min_me = request.GET.get("min_me", "")
     min_te = request.GET.get("min_te", "")
     page = request.GET.get("page", 1)
-    per_page = int(request.GET.get("per_page", 50))
+    per_page = int(request.GET.get("per_page", 24))
     # Fetch users who enabled copy sharing, excluding current user
-    allowed_users = (
-        CharacterSettings.objects.filter(
-            character_id=0, allow_copy_requests=True  # Global settings only
-        )
-        .exclude(user=request.user)
-        .values_list("user", flat=True)
-    )
+    allowed_users = CharacterSettings.objects.filter(
+        character_id=0, allow_copy_requests=True  # Global settings only
+    ).values_list("user", flat=True)
     qs = Blueprint.objects.filter(owner_user__in=allowed_users, quantity=-1).order_by(
         "type_name", "material_efficiency", "time_efficiency"
     )
@@ -753,11 +1260,14 @@ def bp_copy_request_page(request):
     if min_te.isdigit():
         min_te_val = int(min_te)
         bp_list = [bp for bp in bp_list if bp["time_efficiency"] >= min_te_val]
-    per_page_options = [10, 25, 50, 100]
+    per_page_options = [12, 24, 48, 96]
     me_options = list(range(0, 11))
     te_options = list(range(0, 21))
     paginator = Paginator(bp_list, per_page)
     page_obj = paginator.get_page(page)
+    page_range = paginator.get_elided_page_range(
+        number=page_obj.number, on_each_side=5, on_ends=1
+    )
     if request.method == "POST":
         type_id = int(request.POST.get("type_id", 0))
         me = int(request.POST.get("material_efficiency", 0))
@@ -801,6 +1311,7 @@ def bp_copy_request_page(request):
             "per_page_options": per_page_options,
             "me_options": me_options,
             "te_options": te_options,
+            "page_range": page_range,
             "requests": [],
         },
     )
@@ -1067,3 +1578,166 @@ def bp_copy_my_requests(request):
     return render(
         request, "indy_hub/bp_copy_my_requests.html", {"my_requests": my_requests}
     )
+
+
+@indy_hub_access_required
+@login_required
+def production_simulations_list(request):
+    """
+    Affiche la liste des simulations de production sauvegardées par l'utilisateur.
+    Peut retourner du JSON si api=1 est passé en paramètre.
+    """
+    simulations = (
+        ProductionSimulation.objects.filter(user=request.user)
+        .order_by("-updated_at")
+        .prefetch_related("production_configs")
+    )
+
+    # Si demande API, retourner du JSON
+    if request.GET.get("api") == "1":
+        simulations_data = []
+        for sim in simulations:
+            simulations_data.append(
+                {
+                    "id": sim.id,
+                    "blueprint_type_id": sim.blueprint_type_id,
+                    "blueprint_name": sim.blueprint_name,
+                    "runs": sim.runs,
+                    "simulation_name": sim.simulation_name,
+                    "display_name": sim.display_name,
+                    "total_items": sim.total_items,
+                    "total_buy_items": sim.total_buy_items,
+                    "total_prod_items": sim.total_prod_items,
+                    "estimated_cost": float(sim.estimated_cost),
+                    "estimated_revenue": float(sim.estimated_revenue),
+                    "estimated_profit": float(sim.estimated_profit),
+                    "active_tab": sim.active_tab,
+                    "created_at": sim.created_at.isoformat(),
+                    "updated_at": sim.updated_at.strftime("%Y-%m-%d %H:%M"),
+                }
+            )
+
+        return JsonResponse(
+            {
+                "success": True,
+                "simulations": simulations_data,
+                "total_simulations": simulations.count(),
+            }
+        )
+
+    # Préparer les statistiques agrégées pour l'affichage HTML
+    total_simulations = simulations.count()
+    stats_raw = simulations.aggregate(
+        total_runs=Sum("runs"),
+        total_items=Sum("total_items"),
+        total_buy_items=Sum("total_buy_items"),
+        total_prod_items=Sum("total_prod_items"),
+        total_cost=Sum("estimated_cost"),
+        total_revenue=Sum("estimated_revenue"),
+        total_profit=Sum("estimated_profit"),
+    )
+    stats = {key: (stats_raw.get(key) or 0) for key in stats_raw}
+    stats["average_profit"] = (
+        stats["total_profit"] / total_simulations
+        if total_simulations and stats["total_profit"]
+        else 0
+    )
+    latest_simulation = simulations.first()
+    stats["latest_update"] = latest_simulation.updated_at if latest_simulation else None
+
+    # Sinon, affichage HTML normal
+    # Pagination
+    paginator = Paginator(simulations, 20)
+    page_number = request.GET.get("page")
+    page_obj = paginator.get_page(page_number)
+
+    # --- Ajout du mapping type_id -> nom de groupe Eve pour Craft_BP.html ---
+    # Récupère tous les type_id utilisés dans les simulations de l'utilisateur
+    type_ids = set()
+    for sim in simulations:
+        configs = sim.production_configs.all()
+        for config in configs:
+            type_ids.add(config.item_type_id)
+    # Récupère le nom du groupe Eve pour chaque type_id
+    market_group_map = {}
+    if EveType is not None and type_ids:
+        eve_types = EveType.objects.filter(id__in=type_ids).select_related("eve_group")
+        for eve_type in eve_types:
+            market_group_map[eve_type.id] = (
+                eve_type.eve_group.name if eve_type.eve_group else "Other"
+            )
+    context = {
+        "simulations": page_obj,
+        "total_simulations": total_simulations,
+        "market_group_map": json.dumps(market_group_map),
+        "stats": stats,
+    }
+    return render(request, "indy_hub/production_simulations_list.html", context)
+
+
+@indy_hub_access_required
+@login_required
+def delete_production_simulation(request, simulation_id):
+    """
+    Supprime une simulation de production et ses configurations associées.
+    """
+    simulation = get_object_or_404(
+        ProductionSimulation, id=simulation_id, user=request.user
+    )
+
+    if request.method == "POST":
+        blueprint_type_id = simulation.blueprint_type_id
+        runs = simulation.runs
+        simulation_name = simulation.display_name
+
+        # Supprimer les configurations associées (nouvelle relation directe)
+        related_configs = simulation.production_configs.all()
+        if related_configs.exists():
+            related_configs.delete()
+        else:
+            # Fallback legacy: nettoyer d'anciennes lignes sans FK renseignée
+            ProductionConfig.objects.filter(
+                user=request.user,
+                blueprint_type_id=blueprint_type_id,
+                runs=runs,
+                simulation__isnull=True,
+            ).delete()
+
+        # Supprimer la simulation
+        simulation.delete()
+
+        messages.success(
+            request, f'Simulation "{simulation_name}" supprimée avec succès.'
+        )
+        return redirect("indy_hub:production_simulations_list")
+
+    context = {
+        "simulation": simulation,
+    }
+
+    return render(request, "indy_hub/confirm_delete_simulation.html", context)
+
+
+@indy_hub_access_required
+@login_required
+def edit_simulation_name(request, simulation_id):
+    """
+    Permet de modifier le nom personnalisé d'une simulation.
+    """
+    simulation = get_object_or_404(
+        ProductionSimulation, id=simulation_id, user=request.user
+    )
+
+    if request.method == "POST":
+        new_name = request.POST.get("simulation_name", "").strip()
+        simulation.simulation_name = new_name
+        simulation.save()
+
+        messages.success(request, "Nom de la simulation mis à jour avec succès.")
+        return redirect("indy_hub:production_simulations_list")
+
+    context = {
+        "simulation": simulation,
+    }
+
+    return render(request, "indy_hub/edit_simulation_name.html", context)

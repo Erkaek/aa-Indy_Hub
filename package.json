@@ -1,15 +1,40 @@
 {
-    "name": "indy_hub",
-    "version": "1.0.0",
-    "description": "This is an example plugin app for [Alliance Auth](https://gitlab.com/allianceauth/allianceauth) (AA) that can be used as a starting point to develop custom plugins.",
+    "name": "@erkaek/indy-hub",
+    "version": "1.8.0",
+    "description": "Alliance Auth industry dashboard with blueprints, production simulations, and tooling for EVE Online corporations.",
+    "license": "MIT",
+    "author": "erka Ekanon",
+    "homepage": "https://github.com/Erkaek/aa-Indy_Hub#readme",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/Erkaek/aa-Indy_Hub.git"
+    },
+    "bugs": {
+        "url": "https://github.com/Erkaek/aa-Indy_Hub/issues"
+    },
+    "type": "commonjs",
     "main": "eslint.config.js",
     "scripts": {
-        "test": "echo \"Error: no test specified\" && exit 1"
+        "lint": "npm run lint:js && npm run lint:css",
+        "lint:js": "eslint \"indy_hub/static/indy_hub/js/**/*.js\"",
+        "lint:js:fix": "npm run lint:js -- --fix",
+        "lint:css": "stylelint \"indy_hub/static/indy_hub/css/**/*.css\"",
+        "lint:css:fix": "npm run lint:css -- --fix",
+        "test": "npm run lint"
     },
-    "keywords": [],
-    "author": "",
-    "license": "ISC",
-    "dependencies": {
-        "globals": "^16.2.0"
+    "keywords": [
+        "allianceauth",
+        "eve-online",
+        "django",
+        "plugin"
+    ],
+    "engines": {
+        "node": ">=18.18"
+    },
+    "devDependencies": {
+        "eslint": "^9.26.0",
+        "globals": "^16.2.0",
+        "stylelint": "^16.19.1",
+        "stylelint-config-standard": "^38.0.0"
     }
 }

@@ -25,8 +25,17 @@ document.addEventListener('DOMContentLoaded', function() {
             .then(r => r.json())
             .then(data => {
                 notifyBtn.dataset.enabled = data.enabled ? 'true' : 'false';
-                notifyBtn.className = 'btn flex-fill ' + (data.enabled ? 'btn-success' : 'btn-outline-secondary');
-                document.getElementById('notify-label').textContent = data.enabled ? window.notificationsOnText : window.notificationsOffText;
+                notifyBtn.classList.toggle('is-active', Boolean(data.enabled));
+
+                var notifyState = document.getElementById('notify-state');
+                var notifyHint = document.getElementById('notify-hint');
+                if (notifyState) {
+                    notifyState.textContent = data.enabled ? notifyBtn.dataset.onLabel : notifyBtn.dataset.offLabel;
+                }
+                if (notifyHint) {
+                    notifyHint.textContent = data.enabled ? notifyBtn.dataset.onHint : notifyBtn.dataset.offHint;
+                }
+
                 showIndyHubPopup(
                     data.enabled ? "Job notifications enabled." : "Job notifications disabled.",
                     data.enabled ? 'success' : 'secondary'
@@ -49,8 +58,17 @@ document.addEventListener('DOMContentLoaded', function() {
             .then(r => r.json())
             .then(data => {
                 shareBtn.dataset.enabled = data.enabled ? 'true' : 'false';
-                shareBtn.className = 'btn flex-fill ' + (data.enabled ? 'btn-success' : 'btn-outline-secondary');
-                document.getElementById('copy-sharing-label').textContent = data.enabled ? window.sharingOnText : window.sharingOffText;
+                shareBtn.classList.toggle('is-active', Boolean(data.enabled));
+
+                var shareState = document.getElementById('copy-sharing-state');
+                var shareHint = document.getElementById('copy-sharing-hint');
+                if (shareState) {
+                    shareState.textContent = data.enabled ? shareBtn.dataset.onLabel : shareBtn.dataset.offLabel;
+                }
+                if (shareHint) {
+                    shareHint.textContent = data.enabled ? shareBtn.dataset.onHint : shareBtn.dataset.offHint;
+                }
+
                 showIndyHubPopup(
                     data.enabled ? "Blueprint sharing enabled." : "Blueprint sharing disabled.",
                     data.enabled ? 'success' : 'secondary'

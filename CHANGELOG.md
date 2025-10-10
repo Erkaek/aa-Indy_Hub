@@ -5,7 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [In Development] - Unreleased
+## [Unreleased]
+
+### Added
+
+- `npm` lint scripts for JavaScript and CSS plus metadata in `package.json`
+- Development warning banners and dashboard refinements (hero layout, toggles, buttons)
+
+### Changed
+
+- Centralized Eve helper imports for runtime stability
+- Relaxed Stylelint `rgba()` enforcement and normalized text-overflow values
+- Improved template and JS indentation to satisfy EditorConfig checks
+
+### Fixed
+
+- Multiple Stylelint and EditorConfig violations preventing `pre-commit` success
+- Runtime import regressions in `industry.py` and `user.py`
 
 ## [0.0.9] - 2024-06-16
 

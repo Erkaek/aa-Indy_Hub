@@ -1,0 +1,153 @@
+{% extends "allianceauth/base-bs5.html" %}
+{% load i18n %}
+{% load static %}
+{% load humanize %}
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
+<link rel="stylesheet" href="{% static 'indy_hub/css/blueprints.css' %}">
+{% endblock extra_css %}
+
+{% block content %}
+<main class="bg-body p-4">
+    <div class="container-fluid my-0 bg-body">
+        <div class="page-header mb-4">
+            <div class="d-flex flex-wrap align-items-start justify-content-between gap-3">
+                <div>
+                    <h1 class="h2 mb-1">
+                        <i class="fas fa-calculator me-2"></i>{% trans "My Production Simulations" %}
+                    </h1>
+                    <p class="description">{% trans "Review, reopen and curate the craft scenarios you have saved." %}</p>
+                </div>
+                <div class="d-flex gap-2">
+                    <a href="{% url 'indy_hub:index' %}" class="btn btn-outline-light">
+                        <i class="fas fa-arrow-left me-1"></i>{% trans "Back to Hub" %}
+                    </a>
+                </div>
+            </div>
+            <i class="fas fa-calculator header-bg"></i>
+        </div>
+
+        <div class="row g-3 mb-4">
+            <div class="col-sm-6 col-lg-3">
+                <div class="summary-card shadow-sm border-0 h-100">
+                    <div class="summary-card__icon bg-primary-subtle text-primary">
+                        <i class="fas fa-file-alt"></i>
+                    </div>
+                    <div>
+                        <p class="summary-card__label mb-1">{% trans "Total simulations" %}</p>
+                        <h4 class="summary-card__value mb-0">{{ total_simulations }}</h4>
+                    </div>
+                </div>
+            </div>
+            {% if simulations %}
+            {% with latest=simulations|first %}
+            <div class="col-sm-6 col-lg-3">
+                <div class="summary-card shadow-sm border-0 h-100">
+                    <div class="summary-card__icon bg-info-subtle text-info">
+                        <i class="fas fa-history"></i>
+                    </div>
+                    <div>
+                        <p class="summary-card__label mb-1">{% trans "Last updated" %}</p>
+                        <h4 class="summary-card__value mb-0">{{ latest.updated_at|timesince }} {% trans "ago" %}</h4>
+                    </div>
+                </div>
+            </div>
+            {% endwith %}
+            {% endif %}
+        </div>
+
+    {% if simulations %}
+    <div class="card shadow-sm border-0">
+        <div class="card-header bg-gradient bg-primary text-white fw-bold d-flex align-items-center gap-2">
+            <i class="fas fa-list me-2"></i>
+            <span>{% trans "Saved Simulations" %}</span>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>{% trans "Blueprint" %}</th>
+                            <th class="text-center">{% trans "Runs" %}</th>
+                            <th class="text-center">{% trans "Items" %}</th>
+                            <th class="text-center">{% trans "To Produce" %}</th>
+                            <th class="text-center">{% trans "To Buy" %}</th>
+                            <th class="text-center">{% trans "Est. Cost" %}</th>
+                            <th class="text-center">{% trans "Last Updated" %}</th>
+                            <th class="text-center">{% trans "Actions" %}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for simulation in simulations %}
+                        <tr>
+                            <td>
+                                <div class="d-flex align-items-center gap-2">
+                                    <img src="https://images.evetech.net/types/{{ simulation.blueprint_type_id }}/bp?size=32" alt="{{ simulation.blueprint_name }}" style="width:32px;height:32px;object-fit:cover;border-radius:6px;background:#f3f4f6;" onerror="this.style.display='none';">
+                                    <div>
+                                        <div class="fw-semibold">{{ simulation.display_name }}</div>
+                                        {% if simulation.simulation_name %}
+                                        <small class="text-muted">{{ simulation.blueprint_name }}</small>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </td>
+                            <td class="text-center">
+                                <span class="badge bg-info">{{ simulation.runs }}</span>
+                            </td>
+                            <td class="text-center">
+                                <span class="badge bg-secondary">{{ simulation.total_items }}</span>
+                            </td>
+                            <td class="text-center">
+                                <span class="badge bg-success">{{ simulation.total_prod_items }}</span>
+                            </td>
+                            <td class="text-center">
+                                <span class="badge bg-danger">{{ simulation.total_buy_items }}</span>
+                            </td>
+                            <td class="text-center">
+                                {% if simulation.estimated_cost > 0 %}
+                                    {{ simulation.estimated_cost|floatformat:0|intcomma }} ISK
+                                {% else %}
+                                    <span class="text-muted">—</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-center">
+                                <small class="text-muted">{{ simulation.updated_at|timesince }} {% trans "ago" %}</small>
+                            </td>
+                            <td class="text-center">
+                                <div class="btn-group btn-group-sm">
+                                    <a href="{% url 'indy_hub:craft_bp' simulation.blueprint_type_id %}?runs={{ simulation.runs }}" class="btn btn-outline-primary" title="{% trans 'Open Simulation' %}">
+                                        <i class="fas fa-eye"></i>
+                                    </a>
+                                    <a href="{% url 'indy_hub:rename_production_simulation' simulation.id %}" class="btn btn-outline-warning" title="{% trans 'Rename' %}">
+                                        <i class="fas fa-edit"></i>
+                                    </a>
+                                    <form method="post" action="{% url 'indy_hub:delete_production_simulation' simulation.id %}" class="d-inline" onsubmit="return confirm('{% trans "Are you sure you want to delete this simulation?" %}')">
+                                        {% csrf_token %}
+                                        <button type="submit" class="btn btn-outline-danger" title="{% trans 'Delete' %}">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="card shadow-sm border-0">
+        <div class="card-body text-center py-5">
+            <i class="fas fa-calculator fa-3x text-muted mb-3"></i>
+            <h4 class="text-muted">{% trans "No Simulations Yet" %}</h4>
+            <p class="text-muted mb-4">{% trans "You haven't saved any production simulations yet. Create one by using the craft planning tool." %}</p>
+            <a href="{% url 'indy_hub:all_bp_list' %}" class="btn btn-primary">
+                <i class="fas fa-plus me-1"></i>{% trans "Start Planning" %}
+            </a>
+        </div>
+    </div>
+    {% endif %}
+    </div>
+</main>
+{% endblock content %}

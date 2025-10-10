@@ -18,182 +18,237 @@ from allianceauth.authentication.models import CharacterOwnership
 # AA Example App
 from indy_hub.models import CharacterSettings
 
-from ..esi_helpers import fetch_character_blueprints
-from ..models import (
-    Blueprint,
-    IndustryJob,
-    get_character_name,
-    get_type_name,
-)
+from ..models import Blueprint, IndustryJob
 from ..notifications import notify_user
+from ..services.esi_client import ESIClientError, ESITokenError, shared_client
+from ..utils.eve import batch_cache_type_names, get_character_name, get_type_name
 
 logger = logging.getLogger(__name__)
 
 
 @shared_task(bind=True, max_retries=3)
 def update_blueprints_for_user(self, user_id):
+    scope = "esi-characters.read_blueprints.v1"
     try:
         user = User.objects.get(id=user_id)
-        logger.info(f"Starting blueprint update for user {user.username}")
-        updated_count = 0
-        error_messages = []
-        # Get all characters owned by user
-        ownerships = CharacterOwnership.objects.filter(user=user)
-        for ownership in ownerships:
-            char_id = ownership.character.character_id
-            try:
-                # Find a valid token for this character with blueprint scope
-                # Alliance Auth
-                from esi.models import Token
+    except User.DoesNotExist as exc:  # pragma: no cover - defensive guard
+        logger.warning(
+            "Utilisateur %s introuvable pour la synchronisation des plans", user_id
+        )
+        raise self.retry(exc=exc, countdown=60 * (2**self.request.retries))
 
-                token = (
-                    Token.objects.filter(character_id=char_id, user=user)
-                    .require_scopes(["esi-characters.read_blueprints.v1"])
-                    .first()
-                )
-                if not token:
-                    logger.info(f"No valid blueprint token for character {char_id}")
-                    continue
-                # Fetch blueprints from ESI
-                try:
-                    blueprints = fetch_character_blueprints(char_id)
-                except Exception as e:
-                    error_messages.append(f"Char {char_id}: {e}")
-                    # Tracking of errors removed in unified settings
-                    continue
-                esi_ids = set()
-                # Update blueprints in DB
-                with transaction.atomic():
-                    for bp in blueprints:
-                        obj, created = Blueprint.objects.update_or_create(
-                            owner_user=user,
-                            character_id=char_id,
-                            item_id=bp.get("item_id"),
-                            defaults={
-                                "blueprint_id": bp.get("blueprint_id", None),
-                                "type_id": bp.get("type_id"),
-                                "location_id": bp.get("location_id"),
-                                "location_flag": bp.get("location_flag", ""),
-                                "quantity": bp.get("quantity"),
-                                "time_efficiency": bp.get("time_efficiency", 0),
-                                "material_efficiency": bp.get("material_efficiency", 0),
-                                "runs": bp.get("runs", 0),
-                                "character_name": get_character_name(char_id),
-                                "type_name": get_type_name(bp.get("type_id")),
-                            },
-                        )
-                        esi_ids.add(bp.get("item_id"))
-                    # Supprimer les blueprints qui ne sont plus dans l'ESI
-                    Blueprint.objects.filter(
-                        owner_user=user, character_id=char_id
-                    ).exclude(item_id__in=esi_ids).delete()
-                    # Tracking updates removed in unified settings
-                    updated_count += len(blueprints)
-            except Exception as e:
-                logger.error(f"Error updating blueprints for character {char_id}: {e}")
-                error_messages.append(f"Char {char_id}: {e}")
-        logger.info(f"Updated {updated_count} blueprints for user {user.username}")
-        if error_messages:
-            logger.warning(
-                f"Blueprint sync errors for user {user.username}: {'; '.join(error_messages)}"
+    logger.info("Synchronisation des blueprints pour %s", user.username)
+    updated_count = 0
+    deleted_total = 0
+    error_messages: list[str] = []
+
+    ownerships = CharacterOwnership.objects.filter(user=user)
+    for ownership in ownerships:
+        char_id = ownership.character.character_id
+        character_name = get_character_name(char_id)
+        try:
+            # Alliance Auth
+            from esi.models import Token
+
+            token_exists = (
+                Token.objects.filter(character_id=char_id, user=user)
+                .require_scopes([scope])
+                .exists()
             )
-        return {
-            "success": True,
-            "blueprints_updated": updated_count,
-            "errors": error_messages,
-        }
-    except Exception as e:
-        logger.error(f"Error updating blueprints for user {user_id}: {e}")
-        # Error tracking removed in unified settings
-        raise self.retry(exc=e, countdown=60 * (2**self.request.retries))
+            if not token_exists:
+                message = f"{character_name} ({char_id}) sans jeton {scope}"
+                logger.debug(message)
+                error_messages.append(message)
+                continue
+
+            blueprints = shared_client.fetch_character_blueprints(char_id)
+        except ESITokenError as exc:
+            message = f"Jeton invalide pour {character_name} ({char_id}): {exc}"
+            logger.warning(message)
+            error_messages.append(message)
+            continue
+        except ESIClientError as exc:
+            message = f"Erreur ESI pour {character_name} ({char_id}): {exc}"
+            logger.error(message)
+            error_messages.append(message)
+            continue
+        except Exception as exc:  # pragma: no cover - unexpected
+            message = f"Erreur inattendue pour {character_name} ({char_id}): {exc}"
+            logger.exception(message)
+            error_messages.append(message)
+            continue
+
+        esi_ids = set()
+        with transaction.atomic():
+            for bp in blueprints:
+                item_id = bp.get("item_id")
+                esi_ids.add(item_id)
+                Blueprint.objects.update_or_create(
+                    owner_user=user,
+                    character_id=char_id,
+                    item_id=item_id,
+                    defaults={
+                        "blueprint_id": bp.get("blueprint_id"),
+                        "type_id": bp.get("type_id"),
+                        "location_id": bp.get("location_id"),
+                        "location_flag": bp.get("location_flag", ""),
+                        "quantity": bp.get("quantity"),
+                        "time_efficiency": bp.get("time_efficiency", 0),
+                        "material_efficiency": bp.get("material_efficiency", 0),
+                        "runs": bp.get("runs", 0),
+                        "character_name": character_name,
+                        "type_name": get_type_name(bp.get("type_id")),
+                    },
+                )
+
+            deleted, _ = (
+                Blueprint.objects.filter(owner_user=user, character_id=char_id)
+                .exclude(item_id__in=esi_ids)
+                .delete()
+            )
+        deleted_total += deleted
+        updated_count += len(blueprints)
+        logger.debug(
+            "Synchronisation des blueprints terminée pour %s (%s mis à jour, %s supprimés)",
+            character_name,
+            len(blueprints),
+            deleted,
+        )
+
+    logger.info(
+        "Blueprints synchronisés pour %s: %s éléments mis à jour, %s supprimés",
+        user.username,
+        updated_count,
+        deleted_total,
+    )
+    if error_messages:
+        logger.warning(
+            "Incidents lors de la synchronisation des blueprints %s: %s",
+            user.username,
+            "; ".join(error_messages),
+        )
+
+    return {
+        "success": True,
+        "blueprints_updated": updated_count,
+        "deleted": deleted_total,
+        "errors": error_messages,
+    }
 
 
 @shared_task(bind=True, max_retries=3)
 def update_industry_jobs_for_user(self, user_id):
-    from ..esi_helpers import fetch_character_industry_jobs
-
     try:
         user = User.objects.get(id=user_id)
-        logger.info(f"Starting industry jobs update for user {user.username}")
+        logger.info("Starting industry jobs update for user %s", user.username)
         updated_count = 0
-        error_messages = []
+        deleted_total = 0
+        error_messages: list[str] = []
         ownerships = CharacterOwnership.objects.filter(user=user)
+        scope = "esi-industry.read_character_jobs.v1"
         for ownership in ownerships:
             char_id = ownership.character.character_id
+            character_name = get_character_name(char_id)
             try:
                 # Alliance Auth
                 from esi.models import Token
 
-                token = (
+                token_exists = (
                     Token.objects.filter(character_id=char_id, user=user)
-                    .require_scopes(["esi-industry.read_character_jobs.v1"])
-                    .first()
+                    .require_scopes([scope])
+                    .exists()
                 )
-                if not token:
-                    logger.info(f"No valid industry jobs token for character {char_id}")
+                if not token_exists:
+                    message = f"{character_name} ({char_id}) sans jeton {scope}"
+                    logger.debug(message)
+                    error_messages.append(message)
                     continue
-                try:
-                    jobs = fetch_character_industry_jobs(char_id)
-                except Exception as e:
-                    error_messages.append(f"Char {char_id}: {e}")
-                    # Error tracking removed in unified settings
-                    continue
-                esi_job_ids = set()
-                with transaction.atomic():
-                    for job in jobs:
-                        obj, created = IndustryJob.objects.update_or_create(
-                            owner_user=user,
-                            character_id=char_id,
-                            job_id=job.get("job_id"),
-                            defaults={
-                                "installer_id": job.get("installer_id"),
-                                "facility_id": job.get("facility_id"),
-                                "station_id": job.get("station_id"),
-                                "activity_id": job.get("activity_id"),
-                                "blueprint_id": job.get("blueprint_id"),
-                                "blueprint_type_id": job.get("blueprint_type_id"),
-                                "blueprint_location_id": job.get(
-                                    "blueprint_location_id"
-                                ),
-                                "output_location_id": job.get("output_location_id"),
-                                "runs": job.get("runs"),
-                                "cost": job.get("cost"),
-                                "licensed_runs": job.get("licensed_runs"),
-                                "probability": job.get("probability"),
-                                "product_type_id": job.get("product_type_id"),
-                                "status": job.get("status"),
-                                "duration": job.get("duration"),
-                                "start_date": job.get("start_date"),
-                                "end_date": job.get("end_date"),
-                                "pause_date": job.get("pause_date"),
-                                "completed_date": job.get("completed_date"),
-                                "completed_character_id": job.get(
-                                    "completed_character_id"
-                                ),
-                                "successful_runs": job.get("successful_runs"),
-                                "blueprint_type_name": get_type_name(
-                                    job.get("blueprint_type_id")
-                                ),
-                            },
-                        )
-                        esi_job_ids.add(job.get("job_id"))
-                    # Supprimer les jobs qui ne sont plus dans l'ESI
-                    IndustryJob.objects.filter(
-                        owner_user=user, character_id=char_id
-                    ).exclude(job_id__in=esi_job_ids).delete()
-                    # Job tracking removed in unified settings
-                    updated_count += len(jobs)
-            except Exception as e:
-                logger.error(f"Error updating jobs for character {char_id}: {e}")
-                error_messages.append(f"Char {char_id}: {e}")
-        logger.info(f"Updated {updated_count} jobs for user {user.username}")
+
+                jobs = shared_client.fetch_character_industry_jobs(char_id)
+            except ESITokenError as exc:
+                message = f"Jeton invalide pour {character_name} ({char_id}): {exc}"
+                logger.warning(message)
+                error_messages.append(message)
+                continue
+            except ESIClientError as exc:
+                message = f"Erreur ESI pour {character_name} ({char_id}): {exc}"
+                logger.error(message)
+                error_messages.append(message)
+                continue
+            except Exception as exc:  # pragma: no cover - unexpected
+                message = f"Erreur inattendue pour {character_name} ({char_id}): {exc}"
+                logger.exception(message)
+                error_messages.append(message)
+                continue
+
+            esi_job_ids = set()
+            with transaction.atomic():
+                for job in jobs:
+                    job_id = job.get("job_id")
+                    esi_job_ids.add(job_id)
+                    IndustryJob.objects.update_or_create(
+                        owner_user=user,
+                        character_id=char_id,
+                        job_id=job_id,
+                        defaults={
+                            "installer_id": job.get("installer_id"),
+                            "facility_id": job.get("facility_id"),
+                            "station_id": job.get("station_id"),
+                            "activity_id": job.get("activity_id"),
+                            "blueprint_id": job.get("blueprint_id"),
+                            "blueprint_type_id": job.get("blueprint_type_id"),
+                            "blueprint_location_id": job.get("blueprint_location_id"),
+                            "output_location_id": job.get("output_location_id"),
+                            "runs": job.get("runs"),
+                            "cost": job.get("cost"),
+                            "licensed_runs": job.get("licensed_runs"),
+                            "probability": job.get("probability"),
+                            "product_type_id": job.get("product_type_id"),
+                            "status": job.get("status"),
+                            "duration": job.get("duration"),
+                            "start_date": job.get("start_date"),
+                            "end_date": job.get("end_date"),
+                            "pause_date": job.get("pause_date"),
+                            "completed_date": job.get("completed_date"),
+                            "completed_character_id": job.get("completed_character_id"),
+                            "successful_runs": job.get("successful_runs"),
+                            "blueprint_type_name": get_type_name(
+                                job.get("blueprint_type_id")
+                            ),
+                        },
+                    )
+
+                deleted, _ = (
+                    IndustryJob.objects.filter(owner_user=user, character_id=char_id)
+                    .exclude(job_id__in=esi_job_ids)
+                    .delete()
+                )
+
+            deleted_total += deleted
+            updated_count += len(jobs)
+            logger.debug(
+                "Synchronisation des jobs terminée pour %s (%s mis à jour, %s supprimés)",
+                character_name,
+                len(jobs),
+                deleted,
+            )
+
+        logger.info(
+            "Jobs synchronisés pour %s: %s mis à jour, %s supprimés",
+            user.username,
+            updated_count,
+            deleted_total,
+        )
         if error_messages:
             logger.warning(
-                f"Industry jobs sync errors for user {user.username}: {'; '.join(error_messages)}"
+                "Incidents lors de la synchronisation des jobs %s: %s",
+                user.username,
+                "; ".join(error_messages),
             )
         return {
             "success": True,
             "jobs_updated": updated_count,
+            "deleted": deleted_total,
             "errors": error_messages,
         }
     except Exception as e:
@@ -253,8 +308,6 @@ def cleanup_old_jobs():
 
 @shared_task
 def update_type_names():
-    from ..models import batch_cache_type_names
-
     blueprints_without_names = Blueprint.objects.filter(type_name="")
     type_ids = list(blueprints_without_names.values_list("type_id", flat=True))
     if type_ids:

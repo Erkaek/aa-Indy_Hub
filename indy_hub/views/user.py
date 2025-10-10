@@ -9,7 +9,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
-from django.shortcuts import redirect, render
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
@@ -22,12 +22,9 @@ from esi.models import CallbackRedirect, Token
 from indy_hub.models import CharacterSettings
 
 from ..decorators import indy_hub_access_required
-from ..models import (
-    Blueprint,
-    IndustryJob,
-    get_character_name,
-)
+from ..models import Blueprint, IndustryJob, ProductionConfig, ProductionSimulation
 from ..tasks.industry import update_blueprints_for_user, update_industry_jobs_for_user
+from ..utils.eve import get_character_name
 
 logger = logging.getLogger(__name__)
 
@@ -441,3 +438,72 @@ def toggle_copy_sharing(request):
     settings.allow_copy_requests = not settings.allow_copy_requests
     settings.save(update_fields=["allow_copy_requests"])
     return JsonResponse({"enabled": settings.allow_copy_requests})
+
+
+# --- Production Simulations Management ---
+@indy_hub_access_required
+@login_required
+def production_simulations(request):
+    """
+    Page de gestion des simulations de production sauvegardées.
+    """
+    simulations = ProductionSimulation.objects.filter(user=request.user)
+
+    context = {
+        "simulations": simulations,
+        "total_simulations": simulations.count(),
+    }
+
+    return render(request, "indy_hub/production_simulations.html", context)
+
+
+@indy_hub_access_required
+@login_required
+@require_POST
+def delete_production_simulation(request, simulation_id):
+    """
+    Supprimer une simulation de production.
+    """
+    simulation = get_object_or_404(
+        ProductionSimulation, id=simulation_id, user=request.user
+    )
+
+    # Supprimer aussi toutes les configurations associées
+    ProductionConfig.objects.filter(
+        user=request.user,
+        blueprint_type_id=simulation.blueprint_type_id,
+        runs=simulation.runs,
+    ).delete()
+
+    simulation_name = simulation.display_name
+    simulation.delete()
+
+    messages.success(request, f'Simulation "{simulation_name}" supprimée avec succès.')
+    return redirect("indy_hub:production_simulations")
+
+
+@indy_hub_access_required
+@login_required
+def rename_production_simulation(request, simulation_id):
+    """
+    Renommer une simulation de production.
+    """
+    simulation = get_object_or_404(
+        ProductionSimulation, id=simulation_id, user=request.user
+    )
+
+    if request.method == "POST":
+        new_name = request.POST.get("simulation_name", "").strip()
+        simulation.simulation_name = new_name
+        simulation.save(update_fields=["simulation_name"])
+
+        messages.success(
+            request, f'Simulation renommée en "{simulation.display_name}".'
+        )
+        return redirect("indy_hub:production_simulations")
+
+    context = {
+        "simulation": simulation,
+    }
+
+    return render(request, "indy_hub/rename_simulation.html", context)
