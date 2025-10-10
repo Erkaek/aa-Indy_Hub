@@ -8,12 +8,17 @@ from math import ceil
 # Third Party
 import requests
 
-try:  # pragma: no cover - EveUniverse optional
-    # Alliance Auth (External Libs)
-    from eveuniverse.models import EveType
-except ImportError:  # pragma: no cover - fallback when EveUniverse absent
-    EveType = None
+# Django
+from django.conf import settings
 
+if "eveuniverse" in getattr(settings, "INSTALLED_APPS", ()):  # pragma: no branch
+    try:  # pragma: no cover - EveUniverse optional
+        # Alliance Auth (External Libs)
+        from eveuniverse.models import EveType
+    except ImportError:  # pragma: no cover - fallback when EveUniverse absent
+        EveType = None
+else:  # pragma: no cover - EveUniverse not installed
+    EveType = None
 # Django
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required

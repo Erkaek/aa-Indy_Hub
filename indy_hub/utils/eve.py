@@ -6,13 +6,22 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterable, Mapping
 
+# Django
+from django.conf import settings
+
 # Alliance Auth
 from allianceauth.eveonline.models import EveCharacter
 
-try:  # pragma: no cover - EveUniverse is optional
-    # Alliance Auth (External Libs)
-    from eveuniverse.models import EveIndustryActivityProduct, EveType
-except ImportError:  # pragma: no cover - fallback when EveUniverse is not installed
+if getattr(settings, "configured", False) and "eveuniverse" in getattr(
+    settings, "INSTALLED_APPS", ()
+):  # pragma: no branch
+    try:  # pragma: no cover - EveUniverse is optional
+        # Alliance Auth (External Libs)
+        from eveuniverse.models import EveIndustryActivityProduct, EveType
+    except ImportError:  # pragma: no cover - fallback when EveUniverse is not installed
+        EveType = None
+        EveIndustryActivityProduct = None
+else:  # pragma: no cover - EveUniverse app not installed
     EveType = None
     EveIndustryActivityProduct = None
 

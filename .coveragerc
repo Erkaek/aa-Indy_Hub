@@ -1,6 +1,6 @@
 [run]
 branch = True
-source = example
+source = indy_hub
 
 [report]
 exclude_lines =
