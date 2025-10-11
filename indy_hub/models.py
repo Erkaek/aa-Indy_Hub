@@ -328,10 +328,24 @@ class CharacterSettings(models.Model):
     Regroupe les préférences utilisateur pour les notifications de jobs et le partage de copies.
     """
 
+    SCOPE_NONE = "none"
+    SCOPE_CORPORATION = "corporation"
+    SCOPE_ALLIANCE = "alliance"
+    COPY_SHARING_SCOPE_CHOICES = [
+        (SCOPE_NONE, "None"),
+        (SCOPE_CORPORATION, "Corporation"),
+        (SCOPE_ALLIANCE, "Alliance"),
+    ]
+
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     character_id = models.BigIntegerField()
     jobs_notify_completed = models.BooleanField(default=False)
     allow_copy_requests = models.BooleanField(default=False)
+    copy_sharing_scope = models.CharField(
+        max_length=20,
+        choices=COPY_SHARING_SCOPE_CHOICES,
+        default=SCOPE_NONE,
+    )
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -351,6 +365,12 @@ class CharacterSettings(models.Model):
 
     def __str__(self):
         return f"Settings for {self.user.username}#{self.character_id}"
+
+    def set_copy_sharing_scope(self, scope):
+        if scope not in dict(self.COPY_SHARING_SCOPE_CHOICES):
+            raise ValueError(f"Invalid copy sharing scope: {scope}")
+        self.copy_sharing_scope = scope
+        self.allow_copy_requests = scope != self.SCOPE_NONE
 
 
 class ProductionConfig(models.Model):

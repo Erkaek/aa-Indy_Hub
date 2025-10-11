@@ -17,56 +17,219 @@
         <div class="row g-4 align-items-center">
             <div class="col-xl-7">
                 <span class="hero-badge text-uppercase">{% trans "Industrial command center" %}</span>
-                <h1 class="hero-title">
-                    <i class="fas fa-industry me-3"></i>
+                <h1 class="hero-title d-flex align-items-center">
+                    <span class="hero-icon me-3">
+                        <i class="fas fa-industry"></i>
+                    </span>
                     {% trans "Welcome to Indy Hub" %}
                 </h1>
                 <p class="hero-lead mb-0">
                     {% trans "Monitor your production flow, understand your blueprint inventory, and coordinate copy requests in one glance." %}
                 </p>
-                {% if not has_blueprint_tokens or not has_jobs_tokens %}
-                <div class="hero-warning d-flex align-items-center mt-4">
-                    <div class="hero-warning-icon me-3"><i class="fas fa-exclamation-triangle"></i></div>
-                    <div>
-                        <div class="fw-semibold">{% trans "Complete your ESI setup" %}</div>
-                        <p class="mb-0 small text-white-50">
-                            {% trans "Connect blueprint and industry tokens to unlock live metrics, notifications, and automation." %}
-                        </p>
+            </div>
+        </div>
+    </section>
+
+    {% if not has_blueprint_tokens or not has_jobs_tokens %}
+    <section class="dashboard-section mb-5">
+        <header class="section-heading">
+            <div>
+                <h2>{% trans "Finish your setup" %}</h2>
+                <p class="text-muted small mb-0">{% trans "Authorize blueprint and industry tokens to unlock live insights across the dashboard." %}</p>
+            </div>
+        </header>
+        <div class="row g-4 align-items-stretch">
+            <div class="col-xl-8 col-lg-12">
+                <div class="card focus-card h-100">
+                    <div class="card-body p-4 d-flex flex-column">
+                        <div class="d-flex justify-content-between align-items-start mb-3">
+                            <div>
+                                <h5 class="card-title mb-1">{% trans "Authorize data sync" %}</h5>
+                                <p class="text-muted small mb-0">{% trans "Connect at least one character for blueprints and jobs so Indy Hub can stay current." %}</p>
+                            </div>
+                            <div class="focus-icon bg-warning bg-opacity-10 text-warning">
+                                <i class="fas fa-plug"></i>
+                            </div>
+                        </div>
+                        <div class="token-status d-flex flex-column gap-2 mb-4">
+                            <div class="token-pill {% if has_blueprint_tokens %}token-pill-ready{% else %}token-pill-missing{% endif %}">
+                                <i class="fas fa-scroll me-2"></i>
+                                {% if has_blueprint_tokens %}
+                                    <strong>{{ blueprint_token_count }}</strong> {% trans "characters authorized for blueprints" %}
+                                {% else %}
+                                    {% trans "Blueprint access missing" %}
+                                {% endif %}
+                            </div>
+                            <div class="token-pill {% if has_jobs_tokens %}token-pill-ready{% else %}token-pill-missing{% endif %}">
+                                <i class="fas fa-industry me-2"></i>
+                                {% if has_jobs_tokens %}
+                                    <strong>{{ jobs_token_count }}</strong> {% trans "characters authorized for industry jobs" %}
+                                {% else %}
+                                    {% trans "Industry jobs access missing" %}
+                                {% endif %}
+                            </div>
+                        </div>
+                        <p class="text-muted small mb-4">{% trans "Tokens enable copy-sharing queues, industry alerts, and blueprint metrics across every card." %}</p>
+                        <a href="{% url 'indy_hub:token_management' %}" class="btn btn-accent btn-slim align-self-start">
+                            <i class="fas fa-arrow-right me-2"></i>{% trans "Open token management" %}
+                        </a>
                     </div>
                 </div>
-                {% endif %}
             </div>
-            <div class="col-xl-5">
-                <div class="hero-stats h-100">
-                    <h5 class="text-white-50 mb-3">{% trans "Snapshot" %}</h5>
-                    <div class="row row-cols-2 g-3">
-                        <div class="col">
-                            <div class="stat-tile">
-                                <span class="stat-label">{% trans "Blueprints" %}</span>
-                                <span class="stat-value">{{ blueprint_count|default:0 }}</span>
-                                <span class="stat-meta">{% trans "Tracked assets" %}</span>
+            <div class="col-xl-4 col-lg-12">
+                <div class="card focus-card h-100">
+                    <div class="card-body p-4 d-flex flex-column">
+                        <h5 class="card-title mb-3">{% trans "Quick reminders" %}</h5>
+                        <ul class="list-unstyled text-muted small mb-0 d-flex flex-column gap-2">
+                            <li class="d-flex align-items-start gap-2">
+                                <i class="fas fa-circle-info text-warning mt-1"></i>
+                                <span>{% trans "Blueprint tokens give access to originals, copies, and research stats for your characters." %}</span>
+                            </li>
+                            <li class="d-flex align-items-start gap-2">
+                                <i class="fas fa-circle-info text-warning mt-1"></i>
+                                <span>{% trans "Industry job tokens power live slot counts and completion alerts." %}</span>
+                            </li>
+                            <li class="d-flex align-items-start gap-2">
+                                <i class="fas fa-circle-info text-warning mt-1"></i>
+                                <span>{% trans "You can authorize multiple characters—Indy Hub deduplicates everything automatically." %}</span>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+    {% endif %}
+
+    <section class="dashboard-section mb-5">
+        <header class="section-heading">
+            <div>
+                <h2>{% trans "Watch your operations" %}</h2>
+                <p class="text-muted small mb-0">{% trans "Review personal blueprints, industry jobs, and plan your next run." %}</p>
+            </div>
+        </header>
+        <div class="row g-4 align-items-stretch">
+            <div class="col-xxl-4 col-xl-6 col-lg-12">
+                <div class="card focus-card h-100">
+                    <div class="card-body p-4 d-flex flex-column">
+                        <div class="d-flex justify-content-between align-items-start mb-3">
+                            <div>
+                                <h5 class="card-title mb-1">{% trans "Blueprint library" %}</h5>
+                                <p class="text-muted small mb-0">{% trans "Originals and copies at a glance." %}</p>
+                            </div>
+                            <div class="d-flex align-items-center gap-2">
+                                {% if has_blueprint_tokens %}
+                                <span class="badge rounded-pill bg-primary-subtle text-primary">{{ blueprint_count|default:0 }}</span>
+                                {% endif %}
+                                <div class="focus-icon bg-primary bg-opacity-10 text-primary">
+                                    <i class="fas fa-layer-group"></i>
+                                </div>
                             </div>
                         </div>
-                        <div class="col">
-                            <div class="stat-tile">
-                                <span class="stat-label">{% trans "Active jobs" %}</span>
-                                <span class="stat-value">{{ active_jobs_count|default:0 }}</span>
-                                <span class="stat-meta">{% trans "Running today" %}</span>
+                        {% if has_blueprint_tokens %}
+                            <div class="stat-pair mb-4">
+                                <div class="stat-chip">
+                                    <span class="stat-chip-label">{% trans "Originals" %}</span>
+                                    <span class="stat-chip-value">{{ original_blueprints|default:0 }}</span>
+                                </div>
+                                <div class="stat-chip">
+                                    <span class="stat-chip-label">{% trans "Copies" %}</span>
+                                    <span class="stat-chip-value">{{ copy_blueprints|default:0 }}</span>
+                                </div>
+                            </div>
+                            <p class="text-muted small mb-0">{% trans "Review personal research status and locate originals ready to share." %}</p>
+                            <div class="mt-4">
+                                <a href="{% url 'indy_hub:personnal_bp_list' %}" class="btn btn-outline-primary btn-slim">
+                                    <i class="fas fa-arrow-up-right-from-square me-2"></i>{% trans "Open my blueprint library" %}
+                                </a>
+                            </div>
+                        {% else %}
+                            <div class="mt-auto pt-3">
+                                <div class="alert alert-warning-soft rounded-4 mb-2 d-flex align-items-start gap-3">
+                                    <span class="alert-icon flex-shrink-0"><i class="fas fa-key"></i></span>
+                                    <div class="small mb-0 text-start">
+                                        <strong class="d-block text-warning-emphasis">{% trans "Blueprint access missing" %}</strong>
+                                        {% blocktrans %}Connect an ESI blueprint token to populate your library and unlock sharing.{% endblocktrans %}
+                                    </div>
+                                </div>
+                                <a href="{% url 'indy_hub:token_management' %}" class="link-light fw-semibold small text-decoration-none">
+                                    <span class="me-2 align-middle"><i class="fas fa-arrow-up-right-from-square"></i></span>{% trans "Open token management" %}
+                                </a>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-xxl-4 col-xl-6 col-lg-12">
+                <div class="card focus-card h-100">
+                    <div class="card-body p-4 d-flex flex-column">
+                        <div class="d-flex justify-content-between align-items-start mb-3">
+                            <div>
+                                <h5 class="card-title mb-1">{% trans "Industry jobs" %}</h5>
+                                <p class="text-muted small mb-0">{% trans "Track active slots and completed work." %}</p>
+                            </div>
+                            <div class="d-flex align-items-center gap-2">
+                                {% if has_jobs_tokens %}
+                                <span class="badge rounded-pill bg-success-subtle text-success">{{ active_jobs_count|default:0 }}</span>
+                                {% endif %}
+                                <div class="focus-icon bg-success bg-opacity-10 text-success">
+                                    <i class="fas fa-industry"></i>
+                                </div>
                             </div>
                         </div>
-                        <div class="col">
-                            <div class="stat-tile">
-                                <span class="stat-label">{% trans "Characters" %}</span>
-                                <span class="stat-value">{{ blueprint_token_count|default:0 }}</span>
-                                <span class="stat-meta">{% trans "With blueprints" %}</span>
+                        {% if has_jobs_tokens %}
+                        <div class="job-status-row mb-4">
+                            <div class="status-pill success">
+                                <i class="fas fa-play-circle"></i>
+                                <div>
+                                    <strong>{{ active_jobs_count|default:0 }}</strong>
+                                    <span>{% trans "Active jobs" %}</span>
+                                </div>
+                            </div>
+                            <div class="status-pill">
+                                <i class="fas fa-check-circle"></i>
+                                <div>
+                                    <strong>{{ completed_jobs_count|default:0 }}</strong>
+                                    <span>{% trans "Completed (30d)" %}</span>
+                                </div>
                             </div>
                         </div>
-                        <div class="col">
-                            <div class="stat-tile">
-                                <span class="stat-label">{% trans "Completed" %}</span>
-                                <span class="stat-value">{{ completed_jobs_count|default:0 }}</span>
-                                <span class="stat-meta">{% trans "Last 30 days" %}</span>
+                        <div class="d-grid gap-3">
+                            <a href="{% url 'indy_hub:personnal_job_list' %}" class="btn btn-accent btn-slim">
+                                <i class="fas fa-list"></i>{% trans "Open job tracker" %}
+                            </a>
+                            <p class="text-muted small mb-0">{% trans "Need alerts? Use the preferences card above to enable completion pings." %}</p>
+                        </div>
+                        {% else %}
+                        <div class="focus-empty text-center py-4 mt-auto">
+                            <i class="fas fa-industry fa-3x mb-3 text-success opacity-75"></i>
+                            <p class="text-muted mb-3">{% trans "Connect an industry token to pull live job data and alerts." %}</p>
+                            <a href="{% url 'indy_hub:token_management' %}" class="btn btn-outline-success btn-slim">
+                                <i class="fas fa-key me-2"></i>{% trans "Setup access" %}
+                            </a>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="col-xxl-4 col-xl-12">
+                <div class="card focus-card h-100">
+                    <div class="card-body p-4 d-flex flex-column">
+                        <div class="d-flex justify-content-between align-items-start mb-3">
+                            <div>
+                                <h5 class="card-title mb-1">{% trans "Production simulations" %}</h5>
+                                <p class="text-muted small mb-0">{% trans "Plan taxes, fees, and profitability scenarios." %}</p>
                             </div>
+                            <div class="focus-icon bg-secondary bg-opacity-10 text-secondary">
+                                <i class="fas fa-flask"></i>
+                            </div>
+                        </div>
+                        <p class="text-muted small mb-0">{% trans "Run what-if analyses before committing to large scale production." %}</p>
+                        <div class="mt-4">
+                            <a href="{% url 'indy_hub:production_simulations_list' %}" class="btn btn-outline-secondary btn-slim">
+                                <i class="fas fa-flask me-2"></i>{% trans "Open production simulations" %}
+                            </a>
                         </div>
                     </div>
                 </div>
@@ -74,248 +237,196 @@
         </div>
     </section>
 
-    <div class="row g-4 align-items-stretch mb-4">
-        <div class="col-xl-4 col-lg-6">
-            <div class="card focus-card h-100">
-                <div class="card-body p-4 d-flex flex-column">
-                    <div class="d-flex justify-content-between align-items-start mb-3">
-                        <div>
-                            <h5 class="card-title mb-1">{% trans "All EVE blueprints" %}</h5>
-                            <p class="text-muted small mb-0">{% trans "Reference database with search and filters." %}</p>
-                        </div>
-                        <div class="focus-icon bg-info bg-opacity-10 text-info">
-                            <i class="fas fa-search"></i>
-                        </div>
-                    </div>
-                    <p class="text-muted small mb-4">{% trans "Browse the complete blueprint catalog to study stats or scout new production opportunities." %}</p>
-                    <a href="{% url 'indy_hub:all_bp_list' %}" class="btn btn-accent btn-slim mt-auto">
-                        <i class="fas fa-compass"></i>{% trans "Explore database" %}
-                    </a>
-                </div>
+    <section class="dashboard-section mb-5">
+        <header class="section-heading">
+            <div>
+                <h2>{% trans "Collaboration hub" %}</h2>
+                <p class="text-muted small mb-0">{% trans "Coordinate duplicates, fulfil copy queues, and keep your corp in sync." %}</p>
             </div>
-        </div>
-
-        <div class="col-xl-4 col-lg-6">
-            <div class="card focus-card h-100">
-                <div class="card-body p-4 d-flex flex-column">
-                    <div class="d-flex justify-content-between align-items-start mb-3">
-                        <div>
-                            <h5 class="card-title mb-1">{% trans "My blueprint library" %}</h5>
-                            <p class="text-muted small mb-0">{% trans "Originals, copies, and stacks at a glance." %}</p>
-                        </div>
-                        <div class="d-flex align-items-center gap-2">
-                            {% if has_blueprint_tokens %}
-                            <span class="badge rounded-pill bg-primary-subtle text-primary">{{ blueprint_count|default:0 }}</span>
-                            {% endif %}
-                            <div class="focus-icon bg-primary bg-opacity-10 text-primary">
-                                <i class="fas fa-layer-group"></i>
-                            </div>
-                        </div>
-                    </div>
-                    {% if has_blueprint_tokens %}
-                    <div class="job-status-row mb-4">
-                        <div class="status-pill blue">
-                            <i class="fas fa-gem"></i>
+        </header>
+        <div class="row g-4 align-items-stretch justify-content-center">
+            <div class="col-xxl-10 col-xl-11 col-lg-12">
+                <div class="card focus-card h-100">
+                    <div class="card-body p-4 d-flex flex-column">
+                        <div class="d-flex justify-content-between align-items-start mb-3">
                             <div>
-                                <strong>{{ original_blueprints|default:0 }}</strong>
-                                <span>{% trans "Originals" %}</span>
+                                <h5 class="card-title mb-1">{% trans "Blueprint sharing" %}</h5>
+                                <p class="text-muted small mb-0" id="share-subtitle">{{ copy_sharing_state.subtitle }}</p>
+                            </div>
+                            <div class="focus-icon bg-warning bg-opacity-10 text-warning">
+                                <i class="fas fa-share-alt"></i>
                             </div>
                         </div>
-                        <div class="status-pill">
-                            <i class="fas fa-clone"></i>
+                            <div class="share-status mb-4" id="share-status-block">
+                                <span class="badge rounded-pill {{ copy_sharing_state.badge_class }} fw-semibold" id="share-status-badge">
+                                    {{ copy_sharing_state.status_label }}
+                                </span>
+                                <p class="text-muted small mb-0" id="share-status-text">{{ copy_sharing_state.status_hint }}</p>
+                            </div>
+                            <div class="share-metrics mb-4">
+                                <div class="share-metric">
+                                    <div>
+                                        <span class="share-metric-label">{% trans "Requests to fulfill" %}</span>
+                                        <p class="text-muted small mb-0" id="share-fulfill-hint">{{ copy_sharing_state.fulfill_hint }}</p>
+                                    </div>
+                                    <span class="share-metric-value">{{ copy_fulfill_count|default:0 }}</span>
+                                </div>
+                                <div class="share-metric">
+                                    <div>
+                                        <span class="share-metric-label">{% trans "My submissions" %}</span>
+                                        {% if copy_my_requests_total %}
+                                            <p class="text-muted small mb-0">
+                                                {% blocktrans with open=copy_my_requests_open pending=copy_my_requests_pending_delivery %}
+                                                    {{ open }} open · {{ pending }} awaiting delivery
+                                                {% endblocktrans %}
+                                            </p>
+                                        {% else %}
+                                            <p class="text-muted small mb-0">{% trans "Keep tabs on the copies you've requested." %}</p>
+                                        {% endif %}
+                                    </div>
+                                    <span class="share-metric-value">{{ copy_my_requests_total|default:0 }}</span>
+                                </div>
+                            </div>
+                            <div class="d-grid gap-2 mt-auto">
+                                <a href="{% url 'indy_hub:bp_copy_request_page' %}" class="btn btn-accent btn-slim">
+                                    <i class="fas fa-copy"></i>{% trans "Request a copy" %}
+                                </a>
+                                <div class="d-grid gap-2">
+                                    <a href="{% url 'indy_hub:bp_copy_fulfill_requests' %}" class="btn btn-slim btn-soft-success">
+                                        <i class="fas fa-handshake me-2"></i>{% trans "Fulfill requests" %}
+                                    </a>
+                                    <a href="{% url 'indy_hub:bp_copy_my_requests' %}" class="btn btn-slim btn-soft-secondary">
+                                        <i class="fas fa-list me-2"></i>{% trans "My requests" %}
+                                    </a>
+                                </div>
+                            </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="dashboard-section mb-5">
+        <header class="section-heading">
+            <div>
+                <h2>{% trans "Tools & references" %}</h2>
+                <p class="text-muted small mb-0">{% trans "Jump into catalogs, documentation, and request history." %}</p>
+            </div>
+        </header>
+        <div class="row g-4 align-items-stretch justify-content-center">
+            <div class="col-xxl-9 col-xl-10 col-lg-11 col-md-12">
+                <div class="card focus-card h-100">
+                    <div class="card-body p-4 d-flex flex-column">
+                        <div class="d-flex justify-content-between align-items-start mb-3">
                             <div>
-                                <strong>{{ copy_blueprints|default:0 }}</strong>
-                                <span>{% trans "Copies" %}</span>
+                                <h5 class="card-title mb-1">{% trans "All EVE blueprints" %}</h5>
+                                <p class="text-muted small mb-0">{% trans "Reference database with search and filters." %}</p>
                             </div>
-                        </div>
-                    </div>
-                    <a href="{% url 'indy_hub:personnal_bp_list' %}" class="btn btn-accent btn-slim w-100 mt-auto">
-                        <i class="fas fa-layer-group"></i>{% trans "Open my library" %}
-                    </a>
-                    {% else %}
-                    <div class="focus-empty text-center py-4 mt-auto">
-                        <i class="fas fa-scroll fa-3x mb-3 text-primary opacity-75"></i>
-                        <p class="text-muted mb-3">{% trans "Connect an ESI blueprint token to populate your library." %}</p>
-                        <a href="{% url 'indy_hub:token_management' %}" class="btn btn-outline-primary btn-slim">
-                            <i class="fas fa-key me-2"></i>{% trans "Setup access" %}
-                        </a>
-                    </div>
-                    {% endif %}
-                </div>
-            </div>
-        </div>
-
-        <div class="col-xl-4 col-lg-12">
-            <div class="card focus-card h-100">
-                <div class="card-body p-4 d-flex flex-column">
-                    <div class="d-flex justify-content-between align-items-start mb-3">
-                        <div>
-                            <h5 class="card-title mb-1">{% trans "Blueprint sharing" %}</h5>
-                            <p class="text-muted small mb-0">{% trans "Toggle availability and manage copy requests." %}</p>
-                        </div>
-                        <div class="focus-icon bg-warning bg-opacity-10 text-warning">
-                            <i class="fas fa-share-alt"></i>
-                        </div>
-                    </div>
-                    <p class="text-muted small mb-3">{% trans "Let corpmates know which originals you can duplicate and stay on top of outstanding asks." %}</p>
-                    <div class="d-flex flex-column align-items-center text-center mb-3">
-                        <button id="toggle-copy-sharing"
-                            class="toggle-chip mb-2 {% if allow_copy_requests %}is-active{% endif %}"
-                            data-enabled="{{ allow_copy_requests|yesno:'true,false' }}"
-                            data-on-label="{% trans "ON" %}"
-                            data-off-label="{% trans "OFF" %}"
-                            data-on-hint="{% trans "Sharing enabled: corpmates can request copies of your originals." %}"
-                            data-off-hint="{% trans "Sharing disabled: your originals stay private." %}">
-                            <span class="toggle-state" id="copy-sharing-state">{% if allow_copy_requests %}{% trans "ON" %}{% else %}{% trans "OFF" %}{% endif %}</span>
-                        </button>
-                        <p class="toggle-hint text-muted small mb-0" id="copy-sharing-hint">
-                            {% if allow_copy_requests %}{% trans "Sharing enabled: corpmates can request copies of your originals." %}{% else %}{% trans "Sharing disabled: your originals stay private." %}{% endif %}
-                        </p>
-                    </div>
-                    <div class="d-grid gap-2 mt-auto">
-                        <a href="{% url 'indy_hub:bp_copy_request_page' %}" class="btn btn-accent btn-slim">
-                            <i class="fas fa-copy"></i>{% trans "Request a copy" %}
-                        </a>
-                        <a href="{% url 'indy_hub:bp_copy_fulfill_requests' %}" class="btn btn-slim btn-soft-success">
-                            <i class="fas fa-handshake"></i>{% trans "Fulfill requests" %}
-                        </a>
-                        <a href="{% url 'indy_hub:bp_copy_my_requests' %}" class="btn btn-slim btn-soft-secondary">
-                            <i class="fas fa-list"></i>{% trans "My requests" %}
-                        </a>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="row g-4 align-items-stretch mb-4">
-        <div class="col-xl-6 col-lg-6">
-            <div class="card focus-card h-100">
-                <div class="card-body p-4 d-flex flex-column">
-                    <div class="d-flex justify-content-between align-items-start mb-3">
-                        <div>
-                            <h5 class="card-title mb-1">{% trans "Industry jobs" %}</h5>
-                            <p class="text-muted small mb-0">{% trans "Track active slots and completed work." %}</p>
-                        </div>
-                        <div class="d-flex align-items-center gap-2">
-                            {% if has_jobs_tokens %}
-                            <span class="badge rounded-pill bg-success-subtle text-success">{{ active_jobs_count|default:0 }}</span>
-                            {% endif %}
-                            <div class="focus-icon bg-success bg-opacity-10 text-success">
-                                <i class="fas fa-industry"></i>
-                            </div>
-                        </div>
-                    </div>
-                    {% if has_jobs_tokens %}
-                    <div class="job-status-row mb-4">
-                        <div class="status-pill success">
-                            <i class="fas fa-play-circle"></i>
-                            <div>
-                                <strong>{{ active_jobs_count|default:0 }}</strong>
-                                <span>{% trans "Active jobs" %}</span>
-                            </div>
-                        </div>
-                        <div class="status-pill">
-                            <i class="fas fa-check-circle"></i>
-                            <div>
-                                <strong>{{ completed_jobs_count|default:0 }}</strong>
-                                <span>{% trans "Completed (30d)" %}</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="d-grid gap-3">
-                        <a href="{% url 'indy_hub:personnal_job_list' %}" class="btn btn-accent btn-slim">
-                            <i class="fas fa-list"></i>{% trans "Open job tracker" %}
-                        </a>
-                        <div class="d-flex flex-column align-items-center text-center">
-                            <button id="toggle-job-notify"
-                                class="toggle-chip mb-2 {% if jobs_notify_completed %}is-active{% endif %}"
-                                type="button" data-enabled="{{ jobs_notify_completed|yesno:'true,false' }}"
-                                data-on-label="{% trans "ON" %}"
-                                data-off-label="{% trans "OFF" %}"
-                                data-on-hint="{% trans "Notifications enabled: we'll ping you when jobs finish." %}"
-                                data-off-hint="{% trans "Notifications disabled: job completions stay quiet." %}">
-                                <span class="toggle-state" id="notify-state">{% if jobs_notify_completed %}{% trans "ON" %}{% else %}{% trans "OFF" %}{% endif %}</span>
-                            </button>
-                            <p class="toggle-hint text-muted small mb-0" id="notify-hint">
-                                {% if jobs_notify_completed %}{% trans "Notifications enabled: we'll ping you when jobs finish." %}{% else %}{% trans "Notifications disabled: job completions stay quiet." %}{% endif %}
-                            </p>
-                        </div>
-                    </div>
-                    {% else %}
-                    <div class="focus-empty text-center py-4 mt-auto">
-                        <i class="fas fa-industry fa-3x mb-3 text-success opacity-75"></i>
-                        <p class="text-muted mb-3">{% trans "Connect an industry token to pull live job data and alerts." %}</p>
-                        <a href="{% url 'indy_hub:token_management' %}" class="btn btn-outline-success btn-slim">
-                            <i class="fas fa-key me-2"></i>{% trans "Setup access" %}
-                        </a>
-                    </div>
-                    {% endif %}
-                </div>
-            </div>
-        </div>
-
-        <div class="col-xl-6 col-lg-6">
-            <div class="card focus-card h-100">
-                <div class="card-body p-4 d-flex flex-column">
-                    <div class="d-flex justify-content-between align-items-start mb-3">
-                        <div>
-                            <h5 class="card-title mb-1">{% trans "Production simulations" %}</h5>
-                            <p class="text-muted small mb-0">{% trans "Plan taxes, fees, and profitability scenarios." %}</p>
-                        </div>
-                        <div class="focus-icon bg-secondary bg-opacity-10 text-secondary">
-                            <i class="fas fa-flask"></i>
-                        </div>
-                    </div>
-                    <p class="text-muted small mb-4">{% trans "Run what-if analyses before committing to large scale production." %}</p>
-                    <a href="{% url 'indy_hub:production_simulations_list' %}" class="btn btn-accent btn-slim mt-auto">
-                        <i class="fas fa-external-link-alt"></i>{% trans "Open simulations" %}
-                    </a>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="row g-4 mb-4 justify-content-center">
-        <div class="col-lg-6 col-xl-5">
-            <div class="card status-card h-100">
-                <div class="card-body p-4">
-                    <div class="d-flex justify-content-between align-items-start mb-3">
-                        <div>
-                            <h5 class="mb-1">{% trans "ESI access" %}</h5>
-                            <p class="text-muted small mb-0">{% trans "Review which characters are synced for blueprints and jobs." %}</p>
-                        </div>
-                        <div class="d-flex align-items-center gap-2">
-                            <a href="{% url 'indy_hub:token_management' %}" class="btn btn-slim btn-soft-info">
-                                <i class="fas fa-cog"></i>{% trans "Manage" %}
-                            </a>
                             <div class="focus-icon bg-info bg-opacity-10 text-info">
-                                <i class="fas fa-key"></i>
+                                <i class="fas fa-search"></i>
                             </div>
                         </div>
-                    </div>
-                    <div class="token-status d-flex flex-column gap-2">
-                        <div class="token-pill {% if has_blueprint_tokens %}token-pill-ready{% else %}token-pill-missing{% endif %}">
-                            <i class="fas fa-scroll me-2"></i>
-                            {% if has_blueprint_tokens %}
-                                <strong>{{ blueprint_token_count }}</strong> {% trans "characters with blueprints" %}
-                            {% else %}
-                                {% trans "Blueprint access missing" %}
-                            {% endif %}
-                        </div>
-                        <div class="token-pill {% if has_jobs_tokens %}token-pill-ready{% else %}token-pill-missing{% endif %}">
-                            <i class="fas fa-industry me-2"></i>
-                            {% if has_jobs_tokens %}
-                                <strong>{{ jobs_token_count }}</strong> {% trans "characters with industry jobs" %}
-                            {% else %}
-                                {% trans "Industry jobs access missing" %}
-                            {% endif %}
+                        <p class="text-muted small mb-0">{% trans "Browse the complete blueprint catalog to study stats or scout new production opportunities." %}</p>
+                        <div class="mt-4">
+                            <a href="{% url 'indy_hub:all_bp_list' %}" class="btn btn-outline-info btn-slim">
+                                <i class="fas fa-search me-2"></i>{% trans "Open blueprint catalog" %}
+                            </a>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
-    </div>
+    </section>
+
+    <section class="dashboard-section mb-4">
+        <header class="section-heading">
+            <div>
+                <h2>{% trans "Preferences & access" %}</h2>
+                <p class="text-muted small mb-0">{% trans "Tune notifications and keep your ESI connections healthy." %}</p>
+            </div>
+        </header>
+        <div class="row g-4 align-items-stretch justify-content-center">
+            <div class="col-xxl-9 col-xl-10 col-lg-11 col-md-12">
+                <div class="card preference-card h-100">
+                    <div class="card-body p-4 d-flex flex-column">
+                        <h5 class="card-title mb-3">{% trans "Quick preferences" %}</h5>
+                        <div class="preference-stack">
+                            <div class="preference-item">
+                                <div class="preference-text">
+                                    <span class="preference-label">{% trans "Industry job alerts" %}</span>
+                                    <p class="preference-hint mb-0" id="notify-hint">
+                                        {% if jobs_notify_completed %}{% trans "Notifications enabled: we'll ping you when jobs finish." %}{% else %}{% trans "Notifications disabled: job completions stay quiet." %}{% endif %}
+                                    </p>
+                                </div>
+                                <button
+                                    id="toggle-job-notify"
+                                    class="toggle-chip {% if jobs_notify_completed %}is-active{% endif %}"
+                                    type="button"
+                                    data-enabled="{{ jobs_notify_completed|yesno:'true,false' }}"
+                                    data-on-label="{% trans "ON" %}"
+                                    data-off-label="{% trans "OFF" %}"
+                                    data-on-hint="{% trans "Notifications enabled: we'll ping you when jobs finish." %}"
+                                    data-off-hint="{% trans "Notifications disabled: job completions stay quiet." %}"
+                                >
+                                    <span class="toggle-state" id="notify-state">
+                                        {% if jobs_notify_completed %}{% trans "ON" %}{% else %}{% trans "OFF" %}{% endif %}
+                                    </span>
+                                </button>
+                            </div>
+                            <div class="preference-item share-preference">
+                                <div class="preference-text share-preference-info">
+                                    <div class="share-preference-header">
+                                        <span class="preference-label">{% trans "Blueprint sharing" %}</span>
+                                        <span class="badge rounded-pill share-mode-badge {{ copy_sharing_state.badge_class }}" id="copy-sharing-state">
+                                            {{ copy_sharing_state.button_label }}
+                                        </span>
+                                    </div>
+                                    <p class="preference-hint mb-0" id="copy-sharing-hint">{{ copy_sharing_state.button_hint }}</p>
+                                </div>
+                                <div
+                                    class="share-mode-group"
+                                    id="share-mode-group"
+                                    role="group"
+                                    aria-label="{% trans 'Blueprint sharing scope' %}"
+                                    data-current-scope="{{ copy_sharing_scope }}"
+                                >
+                                    <button
+                                        type="button"
+                                        class="share-mode-chip {% if copy_sharing_scope == 'none' %}is-active{% endif %}"
+                                        data-share-scope="none"
+                                        aria-pressed="{% if copy_sharing_scope == 'none' %}true{% else %}false{% endif %}"
+                                    >
+                                        <i class="fas fa-lock"></i>
+                                        <span>{% trans "Private" %}</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        class="share-mode-chip {% if copy_sharing_scope == 'corporation' %}is-active{% endif %}"
+                                        data-share-scope="corporation"
+                                        aria-pressed="{% if copy_sharing_scope == 'corporation' %}true{% else %}false{% endif %}"
+                                    >
+                                        <i class="fas fa-building"></i>
+                                        <span>{% trans "Corporation" %}</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        class="share-mode-chip {% if copy_sharing_scope == 'alliance' %}is-active{% endif %}"
+                                        data-share-scope="alliance"
+                                        aria-pressed="{% if copy_sharing_scope == 'alliance' %}true{% else %}false{% endif %}"
+                                    >
+                                        <i class="fas fa-people-group"></i>
+                                        <span>{% trans "Alliance" %}</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <a href="{% url 'indy_hub:token_management' %}" class="btn btn-outline-primary btn-slim mt-3 align-self-start">
+                            <i class="fas fa-key me-2"></i>{% trans "Manage ESI tokens" %}
+                        </a>
+                    </div>
+                </div>
+        </div>
+    </section>
 
     <footer class="dashboard-footer text-center text-muted small">
         <div class="container">
@@ -338,7 +449,6 @@ window.toggleJobNotificationsUrl = '{% url 'indy_hub:toggle_job_notifications' %
 window.toggleCopySharingUrl = '{% url 'indy_hub:toggle_copy_sharing' %}';
 window.notificationsOnText = '{% trans "Notifications ON" %}';
 window.notificationsOffText = '{% trans "Notifications OFF" %}';
-window.sharingOnText = '{% trans "Sharing ON" %}';
-window.sharingOffText = '{% trans "Sharing OFF" %}';
+window.copySharingStates = JSON.parse('{{ copy_sharing_states_json|escapejs }}');
 </script>
 {% endblock extra_javascript %}

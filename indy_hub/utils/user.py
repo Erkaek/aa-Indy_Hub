@@ -28,11 +28,13 @@ def get_user_preferences(user):
         defaults={
             "jobs_notify_completed": True,
             "allow_copy_requests": False,
+            "copy_sharing_scope": CharacterSettings.SCOPE_NONE,
         },
     )
     return {
         "jobs_notify_completed": settings.jobs_notify_completed,
         "allow_copy_requests": settings.allow_copy_requests,
+        "copy_sharing_scope": settings.copy_sharing_scope,
     }
 
 
@@ -56,14 +58,22 @@ def update_user_preferences(user, preferences):
             defaults={
                 "jobs_notify_completed": True,
                 "allow_copy_requests": False,
+                "copy_sharing_scope": CharacterSettings.SCOPE_NONE,
             },
         )
 
         if "jobs_notify_completed" in preferences:
             settings.jobs_notify_completed = preferences["jobs_notify_completed"]
 
-        if "allow_copy_requests" in preferences:
-            settings.allow_copy_requests = preferences["allow_copy_requests"]
+        if "copy_sharing_scope" in preferences:
+            settings.set_copy_sharing_scope(preferences["copy_sharing_scope"])
+        elif "allow_copy_requests" in preferences:
+            scope = (
+                CharacterSettings.SCOPE_CORPORATION
+                if preferences["allow_copy_requests"]
+                else CharacterSettings.SCOPE_NONE
+            )
+            settings.set_copy_sharing_scope(scope)
 
         settings.save()
         return True

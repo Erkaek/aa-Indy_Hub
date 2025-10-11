@@ -75,6 +75,7 @@ def update_user_preferences_defaults():
             defaults={
                 "jobs_notify_completed": True,  # Default to enabled
                 "allow_copy_requests": False,  # Default to disabled
+                "copy_sharing_scope": CharacterSettings.SCOPE_NONE,
             },
         )
         if created:

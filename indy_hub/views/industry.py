@@ -29,6 +29,7 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 
 # AA Example App
 from indy_hub.models import CharacterSettings
@@ -1229,18 +1230,74 @@ def fuzzwork_price(request):
 @indy_hub_access_required
 @login_required
 def bp_copy_request_page(request):
+    # Alliance Auth
+    from allianceauth.authentication.models import CharacterOwnership
+
     search = request.GET.get("search", "").strip()
     min_me = request.GET.get("min_me", "")
     min_te = request.GET.get("min_te", "")
     page = request.GET.get("page", 1)
     per_page = int(request.GET.get("per_page", 24))
-    # Fetch users who enabled copy sharing, excluding current user
-    allowed_users = CharacterSettings.objects.filter(
-        character_id=0, allow_copy_requests=True  # Global settings only
-    ).values_list("user", flat=True)
-    qs = Blueprint.objects.filter(owner_user__in=allowed_users, quantity=-1).order_by(
-        "type_name", "material_efficiency", "time_efficiency"
-    )
+    # Determine viewer affiliations (corporation / alliance)
+    viewer_corp_ids: set[int] = set()
+    viewer_alliance_ids: set[int] = set()
+    viewer_ownerships = CharacterOwnership.objects.filter(
+        user=request.user
+    ).select_related("character")
+    for ownership in viewer_ownerships:
+        corp_id = getattr(ownership.character, "corporation_id", None)
+        if corp_id:
+            viewer_corp_ids.add(corp_id)
+        alliance_id = getattr(ownership.character, "alliance_id", None)
+        if alliance_id:
+            viewer_alliance_ids.add(alliance_id)
+
+    # Fetch users who enabled copy sharing (global settings)
+    settings_qs = CharacterSettings.objects.filter(
+        character_id=0,
+        allow_copy_requests=True,
+    ).exclude(copy_sharing_scope=CharacterSettings.SCOPE_NONE)
+    settings_list = list(settings_qs)
+    owner_user_ids = [setting.user_id for setting in settings_list]
+
+    owner_affiliations: dict[int, dict[str, set[int]]] = {}
+    if owner_user_ids:
+        owner_ownerships = CharacterOwnership.objects.filter(
+            user_id__in=owner_user_ids
+        ).select_related("character")
+        for ownership in owner_ownerships:
+            data = owner_affiliations.setdefault(
+                ownership.user_id,
+                {"corp_ids": set(), "alliance_ids": set()},
+            )
+            corp_id = getattr(ownership.character, "corporation_id", None)
+            if corp_id:
+                data["corp_ids"].add(corp_id)
+            alliance_id = getattr(ownership.character, "alliance_id", None)
+            if alliance_id:
+                data["alliance_ids"].add(alliance_id)
+
+    allowed_user_ids: set[int] = set()
+    for setting in settings_list:
+        affiliations = owner_affiliations.get(
+            setting.user_id, {"corp_ids": set(), "alliance_ids": set()}
+        )
+        corp_ids = affiliations["corp_ids"]
+        alliance_ids = affiliations["alliance_ids"]
+
+        if setting.copy_sharing_scope == CharacterSettings.SCOPE_CORPORATION:
+            if viewer_corp_ids & corp_ids:
+                allowed_user_ids.add(setting.user_id)
+        elif setting.copy_sharing_scope == CharacterSettings.SCOPE_ALLIANCE:
+            if (viewer_alliance_ids & alliance_ids) or (viewer_corp_ids & corp_ids):
+                allowed_user_ids.add(setting.user_id)
+
+    if not allowed_user_ids:
+        qs = Blueprint.objects.none()
+    else:
+        qs = Blueprint.objects.filter(
+            owner_user_id__in=allowed_user_ids, quantity=-1
+        ).order_by("type_name", "material_efficiency", "time_efficiency")
     seen = set()
     bp_list = []
     for bp in qs:
@@ -1338,23 +1395,141 @@ def bp_copy_fulfill_requests(request):
             request, "indy_hub/bp_copy_fulfill_requests.html", {"requests": []}
         )
     my_bps = Blueprint.objects.filter(owner_user=request.user, quantity=-1)
+
+    status_meta = {
+        "awaiting_response": {
+            "label": _("Awaiting response"),
+            "badge": "bg-warning text-dark",
+            "hint": _(
+                "No offer sent yet. Accept, reject, or propose conditions to help your corpmate."
+            ),
+        },
+        "waiting_on_buyer": {
+            "label": _("Waiting on buyer"),
+            "badge": "bg-info text-white",
+            "hint": _("You've sent a conditional offer. Awaiting buyer confirmation."),
+        },
+        "ready_to_deliver": {
+            "label": _("Ready to deliver"),
+            "badge": "bg-success text-white",
+            "hint": _(
+                "Buyer accepted your offer. Deliver the copies and mark the request as complete."
+            ),
+        },
+        "offer_rejected": {
+            "label": _("Offer rejected"),
+            "badge": "bg-danger text-white",
+            "hint": _(
+                "Your previous offer was declined. Consider sending an updated proposal."
+            ),
+        },
+        "self_request": {
+            "label": _("Your tracked request"),
+            "badge": "bg-secondary text-white",
+            "hint": _(
+                "You posted this ask. Another builder will pick it up; no action needed from you."
+            ),
+        },
+    }
+
+    metrics = {
+        "total": 0,
+        "awaiting_response": 0,
+        "waiting_on_buyer": 0,
+        "ready_to_deliver": 0,
+        "offer_rejected": 0,
+    }
+
+    if not my_bps.exists():
+        return render(
+            request,
+            "indy_hub/bp_copy_fulfill_requests.html",
+            {"requests": [], "metrics": metrics},
+        )
+
     q = Q()
+    has_filters = False
     for bp in my_bps:
+        has_filters = True
         q |= Q(
             type_id=bp.type_id,
             material_efficiency=bp.material_efficiency,
             time_efficiency=bp.time_efficiency,
-            fulfilled=False,
         )
-    # Only show requests that are accepted (fulfilled=True) but not yet delivered
-    qset = BlueprintCopyRequest.objects.filter(
-        q, fulfilled=True, delivered=False
-    ).order_by("-created_at")
+
+    if not has_filters:
+        return render(
+            request,
+            "indy_hub/bp_copy_fulfill_requests.html",
+            {"requests": [], "metrics": metrics},
+        )
+
+    offer_status_labels = {
+        "accepted": _("Accepted"),
+        "conditional": _("Conditional"),
+        "rejected": _("Rejected"),
+    }
+
+    qset = (
+        BlueprintCopyRequest.objects.filter(q)
+        .filter(
+            Q(fulfilled=False)
+            | Q(fulfilled=True, delivered=False, offers__owner=request.user)
+        )
+        .select_related("requested_by")
+        .prefetch_related("offers__owner")
+        .order_by("-created_at")
+        .distinct()
+    )
+
     requests_to_fulfill = []
     for req in qset:
-        my_offer = BlueprintCopyOffer.objects.filter(
-            request=req, owner=request.user
-        ).first()
+        offers = list(req.offers.all())
+        my_offer = next(
+            (offer for offer in offers if offer.owner_id == request.user.id), None
+        )
+
+        is_self_request = req.requested_by_id == request.user.id
+
+        if req.fulfilled and (req.delivered or not my_offer):
+            # Already delivered or fulfilled by someone else
+            continue
+
+        status_key = "awaiting_response"
+        can_mark_delivered = False
+
+        if is_self_request:
+            status_key = "self_request"
+        elif req.fulfilled and not req.delivered:
+            status_key = "ready_to_deliver"
+            can_mark_delivered = True
+        elif my_offer:
+            if my_offer.status == "conditional":
+                if my_offer.accepted_by_buyer:
+                    status_key = "ready_to_deliver"
+                    can_mark_delivered = True
+                else:
+                    status_key = "waiting_on_buyer"
+            elif my_offer.status == "rejected":
+                status_key = "offer_rejected"
+            elif my_offer.status == "accepted":
+                status_key = "ready_to_deliver"
+                can_mark_delivered = True
+        else:
+            status_key = "awaiting_response"
+
+        metrics["total"] += 1
+        metrics_key = {
+            "awaiting_response": "awaiting_response",
+            "waiting_on_buyer": "waiting_on_buyer",
+            "ready_to_deliver": "ready_to_deliver",
+            "offer_rejected": "offer_rejected",
+        }.get(status_key)
+        if metrics_key and not (metrics_key == "awaiting_response" and is_self_request):
+            metrics[metrics_key] += 1
+
+        status_info = status_meta[status_key]
+
         requests_to_fulfill.append(
             {
                 "id": req.id,
@@ -1367,14 +1542,31 @@ def bp_copy_fulfill_requests(request):
                 "copies_requested": getattr(req, "copies_requested", 1),
                 "created_at": req.created_at,
                 "requester": req.requested_by.username,
-                "my_offer": my_offer,
-                "delivered": req.delivered,
+                "is_self_request": is_self_request,
+                "status_key": status_key,
+                "status_label": status_info["label"],
+                "status_class": status_info["badge"],
+                "status_hint": status_info["hint"],
+                "my_offer_status": getattr(my_offer, "status", None),
+                "my_offer_status_label": offer_status_labels.get(
+                    getattr(my_offer, "status", None), ""
+                ),
+                "my_offer_message": getattr(my_offer, "message", ""),
+                "my_offer_accepted_by_buyer": getattr(
+                    my_offer, "accepted_by_buyer", False
+                ),
+                "show_offer_actions": status_key
+                in {"awaiting_response", "offer_rejected"},
+                "conditional_collapse_id": f"cond-{req.id}",
+                "can_mark_delivered": can_mark_delivered
+                and req.requested_by_id != request.user.id,
             }
         )
+
     return render(
         request,
         "indy_hub/bp_copy_fulfill_requests.html",
-        {"requests": requests_to_fulfill},
+        {"requests": requests_to_fulfill, "metrics": metrics},
     )
 
 
@@ -1553,17 +1745,113 @@ def bp_mark_copy_delivered(request, request_id):
 @login_required
 def bp_copy_my_requests(request):
     """List copy requests made by the current user."""
-    qs = BlueprintCopyRequest.objects.filter(requested_by=request.user).order_by(
-        "-created_at"
+    qs = (
+        BlueprintCopyRequest.objects.filter(requested_by=request.user)
+        .select_related("requested_by")
+        .prefetch_related("offers__owner")
+        .order_by("-created_at")
     )
+
+    status_meta = {
+        "open": {
+            "label": _("Awaiting provider"),
+            "badge": "bg-warning text-dark",
+            "hint": _("No builder has accepted yet. Keep an eye out for new offers."),
+        },
+        "action_required": {
+            "label": _("Your action needed"),
+            "badge": "bg-info text-white",
+            "hint": _(
+                "Review conditional offers and accept the one that suits you best."
+            ),
+        },
+        "awaiting_delivery": {
+            "label": _("In progress"),
+            "badge": "bg-success text-white",
+            "hint": _(
+                "A builder accepted. Coordinate delivery and watch for the completion notice."
+            ),
+        },
+        "delivered": {
+            "label": _("Delivered"),
+            "badge": "bg-secondary text-white",
+            "hint": _("Blueprint copies have been delivered. Enjoy!"),
+        },
+    }
+
+    metrics = {
+        "total": 0,
+        "open": 0,
+        "action_required": 0,
+        "awaiting_delivery": 0,
+        "delivered": 0,
+    }
+
     my_requests = []
     for req in qs:
-        offers = req.offers.all()
-        accepted_offer = offers.filter(status="accepted").first()
-        cond_accepted = offers.filter(
-            status="conditional", accepted_by_buyer=True
-        ).first()
-        cond_offers = offers.filter(status="conditional", accepted_by_buyer=False)
+        offers = list(req.offers.all())
+        accepted_offer_obj = next(
+            (offer for offer in offers if offer.status == "accepted"), None
+        )
+        cond_accepted_obj = next(
+            (
+                offer
+                for offer in offers
+                if offer.status == "conditional" and offer.accepted_by_buyer
+            ),
+            None,
+        )
+        cond_offers = [
+            offer
+            for offer in offers
+            if offer.status == "conditional" and not offer.accepted_by_buyer
+        ]
+
+        status_key = "open"
+        if req.delivered:
+            status_key = "delivered"
+        elif req.fulfilled:
+            status_key = "awaiting_delivery"
+        elif cond_offers:
+            status_key = "action_required"
+
+        metrics["total"] += 1
+        metrics_key = {
+            "open": "open",
+            "action_required": "action_required",
+            "awaiting_delivery": "awaiting_delivery",
+            "delivered": "delivered",
+        }.get(status_key)
+        if metrics_key:
+            metrics[metrics_key] += 1
+
+        status_info = status_meta[status_key]
+
+        accepted_offer = (
+            {
+                "owner_username": accepted_offer_obj.owner.username,
+                "message": accepted_offer_obj.message,
+            }
+            if accepted_offer_obj
+            else None
+        )
+        cond_accepted = (
+            {
+                "owner_username": cond_accepted_obj.owner.username,
+                "message": cond_accepted_obj.message,
+            }
+            if cond_accepted_obj
+            else None
+        )
+        cond_offer_data = [
+            {
+                "id": offer.id,
+                "owner_username": offer.owner.username,
+                "message": offer.message,
+            }
+            for offer in cond_offers
+        ]
+
         my_requests.append(
             {
                 "id": req.id,
@@ -1576,12 +1864,21 @@ def bp_copy_my_requests(request):
                 "runs_requested": req.runs_requested,
                 "accepted_offer": accepted_offer,
                 "cond_accepted": cond_accepted,
-                "cond_offers": cond_offers,
+                "cond_offers": cond_offer_data,
                 "delivered": req.delivered,
+                "status_key": status_key,
+                "status_label": status_info["label"],
+                "status_class": status_info["badge"],
+                "status_hint": status_info["hint"],
+                "created_at": req.created_at,
+                "can_cancel": not req.fulfilled,
             }
         )
+
     return render(
-        request, "indy_hub/bp_copy_my_requests.html", {"my_requests": my_requests}
+        request,
+        "indy_hub/bp_copy_my_requests.html",
+        {"my_requests": my_requests, "metrics": metrics},
     )
 
 

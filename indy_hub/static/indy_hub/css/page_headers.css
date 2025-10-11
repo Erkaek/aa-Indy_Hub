@@ -1,18 +1,35 @@
 /* Common page headers for Indy Hub */
 
+:root {
+    --page-header-radius: var(--bs-border-radius-xl, 1.25rem);
+    --page-header-shadow: var(--bs-box-shadow-lg, 0 1.5rem 3rem rgb(0 0 0 / 20%));
+    --page-header-bg: linear-gradient(
+        135deg,
+        rgba(var(--bs-primary-rgb), 0.92) 0%,
+        rgba(var(--bs-secondary-rgb, var(--bs-primary-rgb)), 0.85) 100%
+    );
+    --page-header-fg: var(--bs-light, #f8f9fa);
+    --page-header-muted: rgba(var(--bs-light-rgb), 0.85);
+}
+
+[data-bs-theme="dark"] {
+    --page-header-shadow: 0 1.5rem 3rem rgb(0 0 0 / 45%);
+    --page-header-muted: rgba(var(--bs-light-rgb), 0.7);
+}
+
 .page-header {
-    background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-    border-radius: 18px;
-    color: #fff;
+    background: var(--page-header-bg);
+    border-radius: var(--page-header-radius);
+    color: var(--page-header-fg);
     padding: 2.5rem 2rem 2rem 2rem;
     margin-bottom: 2.5rem;
-    box-shadow: 0 12px 32px rgb(0 0 0 / 20%);
+    box-shadow: var(--page-header-shadow);
     position: relative;
     overflow: hidden;
 }
 
 .page-header h1 {
-    color: #fff;
+    color: var(--page-header-fg);
     margin-bottom: 0.5rem;
 }
 
@@ -21,26 +38,33 @@
     right: 0;
     bottom: 0;
     width: 180px;
-    opacity: 15%;
+    opacity: 0.16;
     pointer-events: none;
-    font-size: 8rem;
+    font-size: clamp(6rem, 12vw, 8rem);
+    color: rgba(var(--bs-light-rgb), 0.22);
+}
+
+[data-bs-theme="dark"] .page-header .header-bg {
+    opacity: 0.12;
 }
 
 .page-header .description {
-    opacity: 85%;
+    color: var(--page-header-muted);
     margin-bottom: 0;
 }
 
 /* Specific icons for different pages */
-.page-header .fa-industry { font-size: 2.5rem; }
-.page-header .fa-scroll { font-size: 2.5rem; }
-.page-header .fa-briefcase { font-size: 2.5rem; }
-.page-header .fa-copy { font-size: 2.5rem; }
-.page-header .fa-handshake { font-size: 2.5rem; }
-.page-header .fa-list { font-size: 2.5rem; }
-.page-header .fa-database { font-size: 2.5rem; }
-.page-header .fa-key { font-size: 2.5rem; }
-.page-header .fa-cogs { font-size: 2.5rem; }
+.page-header .fa-industry,
+.page-header .fa-scroll,
+.page-header .fa-briefcase,
+.page-header .fa-copy,
+.page-header .fa-handshake,
+.page-header .fa-list,
+.page-header .fa-database,
+.page-header .fa-key,
+.page-header .fa-cogs {
+    font-size: 2.5rem;
+}
 
 /* Ensure main content area background matches theme */
 main {

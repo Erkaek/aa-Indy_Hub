@@ -1,32 +1,68 @@
 /* Surface and hero layout */
+
+:root {
+    --craft-card-radius: var(--bs-border-radius-xl, 1.25rem);
+    --craft-hero-shadow: var(--bs-box-shadow-lg, 0 1.5rem 3rem rgb(0 0 0 / 20%));
+    --craft-hero-bg: linear-gradient(
+        135deg,
+        rgba(var(--bs-primary-rgb), 0.92) 0%,
+        rgba(var(--bs-secondary-rgb, var(--bs-primary-rgb)), 0.85) 100%
+    );
+    --craft-hero-fg: var(--bs-light, #f8f9fa);
+    --craft-hero-muted: rgba(var(--bs-light-rgb), 0.75);
+    --craft-glass-bg: rgba(var(--bs-light-rgb), 0.12);
+    --craft-glass-border: rgba(var(--bs-light-rgb), 0.28);
+    --craft-glass-shadow: 0 20px 48px -18px rgb(17 24 39 / 45%);
+    --craft-warning-bg: var(--bs-warning-bg-subtle, rgba(var(--bs-warning-rgb), 0.16));
+    --craft-warning-border: var(--bs-warning-border-subtle, rgba(var(--bs-warning-rgb), 0.38));
+    --craft-warning-text: var(--bs-warning-text-emphasis, var(--bs-warning));
+    --craft-cta-gradient: linear-gradient(
+        135deg,
+        rgba(var(--bs-warning-rgb), 0.9),
+        rgba(var(--bs-danger-rgb), 0.85)
+    );
+}
+
+[data-bs-theme="dark"] {
+    --craft-hero-shadow: 0 1.5rem 3rem rgb(0 0 0 / 45%);
+    --craft-hero-muted: rgba(var(--bs-light-rgb), 0.65);
+    --craft-glass-bg: rgba(var(--bs-light-rgb), 0.18);
+    --craft-glass-border: rgba(var(--bs-light-rgb), 0.35);
+    --craft-glass-shadow: 0 22px 52px -18px rgb(0 0 0 / 65%);
+}
+
 .craft-bp-surface {
     background: var(--bs-body-bg);
     min-height: 100vh;
 }
 
 .craft-hero {
-    background: linear-gradient(135deg, #5b6ee1 0%, #764ba2 100%);
-    border-radius: 18px;
-    box-shadow: 0 12px 32px rgb(0 0 0 / 20%);
-    color: #fff;
+    background: var(--craft-hero-bg);
+    border-radius: var(--craft-card-radius);
+    box-shadow: var(--craft-hero-shadow);
+    color: var(--craft-hero-fg);
     padding: clamp(1.5rem, 4vw, 2.5rem) clamp(1rem, 3vw, 2rem);
 }
 
 .dev-alert {
-    border-radius: 16px;
-    border: 1px solid rgba(250, 204, 21, 0.45);
-    background: linear-gradient(135deg, rgba(250, 204, 21, 0.12), rgba(252, 211, 77, 0.2));
-    color: #854d0e;
-    box-shadow: 0 10px 24px rgba(202, 138, 4, 0.18);
+    border-radius: calc(var(--craft-card-radius) - 0.35rem);
+    border: 1px solid var(--craft-warning-border);
+    background: var(--craft-warning-bg);
+    color: var(--craft-warning-text);
+    box-shadow: 0 10px 24px rgba(var(--bs-warning-rgb), 0.18);
 }
 
 .dev-alert i {
-    color: rgba(234, 88, 12, 0.95);
+    color: rgba(var(--bs-warning-rgb), 0.9);
 }
 
 .craft-hero .header-bg {
-    color: rgba(255, 255, 255, 0.22);
+    color: rgba(var(--bs-light-rgb), 0.22);
     font-size: clamp(6rem, 12vw, 8rem);
+}
+
+[data-bs-theme="dark"] .craft-hero .header-bg {
+    color: rgba(var(--bs-light-rgb), 0.18);
 }
 
 .craft-hero__content {
@@ -37,28 +73,28 @@
 .blueprint-icon {
     width: 68px;
     height: 68px;
-    border-radius: 18px;
+    border-radius: calc(var(--craft-card-radius) - 0.5rem);
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(255, 255, 255, 0.18);
-    border: 1px solid rgba(255, 255, 255, 0.35);
+    background: rgba(var(--bs-light-rgb), 0.18);
+    border: 1px solid rgba(var(--bs-light-rgb), 0.35);
     backdrop-filter: blur(6px);
 }
 
 .blueprint-icon img {
     width: 60px;
     height: 60px;
-    border-radius: 16px;
+    border-radius: calc(var(--craft-card-radius) - 0.75rem);
     object-fit: cover;
-    background: rgba(255, 255, 255, 0.25);
+    background: rgba(var(--bs-light-rgb), 0.25);
 }
 
 .blueprint-icon .fallback {
     display: none;
     align-items: center;
     justify-content: center;
-    color: rgba(255, 255, 255, 0.9);
+    color: rgba(var(--bs-light-rgb), 0.9);
     font-size: 1.5rem;
     width: 100%;
     height: 100%;
@@ -68,19 +104,21 @@
     letter-spacing: 0.18em;
     font-size: 0.7rem;
     text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.75);
+    color: var(--craft-hero-muted);
 }
 
 .hero-title i {
-    color: rgba(255, 255, 255, 0.8);
+    color: rgba(var(--bs-light-rgb), 0.82);
 }
 
 .hero-title {
     font-size: clamp(2rem, 4vw, 2.75rem);
+    color: var(--craft-hero-fg);
 }
 
 .hero-subtitle {
     font-size: clamp(0.95rem, 2.2vw, 1.1rem);
+    color: var(--craft-hero-muted);
 }
 
 .hero-chip-row {
@@ -97,27 +135,28 @@
     gap: 0.5rem;
     padding: 0.45rem 0.85rem;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.12);
-    border: 1px solid rgba(255, 255, 255, 0.22);
-    color: rgba(255, 255, 255, 0.92);
+    background: rgba(var(--bs-light-rgb), 0.12);
+    border: 1px solid rgba(var(--bs-light-rgb), 0.24);
+    color: rgba(var(--bs-light-rgb), 0.92);
     backdrop-filter: blur(6px);
     font-size: 0.85rem;
     flex: 1 1 180px;
 }
 
 .hero-chip i {
-    color: rgba(255, 255, 255, 0.95);
+    color: rgba(var(--bs-light-rgb), 0.95);
 }
 
 .hero-chip-label {
     text-transform: uppercase;
     letter-spacing: 0.08em;
     font-size: 0.65rem;
-    color: rgba(255, 255, 255, 0.7);
+    color: rgba(var(--bs-light-rgb), 0.7);
 }
 
 .hero-chip-value {
     font-weight: 700;
+    color: var(--craft-hero-fg);
 }
 
 .hero-kpi-row {
@@ -130,41 +169,49 @@
     gap: 0.35rem;
     padding: 0.85rem 1.1rem;
     border-radius: 1rem;
-    background: rgba(255, 255, 255, 0.14);
-    border: 1px solid rgba(255, 255, 255, 0.25);
+    background: rgba(var(--bs-light-rgb), 0.14);
+    border: 1px solid rgba(var(--bs-light-rgb), 0.25);
     min-width: 160px;
 }
 
 .hero-kpi.positive {
-    border-color: rgba(74, 222, 128, 0.55);
-    background: linear-gradient(135deg, rgba(59, 130, 246, 0.18), rgba(34, 197, 94, 0.25));
+    border-color: rgba(var(--bs-success-rgb), 0.55);
+    background: linear-gradient(
+        135deg,
+        rgba(var(--bs-primary-rgb), 0.18),
+        rgba(var(--bs-success-rgb), 0.24)
+    );
 }
 
 .hero-kpi.negative {
-    border-color: rgba(248, 113, 113, 0.55);
-    background: linear-gradient(135deg, rgba(249, 115, 22, 0.2), rgba(248, 113, 113, 0.24));
+    border-color: rgba(var(--bs-danger-rgb), 0.55);
+    background: linear-gradient(
+        135deg,
+        rgba(var(--bs-warning-rgb), 0.2),
+        rgba(var(--bs-danger-rgb), 0.24)
+    );
 }
 
 .hero-kpi-label {
     text-transform: uppercase;
     letter-spacing: 0.12em;
     font-size: 0.65rem;
-    color: rgba(255, 255, 255, 0.7);
+    color: rgba(var(--bs-light-rgb), 0.7);
 }
 
 .hero-kpi-value {
     font-size: 1.25rem;
     font-weight: 700;
-    color: #fff;
+    color: var(--craft-hero-fg);
 }
 
 .glass-panel {
-    background: rgba(255, 255, 255, 0.12);
+    background: var(--craft-glass-bg);
     border-radius: 1.25rem;
-    border: 1px solid rgba(255, 255, 255, 0.28);
+    border: 1px solid var(--craft-glass-border);
     backdrop-filter: blur(12px);
-    box-shadow: 0 20px 48px -18px rgb(17 24 39 / 65%);
-    color: rgba(255, 255, 255, 0.95);
+    box-shadow: var(--craft-glass-shadow);
+    color: rgba(var(--bs-light-rgb), 0.95);
 }
 
 .hero-panel-title {
@@ -184,7 +231,7 @@
 }
 
 #recalcNowBtn {
-    background: linear-gradient(135deg, #facc15, #f97316);
+    background: var(--craft-cta-gradient);
     border: none;
 }
 

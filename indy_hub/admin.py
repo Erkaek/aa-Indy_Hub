@@ -135,9 +135,15 @@ class CharacterSettingsAdmin(admin.ModelAdmin):
         "character_id",
         "jobs_notify_completed",
         "allow_copy_requests",
+        "copy_sharing_scope",
         "updated_at",
     ]
-    list_filter = ["jobs_notify_completed", "allow_copy_requests", "updated_at"]
+    list_filter = [
+        "jobs_notify_completed",
+        "allow_copy_requests",
+        "copy_sharing_scope",
+        "updated_at",
+    ]
     search_fields = ["user__username", "character_id"]
     readonly_fields = ["updated_at"]
     fieldsets = (
@@ -149,6 +155,7 @@ class CharacterSettingsAdmin(admin.ModelAdmin):
                     "character_id",
                     "jobs_notify_completed",
                     "allow_copy_requests",
+                    "copy_sharing_scope",
                     "updated_at",
                 )
             },

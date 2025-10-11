@@ -1,5 +1,6 @@
 # User-related views
 # Standard Library
+import json
 import logging
 import secrets
 from urllib.parse import urlencode
@@ -8,10 +9,12 @@ from urllib.parse import urlencode
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.db.models import Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.translation import gettext as _
 from django.views.decorators.http import require_POST
 
 # Alliance Auth
@@ -22,11 +25,59 @@ from esi.models import CallbackRedirect, Token
 from indy_hub.models import CharacterSettings
 
 from ..decorators import indy_hub_access_required
-from ..models import Blueprint, IndustryJob, ProductionConfig, ProductionSimulation
+from ..models import (
+    Blueprint,
+    BlueprintCopyRequest,
+    IndustryJob,
+    ProductionConfig,
+    ProductionSimulation,
+)
 from ..tasks.industry import update_blueprints_for_user, update_industry_jobs_for_user
 from ..utils.eve import get_character_name
 
 logger = logging.getLogger(__name__)
+
+
+def get_copy_sharing_states():
+    return {
+        CharacterSettings.SCOPE_NONE: {
+            "enabled": False,
+            "button_label": _("Private"),
+            "button_hint": _("Your originals stay private for now."),
+            "status_label": _("Not shared"),
+            "status_hint": _("Turn on sharing to accept requests."),
+            "badge_class": "bg-secondary-subtle text-secondary",
+            "popup_message": _("Blueprint sharing disabled."),
+            "fulfill_hint": _(
+                "Enable sharing to see requests that match your originals."
+            ),
+            "subtitle": _(
+                "Keep your library private until you're ready to collaborate."
+            ),
+        },
+        CharacterSettings.SCOPE_CORPORATION: {
+            "enabled": True,
+            "button_label": _("Corporation"),
+            "button_hint": _("Corpmates can request copies of your originals."),
+            "status_label": _("Shared with corporation"),
+            "status_hint": _("Blueprint requests are visible to your corporation."),
+            "badge_class": "bg-warning-subtle text-warning",
+            "popup_message": _("Blueprint sharing enabled for your corporation."),
+            "fulfill_hint": _("Corporation pilots may be waiting on your copies."),
+            "subtitle": _("Share duplicates with trusted corp industrialists."),
+        },
+        CharacterSettings.SCOPE_ALLIANCE: {
+            "enabled": True,
+            "button_label": _("Alliance"),
+            "button_hint": _("Alliance pilots can request copies of your originals."),
+            "status_label": _("Shared with alliance"),
+            "status_hint": _("Blueprint requests are visible to your alliance."),
+            "badge_class": "bg-primary-subtle text-primary",
+            "popup_message": _("Blueprint sharing enabled for the entire alliance."),
+            "fulfill_hint": _("Alliance pilots may be waiting on you."),
+            "subtitle": _("Coordinate duplicate production across your alliance."),
+        },
+    }
 
 
 # --- User views (token management, sync, etc.) ---
@@ -101,7 +152,49 @@ def index(request):
         user=request.user, character_id=0
     )
     jobs_notify_completed = settings.jobs_notify_completed
-    allow_copy_requests = settings.allow_copy_requests
+    copy_sharing_scope = settings.copy_sharing_scope
+    if copy_sharing_scope not in dict(CharacterSettings.COPY_SHARING_SCOPE_CHOICES):
+        copy_sharing_scope = CharacterSettings.SCOPE_NONE
+
+    copy_sharing_states = get_copy_sharing_states()
+    copy_sharing_states_with_scope = {
+        key: {**value, "scope": key} for key, value in copy_sharing_states.items()
+    }
+    sharing_state = copy_sharing_states.get(
+        copy_sharing_scope, copy_sharing_states[CharacterSettings.SCOPE_NONE]
+    )
+
+    allow_copy_requests = sharing_state["enabled"]
+    if allow_copy_requests != settings.allow_copy_requests:
+        settings.allow_copy_requests = allow_copy_requests
+        settings.save(update_fields=["allow_copy_requests"])
+
+    # Blueprint copy request insights
+    copy_fulfill_count = 0
+    copy_my_requests_open = 0
+    copy_my_requests_pending_delivery = 0
+
+    if sharing_state["enabled"]:
+        fulfill_filters = Q()
+        for bp in blueprints_qs.filter(quantity=-1):
+            fulfill_filters |= Q(
+                type_id=bp.type_id,
+                material_efficiency=bp.material_efficiency,
+                time_efficiency=bp.time_efficiency,
+            )
+
+        if fulfill_filters:
+            copy_fulfill_count = BlueprintCopyRequest.objects.filter(
+                fulfill_filters, fulfilled=False
+            ).count()
+
+    copy_my_requests_open = BlueprintCopyRequest.objects.filter(
+        requested_by=request.user, fulfilled=False
+    ).count()
+    copy_my_requests_pending_delivery = BlueprintCopyRequest.objects.filter(
+        requested_by=request.user, fulfilled=True, delivered=False
+    ).count()
+    copy_my_requests_total = copy_my_requests_open + copy_my_requests_pending_delivery
     context = {
         "has_blueprint_tokens": bool(blueprint_char_ids),
         "has_jobs_tokens": bool(jobs_char_ids),
@@ -116,7 +209,14 @@ def index(request):
         "completed_jobs_count": completed_jobs_count,
         "completed_jobs_today": completed_jobs_today,
         "jobs_notify_completed": jobs_notify_completed,
-        "allow_copy_requests": allow_copy_requests,
+        "allow_copy_requests": sharing_state["enabled"],
+        "copy_sharing_scope": copy_sharing_scope,
+        "copy_sharing_state": sharing_state,
+        "copy_sharing_states_json": json.dumps(copy_sharing_states_with_scope),
+        "copy_fulfill_count": copy_fulfill_count,
+        "copy_my_requests_open": copy_my_requests_open,
+        "copy_my_requests_pending_delivery": copy_my_requests_pending_delivery,
+        "copy_my_requests_total": copy_my_requests_total,
     }
     return render(request, "indy_hub/index.html", context)
 
@@ -435,9 +535,49 @@ def toggle_copy_sharing(request):
     settings, _ = CharacterSettings.objects.get_or_create(
         user=request.user, character_id=0
     )
-    settings.allow_copy_requests = not settings.allow_copy_requests
-    settings.save(update_fields=["allow_copy_requests"])
-    return JsonResponse({"enabled": settings.allow_copy_requests})
+    scope_order = [
+        CharacterSettings.SCOPE_NONE,
+        CharacterSettings.SCOPE_CORPORATION,
+        CharacterSettings.SCOPE_ALLIANCE,
+    ]
+    payload = {}
+    if request.body:
+        try:
+            payload = json.loads(request.body.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
+            payload = {}
+
+    requested_scope = payload.get("scope") if isinstance(payload, dict) else None
+    if requested_scope in scope_order:
+        next_scope = requested_scope
+    else:
+        try:
+            current_index = scope_order.index(settings.copy_sharing_scope)
+        except ValueError:
+            current_index = 0
+        next_scope = scope_order[(current_index + 1) % len(scope_order)]
+
+    settings.set_copy_sharing_scope(next_scope)
+    settings.save(
+        update_fields=["allow_copy_requests", "copy_sharing_scope", "updated_at"]
+    )
+
+    sharing_state = get_copy_sharing_states()[next_scope]
+
+    return JsonResponse(
+        {
+            "scope": next_scope,
+            "enabled": sharing_state["enabled"],
+            "button_label": sharing_state["button_label"],
+            "button_hint": sharing_state["button_hint"],
+            "status_label": sharing_state["status_label"],
+            "status_hint": sharing_state["status_hint"],
+            "badge_class": sharing_state["badge_class"],
+            "popup_message": sharing_state["popup_message"],
+            "fulfill_hint": sharing_state["fulfill_hint"],
+            "subtitle": sharing_state["subtitle"],
+        }
+    )
 
 
 # --- Production Simulations Management ---

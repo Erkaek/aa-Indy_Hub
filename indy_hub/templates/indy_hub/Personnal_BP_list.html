@@ -136,10 +136,10 @@
     </div>
 
     <!-- Blueprints Responsive List -->
-    <div class="blueprint-list-group w-100" style="max-width:100%;">
+    <div class="blueprint-list-group w-100">
         <div class="blueprint-list" id="blueprintsContainer">
             {% for bp in blueprints %}
-            <div class="blueprint-item blueprint-list-item list-group-item d-flex flex-wrap align-items-center gap-3 py-3 px-2"
+            <div class="blueprint-item blueprint-list-item d-flex flex-wrap align-items-center gap-3"
                     data-type-id="{{ bp.type_id }}"
                     data-type-name="{{ bp.type_name|default:'Unknown Blueprint' }}"
                     data-me="{{ bp.material_efficiency|default:0 }}"
@@ -194,7 +194,7 @@
                     </div>  {# end badges/title row #}
                     <div class="blueprint-meta mb-1">
                         <span class="character-tag"><i class="fas fa-user-astronaut"></i> {{ bp.character_name|default:bp.character_id }}</span>
-                        <a href="{% url 'indy_hub:craft_bp' bp.type_id %}?next={{ request.get_full_path|urlencode }}" class="btn btn-outline-info btn-sm ms-2">
+                        <a href="{% url 'indy_hub:craft_bp' bp.type_id %}?next={{ request.get_full_path|urlencode }}" class="btn btn-outline-info btn-sm">
                             <i class="fas fa-tools me-1"></i>{% trans "View Craft" %}
                         </a>
                         {# Remove location display #}
@@ -205,14 +205,14 @@
                             <span class="efficiency-label">ME</span>
                             <span class="efficiency-value text-primary ms-1">{{ bp.material_efficiency }}%</span>
                             <div class="efficiency-bar mt-1">
-                                <div class="efficiency-fill me" style="width: {{ bp.material_efficiency }}0%"></div>
+                                <div class="efficiency-fill me" style="--efficiency-width: {{ bp.material_efficiency }}0"></div>
                             </div>
                         </div>
                         <div class="efficiency-item">
                             <span class="efficiency-label">TE</span>
                             <span class="efficiency-value text-success ms-1">{{ bp.time_efficiency }}%</span>
                             <div class="efficiency-bar mt-1">
-                                <div class="efficiency-fill te" style="width: {{ bp.time_efficiency }}0%"></div>
+                                <div class="efficiency-fill te" style="--efficiency-width: {{ bp.time_efficiency }}0"></div>
                             </div>
                         </div>
                     </div>
@@ -224,7 +224,7 @@
 
     <!-- Pagination Controls + Page Size Filter -->
     <div class="d-flex flex-wrap justify-content-between align-items-center mt-4 mb-2 gap-2">
-        <form method="get" class="d-flex align-items-center gap-2" style="margin-bottom:0;">
+        <form method="get" class="d-flex align-items-center gap-2 mb-0">
             <label for="perPage" class="form-label mb-0 text-muted small">{% trans "Per page" %}</label>
             <select name="per_page" id="perPage" class="form-select form-select-sm w-auto"
                 onchange="this.form.submit()">

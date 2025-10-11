@@ -1,100 +1,257 @@
 {% extends "allianceauth/base-bs5.html" %}
 {% load i18n %}
 {% load static %}
+{% load humanize %}
+
+{% block page_title %}{% trans "Fulfill Copy Requests" %}{% endblock %}
+
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
 <link rel="stylesheet" href="{% static 'indy_hub/css/blueprints.css' %}">
 {% endblock %}
 
 {% block content %}
-<div class="container-fluid my-4">
-    <div class="page-header mb-4">
-        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
-            <div>
-                <h1 class="h2 mb-1">
-                    <i class="fas fa-handshake me-2"></i>
-                    {% trans "Fulfill Copy Requests" %}
-                </h1>
-                <p class="description">{% trans "Help other players by providing blueprint copies" %}</p>
+<main class="bp-request-surface bg-body">
+    <div class="container-fluid my-4">
+        <section class="page-header bp-request-hero mb-4 position-relative overflow-hidden">
+            <i class="fas fa-handshake header-bg"></i>
+            <div class="bp-request-hero__content position-relative">
+                <div class="row g-4 align-items-center">
+                    <div class="col-lg-8">
+                        <div class="d-flex align-items-start gap-3">
+                            <span class="bp-request-hero__icon flex-shrink-0">
+                                <i class="fas fa-handshake"></i>
+                            </span>
+                            <div>
+                                <span class="bp-request-hero__eyebrow text-uppercase fw-semibold text-white-50">{% trans "Builder operations" %}</span>
+                                <h1 class="bp-request-hero__title display-6 fw-bold text-white mb-2">
+                                    {% trans "Fulfill copy requests" %}
+                                </h1>
+                                <p class="bp-request-hero__subtitle text-white-50 mb-0">
+                                    {% trans "Review outstanding asks, respond with offers, and close the loop once the copies are delivered." %}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-4">
+                        <div class="bp-request-hero__metrics">
+                            <div class="bp-request-hero__metric">
+                                <span class="bp-request-hero__metric-label">{% trans "Active requests" %}</span>
+                                <span class="bp-request-hero__metric-value">{{ metrics.total|default:0 }}</span>
+                            </div>
+                            <div class="bp-request-hero__metric">
+                                <span class="bp-request-hero__metric-label">{% trans "Awaiting your action" %}</span>
+                                <span class="bp-request-hero__metric-value">{{ metrics.awaiting_response|default:0 }}</span>
+                            </div>
+                            <a href="{% url 'indy_hub:index' %}" class="btn btn-outline-light btn-sm mt-3">
+                                <i class="fas fa-arrow-left me-1"></i>{% trans "Back to dashboard" %}
+                            </a>
+                        </div>
+                    </div>
+                </div>
             </div>
-            <div class="d-flex gap-2">
-                <a href="{% url 'indy_hub:index' %}" class="btn btn-outline-light">
-                    <i class="fas fa-arrow-left me-1"></i>{% trans "Back to Dashboard" %}
+        </section>
+
+    <section class="row g-3 mb-4 bp-metrics-row">
+            <div class="col-md-3">
+                <div class="glass-panel h-100 p-3">
+                    <div class="d-flex align-items-center gap-3">
+                        <span class="badge rounded-pill bg-primary-subtle text-primary px-3 py-2 fw-semibold">{{ metrics.total|default:0 }}</span>
+                        <div class="small text-muted">
+                            <strong class="d-block">{% trans "Active requests" %}</strong>
+                            {% trans "Total matching your shared originals." %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="glass-panel h-100 p-3">
+                    <div class="d-flex align-items-center gap-3">
+                        <span class="badge rounded-pill bg-warning-subtle text-warning px-3 py-2 fw-semibold">{{ metrics.awaiting_response|default:0 }}</span>
+                        <div class="small text-muted">
+                            <strong class="d-block">{% trans "Needs response" %}</strong>
+                            {% trans "Accept, reject, or counter with conditions." %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="glass-panel h-100 p-3">
+                    <div class="d-flex align-items-center gap-3">
+                        <span class="badge rounded-pill bg-info-subtle text-info px-3 py-2 fw-semibold">{{ metrics.waiting_on_buyer|default:0 }}</span>
+                        <div class="small text-muted">
+                            <strong class="d-block">{% trans "Waiting on buyer" %}</strong>
+                            {% trans "Your conditional offer is pending their decision." %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="glass-panel h-100 p-3">
+                    <div class="d-flex align-items-center gap-3">
+                        <span class="badge rounded-pill bg-success-subtle text-success px-3 py-2 fw-semibold">{{ metrics.ready_to_deliver|default:0 }}</span>
+                        <div class="small text-muted">
+                            <strong class="d-block">{% trans "Ready to deliver" %}</strong>
+                            {% trans "Buyer accepted—hand over the copies." %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        {% if requests %}
+        <section class="row row-cols-1 row-cols-lg-2 g-3">
+            {% for req in requests %}
+            <div class="col">
+                <article class="card h-100 shadow-sm request-card">
+                    <div class="card-body d-flex flex-column gap-3">
+                        <div class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-start gap-3">
+                            <div class="d-flex align-items-center gap-3">
+                                <span class="bp-request-card__avatar">
+                                    <img
+                                        src="{{ req.icon_url }}"
+                                        alt="{{ req.type_name }}"
+                                        loading="lazy"
+                                        onerror="this.onerror=null;this.src='https://images.evetech.net/types/{{ req.type_id }}/icon?size=64'"
+                                    >
+                                </span>
+                                <div>
+                                    <h2 class="h5 mb-1">{{ req.type_name }}</h2>
+                                    <p class="text-muted small mb-0">
+                                        <i class="fas fa-user me-1"></i>{% trans "Requested by" %} {{ req.requester }}
+                                    </p>
+                                    <p class="text-muted small mb-0">
+                                        <i class="fas fa-clock me-1"></i>{{ req.created_at|naturaltime }}
+                                    </p>
+                                </div>
+                            </div>
+                            <span class="badge {{ req.status_class }} fw-semibold text-uppercase px-3 py-2">
+                                {{ req.status_label }}
+                            </span>
+                        </div>
+
+                        <div class="d-flex flex-wrap gap-2">
+                            <span class="badge rounded-pill bg-primary-subtle text-primary fw-semibold">ME {{ req.material_efficiency }}</span>
+                            <span class="badge rounded-pill bg-success-subtle text-success fw-semibold">TE {{ req.time_efficiency }}</span>
+                        </div>
+
+                        <div class="row g-2">
+                            <div class="col-6">
+                                <div class="border rounded-3 text-center py-3">
+                                    <span class="d-block text-uppercase small text-muted">{% trans "Copies" %}</span>
+                                    <span class="fs-4 fw-bold text-primary">{{ req.copies_requested }}</span>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="border rounded-3 text-center py-3">
+                                    <span class="d-block text-uppercase small text-muted">{% trans "Runs" %}</span>
+                                    <span class="fs-4 fw-bold text-warning">{{ req.runs_requested }}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <p class="text-muted small mb-0">{{ req.status_hint }}</p>
+
+                        {% if req.is_self_request %}
+                        <div class="alert bg-warning-subtle border-warning-subtle text-dark py-2 px-3 small mb-0">
+                            <i class="fas fa-info-circle me-1"></i>
+                            {% trans "This request is yours. You can follow its progress here, but responses are disabled." %}
+                        </div>
+                        {% endif %}
+
+                        {% if req.my_offer_status %}
+                        <div class="alert alert-light border d-flex flex-column gap-1 mb-0">
+                            <span class="small text-uppercase text-secondary fw-semibold">{% trans "Your latest offer" %}</span>
+                            <div class="d-flex align-items-center gap-2">
+                                <span class="badge bg-secondary text-white">{{ req.my_offer_status_label }}</span>
+                                {% if req.my_offer_accepted_by_buyer %}
+                                <span class="badge bg-success text-white">{% trans "Buyer accepted" %}</span>
+                                {% endif %}
+                            </div>
+                            {% if req.my_offer_message %}
+                            <p class="mb-0 small text-muted">“{{ req.my_offer_message }}”</p>
+                            {% endif %}
+                        </div>
+                        {% endif %}
+
+                        <div class="mt-auto d-grid gap-2">
+                            {% if req.show_offer_actions and not req.is_self_request %}
+                            <div class="d-flex flex-wrap gap-2">
+                                <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="action" value="accept">
+                                    <button type="submit" class="btn btn-success btn-sm">
+                                        <i class="fas fa-check me-1"></i>{% trans "Accept for free" %}
+                                    </button>
+                                </form>
+                                <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="action" value="reject">
+                                    <button type="submit" class="btn btn-outline-danger btn-sm">
+                                        <i class="fas fa-times me-1"></i>{% trans "Reject" %}
+                                    </button>
+                                </form>
+                                <button
+                                    class="btn btn-outline-primary btn-sm"
+                                    type="button"
+                                    data-bs-toggle="collapse"
+                                    data-bs-target="#{{ req.conditional_collapse_id }}"
+                                    aria-expanded="false"
+                                    aria-controls="{{ req.conditional_collapse_id }}"
+                                >
+                                    <i class="fas fa-comment-dots me-1"></i>{% trans "Send conditions" %}
+                                </button>
+                            </div>
+                            <div class="collapse" id="{{ req.conditional_collapse_id }}">
+                                <form method="post" class="mt-2" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="action" value="conditional">
+                                    <div class="input-group input-group-sm">
+                                        <span class="input-group-text"><i class="fas fa-pen"></i></span>
+                                        <textarea
+                                            name="message"
+                                            class="form-control"
+                                            rows="2"
+                                            placeholder="{% trans 'Describe your terms (amount, price, location...)' %}"
+                                            required
+                                        ></textarea>
+                                        <button type="submit" class="btn btn-primary">{% trans "Send" %}</button>
+                                    </div>
+                                </form>
+                            </div>
+                            {% elif req.status_key == 'waiting_on_buyer' and req.my_offer_message %}
+                            <div class="alert alert-info mb-0">
+                                <i class="fas fa-info-circle me-1"></i>
+                                {% trans "Waiting for the requester to respond to your conditions." %}
+                            </div>
+                            {% endif %}
+
+                            {% if req.can_mark_delivered and not req.is_self_request %}
+                            <form method="post" action="{% url 'indy_hub:bp_mark_copy_delivered' req.id %}">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-primary btn-sm">
+                                    <i class="fas fa-box-check me-1"></i>{% trans "Mark as delivered" %}
+                                </button>
+                            </form>
+                            {% endif %}
+                        </div>
+                    </div>
+                </article>
+            </div>
+            {% endfor %}
+        </section>
+        {% else %}
+        <section class="bp-request-empty card border-0 shadow-sm">
+            <div class="card-body text-center py-5">
+                <span class="bp-request-empty__icon"><i class="fas fa-smile"></i></span>
+                <h2 class="h4 mt-3">{% trans "You're all caught up" %}</h2>
+                <p class="text-muted small mb-4">{% trans "There are no copy requests matching your shared originals right now." %}</p>
+                <a href="{% url 'indy_hub:bp_copy_request_page' %}" class="btn btn-outline-primary btn-sm">
+                    <i class="fas fa-copy me-1"></i>{% trans "Browse community requests" %}
                 </a>
             </div>
-        </div>
-        <i class="fas fa-handshake header-bg"></i>
+        </section>
+        {% endif %}
     </div>
-    <div class="blueprint-list-group">
-        <div class="blueprint-list">
-            {% for req in requests %}
-            <div class="blueprint-list-item list-group-item d-flex align-items-center justify-content-between py-3 px-3">
-                <div class="d-flex align-items-center">
-                    <img src="{{ req.icon_url }}" alt="{{ req.type_name }}" class="rounded me-2"
-                        style="width:48px;height:48px;object-fit:cover;" loading="lazy"
-                        onerror="this.onerror=null;this.src='https://images.evetech.net/types/{{ req.type_id }}/icon?size=48'" />
-                    <span class="fw-semibold text-truncate">{{ req.type_name }}</span>
-                </div>
-                <div class="d-flex align-items-center">
-                    <span class="badge bg-primary text-white me-2">ME {{ req.material_efficiency }}</span>
-                    <span class="badge bg-success text-white me-2">TE {{ req.time_efficiency }}</span>
-                    <span class="badge bg-info text-white me-2">{% trans 'Copy' %} {{ req.copies_requested }}</span>
-                    <span class="badge bg-warning text-dark me-3">{% trans 'Run' %} {{ req.runs_requested }}</span>
-                    <span class="badge bg-secondary text-white me-3">{% trans 'Requested by' %} {{ req.requester }}</span>
-                    {% if not req.my_offer or req.my_offer.status == 'rejected' %}
-                    <div class="d-flex">
-                        <!-- Accept -->
-                        <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}" class="me-2">
-                            {% csrf_token %}
-                            <input type="hidden" name="action" value="accept" />
-                            <button type="submit" class="btn btn-sm btn-success">
-                                <i class="fas fa-check me-1"></i>{% trans "Accept" %}
-                            </button>
-                        </form>
-                        <!-- Reject -->
-                        <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}" class="me-2">
-                            {% csrf_token %}
-                            <input type="hidden" name="action" value="reject" />
-                            <button type="submit" class="btn btn-sm btn-danger">
-                                <i class="fas fa-times me-1"></i>{% trans "Reject" %}
-                            </button>
-                        </form>
-                        <!-- Conditional Accept Toggle -->
-                        <button class="btn btn-sm btn-outline-primary" data-bs-toggle="collapse"
-                            data-bs-target="#cond-{{ req.id }}">
-                            <i class="fas fa-comment-alt me-1"></i>{% trans "Condition" %}
-                        </button>
-                    </div>
-                    <!-- Conditional Message Form -->
-                    <div class="collapse mt-2" id="cond-{{ req.id }}">
-                        <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}">
-                            {% csrf_token %}
-                            <input type="hidden" name="action" value="conditional" />
-                            <div class="input-group">
-                                <textarea name="message" class="form-control"
-                                    placeholder="{% trans 'Enter condition message' %}" required></textarea>
-                                <button type="submit" class="btn btn-primary">{% trans 'Send' %}</button>
-                            </div>
-                        </form>
-                    </div>
-                    {% elif req.my_offer and req.my_offer.status == 'accepted' or req.my_offer.status == 'conditional' and not req.delivered %}
-                    <form method="post" action="{% url 'indy_hub:bp_mark_copy_delivered' req.id %}" class="ms-2">
-                        {% csrf_token %}
-                        <button type="submit" class="btn btn-sm btn-primary">
-                            <i class="fas fa-box me-1"></i>{% trans "Mark as Delivered" %}
-                        </button>
-                    </form>
-                    {% elif req.delivered %}
-                    <span class="badge bg-success ms-2">{% trans 'Delivered' %}</span>
-                    {% else %}
-                    <span class="badge bg-info">{% trans 'Offer sent' %} ({{ req.my_offer.status }})</span>
-                    {% endif %}
-                </div>
-            </div>
-            {% empty %}
-            <div class="text-center text-muted py-4">{% trans "No requests to fulfill." %}</div>
-            {% endfor %}
-        </div>
-    </div>
-</div>
+</main>
 {% endblock %}
