@@ -6,6 +6,10 @@ from django.contrib.auth.models import Permission, User
 from django.test import TestCase
 from django.urls import reverse
 
+# Alliance Auth
+from allianceauth.authentication.models import UserProfile
+from allianceauth.eveonline.models import EveCharacter
+
 # AA Example App
 from indy_hub.models import (
     Blueprint,
@@ -14,6 +18,30 @@ from indy_hub.models import (
     CharacterSettings,
 )
 from indy_hub.utils.eve import get_type_name
+
+
+def assign_main_character(user: User, *, character_id: int) -> EveCharacter:
+    """Ensure the given user has a main character to satisfy middleware requirements."""
+
+    profile, _ = UserProfile.objects.get_or_create(user=user)
+
+    character, _ = EveCharacter.objects.get_or_create(
+        character_id=character_id,
+        defaults={
+            "character_name": f"{user.username.title()}",
+            "corporation_id": 2000000,
+            "corporation_name": "Test Corp",
+            "corporation_ticker": "TEST",
+            "alliance_id": None,
+            "alliance_name": "",
+            "alliance_ticker": "",
+            "faction_id": None,
+            "faction_name": "",
+        },
+    )
+    profile.main_character = character
+    profile.save(update_fields=["main_character"])
+    return character
 
 
 class IndyHubConfigTests(TestCase):
@@ -30,8 +58,12 @@ class IndyHubConfigTests(TestCase):
 class BlueprintCopyFulfillViewTests(TestCase):
     def setUp(self) -> None:
         self.user = User.objects.create_user("capsuleer", password="test12345")
+        assign_main_character(self.user, character_id=101001)
         CharacterSettings.objects.create(
-            user=self.user, character_id=0, allow_copy_requests=True
+            user=self.user,
+            character_id=0,
+            allow_copy_requests=True,
+            copy_sharing_scope=CharacterSettings.SCOPE_CORPORATION,
         )
         permission = Permission.objects.get(codename="can_access_indy_hub")
         self.user.user_permissions.add(permission)
@@ -117,8 +149,12 @@ class BlueprintCopyFulfillViewTests(TestCase):
 class DashboardNotificationCountsTests(TestCase):
     def setUp(self) -> None:
         self.user = User.objects.create_user("foreman", password="test12345")
+        assign_main_character(self.user, character_id=101002)
         CharacterSettings.objects.create(
-            user=self.user, character_id=0, allow_copy_requests=True
+            user=self.user,
+            character_id=0,
+            allow_copy_requests=True,
+            copy_sharing_scope=CharacterSettings.SCOPE_CORPORATION,
         )
         permission = Permission.objects.get(codename="can_access_indy_hub")
         self.user.user_permissions.add(permission)
@@ -181,6 +217,7 @@ class DashboardNotificationCountsTests(TestCase):
 class BlueprintCopyMyRequestsViewTests(TestCase):
     def setUp(self) -> None:
         self.user = User.objects.create_user("buyer", password="test12345")
+        assign_main_character(self.user, character_id=101003)
         permission = Permission.objects.get(codename="can_access_indy_hub")
         self.user.user_permissions.add(permission)
         self.client.force_login(self.user)
