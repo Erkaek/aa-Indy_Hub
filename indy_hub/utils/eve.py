@@ -6,11 +6,21 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterable, Mapping
 
+# Third Party
+import requests
+
 # Django
 from django.conf import settings
 
 # Alliance Auth
 from allianceauth.eveonline.models import EveCharacter
+
+from ..services.esi_client import (
+    ESI_BASE_URL,
+    ESIClientError,
+    ESITokenError,
+    shared_client,
+)
 
 if getattr(settings, "configured", False) and "eveuniverse" in getattr(
     settings, "INSTALLED_APPS", ()
@@ -31,6 +41,7 @@ _TYPE_NAME_CACHE: dict[int, str] = {}
 _CHAR_NAME_CACHE: dict[int, str] = {}
 _BP_PRODUCT_CACHE: dict[int, int | None] = {}
 _REACTION_CACHE: dict[int, bool] = {}
+_LOCATION_NAME_CACHE: dict[int, str] = {}
 
 
 def get_type_name(type_id: int | None) -> str:
@@ -161,3 +172,84 @@ def is_reaction_blueprint(blueprint_type_id: int | None) -> bool:
 
     _REACTION_CACHE[blueprint_type_id] = value
     return value
+
+
+def resolve_location_name(
+    structure_id: int | None,
+    *,
+    character_id: int | None = None,
+) -> str:
+    """Resolve a structure or station name using ESI lookups with caching."""
+
+    if not structure_id:
+        return ""
+
+    structure_id = int(structure_id)
+    if structure_id in _LOCATION_NAME_CACHE:
+        return _LOCATION_NAME_CACHE[structure_id]
+
+    name: str | None = None
+
+    if character_id:
+        try:
+            name = shared_client.fetch_structure_name(structure_id, character_id)
+        except ESITokenError:
+            logger.debug(
+                "Character %s lacks esi-universe.read_structures scope for %s",
+                character_id,
+                structure_id,
+            )
+        except ESIClientError as exc:  # pragma: no cover - defensive fallback
+            logger.debug(
+                "Authenticated structure lookup failed for %s: %s",
+                structure_id,
+                exc,
+            )
+
+    params = {"datasource": "tranquility"}
+
+    if not name:
+        try:
+            response = requests.get(
+                f"{ESI_BASE_URL}/universe/structures/{structure_id}/",
+                params=params,
+                timeout=15,
+            )
+            if response.status_code == 200:
+                try:
+                    payload = response.json()
+                except ValueError:
+                    payload = {}
+                name = payload.get("name")
+        except requests.RequestException as exc:  # pragma: no cover - network failures
+            logger.debug(
+                "Unauthenticated structure lookup failed for %s: %s",
+                structure_id,
+                exc,
+            )
+
+    if not name:
+        try:
+            response = requests.get(
+                f"{ESI_BASE_URL}/universe/stations/{structure_id}/",
+                params=params,
+                timeout=15,
+            )
+            if response.status_code == 200:
+                try:
+                    payload = response.json()
+                except ValueError:
+                    payload = {}
+                name = payload.get("name")
+        except requests.RequestException as exc:  # pragma: no cover - network failures
+            logger.debug(
+                "Station lookup failed for %s: %s",
+                structure_id,
+                exc,
+            )
+
+    if not name:
+        name = f"Structure {structure_id}"
+
+    _LOCATION_NAME_CACHE[structure_id] = name
+    return name

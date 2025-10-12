@@ -21,7 +21,12 @@ from indy_hub.models import CharacterSettings
 from ..models import Blueprint, IndustryJob
 from ..notifications import notify_user
 from ..services.esi_client import ESIClientError, ESITokenError, shared_client
-from ..utils.eve import batch_cache_type_names, get_character_name, get_type_name
+from ..utils.eve import (
+    batch_cache_type_names,
+    get_character_name,
+    get_type_name,
+    resolve_location_name,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +88,8 @@ def update_blueprints_for_user(self, user_id):
             for bp in blueprints:
                 item_id = bp.get("item_id")
                 esi_ids.add(item_id)
+                location_id = bp.get("location_id")
+                location_name = resolve_location_name(location_id, character_id=char_id)
                 Blueprint.objects.update_or_create(
                     owner_user=user,
                     character_id=char_id,
@@ -90,7 +97,8 @@ def update_blueprints_for_user(self, user_id):
                     defaults={
                         "blueprint_id": bp.get("blueprint_id"),
                         "type_id": bp.get("type_id"),
-                        "location_id": bp.get("location_id"),
+                        "location_id": location_id,
+                        "location_name": location_name,
                         "location_flag": bp.get("location_flag", ""),
                         "quantity": bp.get("quantity"),
                         "time_efficiency": bp.get("time_efficiency", 0),
@@ -186,19 +194,21 @@ def update_industry_jobs_for_user(self, user_id):
                 for job in jobs:
                     job_id = job.get("job_id")
                     esi_job_ids.add(job_id)
+                    station_id = job.get("station_id") or job.get("facility_id")
+                    location_name = resolve_location_name(
+                        station_id, character_id=char_id
+                    )
                     IndustryJob.objects.update_or_create(
                         owner_user=user,
                         character_id=char_id,
                         job_id=job_id,
                         defaults={
                             "installer_id": job.get("installer_id"),
-                            "facility_id": job.get("facility_id"),
-                            "station_id": job.get("station_id"),
+                            "station_id": station_id,
+                            "location_name": location_name,
                             "activity_id": job.get("activity_id"),
                             "blueprint_id": job.get("blueprint_id"),
                             "blueprint_type_id": job.get("blueprint_type_id"),
-                            "blueprint_location_id": job.get("blueprint_location_id"),
-                            "output_location_id": job.get("output_location_id"),
                             "runs": job.get("runs"),
                             "cost": job.get("cost"),
                             "licensed_runs": job.get("licensed_runs"),

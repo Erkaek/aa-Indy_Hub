@@ -223,7 +223,7 @@
                             {% if group.key == 'reactions' %}
                             <div class="d-flex flex-column small bg-light rounded-3 px-3 py-2">
                                 <span class="text-muted text-uppercase fw-semibold mb-1">{% trans 'Reaction facility' %}</span>
-                                <span class="fw-semibold">{{ job.facility_id }}</span>
+                                <span class="fw-semibold">{{ job.location_name|default:job.station_id }}</span>
                             </div>
                             {% endif %}
                         </div>

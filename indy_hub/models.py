@@ -33,6 +33,7 @@ class Blueprint(models.Model):
     blueprint_id = models.BigIntegerField(blank=True, null=True)
     type_id = models.IntegerField()
     location_id = models.BigIntegerField()
+    location_name = models.CharField(max_length=255, blank=True)
     location_flag = models.CharField(max_length=50)
     quantity = models.IntegerField()
     bp_type = models.CharField(
@@ -176,13 +177,11 @@ class IndustryJob(models.Model):
     character_id = models.BigIntegerField()
     job_id = models.IntegerField(unique=True)
     installer_id = models.IntegerField()
-    facility_id = models.BigIntegerField()
     station_id = models.BigIntegerField(blank=True, null=True)
+    location_name = models.CharField(max_length=255, blank=True)
     activity_id = models.IntegerField()
     blueprint_id = models.BigIntegerField()
     blueprint_type_id = models.IntegerField()
-    blueprint_location_id = models.BigIntegerField()
-    output_location_id = models.BigIntegerField()
     runs = models.IntegerField()
     cost = models.DecimalField(max_digits=20, decimal_places=2, blank=True, null=True)
     licensed_runs = models.IntegerField(blank=True, null=True)
@@ -256,35 +255,23 @@ class IndustryJob(models.Model):
         """
         size = 32  # Default icon size for jobs
 
-        if self.activity_id == 1:  # Manufacturing
-            # For manufacturing, show the product icon (blueprint_type_id - 1)
-            product_type_id = max(1, self.blueprint_type_id - 1)
-            return (
-                f"https://images.evetech.net/types/{product_type_id}/icon?size={size}"
-            )
-        elif (
-            self.activity_id == 3 or self.activity_id == 4
-        ):  # TE Research or ME Research
-            # For research, show the blueprint original icon
-            return f"https://images.evetech.net/types/{self.blueprint_type_id}/bp?size={size}"
-        elif self.activity_id == 5:  # Copying
-            # For copying, show the blueprint copy icon
-            return f"https://images.evetech.net/types/{self.blueprint_type_id}/bpc?size={size}"
-        elif self.activity_id == 8:  # Invention
-            # For invention, show the product icon (the T2 item being invented)
-            product_type_id = max(1, self.blueprint_type_id - 1)
-            return (
-                f"https://images.evetech.net/types/{product_type_id}/icon?size={size}"
-            )
-        elif self.activity_id == 9:  # Reverse Engineering
-            # For reverse engineering, show the product icon
-            product_type_id = max(1, self.blueprint_type_id - 1)
-            return (
-                f"https://images.evetech.net/types/{product_type_id}/icon?size={size}"
-            )
-        else:
-            # Fallback for unknown activities - show blueprint icon
-            return f"https://images.evetech.net/types/{self.blueprint_type_id}/bp?size={size}"
+        # Copying jobs always show the resulting blueprint copy image when possible
+        if self.activity_id == 5:
+            copy_type_id = self.product_type_id or self.blueprint_type_id
+            return f"https://images.evetech.net/types/{copy_type_id}/bpc?size={size}"
+
+        # When blueprint and product IDs match, prefer the blueprint original artwork
+        if self.product_type_id and self.blueprint_type_id == self.product_type_id:
+            return f"https://images.evetech.net/types/{self.product_type_id}/bp?size={size}"
+
+        # Otherwise favour the product icon if available
+        if self.product_type_id:
+            return f"https://images.evetech.net/types/{self.product_type_id}/icon?size={size}"
+
+        # Fallback for missing product IDs – display the blueprint artwork
+        return (
+            f"https://images.evetech.net/types/{self.blueprint_type_id}/bp?size={size}"
+        )
 
     @property
     def progress_percent(self):

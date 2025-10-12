@@ -72,6 +72,69 @@ class ESIClient:
             endpoint=f"/characters/{character_id}/industry/jobs/",
         )
 
+    def fetch_structure_name(
+        self, structure_id: int, character_id: int | None = None
+    ) -> str | None:
+        """Attempt to resolve a structure name via the authenticated endpoint."""
+
+        if not structure_id:
+            return None
+
+        url = f"{self.base_url}/universe/structures/{int(structure_id)}/"
+        params = {"datasource": "tranquility"}
+        headers: dict[str, str] | None = None
+
+        if character_id:
+            try:
+                access_token = self._get_access_token(
+                    int(character_id), "esi-universe.read_structures.v1"
+                )
+                headers = {"Authorization": f"Bearer {access_token}"}
+            except ESITokenError:
+                logger.debug(
+                    "No valid universe.read_structures token for character %s",
+                    character_id,
+                )
+
+        try:
+            response = self.session.get(
+                url, params=params, headers=headers, timeout=self.timeout
+            )
+        except requests.RequestException as exc:
+            logger.debug(
+                "Request error while fetching structure %s: %s",
+                structure_id,
+                exc,
+            )
+            return None
+
+        if response.status_code == 200:
+            try:
+                payload = response.json()
+            except ValueError:
+                logger.warning("Invalid JSON returned for structure %s", structure_id)
+                return None
+            return payload.get("name")
+
+        if response.status_code in (401, 403):
+            logger.debug(
+                "Structure %s requires auth or token invalid (status %s)",
+                structure_id,
+                response.status_code,
+            )
+            return None
+
+        if response.status_code == 404:
+            logger.debug("Structure %s not found via ESI", structure_id)
+            return None
+
+        logger.warning(
+            "Unexpected status %s when fetching structure %s",
+            response.status_code,
+            structure_id,
+        )
+        return None
+
     def _fetch_paginated(
         self,
         *,

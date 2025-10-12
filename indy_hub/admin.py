@@ -37,7 +37,7 @@ class BlueprintAdmin(admin.ModelAdmin):
                 )
             },
         ),
-        ("Location", {"fields": ("location_id", "location_flag")}),
+        ("Location", {"fields": ("location_id", "location_name", "location_flag")}),
         (
             "Blueprint Details",
             {"fields": ("quantity", "material_efficiency", "time_efficiency", "runs")},
@@ -59,6 +59,7 @@ class IndustryJobAdmin(admin.ModelAdmin):
         "character_id",
         "status",
         "runs",
+        "location_name",
         "start_date",
         "end_date",
     ]
@@ -98,10 +99,8 @@ class IndustryJobAdmin(admin.ModelAdmin):
             "Locations",
             {
                 "fields": (
-                    "facility_id",
                     "station_id",
-                    "blueprint_location_id",
-                    "output_location_id",
+                    "location_name",
                 ),
                 "classes": ("collapse",),
             },

@@ -151,6 +151,48 @@
     color: white;
 }
 
+/* Custom badge variants */
+.badge-violet {
+    background: linear-gradient(135deg, #7c3aed, #6d28d9);
+    color: #fff;
+}
+
+.badge-blue {
+    background: linear-gradient(135deg, #2563eb, #1d4ed8);
+    color: #fff;
+}
+
+.badge-green {
+    background: linear-gradient(135deg, #16a34a, #15803d);
+    color: #fff;
+}
+
+.badge-orange {
+    background: linear-gradient(135deg, #f97316, #ea580c);
+    color: #fff;
+}
+
+/* Custom badge variants */
+.badge-violet {
+    background: linear-gradient(135deg, #7c3aed, #6d28d9);
+    color: #fff;
+}
+
+.badge-blue {
+    background: linear-gradient(135deg, #2563eb, #1d4ed8);
+    color: #fff;
+}
+
+.badge-green {
+    background: linear-gradient(135deg, #16a34a, #15803d);
+    color: #fff;
+}
+
+.badge-orange {
+    background: linear-gradient(135deg, #f97316, #ea580c);
+    color: #fff;
+}
+
 /* Status Badges */
 .status-badge {
     display: inline-block;
