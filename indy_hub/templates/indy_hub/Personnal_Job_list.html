@@ -117,66 +117,141 @@
         </div>
     </div>
 
-    <!-- Jobs List Display as cards -->
-    <div class="row g-4" id="jobsContainer">
-        {% for job in jobs %}
-        <div class="col-md-6 col-lg-4">
-            <div class="card h-100 bg-body border">
-                <div class="card-body d-flex flex-column">
-                    <div class="d-flex align-items-center mb-3">
-                        <img src="{{ job.icon_url }}" alt="{{ job.blueprint_type_name }}" class="rounded"
-                            style="width:48px;height:48px;object-fit:cover;" loading="lazy"
-                            onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
-                        <span class="fallback fs-3 text-secondary" style="display:none;"><i class="fas fa-industry"></i>
-                        </span>
-                        <div class="ms-3">
-                            <h5 class="card-title mb-1 text-truncate">
-                                {{ job.blueprint_type_name|default:job.blueprint_type_id }}</h5>
-                            {% with name=character_map|dict_get:job.character_id %}
-                            <small class="text-muted">{{ name|default:job.character_id }}</small>
-                            {% endwith %}
-                        </div>
+    <!-- Jobs grouped by activity -->
+    <div class="job-groups">
+        {% if job_groups %}
+        {% for group in job_groups %}
+        <section class="job-group-section mb-5">
+            <div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-3">
+                <div class="d-flex align-items-center gap-3">
+                    <span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-body-secondary text-primary"
+                        style="width:48px;height:48px;">
+                        <i class="{{ group.icon }}"></i>
+                    </span>
+                    <div>
+                        <h2 class="h4 mb-1">{{ group.title }}</h2>
+                        <p class="text-muted small mb-0">{{ group.subtitle }}</p>
                     </div>
-                    <div class="mb-3">
-                        <!-- Activity Badge -->
-                        {% if job.activity_id == 1 %}<span class="activity-badge activity-1 me-2">Mfg</span>
-                        {% elif job.activity_id == 3 %}<span class="activity-badge activity-3 me-2">TE</span>
-                        {% elif job.activity_id == 4 %}<span class="activity-badge activity-4 me-2">ME</span>
-                        {% elif job.activity_id == 5 %}<span class="activity-badge activity-5 me-2">Copy</span>
-                        {% elif job.activity_id == 8 %}<span class="activity-badge activity-8 me-2">Inv</span>
-                        {% elif job.activity_id == 9 %}<span class="activity-badge activity-9 me-2">Rx</span>
-                        {% else %}<span class="activity-badge me-2">{{ job.activity_id }}</span>{% endif %}
-                        <!-- Runs and Status -->
-                        <span class="runs-badge me-2">{{ job.runs }} {% trans 'runs' %}</span>
-                        {% if job.is_completed %}
-                        <span class="status-badge status-{{ job.status|lower }} rounded-pill px-3 py-1">{% trans "Completed" %}</span>
-                        {% elif job.is_active %}
-                        <span class="status-badge status-active rounded-pill px-3 py-1">{% trans "Active" %}</span>
-                        {% else %}
-                        <span class="status-badge status-{{ job.status|lower }} rounded-pill px-3 py-1">{{ job.status|title }}</span>
-                        {% endif %}
-                    </div>
-                    <div class="mb-3">
-                        <!-- Progress Bar -->
-                        <div class="progress">
-                            <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar"
-                                style="width: {{ job.progress_percent|default:0 }}%;" aria-valuenow="{{ job.progress_percent|default:0 }}"
-                                aria-valuemin="0" aria-valuemax="100">
-                                {{ job.progress_percent|default:0 }}%
+                </div>
+                <span class="badge text-uppercase fw-semibold text-white {{ group.badge_variant }} px-3 py-2">{{ group.chip }}</span>
+            </div>
+            <div class="row g-4">
+                {% for job in group.jobs %}
+                <div class="col-xl-4 col-lg-6">
+                    <div class="card h-100 shadow-sm border-0 job-card">
+                        <div class="card-body d-flex flex-column gap-3">
+                            <div class="d-flex justify-content-between gap-3">
+                                <div class="d-flex gap-3 align-items-center">
+                                    {% if job.icon_url %}
+                                    <img src="{{ job.icon_url }}" alt="{{ job.blueprint_type_name }}" class="rounded"
+                                        style="width:48px;height:48px;object-fit:cover;" loading="lazy"
+                                        onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                                    {% endif %}
+                                    <span class="fallback fs-3 text-secondary" style="display:none;"><i class="fas fa-industry"></i></span>
+                                    <div>
+                                        <h3 class="h6 mb-1 text-truncate">{{ job.blueprint_type_name|default:job.blueprint_type_id }}</h3>
+                                        <p class="text-muted small mb-0"><i class="fas fa-user me-1"></i>{{ job.display_character_name }}</p>
+                                    </div>
+                                </div>
+                                <span class="badge {{ group.badge_variant }} text-white align-self-start px-3 py-2">{{ group.chip }}</span>
                             </div>
+                            <div class="d-flex flex-wrap gap-2 small">
+                                <span class="badge bg-light text-dark border">{{ job.runs }} {% trans 'runs' %}</span>
+                                {% if job.successful_runs %}
+                                <span class="badge bg-light text-dark border">{{ job.successful_runs }} {% trans 'successful' %}</span>
+                                {% endif %}
+                                <span class="badge bg-light text-dark border">{{ job.status_label }}</span>
+                                {% if job.output_name %}
+                                <span class="badge bg-light text-dark border">{{ job.output_name }}</span>
+                                {% endif %}
+                            </div>
+                            <div>
+                                <div class="progress" style="height:0.5rem;">
+                                    <div class="progress-bar" role="progressbar"
+                                        style="width: {{ job.progress_percent|default:0 }}%;"
+                                        aria-valuenow="{{ job.progress_percent|default:0 }}" aria-valuemin="0"
+                                        aria-valuemax="100">
+                                        {{ job.progress_percent|default:0 }}%
+                                    </div>
+                                </div>
+                                <small class="text-muted d-block mt-1"><i class="fas fa-hourglass-half me-1"></i>{{ job.display_eta|default:'--:--:--' }}</small>
+                            </div>
+                            {% if job.research_details %}
+                            <div class="d-flex flex-column small bg-light rounded-3 px-3 py-2">
+                                <span class="text-muted text-uppercase fw-semibold mb-1">{% trans 'Research levels' %}</span>
+                                {% with details=job.research_details %}
+                                {% if details.base != None and details.target != None %}
+                                <span class="fw-semibold">{{ details.attribute }} {{ details.base }} → {{ details.target }} / {{ details.max }}</span>
+                                {% else %}
+                                <span class="text-muted">{% trans 'Research level data unavailable' %}</span>
+                                {% endif %}
+                                {% if details.increments %}
+                                <span class="text-muted">
+                                    {% blocktrans count run_count=details.increments %}
+                                    {{ run_count }} run scheduled
+                                    {% plural %}
+                                    {{ run_count }} runs scheduled
+                                    {% endblocktrans %}
+                                </span>
+                                {% endif %}
+                                {% endwith %}
+                            </div>
+                            {% endif %}
+                            {% if job.copy_details %}
+                            <div class="d-flex flex-column small bg-light rounded-3 px-3 py-2">
+                                <span class="text-muted text-uppercase fw-semibold mb-1">{% trans 'Copy output' %}</span>
+                                <span class="fw-semibold">
+                                    {% blocktrans with runs=job.copy_details.runs %}
+                                    {{ runs }} copies
+                                    {% endblocktrans %}
+                                </span>
+                                {% if job.copy_details.licensed_runs %}
+                                <span class="text-muted">
+                                    {% blocktrans with licensed=job.copy_details.licensed_runs %}
+                                    {{ licensed }} licensed runs
+                                    {% endblocktrans %}
+                                </span>
+                                {% endif %}
+                            </div>
+                            {% endif %}
+                            {% if group.key == 'invention' and job.probability_percent != None %}
+                            <div class="d-flex flex-column small bg-light rounded-3 px-3 py-2">
+                                <span class="text-muted text-uppercase fw-semibold mb-1">{% trans 'Success chance' %}</span>
+                                <span class="fw-semibold">{{ job.probability_percent }}%</span>
+                            </div>
+                            {% endif %}
+                            {% if group.key == 'reactions' %}
+                            <div class="d-flex flex-column small bg-light rounded-3 px-3 py-2">
+                                <span class="text-muted text-uppercase fw-semibold mb-1">{% trans 'Reaction facility' %}</span>
+                                <span class="fw-semibold">{{ job.facility_id }}</span>
+                            </div>
+                            {% endif %}
                         </div>
-                        <small class="text-muted">ETA: {{ job.display_eta|default:'--:--:--' }}</small>
+                        <div class="card-footer bg-transparent border-0 d-flex justify-content-between small text-muted">
+                            <span><i class="fas fa-play-circle me-1"></i>{{ job.start_date|date:"Y-m-d H:i" }}</span>
+                            <span>
+                                {% if job.is_completed %}
+                                <i class="fas fa-flag-checkered me-1"></i>{{ job.end_date|date:"Y-m-d H:i" }}
+                                {% else %}
+                                <i class="fas fa-stopwatch me-1"></i>{{ job.end_date|date:"Y-m-d H:i" }}
+                                {% endif %}
+                            </span>
+                        </div>
                     </div>
                 </div>
-                <div class="card-footer bg-transparent border-0 d-flex justify-content-between">
-                    <small class="text-muted">Start: {{ job.start_date|date:"Y-m-d H:i" }}</small>
-                    <small class="text-muted">{% if job.is_completed %}Completed: {{ job.end_date|date:"Y-m-d H:i" }}{% else %}Ends: {{ job.end_date|date:"Y-m-d H:i" }}{% endif %}</small>
-                </div>
+                {% endfor %}
+            </div>
+        </section>
+        {% endfor %}
+        {% else %}
+        <div class="card border-0 shadow-sm">
+            <div class="card-body text-center py-5">
+                <i class="fas fa-clipboard-list-check fa-2x text-muted mb-3"></i>
+                <h2 class="h5">{% trans 'No industry jobs found.' %}</h2>
+                <p class="text-muted small mb-0">{% trans 'Start a new job in-game and refresh to see it here.' %}</p>
             </div>
         </div>
-        {% empty %}
-        <div class="col-12 text-center text-muted py-4">{% trans "No industry jobs found." %}</div>
-        {% endfor %}
+        {% endif %}
     </div>
 </div>
 {% endblock content %}

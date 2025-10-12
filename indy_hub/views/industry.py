@@ -203,9 +203,6 @@ def personnal_bp_list(request):
         for bp in bp_items:
             path = get_location_path(bp.location_id)
             bp.location_path = path if path else bp.location_flag
-        # Django pagination on grouped items
-        # Django
-        from django.core.paginator import Paginator
 
         paginator = Paginator(bp_items, per_page)
         blueprints_page = paginator.get_page(page)
@@ -424,6 +421,7 @@ def personnal_job_list(request):
     # Base queryset for this user
     base_jobs_qs = IndustryJob.objects.filter(owner_user=request.user)
     jobs_qs = base_jobs_qs
+    now = timezone.now()
     all_character_ids = list(jobs_qs.values_list("character_id", flat=True).distinct())
     character_map = (
         {cid: get_character_name(cid) for cid in all_character_ids}
@@ -446,6 +444,26 @@ def personnal_job_list(request):
                 | job_id_q
                 | char_name_q
             )
+        if status_filter:
+            status_filter = status_filter.strip().lower()
+            if status_filter == "active":
+                jobs_qs = jobs_qs.filter(status="active", end_date__gt=now)
+            elif status_filter == "completed":
+                jobs_qs = jobs_qs.filter(end_date__lte=now)
+        if activity_filter:
+            try:
+                activity_ids = {
+                    int(part.strip())
+                    for part in str(activity_filter).split(",")
+                    if part.strip()
+                }
+                if activity_ids:
+                    jobs_qs = jobs_qs.filter(activity_id__in=activity_ids)
+            except (TypeError, ValueError):
+                logger.warning(
+                    "[JOBS FILTER] Invalid activity filter value: '%s'",
+                    activity_filter,
+                )
         if character_filter:
             try:
                 character_filter_int = int(character_filter.strip())
@@ -461,8 +479,6 @@ def personnal_job_list(request):
         paginator = Paginator(jobs_qs, per_page)
         jobs_page = paginator.get_page(page)
         total_jobs = jobs_qs.count()
-        # Django
-        now = timezone.now()
         active_jobs = jobs_qs.filter(status="active", end_date__gt=now).count()
         completed_jobs = jobs_qs.filter(end_date__lte=now).count()
         statistics = {
@@ -487,6 +503,189 @@ def personnal_job_list(request):
             (str(aid), activity_labels.get(aid, str(aid))) for aid in present_ids
         ]
         # Removed update status tracking since unified settings don't track this
+        jobs_on_page = list(jobs_page.object_list)
+        blueprint_ids = [job.blueprint_id for job in jobs_on_page if job.blueprint_id]
+        blueprint_map = {
+            bp.item_id: bp
+            for bp in Blueprint.objects.filter(
+                owner_user=request.user, item_id__in=blueprint_ids
+            )
+        }
+
+        activity_definitions = [
+            {
+                "key": "manufacturing",
+                "activity_ids": {1},
+                "title": _("Manufacturing"),
+                "subtitle": _("Mass-produce items and hulls for your hangars."),
+                "icon": "fas fa-industry",
+                "chip": "MFG",
+                "badge_variant": "bg-primary",
+            },
+            {
+                "key": "research_te",
+                "activity_ids": {3},
+                "title": _("Time Efficiency Research"),
+                "subtitle": _("Improve blueprint TE levels to reduce job durations."),
+                "icon": "fas fa-stopwatch",
+                "chip": "TE",
+                "badge_variant": "bg-info",
+            },
+            {
+                "key": "research_me",
+                "activity_ids": {4},
+                "title": _("Material Efficiency Research"),
+                "subtitle": _("Raise ME levels to save materials on future builds."),
+                "icon": "fas fa-flask",
+                "chip": "ME",
+                "badge_variant": "bg-success",
+            },
+            {
+                "key": "copying",
+                "activity_ids": {5},
+                "title": _("Copying"),
+                "subtitle": _(
+                    "Generate blueprint copies ready for production or invention."
+                ),
+                "icon": "fas fa-copy",
+                "chip": "COPY",
+                "badge_variant": "bg-warning",
+            },
+            {
+                "key": "invention",
+                "activity_ids": {8},
+                "title": _("Invention"),
+                "subtitle": _(
+                    "Transform tech I copies into advanced tech II blueprints."
+                ),
+                "icon": "fas fa-bolt",
+                "chip": "INV",
+                "badge_variant": "bg-dark",
+            },
+            {
+                "key": "reactions",
+                "activity_ids": {9, 11},
+                "title": _("Reactions"),
+                "subtitle": _(
+                    "Process raw materials through biochemical and polymer reactions."
+                ),
+                "icon": "fas fa-vials",
+                "chip": "RX",
+                "badge_variant": "bg-danger",
+            },
+            {
+                "key": "other",
+                "activity_ids": set(),
+                "title": _("Other Activities"),
+                "subtitle": _(
+                    "Specialised jobs that fall outside the main categories."
+                ),
+                "icon": "fas fa-tools",
+                "chip": _("Other"),
+                "badge_variant": "bg-secondary",
+            },
+        ]
+
+        activity_meta_by_key = {meta["key"]: meta for meta in activity_definitions}
+        activity_key_by_id = {}
+        for meta in activity_definitions:
+            for aid in meta["activity_ids"]:
+                activity_key_by_id[aid] = meta["key"]
+
+        grouped_jobs = defaultdict(list)
+
+        for job in jobs_on_page:
+            activity_key = activity_key_by_id.get(job.activity_id, "other")
+            activity_meta = activity_meta_by_key[activity_key]
+            setattr(job, "activity_meta", activity_meta)
+            setattr(
+                job,
+                "display_character_name",
+                character_map.get(job.character_id, job.character_id),
+            )
+            status_label = _("Completed") if job.is_completed else job.status.title()
+            setattr(job, "status_label", status_label)
+            setattr(job, "probability_percent", None)
+            if job.probability is not None:
+                try:
+                    setattr(job, "probability_percent", round(job.probability * 100, 1))
+                except TypeError:
+                    setattr(job, "probability_percent", None)
+
+            blueprint = blueprint_map.get(job.blueprint_id)
+            research_details = None
+            runs_count = job.runs or 0
+            if job.activity_id in {3, 4}:
+                if job.activity_id == 3:
+                    current_value = blueprint.time_efficiency if blueprint else None
+                    max_value = 20
+                    attr_label = "TE"
+                    per_run_gain = 2
+                else:
+                    current_value = blueprint.material_efficiency if blueprint else None
+                    max_value = 10
+                    attr_label = "ME"
+                    per_run_gain = 1
+
+                runs_count = max(runs_count, 0)
+                completed_runs = job.successful_runs or 0
+                if completed_runs < 0:
+                    completed_runs = 0
+                if runs_count:
+                    completed_runs = min(completed_runs, runs_count)
+
+                total_potential_gain = runs_count * per_run_gain
+
+                base_value = None
+                target_value = None
+                effective_gain = total_potential_gain
+
+                if current_value is not None:
+                    inferred_start = current_value - (completed_runs * per_run_gain)
+                    base_value = max(0, min(max_value, inferred_start))
+                    projected_target = base_value + total_potential_gain
+                    target_value = min(max_value, projected_target)
+                    effective_gain = max(0, target_value - base_value)
+
+                research_details = {
+                    "attribute": attr_label,
+                    "base": base_value,
+                    "target": target_value,
+                    "increments": runs_count,
+                    "level_gain": effective_gain,
+                    "max": max_value,
+                }
+            setattr(job, "research_details", research_details)
+
+            copy_details = None
+            if job.activity_id == 5:
+                copy_details = {
+                    "runs": job.runs,
+                    "licensed_runs": job.licensed_runs,
+                }
+            setattr(job, "copy_details", copy_details)
+
+            setattr(
+                job,
+                "output_name",
+                job.product_type_name or job.product_type_id,
+            )
+            grouped_jobs[activity_key].append(job)
+
+        job_groups = [
+            {
+                "key": meta["key"],
+                "title": meta["title"],
+                "subtitle": meta["subtitle"],
+                "icon": meta["icon"],
+                "chip": meta["chip"],
+                "badge_variant": meta["badge_variant"],
+                "jobs": grouped_jobs.get(meta["key"], []),
+            }
+            for meta in activity_definitions
+            if grouped_jobs.get(meta["key"])
+        ]
+
         context = {
             "jobs": jobs_page,
             "statistics": statistics,
@@ -505,6 +704,8 @@ def personnal_job_list(request):
             "per_page_options": [10, 25, 50, 100, 200],
             "character_map": character_map,
             "jobs_page": jobs_page,
+            "job_groups": job_groups,
+            "has_job_results": bool(job_groups),
         }
         # progress_percent and display_eta now available via model properties in template
         return render(request, "indy_hub/Personnal_Job_list.html", context)
