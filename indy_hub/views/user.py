@@ -9,7 +9,7 @@ from urllib.parse import urlencode
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.db.models import Q
+from django.db.models import Q, Sum
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -200,24 +200,33 @@ def index(request):
         originals_for_fulfill = blueprints_qs.filter(
             bp_type__in=[Blueprint.BPType.ORIGINAL, Blueprint.BPType.REACTION]
         )
+        original_blueprint_type_ids: set[int] = set()
         for bp in originals_for_fulfill:
+            original_blueprint_type_ids.add(bp.type_id)
             fulfill_filters |= Q(
                 type_id=bp.type_id,
                 material_efficiency=bp.material_efficiency,
                 time_efficiency=bp.time_efficiency,
             )
 
+        open_requests_qs = BlueprintCopyRequest.objects.none()
         if fulfill_filters:
-            copy_fulfill_count = BlueprintCopyRequest.objects.filter(
+            open_requests_qs = BlueprintCopyRequest.objects.filter(
                 fulfill_filters, fulfilled=False
+            )
+            copy_fulfill_count = (
+                open_requests_qs.aggregate(total=Sum("copies_requested")).get("total")
+                or 0
+            )
+            copy_my_requests_open = open_requests_qs.count()
+
+        if original_blueprint_type_ids:
+            copy_my_requests_pending_delivery = jobs_qs.filter(
+                activity_id=5,
+                blueprint_type_id__in=list(original_blueprint_type_ids),
+                status__in=["active", "ready"],
             ).count()
 
-    copy_my_requests_open = BlueprintCopyRequest.objects.filter(
-        requested_by=request.user, fulfilled=False
-    ).count()
-    copy_my_requests_pending_delivery = BlueprintCopyRequest.objects.filter(
-        requested_by=request.user, fulfilled=True, delivered=False
-    ).count()
     copy_my_requests_total = copy_my_requests_open + copy_my_requests_pending_delivery
     context = {
         "has_blueprint_tokens": bool(blueprint_char_ids),
