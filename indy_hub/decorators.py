@@ -56,14 +56,27 @@ def token_required(scopes=None):
     return decorator
 
 
+STRUCTURE_SCOPE = "esi-universe.read_structures.v1"
+
+
 def blueprints_token_required(view_func):
     """Decorator specifically for blueprint views."""
-    return token_required(["esi-characters.read_blueprints.v1"])(view_func)
+    return token_required(
+        [
+            "esi-characters.read_blueprints.v1",
+            STRUCTURE_SCOPE,
+        ]
+    )(view_func)
 
 
 def industry_jobs_token_required(view_func):
     """Decorator specifically for industry jobs views."""
-    return token_required(["esi-industry.read_character_jobs.v1"])(view_func)
+    return token_required(
+        [
+            "esi-industry.read_character_jobs.v1",
+            STRUCTURE_SCOPE,
+        ]
+    )(view_func)
 
 
 def indy_hub_access_required(view_func):

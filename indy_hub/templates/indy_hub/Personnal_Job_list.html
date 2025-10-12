@@ -133,7 +133,7 @@
                         <p class="text-muted small mb-0">{{ group.subtitle }}</p>
                     </div>
                 </div>
-                <span class="badge text-uppercase fw-semibold text-white {{ group.badge_variant }} px-3 py-2">{{ group.chip }}</span>
+                <span class="badge text-uppercase fw-semibold {{ group.badge_variant }} px-3 py-2">{{ group.chip }}</span>
             </div>
             <div class="row g-4">
                 {% for job in group.jobs %}
@@ -153,7 +153,7 @@
                                         <p class="text-muted small mb-0"><i class="fas fa-user me-1"></i>{{ job.display_character_name }}</p>
                                     </div>
                                 </div>
-                                <span class="badge {{ group.badge_variant }} text-white align-self-start px-3 py-2">{{ group.chip }}</span>
+                                <span class="badge {{ group.badge_variant }} align-self-start px-3 py-2">{{ group.chip }}</span>
                             </div>
                             <div class="d-flex flex-wrap gap-2 small">
                                 <span class="badge bg-light text-dark border">{{ job.runs }} {% trans 'runs' %}</span>

@@ -10,10 +10,13 @@ from collections.abc import Iterable, Mapping
 import requests
 
 # Django
+from django.apps import apps
 from django.conf import settings
+from django.core.exceptions import AppRegistryNotReady
 
 # Alliance Auth
 from allianceauth.eveonline.models import EveCharacter
+from esi.models import Token
 
 from ..services.esi_client import (
     ESI_BASE_URL,
@@ -42,6 +45,9 @@ _CHAR_NAME_CACHE: dict[int, str] = {}
 _BP_PRODUCT_CACHE: dict[int, int | None] = {}
 _REACTION_CACHE: dict[int, bool] = {}
 _LOCATION_NAME_CACHE: dict[int, str] = {}
+PLACEHOLDER_PREFIX = "Structure "
+_STRUCTURE_SCOPE = "esi-universe.read_structures.v1"
+_FALLBACK_STRUCTURE_TOKEN_IDS: list[int] | None = None
 
 
 def get_type_name(type_id: int | None) -> str:
@@ -174,19 +180,99 @@ def is_reaction_blueprint(blueprint_type_id: int | None) -> bool:
     return value
 
 
+def _get_structure_scope_token_ids() -> list[int]:
+    global _FALLBACK_STRUCTURE_TOKEN_IDS
+
+    if _FALLBACK_STRUCTURE_TOKEN_IDS is not None:
+        return _FALLBACK_STRUCTURE_TOKEN_IDS
+
+    try:
+        qs = Token.objects.all().require_scopes(_STRUCTURE_SCOPE)
+        token_ids = list(qs.values_list("character_id", flat=True).distinct())
+    except Exception:  # pragma: no cover - defensive fallback when DB unavailable
+        logger.debug("Unable to load structure scope tokens", exc_info=True)
+        token_ids = []
+
+    _FALLBACK_STRUCTURE_TOKEN_IDS = [int(char_id) for char_id in token_ids]
+    return _FALLBACK_STRUCTURE_TOKEN_IDS
+
+
+def _invalidate_structure_scope_token_cache() -> None:
+    global _FALLBACK_STRUCTURE_TOKEN_IDS
+    _FALLBACK_STRUCTURE_TOKEN_IDS = None
+
+
+def _lookup_location_name_in_db(structure_id: int) -> str | None:
+    """Return a previously stored location name for the given ID when present."""
+
+    model_specs = (
+        ("indy_hub", "Blueprint", "location_id", "location_name"),
+        ("indy_hub", "IndustryJob", "station_id", "location_name"),
+    )
+
+    for app_label, model_name, id_field, name_field in model_specs:
+        try:
+            model = apps.get_model(app_label, model_name)
+        except (LookupError, AppRegistryNotReady):
+            continue
+
+        if model is None:
+            continue
+
+        filter_kwargs = {id_field: structure_id}
+
+        try:
+            qs = (
+                model.objects.filter(**filter_kwargs)
+                .exclude(**{f"{name_field}__isnull": True})
+                .exclude(**{name_field: ""})
+                .exclude(**{f"{name_field}__startswith": PLACEHOLDER_PREFIX})
+            )
+            existing = qs.values_list(name_field, flat=True).first()
+        except Exception:  # pragma: no cover - defensive fallback
+            logger.debug(
+                "Unable to reuse stored location for %s via %s.%s",
+                structure_id,
+                app_label,
+                model_name,
+                exc_info=True,
+            )
+            existing = None
+
+        if existing:
+            return str(existing)
+
+    return None
+
+
 def resolve_location_name(
     structure_id: int | None,
     *,
     character_id: int | None = None,
+    force_refresh: bool = False,
 ) -> str:
-    """Resolve a structure or station name using ESI lookups with caching."""
+    """Resolve a structure or station name using ESI lookups with caching.
+
+    When ``force_refresh`` is True, cached placeholder values (``Structure <id>``)
+    are ignored so that a fresh lookup can populate the real name if available.
+    """
 
     if not structure_id:
         return ""
 
     structure_id = int(structure_id)
-    if structure_id in _LOCATION_NAME_CACHE:
-        return _LOCATION_NAME_CACHE[structure_id]
+    placeholder_value = f"{PLACEHOLDER_PREFIX}{structure_id}"
+
+    cached = _LOCATION_NAME_CACHE.get(structure_id)
+    if cached is not None:
+        if not force_refresh or cached != placeholder_value:
+            return cached
+
+    if not force_refresh:
+        db_name = _lookup_location_name_in_db(structure_id)
+        if db_name:
+            _LOCATION_NAME_CACHE[structure_id] = db_name
+            return db_name
 
     name: str | None = None
 
@@ -205,6 +291,34 @@ def resolve_location_name(
                 structure_id,
                 exc,
             )
+
+    if not name:
+        for fallback_character_id in _get_structure_scope_token_ids():
+            if fallback_character_id == character_id:
+                continue
+            try:
+                name = shared_client.fetch_structure_name(
+                    structure_id, fallback_character_id
+                )
+            except ESITokenError:
+                logger.debug(
+                    "Token for fallback character %s invalid when resolving %s",
+                    fallback_character_id,
+                    structure_id,
+                )
+                _invalidate_structure_scope_token_cache()
+                continue
+            except ESIClientError as exc:  # pragma: no cover
+                logger.debug(
+                    "Fallback structure lookup failed for %s via %s: %s",
+                    structure_id,
+                    fallback_character_id,
+                    exc,
+                )
+                continue
+
+            if name:
+                break
 
     params = {"datasource": "tranquility"}
 
@@ -249,7 +363,7 @@ def resolve_location_name(
             )
 
     if not name:
-        name = f"Structure {structure_id}"
+        name = placeholder_value
 
     _LOCATION_NAME_CACHE[structure_id] = name
     return name

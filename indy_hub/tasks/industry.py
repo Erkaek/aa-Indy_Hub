@@ -30,10 +30,14 @@ from ..utils.eve import (
 
 logger = logging.getLogger(__name__)
 
+BLUEPRINT_SCOPE = "esi-characters.read_blueprints.v1"
+JOBS_SCOPE = "esi-industry.read_character_jobs.v1"
+STRUCTURE_SCOPE = "esi-universe.read_structures.v1"
+
 
 @shared_task(bind=True, max_retries=3)
 def update_blueprints_for_user(self, user_id):
-    scope = "esi-characters.read_blueprints.v1"
+    required_scopes = [BLUEPRINT_SCOPE, STRUCTURE_SCOPE]
     try:
         user = User.objects.get(id=user_id)
     except User.DoesNotExist as exc:  # pragma: no cover - defensive guard
@@ -57,11 +61,14 @@ def update_blueprints_for_user(self, user_id):
 
             token_exists = (
                 Token.objects.filter(character_id=char_id, user=user)
-                .require_scopes([scope])
+                .require_scopes(required_scopes)
                 .exists()
             )
             if not token_exists:
-                message = f"{character_name} ({char_id}) sans jeton {scope}"
+                message = (
+                    f"{character_name} ({char_id}) sans jeton pour les scopes "
+                    f"{', '.join(required_scopes)}"
+                )
                 logger.debug(message)
                 error_messages.append(message)
                 continue
@@ -153,7 +160,8 @@ def update_industry_jobs_for_user(self, user_id):
         deleted_total = 0
         error_messages: list[str] = []
         ownerships = CharacterOwnership.objects.filter(user=user)
-        scope = "esi-industry.read_character_jobs.v1"
+        required_scopes = [JOBS_SCOPE, STRUCTURE_SCOPE]
+
         for ownership in ownerships:
             char_id = ownership.character.character_id
             character_name = get_character_name(char_id)
@@ -163,11 +171,14 @@ def update_industry_jobs_for_user(self, user_id):
 
                 token_exists = (
                     Token.objects.filter(character_id=char_id, user=user)
-                    .require_scopes([scope])
+                    .require_scopes(required_scopes)
                     .exists()
                 )
                 if not token_exists:
-                    message = f"{character_name} ({char_id}) sans jeton {scope}"
+                    message = (
+                        f"{character_name} ({char_id}) sans jeton pour les scopes "
+                        f"{', '.join(required_scopes)}"
+                    )
                     logger.debug(message)
                     error_messages.append(message)
                     continue

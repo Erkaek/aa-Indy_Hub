@@ -519,8 +519,8 @@ def personnal_job_list(request):
                 "title": _("Manufacturing"),
                 "subtitle": _("Mass-produce items and hulls for your hangars."),
                 "icon": "fas fa-industry",
-                "chip": "MFG",
-                "badge_variant": "bg-primary",
+                "chip": _("MANUFACTURING"),
+                "badge_variant": "bg-warning text-white",
             },
             {
                 "key": "research_te",
@@ -529,7 +529,7 @@ def personnal_job_list(request):
                 "subtitle": _("Improve blueprint TE levels to reduce job durations."),
                 "icon": "fas fa-stopwatch",
                 "chip": "TE",
-                "badge_variant": "bg-info",
+                "badge_variant": "bg-success text-white",
             },
             {
                 "key": "research_me",
@@ -538,7 +538,7 @@ def personnal_job_list(request):
                 "subtitle": _("Raise ME levels to save materials on future builds."),
                 "icon": "fas fa-flask",
                 "chip": "ME",
-                "badge_variant": "bg-success",
+                "badge_variant": "bg-success text-white",
             },
             {
                 "key": "copying",
@@ -548,8 +548,8 @@ def personnal_job_list(request):
                     "Generate blueprint copies ready for production or invention."
                 ),
                 "icon": "fas fa-copy",
-                "chip": "COPY",
-                "badge_variant": "bg-warning",
+                "chip": _("COPY"),
+                "badge_variant": "bg-info text-white",
             },
             {
                 "key": "invention",
@@ -560,7 +560,7 @@ def personnal_job_list(request):
                 ),
                 "icon": "fas fa-bolt",
                 "chip": "INV",
-                "badge_variant": "bg-dark",
+                "badge_variant": "bg-dark text-white",
             },
             {
                 "key": "reactions",
@@ -570,8 +570,8 @@ def personnal_job_list(request):
                     "Process raw materials through biochemical and polymer reactions."
                 ),
                 "icon": "fas fa-vials",
-                "chip": "RX",
-                "badge_variant": "bg-danger",
+                "chip": _("REACTION"),
+                "badge_variant": "bg-danger text-white",
             },
             {
                 "key": "other",
@@ -582,7 +582,7 @@ def personnal_job_list(request):
                 ),
                 "icon": "fas fa-tools",
                 "chip": _("Other"),
-                "badge_variant": "bg-secondary",
+                "badge_variant": "bg-secondary text-white",
             },
         ]
 

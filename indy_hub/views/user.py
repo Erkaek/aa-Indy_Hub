@@ -37,6 +37,12 @@ from ..utils.eve import get_character_name
 
 logger = logging.getLogger(__name__)
 
+BLUEPRINT_SCOPE = "esi-characters.read_blueprints.v1"
+JOBS_SCOPE = "esi-industry.read_character_jobs.v1"
+STRUCTURE_SCOPE = "esi-universe.read_structures.v1"
+BLUEPRINT_SCOPE_SET = [BLUEPRINT_SCOPE, STRUCTURE_SCOPE]
+JOBS_SCOPE_SET = [JOBS_SCOPE, STRUCTURE_SCOPE]
+
 
 def get_copy_sharing_states():
     return {
@@ -92,10 +98,10 @@ def index(request):
     if Token:
         try:
             blueprint_tokens = Token.objects.filter(user=request.user).require_scopes(
-                ["esi-characters.read_blueprints.v1"]
+                BLUEPRINT_SCOPE_SET
             )
             jobs_tokens = Token.objects.filter(user=request.user).require_scopes(
-                ["esi-industry.read_character_jobs.v1"]
+                JOBS_SCOPE_SET
             )
             # Deduplicate by character_id
             blueprint_char_ids = (
@@ -246,10 +252,10 @@ def token_management(request):
     if Token:
         try:
             blueprint_tokens = Token.objects.filter(user=request.user).require_scopes(
-                ["esi-characters.read_blueprints.v1"]
+                BLUEPRINT_SCOPE_SET
             )
             jobs_tokens = Token.objects.filter(user=request.user).require_scopes(
-                ["esi-industry.read_character_jobs.v1"]
+                JOBS_SCOPE_SET
             )
             # Deduplicate by character_id
             blueprint_char_ids = (
@@ -310,7 +316,7 @@ def authorize_blueprints(request):
     )
     authorized = (
         Token.objects.filter(user=request.user)
-        .require_scopes(["esi-characters.read_blueprints.v1"])
+        .require_scopes(BLUEPRINT_SCOPE_SET)
         .values_list("character_id", flat=True)
     )
     missing = set(all_chars) - set(authorized)
@@ -340,7 +346,7 @@ def authorize_blueprints(request):
             "response_type": "code",
             "redirect_uri": callback_url,
             "client_id": client_id,
-            "scope": "esi-characters.read_blueprints.v1",
+            "scope": " ".join(BLUEPRINT_SCOPE_SET),
             "state": blueprint_state,
         }
         blueprint_auth_url = f"https://login.eveonline.com/v2/oauth/authorize/?{urlencode(blueprint_params)}"
@@ -360,7 +366,7 @@ def authorize_jobs(request):
     )
     authorized = (
         Token.objects.filter(user=request.user)
-        .require_scopes(["esi-industry.read_character_jobs.v1"])
+        .require_scopes(JOBS_SCOPE_SET)
         .values_list("character_id", flat=True)
     )
     missing = set(all_chars) - set(authorized)
@@ -390,7 +396,7 @@ def authorize_jobs(request):
             "response_type": "code",
             "redirect_uri": callback_url,
             "client_id": client_id,
-            "scope": "esi-industry.read_character_jobs.v1",
+            "scope": " ".join(JOBS_SCOPE_SET),
             "state": jobs_state,
         }
         jobs_auth_url = (
@@ -412,12 +418,12 @@ def authorize_all(request):
     )
     blueprint_auth = (
         Token.objects.filter(user=request.user)
-        .require_scopes(["esi-characters.read_blueprints.v1"])
+        .require_scopes(BLUEPRINT_SCOPE_SET)
         .values_list("character_id", flat=True)
     )
     jobs_auth = (
         Token.objects.filter(user=request.user)
-        .require_scopes(["esi-industry.read_character_jobs.v1"])
+        .require_scopes(JOBS_SCOPE_SET)
         .values_list("character_id", flat=True)
     )
     missing = set(all_chars) - (set(blueprint_auth) & set(jobs_auth))
@@ -443,11 +449,12 @@ def authorize_all(request):
             settings, "ESI_SSO_CALLBACK_URL", "http://localhost:8000/sso/callback/"
         )
         client_id = getattr(settings, "ESI_SSO_CLIENT_ID", "")
+        combined_scopes = sorted({*BLUEPRINT_SCOPE_SET, *JOBS_SCOPE_SET})
         params = {
             "response_type": "code",
             "redirect_uri": callback_url,
             "client_id": client_id,
-            "scope": "esi-characters.read_blueprints.v1 esi-industry.read_character_jobs.v1",
+            "scope": " ".join(combined_scopes),
             "state": state,
         }
         auth_url = (
@@ -466,10 +473,10 @@ def sync_all_tokens(request):
     if Token:
         try:
             blueprint_tokens = Token.objects.filter(user=request.user).require_scopes(
-                ["esi-characters.read_blueprints.v1"]
+                BLUEPRINT_SCOPE_SET
             )
             jobs_tokens = Token.objects.filter(user=request.user).require_scopes(
-                ["esi-industry.read_character_jobs.v1"]
+                JOBS_SCOPE_SET
             )
             if blueprint_tokens.exists():
                 update_blueprints_for_user.delay(request.user.id)
@@ -490,7 +497,7 @@ def sync_blueprints(request):
     if Token:
         try:
             blueprint_tokens = Token.objects.filter(user=request.user).require_scopes(
-                ["esi-characters.read_blueprints.v1"]
+                BLUEPRINT_SCOPE_SET
             )
             if blueprint_tokens.exists():
                 update_blueprints_for_user.delay(request.user.id)
@@ -513,7 +520,7 @@ def sync_jobs(request):
     if Token:
         try:
             jobs_tokens = Token.objects.filter(user=request.user).require_scopes(
-                ["esi-industry.read_character_jobs.v1"]
+                JOBS_SCOPE_SET
             )
             if jobs_tokens.exists():
                 update_industry_jobs_for_user.delay(request.user.id)
