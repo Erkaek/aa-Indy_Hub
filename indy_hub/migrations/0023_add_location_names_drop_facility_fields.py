@@ -2,129 +2,176 @@
 from __future__ import annotations
 
 # Standard Library
-import json
 import logging
 from typing import Any
-
-# Third Party
-import requests
 
 # Django
 from django.db import migrations, models
 
 # AA Example App
 # Indy Hub
-from indy_hub.utils.eve import resolve_location_name
+from indy_hub.utils.eve import PLACEHOLDER_PREFIX, resolve_location_name
 
 logger = logging.getLogger(__name__)
-ESI_BASE_URL = "https://esi.evetech.net/latest"
 
 
-def _fetch_location_name(
-    structure_id: int | None,
-    cache: dict[int, str],
-    *,
-    character_id: int | None = None,
-) -> str:
-    if not structure_id:
-        return ""
-
-    structure_id = int(structure_id)
-    if structure_id in cache:
-        return cache[structure_id]
-
-    params = {"datasource": "tranquility"}
-    name: str | None = None
-
-    # Attempt to leverage application helper which can use authenticated lookups
-    try:
-        name = resolve_location_name(
-            structure_id,
-            character_id=character_id,
-            force_refresh=True,
-        )
-    except Exception:  # pragma: no cover - defensive fallback in migrations
-        logger.debug(
-            "resolve_location_name failed for %s (character %s)",
-            structure_id,
-            character_id,
-            exc_info=True,
-        )
-
-    # First attempt: structure endpoint (requires auth for player structures but returns 403 quickly)
+def _is_placeholder(name: str | None) -> bool:
     if not name:
-        try:
-            response = requests.get(
-                f"{ESI_BASE_URL}/universe/structures/{structure_id}/",
-                params=params,
-                timeout=15,
-            )
-            if response.status_code == 200:
-                try:
-                    payload: dict[str, Any] = response.json()
-                except json.JSONDecodeError:
-                    payload = {}
-                name = payload.get("name")
-            elif response.status_code not in (401, 403, 404):
-                logger.warning(
-                    "Unexpected status %s when resolving structure %s via /structures endpoint",
-                    response.status_code,
-                    structure_id,
-                )
-        except requests.RequestException as exc:
-            logger.warning("ESI structure lookup failed for %s: %s", structure_id, exc)
-
-    # Second attempt: public stations endpoint (covers NPC stations)
-    if not name:
-        try:
-            response = requests.get(
-                f"{ESI_BASE_URL}/universe/stations/{structure_id}/",
-                params=params,
-                timeout=15,
-            )
-            if response.status_code == 200:
-                try:
-                    payload = response.json()
-                except json.JSONDecodeError:
-                    payload = {}
-                name = payload.get("name")
-        except requests.RequestException as exc:
-            logger.warning(
-                "ESI station lookup failed for %s: %s",
-                structure_id,
-                exc,
-            )
-
-    if not name:
-        name = f"Structure {structure_id}"
-
-    cache[structure_id] = name
-    return name
+        return True
+    return name.startswith(PLACEHOLDER_PREFIX)
 
 
 def populate_location_names(apps, schema_editor):
     Blueprint = apps.get_model("indy_hub", "Blueprint")
     IndustryJob = apps.get_model("indy_hub", "IndustryJob")
 
-    cache: dict[int, str] = {}
+    location_targets: dict[int, dict[str, Any]] = {}
 
-    for blueprint in Blueprint.objects.exclude(location_id__isnull=True):
-        location_name = _fetch_location_name(
-            blueprint.location_id,
-            cache,
-            character_id=getattr(blueprint, "character_id", None),
-        )
-        blueprint.location_name = location_name
-        blueprint.save(update_fields=["location_name"])
+    def register_location(
+        location_id: int | None,
+        *,
+        current_name: str | None,
+        character_id: int | None,
+        bucket: str,
+        object_id: int,
+    ) -> None:
+        if not location_id:
+            return
 
-    for job in IndustryJob.objects.exclude(station_id__isnull=True):
-        location_name = _fetch_location_name(
-            job.station_id,
-            cache,
-            character_id=getattr(job, "character_id", None),
+        location_id = int(location_id)
+        target = location_targets.setdefault(
+            location_id,
+            {
+                "characters": set(),
+                "blueprints": [],
+                "jobs": [],
+                "known_name": None,
+            },
         )
-        job.location_name = location_name
-        job.save(update_fields=["location_name"])
+
+        if character_id:
+            target["characters"].add(int(character_id))
+
+        if bucket == "blueprints":
+            target["blueprints"].append((object_id, current_name))
+        else:
+            target["jobs"].append((object_id, current_name))
+
+        if current_name and not _is_placeholder(current_name):
+            target["known_name"] = current_name
+
+    blueprint_qs = Blueprint.objects.exclude(location_id__isnull=True).values(
+        "id", "location_id", "location_name", "character_id"
+    )
+    for row in blueprint_qs.iterator(chunk_size=500):
+        register_location(
+            row["location_id"],
+            current_name=row["location_name"],
+            character_id=row.get("character_id"),
+            bucket="blueprints",
+            object_id=row["id"],
+        )
+
+    job_qs = IndustryJob.objects.exclude(station_id__isnull=True).values(
+        "id", "station_id", "location_name", "character_id"
+    )
+    for row in job_qs.iterator(chunk_size=500):
+        register_location(
+            row["station_id"],
+            current_name=row["location_name"],
+            character_id=row.get("character_id"),
+            bucket="jobs",
+            object_id=row["id"],
+        )
+
+    if not location_targets:
+        logger.info("No locations required updates for Blueprint/IndustryJob records")
+        return
+
+    logger.info(
+        "Populating location names for %s unique location ids",
+        len(location_targets),
+    )
+
+    resolved_names: dict[int, str] = {}
+
+    for location_id, target in location_targets.items():
+        known_name = target.get("known_name")
+        if known_name:
+            resolved_names[location_id] = known_name
+            continue
+
+        characters = list(sorted(target["characters"]))
+        name: str | None = None
+
+        for character_id in characters:
+            try:
+                name = resolve_location_name(
+                    location_id,
+                    character_id=character_id,
+                    force_refresh=False,
+                )
+            except Exception:  # pragma: no cover - defensive fallback in migrations
+                logger.debug(
+                    "resolve_location_name failed for %s via character %s",
+                    location_id,
+                    character_id,
+                    exc_info=True,
+                )
+                continue
+
+            if name and not _is_placeholder(name):
+                break
+
+        if not name or _is_placeholder(name):
+            try:
+                name = resolve_location_name(
+                    location_id,
+                    character_id=None,
+                    force_refresh=bool(name and _is_placeholder(name)),
+                )
+            except Exception:  # pragma: no cover - defensive fallback
+                logger.debug(
+                    "resolve_location_name fallback failed for %s",
+                    location_id,
+                    exc_info=True,
+                )
+                name = None
+
+        if not name:
+            name = f"{PLACEHOLDER_PREFIX}{location_id}"
+
+        resolved_names[location_id] = name
+
+    blueprint_updates: list[Any] = []
+    job_updates: list[Any] = []
+
+    for location_id, target in location_targets.items():
+        name = resolved_names[location_id]
+
+        for blueprint_id, current_name in target["blueprints"]:
+            if current_name == name:
+                continue
+            blueprint_updates.append(Blueprint(id=blueprint_id, location_name=name))
+
+        for job_id, current_name in target["jobs"]:
+            if current_name == name:
+                continue
+            job_updates.append(IndustryJob(id=job_id, location_name=name))
+
+    if blueprint_updates:
+        Blueprint.objects.bulk_update(
+            blueprint_updates, ["location_name"], batch_size=500
+        )
+        logger.info(
+            "Updated location names for %s blueprint records", len(blueprint_updates)
+        )
+
+    if job_updates:
+        IndustryJob.objects.bulk_update(job_updates, ["location_name"], batch_size=500)
+        logger.info(
+            "Updated location names for %s industry job records", len(job_updates)
+        )
 
 
 class Migration(migrations.Migration):
