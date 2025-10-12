@@ -133,10 +133,25 @@ def index(request):
         )
     # Blueprints stats
     blueprints_qs = Blueprint.objects.filter(owner_user=request.user)
-    blueprint_count = blueprints_qs.count()
-    original_blueprints = blueprints_qs.filter(quantity=-1).count()
-    copy_blueprints = blueprints_qs.filter(quantity=-2).count()
-    stack_blueprints = blueprints_qs.filter(quantity__gt=0).count()
+
+    def normalized_quantity(value: int | None) -> int:
+        if value in (-1, -2):
+            return 1
+        if value is None:
+            return 0
+        return max(value, 0)
+
+    blueprint_count = 0
+    original_blueprints = 0
+    copy_blueprints = 0
+
+    for bp in blueprints_qs:
+        qty = normalized_quantity(bp.quantity)
+        blueprint_count += qty
+        if bp.is_copy:
+            copy_blueprints += qty
+        else:
+            original_blueprints += qty
     # Jobs stats
     jobs_qs = IndustryJob.objects.filter(owner_user=request.user)
 
@@ -176,7 +191,10 @@ def index(request):
 
     if sharing_state["enabled"]:
         fulfill_filters = Q()
-        for bp in blueprints_qs.filter(quantity=-1):
+        originals_for_fulfill = blueprints_qs.filter(
+            bp_type__in=[Blueprint.BPType.ORIGINAL, Blueprint.BPType.REACTION]
+        )
+        for bp in originals_for_fulfill:
             fulfill_filters |= Q(
                 type_id=bp.type_id,
                 material_efficiency=bp.material_efficiency,
@@ -204,7 +222,6 @@ def index(request):
         "blueprint_count": blueprint_count,
         "original_blueprints": original_blueprints,
         "copy_blueprints": copy_blueprints,
-        "stack_blueprints": stack_blueprints,
         "active_jobs_count": active_jobs_count,
         "completed_jobs_count": completed_jobs_count,
         "completed_jobs_today": completed_jobs_today,

@@ -1,10 +1,15 @@
 """Basic smoke tests for the Indy Hub app."""
 
+# Standard Library
+from datetime import timedelta
+from unittest.mock import patch
+
 # Django
 from django.apps import apps
 from django.contrib.auth.models import Permission, User
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 
 # Alliance Auth
 from allianceauth.authentication.models import UserProfile
@@ -16,6 +21,7 @@ from indy_hub.models import (
     BlueprintCopyOffer,
     BlueprintCopyRequest,
     CharacterSettings,
+    IndustryJob,
 )
 from indy_hub.utils.eve import get_type_name
 
@@ -53,6 +59,71 @@ class IndyHubConfigTests(TestCase):
     def test_get_type_name_graceful_fallback(self) -> None:
         """`get_type_name` should fall back to the stringified id when EveUniverse is absent."""
         self.assertEqual(get_type_name(12345), "12345")
+
+
+class BlueprintModelClassificationTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("classifier", password="secret123")
+
+    def test_original_blueprint_infers_type(self) -> None:
+        blueprint = Blueprint.objects.create(
+            owner_user=self.user,
+            character_id=9001,
+            item_id=9001001,
+            blueprint_id=9002001,
+            type_id=424242,
+            location_id=10,
+            location_flag="hangar",
+            quantity=-1,
+            time_efficiency=0,
+            material_efficiency=0,
+            runs=0,
+            character_name="Classifier",
+            type_name="Widget Blueprint",
+        )
+        self.assertEqual(blueprint.bp_type, Blueprint.BPType.ORIGINAL)
+
+        blueprint.quantity = -2
+        blueprint.save()
+        blueprint.refresh_from_db()
+        self.assertEqual(blueprint.bp_type, Blueprint.BPType.COPY)
+
+    def test_reaction_detection_from_name(self) -> None:
+        blueprint = Blueprint.objects.create(
+            owner_user=self.user,
+            character_id=9002,
+            item_id=9002001,
+            blueprint_id=9003001,
+            type_id=434343,
+            location_id=11,
+            location_flag="corporate",
+            quantity=-1,
+            time_efficiency=0,
+            material_efficiency=0,
+            runs=0,
+            character_name="Classifier",
+            type_name="Fullerene Reaction Formula",
+        )
+        blueprint.refresh_from_db()
+        self.assertEqual(blueprint.bp_type, Blueprint.BPType.REACTION)
+
+    def test_positive_quantity_classified_as_copy(self) -> None:
+        blueprint = Blueprint.objects.create(
+            owner_user=self.user,
+            character_id=9003,
+            item_id=9100100,
+            blueprint_id=9100200,
+            type_id=565656,
+            location_id=12,
+            location_flag="hangar",
+            quantity=5,
+            time_efficiency=0,
+            material_efficiency=0,
+            runs=2,
+            character_name="Classifier",
+            type_name="Widget Blueprint Copy",
+        )
+        self.assertEqual(blueprint.bp_type, Blueprint.BPType.COPY)
 
 
 class BlueprintCopyFulfillViewTests(TestCase):
@@ -145,6 +216,343 @@ class BlueprintCopyFulfillViewTests(TestCase):
         self.assertFalse(requests[0]["show_offer_actions"])
         self.assertFalse(requests[0]["can_mark_delivered"])
 
+    def test_busy_blueprints_flagged_in_context(self) -> None:
+        blueprint = Blueprint.objects.create(
+            owner_user=self.user,
+            character_id=42,
+            item_id=3001,
+            blueprint_id=4001,
+            type_id=987001,
+            location_id=5001,
+            location_flag="hangar",
+            quantity=-1,
+            time_efficiency=10,
+            material_efficiency=7,
+            runs=0,
+            character_name="Capsuleer",
+            type_name="Busy Blueprint",
+        )
+        buyer = User.objects.create_user("busy_requester", password="test12345")
+        BlueprintCopyRequest.objects.create(
+            type_id=blueprint.type_id,
+            material_efficiency=blueprint.material_efficiency,
+            time_efficiency=blueprint.time_efficiency,
+            requested_by=buyer,
+            runs_requested=3,
+            copies_requested=2,
+        )
+
+        IndustryJob.objects.create(
+            owner_user=self.user,
+            character_id=blueprint.character_id,
+            job_id=7770001,
+            installer_id=self.user.id,
+            facility_id=100,
+            station_id=None,
+            activity_id=5,
+            blueprint_id=blueprint.item_id,
+            blueprint_type_id=blueprint.type_id,
+            blueprint_location_id=blueprint.location_id,
+            output_location_id=blueprint.location_id,
+            runs=1,
+            status="active",
+            duration=3600,
+            start_date=timezone.now() - timedelta(minutes=10),
+            end_date=timezone.now() + timedelta(hours=2),
+            activity_name="Copying",
+            blueprint_type_name=blueprint.type_name,
+            product_type_name="Busy Product",
+            character_name=blueprint.character_name,
+        )
+
+        response = self.client.get(reverse("indy_hub:bp_copy_fulfill_requests"))
+
+        self.assertEqual(response.status_code, 200)
+        requests = response.context["requests"]
+        self.assertEqual(len(requests), 1)
+        request_entry = requests[0]
+        self.assertTrue(request_entry["all_copies_busy"])
+        self.assertEqual(request_entry["owned_blueprints"], 1)
+        self.assertEqual(request_entry["available_blueprints"], 0)
+        self.assertGreater(request_entry["active_copy_jobs"], 0)
+        self.assertIsNotNone(request_entry["busy_until"])
+        self.assertFalse(request_entry["busy_overdue"])
+
+    def test_non_copy_job_blocks_blueprint(self) -> None:
+        blueprint = Blueprint.objects.create(
+            owner_user=self.user,
+            character_id=42,
+            item_id=4001,
+            blueprint_id=5001,
+            type_id=987002,
+            location_id=6001,
+            location_flag="hangar",
+            quantity=-1,
+            time_efficiency=12,
+            material_efficiency=9,
+            runs=0,
+            character_name="Capsuleer",
+            type_name="Manufacturing Blueprint",
+        )
+        buyer = User.objects.create_user(
+            "manufacturing_requester", password="test12345"
+        )
+        BlueprintCopyRequest.objects.create(
+            type_id=blueprint.type_id,
+            material_efficiency=blueprint.material_efficiency,
+            time_efficiency=blueprint.time_efficiency,
+            requested_by=buyer,
+            runs_requested=1,
+            copies_requested=1,
+        )
+
+        IndustryJob.objects.create(
+            owner_user=self.user,
+            character_id=blueprint.character_id,
+            job_id=8880001,
+            installer_id=self.user.id,
+            facility_id=200,
+            station_id=None,
+            activity_id=1,
+            blueprint_id=blueprint.item_id,
+            blueprint_type_id=blueprint.type_id,
+            blueprint_location_id=blueprint.location_id,
+            output_location_id=blueprint.location_id,
+            runs=1,
+            status="active",
+            duration=7200,
+            start_date=timezone.now() - timedelta(minutes=30),
+            end_date=timezone.now() + timedelta(hours=1),
+            activity_name="Manufacturing",
+            blueprint_type_name=blueprint.type_name,
+            product_type_name="Manufactured Product",
+            character_name=blueprint.character_name,
+        )
+
+        response = self.client.get(reverse("indy_hub:bp_copy_fulfill_requests"))
+
+        self.assertEqual(response.status_code, 200)
+        requests = response.context["requests"]
+        self.assertEqual(len(requests), 1)
+        request_entry = requests[0]
+        self.assertTrue(request_entry["all_copies_busy"])
+        self.assertEqual(request_entry["owned_blueprints"], 1)
+        self.assertEqual(request_entry["available_blueprints"], 0)
+
+    def test_job_with_zero_blueprint_id_matches_original(self) -> None:
+        blueprint = Blueprint.objects.create(
+            owner_user=self.user,
+            character_id=43,
+            item_id=0,
+            blueprint_id=0,
+            type_id=987003,
+            location_id=7001,
+            location_flag="hangar",
+            quantity=-1,
+            time_efficiency=6,
+            material_efficiency=4,
+            runs=0,
+            character_name="Capsuleer",
+            type_name="Zero Blueprint",
+        )
+        buyer = User.objects.create_user("zero_requester", password="test12345")
+        BlueprintCopyRequest.objects.create(
+            type_id=blueprint.type_id,
+            material_efficiency=blueprint.material_efficiency,
+            time_efficiency=blueprint.time_efficiency,
+            requested_by=buyer,
+            runs_requested=1,
+            copies_requested=1,
+        )
+
+        IndustryJob.objects.create(
+            owner_user=self.user,
+            character_id=blueprint.character_id,
+            job_id=8890001,
+            installer_id=self.user.id,
+            facility_id=300,
+            station_id=None,
+            activity_id=5,
+            blueprint_id=0,
+            blueprint_type_id=blueprint.type_id,
+            blueprint_location_id=blueprint.location_id,
+            output_location_id=blueprint.location_id,
+            runs=1,
+            status="active",
+            duration=5400,
+            start_date=timezone.now() - timedelta(minutes=15),
+            end_date=timezone.now() + timedelta(hours=1),
+            activity_name="Copying",
+            blueprint_type_name=blueprint.type_name,
+            product_type_name="Zero Product",
+            character_name=blueprint.character_name,
+        )
+
+        response = self.client.get(reverse("indy_hub:bp_copy_fulfill_requests"))
+
+        self.assertEqual(response.status_code, 200)
+        requests = response.context["requests"]
+        self.assertEqual(len(requests), 1)
+        request_entry = requests[0]
+        self.assertTrue(request_entry["all_copies_busy"])
+        self.assertEqual(request_entry["active_copy_jobs"], 1)
+
+    def test_job_with_mismatched_blueprint_id_does_not_block(self) -> None:
+        blueprint = Blueprint.objects.create(
+            owner_user=self.user,
+            character_id=45,
+            item_id=6001,
+            blueprint_id=7001,
+            type_id=555001,
+            location_id=8001,
+            location_flag="hangar",
+            quantity=-1,
+            time_efficiency=20,
+            material_efficiency=10,
+            runs=0,
+            character_name="Capsuleer",
+            type_name="Ambiguous Blueprint",
+        )
+        buyer = User.objects.create_user("ambiguous_requester", password="test12345")
+        BlueprintCopyRequest.objects.create(
+            type_id=blueprint.type_id,
+            material_efficiency=blueprint.material_efficiency,
+            time_efficiency=blueprint.time_efficiency,
+            requested_by=buyer,
+            runs_requested=1,
+            copies_requested=1,
+        )
+
+        IndustryJob.objects.create(
+            owner_user=self.user,
+            character_id=blueprint.character_id,
+            job_id=8895001,
+            installer_id=self.user.id,
+            facility_id=350,
+            station_id=None,
+            activity_id=5,
+            blueprint_id=9999999,
+            blueprint_type_id=blueprint.type_id,
+            blueprint_location_id=blueprint.location_id,
+            output_location_id=blueprint.location_id,
+            runs=1,
+            status="active",
+            duration=3600,
+            start_date=timezone.now() - timedelta(minutes=5),
+            end_date=timezone.now() + timedelta(hours=1),
+            activity_name="Copying",
+            blueprint_type_name=blueprint.type_name,
+            product_type_name="Ambiguous Product",
+            character_name=blueprint.character_name,
+        )
+
+        response = self.client.get(reverse("indy_hub:bp_copy_fulfill_requests"))
+
+        self.assertEqual(response.status_code, 200)
+        requests = response.context["requests"]
+        self.assertEqual(len(requests), 1)
+        request_entry = requests[0]
+        self.assertFalse(request_entry["all_copies_busy"])
+        self.assertEqual(request_entry["owned_blueprints"], 1)
+        self.assertEqual(request_entry["available_blueprints"], 1)
+        self.assertEqual(request_entry["active_copy_jobs"], 0)
+        self.assertIsNone(request_entry["busy_until"])
+
+    def test_job_past_end_date_still_blocks(self) -> None:
+        blueprint = Blueprint.objects.create(
+            owner_user=self.user,
+            character_id=46,
+            item_id=6101,
+            blueprint_id=7101,
+            type_id=565001,
+            location_id=8101,
+            location_flag="hangar",
+            quantity=-1,
+            time_efficiency=12,
+            material_efficiency=8,
+            runs=0,
+            character_name="Capsuleer",
+            type_name="Late Delivery Blueprint",
+        )
+        buyer = User.objects.create_user("late_requester", password="test12345")
+        BlueprintCopyRequest.objects.create(
+            type_id=blueprint.type_id,
+            material_efficiency=blueprint.material_efficiency,
+            time_efficiency=blueprint.time_efficiency,
+            requested_by=buyer,
+            runs_requested=1,
+            copies_requested=1,
+        )
+
+        job_end = timezone.now() - timedelta(hours=2)
+        IndustryJob.objects.create(
+            owner_user=self.user,
+            character_id=blueprint.character_id,
+            job_id=8897001,
+            installer_id=self.user.id,
+            facility_id=400,
+            station_id=None,
+            activity_id=5,
+            blueprint_id=blueprint.item_id,
+            blueprint_type_id=blueprint.type_id,
+            blueprint_location_id=blueprint.location_id,
+            output_location_id=blueprint.location_id,
+            runs=1,
+            status="active",
+            duration=3600,
+            start_date=timezone.now() - timedelta(hours=3),
+            end_date=job_end,
+            activity_name="Copying",
+            blueprint_type_name=blueprint.type_name,
+            product_type_name="Late Product",
+            character_name=blueprint.character_name,
+        )
+
+        response = self.client.get(reverse("indy_hub:bp_copy_fulfill_requests"))
+
+        self.assertEqual(response.status_code, 200)
+        requests = response.context["requests"]
+        self.assertEqual(len(requests), 1)
+        request_entry = requests[0]
+        self.assertTrue(request_entry["all_copies_busy"])
+        self.assertEqual(request_entry["owned_blueprints"], 1)
+        self.assertEqual(request_entry["available_blueprints"], 0)
+        self.assertEqual(request_entry["active_copy_jobs"], 1)
+        self.assertTrue(request_entry["busy_overdue"])
+        self.assertEqual(request_entry["busy_until"], job_end)
+
+    def test_reaction_blueprint_not_listed(self) -> None:
+        Blueprint.objects.create(
+            owner_user=self.user,
+            character_id=42,
+            item_id=3001,
+            blueprint_id=4001,
+            type_id=777777,
+            location_id=5001,
+            location_flag="hangar",
+            quantity=-1,
+            time_efficiency=0,
+            material_efficiency=0,
+            runs=0,
+            character_name="Capsuleer",
+            type_name="Fullerene Reaction Formula",
+        )
+        buyer = User.objects.create_user("reaction-buyer", password="reactpass")
+        BlueprintCopyRequest.objects.create(
+            type_id=777777,
+            material_efficiency=0,
+            time_efficiency=0,
+            requested_by=buyer,
+            runs_requested=1,
+            copies_requested=1,
+        )
+
+        response = self.client.get(reverse("indy_hub:bp_copy_fulfill_requests"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["requests"], [])
+        self.assertEqual(response.context["metrics"]["total"], 0)
+
 
 class DashboardNotificationCountsTests(TestCase):
     def setUp(self) -> None:
@@ -212,6 +620,42 @@ class DashboardNotificationCountsTests(TestCase):
         self.assertEqual(response.context["copy_my_requests_open"], 1)
         self.assertEqual(response.context["copy_my_requests_pending_delivery"], 1)
         self.assertEqual(response.context["copy_my_requests_total"], 2)
+
+
+class PersonnalBlueprintViewTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("industrialist", password="secret123")
+        assign_main_character(self.user, character_id=102001)
+        permission = Permission.objects.get(codename="can_access_indy_hub")
+        self.user.user_permissions.add(permission)
+        self.client.force_login(self.user)
+
+    def test_reaction_blueprint_hides_efficiency_bars(self) -> None:
+        Blueprint.objects.create(
+            owner_user=self.user,
+            character_id=11,
+            item_id=91001,
+            blueprint_id=91002,
+            type_id=999001,
+            location_id=91003,
+            location_flag="hangar",
+            quantity=-1,
+            time_efficiency=0,
+            material_efficiency=0,
+            runs=0,
+            character_name="Industrialist",
+            type_name="Polymer Reaction",
+        )
+
+        with patch("indy_hub.views.industry.connection") as mock_connection:
+            cursor = mock_connection.cursor.return_value.__enter__.return_value
+            cursor.fetchall.return_value = [(999001,)]
+
+            response = self.client.get(reverse("indy_hub:personnal_bp_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "efficiency-grid")
+        self.assertContains(response, "type-badge reaction")
 
 
 class BlueprintCopyMyRequestsViewTests(TestCase):

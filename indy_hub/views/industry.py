@@ -2,6 +2,7 @@
 # Standard Library
 import json
 import logging
+from collections import defaultdict
 from decimal import Decimal
 from math import ceil
 
@@ -118,63 +119,63 @@ def personnal_bp_list(request):
                 material_efficiency=0, time_efficiency=0
             )
         if type_filter == "original":
-            blueprints_qs = blueprints_qs.filter(quantity=-1)
+            blueprints_qs = blueprints_qs.filter(
+                bp_type__in=[Blueprint.BPType.ORIGINAL, Blueprint.BPType.REACTION]
+            )
         elif type_filter == "copy":
-            blueprints_qs = blueprints_qs.filter(quantity=-2)
-        elif type_filter == "stack":
-            blueprints_qs = blueprints_qs.filter(quantity__gt=0)
+            blueprints_qs = blueprints_qs.filter(bp_type=Blueprint.BPType.COPY)
         if character_filter:
             blueprints_qs = blueprints_qs.filter(character_id=character_filter)
         blueprints_qs = blueprints_qs.order_by("type_name")
-        # Group identical items by type, ME, TE; count originals and stacks
+        # Group identical items by type, ME, TE; compute normalized quantities & runs
         bp_items = []
-        stack_map = {}
+        grouped = {}
+
+        def normalized_quantity(value):
+            if value in (-1, -2):
+                return 1
+            if value is None:
+                return 0
+            return max(value, 0)
+
+        total_original_quantity = 0
+        total_copy_quantity = 0
+        total_quantity = 0
+
         for bp in blueprints_qs:
-            # Reaction blueprints (activity_id 9,11) are always originals
-            if activity_id == "9,11":
-                category = "original"
+            quantity_value = normalized_quantity(bp.quantity)
+            total_quantity += quantity_value
+
+            if bp.is_copy:
+                category = "copy"
+                total_copy_quantity += quantity_value
             else:
-                # separate originals, copies, and stacks into distinct groups
-                if bp.is_original:
-                    category = "original"
-                elif bp.is_copy:
-                    category = "copy"
-                else:
-                    category = "stack"
+                category = "reaction" if bp.is_reaction else "original"
+                total_original_quantity += quantity_value
+
             key = (bp.type_id, bp.material_efficiency, bp.time_efficiency, category)
-            if key not in stack_map:
-                # initialize counters for this combination
+            if key not in grouped:
                 bp.orig_quantity = 0
                 bp.copy_quantity = 0
-                bp.stack_quantity = 0
-                stack_map[key] = bp
+                bp.total_quantity = 0
+                bp.total_runs = 0
+                grouped[key] = bp
                 bp_items.append(bp)
-            agg = stack_map[key]
-            if activity_id == "9,11":
-                # count stacks by quantity and other entries as originals for reactions
-                if bp.is_stack:
-                    agg.stack_quantity += bp.quantity
-                else:
-                    agg.orig_quantity += 1
+
+            agg = grouped[key]
+            if category == "copy":
+                agg.copy_quantity += quantity_value
+                agg.total_runs += (bp.runs or 0) * max(quantity_value, 1)
             else:
-                if bp.is_original:
-                    # count each original entry
-                    agg.orig_quantity += 1
-                elif bp.is_copy:
-                    # count each blueprint copy entry
-                    agg.copy_quantity += 1
-                elif bp.is_stack:
-                    # sum all stack quantities
-                    agg.stack_quantity += bp.quantity
-        # Compute total quantity (originals + stacks) for each grouped blueprint
-        for bp in bp_items:
-            # total identical blueprints: originals + copies + stack quantities
-            bp.total_quantity = bp.orig_quantity + bp.copy_quantity + bp.stack_quantity
+                agg.orig_quantity += quantity_value
+
+            agg.total_quantity = agg.orig_quantity + agg.copy_quantity
+            agg.runs = agg.total_runs
         # Compute precise human-readable location path for each blueprint
         try:
             # Alliance Auth (External Libs)
             from eveuniverse.models import EveStation, EveStructure
-        except ImportError:
+        except (ImportError, RuntimeError, LookupError):
             EveStation = None
             EveStructure = None
 
@@ -202,25 +203,15 @@ def personnal_bp_list(request):
         for bp in bp_items:
             path = get_location_path(bp.location_id)
             bp.location_path = path if path else bp.location_flag
-            # flag reaction blueprints for template
-            bp.is_reaction = activity_id == "9,11"
         # Django pagination on grouped items
         # Django
         from django.core.paginator import Paginator
 
         paginator = Paginator(bp_items, per_page)
         blueprints_page = paginator.get_page(page)
-        total_blueprints = blueprints_qs.count()
-        originals_count = blueprints_qs.filter(quantity=-1).count()
-        copies_count = blueprints_qs.filter(quantity=-2).count()
-        stacks_count = 0
-        try:
-            if total_blueprints == 0:
-                stacks_count = 0
-            else:
-                stacks_count = blueprints_qs.filter(quantity__gt=0).count()
-        except Exception:
-            stacks_count = 0
+        total_blueprints = total_quantity
+        originals_count = total_original_quantity
+        copies_count = total_copy_quantity
         character_ids = (
             Blueprint.objects.filter(owner_user=request.user)
             .values_list("character_id", flat=True)
@@ -251,7 +242,6 @@ def personnal_bp_list(request):
                 "total_count": total_blueprints,
                 "original_count": originals_count,
                 "copy_count": copies_count,
-                "stack_blueprints": stacks_count,
                 "perfect_me_count": blueprints_qs.filter(
                     material_efficiency__gte=10
                 ).count(),
@@ -1296,7 +1286,8 @@ def bp_copy_request_page(request):
         qs = Blueprint.objects.none()
     else:
         qs = Blueprint.objects.filter(
-            owner_user_id__in=allowed_user_ids, quantity=-1
+            owner_user_id__in=allowed_user_ids,
+            bp_type=Blueprint.BPType.ORIGINAL,
         ).order_by("type_name", "material_efficiency", "time_efficiency")
     seen = set()
     bp_list = []
@@ -1348,7 +1339,10 @@ def bp_copy_request_page(request):
         from django.contrib.auth.models import User
 
         owner_ids = (
-            Blueprint.objects.filter(type_id=type_id, quantity=-1)
+            Blueprint.objects.filter(
+                type_id=type_id,
+                bp_type=Blueprint.BPType.ORIGINAL,
+            )
             .values_list("owner_user", flat=True)
             .distinct()
         )
@@ -1394,7 +1388,20 @@ def bp_copy_fulfill_requests(request):
         return render(
             request, "indy_hub/bp_copy_fulfill_requests.html", {"requests": []}
         )
-    my_bps = Blueprint.objects.filter(owner_user=request.user, quantity=-1)
+    my_bps_qs = Blueprint.objects.filter(
+        owner_user=request.user,
+        bp_type=Blueprint.BPType.ORIGINAL,
+    )
+    my_bps = list(my_bps_qs)
+
+    bp_index = defaultdict(list)
+    bp_item_map = {}
+
+    for bp in my_bps:
+        key = (bp.type_id, bp.material_efficiency, bp.time_efficiency)
+        bp_index[key].append(bp)
+        if bp.item_id is not None:
+            bp_item_map[bp.item_id] = key
 
     status_meta = {
         "awaiting_response": {
@@ -1440,7 +1447,7 @@ def bp_copy_fulfill_requests(request):
         "offer_rejected": 0,
     }
 
-    if not my_bps.exists():
+    if not my_bps:
         return render(
             request,
             "indy_hub/bp_copy_fulfill_requests.html",
@@ -1463,6 +1470,29 @@ def bp_copy_fulfill_requests(request):
             "indy_hub/bp_copy_fulfill_requests.html",
             {"requests": [], "metrics": metrics},
         )
+
+    def _init_occupancy():
+        return {"count": 0, "soonest_end": None}
+
+    occupancy_map = defaultdict(_init_occupancy)
+
+    def _update_soonest(info, end_date):
+        if end_date and (info["soonest_end"] is None or end_date < info["soonest_end"]):
+            info["soonest_end"] = end_date
+
+    blocking_activities = [1, 3, 4, 5, 8, 9]
+    active_jobs = IndustryJob.objects.filter(
+        owner_user=request.user,
+        status="active",
+        activity_id__in=blocking_activities,
+    ).only("blueprint_id", "blueprint_type_id", "end_date")
+
+    for job in active_jobs:
+        matched_key = bp_item_map.get(job.blueprint_id)
+        if matched_key is not None:
+            info = occupancy_map[matched_key]
+            info["count"] += 1
+            _update_soonest(info, job.end_date)
 
     offer_status_labels = {
         "accepted": _("Accepted"),
@@ -1497,6 +1527,19 @@ def bp_copy_fulfill_requests(request):
 
         status_key = "awaiting_response"
         can_mark_delivered = False
+
+        key = (req.type_id, req.material_efficiency, req.time_efficiency)
+        matching_blueprints = bp_index.get(key, [])
+        owned_blueprints = len(matching_blueprints)
+        direct_info = occupancy_map.get(key)
+        direct_count = direct_info["count"] if direct_info else 0
+        total_active_jobs = min(owned_blueprints, direct_count)
+        available_blueprints = max(owned_blueprints - total_active_jobs, 0)
+        busy_until = direct_info["soonest_end"] if direct_info else None
+        busy_overdue = bool(busy_until and busy_until < timezone.now())
+        all_copies_busy = (
+            owned_blueprints > 0 and available_blueprints == 0 and total_active_jobs > 0
+        )
 
         if is_self_request:
             status_key = "self_request"
@@ -1560,6 +1603,12 @@ def bp_copy_fulfill_requests(request):
                 "conditional_collapse_id": f"cond-{req.id}",
                 "can_mark_delivered": can_mark_delivered
                 and req.requested_by_id != request.user.id,
+                "owned_blueprints": owned_blueprints,
+                "available_blueprints": available_blueprints,
+                "active_copy_jobs": total_active_jobs,
+                "all_copies_busy": all_copies_busy,
+                "busy_until": busy_until,
+                "busy_overdue": busy_overdue,
             }
         )
 

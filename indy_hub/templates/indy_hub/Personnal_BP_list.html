@@ -14,8 +14,8 @@
 {% endblock extra_css %}
 
 {% block content %}
-<div class="container-fluid my-4 bg-body">
-    <div class="page-header mb-4">
+<div class="container-fluid my-4">
+    <div class="page-header page-header--surface mb-4">
         <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
             <div>
                 <h1 class="h2 mb-1">
@@ -101,15 +101,15 @@
     {% if blueprints %}
     <!-- Stats Summary -->
     <div class="row g-3 mb-4">
-        <div class="col-md-3">
+        <div class="col-md-4">
             <div class="stats-card">
                 <div class="card-body text-center">
                     <div class="h3 text-primary mb-1">{{ statistics.total_count|default:0 }}</div>
-                    <small class="text-muted fw-bold">{% trans "Total Blueprints" %}</small>
+                    <small class="text-muted fw-bold">{% trans "Total Quantity" %}</small>
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
+        <div class="col-md-4">
             <div class="stats-card">
                 <div class="card-body text-center">
                     <div class="h3 text-success mb-1">{{ statistics.original_count|default:0 }}</div>
@@ -117,7 +117,7 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
+        <div class="col-md-4">
             <div class="stats-card">
                 <div class="card-body text-center">
                     <div class="h3 text-info mb-1">{{ statistics.copy_count|default:0 }}</div>
@@ -125,46 +125,36 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
-            <div class="stats-card">
-                <div class="card-body text-center">
-                    <div class="h3 text-warning mb-1">{{ statistics.stack_blueprints|default:0 }}</div>
-                    <small class="text-muted fw-bold">{% trans "Blueprint Stacks" %}</small>
-                </div>
-            </div>
-        </div>
     </div>
-
     <!-- Blueprints Responsive List -->
     <div class="blueprint-list-group w-100">
         <div class="blueprint-list" id="blueprintsContainer">
             {% for bp in blueprints %}
             <div class="blueprint-item blueprint-list-item d-flex flex-wrap align-items-center gap-3"
                     data-type-id="{{ bp.type_id }}"
-                    data-type-name="{{ bp.type_name|default:'Unknown Blueprint' }}"
                     data-me="{{ bp.material_efficiency|default:0 }}"
                     data-te="{{ bp.time_efficiency|default:0 }}"
-                    data-runs="{% if bp.is_original %}-1{% else %}{{ bp.runs|default:0 }}{% endif %}"
+            data-runs="{% if bp.is_original or bp.is_reaction %}-1{% else %}{{ bp.runs|default:0 }}{% endif %}"
                     data-character-id="{{ bp.character_id }}"
-                    data-quantity="{{ bp.quantity|default:1 }}">
+            data-quantity="{{ bp.total_quantity|default:1 }}">
                 <!-- Blueprint icon -->
                 <div class="blueprint-icon flex-shrink-0 me-3">
-                    {% comment %} Reaction BPs always show original icon {% endcomment %}
-                    {% if bp.is_reaction %}
-                    <img src="https://images.evetech.net/types/{{ bp.type_id }}/bp?size=64"
-                        alt="{{ bp.type_name|default:'Blueprint Reaction' }}" loading="lazy"
-                        onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
-                    {% else %}
-                        {% if bp.is_original %}
+                        {% comment %} Reaction BPs always show original icon {% endcomment %}
+                        {% if bp.is_reaction %}
                         <img src="https://images.evetech.net/types/{{ bp.type_id }}/bp?size=64"
-                            alt="{{ bp.type_name|default:'Blueprint Original' }}" loading="lazy"
+                            alt="{{ bp.type_name|default:'Blueprint Reaction' }}" loading="lazy"
                             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
                         {% else %}
-                        <img src="https://images.evetech.net/types/{{ bp.type_id }}/bpc?size=64"
-                            alt="{{ bp.type_name|default:'Blueprint Copy' }}" loading="lazy"
-                            onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
+                            {% if bp.is_original %}
+                            <img src="https://images.evetech.net/types/{{ bp.type_id }}/bp?size=64"
+                                alt="{{ bp.type_name|default:'Blueprint Original' }}" loading="lazy"
+                                onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
+                            {% else %}
+                            <img src="https://images.evetech.net/types/{{ bp.type_id }}/bpc?size=64"
+                                alt="{{ bp.type_name|default:'Blueprint Copy' }}" loading="lazy"
+                                onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
+                            {% endif %}
                         {% endif %}
-                    {% endif %}
                 </div>
 
                 <div class="flex-grow-1 min-width-0 blueprint-list-content">
@@ -174,7 +164,7 @@
                             {% if bp.is_reaction %}
                                 <span class="type-badge reaction"><i class="fas fa-flask"></i> {% trans 'Reaction' %}</span>
                                 <span class="runs-badge"><i class="fas fa-infinity me-1"></i>{% trans 'unlimited' %}</span>
-                                <span class="type-badge stack"><i class="fas fa-layer-group"></i> {{ bp.total_quantity }}</span>
+                                <span class="type-badge quantity"><i class="fas fa-layer-group"></i> {{ bp.total_quantity }}</span>
                             {% else %}
                                 {% if bp.orig_quantity > 0 %}
                                     <span class="type-badge original"><i class="fas fa-certificate"></i> {{ bp.orig_quantity }} {% trans 'Original' %}</span>
@@ -187,7 +177,7 @@
                                     {% endif %}
                                 {% endif %}
                                 {% if bp.total_quantity > 0 %}
-                                    <span class="type-badge stack"><i class="fas fa-layer-group"></i> {{ bp.total_quantity }}</span>
+                                    <span class="type-badge quantity"><i class="fas fa-layer-group"></i> {{ bp.total_quantity }}</span>
                                 {% endif %}
                             {% endif %}
                         </div>
@@ -200,6 +190,7 @@
                         {# Remove location display #}
                         {# <span class="location-tag ms-2"><i class="fas fa-map-marker-alt me-1"></i>{{ bp.location_path }}</span> #}
                     </div>
+                    {% if not bp.is_reaction %}
                     <div class="efficiency-grid d-flex flex-wrap gap-4 align-items-center mb-1">
                         <div class="efficiency-item">
                             <span class="efficiency-label">ME</span>
@@ -216,6 +207,7 @@
                             </div>
                         </div>
                     </div>
+                    {% endif %}
                 </div>
             </div>
             {% endfor %}
@@ -310,7 +302,7 @@
         <ul class="list-inline">
             <li class="list-inline-item"><span class="type-badge original"><i class="fas fa-certificate"></i></span> {% trans "Original blueprint" %}</li>
             <li class="list-inline-item"><span class="type-badge copy"><i class="fas fa-clone"></i></span> {% trans "Blueprint copy" %}</li>
-            <li class="list-inline-item"><span class="type-badge stack"><i class="fas fa-layer-group"></i></span> {% trans "Identical blueprints count" %}</li>
+            <li class="list-inline-item"><span class="type-badge quantity"><i class="fas fa-layer-group"></i></span> {% trans "Quantity of identical blueprints" %}</li>
             <li class="list-inline-item"><span class="runs-badge"><i class="fas fa-play me-1"></i></span> {% trans "Runs left" %}</li>
             <li class="list-inline-item"><span class="runs-badge"><i class="fas fa-infinity me-1"></i></span> {% trans "Unlimited runs" %}</li>
         </ul>

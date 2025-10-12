@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 _TYPE_NAME_CACHE: dict[int, str] = {}
 _CHAR_NAME_CACHE: dict[int, str] = {}
 _BP_PRODUCT_CACHE: dict[int, int | None] = {}
+_REACTION_CACHE: dict[int, bool] = {}
 
 
 def get_type_name(type_id: int | None) -> str:
@@ -132,3 +133,31 @@ def get_blueprint_product_type_id(blueprint_type_id: int | None) -> int | None:
 
     _BP_PRODUCT_CACHE[blueprint_type_id] = product_id
     return product_id
+
+
+def is_reaction_blueprint(blueprint_type_id: int | None) -> bool:
+    """Return True when the blueprint is associated with a reaction activity."""
+    if not blueprint_type_id:
+        return False
+
+    blueprint_type_id = int(blueprint_type_id)
+    if blueprint_type_id in _REACTION_CACHE:
+        return _REACTION_CACHE[blueprint_type_id]
+
+    if EveIndustryActivityProduct is None:
+        value = False
+    else:
+        try:
+            value = EveIndustryActivityProduct.objects.filter(
+                eve_type_id=blueprint_type_id, activity_id__in=[9, 11]
+            ).exists()
+        except Exception:  # pragma: no cover - defensive fallback
+            logger.debug(
+                "Impossible de déterminer l'activité pour le blueprint %s",
+                blueprint_type_id,
+                exc_info=True,
+            )
+            value = False
+
+    _REACTION_CACHE[blueprint_type_id] = value
+    return value

@@ -152,8 +152,28 @@
 
                         <p class="text-muted small mb-0">{{ req.status_hint }}</p>
 
+                        {% if req.all_copies_busy %}
+                        <div class="alert bg-danger border-danger text-white py-2 px-3 small mb-0">
+                            <i class="fas fa-stopwatch me-1"></i>
+                            {% if req.busy_until %}
+                                {% if req.busy_overdue %}
+                                    {% blocktrans trimmed with busy=req.busy_until|naturaltime %}
+                                    The latest copy job finished {{ busy }}, but it's still marked active in game. Deliver it to free this original.
+                                    {% endblocktrans %}
+                                {% else %}
+                                    {% blocktrans trimmed with busy=req.busy_until|naturaltime %}
+                                    All matching originals are busy. Next copy slot frees {{ busy }}.
+                                    {% endblocktrans %}
+                                {% endif %}
+                                <span class="d-block text-muted fw-semibold mt-1">{{ req.busy_until|date:"Y-m-d H:i" }} {% trans "EVE time" %}</span>
+                            {% else %}
+                            {% trans "All matching originals are currently running copy jobs." %}
+                            {% endif %}
+                        </div>
+                        {% endif %}
+
                         {% if req.is_self_request %}
-                        <div class="alert bg-warning-subtle border-warning-subtle text-dark py-2 px-3 small mb-0">
+                        <div class="alert bg-info border-info text-white py-2 px-3 small mb-0">
                             <i class="fas fa-info-circle me-1"></i>
                             {% trans "This request is yours. You can follow its progress here, but responses are disabled." %}
                         </div>

@@ -4,7 +4,7 @@ from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
 
-from .utils.eve import get_blueprint_product_type_id
+from .utils.eve import get_blueprint_product_type_id, is_reaction_blueprint
 
 
 class BlueprintManager(models.Manager):
@@ -20,6 +20,11 @@ class IndustryJobManager(models.Manager):
 
 
 class Blueprint(models.Model):
+    class BPType(models.TextChoices):
+        REACTION = "REACTION", "Reaction"
+        ORIGINAL = "ORIGINAL", "Original"
+        COPY = "COPY", "Copy"
+
     owner_user = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name="blueprints"
     )
@@ -30,6 +35,11 @@ class Blueprint(models.Model):
     location_id = models.BigIntegerField()
     location_flag = models.CharField(max_length=50)
     quantity = models.IntegerField()
+    bp_type = models.CharField(
+        max_length=16,
+        choices=BPType.choices,
+        default=BPType.ORIGINAL,
+    )
     time_efficiency = models.IntegerField(default=0)
     material_efficiency = models.IntegerField(default=0)
     runs = models.IntegerField(default=0)
@@ -42,6 +52,7 @@ class Blueprint(models.Model):
     class Meta:
         verbose_name = "Blueprint"
         verbose_name_plural = "Blueprints"
+        db_table = "indy_hub_indyblueprint"
         indexes = [
             models.Index(
                 fields=["character_id", "type_id"],
@@ -62,27 +73,27 @@ class Blueprint(models.Model):
 
     @property
     def is_original(self):
-        return self.quantity == -1
+        return self.bp_type == self.BPType.ORIGINAL
 
     @property
     def is_copy(self):
-        return self.quantity == -2
+        return self.bp_type in {self.BPType.COPY, "STACK"}
 
     @property
-    def is_stack(self):
-        return self.quantity > 0
+    def is_reaction(self):
+        return self.bp_type == self.BPType.REACTION
 
     @property
     def quantity_display(self):
         """Human-readable quantity display"""
-        if self.quantity == -1:
+        if self.is_reaction:
+            return "Reaction"
+        if self.is_original:
             return "Original"
-        elif self.quantity == -2:
-            return "Copy"
-        elif self.quantity > 0:
-            return f"Stack of {self.quantity}"
-        else:
-            return "Unknown"
+        if self.is_copy:
+            runs = self.runs or 0
+            return f"Copy ({runs} runs)" if runs else "Copy"
+        return "Unknown"
 
     @property
     def product_type_id(self):
@@ -122,6 +133,40 @@ class Blueprint(models.Model):
     def te_progress_percentage(self):
         """Returns TE progress as percentage (0-100) for progress bar"""
         return int(min(100, (self.time_efficiency / 20.0) * 100))
+
+    @classmethod
+    def classify_bp_type(
+        cls,
+        *,
+        quantity: int | None,
+        type_name: str | None,
+        type_id: int | None,
+    ) -> str:
+        if type_id and is_reaction_blueprint(type_id):
+            return cls.BPType.REACTION
+
+        name = (type_name or "").lower()
+        if "formula" in name or "reaction" in name:
+            return cls.BPType.REACTION
+
+        if quantity == -2:
+            return cls.BPType.COPY
+        if quantity == -1:
+            return cls.BPType.ORIGINAL
+        if quantity and quantity > 0:
+            return cls.BPType.COPY
+
+        return cls.BPType.ORIGINAL
+
+    def save(self, *args, **kwargs):
+        self.bp_type = self.classify_bp_type(
+            quantity=self.quantity,
+            type_name=self.type_name,
+            type_id=self.type_id,
+        )
+        if self.bp_type == "STACK":
+            self.bp_type = self.BPType.COPY
+        super().save(*args, **kwargs)
 
 
 class IndustryJob(models.Model):

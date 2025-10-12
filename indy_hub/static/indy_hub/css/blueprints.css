@@ -307,7 +307,7 @@
     --bp-badge-border: var(--bs-success-border-subtle, rgba(var(--bs-success-rgb), 0.35));
 }
 
-.type-badge.stack {
+.type-badge.quantity {
     --bp-badge-bg: var(--bs-warning-bg-subtle, rgba(var(--bs-warning-rgb), 0.24));
     --bp-badge-color: var(--bs-warning-text-emphasis, var(--bs-warning));
     --bp-badge-border: var(--bs-warning-border-subtle, rgba(var(--bs-warning-rgb), 0.42));
