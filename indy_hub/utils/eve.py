@@ -48,6 +48,20 @@ _LOCATION_NAME_CACHE: dict[int, str] = {}
 PLACEHOLDER_PREFIX = "Structure "
 _STRUCTURE_SCOPE = "esi-universe.read_structures.v1"
 _FALLBACK_STRUCTURE_TOKEN_IDS: list[int] | None = None
+_STATION_ID_MAX = 100_000_000
+
+
+def is_station_id(location_id: int | None) -> bool:
+    """Return True when the identifier belongs to an NPC station."""
+
+    if location_id is None:
+        return False
+
+    try:
+        return int(location_id) < _STATION_ID_MAX
+    except (TypeError, ValueError):  # pragma: no cover - defensive parsing
+        logger.debug("Unable to coerce %s into an integer station id", location_id)
+        return False
 
 
 def get_type_name(type_id: int | None) -> str:
@@ -275,54 +289,56 @@ def resolve_location_name(
             return db_name
 
     name: str | None = None
+    is_station = is_station_id(structure_id)
 
-    if character_id:
-        try:
-            name = shared_client.fetch_structure_name(structure_id, character_id)
-        except ESITokenError:
-            logger.debug(
-                "Character %s lacks esi-universe.read_structures scope for %s",
-                character_id,
-                structure_id,
-            )
-        except ESIClientError as exc:  # pragma: no cover - defensive fallback
-            logger.debug(
-                "Authenticated structure lookup failed for %s: %s",
-                structure_id,
-                exc,
-            )
-
-    if not name:
-        for fallback_character_id in _get_structure_scope_token_ids():
-            if fallback_character_id == character_id:
-                continue
+    if not is_station:
+        if character_id:
             try:
-                name = shared_client.fetch_structure_name(
-                    structure_id, fallback_character_id
-                )
+                name = shared_client.fetch_structure_name(structure_id, character_id)
             except ESITokenError:
                 logger.debug(
-                    "Token for fallback character %s invalid when resolving %s",
-                    fallback_character_id,
+                    "Character %s lacks esi-universe.read_structures scope for %s",
+                    character_id,
                     structure_id,
                 )
-                _invalidate_structure_scope_token_cache()
-                continue
-            except ESIClientError as exc:  # pragma: no cover
+            except ESIClientError as exc:  # pragma: no cover - defensive fallback
                 logger.debug(
-                    "Fallback structure lookup failed for %s via %s: %s",
+                    "Authenticated structure lookup failed for %s: %s",
                     structure_id,
-                    fallback_character_id,
                     exc,
                 )
-                continue
 
-            if name:
-                break
+        if not name:
+            for fallback_character_id in _get_structure_scope_token_ids():
+                if fallback_character_id == character_id:
+                    continue
+                try:
+                    name = shared_client.fetch_structure_name(
+                        structure_id, fallback_character_id
+                    )
+                except ESITokenError:
+                    logger.debug(
+                        "Token for fallback character %s invalid when resolving %s",
+                        fallback_character_id,
+                        structure_id,
+                    )
+                    _invalidate_structure_scope_token_cache()
+                    continue
+                except ESIClientError as exc:  # pragma: no cover
+                    logger.debug(
+                        "Fallback structure lookup failed for %s via %s: %s",
+                        structure_id,
+                        fallback_character_id,
+                        exc,
+                    )
+                    continue
+
+                if name:
+                    break
 
     params = {"datasource": "tranquility"}
 
-    if not name:
+    if not name and not is_station:
         try:
             response = requests.get(
                 f"{ESI_BASE_URL}/universe/structures/{structure_id}/",

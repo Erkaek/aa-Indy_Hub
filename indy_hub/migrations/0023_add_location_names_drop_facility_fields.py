@@ -10,7 +10,11 @@ from django.db import migrations, models
 
 # AA Example App
 # Indy Hub
-from indy_hub.utils.eve import PLACEHOLDER_PREFIX, resolve_location_name
+from indy_hub.utils.eve import (
+    PLACEHOLDER_PREFIX,
+    is_station_id,
+    resolve_location_name,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -124,11 +128,14 @@ def populate_location_names(apps, schema_editor):
                 break
 
         if not name or _is_placeholder(name):
+            refresh_lookup = bool(name and _is_placeholder(name))
+            if refresh_lookup and is_station_id(location_id):
+                refresh_lookup = False
             try:
                 name = resolve_location_name(
                     location_id,
                     character_id=None,
-                    force_refresh=bool(name and _is_placeholder(name)),
+                    force_refresh=refresh_lookup,
                 )
             except Exception:  # pragma: no cover - defensive fallback
                 logger.debug(
