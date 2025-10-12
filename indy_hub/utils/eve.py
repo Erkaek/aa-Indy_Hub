@@ -49,6 +49,7 @@ PLACEHOLDER_PREFIX = "Structure "
 _STRUCTURE_SCOPE = "esi-universe.read_structures.v1"
 _FALLBACK_STRUCTURE_TOKEN_IDS: list[int] | None = None
 _STATION_ID_MAX = 100_000_000
+_MAX_STRUCTURE_FALLBACK_ATTEMPTS = 10
 
 
 def is_station_id(location_id: int | None) -> bool:
@@ -309,7 +310,9 @@ def resolve_location_name(
                 )
 
         if not name:
-            for fallback_character_id in _get_structure_scope_token_ids():
+            for attempt_index, fallback_character_id in enumerate(
+                _get_structure_scope_token_ids(), start=1
+            ):
                 if fallback_character_id == character_id:
                     continue
                 try:
@@ -334,6 +337,14 @@ def resolve_location_name(
                     continue
 
                 if name:
+                    break
+
+                if attempt_index >= _MAX_STRUCTURE_FALLBACK_ATTEMPTS:
+                    logger.debug(
+                        "Stopping fallback lookups for %s after %s attempts",
+                        structure_id,
+                        attempt_index,
+                    )
                     break
 
     params = {"datasource": "tranquility"}
