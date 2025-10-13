@@ -232,6 +232,19 @@
     border-color: rgba(var(--bs-info-rgb), 0.45);
 }
 
+[data-bs-theme="dark"] .btn.btn-outline-info.btn-sm {
+    color: var(--bs-light, #f8f9fa);
+    background: rgba(var(--bs-info-rgb), 0.35);
+    border-color: rgba(var(--bs-info-rgb), 0.55);
+}
+
+[data-bs-theme="dark"] .btn.btn-outline-info.btn-sm:hover,
+[data-bs-theme="dark"] .btn.btn-outline-info.btn-sm:focus {
+    color: var(--bs-light, #f8f9fa);
+    background: rgba(var(--bs-info-rgb), 0.45);
+    border-color: rgba(var(--bs-info-rgb), 0.65);
+}
+
 /* Hover state: slightly darker gradient */
 
 .blueprint-meta .btn-outline-info.btn-sm:hover {
@@ -340,6 +353,12 @@
     background: var(--bp-badge-bg);
     color: var(--bp-badge-color);
     border: 1px solid var(--bp-badge-border);
+}
+
+[data-bs-theme="dark"] .runs-badge {
+    background: rgba(var(--bs-light-rgb), 0.88);
+    color: #000;
+    border-color: rgba(var(--bs-light-rgb), 0.75);
 }
 
 /* Efficiency grid and items */

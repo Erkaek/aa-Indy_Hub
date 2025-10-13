@@ -25,7 +25,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.db import connection
-from django.db.models import Q, Sum
+from django.db.models import Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -45,10 +45,69 @@ from ..models import (
     ProductionSimulation,
 )
 from ..notifications import notify_user
+from ..services.simulations import summarize_simulations
 from ..tasks.industry import update_blueprints_for_user, update_industry_jobs_for_user
 from ..utils.eve import get_character_name, get_type_name
 
 logger = logging.getLogger(__name__)
+
+
+def _eligible_owner_ids_for_request(req: BlueprintCopyRequest) -> set[int]:
+    """Return user IDs that can fulfil the request based on owned originals."""
+
+    eligible_owner_ids = (
+        Blueprint.objects.filter(
+            owner_user__charactersettings__character_id=0,
+            owner_user__charactersettings__allow_copy_requests=True,
+            bp_type__in=[Blueprint.BPType.ORIGINAL, Blueprint.BPType.REACTION],
+            type_id=req.type_id,
+            material_efficiency=req.material_efficiency,
+            time_efficiency=req.time_efficiency,
+        )
+        .exclude(owner_user_id=req.requested_by_id)
+        .values_list("owner_user_id", flat=True)
+        .distinct()
+    )
+    return set(eligible_owner_ids)
+
+
+def _finalize_request_if_all_rejected(req: BlueprintCopyRequest) -> bool:
+    """Notify requester and delete request if all eligible providers rejected."""
+
+    eligible_owner_ids = _eligible_owner_ids_for_request(req)
+    offers_by_owner = dict(
+        req.offers.filter(owner_id__in=eligible_owner_ids).values_list(
+            "owner_id", "status"
+        )
+    )
+
+    if eligible_owner_ids:
+        outstanding = [
+            owner_id
+            for owner_id in eligible_owner_ids
+            if offers_by_owner.get(owner_id) != "rejected"
+        ]
+        if outstanding:
+            return False
+    else:
+        # No eligible providers configured; treat as fully rejected.
+        pass
+
+    notify_user(
+        req.requested_by,
+        _("Blueprint Copy Request Unavailable"),
+        _(
+            "All available builders declined your request for %(type)s (ME%(me)d, TE%(te)d)."
+        )
+        % {
+            "type": get_type_name(req.type_id),
+            "me": req.material_efficiency,
+            "te": req.time_efficiency,
+        },
+        "warning",
+    )
+    req.delete()
+    return True
 
 
 # --- Blueprint and job views ---
@@ -1526,8 +1585,9 @@ def bp_copy_request_page(request):
         type_id = int(request.POST.get("type_id", 0))
         me = int(request.POST.get("material_efficiency", 0))
         te = int(request.POST.get("time_efficiency", 0))
-        runs = int(request.POST.get("runs_requested", 1))
-        copies = int(request.POST.get("copies_requested", 1))
+        runs = max(1, int(request.POST.get("runs_requested", 1)))
+        copies = max(1, int(request.POST.get("copies_requested", 1)))
+
         BlueprintCopyRequest.objects.create(
             type_id=type_id,
             material_efficiency=me,
@@ -1536,6 +1596,9 @@ def bp_copy_request_page(request):
             runs_requested=runs,
             copies_requested=copies,
         )
+
+        flash_message = _("Copy request sent.")
+        flash_level = messages.success
         # Django
         from django.contrib.auth.models import User
 
@@ -1547,14 +1610,27 @@ def bp_copy_request_page(request):
             .values_list("owner_user", flat=True)
             .distinct()
         )
-        for owner in User.objects.filter(id__in=owner_ids):
-            notify_user(
-                owner,
-                "New blueprint copy request",
-                f"{request.user.username} requested a copy of {get_type_name(type_id)} (ME{me}, TE{te})",
-                "info",
+        notification_context = {
+            "username": request.user.username,
+            "type_name": get_type_name(type_id),
+            "me": me,
+            "te": te,
+            "runs": runs,
+            "copies": copies,
+        }
+
+        notification_title = _("New blueprint copy request")
+        notification_body = (
+            _(
+                "%(username)s requested a copy of %(type_name)s (ME%(me)s, TE%(te)s) — %(runs)s runs, %(copies)s copies requested."
             )
-        messages.success(request, "Copy request sent.")
+            % notification_context
+        )
+
+        for owner in User.objects.filter(id__in=owner_ids):
+            notify_user(owner, notification_title, notification_body, "info")
+
+        flash_level(request, flash_message)
         return redirect("indy_hub:bp_copy_request_page")
     return render(
         request,
@@ -1726,6 +1802,10 @@ def bp_copy_fulfill_requests(request):
             # Already delivered or fulfilled by someone else
             continue
 
+        if my_offer and my_offer.status == "rejected":
+            # Player already declined this request; hide from their fulfill queue
+            continue
+
         status_key = "awaiting_response"
         can_mark_delivered = False
 
@@ -1868,7 +1948,13 @@ def bp_offer_copy_request(request, request_id):
         offer.message = message
         offer.accepted_by_buyer = False
         offer.save()
-        messages.success(request, "Offer rejected.")
+        if _finalize_request_if_all_rejected(req):
+            messages.success(
+                request,
+                _("Offer rejected. Requester notified that no builders are available."),
+            )
+        else:
+            messages.success(request, "Offer rejected.")
     return redirect("indy_hub:bp_copy_fulfill_requests")
 
 
@@ -1989,6 +2075,67 @@ def bp_mark_copy_delivered(request, request_id):
     )
     messages.success(request, "Request marked as delivered.")
     return redirect("indy_hub:bp_copy_fulfill_requests")
+
+
+@indy_hub_access_required
+@login_required
+def bp_update_copy_request(request, request_id):
+    """Allow requester to update runs / copies for an open request."""
+    if request.method != "POST":
+        messages.error(request, _("You can only update a request via POST."))
+        return redirect("indy_hub:bp_copy_my_requests")
+
+    req = get_object_or_404(
+        BlueprintCopyRequest,
+        id=request_id,
+        requested_by=request.user,
+        fulfilled=False,
+    )
+
+    try:
+        runs = max(1, int(request.POST.get("runs_requested", req.runs_requested)))
+        copies = max(1, int(request.POST.get("copies_requested", req.copies_requested)))
+    except (TypeError, ValueError):
+        messages.error(request, _("Invalid values provided for the request update."))
+        return redirect("indy_hub:bp_copy_my_requests")
+
+    req.runs_requested = runs
+    req.copies_requested = copies
+    req.save(update_fields=["runs_requested", "copies_requested"])
+
+    # Django
+    from django.contrib.auth.models import User
+
+    owner_ids = (
+        Blueprint.objects.filter(
+            type_id=req.type_id,
+            bp_type=Blueprint.BPType.ORIGINAL,
+        )
+        .values_list("owner_user", flat=True)
+        .distinct()
+    )
+
+    notification_context = {
+        "username": request.user.username,
+        "type_name": get_type_name(req.type_id),
+        "me": req.material_efficiency,
+        "te": req.time_efficiency,
+        "runs": runs,
+        "copies": copies,
+    }
+    notification_title = _("Updated blueprint copy request")
+    notification_body = (
+        _(
+            "%(username)s updated their request for %(type_name)s (ME%(me)s, TE%(te)s): %(runs)s runs, %(copies)s copies."
+        )
+        % notification_context
+    )
+
+    for owner in User.objects.filter(id__in=owner_ids):
+        notify_user(owner, notification_title, notification_body, "info")
+
+    messages.success(request, _("Request updated."))
+    return redirect("indy_hub:bp_copy_my_requests")
 
 
 @indy_hub_access_required
@@ -2178,24 +2325,7 @@ def production_simulations_list(request):
         )
 
     # Préparer les statistiques agrégées pour l'affichage HTML
-    total_simulations = simulations.count()
-    stats_raw = simulations.aggregate(
-        total_runs=Sum("runs"),
-        total_items=Sum("total_items"),
-        total_buy_items=Sum("total_buy_items"),
-        total_prod_items=Sum("total_prod_items"),
-        total_cost=Sum("estimated_cost"),
-        total_revenue=Sum("estimated_revenue"),
-        total_profit=Sum("estimated_profit"),
-    )
-    stats = {key: (stats_raw.get(key) or 0) for key in stats_raw}
-    stats["average_profit"] = (
-        stats["total_profit"] / total_simulations
-        if total_simulations and stats["total_profit"]
-        else 0
-    )
-    latest_simulation = simulations.first()
-    stats["latest_update"] = latest_simulation.updated_at if latest_simulation else None
+    total_simulations, stats = summarize_simulations(simulations)
 
     # Sinon, affichage HTML normal
     # Pagination

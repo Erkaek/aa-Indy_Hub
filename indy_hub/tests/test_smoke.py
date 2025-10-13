@@ -23,7 +23,9 @@ from indy_hub.models import (
     CharacterSettings,
     IndustryJob,
 )
-from indy_hub.utils.eve import get_type_name
+from indy_hub.services.esi_client import ESIForbiddenError
+from indy_hub.utils import eve as eve_utils
+from indy_hub.utils.eve import get_type_name, reset_forbidden_structure_lookup_cache
 
 
 def assign_main_character(user: User, *, character_id: int) -> EveCharacter:
@@ -215,6 +217,128 @@ class BlueprintCopyFulfillViewTests(TestCase):
         self.assertEqual(requests[0]["status_key"], "self_request")
         self.assertFalse(requests[0]["show_offer_actions"])
         self.assertFalse(requests[0]["can_mark_delivered"])
+
+    def test_rejected_offer_hidden_from_queue(self) -> None:
+        blueprint = Blueprint.objects.create(
+            owner_user=self.user,
+            character_id=44,
+            item_id=2101,
+            blueprint_id=3101,
+            type_id=999001,
+            location_id=4101,
+            location_flag="hangar",
+            quantity=-1,
+            time_efficiency=12,
+            material_efficiency=9,
+            runs=0,
+            character_name="Capsuleer",
+            type_name="Hidden Blueprint",
+        )
+        buyer = User.objects.create_user("rejecting_requester", password="test12345")
+        request_obj = BlueprintCopyRequest.objects.create(
+            type_id=blueprint.type_id,
+            material_efficiency=blueprint.material_efficiency,
+            time_efficiency=blueprint.time_efficiency,
+            requested_by=buyer,
+            runs_requested=1,
+            copies_requested=1,
+        )
+        BlueprintCopyOffer.objects.create(
+            request=request_obj,
+            owner=self.user,
+            status="rejected",
+            message="No time",
+        )
+
+        response = self.client.get(reverse("indy_hub:bp_copy_fulfill_requests"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["requests"], [])
+        self.assertEqual(response.context["metrics"]["total"], 0)
+
+    def test_requester_notified_when_all_providers_reject(self) -> None:
+        blueprint = Blueprint.objects.create(
+            owner_user=self.user,
+            character_id=45,
+            item_id=2201,
+            blueprint_id=3201,
+            type_id=999002,
+            location_id=4201,
+            location_flag="hangar",
+            quantity=-1,
+            time_efficiency=10,
+            material_efficiency=6,
+            runs=0,
+            character_name="Capsuleer",
+            type_name="Shared Blueprint",
+        )
+        other_provider = User.objects.create_user(
+            "second_builder", password="test12345"
+        )
+        assign_main_character(other_provider, character_id=101005)
+        CharacterSettings.objects.create(
+            user=other_provider,
+            character_id=0,
+            allow_copy_requests=True,
+            copy_sharing_scope=CharacterSettings.SCOPE_CORPORATION,
+        )
+        permission = Permission.objects.get(codename="can_access_indy_hub")
+        other_provider.user_permissions.add(permission)
+        Blueprint.objects.create(
+            owner_user=other_provider,
+            character_id=55,
+            item_id=2202,
+            blueprint_id=3202,
+            type_id=blueprint.type_id,
+            location_id=4202,
+            location_flag="hangar",
+            quantity=-1,
+            time_efficiency=blueprint.time_efficiency,
+            material_efficiency=blueprint.material_efficiency,
+            runs=0,
+            character_name="Second Builder",
+            type_name="Shared Blueprint",
+        )
+        requester = User.objects.create_user("bp_customer", password="request123")
+        assign_main_character(requester, character_id=201001)
+        request_obj = BlueprintCopyRequest.objects.create(
+            type_id=blueprint.type_id,
+            material_efficiency=blueprint.material_efficiency,
+            time_efficiency=blueprint.time_efficiency,
+            requested_by=requester,
+            runs_requested=2,
+            copies_requested=1,
+        )
+
+        with patch("indy_hub.views.industry.notify_user") as mock_notify:
+            response = self.client.post(
+                reverse("indy_hub:bp_offer_copy_request", args=[request_obj.id]),
+                {"action": "reject", "message": "Can't right now"},
+            )
+            self.assertRedirects(response, reverse("indy_hub:bp_copy_fulfill_requests"))
+            self.assertTrue(
+                BlueprintCopyRequest.objects.filter(id=request_obj.id).exists()
+            )
+            mock_notify.assert_not_called()
+
+            self.client.logout()
+            self.client.force_login(other_provider)
+            response = self.client.post(
+                reverse("indy_hub:bp_offer_copy_request", args=[request_obj.id]),
+                {"action": "reject", "message": "Also unavailable"},
+            )
+            self.assertRedirects(response, reverse("indy_hub:bp_copy_fulfill_requests"))
+
+            self.assertFalse(
+                BlueprintCopyRequest.objects.filter(id=request_obj.id).exists()
+            )
+            mock_notify.assert_called_once()
+            args, kwargs = mock_notify.call_args
+            self.assertEqual(args[0], requester)
+            self.assertIn("declined", str(args[2]))
+
+        self.client.logout()
+        self.client.force_login(self.user)
 
     def test_busy_blueprints_flagged_in_context(self) -> None:
         blueprint = Blueprint.objects.create(
@@ -541,6 +665,196 @@ class BlueprintCopyFulfillViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["requests"], [])
         self.assertEqual(response.context["metrics"]["total"], 0)
+
+
+class BlueprintCopyRequestPageTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("requester", password="secret123")
+        assign_main_character(self.user, character_id=103001)
+        permission = Permission.objects.get(codename="can_access_indy_hub")
+        self.user.user_permissions.add(permission)
+        self.client.force_login(self.user)
+
+        self.owner = User.objects.create_user("supplier", password="supply123")
+        Blueprint.objects.create(
+            owner_user=self.owner,
+            character_id=501,
+            item_id=9050001,
+            blueprint_id=9050002,
+            type_id=605001,
+            location_id=705001,
+            location_flag="hangar",
+            quantity=-1,
+            time_efficiency=12,
+            material_efficiency=8,
+            runs=0,
+            character_name="Supplier",
+            type_name="Duplicated Widget Blueprint",
+        )
+
+    def test_duplicate_submission_creates_additional_request(self) -> None:
+        url = reverse("indy_hub:bp_copy_request_page")
+        post_data = {
+            "type_id": 605001,
+            "material_efficiency": 8,
+            "time_efficiency": 12,
+            "runs_requested": 2,
+            "copies_requested": 1,
+        }
+
+        with patch("indy_hub.views.industry.notify_user") as mock_notify:
+            response = self.client.post(url, post_data)
+            self.assertRedirects(response, url)
+
+            initial_requests = BlueprintCopyRequest.objects.filter(
+                type_id=605001,
+                material_efficiency=8,
+                time_efficiency=12,
+                requested_by=self.user,
+                fulfilled=False,
+            )
+            self.assertEqual(initial_requests.count(), 1)
+            first_request = initial_requests.first()
+            self.assertIsNotNone(first_request)
+            self.assertEqual(first_request.runs_requested, 2)
+            self.assertEqual(first_request.copies_requested, 1)
+
+            followup_data = {
+                "type_id": 605001,
+                "material_efficiency": 8,
+                "time_efficiency": 12,
+                "runs_requested": 3,
+                "copies_requested": 2,
+            }
+            response = self.client.post(url, followup_data)
+            self.assertRedirects(response, url)
+
+            open_requests = BlueprintCopyRequest.objects.filter(
+                type_id=605001,
+                material_efficiency=8,
+                time_efficiency=12,
+                requested_by=self.user,
+                fulfilled=False,
+            )
+
+            self.assertEqual(open_requests.count(), 2)
+            self.assertEqual(mock_notify.call_count, 2)
+
+
+class BlueprintCopyMyRequestsTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("buyer", password="secret123")
+        assign_main_character(self.user, character_id=104001)
+        permission = Permission.objects.get(codename="can_access_indy_hub")
+        self.user.user_permissions.add(permission)
+        self.client.force_login(self.user)
+
+        self.provider = User.objects.create_user("seller", password="sell123")
+        CharacterSettings.objects.create(
+            user=self.provider,
+            character_id=0,
+            allow_copy_requests=True,
+            copy_sharing_scope=CharacterSettings.SCOPE_CORPORATION,
+        )
+        Blueprint.objects.create(
+            owner_user=self.provider,
+            character_id=8801,
+            item_id=50001,
+            blueprint_id=60001,
+            type_id=700001,
+            location_id=123456,
+            location_flag="hangar",
+            quantity=-1,
+            time_efficiency=10,
+            material_efficiency=8,
+            runs=0,
+            character_name="Provider",
+            type_name="Sample Blueprint",
+        )
+
+    def test_update_requires_post(self) -> None:
+        request_obj = BlueprintCopyRequest.objects.create(
+            type_id=700001,
+            material_efficiency=8,
+            time_efficiency=10,
+            requested_by=self.user,
+            runs_requested=2,
+            copies_requested=1,
+        )
+
+        response = self.client.get(
+            reverse("indy_hub:bp_update_copy_request", args=[request_obj.id])
+        )
+
+        self.assertRedirects(response, reverse("indy_hub:bp_copy_my_requests"))
+        request_obj.refresh_from_db()
+        self.assertEqual(request_obj.runs_requested, 2)
+        self.assertEqual(request_obj.copies_requested, 1)
+
+    def test_update_changes_runs_and_copies_and_notifies(self) -> None:
+        request_obj = BlueprintCopyRequest.objects.create(
+            type_id=700001,
+            material_efficiency=8,
+            time_efficiency=10,
+            requested_by=self.user,
+            runs_requested=2,
+            copies_requested=1,
+        )
+
+        with patch("indy_hub.views.industry.notify_user") as mock_notify:
+            response = self.client.post(
+                reverse("indy_hub:bp_update_copy_request", args=[request_obj.id]),
+                {"runs_requested": 5, "copies_requested": 4},
+            )
+
+            self.assertRedirects(response, reverse("indy_hub:bp_copy_my_requests"))
+
+            request_obj.refresh_from_db()
+            self.assertEqual(request_obj.runs_requested, 5)
+            self.assertEqual(request_obj.copies_requested, 4)
+            mock_notify.assert_called()
+
+
+class StructureLookupForbiddenCacheTests(TestCase):
+    def tearDown(self) -> None:
+        reset_forbidden_structure_lookup_cache()
+        eve_utils._LOCATION_NAME_CACHE.clear()
+
+    def test_character_skipped_after_forbidden_error(self) -> None:
+        reset_forbidden_structure_lookup_cache()
+        structure_id = 610000001
+        character_id = 7001
+
+        with patch(
+            "indy_hub.utils.eve.shared_client.fetch_structure_name"
+        ) as mock_fetch:
+            mock_fetch.side_effect = ESIForbiddenError(
+                "forbidden",
+                character_id=character_id,
+                structure_id=structure_id,
+            )
+
+            result = eve_utils.resolve_location_name(
+                structure_id,
+                character_id=character_id,
+                owner_user_id=None,
+                force_refresh=True,
+            )
+            self.assertEqual(result, f"Structure {structure_id}")
+            self.assertEqual(mock_fetch.call_count, 1)
+
+            mock_fetch.side_effect = RuntimeError(
+                "fetch_structure_name should not run again"
+            )
+
+            second_result = eve_utils.resolve_location_name(
+                structure_id,
+                character_id=character_id,
+                owner_user_id=None,
+                force_refresh=True,
+            )
+            self.assertEqual(second_result, f"Structure {structure_id}")
+            self.assertEqual(mock_fetch.call_count, 1)
 
 
 class DashboardNotificationCountsTests(TestCase):

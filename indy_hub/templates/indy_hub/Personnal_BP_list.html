@@ -15,7 +15,7 @@
 
 {% block content %}
 <div class="container-fluid my-4">
-    <div class="page-header page-header--surface mb-4">
+    <div class="page-header mb-4">
         <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
             <div>
                 <h1 class="h2 mb-1">
@@ -184,11 +184,14 @@
                     </div>  {# end badges/title row #}
                     <div class="blueprint-meta mb-1">
                         <span class="character-tag"><i class="fas fa-user-astronaut"></i> {{ bp.character_name|default:bp.character_id }}</span>
+                        {% if bp.location_name %}
+                        <span class="location-tag ms-2"><i class="fas fa-map-marker-alt me-1"></i>{{ bp.location_name }}</span>
+                        {% elif bp.location_path %}
+                        <span class="location-tag ms-2"><i class="fas fa-map-marker-alt me-1"></i>{{ bp.location_path }}</span>
+                        {% endif %}
                         <a href="{% url 'indy_hub:craft_bp' bp.type_id %}?next={{ request.get_full_path|urlencode }}" class="btn btn-outline-info btn-sm">
                             <i class="fas fa-tools me-1"></i>{% trans "View Craft" %}
                         </a>
-                        {# Remove location display #}
-                        {# <span class="location-tag ms-2"><i class="fas fa-map-marker-alt me-1"></i>{{ bp.location_path }}</span> #}
                     </div>
                     {% if not bp.is_reaction %}
                     <div class="efficiency-grid d-flex flex-wrap gap-4 align-items-center mb-1">

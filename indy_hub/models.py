@@ -317,14 +317,22 @@ class BlueprintCopyRequest(models.Model):
     # No direct link to owner(s) to preserve anonymity
 
     class Meta:
-        unique_together = (
-            "type_id",
-            "material_efficiency",
-            "time_efficiency",
-            "requested_by",
-            "fulfilled",
-        )
         default_permissions = ()
+        indexes = [
+            models.Index(
+                fields=(
+                    "type_id",
+                    "material_efficiency",
+                    "time_efficiency",
+                    "fulfilled",
+                ),
+                name="indy_copy_req_lookup",
+            ),
+            models.Index(
+                fields=("requested_by", "fulfilled"),
+                name="indy_copy_req_user_state",
+            ),
+        ]
 
     def __str__(self):
         return f"Copy request: {self.type_id} ME{self.material_efficiency} TE{self.time_efficiency} by {self.requested_by.username}"

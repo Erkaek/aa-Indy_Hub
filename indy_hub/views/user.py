@@ -32,6 +32,7 @@ from ..models import (
     ProductionConfig,
     ProductionSimulation,
 )
+from ..services.simulations import summarize_simulations
 from ..tasks.industry import update_blueprints_for_user, update_industry_jobs_for_user
 from ..utils.eve import get_character_name
 
@@ -210,15 +211,25 @@ def index(request):
             )
 
         open_requests_qs = BlueprintCopyRequest.objects.none()
+        open_requests_to_fulfill = 0
         if fulfill_filters:
             open_requests_qs = BlueprintCopyRequest.objects.filter(
                 fulfill_filters, fulfilled=False
             )
             copy_fulfill_count = (
-                open_requests_qs.aggregate(total=Sum("copies_requested")).get("total")
+                open_requests_qs.exclude(requested_by=request.user)
+                .aggregate(total=Sum("copies_requested"))
+                .get("total")
                 or 0
             )
-            copy_my_requests_open = open_requests_qs.count()
+            open_requests_to_fulfill = open_requests_qs.exclude(
+                requested_by=request.user
+            ).count()
+
+        my_open_requests = BlueprintCopyRequest.objects.filter(
+            requested_by=request.user, fulfilled=False
+        ).count()
+        copy_my_requests_open = open_requests_to_fulfill + my_open_requests
 
         if original_blueprint_type_ids:
             copy_my_requests_pending_delivery = jobs_qs.filter(
@@ -620,11 +631,18 @@ def production_simulations(request):
     """
     Page de gestion des simulations de production sauvegardées.
     """
-    simulations = ProductionSimulation.objects.filter(user=request.user)
+    simulations = (
+        ProductionSimulation.objects.filter(user=request.user)
+        .order_by("-updated_at")
+        .prefetch_related("production_configs")
+    )
+
+    total_simulations, stats = summarize_simulations(simulations)
 
     context = {
         "simulations": simulations,
-        "total_simulations": simulations.count(),
+        "total_simulations": total_simulations,
+        "stats": stats,
     }
 
     return render(request, "indy_hub/production_simulations.html", context)

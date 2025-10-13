@@ -7,11 +7,12 @@
 
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
+<link rel="stylesheet" href="{% static 'indy_hub/css/blueprints.css' %}">
 <link rel="stylesheet" href="{% static 'indy_hub/css/simulations.css' %}">
 {% endblock extra_css %}
 
 {% block content %}
-<div class="container my-4 simulations-page" data-market-groups='{{ market_group_map|escapejs }}'>
+<div class="container-fluid my-4 simulations-page" data-market-groups='{{ market_group_map|escapejs }}'>
     <div class="dev-alert alert alert-warning d-flex align-items-center gap-3 mb-4" role="alert">
         <i class="fas fa-exclamation-triangle fa-lg"></i>
         <div>
@@ -19,16 +20,15 @@
             <p class="mb-0 small">{% trans "This simulations dashboard is under active development. Please don't rely on the displayed data for decision making yet." %}</p>
         </div>
     </div>
-    <div class="page-header simulations-hero d-flex flex-column flex-lg-row align-items-start align-items-lg-center justify-content-between gap-4">
+
+    <div class="page-header simulations-hero d-flex flex-column flex-lg-row align-items-start align-items-lg-center justify-content-between gap-4 mb-4">
         <div class="d-flex align-items-center gap-3">
             <div class="header-icon">
                 <i class="fas fa-flask"></i>
             </div>
             <div>
-                <h1 class="h2 mb-1">
-                    {% trans "Production Simulations" %}
-                </h1>
-                <p class="description mb-0">{% trans "Review, compare, and launch your saved manufacturing scenarios." %}</p>
+                <h1 class="h2 mb-1">{% trans "Production Simulations" %}</h1>
+                <p class="description mb-0">{% trans "Stay ahead of your industrial queue with curated simulation dashboards." %}</p>
             </div>
         </div>
         <div class="d-flex flex-wrap gap-2">
@@ -42,101 +42,92 @@
         <i class="fas fa-chart-line header-bg"></i>
     </div>
 
+    <div class="simulations-callout alert alert-info shadow-sm d-flex align-items-center gap-3 mb-4" role="alert">
+        <i class="fas fa-lightbulb-on fa-lg"></i>
+        <div>
+            <h2 class="h6 fw-semibold mb-1 text-uppercase">{% trans "Production insights" %}</h2>
+            <p class="mb-0 small">{% trans "Simulations pull live blueprint metrics. Refresh the craft tool to update inventory, then return here to review profitability." %}</p>
+        </div>
+    </div>
+
     {% if total_simulations > 0 %}
-    <div class="row g-3 mb-4 stats-row">
+    <div class="row g-3 mb-4">
         <div class="col-12 col-sm-6 col-xl-3">
-            <div class="stat-card shadow-sm">
-                <div class="stat-icon bg-primary">
+            <div class="summary-card h-100">
+                <div class="summary-card__icon bg-primary-subtle text-primary">
                     <i class="fas fa-layer-group"></i>
                 </div>
-                <div class="stat-content">
-                    <span class="stat-label">{% trans "Total Simulations" %}</span>
-                    <span class="stat-value">{{ total_simulations }}</span>
-                    <span class="stat-subtext">{% blocktrans %}Active blueprints ready to run{% endblocktrans %}</span>
+                <div>
+                    <p class="summary-card__label mb-1">{% trans "Total simulations" %}</p>
+                    <h4 class="summary-card__value mb-0">{{ total_simulations|intcomma }}</h4>
+                    <small class="text-muted">{% trans "Saved scenarios ready to launch" %}</small>
                 </div>
             </div>
         </div>
         <div class="col-12 col-sm-6 col-xl-3">
-            <div class="stat-card shadow-sm">
-                <div class="stat-icon bg-success">
+            <div class="summary-card h-100">
+                <div class="summary-card__icon bg-success-subtle text-success">
                     <i class="fas fa-sync"></i>
                 </div>
-                <div class="stat-content">
-                    <span class="stat-label">{% trans "Total Runs" %}</span>
-                    <span class="stat-value">{{ stats.total_runs|default:0|intcomma }}</span>
-                    <span class="stat-subtext">{% trans "All scheduled cycles" %}</span>
+                <div>
+                    <p class="summary-card__label mb-1">{% trans "Total runs" %}</p>
+                    <h4 class="summary-card__value mb-0">{{ stats.total_runs|default:0|intcomma }}</h4>
+                    <small class="text-muted">{% trans "Across every simulation" %}</small>
                 </div>
             </div>
         </div>
         <div class="col-12 col-sm-6 col-xl-3">
-            <div class="stat-card shadow-sm">
-                <div class="stat-icon bg-warning">
+            <div class="summary-card h-100">
+                <div class="summary-card__icon bg-warning-subtle text-warning">
                     <i class="fas fa-coins"></i>
                 </div>
-                <div class="stat-content">
-                    <span class="stat-label">{% trans "Projected Profit" %}</span>
-                    <span class="stat-value">{{ stats.total_profit|floatformat:0|intcomma }} ISK</span>
-                    <span class="stat-subtext">{% trans "Cumulative expected gains" %}</span>
+                <div>
+                    <p class="summary-card__label mb-1">{% trans "Estimated revenue" %}</p>
+                    <h4 class="summary-card__value mb-0">{{ stats.total_revenue|floatformat:0|intcomma }} ISK</h4>
+                    <small class="text-muted">{% trans "Projected sales value" %}</small>
                 </div>
             </div>
         </div>
         <div class="col-12 col-sm-6 col-xl-3">
-            <div class="stat-card shadow-sm">
-                <div class="stat-icon bg-info">
-                    <i class="fas fa-chart-line"></i>
+            <div class="summary-card h-100">
+                <div class="summary-card__icon bg-info-subtle text-info">
+                    <i class="fas fa-clock"></i>
                 </div>
-                <div class="stat-content">
-                    <span class="stat-label">{% trans "Average Profit" %}</span>
-                    <span class="stat-value">{{ stats.average_profit|floatformat:0|intcomma }} ISK</span>
-                    <span class="stat-subtext">
+                <div>
+                    <p class="summary-card__label mb-1">{% trans "Last refreshed" %}</p>
+                    <h4 class="summary-card__value mb-0">
                         {% if stats.latest_update %}
-                            {% trans "Last update" %} · {{ stats.latest_update|timesince }} {% trans "ago" %}
+                            {{ stats.latest_update|timesince }} {% trans "ago" %}
                         {% else %}
-                            {% trans "No activity recorded yet" %}
+                            {% trans "Never" %}
                         {% endif %}
-                    </span>
+                    </h4>
+                    <small class="text-muted">{% trans "Update simulations from the craft tool" %}</small>
                 </div>
             </div>
         </div>
-        <div class="col-12 col-lg-6">
-            <div class="stat-card shadow-sm alt">
-                <div class="stat-icon bg-indigo">
-                    <i class="fas fa-shopping-cart"></i>
-                </div>
-                <div class="stat-content">
-                    <span class="stat-label">{% trans "Items to Buy" %}</span>
-                    <span class="stat-value">{{ stats.total_buy_items|default:0|intcomma }}</span>
-                    <span class="stat-subtext">{% trans "Across every simulation" %}</span>
-                </div>
-                <div class="stat-icon bg-emerald">
-                    <i class="fas fa-industry"></i>
-                </div>
-                <div class="stat-content">
-                    <span class="stat-label">{% trans "Items to Produce" %}</span>
-                    <span class="stat-value">{{ stats.total_prod_items|default:0|intcomma }}</span>
-                    <span class="stat-subtext">{% trans "Crafting queue volume" %}</span>
-                </div>
-            </div>
+    </div>
+
+    <div class="simulations-toolbar d-flex flex-column flex-lg-row align-items-start align-items-lg-center justify-content-between gap-3 mb-4">
+        <div class="d-flex flex-wrap align-items-center gap-2">
+            <span class="toolbar-label text-muted text-uppercase fw-semibold">{% trans "Quick glance" %}</span>
+            <span class="status-badge">
+                <i class="fas fa-shopping-cart me-1"></i>{{ stats.total_buy_items|default:0|intcomma }} {% trans "to buy" %}
+            </span>
+            <span class="status-badge">
+                <i class="fas fa-industry me-1"></i>{{ stats.total_prod_items|default:0|intcomma }} {% trans "to produce" %}
+            </span>
+            <span class="status-badge">
+                <i class="fas fa-piggy-bank me-1"></i>{{ stats.total_profit|floatformat:0|intcomma }} ISK {% trans "net" %}
+            </span>
         </div>
-        <div class="col-12 col-lg-6">
-            <div class="stat-card shadow-sm alt">
-                <div class="stat-icon bg-orange">
-                    <i class="fas fa-hand-holding-usd"></i>
-                </div>
-                <div class="stat-content">
-                    <span class="stat-label">{% trans "Estimated Costs" %}</span>
-                    <span class="stat-value">{{ stats.total_cost|floatformat:0|intcomma }} ISK</span>
-                    <span class="stat-subtext">{% trans "Material & reaction purchase" %}</span>
-                </div>
-                <div class="stat-icon bg-teal">
-                    <i class="fas fa-piggy-bank"></i>
-                </div>
-                <div class="stat-content">
-                    <span class="stat-label">{% trans "Estimated Revenue" %}</span>
-                    <span class="stat-value">{{ stats.total_revenue|floatformat:0|intcomma }} ISK</span>
-                    <span class="stat-subtext">{% trans "Target selling value" %}</span>
-                </div>
-            </div>
+        <div class="d-flex flex-wrap gap-2">
+            <a href="{% url 'indy_hub:production_simulations' %}" class="btn btn-outline-secondary btn-slim">
+                <i class="fas fa-table me-1"></i>{% trans "Compact view" %}
+            </a>
+            <a href="{% url 'indy_hub:production_simulations_list' %}?refresh=1" class="btn btn-outline-primary btn-slim">
+                <i class="fas fa-sync-alt me-1"></i>{% trans "Refresh" %}
+            </a>
         </div>
     </div>
 
@@ -147,12 +138,12 @@
                 <div class="simulation-header">
                     <div class="simulation-icon">
                     {% if simulation.product_icon_url %}
-                    <img src="{{ simulation.product_icon_url }}" alt="{{ simulation.blueprint_name }}" onerror="if(!this.dataset.fallback){this.dataset.fallback='bp';this.src='{{ simulation.blueprint_icon_url }}';}else{this.onerror=null;this.src='https://images.evetech.net/types/{{ simulation.blueprint_type_id }}/bp?size=64';}">
+                        <img src="{{ simulation.product_icon_url }}" alt="{{ simulation.blueprint_name }}" onerror="if(!this.dataset.fallback){this.dataset.fallback='bp';this.src='{{ simulation.blueprint_icon_url }}';}else{this.onerror=null;this.src='https://images.evetech.net/types/{{ simulation.blueprint_type_id }}/bp?size=64';}">
                     {% elif simulation.blueprint_icon_url %}
-                    <img src="{{ simulation.blueprint_icon_url }}" alt="{{ simulation.blueprint_name }}">
-                        {% else %}
+                        <img src="{{ simulation.blueprint_icon_url }}" alt="{{ simulation.blueprint_name }}">
+                    {% else %}
                         <span class="fallback"><i class="fas fa-industry"></i></span>
-                        {% endif %}
+                    {% endif %}
                     </div>
                     <div class="simulation-title">
                         <h2 class="h5 mb-1">{{ simulation.display_name }}</h2>
@@ -195,6 +186,25 @@
                         <span class="metric-value">{{ simulation.estimated_profit|floatformat:0|intcomma }}</span>
                         <small class="metric-subtext">ISK</small>
                     </div>
+                </div>
+
+                <div class="simulation-insights">
+                    {% if simulation.profit_margin %}
+                    <span class="insight-badge profit">
+                        <i class="fas fa-percentage"></i>
+                        {{ simulation.profit_margin|floatformat:1 }}%
+                    </span>
+                    {% endif %}
+                    {% if simulation.active_tab %}
+                    <span class="insight-badge tab">
+                        <i class="fas fa-columns"></i>
+                        {% trans "Last tab" %}: {{ simulation.active_tab|title }}
+                    </span>
+                    {% endif %}
+                    <span class="insight-badge runs">
+                        <i class="fas fa-cog"></i>
+                        {{ simulation.runs|intcomma }} {% trans "cycles" %}
+                    </span>
                 </div>
             </div>
             <div class="simulation-footer">
@@ -251,7 +261,6 @@
         </ul>
     </nav>
     {% endif %}
-
     {% else %}
     <div class="empty-state shadow-sm">
         <div class="empty-icon">

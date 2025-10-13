@@ -18,6 +18,7 @@ from .views.industry import (
     bp_mark_copy_delivered,
     bp_offer_copy_request,
     bp_reject_copy_request,
+    bp_update_copy_request,
     craft_bp,
 )
 from .views.industry import (
@@ -97,6 +98,11 @@ urlpatterns = [
     path(
         "bp-copy/my-requests/", bp_copy_my_requests, name="bp_copy_my_requests"
     ),  # my requests
+    path(
+        "bp-copy/my-requests/<int:request_id>/update/",
+        bp_update_copy_request,
+        name="bp_update_copy_request",
+    ),
     path(
         "bp-copy/offer/<int:request_id>/",
         bp_offer_copy_request,

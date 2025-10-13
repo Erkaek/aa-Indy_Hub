@@ -21,6 +21,7 @@ from esi.models import Token
 from ..services.esi_client import (
     ESI_BASE_URL,
     ESIClientError,
+    ESIForbiddenError,
     ESITokenError,
     shared_client,
 )
@@ -51,6 +52,35 @@ _FALLBACK_STRUCTURE_TOKEN_IDS: list[int] | None = None
 _OWNER_STRUCTURE_TOKEN_CACHE: dict[int, list[int]] = {}
 _STATION_ID_MAX = 100_000_000
 _MAX_STRUCTURE_LOOKUPS = 3
+_FORBIDDEN_STRUCTURE_CHARACTERS: set[int] = set()
+
+
+def reset_forbidden_structure_lookup_cache() -> None:
+    """Clear the in-memory cache of characters forbidden from structure lookups."""
+
+    _FORBIDDEN_STRUCTURE_CHARACTERS.clear()
+
+
+def _is_structure_character_forbidden(character_id: int | None) -> bool:
+    if not character_id:
+        return False
+    try:
+        return int(character_id) in _FORBIDDEN_STRUCTURE_CHARACTERS
+    except (TypeError, ValueError):  # pragma: no cover - defensive parsing
+        logger.debug(
+            "Unable to coerce character id %s while checking forbidden cache",
+            character_id,
+        )
+        return False
+
+
+def _mark_structure_character_forbidden(character_id: int | None) -> None:
+    if not character_id:
+        return
+    try:
+        _FORBIDDEN_STRUCTURE_CHARACTERS.add(int(character_id))
+    except (TypeError, ValueError):  # pragma: no cover - defensive parsing
+        logger.debug("Unable to record forbidden character id %s", character_id)
 
 
 def is_station_id(location_id: int | None) -> bool:
@@ -343,6 +373,12 @@ def resolve_location_name(
             return None
 
         candidate_character_id = int(candidate_character_id)
+        if _is_structure_character_forbidden(candidate_character_id):
+            logger.debug(
+                "Skipping structure lookup for character %s due to prior 403",
+                candidate_character_id,
+            )
+            return None
         if candidate_character_id in attempted_characters:
             return None
 
@@ -353,6 +389,18 @@ def resolve_location_name(
             return shared_client.fetch_structure_name(
                 structure_id, candidate_character_id
             )
+        except ESIForbiddenError:
+            _mark_structure_character_forbidden(candidate_character_id)
+            logger.info(
+                "Character %s forbidden from fetching structure %s; future attempts will be skipped",
+                candidate_character_id,
+                structure_id,
+            )
+            if invalidate_owner:
+                _invalidate_owner_structure_tokens(owner_user_id)
+            if invalidate_fallback:
+                _invalidate_structure_scope_token_cache()
+            return None
         except ESITokenError:
             logger.debug(
                 "Character %s lacks esi-universe.read_structures scope for %s",

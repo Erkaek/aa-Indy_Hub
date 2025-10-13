@@ -28,6 +28,21 @@ class ESITokenError(ESIClientError):
     """Raised when a valid access token cannot be retrieved."""
 
 
+class ESIForbiddenError(ESIClientError):
+    """Raised when ESI returns HTTP 403 for an authenticated lookup."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        character_id: int | None = None,
+        structure_id: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.character_id = character_id
+        self.structure_id = structure_id
+
+
 class ESIClient:
     """Small helper around requests with retry/backoff logic for ESI endpoints."""
 
@@ -115,6 +130,13 @@ class ESIClient:
                 logger.warning("Invalid JSON returned for structure %s", structure_id)
                 return None
             return payload.get("name")
+
+        if response.status_code == 403 and character_id is not None:
+            raise ESIForbiddenError(
+                "Structure lookup forbidden",
+                character_id=int(character_id),
+                structure_id=int(structure_id),
+            )
 
         if response.status_code in (401, 403):
             logger.debug(
