@@ -6,7 +6,7 @@ requires = [
 
 [project]
 name = "indy-hub"
-version = "1.9.7"
+version = "1.9.8"
 description = "Indy Hub Plugin for Alliance Auth"
 readme = "README.md"
 keywords = [

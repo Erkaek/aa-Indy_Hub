@@ -4,7 +4,9 @@ from __future__ import annotations
 
 # Standard Library
 import logging
+import time
 from collections.abc import Iterable, Mapping
+from typing import Any
 
 # Third Party
 import requests
@@ -22,7 +24,9 @@ from ..services.esi_client import (
     ESI_BASE_URL,
     ESIClientError,
     ESIForbiddenError,
+    ESIRateLimitError,
     ESITokenError,
+    rate_limit_wait_seconds,
     shared_client,
 )
 
@@ -53,6 +57,87 @@ _OWNER_STRUCTURE_TOKEN_CACHE: dict[int, list[int]] = {}
 _STATION_ID_MAX = 100_000_000
 _MAX_STRUCTURE_LOOKUPS = 3
 _FORBIDDEN_STRUCTURE_CHARACTERS: set[int] = set()
+_STRUCTURE_LOOKUP_PAUSE_UNTIL: float = 0.0
+
+
+def _schedule_structure_rate_limit_pause(duration: float | None) -> None:
+    """Record a future time when structure lookups may resume."""
+
+    if not duration or duration <= 0:
+        return
+
+    global _STRUCTURE_LOOKUP_PAUSE_UNTIL
+    resume_at = time.monotonic() + float(duration)
+    _STRUCTURE_LOOKUP_PAUSE_UNTIL = max(_STRUCTURE_LOOKUP_PAUSE_UNTIL, resume_at)
+
+
+def _wait_for_structure_rate_limit_window() -> None:
+    """Sleep until the recorded rate limit pause elapses, if necessary."""
+
+    remaining = _STRUCTURE_LOOKUP_PAUSE_UNTIL - time.monotonic()
+    if remaining > 0:
+        logger.info(
+            "Throttling structure lookups for %.1fs to respect ESI rate limit",
+            remaining,
+        )
+        time.sleep(remaining)
+
+
+def _rate_limited_public_get(
+    url: str,
+    *,
+    params: Mapping[str, Any],
+    timeout: int = 15,
+    max_attempts: int = 3,
+) -> requests.Response | None:
+    """Perform a GET request honouring the shared rate limit pause."""
+
+    response: requests.Response | None = None
+    for attempt in range(1, max_attempts + 1):
+        _wait_for_structure_rate_limit_window()
+
+        try:
+            response = requests.get(url, params=params, timeout=timeout)
+        except requests.RequestException as exc:
+            if attempt >= max_attempts:
+                logger.debug(
+                    "Unauthenticated lookup %s failed on attempt %s/%s: %s",
+                    url,
+                    attempt,
+                    max_attempts,
+                    exc,
+                )
+                return None
+            sleep_for = shared_client.backoff_factor * (2 ** (attempt - 1))
+            logger.warning(
+                "Request error for %s, retry %s/%s in %.1fs",
+                url,
+                attempt,
+                max_attempts,
+                sleep_for,
+            )
+            time.sleep(sleep_for)
+            continue
+
+        if response.status_code == 420:
+            sleep_for, remaining = rate_limit_wait_seconds(
+                response, shared_client.backoff_factor * (2 ** (attempt - 1))
+            )
+            logger.warning(
+                "ESI rate limit reached for %s (public), attempt %s/%s (remaining=%s).",
+                url,
+                attempt,
+                max_attempts,
+                remaining,
+            )
+            _schedule_structure_rate_limit_pause(sleep_for)
+            if attempt >= max_attempts:
+                break
+            continue
+
+        return response
+
+    return response
 
 
 def reset_forbidden_structure_lookup_cache() -> None:
@@ -385,6 +470,8 @@ def resolve_location_name(
         attempted_characters.add(candidate_character_id)
         remaining_attempts -= 1
 
+        _wait_for_structure_rate_limit_window()
+
         try:
             return shared_client.fetch_structure_name(
                 structure_id, candidate_character_id
@@ -411,6 +498,19 @@ def resolve_location_name(
                 _invalidate_owner_structure_tokens(owner_user_id)
             if invalidate_fallback:
                 _invalidate_structure_scope_token_cache()
+            return None
+        except ESIRateLimitError as exc:
+            pause = exc.retry_after or shared_client.backoff_factor * (
+                2 ** max(len(attempted_characters) - 1, 0)
+            )
+            _schedule_structure_rate_limit_pause(pause)
+            logger.warning(
+                "ESI rate limit reached while fetching structure %s via %s (remaining=%s). Pausing for %.1fs",
+                structure_id,
+                candidate_character_id,
+                exc.remaining,
+                pause,
+            )
             return None
         except ESIClientError as exc:  # pragma: no cover - defensive fallback
             logger.debug(
@@ -449,44 +549,30 @@ def resolve_location_name(
     params = {"datasource": "tranquility"}
 
     if not name and not is_station:
-        try:
-            response = requests.get(
-                f"{ESI_BASE_URL}/universe/structures/{structure_id}/",
-                params=params,
-                timeout=15,
-            )
-            if response.status_code == 200:
-                try:
-                    payload = response.json()
-                except ValueError:
-                    payload = {}
-                name = payload.get("name")
-        except requests.RequestException as exc:  # pragma: no cover - network failures
-            logger.debug(
-                "Unauthenticated structure lookup failed for %s: %s",
-                structure_id,
-                exc,
-            )
+        response = _rate_limited_public_get(
+            f"{ESI_BASE_URL}/universe/structures/{structure_id}/",
+            params=params,
+        )
+        if response is not None and response.status_code == 200:
+            try:
+                payload = response.json()
+            except ValueError:
+                payload = {}
+            name = payload.get("name")
+        elif response is not None and response.status_code == 404:
+            logger.debug("Structure %s not found via public ESI", structure_id)
 
     if not name:
-        try:
-            response = requests.get(
-                f"{ESI_BASE_URL}/universe/stations/{structure_id}/",
-                params=params,
-                timeout=15,
-            )
-            if response.status_code == 200:
-                try:
-                    payload = response.json()
-                except ValueError:
-                    payload = {}
-                name = payload.get("name")
-        except requests.RequestException as exc:  # pragma: no cover - network failures
-            logger.debug(
-                "Station lookup failed for %s: %s",
-                structure_id,
-                exc,
-            )
+        response = _rate_limited_public_get(
+            f"{ESI_BASE_URL}/universe/stations/{structure_id}/",
+            params=params,
+        )
+        if response is not None and response.status_code == 200:
+            try:
+                payload = response.json()
+            except ValueError:
+                payload = {}
+            name = payload.get("name")
 
     if not name:
         name = placeholder_value
