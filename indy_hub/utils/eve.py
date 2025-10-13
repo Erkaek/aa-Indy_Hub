@@ -48,8 +48,9 @@ _LOCATION_NAME_CACHE: dict[int, str] = {}
 PLACEHOLDER_PREFIX = "Structure "
 _STRUCTURE_SCOPE = "esi-universe.read_structures.v1"
 _FALLBACK_STRUCTURE_TOKEN_IDS: list[int] | None = None
+_OWNER_STRUCTURE_TOKEN_CACHE: dict[int, list[int]] = {}
 _STATION_ID_MAX = 100_000_000
-_MAX_STRUCTURE_FALLBACK_ATTEMPTS = 10
+_MAX_STRUCTURE_LOOKUPS = 3
 
 
 def is_station_id(location_id: int | None) -> bool:
@@ -217,6 +218,41 @@ def _invalidate_structure_scope_token_cache() -> None:
     _FALLBACK_STRUCTURE_TOKEN_IDS = None
 
 
+def _get_owner_structure_token_ids(owner_user_id: int | None) -> list[int]:
+    if not owner_user_id:
+        return []
+
+    owner_user_id = int(owner_user_id)
+    if owner_user_id in _OWNER_STRUCTURE_TOKEN_CACHE:
+        return _OWNER_STRUCTURE_TOKEN_CACHE[owner_user_id]
+
+    try:
+        qs = (
+            Token.objects.filter(user_id=owner_user_id)
+            .require_scopes(_STRUCTURE_SCOPE)
+            .values_list("character_id", flat=True)
+            .distinct()
+        )
+        token_ids = [int(char_id) for char_id in qs]
+    except Exception:  # pragma: no cover - defensive fallback
+        logger.debug(
+            "Unable to load owner structure tokens for user %s",
+            owner_user_id,
+            exc_info=True,
+        )
+        token_ids = []
+
+    _OWNER_STRUCTURE_TOKEN_CACHE[owner_user_id] = token_ids
+    return token_ids
+
+
+def _invalidate_owner_structure_tokens(owner_user_id: int | None) -> None:
+    if not owner_user_id:
+        return
+    owner_user_id = int(owner_user_id)
+    _OWNER_STRUCTURE_TOKEN_CACHE.pop(owner_user_id, None)
+
+
 def _lookup_location_name_in_db(structure_id: int) -> str | None:
     """Return a previously stored location name for the given ID when present."""
 
@@ -264,6 +300,7 @@ def resolve_location_name(
     structure_id: int | None,
     *,
     character_id: int | None = None,
+    owner_user_id: int | None = None,
     force_refresh: bool = False,
 ) -> str:
     """Resolve a structure or station name using ESI lookups with caching.
@@ -292,59 +329,73 @@ def resolve_location_name(
     name: str | None = None
     is_station = is_station_id(structure_id)
 
+    attempted_characters: set[int] = set()
+    remaining_attempts = _MAX_STRUCTURE_LOOKUPS
+
+    def try_structure_lookup(
+        candidate_character_id: int | None,
+        *,
+        invalidate_owner: bool = False,
+        invalidate_fallback: bool = False,
+    ) -> str | None:
+        nonlocal remaining_attempts
+        if not candidate_character_id or remaining_attempts <= 0:
+            return None
+
+        candidate_character_id = int(candidate_character_id)
+        if candidate_character_id in attempted_characters:
+            return None
+
+        attempted_characters.add(candidate_character_id)
+        remaining_attempts -= 1
+
+        try:
+            return shared_client.fetch_structure_name(
+                structure_id, candidate_character_id
+            )
+        except ESITokenError:
+            logger.debug(
+                "Character %s lacks esi-universe.read_structures scope for %s",
+                candidate_character_id,
+                structure_id,
+            )
+            if invalidate_owner:
+                _invalidate_owner_structure_tokens(owner_user_id)
+            if invalidate_fallback:
+                _invalidate_structure_scope_token_cache()
+            return None
+        except ESIClientError as exc:  # pragma: no cover - defensive fallback
+            logger.debug(
+                "Authenticated structure lookup failed for %s via %s: %s",
+                structure_id,
+                candidate_character_id,
+                exc,
+            )
+            return None
+
     if not is_station:
-        if character_id:
-            try:
-                name = shared_client.fetch_structure_name(structure_id, character_id)
-            except ESITokenError:
-                logger.debug(
-                    "Character %s lacks esi-universe.read_structures scope for %s",
-                    character_id,
-                    structure_id,
-                )
-            except ESIClientError as exc:  # pragma: no cover - defensive fallback
-                logger.debug(
-                    "Authenticated structure lookup failed for %s: %s",
-                    structure_id,
-                    exc,
-                )
+        name = try_structure_lookup(character_id)
 
-        if not name:
-            for attempt_index, fallback_character_id in enumerate(
-                _get_structure_scope_token_ids(), start=1
-            ):
-                if fallback_character_id == character_id:
-                    continue
-                try:
-                    name = shared_client.fetch_structure_name(
-                        structure_id, fallback_character_id
-                    )
-                except ESITokenError:
-                    logger.debug(
-                        "Token for fallback character %s invalid when resolving %s",
-                        fallback_character_id,
-                        structure_id,
-                    )
-                    _invalidate_structure_scope_token_cache()
-                    continue
-                except ESIClientError as exc:  # pragma: no cover
-                    logger.debug(
-                        "Fallback structure lookup failed for %s via %s: %s",
-                        structure_id,
-                        fallback_character_id,
-                        exc,
-                    )
-                    continue
-
-                if name:
+        if not name and owner_user_id:
+            for owner_character_id in _get_owner_structure_token_ids(owner_user_id):
+                if remaining_attempts <= 0:
+                    break
+                result = try_structure_lookup(owner_character_id, invalidate_owner=True)
+                if result:
+                    name = result
                     break
 
-                if attempt_index >= _MAX_STRUCTURE_FALLBACK_ATTEMPTS:
-                    logger.debug(
-                        "Stopping fallback lookups for %s after %s attempts",
-                        structure_id,
-                        attempt_index,
-                    )
+        if not name and remaining_attempts > 0:
+            for fallback_character_id in _get_structure_scope_token_ids():
+                if fallback_character_id == character_id:
+                    continue
+                if remaining_attempts <= 0:
+                    break
+                result = try_structure_lookup(
+                    fallback_character_id, invalidate_fallback=True
+                )
+                if result:
+                    name = result
                     break
 
     params = {"datasource": "tranquility"}

@@ -21,6 +21,7 @@ from indy_hub.models import CharacterSettings
 from ..models import Blueprint, IndustryJob
 from ..notifications import notify_user
 from ..services.esi_client import ESIClientError, ESITokenError, shared_client
+from ..services.location_population import populate_location_names
 from ..utils.eve import (
     batch_cache_type_names,
     get_character_name,
@@ -96,7 +97,11 @@ def update_blueprints_for_user(self, user_id):
                 item_id = bp.get("item_id")
                 esi_ids.add(item_id)
                 location_id = bp.get("location_id")
-                location_name = resolve_location_name(location_id, character_id=char_id)
+                location_name = resolve_location_name(
+                    location_id,
+                    character_id=char_id,
+                    owner_user_id=user.id,
+                )
                 Blueprint.objects.update_or_create(
                     owner_user=user,
                     character_id=char_id,
@@ -207,7 +212,9 @@ def update_industry_jobs_for_user(self, user_id):
                     esi_job_ids.add(job_id)
                     station_id = job.get("station_id") or job.get("facility_id")
                     location_name = resolve_location_name(
-                        station_id, character_id=char_id
+                        station_id,
+                        character_id=char_id,
+                        owner_user_id=user.id,
                     )
                     IndustryJob.objects.update_or_create(
                         owner_user=user,
@@ -420,6 +427,39 @@ def notify_completed_jobs(self):
         logger.error(f"Error in notify_completed_jobs task: {exc}")
         # Retry the task with exponential backoff
         raise self.retry(exc=exc, countdown=60 * (2**self.request.retries))
+
+
+@shared_task(bind=True, max_retries=0)
+def populate_location_names_async(
+    self, location_ids=None, force_refresh=False, dry_run=False
+):
+    """Populate location names for blueprints and industry jobs asynchronously."""
+
+    logger.info(
+        "Starting async population job for location names%s",
+        f" (limited to {len(location_ids)} IDs)" if location_ids else "",
+    )
+
+    normalized_ids = None
+    if location_ids is not None:
+        normalized_ids = [int(value) for value in location_ids if value]
+        if not normalized_ids:
+            logger.info("No valid location IDs supplied; skipping population job")
+            return {"blueprints": 0, "jobs": 0, "locations": 0}
+
+    summary = populate_location_names(
+        location_ids=normalized_ids,
+        force_refresh=force_refresh,
+        dry_run=dry_run,
+    )
+
+    logger.info(
+        "Location population completed: %s blueprints, %s jobs (%s locations)",
+        summary.get("blueprints", 0),
+        summary.get("jobs", 0),
+        summary.get("locations", 0),
+    )
+    return summary
 
 
 @shared_task
