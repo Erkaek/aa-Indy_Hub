@@ -1,10 +1,12 @@
 # Standard Library
 import logging
+from datetime import datetime
 
 # Django
 from django.db.models.signals import post_migrate, post_save, pre_save
 from django.dispatch import receiver
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 from .models import Blueprint, CharacterSettings, IndustryJob
 from .notifications import notify_user
@@ -111,6 +113,21 @@ def _handle_job_completion_notification(job: IndustryJob) -> None:
         return
 
     end_date = getattr(job, "end_date", None)
+    if isinstance(end_date, str):
+        parsed = parse_datetime(end_date)
+        if parsed is None:
+            logger.debug(
+                "Unable to parse end_date for job %s: %r",
+                getattr(job, "job_id", None),
+                end_date,
+            )
+            end_date = None
+        else:
+            end_date = parsed
+
+    if isinstance(end_date, datetime) and timezone.is_naive(end_date):
+        end_date = timezone.make_aware(end_date, timezone.utc)
+
     if not end_date or end_date > timezone.now():
         return
 

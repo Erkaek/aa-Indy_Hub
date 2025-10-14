@@ -30,6 +30,139 @@
         </div>
     </section>
 
+    {% if onboarding.pending and onboarding.dismissed %}
+    <div class="alert alert-warning-soft d-flex justify-content-between align-items-center gap-3 mb-4">
+        <div class="d-flex align-items-start gap-3">
+            <span class="flex-shrink-0"><i class="fas fa-clipboard-list"></i></span>
+            <div>
+                <strong class="d-block">{% trans "Onboarding checklist hidden" %}</strong>
+                <span class="small text-muted">{% blocktrans with remaining=onboarding.pending %}You still have {{ remaining }} onboarding tasks left. Bring the checklist back when you're ready.{% endblocktrans %}</span>
+            </div>
+        </div>
+        <form method="post" action="{% url 'indy_hub:onboarding_set_visibility' %}" class="m-0">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="restore">
+            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+            <button type="submit" class="btn btn-outline-warning btn-sm">
+                <i class="fas fa-rotate-left me-2"></i>{% trans "Restore checklist" %}
+            </button>
+        </form>
+    </div>
+    {% endif %}
+
+    {% if onboarding.show %}
+    <section class="dashboard-section mb-5">
+        <header class="section-heading">
+            <div>
+                <h2>{% trans "New pilot onboarding" %}</h2>
+                <p class="text-muted small mb-0">{% trans "Follow these steps to unlock the full Indy Hub workflow." %}</p>
+            </div>
+            <form method="post" action="{% url 'indy_hub:onboarding_set_visibility' %}" class="d-inline">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="dismiss">
+                <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                <button type="submit" class="btn btn-link text-muted text-decoration-none small">
+                    <i class="fas fa-eye-slash me-1"></i>{% trans "Hide checklist" %}
+                </button>
+            </form>
+        </header>
+        <div class="card focus-card">
+            <div class="card-body p-4">
+                <div class="d-flex flex-column flex-lg-row gap-4 align-items-lg-center mb-4">
+                    <div class="flex-grow-1">
+                        <p class="small text-muted mb-1">
+                            {% blocktrans with completed=onboarding.completed total=onboarding.total %}{{ completed }} of {{ total }} tasks complete{% endblocktrans %}
+                        </p>
+                        <div class="progress rounded-pill" role="progressbar" aria-valuenow="{{ onboarding.percent }}" aria-valuemin="0" aria-valuemax="100">
+                            <div class="progress-bar bg-success" style="width: {{ onboarding.percent }}%">
+                                <span class="visually-hidden">{{ onboarding.percent }}%</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="text-center">
+                        <span class="display-6 fw-semibold text-success">{{ onboarding.percent }}%</span>
+                        <p class="small text-muted mb-0">{% trans "Readiness" %}</p>
+                    </div>
+                </div>
+                <div class="row g-4">
+                    <div class="col-lg-7">
+                        <ul class="list-group list-group-flush onboarding-task-list">
+                            {% for task in onboarding.tasks %}
+                            <li class="list-group-item px-0 py-3 {% if task.completed %}opacity-75{% endif %}">
+                                <div class="d-flex gap-3 align-items-start">
+                                    <div class="rounded-circle bg-light text-muted flex-shrink-0 d-flex align-items-center justify-content-center" style="width: 44px; height: 44px;">
+                                        <i class="fas {{ task.icon|default:'fa-clipboard-list' }}"></i>
+                                    </div>
+                                    <div class="flex-grow-1">
+                                        <div class="d-flex align-items-center gap-2 mb-1">
+                                            <strong>{{ task.title }}</strong>
+                                            {% if task.completed %}
+                                            <span class="badge bg-success-subtle text-success fw-normal">{% trans "Done" %}</span>
+                                            {% elif task.mode == 'auto' %}
+                                            <span class="badge bg-secondary-subtle text-secondary fw-normal">{% trans "Auto" %}</span>
+                                            {% else %}
+                                            <span class="badge bg-info-subtle text-info fw-normal">{% trans "Manual" %}</span>
+                                            {% endif %}
+                                        </div>
+                                        <p class="text-muted small mb-2">{{ task.description }}</p>
+                                        <div class="d-flex flex-wrap gap-2 align-items-center">
+                                            {% if task.cta_url %}
+                                            <a href="{{ task.cta_url }}" class="btn btn-outline-primary btn-sm">
+                                                <i class="fas fa-arrow-up-right-from-square me-1"></i>{% trans "Open" %}
+                                            </a>
+                                            {% endif %}
+                                            {% if task.mode == 'manual' %}
+                                                <form method="post" action="{% url 'indy_hub:onboarding_toggle_task' %}" class="d-inline">
+                                                    {% csrf_token %}
+                                                    <input type="hidden" name="task" value="{{ task.key }}">
+                                                    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                                                    {% if task.completed %}
+                                                    <input type="hidden" name="action" value="reset">
+                                                    <button type="submit" class="btn btn-outline-secondary btn-sm">
+                                                        <i class="fas fa-rotate-left me-1"></i>{% trans "Mark incomplete" %}
+                                                    </button>
+                                                    {% else %}
+                                                    <input type="hidden" name="action" value="complete">
+                                                    <button type="submit" class="btn btn-success btn-sm">
+                                                        <i class="fas fa-check me-1"></i>{% trans "Mark done" %}
+                                                    </button>
+                                                    {% endif %}
+                                                </form>
+                                            {% elif not task.completed %}
+                                                <span class="text-muted small fst-italic">{% trans "We'll detect this automatically." %}</span>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </div>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                    <div class="col-lg-5">
+                        <div class="border rounded-4 p-4 h-100 bg-light-subtle">
+                            <h5 class="mb-3">{% trans "Why it matters" %}</h5>
+                            <ul class="list-unstyled small text-muted d-flex flex-column gap-2 mb-0">
+                                <li class="d-flex gap-2">
+                                    <i class="fas fa-arrow-trend-up mt-1 text-success"></i>
+                                    <span>{% trans "Blueprint and job tokens unlock live metrics across this dashboard." %}</span>
+                                </li>
+                                <li class="d-flex gap-2">
+                                    <i class="fas fa-share-alt mt-1 text-warning"></i>
+                                    <span>{% trans "Sharing copies ensures your corp can request the prints they need." %}</span>
+                                </li>
+                                <li class="d-flex gap-2">
+                                    <i class="fas fa-circle-info mt-1 text-info"></i>
+                                    <span>{% trans "Manual steps help leadership track who has completed orientation." %}</span>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+    {% endif %}
+
     {% if not has_blueprint_tokens or not has_jobs_tokens %}
     <section class="dashboard-section mb-5">
         <header class="section-heading">
@@ -310,7 +443,7 @@
         <header class="section-heading">
             <div>
                 <h2>{% trans "Tools & references" %}</h2>
-                <p class="text-muted small mb-0">{% trans "Jump into catalogs, documentation, and request history." %}</p>
+                <p class="text-muted small mb-0">{% trans "Jump into catalogs and documentation." %}</p>
             </div>
         </header>
         <div class="row g-4 align-items-stretch justify-content-center">

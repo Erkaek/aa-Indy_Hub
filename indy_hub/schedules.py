@@ -16,8 +16,8 @@ INDY_HUB_BEAT_SCHEDULE = {
     },
     "indy-hub-update-all-industry-jobs": {
         "task": "indy_hub.tasks.industry.update_all_industry_jobs",
-        "schedule": crontab(minute="*/10"),  # Toutes les 10 minutes
-        "options": {"priority": 6},  # Priorité un peu plus élevée pour les jobs
+        "schedule": crontab(minute="*/30"),  # Toutes les 10 minutes
+        "options": {"priority": 7},  # Priorité un peu plus élevée pour les jobs
     },
     "indy-hub-cleanup-old-jobs": {
         "task": "indy_hub.tasks.industry.cleanup_old_jobs",

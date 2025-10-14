@@ -3,6 +3,7 @@ from django.contrib.auth.models import User
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 
 from .utils.eve import get_blueprint_product_type_id, is_reaction_blueprint
 
@@ -361,6 +362,34 @@ class BlueprintCopyOffer(models.Model):
     class Meta:
         unique_together = ("request", "owner")
         default_permissions = ()
+
+
+class UserOnboardingProgress(models.Model):
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name="indy_onboarding",
+    )
+    dismissed = models.BooleanField(default=False)
+    manual_steps = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        default_permissions = ()
+        verbose_name = _("Onboarding progress")
+        verbose_name_plural = _("Onboarding progress")
+
+    def __str__(self):
+        return f"Onboarding for {self.user.username}"
+
+    def mark_step(self, key: str, completed: bool) -> None:
+        manual = self.manual_steps.copy()
+        if completed:
+            manual[key] = True
+        else:
+            manual.pop(key, None)
+        self.manual_steps = manual
 
 
 class CharacterSettings(models.Model):

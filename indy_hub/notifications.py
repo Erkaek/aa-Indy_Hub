@@ -1,6 +1,6 @@
 # indy_hub/notifications.py
 """
-Notification helpers for Indy Hub, inspired by FortunaISK's notification system.
+Notification helpers for Indy Hub.
 Supports Alliance Auth notifications and (future) Discord/webhook fallback.
 """
 # Standard Library

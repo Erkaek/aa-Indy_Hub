@@ -7,99 +7,26 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
 
+- Nothing yet.
+
+## [1.9.11] - 2025-10-15
+
 ### Added
 
-- `npm` lint scripts for JavaScript and CSS plus metadata in `package.json`
-- Development warning banners and dashboard refinements (hero layout, toggles, buttons)
+- Onboarding progress tracking with `UserOnboardingProgress` model, admin, and dashboard checklist.
+- Guided “journey” cards across blueprint request, fulfilment, and simulation pages to explain the flow.
+- Gradient job progress visual styles and action cards for the industry jobs view.
+- Manual onboarding controls with new endpoints to mark checklist items complete or hide the widget.
 
 ### Changed
 
-- Centralized Eve helper imports for runtime stability
-- Relaxed Stylelint `rgba()` enforcement and normalized text-overflow values
-- Improved template and JS indentation to satisfy EditorConfig checks
+- Industry job sync now normalizes timestamps, caches location lookups with a configurable budget, and falls back to placeholders when exhausted.
+- Periodic job updates now run every 30 minutes with aligned Celery priorities.
+- Blueprint copy cancellation reuses the caller’s `next` URL when it is safe, improving navigation.
+- Dashboard copy-sharing cards and onboarding panels highlight remaining actions for new pilots.
 
 ### Fixed
 
-- Multiple Stylelint and EditorConfig violations preventing `pre-commit` success
-- Runtime import regressions in `industry.py` and `user.py`
-
-## [0.0.9] - 2024-06-16
-
-### Removed
-
-- Support for Python 3.8 and Python 3.9
-
-## [0.0.8] - 2024-03-16
-
-> [!NOTE]
->
-> **This version needs at least Alliance Auth v4.0.0!**
-
-### Added
-
-- Compatibility to Alliance Auth v4
-  - Bootstrap 5
-  - Django 4.2
-
-### Removed
-
-- Compatibility to Alliance Auth v3
-
-## [0.0.7] - 2023-09-27
-
-> [!NOTE]
->
-> **This is the last version compatible with Alliance Auth v3.**
-
-### Changed
-
-- Moved the build process to PEP 621 / pyproject.toml
-- Test suite updated
-
-## [0.0.6] - 2023-07-23
-
-### Added
-
-- Ukrainian to language handling in `Makefile`
-
-## [0.0.5] - 2023-04-18
-
-### Added
-
-- Directory for translation files
-
-## [0.0.4] - 2022-11-26
-
-### Added
-
-- Directory for static files
-
-### Changed
-
-- GitHub actions updated
-- `pre-commit` config updated and applied
-- Example test improved
-
-## [0.0.3] - 2022-09-15
-
-### Added
-
-- `SITE_URL` to test settings
-
-## [0.0.2] - 2022-08-17
-
-### Added
-
-- Build artifact to GitHub workflows
-- `MANIFEST.in` re-added
-
-### Changed
-
-- Test settings updated for Alliance Auth v3
-- Package name in setup.cfg for PyPi
-
-## [0.0.1] - 2022-03-12
-
-### Added
-
-- Initial version
+- Completed job notifications gracefully parse string `end_date` values before comparing them to the current time.
+- Copy request cancellation redirects back to the “My Requests” page when invoked there.
+- Added regression coverage for onboarding flows and legacy request notes to keep the suite green.

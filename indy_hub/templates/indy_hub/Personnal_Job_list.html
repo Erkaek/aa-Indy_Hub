@@ -165,17 +165,23 @@
                                 <span class="badge bg-light text-dark border">{{ job.output_name }}</span>
                                 {% endif %}
                             </div>
-                            <div>
-                                <div class="progress" style="height:0.5rem;">
-                                    <div class="progress-bar" role="progressbar"
-                                        style="width: {{ job.progress_percent|default:0 }}%;"
-                                        aria-valuenow="{{ job.progress_percent|default:0 }}" aria-valuemin="0"
-                                        aria-valuemax="100">
-                                        {{ job.progress_percent|default:0 }}%
+                            {% with progress=job.progress_percent|default:0 %}
+                            {% with progress_numeric=progress|add:0 %}
+                            <div class="job-progress-panel" data-progress="{{ progress_numeric }}">
+                                <div class="progress gradient-progress {% if job.is_completed %}progress-state-complete{% elif progress_numeric >= 75 %}progress-state-late{% elif progress_numeric >= 40 %}progress-state-mid{% elif progress_numeric > 0 %}progress-state-early{% else %}progress-state-idle{% endif %}">
+                                    <div class="progress-bar {% if job.is_completed %}progress-bar-complete{% elif progress_numeric >= 75 %}progress-bar-late{% elif progress_numeric >= 40 %}progress-bar-mid{% elif progress_numeric > 0 %}progress-bar-early{% else %}progress-bar-idle{% endif %}{% if job.is_completed %} progress-bar-striped{% endif %}"
+                                        role="progressbar"
+                                        aria-valuenow="{{ progress_numeric }}" aria-valuemin="0"
+                                        aria-valuemax="100"
+                                        style="width: {{ progress_numeric }}%;">
+                                        <span class="visually-hidden">{{ progress|floatformat:0 }}%</span>
                                     </div>
+                                    <span class="progress-label">{{ progress|floatformat:0 }}%</span>
                                 </div>
                                 <small class="text-muted d-block mt-1"><i class="fas fa-hourglass-half me-1"></i>{{ job.display_eta|default:'--:--:--' }}</small>
                             </div>
+                            {% endwith %}
+                            {% endwith %}
                             {% if job.research_details %}
                             <div class="d-flex flex-column small bg-light rounded-3 px-3 py-2">
                                 <span class="text-muted text-uppercase fw-semibold mb-1">{% trans 'Research levels' %}</span>

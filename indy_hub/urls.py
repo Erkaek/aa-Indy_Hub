@@ -35,6 +35,8 @@ from .views.user import (
     authorize_blueprints,
     authorize_jobs,
     index,
+    onboarding_set_visibility,
+    onboarding_toggle_task,
     production_simulations,
     rename_production_simulation,
     sync_all_tokens,
@@ -144,4 +146,14 @@ urlpatterns = [
         name="toggle_job_notifications",
     ),
     path("toggle-copy-sharing/", toggle_copy_sharing, name="toggle_copy_sharing"),
+    path(
+        "onboarding/toggle-task/",
+        onboarding_toggle_task,
+        name="onboarding_toggle_task",
+    ),
+    path(
+        "onboarding/visibility/",
+        onboarding_set_visibility,
+        name="onboarding_set_visibility",
+    ),
 ]

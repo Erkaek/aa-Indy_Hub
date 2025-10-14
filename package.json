@@ -1,6 +1,6 @@
 {
     "name": "@erkaek/indy-hub",
-    "version": "1.9.10",
+    "version": "1.9.11",
     "description": "Alliance Auth industry dashboard with blueprints, production simulations, and tooling for EVE Online corporations.",
     "license": "MIT",
     "author": "erka Ekanon",

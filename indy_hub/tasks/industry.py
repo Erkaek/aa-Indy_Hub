@@ -4,13 +4,17 @@
 
 # Standard Library
 import logging
+from datetime import datetime
 
 # Third Party
 from celery import shared_task
 
 # Django
+from django.conf import settings
 from django.contrib.auth.models import User
 from django.db import transaction
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 # Alliance Auth
 from allianceauth.authentication.models import CharacterOwnership
@@ -19,6 +23,7 @@ from ..models import Blueprint, IndustryJob
 from ..services.esi_client import ESIClientError, ESITokenError, shared_client
 from ..services.location_population import populate_location_names
 from ..utils.eve import (
+    PLACEHOLDER_PREFIX,
     batch_cache_type_names,
     get_character_name,
     get_type_name,
@@ -30,6 +35,32 @@ logger = logging.getLogger(__name__)
 BLUEPRINT_SCOPE = "esi-characters.read_blueprints.v1"
 JOBS_SCOPE = "esi-industry.read_character_jobs.v1"
 STRUCTURE_SCOPE = "esi-universe.read_structures.v1"
+
+
+def _get_location_lookup_budget() -> int:
+    try:
+        value = int(getattr(settings, "INDY_HUB_LOCATION_LOOKUP_BUDGET", 50))
+    except (TypeError, ValueError):
+        value = 50
+    return max(value, 0)
+
+
+def _coerce_job_datetime(value):
+    if not value:
+        return None
+
+    if isinstance(value, datetime):
+        dt = value
+    elif isinstance(value, str):
+        dt = parse_datetime(value)
+        if dt is None:
+            return None
+    else:
+        return None
+
+    if timezone.is_naive(dt):
+        dt = timezone.make_aware(dt, timezone.utc)
+    return dt
 
 
 @shared_task(bind=True, max_retries=3)
@@ -160,6 +191,9 @@ def update_industry_jobs_for_user(self, user_id):
         updated_count = 0
         deleted_total = 0
         error_messages: list[str] = []
+        location_cache: dict[int, str] = {}
+        lookup_budget = _get_location_lookup_budget()
+        lookup_budget_warned = False
         ownerships = CharacterOwnership.objects.filter(user=user)
         required_scopes = [JOBS_SCOPE, STRUCTURE_SCOPE]
 
@@ -207,11 +241,75 @@ def update_industry_jobs_for_user(self, user_id):
                     job_id = job.get("job_id")
                     esi_job_ids.add(job_id)
                     station_id = job.get("station_id") or job.get("facility_id")
-                    location_name = resolve_location_name(
-                        station_id,
-                        character_id=char_id,
-                        owner_user_id=user.id,
-                    )
+                    location_name = ""
+                    if station_id is not None:
+                        try:
+                            location_key = int(station_id)
+                        except (TypeError, ValueError):
+                            location_key = None
+
+                        if location_key is not None:
+                            cached_name = location_cache.get(location_key)
+                            if cached_name is not None:
+                                location_name = cached_name
+                            elif lookup_budget > 0:
+                                try:
+                                    resolved_name = resolve_location_name(
+                                        location_key,
+                                        character_id=char_id,
+                                        owner_user_id=user.id,
+                                    )
+                                except (
+                                    Exception
+                                ):  # pragma: no cover - defensive fallback
+                                    logger.debug(
+                                        "Location resolution failed for %s via %s",
+                                        location_key,
+                                        character_name,
+                                        exc_info=True,
+                                    )
+                                    resolved_name = None
+
+                                lookup_budget -= 1
+                                location_name = (
+                                    resolved_name
+                                    if resolved_name
+                                    else f"{PLACEHOLDER_PREFIX}{location_key}"
+                                )
+                                location_cache[location_key] = location_name
+                            else:
+                                if not lookup_budget_warned:
+                                    logger.warning(
+                                        "Location lookup budget exhausted while syncing industry jobs for %s; remaining locations will use placeholders.",
+                                        user.username,
+                                    )
+                                    lookup_budget_warned = True
+                                location_name = location_cache.setdefault(
+                                    location_key,
+                                    f"{PLACEHOLDER_PREFIX}{location_key}",
+                                )
+                    start_date = _coerce_job_datetime(job.get("start_date"))
+                    end_date = _coerce_job_datetime(job.get("end_date"))
+                    pause_date = _coerce_job_datetime(job.get("pause_date"))
+                    completed_date = _coerce_job_datetime(job.get("completed_date"))
+
+                    if start_date is None:
+                        logger.warning(
+                            "Skipping job %s for %s due to invalid start date %r",
+                            job_id,
+                            character_name,
+                            job.get("start_date"),
+                        )
+                        continue
+
+                    if end_date is None:
+                        logger.warning(
+                            "Job %s for %s missing end date; defaulting to start date.",
+                            job_id,
+                            character_name,
+                        )
+                        end_date = start_date
+
                     IndustryJob.objects.update_or_create(
                         owner_user=user,
                         character_id=char_id,
@@ -230,10 +328,10 @@ def update_industry_jobs_for_user(self, user_id):
                             "product_type_id": job.get("product_type_id"),
                             "status": job.get("status"),
                             "duration": job.get("duration"),
-                            "start_date": job.get("start_date"),
-                            "end_date": job.get("end_date"),
-                            "pause_date": job.get("pause_date"),
-                            "completed_date": job.get("completed_date"),
+                            "start_date": start_date,
+                            "end_date": end_date,
+                            "pause_date": pause_date,
+                            "completed_date": completed_date,
                             "completed_character_id": job.get("completed_character_id"),
                             "successful_runs": job.get("successful_runs"),
                             "blueprint_type_name": get_type_name(
@@ -308,9 +406,8 @@ def cleanup_old_jobs():
     jobs_no_char.delete()
 
     # Jobs sans token valide (aucun token pour ce user/char)
-    jobs = IndustryJob.objects.all()
     deleted_tokenless = 0
-    for job in jobs:
+    for job in IndustryJob.objects.all():
         has_token = Token.objects.filter(
             user=job.owner_user, character_id=job.character_id
         ).exists()

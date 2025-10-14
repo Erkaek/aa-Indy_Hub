@@ -22,6 +22,7 @@ from indy_hub.models import (
     BlueprintCopyRequest,
     CharacterSettings,
     IndustryJob,
+    UserOnboardingProgress,
 )
 from indy_hub.services.esi_client import ESIForbiddenError
 from indy_hub.utils import eve as eve_utils
@@ -286,6 +287,51 @@ class JobNotificationSignalTests(TestCase):
         job.refresh_from_db()
 
         mock_notify.assert_not_called()
+        self.assertTrue(job.job_completed_notified)
+
+    @patch("indy_hub.signals.notify_user")
+    def test_notification_handles_string_end_date(self, mock_notify):
+        start = timezone.now() - timedelta(hours=2)
+        future_end = timezone.now() + timedelta(hours=1)
+
+        job = IndustryJob.objects.create(
+            owner_user=self.user,
+            character_id=9301,
+            job_id=88003,
+            installer_id=self.user.id,
+            station_id=6003,
+            location_name="Factory",
+            activity_id=1,
+            blueprint_id=7005,
+            blueprint_type_id=7006,
+            blueprint_type_name="Widget Blueprint",
+            runs=1,
+            status="manufacturing",
+            duration=3600,
+            start_date=start,
+            end_date=future_end,
+            activity_name="Manufacturing",
+            product_type_name="Widget",
+            character_name="Notifier",
+        )
+
+        job.refresh_from_db()
+        self.assertFalse(job.job_completed_notified)
+
+        past_end_iso = (timezone.now() - timedelta(minutes=5)).isoformat()
+        job.end_date = past_end_iso
+        job.status = "delivered"
+
+        mock_notify.reset_mock()
+
+        # AA Example App
+        from indy_hub import signals as indy_signals
+
+        indy_signals._handle_job_completion_notification(job)
+
+        job.refresh_from_db()
+
+        mock_notify.assert_called_once()
         self.assertTrue(job.job_completed_notified)
 
 
@@ -975,6 +1021,26 @@ class BlueprintCopyMyRequestsTests(TestCase):
             self.assertEqual(request_obj.copies_requested, 4)
             mock_notify.assert_called()
 
+    def test_cancel_redirects_back_to_my_requests(self) -> None:
+        request_obj = BlueprintCopyRequest.objects.create(
+            type_id=700001,
+            material_efficiency=8,
+            time_efficiency=10,
+            requested_by=self.user,
+            runs_requested=2,
+            copies_requested=1,
+        )
+
+        response = self.client.post(
+            reverse("indy_hub:bp_cancel_copy_request", args=[request_obj.id]),
+            {"next": reverse("indy_hub:bp_copy_my_requests")},
+        )
+
+        self.assertRedirects(response, reverse("indy_hub:bp_copy_my_requests"))
+        self.assertFalse(
+            BlueprintCopyRequest.objects.filter(id=request_obj.id).exists()
+        )
+
 
 class StructureLookupForbiddenCacheTests(TestCase):
     def tearDown(self) -> None:
@@ -1198,3 +1264,70 @@ class BlueprintCopyMyRequestsViewTests(TestCase):
         self.assertIn("action_required", statuses)
         self.assertIn("awaiting_delivery", statuses)
         self.assertIn("delivered", statuses)
+
+
+class OnboardingViewsTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("rookie", password="rookiepass")
+        assign_main_character(self.user, character_id=2024001)
+        permission = Permission.objects.get(codename="can_access_indy_hub")
+        self.user.user_permissions.add(permission)
+        self.client.force_login(self.user)
+        self.toggle_url = reverse("indy_hub:onboarding_toggle_task")
+        self.visibility_url = reverse("indy_hub:onboarding_set_visibility")
+
+    def test_manual_task_completion_marks_progress(self) -> None:
+        response = self.client.post(
+            self.toggle_url,
+            {
+                "task": "review_guides",
+                "action": "complete",
+            },
+        )
+
+        self.assertRedirects(response, reverse("indy_hub:index"))
+        progress = UserOnboardingProgress.objects.get(user=self.user)
+        self.assertTrue(progress.manual_steps.get("review_guides"))
+        self.assertFalse(progress.dismissed)
+
+    def test_non_manual_task_rejected(self) -> None:
+        self.client.post(
+            self.toggle_url,
+            {
+                "task": "review_guides",
+                "action": "complete",
+            },
+        )
+        response = self.client.post(
+            self.toggle_url,
+            {
+                "task": "connect_blueprints",
+                "action": "complete",
+            },
+        )
+
+        self.assertRedirects(response, reverse("indy_hub:index"))
+        progress = UserOnboardingProgress.objects.get(user=self.user)
+        self.assertIn("review_guides", progress.manual_steps)
+        self.assertNotIn("connect_blueprints", progress.manual_steps)
+
+    def test_visibility_toggle_dismisses_and_restores(self) -> None:
+        response = self.client.post(
+            self.visibility_url,
+            {
+                "action": "dismiss",
+            },
+        )
+        self.assertRedirects(response, reverse("indy_hub:index"))
+        progress = UserOnboardingProgress.objects.get(user=self.user)
+        self.assertTrue(progress.dismissed)
+
+        response = self.client.post(
+            self.visibility_url,
+            {
+                "action": "restore",
+            },
+        )
+        self.assertRedirects(response, reverse("indy_hub:index"))
+        progress.refresh_from_db()
+        self.assertFalse(progress.dismissed)

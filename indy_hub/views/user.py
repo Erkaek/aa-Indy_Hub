@@ -14,6 +14,7 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.translation import gettext as _
 from django.views.decorators.http import require_POST
 
@@ -31,12 +32,68 @@ from ..models import (
     IndustryJob,
     ProductionConfig,
     ProductionSimulation,
+    UserOnboardingProgress,
 )
 from ..services.simulations import summarize_simulations
 from ..tasks.industry import update_blueprints_for_user, update_industry_jobs_for_user
 from ..utils.eve import get_character_name
 
 logger = logging.getLogger(__name__)
+
+ONBOARDING_TASK_CONFIG = [
+    {
+        "key": "connect_blueprints",
+        "title": _("Connect blueprint access"),
+        "description": _(
+            "Authorize at least one character so Indy Hub can import your blueprints."
+        ),
+        "mode": "auto",
+        "cta": "indy_hub:token_management",
+        "icon": "fa-scroll",
+    },
+    {
+        "key": "connect_jobs",
+        "title": _("Connect industry jobs"),
+        "description": _(
+            "Add an industry jobs token to track active slots and completions."
+        ),
+        "mode": "auto",
+        "cta": "indy_hub:token_management",
+        "icon": "fa-industry",
+    },
+    {
+        "key": "enable_sharing",
+        "title": _("Enable copy sharing"),
+        "description": _(
+            "Pick a sharing scope so corpmates can request copies from your originals."
+        ),
+        "mode": "auto",
+        "cta": "indy_hub:index",
+        "icon": "fa-share-alt",
+    },
+    {
+        "key": "review_guides",
+        "title": _("Review the quick-start guides"),
+        "description": _(
+            "Skim the journey cards on the request or fulfil pages to learn the flow."
+        ),
+        "mode": "manual",
+        "cta": "indy_hub:bp_copy_request_page",
+        "icon": "fa-compass",
+    },
+    {
+        "key": "submit_request",
+        "title": _("Submit your first copy request"),
+        "description": _("Try the workflow end to end by requesting a blueprint copy."),
+        "mode": "auto",
+        "cta": "indy_hub:bp_copy_request_page",
+        "icon": "fa-copy",
+    },
+]
+
+MANUAL_ONBOARDING_KEYS = {
+    cfg["key"] for cfg in ONBOARDING_TASK_CONFIG if cfg["mode"] == "manual"
+}
 
 BLUEPRINT_SCOPE = "esi-characters.read_blueprints.v1"
 JOBS_SCOPE = "esi-industry.read_character_jobs.v1"
@@ -239,6 +296,57 @@ def index(request):
             ).count()
 
     copy_my_requests_total = copy_my_requests_open + copy_my_requests_pending_delivery
+
+    onboarding_progress, _ = UserOnboardingProgress.objects.get_or_create(
+        user=request.user
+    )
+    manual_steps = onboarding_progress.manual_steps or {}
+    has_any_request_history = BlueprintCopyRequest.objects.filter(
+        requested_by=request.user
+    ).exists()
+
+    onboarding_tasks = []
+    for cfg in ONBOARDING_TASK_CONFIG:
+        task = {
+            "key": cfg["key"],
+            "title": cfg["title"],
+            "description": cfg["description"],
+            "mode": cfg["mode"],
+            "icon": cfg.get("icon"),
+            "cta": cfg.get("cta"),
+        }
+        if cfg["mode"] == "manual":
+            completed = bool(manual_steps.get(cfg["key"]))
+        else:
+            if cfg["key"] == "connect_blueprints":
+                completed = bool(blueprint_char_ids)
+            elif cfg["key"] == "connect_jobs":
+                completed = bool(jobs_char_ids)
+            elif cfg["key"] == "enable_sharing":
+                completed = bool(sharing_state["enabled"])
+            elif cfg["key"] == "submit_request":
+                completed = has_any_request_history
+            else:
+                completed = False
+        task["completed"] = completed
+        cta_name = task.get("cta")
+        if cta_name:
+            try:
+                task["cta_url"] = reverse(cta_name)
+            except Exception:
+                task["cta_url"] = None
+        else:
+            task["cta_url"] = None
+        onboarding_tasks.append(task)
+
+    completed_count = sum(1 for task in onboarding_tasks if task["completed"])
+    total_tasks = len(onboarding_tasks)
+    pending_tasks = [task for task in onboarding_tasks if not task["completed"]]
+    onboarding_percent = (
+        int(round((completed_count / total_tasks) * 100)) if total_tasks else 0
+    )
+    onboarding_show = bool(pending_tasks) and not onboarding_progress.dismissed
+
     context = {
         "has_blueprint_tokens": bool(blueprint_char_ids),
         "has_jobs_tokens": bool(jobs_char_ids),
@@ -260,6 +368,15 @@ def index(request):
         "copy_my_requests_open": copy_my_requests_open,
         "copy_my_requests_pending_delivery": copy_my_requests_pending_delivery,
         "copy_my_requests_total": copy_my_requests_total,
+        "onboarding": {
+            "tasks": onboarding_tasks,
+            "completed": completed_count,
+            "total": total_tasks,
+            "pending": len(pending_tasks),
+            "percent": onboarding_percent,
+            "show": onboarding_show,
+            "dismissed": onboarding_progress.dismissed,
+        },
     }
     return render(request, "indy_hub/index.html", context)
 
@@ -622,6 +739,76 @@ def toggle_copy_sharing(request):
             "subtitle": sharing_state["subtitle"],
         }
     )
+
+
+@indy_hub_access_required
+@login_required
+@require_POST
+def onboarding_toggle_task(request):
+    task_key = request.POST.get("task", "").strip()
+    action = request.POST.get("action", "complete")
+    next_url = (
+        request.POST.get("next")
+        or request.headers.get("referer")
+        or reverse("indy_hub:index")
+    )
+    if not url_has_allowed_host_and_scheme(
+        url=next_url,
+        allowed_hosts={request.get_host()},
+        require_https=request.is_secure(),
+    ):
+        next_url = reverse("indy_hub:index")
+
+    if task_key not in MANUAL_ONBOARDING_KEYS:
+        messages.error(request, _("This checklist item can't be updated manually."))
+        return redirect(next_url)
+
+    progress, _created = UserOnboardingProgress.objects.get_or_create(user=request.user)
+    completed = action != "reset"
+    progress.mark_step(task_key, completed)
+    fields = ["manual_steps", "updated_at"]
+    if completed and progress.dismissed:
+        progress.dismissed = False
+        fields.append("dismissed")
+    progress.save(update_fields=list(dict.fromkeys(fields)))
+
+    if completed:
+        messages.success(
+            request, _("Nice! We'll remember that you've reviewed the guides.")
+        )
+    else:
+        messages.info(request, _("Checklist item reset."))
+    return redirect(next_url)
+
+
+@indy_hub_access_required
+@login_required
+@require_POST
+def onboarding_set_visibility(request):
+    action = request.POST.get("action", "dismiss")
+    next_url = (
+        request.POST.get("next")
+        or request.headers.get("referer")
+        or reverse("indy_hub:index")
+    )
+    if not url_has_allowed_host_and_scheme(
+        url=next_url,
+        allowed_hosts={request.get_host()},
+        require_https=request.is_secure(),
+    ):
+        next_url = reverse("indy_hub:index")
+
+    progress, _created = UserOnboardingProgress.objects.get_or_create(user=request.user)
+    dismiss = action != "restore"
+    if progress.dismissed != dismiss:
+        progress.dismissed = dismiss
+        progress.save(update_fields=["dismissed", "updated_at"])
+
+    if dismiss:
+        messages.info(request, _("Checklist hidden. You can bring it back anytime."))
+    else:
+        messages.success(request, _("Checklist restored."))
+    return redirect(next_url)
 
 
 # --- Production Simulations Management ---

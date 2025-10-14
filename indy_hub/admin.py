@@ -5,7 +5,12 @@ Django admin configuration for indy_hub models
 # Django
 from django.contrib import admin
 
-from .models import Blueprint, CharacterSettings, IndustryJob
+from .models import (
+    Blueprint,
+    CharacterSettings,
+    IndustryJob,
+    UserOnboardingProgress,
+)
 
 
 @admin.register(Blueprint)
@@ -157,6 +162,28 @@ class CharacterSettingsAdmin(admin.ModelAdmin):
                     "copy_sharing_scope",
                     "updated_at",
                 )
+            },
+        ),
+    )
+
+
+@admin.register(UserOnboardingProgress)
+class UserOnboardingProgressAdmin(admin.ModelAdmin):
+    list_display = ["user", "dismissed", "updated_at"]
+    search_fields = ["user__username"]
+    list_filter = ["dismissed"]
+    readonly_fields = ["created_at", "updated_at"]
+    fieldsets = (
+        (
+            None,
+            {
+                "fields": (
+                    "user",
+                    "dismissed",
+                    "manual_steps",
+                    "created_at",
+                    "updated_at",
+                ),
             },
         ),
     )
