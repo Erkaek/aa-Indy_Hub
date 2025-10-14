@@ -29,9 +29,4 @@ INDY_HUB_BEAT_SCHEDULE = {
         "schedule": crontab(hour=3, minute=0),  # Quotidien à 3h du matin
         "options": {"priority": 8},  # Priorité basse pour la mise en cache
     },
-    "indy-hub-notify-completed-jobs": {
-        "task": "indy_hub.tasks.industry.notify_completed_jobs",
-        "schedule": crontab(minute="*/5"),  # Toutes les 5 minutes
-        "options": {"priority": 5},  # Priorité moyenne pour les notifications
-    },
 }

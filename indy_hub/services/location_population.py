@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any
 
 # Django
+from django.conf import settings
 from django.db import transaction
 
 # AA Example App
@@ -16,6 +17,8 @@ from indy_hub.models import Blueprint, IndustryJob
 from indy_hub.utils.eve import PLACEHOLDER_PREFIX, is_station_id, resolve_location_name
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_TASK_PRIORITY = 6
 
 
 @dataclass
@@ -138,6 +141,51 @@ def _gather_location_targets(
     return targets
 
 
+def _enqueue_structure_refresh(structure_id: int) -> bool:
+    """Schedule an asynchronous refresh for a given structure location.
+
+    Utilise QueueOnce-enabled Celery task when available. Returns True when a task
+    was queued successfully and False when queuing is skipped or failed.
+    """
+
+    try:
+        eager = bool(getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False))
+    except Exception:  # pragma: no cover - defensive fallback when settings unset
+        eager = True
+
+    if eager:
+        return False
+
+    try:
+        # AA Example App
+        from indy_hub.tasks.location import refresh_structure_location
+    except Exception:  # pragma: no cover - task unavailable or import error
+        logger.debug(
+            "Impossible de planifier la mise à jour de la structure %s (tâche indisponible)",
+            structure_id,
+            exc_info=True,
+        )
+        return False
+
+    try:
+        refresh_structure_location.apply_async(
+            kwargs={"structure_id": int(structure_id)},
+            priority=DEFAULT_TASK_PRIORITY,
+        )
+        logger.debug(
+            "Mise à jour asynchrone programmée pour la structure %s",
+            structure_id,
+        )
+        return True
+    except Exception:  # pragma: no cover - broker indisponible
+        logger.debug(
+            "Impossible de planifier la mise à jour de la structure %s (broker indisponible)",
+            structure_id,
+            exc_info=True,
+        )
+        return False
+
+
 def populate_location_names(
     *,
     location_ids: Iterable[int] | None = None,
@@ -145,6 +193,7 @@ def populate_location_names(
     chunk_size: int = 500,
     dry_run: bool = False,
     logger_override: logging.Logger | None = None,
+    schedule_async: bool = True,
 ) -> dict[str, int]:
     """Populate location names for blueprints and industry jobs.
 
@@ -154,6 +203,8 @@ def populate_location_names(
         chunk_size: size used for queryset iteration and bulk updates.
         dry_run: when True, performs no writes and only reports the impact.
         logger_override: optional logger to emit progress messages.
+        schedule_async: when True, queue a background refresh task for structures
+            qui restent avec un nom fictif (placeholder) après la résolution.
 
     Returns:
         Summary dictionary with counts of updated objects.
@@ -177,8 +228,10 @@ def populate_location_names(
 
     blueprint_updates: list[Blueprint] = []
     job_updates: list[IndustryJob] = []
+    queued_structures: set[int] = set()
 
     for location_id, target in targets.items():
+        location_id = int(location_id)
         name = target.known_name
         if name and not _is_placeholder(name):
             resolved_name = name
@@ -191,6 +244,16 @@ def populate_location_names(
 
         if not resolved_name:
             resolved_name = f"{PLACEHOLDER_PREFIX}{location_id}"
+
+        if (
+            schedule_async
+            and not force_refresh
+            and not is_station_id(location_id)
+            and _is_placeholder(resolved_name)
+            and location_id not in queued_structures
+        ):
+            if _enqueue_structure_refresh(location_id):
+                queued_structures.add(location_id)
 
         for blueprint_id, current_name in target.blueprints:
             if current_name == resolved_name:

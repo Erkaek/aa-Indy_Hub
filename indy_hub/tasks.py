@@ -21,13 +21,13 @@ from .tasks import setup_periodic_tasks  # noqa: F401
 # Import all tasks from specialized modules
 from .tasks.industry import (  # noqa: F401
     cleanup_old_jobs,
-    notify_completed_jobs,
     update_all_blueprints,
     update_all_industry_jobs,
     update_blueprints_for_user,
     update_industry_jobs_for_user,
     update_type_names,
 )
+from .tasks.location import refresh_structure_location  # noqa: F401
 from .tasks.user import *  # noqa: F401, F403
 
 logger = logging.getLogger(__name__)

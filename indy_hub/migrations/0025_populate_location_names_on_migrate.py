@@ -44,7 +44,11 @@ def _populate_location_names(apps, schema_editor):
             )
             return
 
-    summary = populate_location_names(logger_override=logger)
+    summary = populate_location_names(
+        logger_override=logger,
+        force_refresh=True,
+        schedule_async=False,
+    )
     logger.info(
         "populate_location_names executed inline during migration: %s blueprints, %s jobs, %s locations",
         summary.get("blueprints", 0),

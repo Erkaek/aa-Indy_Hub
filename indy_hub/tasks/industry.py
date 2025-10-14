@@ -15,11 +15,7 @@ from django.db import transaction
 # Alliance Auth
 from allianceauth.authentication.models import CharacterOwnership
 
-# AA Example App
-from indy_hub.models import CharacterSettings
-
 from ..models import Blueprint, IndustryJob
-from ..notifications import notify_user
 from ..services.esi_client import ESIClientError, ESITokenError, shared_client
 from ..services.location_population import populate_location_names
 from ..utils.eve import (
@@ -357,78 +353,6 @@ def update_type_names():
     logger.info("Updated type names for blueprints and jobs")
 
 
-@shared_task(bind=True, max_retries=3)
-def notify_completed_jobs(self):
-    """
-    Notify users about completed jobs based on their preferences
-    Runs every 5 minutes to check for jobs whose end_date has passed
-    """
-    try:
-        # Django
-        from django.utils import timezone
-
-        logger.info("Starting job completion notification check")
-
-        now = timezone.now()
-        completed_jobs = IndustryJob.objects.filter(
-            end_date__lte=now, job_completed_notified=False
-        ).select_related("owner_user")
-
-        notified_count = 0
-
-        for job in completed_jobs:
-            user = job.owner_user
-            if not user:
-                # Mark job as notified even if no user to avoid repeated checks
-                job.job_completed_notified = True
-                job.save(update_fields=["job_completed_notified"])
-                continue
-
-            # Check user's notification preference
-            # Look for global user settings (character_id=0)
-            settings = CharacterSettings.objects.filter(
-                user=user, character_id=0
-            ).first()
-
-            # Skip notification if user has no settings or has disabled job completion notifications
-            if not settings or not settings.jobs_notify_completed:
-                job.job_completed_notified = True
-                job.save(update_fields=["job_completed_notified"])
-                continue
-
-            # Send notification
-            title = "Industry Job Completed"
-            message = f"Your industry job #{job.job_id} ({job.blueprint_type_name or f'Type {job.blueprint_type_id}'}) has completed."
-
-            try:
-                notify_user(user, title, message, level="success")
-                notified_count += 1
-                logger.info(
-                    f"Notified user {user.username} about completed job {job.job_id}"
-                )
-            except Exception as e:
-                logger.error(
-                    f"Failed to notify user {user.username} about job {job.job_id}: {e}"
-                )
-
-            # Mark job as notified regardless of notification success
-            job.job_completed_notified = True
-            job.save(update_fields=["job_completed_notified"])
-
-        logger.info(
-            f"Job completion notification check completed. Notified {notified_count} users about {completed_jobs.count()} completed jobs."
-        )
-        return {
-            "total_completed_jobs": completed_jobs.count(),
-            "notified_users": notified_count,
-        }
-
-    except Exception as exc:
-        logger.error(f"Error in notify_completed_jobs task: {exc}")
-        # Retry the task with exponential backoff
-        raise self.retry(exc=exc, countdown=60 * (2**self.request.retries))
-
-
 @shared_task(bind=True, max_retries=0)
 def populate_location_names_async(
     self, location_ids=None, force_refresh=False, dry_run=False
@@ -451,6 +375,7 @@ def populate_location_names_async(
         location_ids=normalized_ids,
         force_refresh=force_refresh,
         dry_run=dry_run,
+        schedule_async=not force_refresh,
     )
 
     logger.info(

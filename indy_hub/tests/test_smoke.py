@@ -128,6 +128,167 @@ class BlueprintModelClassificationTests(TestCase):
         self.assertEqual(blueprint.bp_type, Blueprint.BPType.COPY)
 
 
+class LocationNameSignalTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("locator", password="secret123")
+
+    @patch("indy_hub.signals.resolve_location_name", return_value="Structure Beta")
+    def test_blueprint_location_name_refreshes_on_identifier_change(self, mock_resolve):
+        blueprint = Blueprint.objects.create(
+            owner_user=self.user,
+            character_id=7001,
+            item_id=5001001,
+            blueprint_id=5002001,
+            type_id=13579,
+            location_id=1111,
+            location_name="Alpha Depot",
+            location_flag="hangar",
+            quantity=-1,
+            time_efficiency=0,
+            material_efficiency=0,
+            runs=0,
+            character_name="Locator",
+            type_name="Test Blueprint",
+        )
+
+        mock_resolve.assert_not_called()
+
+        blueprint.location_id = 2222
+        blueprint.location_name = "Alpha Depot"
+        blueprint.save()
+        blueprint.refresh_from_db()
+
+        mock_resolve.assert_called_once_with(
+            2222,
+            character_id=7001,
+            owner_user_id=self.user.id,
+        )
+        self.assertEqual(blueprint.location_name, "Structure Beta")
+
+    @patch("indy_hub.signals.resolve_location_name", return_value="Station Gamma")
+    def test_industry_job_location_name_refreshes_on_station_change(self, mock_resolve):
+        start = timezone.now()
+        end = start + timedelta(hours=1)
+
+        job = IndustryJob.objects.create(
+            owner_user=self.user,
+            character_id=8001,
+            job_id=9101112,
+            installer_id=self.user.id,
+            station_id=3333,
+            location_name="Outpost Alpha",
+            activity_id=1,
+            blueprint_id=6001001,
+            blueprint_type_id=6002001,
+            runs=1,
+            status="active",
+            duration=3600,
+            start_date=start,
+            end_date=end,
+            activity_name="Manufacturing",
+            blueprint_type_name="Widget",
+            product_type_name="Widget Product",
+            character_name="Locator",
+        )
+
+        mock_resolve.assert_not_called()
+
+        job.station_id = 4444
+        job.location_name = "Outpost Alpha"
+        job.save()
+        job.refresh_from_db()
+
+        mock_resolve.assert_called_once_with(
+            4444,
+            character_id=8001,
+            owner_user_id=self.user.id,
+        )
+        self.assertEqual(job.location_name, "Station Gamma")
+
+
+class JobNotificationSignalTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("notifier", password="secret123")
+        CharacterSettings.objects.create(
+            user=self.user,
+            character_id=0,
+            jobs_notify_completed=True,
+        )
+
+    @patch("indy_hub.signals.notify_user")
+    def test_notification_sent_for_completed_job(self, mock_notify):
+        start = timezone.now() - timedelta(hours=2)
+        end = timezone.now() - timedelta(minutes=5)
+
+        job = IndustryJob.objects.create(
+            owner_user=self.user,
+            character_id=9101,
+            job_id=88001,
+            installer_id=self.user.id,
+            station_id=6001,
+            location_name="Factory",
+            activity_id=1,
+            blueprint_id=7001,
+            blueprint_type_id=7002,
+            blueprint_type_name="Widget Blueprint",
+            runs=1,
+            status="delivered",
+            duration=3600,
+            start_date=start,
+            end_date=end,
+            activity_name="Manufacturing",
+            product_type_name="Widget",
+            character_name="Notifier",
+        )
+
+        job.refresh_from_db()
+
+        mock_notify.assert_called_once()
+        args, kwargs = mock_notify.call_args
+        self.assertEqual(args[0], self.user)
+        self.assertEqual(args[1], "Industry Job Completed")
+        self.assertIn("88001", args[2])
+        self.assertTrue(job.job_completed_notified)
+
+    @patch("indy_hub.signals.notify_user")
+    def test_notification_skipped_when_preference_disabled(self, mock_notify):
+        other_user = User.objects.create_user("silent", password="secret123")
+        CharacterSettings.objects.create(
+            user=other_user,
+            character_id=0,
+            jobs_notify_completed=False,
+        )
+
+        start = timezone.now() - timedelta(hours=1)
+        end = timezone.now() - timedelta(minutes=10)
+
+        job = IndustryJob.objects.create(
+            owner_user=other_user,
+            character_id=9201,
+            job_id=88002,
+            installer_id=other_user.id,
+            station_id=6002,
+            location_name="Research Lab",
+            activity_id=1,
+            blueprint_id=7003,
+            blueprint_type_id=7004,
+            blueprint_type_name="Widget Blueprint",
+            runs=1,
+            status="delivered",
+            duration=3600,
+            start_date=start,
+            end_date=end,
+            activity_name="Manufacturing",
+            product_type_name="Widget",
+            character_name="Silent",
+        )
+
+        job.refresh_from_db()
+
+        mock_notify.assert_not_called()
+        self.assertTrue(job.job_completed_notified)
+
+
 class BlueprintCopyFulfillViewTests(TestCase):
     def setUp(self) -> None:
         self.user = User.objects.create_user("capsuleer", password="test12345")
