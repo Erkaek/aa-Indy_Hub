@@ -3,6 +3,52 @@
 # Django
 from django.db import migrations, models
 
+from .. import migration_utils as mig_utils
+
+
+def add_charsettings_unique_constraint(apps, schema_editor):
+    mig_utils.add_unique_constraint_if_missing(
+        apps,
+        schema_editor,
+        app_label="indy_hub",
+        model_name="CharacterSettings",
+        constraint_name="charsettings_user_char_uq",
+        fields=("user", "character_id"),
+    )
+
+
+def remove_charsettings_unique_constraint(apps, schema_editor):
+    mig_utils.remove_unique_constraint_if_exists(
+        apps,
+        schema_editor,
+        app_label="indy_hub",
+        model_name="CharacterSettings",
+        constraint_name="charsettings_user_char_uq",
+        fields=("user", "character_id"),
+    )
+
+
+def add_charsettings_index(apps, schema_editor):
+    mig_utils.add_index_if_missing(
+        apps,
+        schema_editor,
+        app_label="indy_hub",
+        model_name="CharacterSettings",
+        index_name="charsettings_user_char_idx",
+        fields=("user", "character_id"),
+    )
+
+
+def remove_charsettings_index(apps, schema_editor):
+    mig_utils.remove_index_if_exists(
+        apps,
+        schema_editor,
+        app_label="indy_hub",
+        model_name="CharacterSettings",
+        index_name="charsettings_user_char_idx",
+        fields=("user", "character_id"),
+    )
+
 
 class Migration(migrations.Migration):
 
@@ -15,18 +61,38 @@ class Migration(migrations.Migration):
             name="charactersettings",
             unique_together=set(),
         ),
-        migrations.AddConstraint(
-            model_name="charactersettings",
-            constraint=models.UniqueConstraint(
-                fields=("user", "character_id"),
-                name="charsettings_user_char_uq",
-            ),
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AddConstraint(
+                    model_name="charactersettings",
+                    constraint=models.UniqueConstraint(
+                        fields=("user", "character_id"),
+                        name="charsettings_user_char_uq",
+                    ),
+                )
+            ],
+            database_operations=[
+                migrations.RunPython(
+                    add_charsettings_unique_constraint,
+                    reverse_code=remove_charsettings_unique_constraint,
+                )
+            ],
         ),
-        migrations.AddIndex(
-            model_name="charactersettings",
-            index=models.Index(
-                fields=("user", "character_id"),
-                name="charsettings_user_char_idx",
-            ),
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AddIndex(
+                    model_name="charactersettings",
+                    index=models.Index(
+                        fields=("user", "character_id"),
+                        name="charsettings_user_char_idx",
+                    ),
+                )
+            ],
+            database_operations=[
+                migrations.RunPython(
+                    add_charsettings_index,
+                    reverse_code=remove_charsettings_index,
+                )
+            ],
         ),
     ]

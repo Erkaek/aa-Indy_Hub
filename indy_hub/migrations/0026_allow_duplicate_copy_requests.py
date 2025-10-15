@@ -4,6 +4,62 @@ from __future__ import annotations
 # Django
 from django.db import migrations, models
 
+from .. import migration_utils as mig_utils
+
+
+def create_copy_lookup_index(apps, schema_editor):
+    mig_utils.add_index_if_missing(
+        apps,
+        schema_editor,
+        app_label="indy_hub",
+        model_name="BlueprintCopyRequest",
+        index_name="indy_copy_req_lookup",
+        fields=(
+            "type_id",
+            "material_efficiency",
+            "time_efficiency",
+            "fulfilled",
+        ),
+    )
+
+
+def drop_copy_lookup_index(apps, schema_editor):
+    mig_utils.remove_index_if_exists(
+        apps,
+        schema_editor,
+        app_label="indy_hub",
+        model_name="BlueprintCopyRequest",
+        index_name="indy_copy_req_lookup",
+        fields=(
+            "type_id",
+            "material_efficiency",
+            "time_efficiency",
+            "fulfilled",
+        ),
+    )
+
+
+def create_user_state_index(apps, schema_editor):
+    mig_utils.add_index_if_missing(
+        apps,
+        schema_editor,
+        app_label="indy_hub",
+        model_name="BlueprintCopyRequest",
+        index_name="indy_copy_req_user_state",
+        fields=("requested_by", "fulfilled"),
+    )
+
+
+def drop_user_state_index(apps, schema_editor):
+    mig_utils.remove_index_if_exists(
+        apps,
+        schema_editor,
+        app_label="indy_hub",
+        model_name="BlueprintCopyRequest",
+        index_name="indy_copy_req_user_state",
+        fields=("requested_by", "fulfilled"),
+    )
+
 
 class Migration(migrations.Migration):
     dependencies = [
@@ -15,23 +71,43 @@ class Migration(migrations.Migration):
             name="blueprintcopyrequest",
             unique_together=set(),
         ),
-        migrations.AddIndex(
-            model_name="blueprintcopyrequest",
-            index=models.Index(
-                fields=(
-                    "type_id",
-                    "material_efficiency",
-                    "time_efficiency",
-                    "fulfilled",
-                ),
-                name="indy_copy_req_lookup",
-            ),
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AddIndex(
+                    model_name="blueprintcopyrequest",
+                    index=models.Index(
+                        fields=(
+                            "type_id",
+                            "material_efficiency",
+                            "time_efficiency",
+                            "fulfilled",
+                        ),
+                        name="indy_copy_req_lookup",
+                    ),
+                )
+            ],
+            database_operations=[
+                migrations.RunPython(
+                    create_copy_lookup_index,
+                    reverse_code=drop_copy_lookup_index,
+                )
+            ],
         ),
-        migrations.AddIndex(
-            model_name="blueprintcopyrequest",
-            index=models.Index(
-                fields=("requested_by", "fulfilled"),
-                name="indy_copy_req_user_state",
-            ),
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AddIndex(
+                    model_name="blueprintcopyrequest",
+                    index=models.Index(
+                        fields=("requested_by", "fulfilled"),
+                        name="indy_copy_req_user_state",
+                    ),
+                )
+            ],
+            database_operations=[
+                migrations.RunPython(
+                    create_user_state_index,
+                    reverse_code=drop_user_state_index,
+                )
+            ],
         ),
     ]

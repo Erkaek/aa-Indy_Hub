@@ -6,6 +6,118 @@ import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
 
+from .. import migration_utils as mig_utils
+
+
+def add_productionconfig_simulation_item_index(apps, schema_editor):
+    mig_utils.add_index_if_missing(
+        apps,
+        schema_editor,
+        app_label="indy_hub",
+        model_name="ProductionConfig",
+        index_name="indy_hub_pr_simulat_700399_idx",
+        fields=("simulation", "item_type_id"),
+    )
+
+
+def remove_productionconfig_simulation_item_index(apps, schema_editor):
+    mig_utils.remove_index_if_exists(
+        apps,
+        schema_editor,
+        app_label="indy_hub",
+        model_name="ProductionConfig",
+        index_name="indy_hub_pr_simulat_700399_idx",
+        fields=("simulation", "item_type_id"),
+    )
+
+
+def add_customprice_user_item_index(apps, schema_editor):
+    mig_utils.add_index_if_missing(
+        apps,
+        schema_editor,
+        app_label="indy_hub",
+        model_name="CustomPrice",
+        index_name="indy_hub_cu_user_id_7e8b65_idx",
+        fields=("user", "item_type_id"),
+    )
+
+
+def remove_customprice_user_item_index(apps, schema_editor):
+    mig_utils.remove_index_if_exists(
+        apps,
+        schema_editor,
+        app_label="indy_hub",
+        model_name="CustomPrice",
+        index_name="indy_hub_cu_user_id_7e8b65_idx",
+        fields=("user", "item_type_id"),
+    )
+
+
+def add_customprice_simulation_item_index(apps, schema_editor):
+    mig_utils.add_index_if_missing(
+        apps,
+        schema_editor,
+        app_label="indy_hub",
+        model_name="CustomPrice",
+        index_name="indy_hub_cu_simulat_e46670_idx",
+        fields=("simulation", "item_type_id"),
+    )
+
+
+def remove_customprice_simulation_item_index(apps, schema_editor):
+    mig_utils.remove_index_if_exists(
+        apps,
+        schema_editor,
+        app_label="indy_hub",
+        model_name="CustomPrice",
+        index_name="indy_hub_cu_simulat_e46670_idx",
+        fields=("simulation", "item_type_id"),
+    )
+
+
+def add_blueprintefficiency_user_index(apps, schema_editor):
+    mig_utils.add_index_if_missing(
+        apps,
+        schema_editor,
+        app_label="indy_hub",
+        model_name="BlueprintEfficiency",
+        index_name="indy_hub_bl_user_id_c3e8ee_idx",
+        fields=("user", "blueprint_type_id"),
+    )
+
+
+def remove_blueprintefficiency_user_index(apps, schema_editor):
+    mig_utils.remove_index_if_exists(
+        apps,
+        schema_editor,
+        app_label="indy_hub",
+        model_name="BlueprintEfficiency",
+        index_name="indy_hub_bl_user_id_c3e8ee_idx",
+        fields=("user", "blueprint_type_id"),
+    )
+
+
+def add_blueprintefficiency_simulation_index(apps, schema_editor):
+    mig_utils.add_index_if_missing(
+        apps,
+        schema_editor,
+        app_label="indy_hub",
+        model_name="BlueprintEfficiency",
+        index_name="indy_hub_bl_simulat_31616a_idx",
+        fields=("simulation", "blueprint_type_id"),
+    )
+
+
+def remove_blueprintefficiency_simulation_index(apps, schema_editor):
+    mig_utils.remove_index_if_exists(
+        apps,
+        schema_editor,
+        app_label="indy_hub",
+        model_name="BlueprintEfficiency",
+        index_name="indy_hub_bl_simulat_31616a_idx",
+        fields=("simulation", "blueprint_type_id"),
+    )
+
 
 class Migration(migrations.Migration):
 
@@ -114,12 +226,22 @@ class Migration(migrations.Migration):
             name="productionconfig",
             unique_together={("simulation", "item_type_id")},
         ),
-        migrations.AddIndex(
-            model_name="productionconfig",
-            index=models.Index(
-                fields=["simulation", "item_type_id"],
-                name="indy_hub_pr_simulat_700399_idx",
-            ),
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AddIndex(
+                    model_name="productionconfig",
+                    index=models.Index(
+                        fields=["simulation", "item_type_id"],
+                        name="indy_hub_pr_simulat_700399_idx",
+                    ),
+                )
+            ],
+            database_operations=[
+                migrations.RunPython(
+                    add_productionconfig_simulation_item_index,
+                    reverse_code=remove_productionconfig_simulation_item_index,
+                )
+            ],
         ),
         migrations.AddField(
             model_name="customprice",
@@ -153,36 +275,77 @@ class Migration(migrations.Migration):
                 on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL
             ),
         ),
-        migrations.AddIndex(
-            model_name="customprice",
-            index=models.Index(
-                fields=["user", "item_type_id"], name="indy_hub_cu_user_id_7e8b65_idx"
-            ),
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AddIndex(
+                    model_name="customprice",
+                    index=models.Index(
+                        fields=["user", "item_type_id"],
+                        name="indy_hub_cu_user_id_7e8b65_idx",
+                    ),
+                )
+            ],
+            database_operations=[
+                migrations.RunPython(
+                    add_customprice_user_item_index,
+                    reverse_code=remove_customprice_user_item_index,
+                )
+            ],
         ),
-        migrations.AddIndex(
-            model_name="customprice",
-            index=models.Index(
-                fields=["simulation", "item_type_id"],
-                name="indy_hub_cu_simulat_e46670_idx",
-            ),
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AddIndex(
+                    model_name="customprice",
+                    index=models.Index(
+                        fields=["simulation", "item_type_id"],
+                        name="indy_hub_cu_simulat_e46670_idx",
+                    ),
+                )
+            ],
+            database_operations=[
+                migrations.RunPython(
+                    add_customprice_simulation_item_index,
+                    reverse_code=remove_customprice_simulation_item_index,
+                )
+            ],
         ),
         migrations.AlterUniqueTogether(
             name="customprice",
             unique_together={("simulation", "item_type_id")},
         ),
-        migrations.AddIndex(
-            model_name="blueprintefficiency",
-            index=models.Index(
-                fields=["user", "blueprint_type_id"],
-                name="indy_hub_bl_user_id_c3e8ee_idx",
-            ),
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AddIndex(
+                    model_name="blueprintefficiency",
+                    index=models.Index(
+                        fields=["user", "blueprint_type_id"],
+                        name="indy_hub_bl_user_id_c3e8ee_idx",
+                    ),
+                )
+            ],
+            database_operations=[
+                migrations.RunPython(
+                    add_blueprintefficiency_user_index,
+                    reverse_code=remove_blueprintefficiency_user_index,
+                )
+            ],
         ),
-        migrations.AddIndex(
-            model_name="blueprintefficiency",
-            index=models.Index(
-                fields=["simulation", "blueprint_type_id"],
-                name="indy_hub_bl_simulat_31616a_idx",
-            ),
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AddIndex(
+                    model_name="blueprintefficiency",
+                    index=models.Index(
+                        fields=["simulation", "blueprint_type_id"],
+                        name="indy_hub_bl_simulat_31616a_idx",
+                    ),
+                )
+            ],
+            database_operations=[
+                migrations.RunPython(
+                    add_blueprintefficiency_simulation_index,
+                    reverse_code=remove_blueprintefficiency_simulation_index,
+                )
+            ],
         ),
         migrations.AlterUniqueTogether(
             name="blueprintefficiency",
