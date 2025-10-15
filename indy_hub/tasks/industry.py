@@ -4,7 +4,8 @@
 
 # Standard Library
 import logging
-from datetime import datetime
+import random
+from datetime import datetime, timedelta
 
 # Third Party
 from celery import shared_task
@@ -12,6 +13,7 @@ from celery import shared_task
 # Django
 from django.conf import settings
 from django.contrib.auth.models import User
+from django.core.cache import cache
 from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -35,6 +37,144 @@ logger = logging.getLogger(__name__)
 BLUEPRINT_SCOPE = "esi-characters.read_blueprints.v1"
 JOBS_SCOPE = "esi-industry.read_character_jobs.v1"
 STRUCTURE_SCOPE = "esi-universe.read_structures.v1"
+
+MANUAL_REFRESH_KIND_BLUEPRINTS = "blueprints"
+MANUAL_REFRESH_KIND_JOBS = "jobs"
+
+_MANUAL_REFRESH_CACHE_PREFIX = "indy_hub:manual_refresh"
+_DEFAULT_BULK_WINDOWS = {
+    MANUAL_REFRESH_KIND_BLUEPRINTS: 720,
+    "industry_jobs": 120,
+}
+
+
+def _get_manual_refresh_cooldown_seconds() -> int:
+    value = getattr(settings, "INDY_HUB_MANUAL_REFRESH_COOLDOWN_SECONDS", 3600)
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        value = 3600
+    return max(value, 0)
+
+
+def _get_bulk_window_minutes(kind: str) -> int:
+    fallback = _DEFAULT_BULK_WINDOWS.get(kind, 720)
+    fallback = getattr(settings, "INDY_HUB_BULK_UPDATE_WINDOW_MINUTES", fallback)
+    try:
+        specific = getattr(
+            settings,
+            f"INDY_HUB_{kind.upper()}_BULK_WINDOW_MINUTES",
+            fallback,
+        )
+    except AttributeError:
+        specific = fallback
+    try:
+        minutes = int(specific)
+    except (TypeError, ValueError):
+        minutes = fallback
+    return max(minutes, 0)
+
+
+def _manual_refresh_cache_key(kind: str, user_id: int) -> str:
+    return f"{_MANUAL_REFRESH_CACHE_PREFIX}:{kind}:{user_id}"
+
+
+def _queue_staggered_user_tasks(
+    task, user_ids: list[int], *, window_minutes: int, priority: int | None = None
+) -> int:
+    if not user_ids:
+        return 0
+
+    total = len(user_ids)
+    window_seconds = max(window_minutes * 60, 0)
+
+    if total == 1 or window_seconds == 0:
+        for user_id in user_ids:
+            task.apply_async(args=(user_id,), priority=priority)
+        return total
+
+    spacing = window_seconds / total
+    for index, user_id in enumerate(user_ids):
+        countdown = int(round(index * spacing))
+        task.apply_async(args=(user_id,), countdown=countdown, priority=priority)
+    return total
+
+
+def _record_manual_refresh(kind: str, user_id: int) -> None:
+    if user_id is None:
+        return
+    cooldown = _get_manual_refresh_cooldown_seconds()
+    if cooldown <= 0:
+        return
+    now = timezone.now()
+    cache.set(
+        _manual_refresh_cache_key(kind, user_id),
+        now.timestamp(),
+        timeout=cooldown,
+    )
+
+
+def _remaining_manual_cooldown(kind: str, user_id: int) -> timedelta | None:
+    cached = cache.get(_manual_refresh_cache_key(kind, user_id))
+    if cached is None:
+        return None
+    try:
+        last_trigger = datetime.fromtimestamp(float(cached), tz=timezone.utc)
+    except (TypeError, ValueError):
+        return None
+    cooldown = _get_manual_refresh_cooldown_seconds()
+    if cooldown <= 0:
+        return None
+    expiry = last_trigger + timedelta(seconds=cooldown)
+    remaining = expiry - timezone.now()
+    if remaining.total_seconds() <= 0:
+        return None
+    return remaining
+
+
+def manual_refresh_allowed(kind: str, user_id: int) -> tuple[bool, timedelta | None]:
+    remaining = _remaining_manual_cooldown(kind, user_id)
+    if remaining is None:
+        return True, None
+    return False, remaining
+
+
+def reset_manual_refresh_cooldown(kind: str, user_id: int) -> None:
+    cache.delete(_manual_refresh_cache_key(kind, user_id))
+
+
+def queue_blueprint_update_for_user(
+    user_id: int, *, countdown: int = 0, priority: int | None = None
+) -> None:
+    update_blueprints_for_user.apply_async(
+        args=(user_id,), countdown=countdown, priority=priority
+    )
+
+
+def queue_industry_job_update_for_user(
+    user_id: int, *, countdown: int = 0, priority: int | None = None
+) -> None:
+    update_industry_jobs_for_user.apply_async(
+        args=(user_id,), countdown=countdown, priority=priority
+    )
+
+
+def request_manual_refresh(
+    kind: str, user_id: int, *, priority: int | None = None
+) -> tuple[bool, timedelta | None]:
+    allowed, remaining = manual_refresh_allowed(kind, user_id)
+    if not allowed:
+        return False, remaining
+
+    if kind == MANUAL_REFRESH_KIND_BLUEPRINTS:
+        queue_blueprint_update_for_user(user_id, priority=priority)
+    elif kind == MANUAL_REFRESH_KIND_JOBS:
+        queue_industry_job_update_for_user(user_id, priority=priority)
+    else:
+        raise ValueError(f"Unknown manual refresh kind: {kind}")
+
+    _record_manual_refresh(kind, user_id)
+    return True, None
 
 
 def _get_location_lookup_budget() -> int:
@@ -487,36 +627,54 @@ def populate_location_names_async(
 @shared_task
 def update_all_blueprints():
     """
-    Update blueprints for all users - runs every 30 minutes
+    Update blueprints for all users - scheduled via Celery beat
     """
     logger.info("Starting bulk blueprint update for all users")
 
-    # Get users who have ESI tokens and haven't been updated recently
+    user_ids = list(
+        User.objects.filter(token__isnull=False).distinct().values_list("id", flat=True)
+    )
+    random.shuffle(user_ids)
 
-    # Since we removed tracking, just update all users with tokens
-    users_to_update = User.objects.filter(token__isnull=False).distinct()
+    window_minutes = _get_bulk_window_minutes("blueprints")
+    queued = _queue_staggered_user_tasks(
+        update_blueprints_for_user,
+        user_ids,
+        window_minutes=window_minutes,
+        priority=7,
+    )
 
-    for user in users_to_update:
-        update_blueprints_for_user.delay(user.id)
-
-    logger.info(f"Queued blueprint updates for {users_to_update.count()} users")
-    return {"users_queued": users_to_update.count()}
+    logger.info(
+        "Queued blueprint updates for %s users across a %s minute window",
+        queued,
+        window_minutes,
+    )
+    return {"users_queued": queued, "window_minutes": window_minutes}
 
 
 @shared_task
 def update_all_industry_jobs():
     """
-    Update industry jobs for all users - runs every 10 minutes
+    Update industry jobs for all users - scheduled via Celery beat
     """
     logger.info("Starting bulk industry jobs update for all users")
 
-    # Get users who have ESI tokens and haven't been updated recently
+    user_ids = list(
+        User.objects.filter(token__isnull=False).distinct().values_list("id", flat=True)
+    )
+    random.shuffle(user_ids)
 
-    # Since we removed tracking, just update all users with tokens
-    users_to_update = User.objects.filter(token__isnull=False).distinct()
+    window_minutes = _get_bulk_window_minutes("industry_jobs")
+    queued = _queue_staggered_user_tasks(
+        update_industry_jobs_for_user,
+        user_ids,
+        window_minutes=window_minutes,
+        priority=7,
+    )
 
-    for user in users_to_update:
-        update_industry_jobs_for_user.delay(user.id)
-
-    logger.info(f"Queued industry job updates for {users_to_update.count()} users")
-    return {"users_queued": users_to_update.count()}
+    logger.info(
+        "Queued industry job updates for %s users across a %s minute window",
+        queued,
+        window_minutes,
+    )
+    return {"users_queued": queued, "window_minutes": window_minutes}

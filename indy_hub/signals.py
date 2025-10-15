@@ -5,11 +5,13 @@ from datetime import datetime
 # Django
 from django.db.models.signals import post_migrate, post_save, pre_save
 from django.dispatch import receiver
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
+from django.utils.translation import gettext_lazy as _
 
 from .models import Blueprint, CharacterSettings, IndustryJob
-from .notifications import notify_user
+from .notifications import build_site_url, notify_user
 from .utils.eve import PLACEHOLDER_PREFIX, resolve_location_name
 
 # Alliance Auth: Token model
@@ -144,9 +146,17 @@ def _handle_job_completion_notification(job: IndustryJob) -> None:
     title = "Industry Job Completed"
     job_display = job.blueprint_type_name or f"Type {job.blueprint_type_id}"
     message = f"Your industry job #{job.job_id} ({job_display}) has completed."
+    jobs_url = build_site_url(reverse("indy_hub:personnal_job_list"))
 
     try:
-        notify_user(user, title, message, level="success")
+        notify_user(
+            user,
+            title,
+            message,
+            level="success",
+            link=jobs_url,
+            link_label=_("View job dashboard"),
+        )
         logger.info(
             "Notified user %s about completed job %s",
             getattr(user, "username", user),

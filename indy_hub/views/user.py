@@ -3,6 +3,7 @@
 import json
 import logging
 import secrets
+from math import ceil
 from urllib.parse import urlencode
 
 # Django
@@ -35,7 +36,11 @@ from ..models import (
     UserOnboardingProgress,
 )
 from ..services.simulations import summarize_simulations
-from ..tasks.industry import update_blueprints_for_user, update_industry_jobs_for_user
+from ..tasks.industry import (
+    MANUAL_REFRESH_KIND_BLUEPRINTS,
+    MANUAL_REFRESH_KIND_JOBS,
+    request_manual_refresh,
+)
 from ..utils.eve import get_character_name
 
 logger = logging.getLogger(__name__)
@@ -615,11 +620,66 @@ def sync_all_tokens(request):
             jobs_tokens = Token.objects.filter(user=request.user).require_scopes(
                 JOBS_SCOPE_SET
             )
+            any_scheduled = False
             if blueprint_tokens.exists():
-                update_blueprints_for_user.delay(request.user.id)
+                scheduled, remaining = request_manual_refresh(
+                    MANUAL_REFRESH_KIND_BLUEPRINTS,
+                    request.user.id,
+                    priority=5,
+                )
+                if scheduled:
+                    any_scheduled = True
+                    messages.success(
+                        request,
+                        _("Blueprint synchronization scheduled."),
+                    )
+                else:
+                    wait_minutes = max(1, ceil(remaining.total_seconds() / 60))
+                    messages.warning(
+                        request,
+                        _(
+                            "Blueprint synchronization is on cooldown. Please retry in %(minutes)s minute(s)."
+                        )
+                        % {"minutes": wait_minutes},
+                    )
+            else:
+                messages.warning(
+                    request,
+                    _("No blueprint tokens available for synchronization."),
+                )
+
             if jobs_tokens.exists():
-                update_industry_jobs_for_user.delay(request.user.id)
-            messages.success(request, "Synchronization started for all characters.")
+                scheduled, remaining = request_manual_refresh(
+                    MANUAL_REFRESH_KIND_JOBS,
+                    request.user.id,
+                    priority=5,
+                )
+                if scheduled:
+                    any_scheduled = True
+                    messages.success(
+                        request,
+                        _("Industry jobs synchronization scheduled."),
+                    )
+                else:
+                    wait_minutes = max(1, ceil(remaining.total_seconds() / 60))
+                    messages.warning(
+                        request,
+                        _(
+                            "Jobs synchronization is on cooldown. Please retry in %(minutes)s minute(s)."
+                        )
+                        % {"minutes": wait_minutes},
+                    )
+            else:
+                messages.warning(
+                    request,
+                    _("No jobs tokens available for synchronization."),
+                )
+
+            if not any_scheduled:
+                logger.info(
+                    "User %s requested sync_all_tokens but no tasks were queued due to cooldown or missing tokens",
+                    request.user.username,
+                )
         except Exception as e:
             logger.error(f"Error triggering sync_all: {e}")
             messages.error(request, "Error starting synchronization.")
@@ -637,8 +697,25 @@ def sync_blueprints(request):
                 BLUEPRINT_SCOPE_SET
             )
             if blueprint_tokens.exists():
-                update_blueprints_for_user.delay(request.user.id)
-                messages.success(request, "Blueprint synchronization started.")
+                scheduled, remaining = request_manual_refresh(
+                    MANUAL_REFRESH_KIND_BLUEPRINTS,
+                    request.user.id,
+                    priority=5,
+                )
+                if scheduled:
+                    messages.success(
+                        request,
+                        _("Blueprint synchronization scheduled."),
+                    )
+                else:
+                    wait_minutes = max(1, ceil(remaining.total_seconds() / 60))
+                    messages.warning(
+                        request,
+                        _(
+                            "Blueprint synchronization is on cooldown. Please retry in %(minutes)s minute(s)."
+                        )
+                        % {"minutes": wait_minutes},
+                    )
             else:
                 messages.warning(
                     request, "No blueprint tokens available for synchronization."
@@ -660,8 +737,25 @@ def sync_jobs(request):
                 JOBS_SCOPE_SET
             )
             if jobs_tokens.exists():
-                update_industry_jobs_for_user.delay(request.user.id)
-                messages.success(request, "Jobs synchronization started.")
+                scheduled, remaining = request_manual_refresh(
+                    MANUAL_REFRESH_KIND_JOBS,
+                    request.user.id,
+                    priority=5,
+                )
+                if scheduled:
+                    messages.success(
+                        request,
+                        _("Jobs synchronization scheduled."),
+                    )
+                else:
+                    wait_minutes = max(1, ceil(remaining.total_seconds() / 60))
+                    messages.warning(
+                        request,
+                        _(
+                            "Jobs synchronization is on cooldown. Please retry in %(minutes)s minute(s)."
+                        )
+                        % {"minutes": wait_minutes},
+                    )
             else:
                 messages.warning(
                     request, "No jobs tokens available for synchronization."

@@ -24,7 +24,15 @@ from indy_hub.models import (
     IndustryJob,
     UserOnboardingProgress,
 )
+from indy_hub.notifications import notify_user
 from indy_hub.services.esi_client import ESIForbiddenError
+from indy_hub.tasks.industry import (
+    MANUAL_REFRESH_KIND_BLUEPRINTS,
+    MANUAL_REFRESH_KIND_JOBS,
+    manual_refresh_allowed,
+    request_manual_refresh,
+    reset_manual_refresh_cooldown,
+)
 from indy_hub.utils import eve as eve_utils
 from indy_hub.utils.eve import get_type_name, reset_forbidden_structure_lookup_cache
 
@@ -1082,6 +1090,130 @@ class StructureLookupForbiddenCacheTests(TestCase):
             )
             self.assertEqual(second_result, f"Structure {structure_id}")
             self.assertEqual(mock_fetch.call_count, 1)
+
+
+class ManualRefreshCooldownTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("manual", password="secret123")
+        reset_manual_refresh_cooldown(MANUAL_REFRESH_KIND_BLUEPRINTS, self.user.id)
+        reset_manual_refresh_cooldown(MANUAL_REFRESH_KIND_JOBS, self.user.id)
+
+    def tearDown(self) -> None:
+        reset_manual_refresh_cooldown(MANUAL_REFRESH_KIND_BLUEPRINTS, self.user.id)
+        reset_manual_refresh_cooldown(MANUAL_REFRESH_KIND_JOBS, self.user.id)
+
+    def test_manual_refresh_sets_cooldown(self) -> None:
+        with patch(
+            "indy_hub.tasks.industry.update_blueprints_for_user.apply_async"
+        ) as mock_apply:
+            scheduled, remaining = request_manual_refresh(
+                MANUAL_REFRESH_KIND_BLUEPRINTS,
+                self.user.id,
+            )
+        self.assertTrue(scheduled)
+        self.assertIsNone(remaining)
+        mock_apply.assert_called_once()
+
+        allowed, cooldown = manual_refresh_allowed(
+            MANUAL_REFRESH_KIND_BLUEPRINTS, self.user.id
+        )
+        self.assertFalse(allowed)
+        self.assertIsNotNone(cooldown)
+
+    def test_reset_clears_cooldown(self) -> None:
+        with patch(
+            "indy_hub.tasks.industry.update_industry_jobs_for_user.apply_async"
+        ) as mock_apply:
+            scheduled, _ = request_manual_refresh(
+                MANUAL_REFRESH_KIND_JOBS,
+                self.user.id,
+            )
+        self.assertTrue(scheduled)
+        mock_apply.assert_called_once()
+
+        reset_manual_refresh_cooldown(MANUAL_REFRESH_KIND_JOBS, self.user.id)
+
+        allowed, cooldown = manual_refresh_allowed(
+            MANUAL_REFRESH_KIND_JOBS, self.user.id
+        )
+        self.assertTrue(allowed)
+        self.assertIsNone(cooldown)
+
+
+class NotificationRoutingTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("notify", password="secret123")
+
+    @patch("indy_hub.notifications._send_via_discordnotify", autospec=True)
+    @patch("indy_hub.notifications.Notification.objects.notify_user", autospec=True)
+    @patch("indy_hub.notifications._send_via_aadiscordbot", autospec=True)
+    def test_prefers_aadiscordbot_without_creating_auth_notification(
+        self,
+        mock_bot,
+        mock_notify,
+        mock_discordnotify,
+    ) -> None:
+        mock_bot.return_value = True
+
+        notify_user(self.user, "Ping", "Message", level="info")
+
+        mock_bot.assert_called_once()
+        mock_notify.assert_not_called()
+        mock_discordnotify.assert_not_called()
+
+    @patch("indy_hub.notifications._send_via_discordnotify", autospec=True)
+    @patch("indy_hub.notifications.Notification.objects.notify_user", autospec=True)
+    @patch("indy_hub.notifications._send_via_aadiscordbot", autospec=True)
+    def test_falls_back_to_auth_when_bot_unavailable(
+        self,
+        mock_bot,
+        mock_notify,
+        mock_discordnotify,
+    ) -> None:
+        mock_bot.return_value = False
+        mock_discordnotify.return_value = False
+
+        notify_user(self.user, "Ping", "Message", level="info")
+
+        mock_bot.assert_called_once()
+        mock_notify.assert_called_once()
+        mock_discordnotify.assert_called_once()
+
+    @patch("indy_hub.notifications._send_via_discordnotify", autospec=True)
+    @patch("indy_hub.notifications.Notification.objects.notify_user", autospec=True)
+    @patch("indy_hub.notifications._send_via_aadiscordbot", autospec=True)
+    def test_link_information_propagates_to_all_channels(
+        self,
+        mock_bot,
+        mock_notify,
+        mock_discordnotify,
+    ) -> None:
+        mock_bot.return_value = False
+        mock_discordnotify.return_value = False
+
+        link = "https://example.com/bp-copy/fulfill/"
+        link_label = "Open queue"
+        expected_cta = f"{link_label}: {link}"
+        expected_message = f"Message body\n\n{expected_cta}"
+
+        notify_user(
+            self.user,
+            "Ping",
+            "Message body",
+            level="warning",
+            link=link,
+            link_label=link_label,
+        )
+
+        mock_bot.assert_called_once()
+        bot_args, bot_kwargs = mock_bot.call_args
+        self.assertEqual(bot_args[2], expected_message)
+        self.assertEqual(bot_kwargs.get("link"), link)
+
+        mock_notify.assert_called_once()
+        notify_kwargs = mock_notify.call_args.kwargs
+        self.assertEqual(notify_kwargs.get("message"), expected_message)
+        mock_discordnotify.assert_called_once()
 
 
 class DashboardNotificationCountsTests(TestCase):

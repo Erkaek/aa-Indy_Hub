@@ -45,9 +45,13 @@ from ..models import (
     ProductionConfig,
     ProductionSimulation,
 )
-from ..notifications import notify_user
+from ..notifications import build_site_url, notify_user
 from ..services.simulations import summarize_simulations
-from ..tasks.industry import update_blueprints_for_user, update_industry_jobs_for_user
+from ..tasks.industry import (
+    MANUAL_REFRESH_KIND_BLUEPRINTS,
+    MANUAL_REFRESH_KIND_JOBS,
+    request_manual_refresh,
+)
 from ..utils.eve import get_character_name, get_type_name
 
 logger = logging.getLogger(__name__)
@@ -94,6 +98,8 @@ def _finalize_request_if_all_rejected(req: BlueprintCopyRequest) -> bool:
         # No eligible providers configured; treat as fully rejected.
         pass
 
+    my_requests_url = build_site_url(reverse("indy_hub:bp_copy_my_requests"))
+
     notify_user(
         req.requested_by,
         _("Blueprint Copy Request Unavailable"),
@@ -106,6 +112,8 @@ def _finalize_request_if_all_rejected(req: BlueprintCopyRequest) -> bool:
             "te": req.time_efficiency,
         },
         "warning",
+        link=my_requests_url,
+        link_label=_("Review your requests"),
     )
     req.delete()
     return True
@@ -123,8 +131,25 @@ def personnal_bp_list(request):
             logger.info(
                 f"User {request.user.username} requested blueprint refresh; enqueuing Celery task"
             )
-            # Removed tracking update since unified settings don't track refresh times
-            update_blueprints_for_user.delay(request.user.id)
+            scheduled, remaining = request_manual_refresh(
+                MANUAL_REFRESH_KIND_BLUEPRINTS,
+                request.user.id,
+                priority=5,
+            )
+            if scheduled:
+                messages.success(
+                    request,
+                    _("Blueprint refresh scheduled. Updated data will appear shortly."),
+                )
+            else:
+                wait_minutes = max(1, ceil(remaining.total_seconds() / 60))
+                messages.warning(
+                    request,
+                    _(
+                        "Blueprint data was refreshed recently. Please try again in %(minutes)s minute(s)."
+                    )
+                    % {"minutes": wait_minutes},
+                )
     except Exception as e:
         logger.error(f"Error handling blueprint refresh: {e}")
         messages.error(request, f"Error handling blueprint refresh: {e}")
@@ -456,8 +481,27 @@ def personnal_job_list(request):
             logger.info(
                 f"User {request.user.username} requested jobs refresh; enqueuing Celery task"
             )
-            # Removed last_refresh_request tracking since unified settings don't track this
-            update_industry_jobs_for_user.delay(request.user.id)
+            scheduled, remaining = request_manual_refresh(
+                MANUAL_REFRESH_KIND_JOBS,
+                request.user.id,
+                priority=5,
+            )
+            if scheduled:
+                messages.success(
+                    request,
+                    _(
+                        "Industry jobs refresh scheduled. Updated data will appear shortly."
+                    ),
+                )
+            else:
+                wait_minutes = max(1, ceil(remaining.total_seconds() / 60))
+                messages.warning(
+                    request,
+                    _(
+                        "Industry data was refreshed recently. Please try again in %(minutes)s minute(s)."
+                    )
+                    % {"minutes": wait_minutes},
+                )
     except Exception as e:
         logger.error(f"Error handling jobs refresh: {e}")
         messages.error(request, f"Error handling jobs refresh: {e}")
@@ -1628,8 +1672,20 @@ def bp_copy_request_page(request):
             % notification_context
         )
 
+        fulfill_queue_url = request.build_absolute_uri(
+            reverse("indy_hub:bp_copy_fulfill_requests")
+        )
+        fulfill_label = _("Review copy requests")
+
         for owner in User.objects.filter(id__in=owner_ids):
-            notify_user(owner, notification_title, notification_body, "info")
+            notify_user(
+                owner,
+                notification_title,
+                notification_body,
+                "info",
+                link=fulfill_queue_url,
+                link_label=fulfill_label,
+            )
 
         flash_level(request, flash_message)
         return redirect("indy_hub:bp_copy_request_page")
@@ -1911,6 +1967,10 @@ def bp_offer_copy_request(request, request_id):
     offer, created = BlueprintCopyOffer.objects.get_or_create(
         request=req, owner=request.user
     )
+    my_requests_url = request.build_absolute_uri(
+        reverse("indy_hub:bp_copy_my_requests")
+    )
+
     if action == "accept":
         offer.status = "accepted"
         offer.message = ""
@@ -1922,6 +1982,8 @@ def bp_offer_copy_request(request, request_id):
             "Blueprint Copy Request Accepted",
             f"{request.user.username} accepted your copy request for {get_type_name(req.type_id)} (ME{req.material_efficiency}, TE{req.time_efficiency}) for free.",
             "success",
+            link=my_requests_url,
+            link_label=_("Review your requests"),
         )
         # Mark request as fulfilled, remove all other offers
         req.fulfilled = True
@@ -1942,6 +2004,8 @@ def bp_offer_copy_request(request, request_id):
             "Blueprint Copy Request - Conditional Offer",
             f"{request.user.username} proposes: {message}",
             "info",
+            link=my_requests_url,
+            link_label=_("Review your requests"),
         )
         messages.success(request, "Conditional offer sent.")
     elif action == "reject":
@@ -1976,11 +2040,16 @@ def bp_buyer_accept_offer(request, offer_id):
     req.save()
     BlueprintCopyOffer.objects.filter(request=req).exclude(id=offer.id).delete()
     # Notify seller
+    fulfill_queue_url = request.build_absolute_uri(
+        reverse("indy_hub:bp_copy_fulfill_requests")
+    )
     notify_user(
         offer.owner,
         "Blueprint Copy Request - Buyer Accepted",
         f"{req.requested_by.username} accepted your offer for {get_type_name(req.type_id)} (ME{req.material_efficiency}, TE{req.time_efficiency}).",
         "success",
+        link=fulfill_queue_url,
+        link_label=_("Open fulfill queue"),
     )
     messages.success(request, "Offer accepted. Seller notified.")
     return redirect("indy_hub:bp_copy_request_page")
@@ -1995,11 +2064,16 @@ def bp_accept_copy_request(request, request_id):
     req.fulfilled_at = timezone.now()
     req.save()
     # Notify requester
+    my_requests_url = request.build_absolute_uri(
+        reverse("indy_hub:bp_copy_my_requests")
+    )
     notify_user(
         req.requested_by,
         "Blueprint Copy Request Accepted",
         f"Your copy request for {get_type_name(req.type_id)} (ME{req.material_efficiency}, TE{req.time_efficiency}) has been accepted.",
         "success",
+        link=my_requests_url,
+        link_label=_("Review your requests"),
     )
     messages.success(request, "Copy request accepted.")
     return redirect("indy_hub:bp_copy_fulfill_requests")
@@ -2012,8 +2086,16 @@ def bp_cond_copy_request(request, request_id):
     req = get_object_or_404(BlueprintCopyRequest, id=request_id, fulfilled=False)
     message = request.POST.get("message", "").strip()
     if message:
+        my_requests_url = request.build_absolute_uri(
+            reverse("indy_hub:bp_copy_my_requests")
+        )
         notify_user(
-            req.requested_by, "Blueprint Copy Request Condition", message, "info"
+            req.requested_by,
+            "Blueprint Copy Request Condition",
+            message,
+            "info",
+            link=my_requests_url,
+            link_label=_("Review your requests"),
         )
         messages.success(request, "Condition message sent to requester.")
     else:
@@ -2026,11 +2108,16 @@ def bp_cond_copy_request(request, request_id):
 def bp_reject_copy_request(request, request_id):
     """Reject a blueprint copy request and notify requester."""
     req = get_object_or_404(BlueprintCopyRequest, id=request_id, fulfilled=False)
+    my_requests_url = request.build_absolute_uri(
+        reverse("indy_hub:bp_copy_my_requests")
+    )
     notify_user(
         req.requested_by,
         "Blueprint Copy Request Rejected",
         f"Your copy request for {get_type_name(req.type_id)} (ME{req.material_efficiency}, TE{req.time_efficiency}) was rejected.",
         "warning",
+        link=my_requests_url,
+        link_label=_("Review your requests"),
     )
     req.delete()
     messages.success(request, "Copy request rejected.")
@@ -2045,12 +2132,17 @@ def bp_cancel_copy_request(request, request_id):
         BlueprintCopyRequest, id=request_id, requested_by=request.user, fulfilled=False
     )
     offers = req.offers.all()
+    fulfill_queue_url = request.build_absolute_uri(
+        reverse("indy_hub:bp_copy_fulfill_requests")
+    )
     for offer in offers:
         notify_user(
             offer.owner,
             "Blueprint Copy Request Cancelled",
             f"{request.user.username} cancelled their copy request for {get_type_name(req.type_id)} (ME{req.material_efficiency}, TE{req.time_efficiency}).",
             "warning",
+            link=fulfill_queue_url,
+            link_label=_("Open fulfill queue"),
         )
     offers.delete()
     req.delete()
@@ -2075,11 +2167,16 @@ def bp_mark_copy_delivered(request, request_id):
     req.delivered = True
     req.delivered_at = timezone.now()
     req.save()
+    my_requests_url = request.build_absolute_uri(
+        reverse("indy_hub:bp_copy_my_requests")
+    )
     notify_user(
         req.requested_by,
         "Blueprint Copy Request Delivered",
         f"Your copy request for {get_type_name(req.type_id)} (ME{req.material_efficiency}, TE{req.time_efficiency}) has been marked as delivered.",
         "success",
+        link=my_requests_url,
+        link_label=_("Review your requests"),
     )
     messages.success(request, "Request marked as delivered.")
     return redirect("indy_hub:bp_copy_fulfill_requests")
@@ -2139,8 +2236,20 @@ def bp_update_copy_request(request, request_id):
         % notification_context
     )
 
+    fulfill_queue_url = request.build_absolute_uri(
+        reverse("indy_hub:bp_copy_fulfill_requests")
+    )
+    fulfill_label = _("Review copy requests")
+
     for owner in User.objects.filter(id__in=owner_ids):
-        notify_user(owner, notification_title, notification_body, "info")
+        notify_user(
+            owner,
+            notification_title,
+            notification_body,
+            "info",
+            link=fulfill_queue_url,
+            link_label=fulfill_label,
+        )
 
     messages.success(request, _("Request updated."))
     return redirect("indy_hub:bp_copy_my_requests")

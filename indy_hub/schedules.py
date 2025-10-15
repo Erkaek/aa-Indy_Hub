@@ -9,14 +9,14 @@ from celery.schedules import crontab
 INDY_HUB_BEAT_SCHEDULE = {
     "indy-hub-update-all-blueprints": {
         "task": "indy_hub.tasks.industry.update_all_blueprints",
-        "schedule": crontab(minute="*/30"),  # Toutes les 30 minutes
+        "schedule": crontab(hour=3, minute=30),  # Quotidien à 03h30
         "options": {
             "priority": 7
         },  # Priorité basse pour les mises à jour en arrière-plan
     },
     "indy-hub-update-all-industry-jobs": {
         "task": "indy_hub.tasks.industry.update_all_industry_jobs",
-        "schedule": crontab(minute="*/30"),  # Toutes les 10 minutes
+        "schedule": crontab(minute=0, hour="*/2"),  # Toutes les 2 heures
         "options": {"priority": 7},  # Priorité un peu plus élevée pour les jobs
     },
     "indy-hub-cleanup-old-jobs": {

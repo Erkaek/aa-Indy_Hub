@@ -69,6 +69,25 @@ ______________________________________________________________________
 
 ______________________________________________________________________
 
+## Configuration
+
+These settings are optional and let you tune background behaviour:
+
+- `INDY_HUB_DISCORD_DM_ENABLED` (bool, défaut : `True`) : active l’envoi des notifications Discord en DM via `aadiscordbot` (avec repli `discordnotify`).
+- `INDY_HUB_MANUAL_REFRESH_COOLDOWN_SECONDS` (int, défaut : `3600`) : délai minimal entre deux rafraîchissements manuels demandés par le même utilisateur pour les plans ou les jobs.
+- `INDY_HUB_BULK_UPDATE_WINDOW_MINUTES` (int, défaut : `720`) : fenêtre maximale (en minutes) pour étaler les synchronisations en masse. Peut être affiné par type via :
+  - `INDY_HUB_BLUEPRINTS_BULK_WINDOW_MINUTES` (défaut : `720`, soit 12 h).
+  - `INDY_HUB_INDUSTRY_JOBS_BULK_WINDOW_MINUTES` (défaut : `120`, soit 2 h).
+
+Les tâches périodiques sont automatiquement (re)créées au démarrage :
+
+- `indy-hub-update-all-blueprints` s’exécute chaque jour à 03 h (UTC par défaut) et répartit les rafraîchissements utilisateurs sur la fenêtre configurée.
+- `indy-hub-update-all-industry-jobs` s’exécute toutes les 2 heures et étale également ses appels sur la fenêtre dédiée.
+
+Après une mise à jour, redémarrez vos workers Celery et Celery Beat pour appliquer la nouvelle planification.
+
+______________________________________________________________________
+
 ## Usage
 
 - Go to the Indy Hub dashboard in Alliance Auth.

@@ -5,6 +5,7 @@ Supports Alliance Auth notifications and (future) Discord/webhook fallback.
 """
 # Standard Library
 import logging
+from urllib.parse import urljoin, urlparse
 
 # Django
 from django.apps import apps
@@ -32,6 +33,27 @@ DISCORD_EMBED_COLORS = {
 }
 
 DM_ENABLED = getattr(settings, "INDY_HUB_DISCORD_DM_ENABLED", True)
+EMBED_FOOTER_TEXT = getattr(
+    settings,
+    "INDY_HUB_DISCORD_FOOTER_TEXT",
+    getattr(settings, "SITE_NAME", "Alliance Auth"),
+)
+DEFAULT_LINK_LABEL = _("View details")
+
+
+def build_site_url(path: str | None) -> str | None:
+    """Return an absolute URL for the given path based on SITE_URL."""
+
+    if not path:
+        return None
+
+    base_url = getattr(settings, "SITE_URL", "")
+    if not base_url:
+        return None
+
+    normalized_base = base_url.rstrip("/") + "/"
+    normalized_path = path.lstrip("/")
+    return urljoin(normalized_base, normalized_path)
 
 
 def build_cta(url: str, label: str, *, icon: str | None = None) -> str:
@@ -104,7 +126,7 @@ def build_blueprint_summary_lines(
     return summary
 
 
-def _build_discord_embed(title: str, body: str, level: str):
+def _build_discord_embed(title: str, body: str, level: str, *, url: str | None = None):
     try:
         # Third Party
         from discord import Embed
@@ -117,16 +139,30 @@ def _build_discord_embed(title: str, body: str, level: str):
         color=DISCORD_EMBED_COLORS.get(level, DISCORD_EMBED_COLORS["info"]),
     )
     embed.timestamp = timezone.now()
+    if url:
+        embed.url = url
+
+    if EMBED_FOOTER_TEXT:
+        embed.set_footer(text=str(EMBED_FOOTER_TEXT))
     return embed
 
 
 def _build_discord_content(title: str, body: str) -> str:
+    if not title and not body:
+        return ""
     if not body:
         return title
-    return f"**{title}**\n{body}".strip()
+    return f"{title}: {body}" if title not in body else body
 
 
-def _send_via_aadiscordbot(user, title: str, body: str, level: str) -> bool:
+def _send_via_aadiscordbot(
+    user,
+    title: str,
+    body: str,
+    level: str,
+    *,
+    link: str | None = None,
+) -> bool:
     if not apps.is_installed("aadiscordbot"):
         return False
 
@@ -137,9 +173,12 @@ def _send_via_aadiscordbot(user, title: str, body: str, level: str) -> bool:
         logger.debug("aadiscordbot.tasks.send_message unavailable", exc_info=True)
         return False
 
-    content = _build_discord_content(title, body)
-    embed = _build_discord_embed(title, body, level)
-    discordbot_send_message(user=user, message=content, embed=embed)
+    embed = _build_discord_embed(title, body, level, url=link)
+    if embed and embed.description:
+        content = ""
+    else:
+        content = _build_discord_content(title, body)
+    discordbot_send_message(user=user, message=content or "", embed=embed)
     return True
 
 
@@ -176,18 +215,26 @@ def _send_via_discordnotify(notification: Notification, level: str) -> bool:
 
 
 def _dispatch_discord_dm(
-    notification: Notification | None, user, title: str, body: str, level: str
+    notification: Notification | None,
+    user,
+    title: str,
+    body: str,
+    level: str,
+    *,
+    allow_bot: bool = True,
+    link: str | None = None,
 ) -> None:
     if not DM_ENABLED or not user:
         return
 
     sent = False
-    try:
-        sent = _send_via_aadiscordbot(user, title, body, level)
-    except Exception as exc:  # pragma: no cover - defensive logging
-        logger.warning(
-            "Failed to send Discord DM via aadiscordbot: %s", exc, exc_info=True
-        )
+    if allow_bot:
+        try:
+            sent = _send_via_aadiscordbot(user, title, body, level, link=link)
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.warning(
+                "Failed to send Discord DM via aadiscordbot: %s", exc, exc_info=True
+            )
 
     if sent or not notification:
         return
@@ -204,16 +251,60 @@ def _dispatch_discord_dm(
         logger.debug("No Discord DM provider succeeded for user %s", user)
 
 
-def notify_user(user, title, message, level="info"):
-    """Send a notification to a user via Alliance Auth and mirror it to Discord DMs."""
+def notify_user(
+    user,
+    title,
+    message,
+    level="info",
+    *,
+    link: str | None = None,
+    link_label: str | None = None,
+):
+    """Send a notification via Alliance Auth and mirror it to Discord DMs."""
 
     if not user:
         return
 
     level_value = LEVELS.get(level, "info")
-    stored_message = message or ""
+    stored_message = message or title
     dm_body = message or title
     notification = None
+
+    normalized_link = link
+    if link:
+        parsed = urlparse(link)
+        if not parsed.scheme:
+            normalized_link = build_site_url(link) or link
+
+    cta_line = None
+    if normalized_link:
+        cta_label = (link_label or DEFAULT_LINK_LABEL).strip()
+        if cta_label:
+            cta_line = build_cta(normalized_link, cta_label)
+
+    if cta_line:
+        stored_message = (
+            f"{stored_message}\n\n{cta_line}" if stored_message else cta_line
+        )
+        dm_body = f"{dm_body}\n\n{cta_line}" if dm_body else cta_line
+
+    effective_link = normalized_link
+
+    if DM_ENABLED:
+        try:
+            if _send_via_aadiscordbot(
+                user,
+                title,
+                dm_body,
+                level_value,
+                link=effective_link,
+            ):
+                logger.info("Discord bot notification sent to %s: %s", user, title)
+                return
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.warning(
+                "Discord bot notification failed for %s: %s", user, exc, exc_info=True
+            )
 
     try:
         notification = Notification.objects.notify_user(
@@ -228,10 +319,19 @@ def notify_user(user, title, message, level="info"):
             "Failed to persist notification for %s: %s", user, exc, exc_info=True
         )
 
-    _dispatch_discord_dm(notification, user, title, dm_body, level_value)
+    if DM_ENABLED:
+        _dispatch_discord_dm(
+            notification,
+            user,
+            title,
+            dm_body,
+            level_value,
+            allow_bot=False,
+            link=effective_link,
+        )
 
 
-def notify_multi(users, title, message, level="info"):
+def notify_multi(users, title, message, level="info", **kwargs):
     """
     Send a notification to multiple users (QuerySet, list, or single user).
     """
@@ -242,4 +342,4 @@ def notify_multi(users, title, message, level="info"):
     if not isinstance(users, (list, tuple)):
         users = [users]
     for user in users:
-        notify_user(user, title, message, level)
+        notify_user(user, title, message, level=level, **kwargs)
