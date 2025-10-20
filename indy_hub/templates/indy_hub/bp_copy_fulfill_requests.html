@@ -1,4 +1,4 @@
-{% extends "allianceauth/base-bs5.html" %}
+{% extends "indy_hub/base.html" %}
 {% load i18n %}
 {% load static %}
 {% load humanize %}
@@ -8,6 +8,7 @@
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
 <link rel="stylesheet" href="{% static 'indy_hub/css/blueprints.css' %}">
+<link rel="stylesheet" href="{% static 'indy_hub/css/chat.css' %}">
 {% endblock %}
 
 {% block content %}
@@ -98,7 +99,7 @@
             </div>
         </section>
 
-    <section class="row g-3 mb-4 bp-metrics-row">
+        <section class="row g-3 mb-4 bp-metrics-row">
             <div class="col-md-3">
                 <div class="glass-panel h-100 p-3">
                     <div class="d-flex align-items-center gap-3">
@@ -213,7 +214,7 @@
                                 {% endif %}
                                 <span class="d-block text-muted fw-semibold mt-1">{{ req.busy_until|date:"Y-m-d H:i" }} {% trans "EVE time" %}</span>
                             {% else %}
-                            {% trans "All matching originals are currently running copy jobs." %}
+                                {% trans "All matching originals are currently running copy jobs." %}
                             {% endif %}
                         </div>
                         {% endif %}
@@ -233,6 +234,9 @@
                                 {% if req.my_offer_accepted_by_buyer %}
                                 <span class="badge bg-success text-white">{% trans "Buyer accepted" %}</span>
                                 {% endif %}
+                                {% if req.my_offer_accepted_by_seller and not req.my_offer_accepted_by_buyer %}
+                                <span class="badge bg-warning text-dark">{% trans "Waiting on buyer" %}</span>
+                                {% endif %}
                             </div>
                             {% if req.my_offer_message %}
                             <p class="mb-0 small text-muted">“{{ req.my_offer_message }}”</p>
@@ -240,66 +244,107 @@
                         </div>
                         {% endif %}
 
-                        <div class="mt-auto d-grid gap-2">
-                            {% if req.show_offer_actions and not req.is_self_request %}
-                            <div class="d-flex flex-wrap gap-2">
-                                <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}">
-                                    {% csrf_token %}
-                                    <input type="hidden" name="action" value="accept">
-                                    <button type="submit" class="btn btn-success btn-sm">
-                                        <i class="fas fa-check me-1"></i>{% trans "Accept for free" %}
-                                    </button>
-                                </form>
-                                <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}">
-                                    {% csrf_token %}
-                                    <input type="hidden" name="action" value="reject">
-                                    <button type="submit" class="btn btn-outline-danger btn-sm">
-                                        <i class="fas fa-times me-1"></i>{% trans "Reject" %}
-                                    </button>
-                                </form>
-                                <button
-                                    class="btn btn-outline-primary btn-sm"
-                                    type="button"
-                                    data-bs-toggle="collapse"
-                                    data-bs-target="#{{ req.conditional_collapse_id }}"
-                                    aria-expanded="false"
-                                    aria-controls="{{ req.conditional_collapse_id }}"
-                                >
-                                    <i class="fas fa-comment-dots me-1"></i>{% trans "Send conditions" %}
-                                </button>
+                        {% if req.handshake %}
+                            {% if req.handshake.state == 'waiting_on_you' %}
+                            <div class="alert alert-warning mb-0">
+                                <i class="fas fa-hourglass-half me-1"></i>{% trans "The buyer accepted your terms. Confirm in chat to finalise the agreement." %}
                             </div>
-                            <div class="collapse" id="{{ req.conditional_collapse_id }}">
-                                <form method="post" class="mt-2" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}">
-                                    {% csrf_token %}
-                                    <input type="hidden" name="action" value="conditional">
-                                    <div class="input-group input-group-sm">
-                                        <span class="input-group-text"><i class="fas fa-pen"></i></span>
-                                        <textarea
-                                            name="message"
-                                            class="form-control"
-                                            rows="2"
-                                            placeholder="{% trans 'Describe your terms (amount, price, location...)' %}"
-                                            required
-                                        ></textarea>
-                                        <button type="submit" class="btn btn-primary">{% trans "Send" %}</button>
-                                    </div>
-                                </form>
-                            </div>
-                            {% elif req.status_key == 'waiting_on_buyer' and req.my_offer_message %}
+                            {% elif req.handshake.state == 'waiting_on_buyer' %}
                             <div class="alert alert-info mb-0">
-                                <i class="fas fa-info-circle me-1"></i>
-                                {% trans "Waiting for the requester to respond to your conditions." %}
+                                <i class="fas fa-user-clock me-1"></i>{% trans "Waiting for the buyer to accept your conditions." %}
+                            </div>
+                            {% elif req.handshake.state == 'ready_to_deliver' %}
+                            <div class="alert alert-success mb-0">
+                                <i class="fas fa-check-circle me-1"></i>{% trans "Both sides confirmed. Proceed with delivery." %}
                             </div>
                             {% endif %}
+                        {% endif %}
 
-                            {% if req.can_mark_delivered and not req.is_self_request %}
-                            <form method="post" action="{% url 'indy_hub:bp_mark_copy_delivered' req.id %}">
-                                {% csrf_token %}
-                                <button type="submit" class="btn btn-primary btn-sm">
-                                    <i class="fas fa-box-check me-1"></i>{% trans "Mark as delivered" %}
-                                </button>
-                            </form>
-                            {% endif %}
+                        <div class="mt-auto">
+                            <div class="bp-card-toolbar">
+                                {% if req.show_offer_actions %}
+                                <div class="bp-card-toolbar__group" role="group" aria-label="{% trans 'Decision actions' %}">
+                                    <button
+                                        class="bp-btn bp-btn-soft-info btn-sm"
+                                        type="button"
+                                        data-bs-toggle="collapse"
+                                        data-bs-target="#{{ req.conditional_collapse_id }}"
+                                        aria-expanded="false"
+                                        aria-controls="{{ req.conditional_collapse_id }}"
+                                    >
+                                        <i class="fas fa-comment-dots"></i>
+                                        <span>{% trans "Send conditions" %}</span>
+                                    </button>
+                                </div>
+                                {% endif %}
+
+                                {% if req.can_mark_delivered %}
+                                <div class="bp-card-toolbar__group">
+                                    <form method="post" action="{% url 'indy_hub:bp_mark_copy_delivered' req.id %}" class="bp-card-toolbar__form">
+                                        {% csrf_token %}
+                                        <button type="submit" class="bp-btn bp-btn-soft-primary btn-sm">
+                                            <i class="fas fa-box-check"></i>
+                                            <span>{% trans "Mark as delivered" %}</span>
+                                        </button>
+                                    </form>
+                                </div>
+                                {% endif %}
+
+                                {% if req.chat %}
+                                <div class="bp-card-toolbar__group bp-card-toolbar__group--stacked bp-card-toolbar__group--push">
+                                    <button
+                                        type="button"
+                                        class="bp-btn bp-chat-pill btn-sm bp-chat-trigger"
+                                        data-chat-fetch-url="{{ req.chat.fetch_url }}"
+                                        data-chat-send-url="{{ req.chat.send_url }}"
+                                        data-chat-role="seller"
+                                        data-chat-type-name="{{ req.type_name }}"
+                                        data-chat-type-id="{{ req.type_id }}"
+                                        data-chat-has-unread="{{ req.chat.has_unread|yesno:'true,false' }}"
+                                        aria-haspopup="dialog"
+                                    >
+                                        <i class="fas fa-comments"></i>
+                                        <span>{% trans "Open chat" %}</span>
+                                        {% if req.chat.has_unread %}
+                                        <span class="bp-chat-trigger__badge" aria-hidden="true">
+                                            <i class="fas fa-circle-dot"></i>
+                                        </span>
+                                        {% endif %}
+                                    </button>
+                                    {% if req.chat.last_message_display %}
+                                    <span class="bp-card-toolbar__timestamp">
+                                        {% blocktrans with timestamp=req.chat.last_message_display %}Last message {{ timestamp }}{% endblocktrans %}
+                                    </span>
+                                    {% endif %}
+                                </div>
+                                {% endif %}
+
+                                {% if req.show_offer_actions %}
+                                <div class="collapse bp-card-toolbar__collapse" id="{{ req.conditional_collapse_id }}">
+                                    <form method="post" class="bp-card-toolbar__form" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="action" value="conditional">
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text"><i class="fas fa-pen"></i></span>
+                                            <textarea
+                                                name="message"
+                                                class="form-control"
+                                                rows="2"
+                                                placeholder="{% trans 'Describe your terms (amount, price, location...)' %}"
+                                                required
+                                            ></textarea>
+                                            <button type="submit" class="btn btn-primary btn-sm">{% trans "Send" %}</button>
+                                        </div>
+                                    </form>
+                                </div>
+                                {% elif req.status_key == 'waiting_on_buyer' and req.my_offer_message %}
+                                <div class="alert alert-info w-100 mb-0">
+                                    <i class="fas fa-info-circle me-1"></i>
+                                    {% trans "Waiting for the requester to respond to your conditions." %}
+                                </div>
+                                {% endif %}
+                            </div>
+                            {% include "indy_hub/includes/chat_preview.html" with preview=req.chat_preview %}
                         </div>
                     </div>
                 </article>
@@ -320,4 +365,24 @@
         {% endif %}
     </div>
 </main>
+{% block indy_hub_global_modals %}
+    {{ block.super }}
+    {% include "indy_hub/includes/bp_chat_modal.html" %}
+{% endblock %}
+{% endblock %}
+
+{% block extra_javascript %}
+{{ block.super }}
+<script>
+    window.indyChatDefaults = Object.assign({}, window.indyChatDefaults || {}, {
+        viewerRole: 'seller',
+        labels: {
+            buyer: '{% trans "Buyer" %}',
+            seller: '{% trans "Builder" %}',
+            system: '{% trans "System" %}',
+            you: '{% trans "You" %}'
+        }
+    });
+</script>
+<script src="{% static 'indy_hub/js/bp_copy_chat.js' %}?v=20251021"></script>
 {% endblock %}

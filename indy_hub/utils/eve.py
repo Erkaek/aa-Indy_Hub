@@ -17,7 +17,7 @@ from django.conf import settings
 from django.core.exceptions import AppRegistryNotReady
 
 # Alliance Auth
-from allianceauth.eveonline.models import EveCharacter
+from allianceauth.eveonline.models import EveCharacter, EveCorporationInfo
 from esi.models import Token
 
 from ..services.esi_client import (
@@ -47,6 +47,7 @@ logger = logging.getLogger(__name__)
 
 _TYPE_NAME_CACHE: dict[int, str] = {}
 _CHAR_NAME_CACHE: dict[int, str] = {}
+_CORP_NAME_CACHE: dict[int, str] = {}
 _BP_PRODUCT_CACHE: dict[int, int | None] = {}
 _REACTION_CACHE: dict[int, bool] = {}
 _LOCATION_NAME_CACHE: dict[int, str] = {}
@@ -202,6 +203,49 @@ def get_type_name(type_id: int | None) -> str:
 
     _TYPE_NAME_CACHE[type_id] = value
     return value
+
+
+def get_corporation_name(corporation_id: int | None) -> str:
+    """Return the display name for a corporation."""
+
+    if not corporation_id:
+        return ""
+
+    try:
+        corp_id = int(corporation_id)
+    except (TypeError, ValueError):
+        logger.debug("Unable to coerce corporation id %s", corporation_id)
+        return str(corporation_id)
+
+    if corp_id in _CORP_NAME_CACHE:
+        return _CORP_NAME_CACHE[corp_id]
+
+    try:
+        corp = EveCorporationInfo.objects.only("corporation_name").get(
+            corporation_id=corp_id
+        )
+        name = corp.corporation_name
+    except AppRegistryNotReady:
+        logger.debug("Corporation %s not available (app registry not ready)", corp_id)
+        name = str(corp_id)
+    except EveCorporationInfo.DoesNotExist:
+        record = (
+            EveCharacter.objects.filter(corporation_id=corp_id)
+            .values("corporation_name")
+            .order_by("corporation_name")
+            .first()
+        )
+        if record and record.get("corporation_name"):
+            name = record["corporation_name"]
+        else:
+            logger.debug(
+                "Corporation %s missing from EveCorporationInfo and EveCharacter cache",
+                corp_id,
+            )
+            name = str(corp_id)
+
+    _CORP_NAME_CACHE[corp_id] = name
+    return name
 
 
 def get_character_name(character_id: int | None) -> str:

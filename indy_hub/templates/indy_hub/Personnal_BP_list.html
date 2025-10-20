@@ -1,12 +1,12 @@
 <!-- My Blueprints list template -->
 <!-- Customize as needed -->
 
-{% extends "allianceauth/base-bs5.html" %}
+{% extends "indy_hub/base.html" %}
 {% load i18n %}
 {% load static %}
 {% load dict_get %}
 
-{% block page_title %}{% trans "My Blueprints" %}{% endblock page_title %}
+{% block page_title %}{{ scope_title }}{% endblock page_title %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
@@ -20,12 +20,12 @@
             <div>
                 <h1 class="h2 mb-1">
                     <i class="fas fa-scroll me-2"></i>
-                    {% trans "My Blueprints" %}
+                    {{ scope_title }}
                 </h1>
-                <p class="description">{% trans "Manage your blueprint library and research progress" %}</p>
+                <p class="description">{{ scope_description }}</p>
             </div>
             <div class="d-flex gap-2">
-                <a href="{% url 'indy_hub:index' %}" class="btn btn-outline-light">
+                <a href="{{ back_to_dashboard_url }}" class="btn btn-outline-light">
                     <i class="fas fa-arrow-left me-1"></i>{% trans "Back to Dashboard" %}
                 </a>
                 <button type="button" class="btn btn-light text-primary" onclick="refreshBlueprints()">
@@ -39,9 +39,12 @@
         <i class="fas fa-scroll header-bg"></i>
     </div>
 
+    {# Corporate guidance now lives on token management page #}
+
     <!-- Filter Section -->
     <div class="filter-section mb-4">
         <form method="get">
+            <input type="hidden" name="scope" value="{{ scope }}">
             <div class="row g-3 align-items-end">
                 <div class="col-lg-2">
                     <label class="form-label text-muted fw-bold">{% trans 'Search' %}</label>
@@ -76,13 +79,15 @@
                     </select>
                 </div>
                 <div class="col-lg-2">
-                    <label class="form-label text-muted fw-bold">{% trans 'Character' %}</label>
-                    <select name="character" class="form-select" id="characterFilter">
-                        <option value="">{% trans 'All Characters' %}</option>
-                        {% for cid in character_ids %}
-                        <option value="{{ cid }}" {% if request.GET.applied and current_filters.character|stringformat:'s' == cid|stringformat:'s' %}selected{% endif %}>
-                            {% with name=character_map|dict_get:cid %}{{ name|default_if_none:cid }}{% endwith %}
+                    <label class="form-label text-muted fw-bold">{{ owner_label }}</label>
+                    <select name="owner" class="form-select" id="ownerFilter">
+                        <option value="">
+                            {% if is_corporation_scope %}{% trans 'All Corporations' %}{% else %}{% trans 'All Characters' %}{% endif %}
                         </option>
+                        {% for owner_id, owner_name in owner_options %}
+                            <option value="{{ owner_id }}" {% if request.GET.applied and current_filters.owner|stringformat:'s' == owner_id|stringformat:'s' %}selected{% endif %}>
+                                {{ owner_name }}
+                            </option>
                         {% endfor %}
                     </select>
                 </div>
@@ -90,8 +95,8 @@
                     <button type="submit" class="btn btn-primary" name="applied" value="1">
                         <i class="fas fa-filter me-1"></i>{% trans 'Apply Filters' %}
                     </button>
-                    <a href="{% url 'indy_hub:personnal_bp_list' %}" class="btn btn-outline-secondary ms-2">
-                        <i class="fas fa-undo-alt me-1"></i>{% trans 'Reset Filters' %}
+                    <a href="{% if scope == 'corporation' %}{{ scope_urls.corporation }}{% else %}{{ scope_urls.character }}{% endif %}" class="btn btn-outline-secondary ms-2">
+                            <i class="fas fa-undo-alt me-1"></i>{% trans 'Reset Filters' %}
                     </a>
                 </div>
             </div>
@@ -131,12 +136,12 @@
         <div class="blueprint-list" id="blueprintsContainer">
             {% for bp in blueprints %}
             <div class="blueprint-item blueprint-list-item d-flex flex-wrap align-items-center gap-3"
-                    data-type-id="{{ bp.type_id }}"
-                    data-me="{{ bp.material_efficiency|default:0 }}"
-                    data-te="{{ bp.time_efficiency|default:0 }}"
-            data-runs="{% if bp.is_original or bp.is_reaction %}-1{% else %}{{ bp.runs|default:0 }}{% endif %}"
-                    data-character-id="{{ bp.character_id }}"
-            data-quantity="{{ bp.total_quantity|default:1 }}">
+                data-type-id="{{ bp.type_id }}"
+                data-me="{{ bp.material_efficiency|default:0 }}"
+                data-te="{{ bp.time_efficiency|default:0 }}"
+                data-runs="{% if bp.is_original or bp.is_reaction %}-1{% else %}{{ bp.runs|default:0 }}{% endif %}"
+                data-owner-id="{{ bp.owner_id }}"
+                data-quantity="{{ bp.total_quantity|default:1 }}">
                 <!-- Blueprint icon -->
                 <div class="blueprint-icon flex-shrink-0 me-3">
                         {% comment %} Reaction BPs always show original icon {% endcomment %}
@@ -183,7 +188,7 @@
                         </div>
                     </div>  {# end badges/title row #}
                     <div class="blueprint-meta mb-1">
-                        <span class="character-tag"><i class="fas fa-user-astronaut"></i> {{ bp.character_name|default:bp.character_id }}</span>
+                        <span class="character-tag"><i class="{{ owner_icon }}"></i> {{ bp.owner_display|default:bp.owner_id }}</span>
                         {% if bp.location_name %}
                         <span class="location-tag ms-2"><i class="fas fa-map-marker-alt me-1"></i>{{ bp.location_name }}</span>
                         {% elif bp.location_path %}
@@ -229,10 +234,12 @@
                 {% endfor %}
             </select>
             {# Conserver les autres filtres #}
+            <input type="hidden" name="scope" value="{{ scope }}">
             <input type="hidden" name="search" value="{{ current_filters.search }}">
             <input type="hidden" name="efficiency" value="{{ current_filters.efficiency }}">
             <input type="hidden" name="type" value="{{ current_filters.type }}">
-            <input type="hidden" name="character" value="{{ current_filters.character }}">
+            <input type="hidden" name="owner" value="{{ current_filters.owner }}">
+            <input type="hidden" name="activity_id" value="{{ current_filters.activity_id }}">
         </form>
         {% if blueprints.has_other_pages %}
         <nav aria-label="Blueprint pagination">
@@ -240,7 +247,7 @@
                 {% if blueprints.has_previous %}
                 <li class="page-item">
                     <a class="page-link"
-                        href="?page={{ blueprints.previous_page_number }}&per_page={{ blueprints.paginator.per_page }}&search={{ current_filters.search }}&efficiency={{ current_filters.efficiency }}&type={{ current_filters.type }}&character={{ current_filters.character }}&activity_id={{ current_filters.activity_id }}&applied=1"
+                        href="?page={{ blueprints.previous_page_number }}&per_page={{ blueprints.paginator.per_page }}&search={{ current_filters.search }}&efficiency={{ current_filters.efficiency }}&type={{ current_filters.type }}&owner={{ current_filters.owner }}&activity_id={{ current_filters.activity_id }}&scope={{ scope }}&applied=1"
                         aria-label="Previous">
                         <span aria-hidden="true">&laquo;</span>
                     </a>
@@ -250,12 +257,12 @@
                 {% if num == blueprints.number %}
                 <li class="page-item active"><span class="page-link">{{ num }}</span></li>
                 {% elif num >= blueprints.number|add:'-2' and num <= blueprints.number|add:'2' %}
-                <li class="page-item"><a class="page-link"
-                        href="?page={{ num }}&per_page={{ blueprints.paginator.per_page }}&search={{ current_filters.search }}&efficiency={{ current_filters.efficiency }}&type={{ current_filters.type }}&character={{ current_filters.character }}&activity_id={{ current_filters.activity_id }}&applied=1">{{ num }}</a>
+        <li class="page-item"><a class="page-link"
+            href="?page={{ num }}&per_page={{ blueprints.paginator.per_page }}&search={{ current_filters.search }}&efficiency={{ current_filters.efficiency }}&type={{ current_filters.type }}&owner={{ current_filters.owner }}&activity_id={{ current_filters.activity_id }}&scope={{ scope }}&applied=1">{{ num }}</a>
                 </li>
                 {% elif num == 1 or num == blueprints.paginator.num_pages %}
-                <li class="page-item"><a class="page-link"
-                        href="?page={{ num }}&per_page={{ blueprints.paginator.per_page }}&search={{ current_filters.search }}&efficiency={{ current_filters.efficiency }}&type={{ current_filters.type }}&character={{ current_filters.character }}&activity_id={{ current_filters.activity_id }}&applied=1">{{ num }}</a>
+        <li class="page-item"><a class="page-link"
+            href="?page={{ num }}&per_page={{ blueprints.paginator.per_page }}&search={{ current_filters.search }}&efficiency={{ current_filters.efficiency }}&type={{ current_filters.type }}&owner={{ current_filters.owner }}&activity_id={{ current_filters.activity_id }}&scope={{ scope }}&applied=1">{{ num }}</a>
                 </li>
                 {% if num < blueprints.number|add:'-2' or num > blueprints.number|add:'2' %}
                 <li class="page-item disabled"><span class="page-link">…</span></li>
@@ -265,7 +272,7 @@
                 {% if blueprints.has_next %}
                 <li class="page-item">
                     <a class="page-link"
-                        href="?page={{ blueprints.next_page_number }}&per_page={{ blueprints.paginator.per_page }}&search={{ current_filters.search }}&efficiency={{ current_filters.efficiency }}&type={{ current_filters.type }}&character={{ current_filters.character }}&activity_id={{ current_filters.activity_id }}&applied=1"
+                        href="?page={{ blueprints.next_page_number }}&per_page={{ blueprints.paginator.per_page }}&search={{ current_filters.search }}&efficiency={{ current_filters.efficiency }}&type={{ current_filters.type }}&owner={{ current_filters.owner }}&activity_id={{ current_filters.activity_id }}&scope={{ scope }}&applied=1"
                         aria-label="Next">
                         <span aria-hidden="true">&raquo;</span>
                     </a>

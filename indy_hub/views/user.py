@@ -4,13 +4,15 @@ import json
 import logging
 import secrets
 from math import ceil
+from typing import Any
 from urllib.parse import urlencode
 
 # Django
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.db.models import Q, Sum
+from django.core.exceptions import PermissionDenied
+from django.db.models import Count, F, Max, Q, Sum
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -24,11 +26,12 @@ from allianceauth.authentication.models import CharacterOwnership
 from esi.models import CallbackRedirect, Token
 
 # AA Example App
-from indy_hub.models import CharacterSettings
+from indy_hub.models import CharacterSettings, CorporationSharingSetting
 
 from ..decorators import indy_hub_access_required
 from ..models import (
     Blueprint,
+    BlueprintCopyChat,
     BlueprintCopyRequest,
     IndustryJob,
     ProductionConfig,
@@ -37,13 +40,20 @@ from ..models import (
 )
 from ..services.simulations import summarize_simulations
 from ..tasks.industry import (
+    _REQUIRED_CORPORATION_ROLES,
+    CORP_BLUEPRINT_SCOPE,
+    CORP_BLUEPRINT_SCOPE_SET,
+    CORP_JOBS_SCOPE,
+    CORP_JOBS_SCOPE_SET,
+    CORP_ROLES_SCOPE,
     MANUAL_REFRESH_KIND_BLUEPRINTS,
     MANUAL_REFRESH_KIND_JOBS,
     request_manual_refresh,
 )
-from ..utils.eve import get_character_name
+from ..utils.eve import get_character_name, get_corporation_name, get_type_name
 
 logger = logging.getLogger(__name__)
+
 
 ONBOARDING_TASK_CONFIG = [
     {
@@ -107,14 +117,307 @@ BLUEPRINT_SCOPE_SET = [BLUEPRINT_SCOPE, STRUCTURE_SCOPE]
 JOBS_SCOPE_SET = [JOBS_SCOPE, STRUCTURE_SCOPE]
 
 
-def get_copy_sharing_states():
+def _collect_corporation_scope_status(user) -> list[dict[str, Any]]:
+    if not user.has_perm("indy_hub.can_manage_corporate_assets"):
+        return []
+
+    if not Token:
+        return []
+
+    ownerships = CharacterOwnership.objects.filter(user=user).select_related(
+        "character"
+    )
+    corp_status: dict[int, dict[str, Any]] = {}
+
+    for ownership in ownerships:
+        corp_id = getattr(ownership.character, "corporation_id", None)
+        if not corp_id:
+            continue
+
+        entry = corp_status.setdefault(
+            corp_id,
+            {
+                "corporation_id": corp_id,
+                "corporation_name": get_corporation_name(corp_id) or str(corp_id),
+                "blueprint": {
+                    "has_scope": False,
+                    "character_id": None,
+                    "character_name": None,
+                    "last_updated": None,
+                },
+                "jobs": {
+                    "has_scope": False,
+                    "character_id": None,
+                    "character_name": None,
+                    "last_updated": None,
+                },
+            },
+        )
+
+        character_id = ownership.character.character_id
+        token_qs = Token.objects.filter(user=user, character_id=character_id)
+        if not token_qs.exists():
+            continue
+
+        if not entry["blueprint"]["has_scope"]:
+            corp_bp_token = (
+                token_qs.require_scopes(CORP_BLUEPRINT_SCOPE_SET)
+                .order_by("-created")
+                .first()
+            )
+            if corp_bp_token:
+                entry["blueprint"] = {
+                    "has_scope": True,
+                    "character_id": character_id,
+                    "character_name": get_character_name(character_id),
+                    "last_updated": getattr(corp_bp_token, "created", None),
+                }
+
+        if not entry["jobs"]["has_scope"]:
+            corp_job_token = (
+                token_qs.require_scopes(CORP_JOBS_SCOPE_SET)
+                .order_by("-created")
+                .first()
+            )
+            if corp_job_token:
+                entry["jobs"] = {
+                    "has_scope": True,
+                    "character_id": character_id,
+                    "character_name": get_character_name(character_id),
+                    "last_updated": getattr(corp_job_token, "created", None),
+                }
+
+    return sorted(
+        corp_status.values(), key=lambda item: (item["corporation_name"] or "")
+    )
+
+
+def _default_corporation_summary_entry(
+    corp_id: int, corp_name: str | None
+) -> dict[str, Any]:
+    display_name = corp_name or get_corporation_name(corp_id) or str(corp_id)
+    empty_token = {
+        "has_scope": False,
+        "character_id": None,
+        "character_name": None,
+        "last_updated": None,
+    }
+    return {
+        "corporation_id": corp_id,
+        "name": display_name,
+        "blueprints": {
+            "total": 0,
+            "originals": 0,
+            "copies": 0,
+            "reactions": 0,
+            "last_sync": None,
+            "token": empty_token.copy(),
+        },
+        "jobs": {
+            "total": 0,
+            "active": 0,
+            "completed": 0,
+            "last_sync": None,
+            "token": empty_token.copy(),
+        },
+    }
+
+
+def build_corporation_sharing_context(user) -> dict[str, Any] | None:
+    if not user.has_perm("indy_hub.can_manage_corporate_assets"):
+        return None
+
+    corp_scope_status = _collect_corporation_scope_status(user)
+    summary: dict[int, dict[str, Any]] = {}
+
+    for entry in corp_scope_status:
+        corp_id = entry.get("corporation_id")
+        if not corp_id:
+            continue
+        corp_name = entry.get("corporation_name")
+        summary_entry = _default_corporation_summary_entry(corp_id, corp_name)
+        summary_entry["blueprints"]["token"] = dict(entry.get("blueprint", {}) or {})
+        summary_entry["jobs"]["token"] = dict(entry.get("jobs", {}) or {})
+        summary[corp_id] = summary_entry
+
+    blueprint_rows = (
+        Blueprint.objects.filter(
+            owner_user=user,
+            owner_kind=Blueprint.OwnerKind.CORPORATION,
+        )
+        .values("corporation_id", "corporation_name")
+        .annotate(
+            total=Count("id"),
+            originals=Count("id", filter=Q(bp_type=Blueprint.BPType.ORIGINAL)),
+            copies=Count("id", filter=Q(bp_type=Blueprint.BPType.COPY)),
+            reactions=Count("id", filter=Q(bp_type=Blueprint.BPType.REACTION)),
+            last_sync=Max("last_updated"),
+        )
+    )
+
+    for row in blueprint_rows:
+        corp_id = row.get("corporation_id")
+        if not corp_id:
+            continue
+        corp_name = row.get("corporation_name")
+        entry = summary.setdefault(
+            corp_id, _default_corporation_summary_entry(corp_id, corp_name)
+        )
+        entry["name"] = (
+            entry.get("name")
+            or corp_name
+            or get_corporation_name(corp_id)
+            or str(corp_id)
+        )
+        entry["blueprints"].update(
+            {
+                "total": row.get("total", 0) or 0,
+                "originals": row.get("originals", 0) or 0,
+                "copies": row.get("copies", 0) or 0,
+                "reactions": row.get("reactions", 0) or 0,
+                "last_sync": row.get("last_sync"),
+            }
+        )
+
+    now = timezone.now()
+    jobs_rows = (
+        IndustryJob.objects.filter(
+            owner_user=user,
+            owner_kind=Blueprint.OwnerKind.CORPORATION,
+        )
+        .values("corporation_id", "corporation_name")
+        .annotate(
+            total=Count("id"),
+            active=Count("id", filter=Q(status__iexact="active") & Q(end_date__gt=now)),
+            completed=Count(
+                "id",
+                filter=Q(status__in=["delivered", "ready"]) | Q(end_date__lte=now),
+            ),
+            last_sync=Max("last_updated"),
+        )
+    )
+
+    for row in jobs_rows:
+        corp_id = row.get("corporation_id")
+        if not corp_id:
+            continue
+        corp_name = row.get("corporation_name")
+        entry = summary.setdefault(
+            corp_id, _default_corporation_summary_entry(corp_id, corp_name)
+        )
+        entry["name"] = (
+            entry.get("name")
+            or corp_name
+            or get_corporation_name(corp_id)
+            or str(corp_id)
+        )
+        entry["jobs"].update(
+            {
+                "total": row.get("total", 0) or 0,
+                "active": row.get("active", 0) or 0,
+                "completed": row.get("completed", 0) or 0,
+                "last_sync": row.get("last_sync"),
+            }
+        )
+
+    corporations = sorted(
+        summary.values(),
+        key=lambda item: (item.get("name") or str(item.get("corporation_id"))).lower(),
+    )
+
+    total_blueprints = sum(corp["blueprints"]["total"] for corp in corporations)
+    total_jobs = sum(corp["jobs"]["total"] for corp in corporations)
+    has_authorised = any(
+        (
+            corp["blueprints"]["token"].get("has_scope")
+            or corp["jobs"]["token"].get("has_scope")
+        )
+        for corp in corporations
+    )
+
+    return {
+        "corporations": corporations,
+        "has_corporations": bool(corporations),
+        "total_blueprints": total_blueprints,
+        "total_jobs": total_jobs,
+        "has_authorised_characters": has_authorised,
+        "token_management_url": reverse("indy_hub:token_management"),
+        "required_roles": sorted(_REQUIRED_CORPORATION_ROLES),
+        "scopes": {
+            "blueprints": CORP_BLUEPRINT_SCOPE,
+            "jobs": CORP_JOBS_SCOPE,
+            "roles": CORP_ROLES_SCOPE,
+            "structures": STRUCTURE_SCOPE,
+        },
+    }
+
+
+def _build_corporation_share_controls(
+    user, corp_scope_status: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    """Prepare corporation sharing controls for the dashboard."""
+
+    copy_states = get_copy_sharing_states()
+    default_state = copy_states[CharacterSettings.SCOPE_NONE]
+    settings_map = {
+        setting.corporation_id: setting
+        for setting in CorporationSharingSetting.objects.filter(user=user)
+    }
+    controls: list[dict[str, Any]] = []
+
+    for entry in corp_scope_status:
+        corp_id = entry.get("corporation_id")
+        if not corp_id:
+            continue
+        corp_name = entry.get("corporation_name") or str(corp_id)
+        setting = settings_map.get(corp_id)
+        share_scope = setting.share_scope if setting else CharacterSettings.SCOPE_NONE
+        state = copy_states.get(share_scope, default_state)
+
+        controls.append(
+            {
+                "corporation_id": corp_id,
+                "corporation_name": corp_name,
+                "share_scope": share_scope,
+                "badge_class": state.get(
+                    "badge_class", default_state.get("badge_class")
+                ),
+                "status_label": state.get(
+                    "status_label", default_state.get("status_label")
+                ),
+                "status_hint": state.get(
+                    "status_hint", default_state.get("status_hint")
+                ),
+                "has_blueprint_scope": bool(
+                    entry.get("blueprint", {}).get("has_scope")
+                ),
+                "blueprint_character": entry.get("blueprint", {}).get("character_name"),
+                "has_jobs_scope": bool(entry.get("jobs", {}).get("has_scope")),
+                "jobs_character": entry.get("jobs", {}).get("character_name"),
+            }
+        )
+
+    summary = {
+        "total": len(controls),
+        "enabled": sum(
+            1
+            for item in controls
+            if item["share_scope"] != CharacterSettings.SCOPE_NONE
+        ),
+    }
+    return controls, summary
+
+
+def get_copy_sharing_states() -> dict[str, dict[str, object]]:
     return {
         CharacterSettings.SCOPE_NONE: {
             "enabled": False,
             "button_label": _("Private"),
             "button_hint": _("Your originals stay private for now."),
-            "status_label": _("Not shared"),
-            "status_hint": _("Turn on sharing to accept requests."),
+            "status_label": _("Sharing disabled"),
+            "status_hint": _(
+                "Blueprint requests stay hidden until you enable sharing."
+            ),
             "badge_class": "bg-secondary-subtle text-secondary",
             "popup_message": _("Blueprint sharing disabled."),
             "fulfill_hint": _(
@@ -150,36 +453,32 @@ def get_copy_sharing_states():
 
 
 # --- User views (token management, sync, etc.) ---
-@indy_hub_access_required
-@login_required
-def index(request):
-    """
-    Home page for Indy Hub module.
-    """
-    blueprint_tokens = None
-    jobs_tokens = None
+def _build_dashboard_context(request):
+    """Collect shared dashboard context for Indy Hub dashboards."""
+
+    blueprint_char_ids: list[int] = []
+    jobs_char_ids: list[int] = []
+
     if Token:
         try:
-            blueprint_tokens = Token.objects.filter(user=request.user).require_scopes(
-                BLUEPRINT_SCOPE_SET
+            blueprint_char_ids = list(
+                Token.objects.filter(user=request.user)
+                .require_scopes(BLUEPRINT_SCOPE_SET)
+                .values_list("character_id", flat=True)
+                .distinct()
             )
-            jobs_tokens = Token.objects.filter(user=request.user).require_scopes(
-                JOBS_SCOPE_SET
-            )
-            # Deduplicate by character_id
-            blueprint_char_ids = (
-                list(blueprint_tokens.values_list("character_id", flat=True).distinct())
-                if blueprint_tokens
-                else []
-            )
-            jobs_char_ids = (
-                list(jobs_tokens.values_list("character_id", flat=True).distinct())
-                if jobs_tokens
-                else []
+            jobs_char_ids = list(
+                Token.objects.filter(user=request.user)
+                .require_scopes(JOBS_SCOPE_SET)
+                .values_list("character_id", flat=True)
+                .distinct()
             )
         except Exception:
-            blueprint_tokens = jobs_tokens = None
             blueprint_char_ids = jobs_char_ids = []
+
+    blueprint_char_id_set = set(blueprint_char_ids)
+    jobs_char_id_set = set(jobs_char_ids)
+
     user_chars = []
     ownerships = CharacterOwnership.objects.filter(user=request.user)
     for ownership in ownerships:
@@ -188,19 +487,11 @@ def index(request):
             {
                 "character_id": cid,
                 "name": get_character_name(cid),
-                "bp_enabled": (
-                    blueprint_tokens.filter(character_id=cid).exists()
-                    if blueprint_tokens
-                    else False
-                ),
-                "jobs_enabled": (
-                    jobs_tokens.filter(character_id=cid).exists()
-                    if jobs_tokens
-                    else False
-                ),
+                "bp_enabled": cid in blueprint_char_id_set,
+                "jobs_enabled": cid in jobs_char_id_set,
             }
         )
-    # Blueprints stats
+
     blueprints_qs = Blueprint.objects.filter(owner_user=request.user)
 
     def normalized_quantity(value: int | None) -> int:
@@ -221,9 +512,8 @@ def index(request):
             copy_blueprints += qty
         else:
             original_blueprints += qty
-    # Jobs stats
-    jobs_qs = IndustryJob.objects.filter(owner_user=request.user)
 
+    jobs_qs = IndustryJob.objects.filter(owner_user=request.user)
     now = timezone.now()
     today = now.date()
     active_jobs_count = jobs_qs.filter(status="active", end_date__gt=now).count()
@@ -231,12 +521,12 @@ def index(request):
     completed_jobs_today = jobs_qs.filter(
         end_date__date=today, end_date__lte=now
     ).count()
-    # Récupère ou crée les préférences utilisateur
-    settings, _ = CharacterSettings.objects.get_or_create(
+
+    settings_obj, _created = CharacterSettings.objects.get_or_create(
         user=request.user, character_id=0
     )
-    jobs_notify_completed = settings.jobs_notify_completed
-    copy_sharing_scope = settings.copy_sharing_scope
+    jobs_notify_completed = settings_obj.jobs_notify_completed
+    copy_sharing_scope = settings_obj.copy_sharing_scope
     if copy_sharing_scope not in dict(CharacterSettings.COPY_SHARING_SCOPE_CHOICES):
         copy_sharing_scope = CharacterSettings.SCOPE_NONE
 
@@ -249,11 +539,10 @@ def index(request):
     )
 
     allow_copy_requests = sharing_state["enabled"]
-    if allow_copy_requests != settings.allow_copy_requests:
-        settings.allow_copy_requests = allow_copy_requests
-        settings.save(update_fields=["allow_copy_requests"])
+    if allow_copy_requests != settings_obj.allow_copy_requests:
+        settings_obj.allow_copy_requests = allow_copy_requests
+        settings_obj.save(update_fields=["allow_copy_requests"])
 
-    # Blueprint copy request insights
     copy_fulfill_count = 0
     copy_my_requests_open = 0
     copy_my_requests_pending_delivery = 0
@@ -302,7 +591,64 @@ def index(request):
 
     copy_my_requests_total = copy_my_requests_open + copy_my_requests_pending_delivery
 
-    onboarding_progress, _ = UserOnboardingProgress.objects.get_or_create(
+    unread_chats_base = BlueprintCopyChat.objects.filter(
+        is_open=True,
+        last_message_at__isnull=False,
+    ).filter(
+        (
+            Q(buyer=request.user, last_message_role="seller")
+            & (
+                Q(buyer_last_seen_at__isnull=True)
+                | Q(buyer_last_seen_at__lt=F("last_message_at"))
+            )
+        )
+        | (
+            Q(seller=request.user, last_message_role="buyer")
+            & (
+                Q(seller_last_seen_at__isnull=True)
+                | Q(seller_last_seen_at__lt=F("last_message_at"))
+            )
+        )
+    )
+
+    copy_chat_unread_count = unread_chats_base.count()
+    unread_chat_cards = list(
+        unread_chats_base.select_related("request", "offer").order_by(
+            "-last_message_at"
+        )[:5]
+    )
+
+    copy_chat_alerts: list[dict[str, Any]] = []
+    for chat in unread_chat_cards:
+        request_obj = chat.request
+        viewer_role = "buyer" if chat.buyer_id == request.user.id else "seller"
+        other_label = _("Builder") if viewer_role == "buyer" else _("Buyer")
+        last_message_local = timezone.localtime(chat.last_message_at)
+        copy_chat_alerts.append(
+            {
+                "chat_id": chat.id,
+                "type_id": request_obj.type_id,
+                "type_name": get_type_name(request_obj.type_id),
+                "viewer_role": viewer_role,
+                "fetch_url": reverse("indy_hub:bp_chat_history", args=[chat.id]),
+                "send_url": reverse("indy_hub:bp_chat_send", args=[chat.id]),
+                "source_url": reverse(
+                    "indy_hub:bp_copy_my_requests"
+                    if viewer_role == "buyer"
+                    else "indy_hub:bp_copy_fulfill_requests"
+                ),
+                "source_label": (
+                    _("View my requests")
+                    if viewer_role == "buyer"
+                    else _("Open fulfill queue")
+                ),
+                "other_label": other_label,
+                "last_message_at": last_message_local,
+                "last_message_display": last_message_local.strftime("%Y-%m-%d %H:%M"),
+            }
+        )
+
+    onboarding_progress, _created = UserOnboardingProgress.objects.get_or_create(
         user=request.user
     )
     manual_steps = onboarding_progress.manual_steps or {}
@@ -352,6 +698,41 @@ def index(request):
     )
     onboarding_show = bool(pending_tasks) and not onboarding_progress.dismissed
 
+    can_manage_corp = request.user.has_perm("indy_hub.can_manage_corporate_assets")
+    corp_scope_status = _collect_corporation_scope_status(request.user)
+    corporation_share_controls, corporation_share_summary = (
+        _build_corporation_share_controls(request.user, corp_scope_status)
+    )
+    corporation_share_controls_json = json.dumps(corporation_share_controls)
+    corp_blueprint_scope_count = sum(
+        1 for status in corp_scope_status if status["blueprint"]["has_scope"]
+    )
+    corp_jobs_scope_count = sum(
+        1 for status in corp_scope_status if status["jobs"]["has_scope"]
+    )
+
+    corporation_overview = build_corporation_sharing_context(request.user)
+    corp_blueprint_count = 0
+    corp_original_blueprints = 0
+    corp_copy_blueprints = 0
+    corp_reaction_blueprints = 0
+    corp_jobs_total = 0
+    corp_active_jobs_count = 0
+    corp_jobs_completed = 0
+
+    if corporation_overview:
+        corp_blueprint_count = corporation_overview.get("total_blueprints", 0) or 0
+        corp_jobs_total = corporation_overview.get("total_jobs", 0) or 0
+        for corp_entry in corporation_overview.get("corporations", []):
+            blueprints = corp_entry.get("blueprints", {}) or {}
+            corp_original_blueprints += blueprints.get("originals", 0) or 0
+            corp_copy_blueprints += blueprints.get("copies", 0) or 0
+            corp_reaction_blueprints += blueprints.get("reactions", 0) or 0
+
+            jobs = corp_entry.get("jobs", {}) or {}
+            corp_active_jobs_count += jobs.get("active", 0) or 0
+            corp_jobs_completed += jobs.get("completed", 0) or 0
+
     context = {
         "has_blueprint_tokens": bool(blueprint_char_ids),
         "has_jobs_tokens": bool(jobs_char_ids),
@@ -373,6 +754,9 @@ def index(request):
         "copy_my_requests_open": copy_my_requests_open,
         "copy_my_requests_pending_delivery": copy_my_requests_pending_delivery,
         "copy_my_requests_total": copy_my_requests_total,
+        "copy_chat_unread_count": copy_chat_unread_count,
+        "copy_chat_alerts": copy_chat_alerts,
+        "copy_chat_alerts_has_more": copy_chat_unread_count > len(copy_chat_alerts),
         "onboarding": {
             "tasks": onboarding_tasks,
             "completed": completed_count,
@@ -382,8 +766,64 @@ def index(request):
             "show": onboarding_show,
             "dismissed": onboarding_progress.dismissed,
         },
+        "can_manage_corporate_assets": can_manage_corp,
+        "has_corp_blueprint_tokens": corp_blueprint_scope_count > 0,
+        "has_corp_job_tokens": corp_jobs_scope_count > 0,
+        "corporation_share_controls": corporation_share_controls,
+        "corporation_share_controls_json": corporation_share_controls_json,
+        "corporation_share_summary": corporation_share_summary,
+        "corporation_overview": corporation_overview,
+        "corp_blueprint_count": corp_blueprint_count,
+        "corp_original_blueprints": corp_original_blueprints,
+        "corp_copy_blueprints": corp_copy_blueprints,
+        "corp_reaction_blueprints": corp_reaction_blueprints,
+        "corp_jobs_total": corp_jobs_total,
+        "corp_active_jobs_count": corp_active_jobs_count,
+        "corp_jobs_completed": corp_jobs_completed,
+        "corp_scope_status": corp_scope_status,
+        "show_corporation_tab": can_manage_corp,
     }
+    return context
+
+
+@indy_hub_access_required
+@login_required
+def index(request):
+    context = _build_dashboard_context(request)
+    personal_url = reverse("indy_hub:index")
+    corporation_url = (
+        reverse("indy_hub:corporation_dashboard")
+        if context.get("show_corporation_tab")
+        else None
+    )
+    context.update(
+        {
+            "personal_nav_url": personal_url,
+            "personal_nav_class": "active fw-semibold",
+            "corporation_nav_url": corporation_url,
+            "corporation_nav_class": "",
+            "current_dashboard": "personal",
+        }
+    )
     return render(request, "indy_hub/index.html", context)
+
+
+@indy_hub_access_required
+@login_required
+def corporation_dashboard(request):
+    context = _build_dashboard_context(request)
+    if not context.get("show_corporation_tab"):
+        raise PermissionDenied
+    context.update(
+        {
+            "personal_nav_url": reverse("indy_hub:index"),
+            "personal_nav_class": "",
+            "corporation_nav_url": reverse("indy_hub:corporation_dashboard"),
+            "corporation_nav_class": "active fw-semibold",
+            "current_dashboard": "corporation",
+        }
+    )
+    return render(request, "indy_hub/corporation_dashboard.html", context)
 
 
 @indy_hub_access_required
@@ -391,6 +831,9 @@ def index(request):
 def token_management(request):
     blueprint_tokens = None
     jobs_tokens = None
+    corp_scope_status = _collect_corporation_scope_status(request.user)
+    corporation_sharing = build_corporation_sharing_context(request.user)
+    can_manage_corp = request.user.has_perm("indy_hub.can_manage_corporate_assets")
     if Token:
         try:
             blueprint_tokens = Token.objects.filter(user=request.user).require_scopes(
@@ -417,6 +860,21 @@ def token_management(request):
         reverse("indy_hub:authorize_blueprints") if CallbackRedirect else None
     )
     jobs_auth_url = reverse("indy_hub:authorize_jobs") if CallbackRedirect else None
+    corp_blueprint_auth_url = (
+        reverse("indy_hub:authorize_corp_blueprints")
+        if can_manage_corp and CallbackRedirect
+        else None
+    )
+    corp_jobs_auth_url = (
+        reverse("indy_hub:authorize_corp_jobs")
+        if can_manage_corp and CallbackRedirect
+        else None
+    )
+    corp_all_auth_url = (
+        reverse("indy_hub:authorize_corp_all")
+        if can_manage_corp and CallbackRedirect
+        else None
+    )
     user_chars = []
     ownerships = CharacterOwnership.objects.filter(user=request.user)
     for ownership in ownerships:
@@ -445,6 +903,19 @@ def token_management(request):
         "blueprint_auth_url": blueprint_auth_url,
         "jobs_auth_url": jobs_auth_url,
         "characters": user_chars,
+        "can_manage_corporate_assets": can_manage_corp,
+        "corporation_sharing": corporation_sharing,
+        "corporations": corp_scope_status,
+        "corp_blueprint_auth_url": corp_blueprint_auth_url,
+        "corp_jobs_auth_url": corp_jobs_auth_url,
+        "corp_all_auth_url": corp_all_auth_url,
+        "corp_count": len(corp_scope_status),
+        "corp_blueprint_scope_count": sum(
+            1 for status in corp_scope_status if status["blueprint"]["has_scope"]
+        ),
+        "corp_jobs_scope_count": sum(
+            1 for status in corp_scope_status if status["jobs"]["has_scope"]
+        ),
     }
     return render(request, "indy_hub/token_management.html", context)
 
@@ -548,6 +1019,144 @@ def authorize_jobs(request):
     except Exception as e:
         logger.error(f"Error creating jobs authorization: {e}")
         messages.error(request, f"Error setting up ESI authorization: {e}")
+        return redirect("indy_hub:token_management")
+
+
+@indy_hub_access_required
+@login_required
+def authorize_corp_blueprints(request):
+    if not request.user.has_perm("indy_hub.can_manage_corporate_assets"):
+        messages.error(
+            request, "You do not have permission to manage corporation assets."
+        )
+        return redirect("indy_hub:token_management")
+    if not CallbackRedirect:
+        messages.error(request, "ESI module not available")
+        return redirect("indy_hub:token_management")
+    try:
+        if not request.session.session_key:
+            request.session.create()
+        CallbackRedirect.objects.filter(
+            session_key=request.session.session_key
+        ).delete()
+        state = f"indy_hub_corp_blueprints_{secrets.token_urlsafe(8)}"
+        CallbackRedirect.objects.create(
+            session_key=request.session.session_key,
+            url=reverse("indy_hub:token_management"),
+            state=state,
+        )
+        callback_url = getattr(
+            settings, "ESI_SSO_CALLBACK_URL", "http://localhost:8000/sso/callback/"
+        )
+        client_id = getattr(settings, "ESI_SSO_CLIENT_ID", "")
+        params = {
+            "response_type": "code",
+            "redirect_uri": callback_url,
+            "client_id": client_id,
+            "scope": " ".join(sorted(set(CORP_BLUEPRINT_SCOPE_SET))),
+            "state": state,
+        }
+        auth_url = (
+            f"https://login.eveonline.com/v2/oauth/authorize/?{urlencode(params)}"
+        )
+        return redirect(auth_url)
+    except Exception as e:
+        logger.error(f"Error creating corporation blueprint authorization: {e}")
+        messages.error(request, f"Error setting up corporation authorization: {e}")
+        return redirect("indy_hub:token_management")
+
+
+@indy_hub_access_required
+@login_required
+def authorize_corp_jobs(request):
+    if not request.user.has_perm("indy_hub.can_manage_corporate_assets"):
+        messages.error(
+            request, "You do not have permission to manage corporation assets."
+        )
+        return redirect("indy_hub:token_management")
+    if not CallbackRedirect:
+        messages.error(request, "ESI module not available")
+        return redirect("indy_hub:token_management")
+    try:
+        if not request.session.session_key:
+            request.session.create()
+        CallbackRedirect.objects.filter(
+            session_key=request.session.session_key
+        ).delete()
+        state = f"indy_hub_corp_jobs_{secrets.token_urlsafe(8)}"
+        CallbackRedirect.objects.create(
+            session_key=request.session.session_key,
+            url=reverse("indy_hub:token_management"),
+            state=state,
+        )
+        callback_url = getattr(
+            settings, "ESI_SSO_CALLBACK_URL", "http://localhost:8000/sso/callback/"
+        )
+        client_id = getattr(settings, "ESI_SSO_CLIENT_ID", "")
+        params = {
+            "response_type": "code",
+            "redirect_uri": callback_url,
+            "client_id": client_id,
+            "scope": " ".join(sorted(set(CORP_JOBS_SCOPE_SET))),
+            "state": state,
+        }
+        auth_url = (
+            f"https://login.eveonline.com/v2/oauth/authorize/?{urlencode(params)}"
+        )
+        return redirect(auth_url)
+    except Exception as e:
+        logger.error(f"Error creating corporation job authorization: {e}")
+        messages.error(request, f"Error setting up corporation authorization: {e}")
+        return redirect("indy_hub:token_management")
+
+
+@indy_hub_access_required
+@login_required
+def authorize_corp_all(request):
+    if not request.user.has_perm("indy_hub.can_manage_corporate_assets"):
+        messages.error(
+            request, "You do not have permission to manage corporation assets."
+        )
+        return redirect("indy_hub:token_management")
+    if not CallbackRedirect:
+        messages.error(request, "ESI module not available")
+        return redirect("indy_hub:token_management")
+    try:
+        if not request.session.session_key:
+            request.session.create()
+        CallbackRedirect.objects.filter(
+            session_key=request.session.session_key
+        ).delete()
+        state = f"indy_hub_corp_all_{secrets.token_urlsafe(8)}"
+        CallbackRedirect.objects.create(
+            session_key=request.session.session_key,
+            url=reverse("indy_hub:token_management"),
+            state=state,
+        )
+        callback_url = getattr(
+            settings, "ESI_SSO_CALLBACK_URL", "http://localhost:8000/sso/callback/"
+        )
+        client_id = getattr(settings, "ESI_SSO_CLIENT_ID", "")
+        scope_set = sorted(
+            {
+                *CORP_BLUEPRINT_SCOPE_SET,
+                *CORP_JOBS_SCOPE_SET,
+            }
+        )
+        params = {
+            "response_type": "code",
+            "redirect_uri": callback_url,
+            "client_id": client_id,
+            "scope": " ".join(scope_set),
+            "state": state,
+        }
+        auth_url = (
+            f"https://login.eveonline.com/v2/oauth/authorize/?{urlencode(params)}"
+        )
+        return redirect(auth_url)
+    except Exception as e:
+        logger.error(f"Error creating corporation authorization: {e}")
+        messages.error(request, f"Error setting up corporation authorization: {e}")
         return redirect("indy_hub:token_management")
 
 
@@ -774,7 +1383,7 @@ def sync_jobs(request):
 @require_POST
 def toggle_job_notifications(request):
     # Basculer la préférence de notification
-    settings, _ = CharacterSettings.objects.get_or_create(
+    settings, _created = CharacterSettings.objects.get_or_create(
         user=request.user, character_id=0
     )
     settings.jobs_notify_completed = not settings.jobs_notify_completed
@@ -787,7 +1396,7 @@ def toggle_job_notifications(request):
 @login_required
 @require_POST
 def toggle_copy_sharing(request):
-    settings, _ = CharacterSettings.objects.get_or_create(
+    settings, _created = CharacterSettings.objects.get_or_create(
         user=request.user, character_id=0
     )
     scope_order = [
@@ -833,6 +1442,95 @@ def toggle_copy_sharing(request):
             "subtitle": sharing_state["subtitle"],
         }
     )
+
+
+@indy_hub_access_required
+@login_required
+@require_POST
+def toggle_corporation_copy_sharing(request):
+    if not request.user.has_perm("indy_hub.can_manage_corporate_assets"):
+        return JsonResponse({"error": "forbidden"}, status=403)
+
+    payload = {}
+    if request.body:
+        try:
+            payload = json.loads(request.body.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
+            return JsonResponse({"error": "invalid_payload"}, status=400)
+
+    corp_id = payload.get("corporation_id")
+    scope = payload.get("scope")
+
+    try:
+        corp_id = int(corp_id)
+    except (TypeError, ValueError):
+        corp_id = None
+
+    valid_scopes = dict(CharacterSettings.COPY_SHARING_SCOPE_CHOICES)
+    if not corp_id:
+        return JsonResponse({"error": "invalid_corporation"}, status=400)
+    if scope not in valid_scopes:
+        return JsonResponse({"error": "invalid_scope"}, status=400)
+
+    corp_scope_status = _collect_corporation_scope_status(request.user)
+    corp_entry = next(
+        (
+            entry
+            for entry in corp_scope_status
+            if entry.get("corporation_id") == corp_id
+        ),
+        None,
+    )
+    if not corp_entry:
+        return JsonResponse({"error": "unknown_corporation"}, status=404)
+
+    corp_name = corp_entry.get("corporation_name") or str(corp_id)
+    setting, _created = CorporationSharingSetting.objects.get_or_create(
+        user=request.user,
+        corporation_id=corp_id,
+        defaults={
+            "corporation_name": corp_name,
+            "share_scope": CharacterSettings.SCOPE_NONE,
+            "allow_copy_requests": False,
+        },
+    )
+    setting.corporation_name = corp_name
+    setting.set_share_scope(scope)
+    setting.save(
+        update_fields=[
+            "corporation_name",
+            "share_scope",
+            "allow_copy_requests",
+            "updated_at",
+        ]
+    )
+
+    sharing_states = get_copy_sharing_states()
+    state = dict(
+        sharing_states.get(scope, sharing_states[CharacterSettings.SCOPE_NONE])
+    )
+
+    base_popup = state.get("popup_message") or _("Blueprint sharing updated.")
+    state["popup_message"] = _("%(corp)s: %(message)s") % {
+        "corp": corp_name,
+        "message": base_popup,
+    }
+
+    response_payload = {
+        "corporation_id": corp_id,
+        "corporation_name": corp_name,
+        "scope": scope,
+        "enabled": state.get("enabled", False),
+        "badge_class": state.get("badge_class", "bg-secondary-subtle text-secondary"),
+        "status_label": state.get("status_label", _("Sharing disabled")),
+        "status_hint": state.get(
+            "status_hint",
+            _("Blueprint requests stay hidden until you enable sharing."),
+        ),
+        "button_hint": state.get("button_hint", ""),
+        "popup_message": state.get("popup_message"),
+    }
+    return JsonResponse(response_payload)
 
 
 @indy_hub_access_required

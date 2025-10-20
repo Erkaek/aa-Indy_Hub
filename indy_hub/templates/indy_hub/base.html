@@ -1,0 +1,30 @@
+{% extends "allianceauth/base-bs5.html" %}
+{% load i18n %}
+
+{% block header_nav_brand %}
+    {% block indy_hub_nav_brand %}
+        <span class="fw-semibold">{% trans "Indy Hub" %}</span>
+    {% endblock %}
+{% endblock header_nav_brand %}
+
+{% block header_nav_collapse_left %}
+    {% block indy_hub_nav_tabs %}
+        {% if personal_nav_url %}
+            {% translate "Personal" as personal_tab_title %}
+            {% include "framework/header/nav-collapse-button.html" with btn_class=personal_nav_class url=personal_nav_url title=personal_tab_title fa_icon="fa-solid fa-user-astronaut" icon_on_mobile=True icon_on_desktop=True %}
+        {% endif %}
+        {% if corporation_nav_url %}
+            {% translate "Corporation" as corporation_tab_title %}
+            {% include "framework/header/nav-collapse-button.html" with btn_class=corporation_nav_class url=corporation_nav_url title=corporation_tab_title fa_icon="fa-solid fa-building" icon_on_mobile=True icon_on_desktop=True %}
+        {% endif %}
+    {% endblock %}
+{% endblock header_nav_collapse_left %}
+
+{% block header_nav_collapse_right %}
+    {% block indy_hub_nav_right %}{% endblock %}
+{% endblock header_nav_collapse_right %}
+
+{% block extra_page_content %}
+    {{ block.super }}
+    {% block indy_hub_global_modals %}{% endblock %}
+{% endblock extra_page_content %}

@@ -6,9 +6,6 @@ from collections import defaultdict
 from decimal import Decimal
 from math import ceil
 
-# Third Party
-import requests
-
 # Django
 from django.conf import settings
 
@@ -23,6 +20,7 @@ else:  # pragma: no cover - EveUniverse not installed
 # Django
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db import connection
 from django.db.models import Q
@@ -32,13 +30,16 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.translation import gettext_lazy as _
+from django.views.decorators.http import require_http_methods
 
 # AA Example App
 from indy_hub.models import CharacterSettings
 
-from ..decorators import indy_hub_access_required
+from ..decorators import indy_hub_access_required, indy_hub_permission_required
 from ..models import (
     Blueprint,
+    BlueprintCopyChat,
+    BlueprintCopyMessage,
     BlueprintCopyOffer,
     BlueprintCopyRequest,
     IndustryJob,
@@ -52,7 +53,7 @@ from ..tasks.industry import (
     MANUAL_REFRESH_KIND_JOBS,
     request_manual_refresh,
 )
-from ..utils.eve import get_character_name, get_type_name
+from ..utils.eve import get_character_name, get_corporation_name, get_type_name
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,7 @@ def _eligible_owner_ids_for_request(req: BlueprintCopyRequest) -> set[int]:
         Blueprint.objects.filter(
             owner_user__charactersettings__character_id=0,
             owner_user__charactersettings__allow_copy_requests=True,
+            owner_kind=Blueprint.OwnerKind.CHARACTER,
             bp_type__in=[Blueprint.BPType.ORIGINAL, Blueprint.BPType.REACTION],
             type_id=req.type_id,
             material_efficiency=req.material_efficiency,
@@ -94,9 +96,6 @@ def _finalize_request_if_all_rejected(req: BlueprintCopyRequest) -> bool:
         ]
         if outstanding:
             return False
-    else:
-        # No eligible providers configured; treat as fully rejected.
-        pass
 
     my_requests_url = build_site_url(reverse("indy_hub:bp_copy_my_requests"))
 
@@ -115,15 +114,173 @@ def _finalize_request_if_all_rejected(req: BlueprintCopyRequest) -> bool:
         link=my_requests_url,
         link_label=_("Review your requests"),
     )
+    _close_request_chats(req, BlueprintCopyChat.CloseReason.REQUEST_WITHDRAWN)
     req.delete()
     return True
+
+
+def _ensure_offer_chat(offer: BlueprintCopyOffer) -> BlueprintCopyChat:
+    chat = offer.ensure_chat()
+    chat.reopen()
+    return chat
+
+
+def _chat_has_unread(chat: BlueprintCopyChat, role: str) -> bool:
+    try:
+        return chat.has_unread_for(role)
+    except AttributeError:
+        return False
+
+
+def _chat_preview_messages(chat: BlueprintCopyChat, *, limit: int = 3) -> list[dict]:
+    if not chat:
+        return []
+
+    role_labels = {
+        BlueprintCopyMessage.SenderRole.BUYER: _("Buyer"),
+        BlueprintCopyMessage.SenderRole.SELLER: _("Builder"),
+        BlueprintCopyMessage.SenderRole.SYSTEM: _("System"),
+    }
+
+    preview = []
+    for message in chat.messages.order_by("-created_at", "-id")[:limit]:
+        created_local = timezone.localtime(message.created_at)
+        preview.append(
+            {
+                "role": message.sender_role,
+                "role_label": role_labels.get(
+                    message.sender_role, message.sender_role.title()
+                ),
+                "content": message.content,
+                "created_display": created_local.strftime("%Y-%m-%d %H:%M"),
+            }
+        )
+
+    return preview
+
+
+def _close_offer_chat_if_exists(offer: BlueprintCopyOffer, reason: str) -> None:
+    try:
+        chat = offer.chat
+    except BlueprintCopyChat.DoesNotExist:
+        return
+    chat.close(reason=reason)
+
+
+def _close_request_chats(req: BlueprintCopyRequest, reason: str) -> None:
+    chats = BlueprintCopyChat.objects.filter(request=req, is_open=True)
+    for chat in chats:
+        chat.close(reason=reason)
+
+
+def _finalize_conditional_offer(offer: BlueprintCopyOffer) -> None:
+    req = offer.request
+    if offer.status == "accepted" and req.fulfilled:
+        return
+
+    offer.status = "accepted"
+    offer.accepted_by_buyer = True
+    offer.accepted_by_seller = True
+    offer.accepted_at = timezone.now()
+    offer.save(
+        update_fields=[
+            "status",
+            "accepted_by_buyer",
+            "accepted_by_seller",
+            "accepted_at",
+        ]
+    )
+
+    req.fulfilled = True
+    req.fulfilled_at = timezone.now()
+    req.save(update_fields=["fulfilled", "fulfilled_at"])
+
+    _close_request_chats(req, BlueprintCopyChat.CloseReason.OFFER_ACCEPTED)
+    BlueprintCopyOffer.objects.filter(request=req).exclude(id=offer.id).delete()
+
+    fulfill_queue_url = build_site_url(reverse("indy_hub:bp_copy_fulfill_requests"))
+    buyer_requests_url = build_site_url(reverse("indy_hub:bp_copy_my_requests"))
+
+    notify_user(
+        offer.owner,
+        _("Blueprint Copy Request - Buyer Accepted"),
+        _("%(buyer)s accepted your offer for %(type)s (ME%(me)s, TE%(te)s).")
+        % {
+            "buyer": req.requested_by.username,
+            "type": get_type_name(req.type_id),
+            "me": req.material_efficiency,
+            "te": req.time_efficiency,
+        },
+        "success",
+        link=fulfill_queue_url,
+        link_label=_("Open fulfill queue"),
+    )
+
+    notify_user(
+        req.requested_by,
+        _("Conditional offer confirmed"),
+        _("%(builder)s confirmed your agreement for %(type)s (ME%(me)s, TE%(te)s).")
+        % {
+            "builder": offer.owner.username,
+            "type": get_type_name(req.type_id),
+            "me": req.material_efficiency,
+            "te": req.time_efficiency,
+        },
+        "success",
+        link=buyer_requests_url,
+        link_label=_("Review your requests"),
+    )
+
+
+def _mark_offer_buyer_accept(offer: BlueprintCopyOffer) -> bool:
+    if (
+        offer.status == "accepted"
+        and offer.accepted_by_buyer
+        and offer.accepted_by_seller
+    ):
+        return True
+
+    if not offer.accepted_by_buyer:
+        offer.accepted_by_buyer = True
+        offer.save(update_fields=["accepted_by_buyer"])
+
+    if offer.accepted_by_seller:
+        _finalize_conditional_offer(offer)
+        return True
+    return False
+
+
+def _mark_offer_seller_accept(offer: BlueprintCopyOffer) -> bool:
+    if (
+        offer.status == "accepted"
+        and offer.accepted_by_buyer
+        and offer.accepted_by_seller
+    ):
+        return True
+
+    if not offer.accepted_by_seller:
+        offer.accepted_by_seller = True
+        offer.save(update_fields=["accepted_by_seller"])
+
+    if offer.accepted_by_buyer:
+        _finalize_conditional_offer(offer)
+        return True
+    return False
 
 
 # --- Blueprint and job views ---
 @indy_hub_access_required
 @login_required
-def personnal_bp_list(request):
+def personnal_bp_list(request, scope="character"):
     # Copy of the old blueprints_list code
+    owner_options = []
+    scope_param = request.GET.get("scope")
+    scope = (scope_param or scope or "character").lower()
+    if scope not in {"character", "corporation"}:
+        scope = "character"
+
+    is_corporation_scope = scope == "corporation"
+    has_corporate_perm = request.user.has_perm("indy_hub.can_manage_corporate_assets")
     try:
         # Check if we need to sync data
         force_update = request.GET.get("refresh") == "1"
@@ -131,32 +288,52 @@ def personnal_bp_list(request):
             logger.info(
                 f"User {request.user.username} requested blueprint refresh; enqueuing Celery task"
             )
-            scheduled, remaining = request_manual_refresh(
-                MANUAL_REFRESH_KIND_BLUEPRINTS,
-                request.user.id,
-                priority=5,
-            )
-            if scheduled:
-                messages.success(
-                    request,
-                    _("Blueprint refresh scheduled. Updated data will appear shortly."),
+            if is_corporation_scope and not has_corporate_perm:
+                logger.info(
+                    "Ignoring manual corporate blueprint refresh for %s due to missing permission",
+                    request.user.username,
                 )
             else:
-                wait_minutes = max(1, ceil(remaining.total_seconds() / 60))
-                messages.warning(
-                    request,
-                    _(
-                        "Blueprint data was refreshed recently. Please try again in %(minutes)s minute(s)."
-                    )
-                    % {"minutes": wait_minutes},
+                scheduled, remaining = request_manual_refresh(
+                    MANUAL_REFRESH_KIND_BLUEPRINTS,
+                    request.user.id,
+                    priority=5,
+                    scope=scope,
                 )
+                if scheduled:
+                    messages.success(
+                        request,
+                        _(
+                            "Blueprint refresh scheduled. Updated data will appear shortly."
+                        ),
+                    )
+                else:
+                    wait_minutes = max(1, ceil(remaining.total_seconds() / 60))
+                    messages.warning(
+                        request,
+                        _(
+                            "Blueprint data was refreshed recently. Please try again in %(minutes)s minute(s)."
+                        )
+                        % {"minutes": wait_minutes},
+                    )
     except Exception as e:
         logger.error(f"Error handling blueprint refresh: {e}")
         messages.error(request, f"Error handling blueprint refresh: {e}")
+
+    if is_corporation_scope and not has_corporate_perm:
+        messages.error(
+            request,
+            _("You do not have permission to view corporation blueprints."),
+        )
+        return redirect(reverse("indy_hub:personnal_bp_list"))
+
     search = request.GET.get("search", "")
     efficiency_filter = request.GET.get("efficiency", "")
     type_filter = request.GET.get("type", "")
-    character_filter = request.GET.get("character", "")
+    owner_filter = request.GET.get("owner")
+    if owner_filter is None:
+        owner_filter = request.GET.get("character", "")
+    owner_filter = owner_filter.strip() if isinstance(owner_filter, str) else ""
     activity_id = request.GET.get("activity_id", "")
     sort_order = request.GET.get("order", "asc")
     page = int(request.GET.get("page", 1))
@@ -184,9 +361,44 @@ def personnal_bp_list(request):
                 """
             )
             allowed_type_ids = [row[0] for row in cursor.fetchall()]
-        blueprints_qs = Blueprint.objects.filter(
-            owner_user=request.user, type_id__in=allowed_type_ids
+        owner_kind_filter = (
+            Blueprint.OwnerKind.CORPORATION
+            if is_corporation_scope
+            else Blueprint.OwnerKind.CHARACTER
         )
+        base_blueprints_qs = Blueprint.objects.filter(
+            owner_user=request.user,
+            owner_kind=owner_kind_filter,
+        )
+
+        if is_corporation_scope:
+            owner_pairs = (
+                base_blueprints_qs.exclude(corporation_id__isnull=True)
+                .values_list("corporation_id", "corporation_name")
+                .distinct()
+            )
+            owner_options = []
+            for corp_id, corp_name in owner_pairs:
+                if not corp_id:
+                    continue
+                display_name = (
+                    corp_name or get_corporation_name(corp_id) or str(corp_id)
+                )
+                owner_options.append((corp_id, display_name))
+        else:
+            owner_ids = (
+                base_blueprints_qs.exclude(character_id__isnull=True)
+                .values_list("character_id", flat=True)
+                .distinct()
+            )
+            owner_options = []
+            for cid in owner_ids:
+                if not cid:
+                    continue
+                display_name = get_character_name(cid) or str(cid)
+                owner_options.append((cid, display_name))
+
+        blueprints_qs = base_blueprints_qs.filter(type_id__in=allowed_type_ids)
         if search:
             blueprints_qs = blueprints_qs.filter(
                 Q(type_name__icontains=search) | Q(type_id__icontains=search)
@@ -209,8 +421,17 @@ def personnal_bp_list(request):
             )
         elif type_filter == "copy":
             blueprints_qs = blueprints_qs.filter(bp_type=Blueprint.BPType.COPY)
-        if character_filter:
-            blueprints_qs = blueprints_qs.filter(character_id=character_filter)
+        if owner_filter:
+            try:
+                owner_id = int(owner_filter)
+                if is_corporation_scope:
+                    blueprints_qs = blueprints_qs.filter(corporation_id=owner_id)
+                else:
+                    blueprints_qs = blueprints_qs.filter(character_id=owner_id)
+            except (TypeError, ValueError):
+                logger.warning(
+                    "[BLUEPRINTS FILTER] Invalid owner filter: %s", owner_filter
+                )
         blueprints_qs = blueprints_qs.order_by("type_name")
         # Group identical items by type, ME, TE; compute normalized quantities & runs
         bp_items = []
@@ -289,17 +510,25 @@ def personnal_bp_list(request):
             path = get_location_path(bp.location_id)
             bp.location_path = path if path else bp.location_flag
 
+        owner_map = {owner_id: name for owner_id, name in owner_options}
+        owner_field = "corporation_id" if is_corporation_scope else "character_id"
+        owner_icon = (
+            "fas fa-building" if is_corporation_scope else "fas fa-user-astronaut"
+        )
+
+        for bp in bp_items:
+            owner_id_value = getattr(bp, owner_field)
+            owner_display = owner_map.get(owner_id_value, owner_id_value)
+            setattr(bp, "owner_display", owner_display)
+            setattr(bp, "owner_id", owner_id_value)
+            if is_corporation_scope:
+                bp.character_name = owner_display
+
         paginator = Paginator(bp_items, per_page)
         blueprints_page = paginator.get_page(page)
         total_blueprints = total_quantity
         originals_count = total_original_quantity
         copies_count = total_copy_quantity
-        character_ids = (
-            Blueprint.objects.filter(owner_user=request.user)
-            .values_list("character_id", flat=True)
-            .distinct()
-        )
-        character_map = {cid: get_character_name(cid) for cid in character_ids}
         # Removed update status tracking since unified settings don't track this
 
         # Apply consistent activity labels
@@ -330,14 +559,13 @@ def personnal_bp_list(request):
                 "perfect_te_count": blueprints_qs.filter(
                     time_efficiency__gte=20
                 ).count(),
-                "character_count": len(character_ids),
-                "character_ids": character_ids,
+                "owner_count": len(owner_options),
             },
             "current_filters": {
                 "search": search,
                 "efficiency": efficiency_filter,
                 "type": type_filter,
-                "character": character_filter,
+                "owner": owner_filter,
                 "activity_id": activity_id,
                 "sort": request.GET.get("sort", "type_name"),
                 "order": sort_order,
@@ -345,10 +573,53 @@ def personnal_bp_list(request):
             },
             "per_page_options": [10, 25, 50, 100, 200],
             "activity_options": activity_options,
-            # List of character IDs for filter dropdown
-            "character_ids": character_ids,
-            "character_map": character_map,
+            "owner_options": owner_options,
+            "owner_icon": owner_icon,
+            "scope": scope,
+            "is_corporation_scope": is_corporation_scope,
+            "owner_label": _("Corporation") if is_corporation_scope else _("Character"),
+            "scope_title": (
+                _("Corporation Blueprints")
+                if is_corporation_scope
+                else _("My Blueprints")
+            ),
+            "scope_description": (
+                _("Review blueprints imported from corporation hangars.")
+                if is_corporation_scope
+                else _("Manage your blueprint library and research progress")
+            ),
+            "scope_urls": {
+                "character": reverse("indy_hub:personnal_bp_list"),
+                "corporation": reverse("indy_hub:corporation_bp_list"),
+            },
+            "can_manage_corporate_assets": has_corporate_perm,
         }
+        personal_nav_url = reverse("indy_hub:index")
+        corporation_nav_url = (
+            reverse("indy_hub:corporation_dashboard") if has_corporate_perm else None
+        )
+        context.update(
+            {
+                "personal_nav_url": personal_nav_url,
+                "personal_nav_class": (
+                    "" if is_corporation_scope else "active fw-semibold"
+                ),
+                "corporation_nav_url": corporation_nav_url,
+                "corporation_nav_class": (
+                    "active fw-semibold"
+                    if is_corporation_scope and corporation_nav_url
+                    else ""
+                ),
+                "current_dashboard": (
+                    "corporation" if is_corporation_scope else "personal"
+                ),
+                "back_to_dashboard_url": (
+                    corporation_nav_url
+                    if is_corporation_scope and corporation_nav_url
+                    else personal_nav_url
+                ),
+            }
+        )
         return render(request, "indy_hub/Personnal_BP_list.html", context)
     except Exception as e:
         logger.error(f"Error displaying blueprints: {e}")
@@ -415,13 +686,8 @@ def all_bp_list(request):
     # Reactions group
     if any(r in raw_ids for r in [9, 11]):
         activity_options.append(("reactions", activity_labels[9]))
-    blueprints = [
-        {
-            "type_id": row[0],
-            "type_name": row[1],
-        }
-        for row in []
-    ]
+    blueprints = []
+    market_group_options: list[tuple[int, str]] = []
     try:
         with connection.cursor() as cursor:
             cursor.execute(sql, params)
@@ -434,6 +700,7 @@ def all_bp_list(request):
             ]
         paginator = Paginator(blueprints, per_page)
         blueprints_page = paginator.get_page(page)
+
         # Fetch market group options based on all matching blueprints, not just current page
         with connection.cursor() as cursor:
             type_ids = [bp["type_id"] for bp in blueprints]
@@ -454,6 +721,9 @@ def all_bp_list(request):
     except Exception as e:
         logger.error(f"Error fetching blueprints: {e}")
         messages.error(request, f"Error fetching blueprints: {e}")
+        blueprints_page = paginator.get_page(page)
+        market_group_options = []
+
     return render(
         request,
         "indy_hub/All_BP_list.html",
@@ -465,7 +735,6 @@ def all_bp_list(request):
                 "market_group_id": market_group_id,
             },
             "activity_options": activity_options,
-            # Pass market group ID/name pairs for dropdown
             "market_group_options": market_group_options,
             "per_page_options": [10, 25, 50, 100, 200],
         },
@@ -474,41 +743,68 @@ def all_bp_list(request):
 
 @indy_hub_access_required
 @login_required
-def personnal_job_list(request):
+def personnal_job_list(request, scope="character"):
+    owner_options: list[tuple[int, str]] = []
+    scope_param = request.GET.get("scope")
+    scope = (scope_param or scope or "character").lower()
+    if scope not in {"character", "corporation"}:
+        scope = "character"
+
+    is_corporation_scope = scope == "corporation"
+    has_corporate_perm = request.user.has_perm("indy_hub.can_manage_corporate_assets")
     try:
         force_update = request.GET.get("refresh") == "1"
         if force_update:
             logger.info(
                 f"User {request.user.username} requested jobs refresh; enqueuing Celery task"
             )
-            scheduled, remaining = request_manual_refresh(
-                MANUAL_REFRESH_KIND_JOBS,
-                request.user.id,
-                priority=5,
-            )
-            if scheduled:
-                messages.success(
-                    request,
-                    _(
-                        "Industry jobs refresh scheduled. Updated data will appear shortly."
-                    ),
+            if is_corporation_scope and not has_corporate_perm:
+                logger.info(
+                    "Ignoring manual corporate jobs refresh for %s due to missing permission",
+                    request.user.username,
                 )
             else:
-                wait_minutes = max(1, ceil(remaining.total_seconds() / 60))
-                messages.warning(
-                    request,
-                    _(
-                        "Industry data was refreshed recently. Please try again in %(minutes)s minute(s)."
-                    )
-                    % {"minutes": wait_minutes},
+                scheduled, remaining = request_manual_refresh(
+                    MANUAL_REFRESH_KIND_JOBS,
+                    request.user.id,
+                    priority=5,
+                    scope=scope,
                 )
+                if scheduled:
+                    messages.success(
+                        request,
+                        _(
+                            "Industry jobs refresh scheduled. Updated data will appear shortly."
+                        ),
+                    )
+                else:
+                    wait_minutes = max(1, ceil(remaining.total_seconds() / 60))
+                    messages.warning(
+                        request,
+                        _(
+                            "Industry data was refreshed recently. Please try again in %(minutes)s minute(s)."
+                        )
+                        % {"minutes": wait_minutes},
+                    )
     except Exception as e:
         logger.error(f"Error handling jobs refresh: {e}")
         messages.error(request, f"Error handling jobs refresh: {e}")
+
+    if is_corporation_scope and not has_corporate_perm:
+        messages.error(
+            request,
+            _("You do not have permission to view corporation industry jobs."),
+        )
+        return redirect(reverse("indy_hub:personnal_job_list"))
+
+    owner_filter = request.GET.get("owner")
+    if owner_filter is None:
+        owner_filter = request.GET.get("character", "")
+    owner_filter = owner_filter.strip() if isinstance(owner_filter, str) else ""
+
     search = request.GET.get("search", "")
     status_filter = request.GET.get("status", "")
     activity_filter = request.GET.get("activity", "")
-    character_filter = request.GET.get("character", "")
     sort_by = request.GET.get("sort", "start_date")
     sort_order = request.GET.get("order", "desc")
     page = int(request.GET.get("page", 1))
@@ -518,35 +814,76 @@ def personnal_job_list(request):
         if per_page < 1:
             per_page = 1
     else:
-        per_page = IndustryJob.objects.filter(owner_user=request.user).count()
+        owner_kind_filter = (
+            Blueprint.OwnerKind.CORPORATION
+            if is_corporation_scope
+            else Blueprint.OwnerKind.CHARACTER
+        )
+        per_page = IndustryJob.objects.filter(
+            owner_user=request.user,
+            owner_kind=owner_kind_filter,
+        ).count()
         if per_page < 1:
             per_page = 1
-    jobs_qs = IndustryJob.objects.filter(owner_user=request.user)
-    # Base queryset for this user
-    base_jobs_qs = IndustryJob.objects.filter(owner_user=request.user)
+    owner_kind_filter = (
+        Blueprint.OwnerKind.CORPORATION
+        if is_corporation_scope
+        else Blueprint.OwnerKind.CHARACTER
+    )
+    base_jobs_qs = IndustryJob.objects.filter(
+        owner_user=request.user,
+        owner_kind=owner_kind_filter,
+    )
+    if is_corporation_scope:
+        owner_pairs = (
+            base_jobs_qs.exclude(corporation_id__isnull=True)
+            .values_list("corporation_id", "corporation_name")
+            .distinct()
+        )
+        owner_options = []
+        for corp_id, corp_name in owner_pairs:
+            if not corp_id:
+                continue
+            display_name = corp_name or get_corporation_name(corp_id) or str(corp_id)
+            owner_options.append((corp_id, display_name))
+    else:
+        owner_ids = (
+            base_jobs_qs.exclude(character_id__isnull=True)
+            .values_list("character_id", flat=True)
+            .distinct()
+        )
+        owner_options = []
+        for cid in owner_ids:
+            if not cid:
+                continue
+            display_name = get_character_name(cid) or str(cid)
+            owner_options.append((cid, display_name))
+
     jobs_qs = base_jobs_qs
     now = timezone.now()
-    all_character_ids = list(jobs_qs.values_list("character_id", flat=True).distinct())
-    character_map = (
-        {cid: get_character_name(cid) for cid in all_character_ids}
-        if all_character_ids
-        else {}
-    )
+    owner_map = {owner_id: name for owner_id, name in owner_options}
+    owner_field = "corporation_id" if is_corporation_scope else "character_id"
+    owner_icon = "fas fa-building" if is_corporation_scope else "fas fa-user-astronaut"
+    owner_count = len(owner_options)
     try:
         if search:
             job_id_q = Q(job_id__icontains=search) if search.isdigit() else Q()
-            char_name_ids = [
-                cid
-                for cid, name in character_map.items()
+            owner_name_matches = [
+                owner_id
+                for owner_id, name in owner_map.items()
                 if name and search.lower() in name.lower()
             ]
-            char_name_q = Q(character_id__in=char_name_ids) if char_name_ids else Q()
+            owner_name_q = (
+                Q(**{f"{owner_field}__in": owner_name_matches})
+                if owner_name_matches
+                else Q()
+            )
             jobs_qs = jobs_qs.filter(
                 Q(blueprint_type_name__icontains=search)
                 | Q(product_type_name__icontains=search)
                 | Q(activity_name__icontains=search)
                 | job_id_q
-                | char_name_q
+                | owner_name_q
             )
         if status_filter:
             status_filter = status_filter.strip().lower()
@@ -568,15 +905,14 @@ def personnal_job_list(request):
                     "[JOBS FILTER] Invalid activity filter value: '%s'",
                     activity_filter,
                 )
-        if character_filter:
+        if owner_filter:
             try:
-                character_filter_int = int(character_filter.strip())
-                jobs_qs = jobs_qs.filter(character_id=character_filter_int)
+                owner_filter_int = int(owner_filter.strip())
+                jobs_qs = jobs_qs.filter(**{owner_field: owner_filter_int})
             except (ValueError, TypeError):
                 logger.warning(
-                    f"[JOBS FILTER] Invalid character_filter value: '{character_filter}'"
+                    "[JOBS FILTER] Invalid owner filter value: '%s'", owner_filter
                 )
-                pass
         if sort_order == "desc":
             sort_by = f"-{sort_by}"
         jobs_qs = jobs_qs.order_by(sort_by)
@@ -598,6 +934,13 @@ def personnal_job_list(request):
             3: "TE Research",
             4: "ME Research",
             5: "Copying",
+            "waiting_on_you": {
+                "label": _("Confirm agreement"),
+                "badge": "bg-warning text-dark",
+                "hint": _(
+                    "The buyer already accepted your terms. Confirm in chat to lock in the agreement."
+                ),
+            },
             8: "Invention",
             9: "Reactions",
         }
@@ -612,7 +955,9 @@ def personnal_job_list(request):
         blueprint_map = {
             bp.item_id: bp
             for bp in Blueprint.objects.filter(
-                owner_user=request.user, item_id__in=blueprint_ids
+                owner_user=request.user,
+                owner_kind=owner_kind_filter,
+                item_id__in=blueprint_ids,
             )
         }
 
@@ -702,11 +1047,10 @@ def personnal_job_list(request):
             activity_key = activity_key_by_id.get(job.activity_id, "other")
             activity_meta = activity_meta_by_key[activity_key]
             setattr(job, "activity_meta", activity_meta)
-            setattr(
-                job,
-                "display_character_name",
-                character_map.get(job.character_id, job.character_id),
-            )
+            owner_value = getattr(job, owner_field)
+            owner_display = owner_map.get(owner_value, owner_value)
+            setattr(job, "display_owner_name", owner_display)
+            setattr(job, "display_character_name", owner_display)
             status_label = _("Completed") if job.is_completed else job.status.title()
             setattr(job, "status_label", status_label)
             setattr(job, "probability_percent", None)
@@ -793,24 +1137,67 @@ def personnal_job_list(request):
         context = {
             "jobs": jobs_page,
             "statistics": statistics,
-            "character_ids": all_character_ids,
+            "owner_count": owner_count,
             "statuses": statuses,
             "activities": activities,
             "current_filters": {
                 "search": search,
                 "status": status_filter,
                 "activity": activity_filter,
-                "character": character_filter,
+                "owner": owner_filter,
                 "sort": request.GET.get("sort", "start_date"),
                 "order": sort_order,
                 "per_page": per_page,
             },
             "per_page_options": [10, 25, 50, 100, 200],
-            "character_map": character_map,
             "jobs_page": jobs_page,
             "job_groups": job_groups,
             "has_job_results": bool(job_groups),
+            "owner_options": owner_options,
+            "owner_icon": owner_icon,
+            "scope": scope,
+            "is_corporation_scope": is_corporation_scope,
+            "owner_label": _("Corporation") if is_corporation_scope else _("Character"),
+            "scope_title": (
+                _("Corporation Jobs") if is_corporation_scope else _("Industry Jobs")
+            ),
+            "scope_description": (
+                _("Monitor industry jobs running on behalf of your corporations.")
+                if is_corporation_scope
+                else _("Track your industry jobs and progress in real time")
+            ),
+            "scope_urls": {
+                "character": reverse("indy_hub:personnal_job_list"),
+                "corporation": reverse("indy_hub:corporation_job_list"),
+            },
+            "can_manage_corporate_assets": has_corporate_perm,
         }
+        personal_nav_url = reverse("indy_hub:index")
+        corporation_nav_url = (
+            reverse("indy_hub:corporation_dashboard") if has_corporate_perm else None
+        )
+        context.update(
+            {
+                "personal_nav_url": personal_nav_url,
+                "personal_nav_class": (
+                    "" if is_corporation_scope else "active fw-semibold"
+                ),
+                "corporation_nav_url": corporation_nav_url,
+                "corporation_nav_class": (
+                    "active fw-semibold"
+                    if is_corporation_scope and corporation_nav_url
+                    else ""
+                ),
+                "current_dashboard": (
+                    "corporation" if is_corporation_scope else "personal"
+                ),
+                "back_to_dashboard_url": (
+                    corporation_nav_url
+                    if is_corporation_scope and corporation_nav_url
+                    else personal_nav_url
+                ),
+            }
+        )
         # progress_percent and display_eta now available via model properties in template
         return render(request, "indy_hub/Personnal_Job_list.html", context)
     except Exception as e:
@@ -1475,54 +1862,7 @@ def craft_bp(request, type_id):
 
 
 @indy_hub_access_required
-@login_required
-def fuzzwork_price(request):
-    type_ids = request.GET.get("type_id")
-    region_id = request.GET.get("region_id", "10000002")
-    if not type_ids:
-        return JsonResponse({"error": "type_id required"}, status=400)
-    type_id_list = [str(tid) for tid in type_ids.split(",") if tid.strip().isdigit()]
-    if not type_id_list:
-        return JsonResponse({"error": "No valid type_id"}, status=400)
-    try:
-        url = f'https://market.fuzzwork.co.uk/aggregates/?region={region_id}&types={"%2C".join(type_id_list)}'
-        resp = requests.get(url, timeout=5)
-        if resp.status_code != 200 or "application/json" not in resp.headers.get(
-            "Content-Type", ""
-        ):
-            print(
-                f"Fuzzwork aggregates API raw response for type_ids={type_id_list}: {resp.text}"
-            )
-            return JsonResponse(
-                {
-                    "error": f"Fuzzwork returned status {resp.status_code}",
-                    "raw": resp.text,
-                },
-                status=200,
-            )
-        data = resp.json()
-        result = {}
-        for tid in type_id_list:
-            try:
-                agg = data.get(tid) or data.get(str(tid))
-                price = 0.0
-                if agg and "sell" in agg and agg["sell"] and "min" in agg["sell"]:
-                    price = float(agg["sell"]["min"])
-                elif agg and "buy" in agg and agg["buy"] and "max" in agg["buy"]:
-                    price = float(agg["buy"]["max"])
-                result[tid] = price
-            except Exception:
-                result[tid] = 0.0
-        return JsonResponse(result)
-    except Exception as e:
-        # Standard Library
-        import traceback
-
-        print(traceback.format_exc())
-        return JsonResponse({"error": str(e)}, status=200)
-
-
-@indy_hub_access_required
+@indy_hub_permission_required("can_manage_copy_requests")
 @login_required
 def bp_copy_request_page(request):
     # Alliance Auth
@@ -1592,6 +1932,7 @@ def bp_copy_request_page(request):
     else:
         qs = Blueprint.objects.filter(
             owner_user_id__in=allowed_user_ids,
+            owner_kind=Blueprint.OwnerKind.CHARACTER,
             bp_type=Blueprint.BPType.ORIGINAL,
         ).order_by("type_name", "material_efficiency", "time_efficiency")
     seen = set()
@@ -1633,7 +1974,7 @@ def bp_copy_request_page(request):
         runs = max(1, int(request.POST.get("runs_requested", 1)))
         copies = max(1, int(request.POST.get("copies_requested", 1)))
 
-        BlueprintCopyRequest.objects.create(
+        new_request = BlueprintCopyRequest.objects.create(
             type_id=type_id,
             material_efficiency=me,
             time_efficiency=te,
@@ -1647,14 +1988,7 @@ def bp_copy_request_page(request):
         # Django
         from django.contrib.auth.models import User
 
-        owner_ids = (
-            Blueprint.objects.filter(
-                type_id=type_id,
-                bp_type=Blueprint.BPType.ORIGINAL,
-            )
-            .values_list("owner_user", flat=True)
-            .distinct()
-        )
+        eligible_owner_ids = _eligible_owner_ids_for_request(new_request)
         notification_context = {
             "username": request.user.username,
             "type_name": get_type_name(type_id),
@@ -1664,28 +1998,30 @@ def bp_copy_request_page(request):
             "copies": copies,
         }
 
-        notification_title = _("New blueprint copy request")
-        notification_body = (
-            _(
-                "%(username)s requested a copy of %(type_name)s (ME%(me)s, TE%(te)s) — %(runs)s runs, %(copies)s copies requested."
+        if eligible_owner_ids:
+            notification_title = _("New blueprint copy request")
+            notification_body = (
+                _(
+                    "%(username)s requested a copy of %(type_name)s (ME%(me)s, TE%(te)s) — %(runs)s runs, %(copies)s copies requested."
+                )
+                % notification_context
             )
-            % notification_context
-        )
 
-        fulfill_queue_url = request.build_absolute_uri(
-            reverse("indy_hub:bp_copy_fulfill_requests")
-        )
-        fulfill_label = _("Review copy requests")
-
-        for owner in User.objects.filter(id__in=owner_ids):
-            notify_user(
-                owner,
-                notification_title,
-                notification_body,
-                "info",
-                link=fulfill_queue_url,
-                link_label=fulfill_label,
+            fulfill_queue_url = request.build_absolute_uri(
+                reverse("indy_hub:bp_copy_fulfill_requests")
             )
+            fulfill_label = _("Review copy requests")
+
+            provider_users = User.objects.filter(id__in=eligible_owner_ids)
+            for owner in provider_users:
+                notify_user(
+                    owner,
+                    notification_title,
+                    notification_body,
+                    "info",
+                    link=fulfill_queue_url,
+                    link_label=fulfill_label,
+                )
 
         flash_level(request, flash_message)
         return redirect("indy_hub:bp_copy_request_page")
@@ -1708,6 +2044,7 @@ def bp_copy_request_page(request):
 
 
 @indy_hub_access_required
+@indy_hub_permission_required("can_manage_copy_requests")
 @login_required
 def bp_copy_fulfill_requests(request):
     """List requests for blueprints the user owns and allows copy requests for."""
@@ -1724,6 +2061,7 @@ def bp_copy_fulfill_requests(request):
         )
     my_bps_qs = Blueprint.objects.filter(
         owner_user=request.user,
+        owner_kind=Blueprint.OwnerKind.CHARACTER,
         bp_type=Blueprint.BPType.ORIGINAL,
     )
     my_bps = list(my_bps_qs)
@@ -1749,6 +2087,13 @@ def bp_copy_fulfill_requests(request):
             "label": _("Waiting on buyer"),
             "badge": "bg-info text-white",
             "hint": _("You've sent a conditional offer. Awaiting buyer confirmation."),
+        },
+        "waiting_on_you": {
+            "label": _("Confirm agreement"),
+            "badge": "bg-warning text-dark",
+            "hint": _(
+                "The buyer already accepted your terms. Confirm in chat to lock in the agreement."
+            ),
         },
         "ready_to_deliver": {
             "label": _("Ready to deliver"),
@@ -1777,6 +2122,7 @@ def bp_copy_fulfill_requests(request):
         "total": 0,
         "awaiting_response": 0,
         "waiting_on_buyer": 0,
+        "waiting_on_you": 0,
         "ready_to_deliver": 0,
         "offer_rejected": 0,
     }
@@ -1817,6 +2163,7 @@ def bp_copy_fulfill_requests(request):
     blocking_activities = [1, 3, 4, 5, 8, 9]
     active_jobs = IndustryJob.objects.filter(
         owner_user=request.user,
+        owner_kind=Blueprint.OwnerKind.CHARACTER,
         status="active",
         activity_id__in=blocking_activities,
     ).only("blueprint_id", "blueprint_type_id", "end_date")
@@ -1841,7 +2188,7 @@ def bp_copy_fulfill_requests(request):
             | Q(fulfilled=True, delivered=False, offers__owner=request.user)
         )
         .select_related("requested_by")
-        .prefetch_related("offers__owner")
+        .prefetch_related("offers__owner", "offers__chat")
         .order_by("-created_at")
         .distinct()
     )
@@ -1865,6 +2212,7 @@ def bp_copy_fulfill_requests(request):
 
         status_key = "awaiting_response"
         can_mark_delivered = False
+        handshake_state = None
 
         key = (req.type_id, req.material_efficiency, req.time_efficiency)
         matching_blueprints = bp_index.get(key, [])
@@ -1886,11 +2234,18 @@ def bp_copy_fulfill_requests(request):
             can_mark_delivered = True
         elif my_offer:
             if my_offer.status == "conditional":
-                if my_offer.accepted_by_buyer:
+                if my_offer.accepted_by_buyer and my_offer.accepted_by_seller:
                     status_key = "ready_to_deliver"
                     can_mark_delivered = True
+                elif my_offer.accepted_by_buyer and not my_offer.accepted_by_seller:
+                    status_key = "waiting_on_you"
                 else:
                     status_key = "waiting_on_buyer"
+                handshake_state = {
+                    "accepted_by_buyer": my_offer.accepted_by_buyer,
+                    "accepted_by_seller": my_offer.accepted_by_seller,
+                    "state": status_key,
+                }
             elif my_offer.status == "rejected":
                 status_key = "offer_rejected"
             elif my_offer.status == "accepted":
@@ -1903,6 +2258,7 @@ def bp_copy_fulfill_requests(request):
         metrics_key = {
             "awaiting_response": "awaiting_response",
             "waiting_on_buyer": "waiting_on_buyer",
+            "waiting_on_you": "waiting_on_you",
             "ready_to_deliver": "ready_to_deliver",
             "offer_rejected": "offer_rejected",
         }.get(status_key)
@@ -1910,6 +2266,34 @@ def bp_copy_fulfill_requests(request):
             metrics[metrics_key] += 1
 
         status_info = status_meta[status_key]
+
+        offer_chat_payload = None
+        if my_offer and my_offer.status == "conditional":
+            try:
+                chat = my_offer.chat
+            except BlueprintCopyChat.DoesNotExist:
+                chat = _ensure_offer_chat(my_offer)
+            else:
+                if not chat.is_open:
+                    chat.reopen()
+            if chat and chat.is_open:
+                offer_chat_payload = {
+                    "id": chat.id,
+                    "fetch_url": reverse("indy_hub:bp_chat_history", args=[chat.id]),
+                    "send_url": reverse("indy_hub:bp_chat_send", args=[chat.id]),
+                    "has_unread": _chat_has_unread(chat, "seller"),
+                    "last_message_at": chat.last_message_at,
+                    "last_message_display": (
+                        timezone.localtime(chat.last_message_at).strftime(
+                            "%Y-%m-%d %H:%M"
+                        )
+                        if chat.last_message_at
+                        else ""
+                    ),
+                    "preview": _chat_preview_messages(chat),
+                }
+        if is_self_request:
+            offer_chat_payload = None
 
         requests_to_fulfill.append(
             {
@@ -1936,8 +2320,13 @@ def bp_copy_fulfill_requests(request):
                 "my_offer_accepted_by_buyer": getattr(
                     my_offer, "accepted_by_buyer", False
                 ),
-                "show_offer_actions": status_key
-                in {"awaiting_response", "offer_rejected"},
+                "my_offer_accepted_by_seller": getattr(
+                    my_offer, "accepted_by_seller", False
+                ),
+                "show_offer_actions": (
+                    status_key in {"awaiting_response", "offer_rejected"}
+                    and not is_self_request
+                ),
                 "conditional_collapse_id": f"cond-{req.id}",
                 "can_mark_delivered": can_mark_delivered
                 and req.requested_by_id != request.user.id,
@@ -1947,6 +2336,11 @@ def bp_copy_fulfill_requests(request):
                 "all_copies_busy": all_copies_busy,
                 "busy_until": busy_until,
                 "busy_overdue": busy_overdue,
+                "chat": offer_chat_payload,
+                "chat_preview": (
+                    offer_chat_payload.get("preview", []) if offer_chat_payload else []
+                ),
+                "handshake": handshake_state,
             }
         )
 
@@ -1958,6 +2352,7 @@ def bp_copy_fulfill_requests(request):
 
 
 @indy_hub_access_required
+@indy_hub_permission_required("can_manage_copy_requests")
 @login_required
 def bp_offer_copy_request(request, request_id):
     """Handle offering to fulfill a blueprint copy request."""
@@ -1974,8 +2369,19 @@ def bp_offer_copy_request(request, request_id):
     if action == "accept":
         offer.status = "accepted"
         offer.message = ""
-        offer.accepted_by_buyer = False
-        offer.save()
+        offer.accepted_by_buyer = True
+        offer.accepted_by_seller = True
+        offer.accepted_at = timezone.now()
+        offer.save(
+            update_fields=[
+                "status",
+                "message",
+                "accepted_by_buyer",
+                "accepted_by_seller",
+                "accepted_at",
+            ]
+        )
+        _close_offer_chat_if_exists(offer, BlueprintCopyChat.CloseReason.OFFER_ACCEPTED)
         # Notify requester: accepted (free)
         notify_user(
             req.requested_by,
@@ -1997,12 +2403,40 @@ def bp_offer_copy_request(request, request_id):
         offer.status = "conditional"
         offer.message = message
         offer.accepted_by_buyer = False
-        offer.save()
+        offer.accepted_by_seller = False
+        offer.accepted_at = None
+        offer.save(
+            update_fields=[
+                "status",
+                "message",
+                "accepted_by_buyer",
+                "accepted_by_seller",
+                "accepted_at",
+            ]
+        )
+        chat = _ensure_offer_chat(offer)
+        if message:
+            chat_message = BlueprintCopyMessage(
+                chat=chat,
+                sender=request.user,
+                sender_role=BlueprintCopyMessage.SenderRole.SELLER,
+                content=message,
+            )
+            chat_message.full_clean()
+            chat_message.save()
+            chat.register_message(sender_role=BlueprintCopyMessage.SenderRole.SELLER)
         # Notify requester: conditional offer
         notify_user(
             req.requested_by,
             "Blueprint Copy Request - Conditional Offer",
-            f"{request.user.username} proposes: {message}",
+            _(
+                "You received a new conditional offer message for %(type)s (ME%(me)s, TE%(te)s)."
+            )
+            % {
+                "type": get_type_name(req.type_id),
+                "me": req.material_efficiency,
+                "te": req.time_efficiency,
+            },
             "info",
             link=my_requests_url,
             link_label=_("Review your requests"),
@@ -2012,7 +2446,18 @@ def bp_offer_copy_request(request, request_id):
         offer.status = "rejected"
         offer.message = message
         offer.accepted_by_buyer = False
-        offer.save()
+        offer.accepted_by_seller = False
+        offer.accepted_at = None
+        offer.save(
+            update_fields=[
+                "status",
+                "message",
+                "accepted_by_buyer",
+                "accepted_by_seller",
+                "accepted_at",
+            ]
+        )
+        _close_offer_chat_if_exists(offer, BlueprintCopyChat.CloseReason.OFFER_REJECTED)
         if _finalize_request_if_all_rejected(req):
             messages.success(
                 request,
@@ -2024,38 +2469,57 @@ def bp_offer_copy_request(request, request_id):
 
 
 @indy_hub_access_required
+@indy_hub_permission_required("can_manage_copy_requests")
 @login_required
 def bp_buyer_accept_offer(request, offer_id):
     """Allow buyer to accept a conditional offer."""
-    offer = get_object_or_404(
-        BlueprintCopyOffer, id=offer_id, status="conditional", accepted_by_buyer=False
-    )
-    offer.accepted_by_buyer = True
-    offer.accepted_at = timezone.now()
-    offer.save()
-    # Mark request as fulfilled, remove other offers
-    req = offer.request
-    req.fulfilled = True
-    req.fulfilled_at = timezone.now()
-    req.save()
-    BlueprintCopyOffer.objects.filter(request=req).exclude(id=offer.id).delete()
-    # Notify seller
+    offer = get_object_or_404(BlueprintCopyOffer, id=offer_id, status="conditional")
+
+    if (
+        offer.accepted_by_buyer
+        and offer.accepted_by_seller
+        and offer.status == "accepted"
+    ):
+        messages.info(request, _("This offer has already been confirmed."))
+        return redirect("indy_hub:bp_copy_request_page")
+
+    if offer.accepted_by_buyer:
+        messages.info(request, _("You have already accepted these terms."))
+        return redirect("indy_hub:bp_copy_request_page")
+
+    finalized = _mark_offer_buyer_accept(offer)
+    if finalized:
+        messages.success(request, _("Offer accepted. Seller notified."))
+        return redirect("indy_hub:bp_copy_request_page")
+
     fulfill_queue_url = request.build_absolute_uri(
         reverse("indy_hub:bp_copy_fulfill_requests")
     )
     notify_user(
         offer.owner,
-        "Blueprint Copy Request - Buyer Accepted",
-        f"{req.requested_by.username} accepted your offer for {get_type_name(req.type_id)} (ME{req.material_efficiency}, TE{req.time_efficiency}).",
-        "success",
+        _("Conditional offer accepted"),
+        _(
+            "%(buyer)s accepted your terms for %(type)s (ME%(me)s, TE%(te)s). Confirm in chat to finalise the agreement."
+        )
+        % {
+            "buyer": offer.request.requested_by.username,
+            "type": get_type_name(offer.request.type_id),
+            "me": offer.request.material_efficiency,
+            "te": offer.request.time_efficiency,
+        },
+        "info",
         link=fulfill_queue_url,
         link_label=_("Open fulfill queue"),
     )
-    messages.success(request, "Offer accepted. Seller notified.")
+    messages.info(
+        request,
+        _("You accepted the terms. Waiting for the builder to confirm."),
+    )
     return redirect("indy_hub:bp_copy_request_page")
 
 
 @indy_hub_access_required
+@indy_hub_permission_required("can_manage_copy_requests")
 @login_required
 def bp_accept_copy_request(request, request_id):
     """Accept a blueprint copy request and notify requester."""
@@ -2063,6 +2527,7 @@ def bp_accept_copy_request(request, request_id):
     req.fulfilled = True
     req.fulfilled_at = timezone.now()
     req.save()
+    _close_request_chats(req, BlueprintCopyChat.CloseReason.OFFER_ACCEPTED)
     # Notify requester
     my_requests_url = request.build_absolute_uri(
         reverse("indy_hub:bp_copy_my_requests")
@@ -2080,6 +2545,7 @@ def bp_accept_copy_request(request, request_id):
 
 
 @indy_hub_access_required
+@indy_hub_permission_required("can_manage_copy_requests")
 @login_required
 def bp_cond_copy_request(request, request_id):
     """Send conditional acceptance message for a blueprint copy request."""
@@ -2104,6 +2570,7 @@ def bp_cond_copy_request(request, request_id):
 
 
 @indy_hub_access_required
+@indy_hub_permission_required("can_manage_copy_requests")
 @login_required
 def bp_reject_copy_request(request, request_id):
     """Reject a blueprint copy request and notify requester."""
@@ -2119,12 +2586,14 @@ def bp_reject_copy_request(request, request_id):
         link=my_requests_url,
         link_label=_("Review your requests"),
     )
+    _close_request_chats(req, BlueprintCopyChat.CloseReason.OFFER_REJECTED)
     req.delete()
     messages.success(request, "Copy request rejected.")
     return redirect("indy_hub:bp_copy_fulfill_requests")
 
 
 @indy_hub_access_required
+@indy_hub_permission_required("can_manage_copy_requests")
 @login_required
 def bp_cancel_copy_request(request, request_id):
     """Allow user to cancel their own unfulfilled copy request."""
@@ -2135,6 +2604,7 @@ def bp_cancel_copy_request(request, request_id):
     fulfill_queue_url = request.build_absolute_uri(
         reverse("indy_hub:bp_copy_fulfill_requests")
     )
+    _close_request_chats(req, BlueprintCopyChat.CloseReason.REQUEST_WITHDRAWN)
     for offer in offers:
         notify_user(
             offer.owner,
@@ -2158,6 +2628,7 @@ def bp_cancel_copy_request(request, request_id):
 
 
 @indy_hub_access_required
+@indy_hub_permission_required("can_manage_copy_requests")
 @login_required
 def bp_mark_copy_delivered(request, request_id):
     """Mark a fulfilled blueprint copy request as delivered (provider action)."""
@@ -2183,6 +2654,7 @@ def bp_mark_copy_delivered(request, request_id):
 
 
 @indy_hub_access_required
+@indy_hub_permission_required("can_manage_copy_requests")
 @login_required
 def bp_update_copy_request(request, request_id):
     """Allow requester to update runs / copies for an open request."""
@@ -2214,6 +2686,7 @@ def bp_update_copy_request(request, request_id):
     owner_ids = (
         Blueprint.objects.filter(
             type_id=req.type_id,
+            owner_kind=Blueprint.OwnerKind.CHARACTER,
             bp_type=Blueprint.BPType.ORIGINAL,
         )
         .values_list("owner_user", flat=True)
@@ -2256,13 +2729,14 @@ def bp_update_copy_request(request, request_id):
 
 
 @indy_hub_access_required
+@indy_hub_permission_required("can_manage_copy_requests")
 @login_required
 def bp_copy_my_requests(request):
     """List copy requests made by the current user."""
     qs = (
         BlueprintCopyRequest.objects.filter(requested_by=request.user)
         .select_related("requested_by")
-        .prefetch_related("offers__owner")
+        .prefetch_related("offers__owner", "offers__chat")
         .order_by("-created_at")
     )
 
@@ -2286,6 +2760,18 @@ def bp_copy_my_requests(request):
                 "A builder accepted. Coordinate delivery and watch for the completion notice."
             ),
         },
+        "waiting_on_builder": {
+            "label": _("Waiting on builder"),
+            "badge": "bg-warning text-dark",
+            "hint": _("You've confirmed the terms. Waiting for the builder to accept."),
+        },
+        "waiting_on_you": {
+            "label": _("Confirm agreement"),
+            "badge": "bg-warning text-dark",
+            "hint": _(
+                "The buyer accepted your terms. Confirm in chat to finalise the agreement."
+            ),
+        },
         "delivered": {
             "label": _("Delivered"),
             "badge": "bg-secondary text-white",
@@ -2307,27 +2793,71 @@ def bp_copy_my_requests(request):
         accepted_offer_obj = next(
             (offer for offer in offers if offer.status == "accepted"), None
         )
-        cond_accepted_obj = next(
-            (
-                offer
-                for offer in offers
-                if offer.status == "conditional" and offer.accepted_by_buyer
-            ),
-            None,
-        )
-        cond_offers = [
-            offer
-            for offer in offers
-            if offer.status == "conditional" and not offer.accepted_by_buyer
+
+        conditional_offers = [
+            offer for offer in offers if offer.status == "conditional"
         ]
+        cond_offer_data = []
+        cond_accepted = None
+        cond_waiting_builder = None
+
+        for idx, offer in enumerate(conditional_offers, start=1):
+            label = _("Builder #%d") % idx
+            chat_payload = None
+            try:
+                chat = offer.chat
+            except BlueprintCopyChat.DoesNotExist:
+                chat = _ensure_offer_chat(offer)
+            else:
+                if not chat.is_open:
+                    chat.reopen()
+            if chat and chat.is_open:
+                chat_payload = {
+                    "id": chat.id,
+                    "fetch_url": reverse("indy_hub:bp_chat_history", args=[chat.id]),
+                    "send_url": reverse("indy_hub:bp_chat_send", args=[chat.id]),
+                    "has_unread": _chat_has_unread(chat, "buyer"),
+                    "last_message_at": chat.last_message_at,
+                    "last_message_display": (
+                        timezone.localtime(chat.last_message_at).strftime(
+                            "%Y-%m-%d %H:%M"
+                        )
+                        if chat.last_message_at
+                        else ""
+                    ),
+                    "preview": _chat_preview_messages(chat),
+                }
+
+            if offer.accepted_by_buyer and offer.accepted_by_seller:
+                cond_accepted = {
+                    "builder_label": label,
+                    "chat": chat_payload,
+                }
+                continue
+            if offer.accepted_by_buyer and not offer.accepted_by_seller:
+                cond_waiting_builder = {
+                    "builder_label": label,
+                    "chat": chat_payload,
+                }
+                continue
+
+            cond_offer_data.append(
+                {
+                    "id": offer.id,
+                    "builder_label": label,
+                    "chat": chat_payload,
+                }
+            )
 
         status_key = "open"
         if req.delivered:
             status_key = "delivered"
         elif req.fulfilled:
             status_key = "awaiting_delivery"
-        elif cond_offers:
+        elif cond_offer_data:
             status_key = "action_required"
+        elif cond_waiting_builder:
+            status_key = "waiting_on_builder"
 
         metrics["total"] += 1
         metrics_key = {
@@ -2341,6 +2871,33 @@ def bp_copy_my_requests(request):
 
         status_info = status_meta[status_key]
 
+        chat_actions = []
+        if cond_waiting_builder and cond_waiting_builder.get("chat"):
+            chat_actions.append(
+                {
+                    "builder_label": cond_waiting_builder["builder_label"],
+                    "chat": cond_waiting_builder["chat"],
+                }
+            )
+
+        if cond_accepted and cond_accepted.get("chat"):
+            chat_actions.append(
+                {
+                    "builder_label": cond_accepted["builder_label"],
+                    "chat": cond_accepted["chat"],
+                }
+            )
+
+        for entry in cond_offer_data:
+            chat_payload = entry.get("chat")
+            if chat_payload:
+                chat_actions.append(
+                    {
+                        "builder_label": entry["builder_label"],
+                        "chat": chat_payload,
+                    }
+                )
+
         accepted_offer = (
             {
                 "owner_username": accepted_offer_obj.owner.username,
@@ -2349,22 +2906,6 @@ def bp_copy_my_requests(request):
             if accepted_offer_obj
             else None
         )
-        cond_accepted = (
-            {
-                "owner_username": cond_accepted_obj.owner.username,
-                "message": cond_accepted_obj.message,
-            }
-            if cond_accepted_obj
-            else None
-        )
-        cond_offer_data = [
-            {
-                "id": offer.id,
-                "owner_username": offer.owner.username,
-                "message": offer.message,
-            }
-            for offer in cond_offers
-        ]
 
         my_requests.append(
             {
@@ -2378,7 +2919,9 @@ def bp_copy_my_requests(request):
                 "runs_requested": req.runs_requested,
                 "accepted_offer": accepted_offer,
                 "cond_accepted": cond_accepted,
+                "cond_waiting_builder": cond_waiting_builder,
                 "cond_offers": cond_offer_data,
+                "chat_actions": chat_actions,
                 "delivered": req.delivered,
                 "status_key": status_key,
                 "status_label": status_info["label"],
@@ -2394,6 +2937,346 @@ def bp_copy_my_requests(request):
         "indy_hub/bp_copy_my_requests.html",
         {"my_requests": my_requests, "metrics": metrics},
     )
+
+
+@indy_hub_access_required
+@login_required
+@require_http_methods(["GET"])
+def bp_chat_history(request, chat_id: int):
+    chat = get_object_or_404(
+        BlueprintCopyChat.objects.select_related("request", "offer", "buyer", "seller"),
+        id=chat_id,
+    )
+
+    logger.debug("bp_chat_history chat=%s user=%s", chat.id, request.user.id)
+
+    viewer_role = chat.role_for(request.user)
+    if viewer_role not in {"buyer", "seller"}:
+        return JsonResponse({"error": _("Unauthorized")}, status=403)
+
+    role_labels = {
+        "buyer": _("Buyer"),
+        "seller": _("Builder"),
+        "system": _("System"),
+    }
+    messages_payload = []
+    for msg in chat.messages.all():
+        created_local = timezone.localtime(msg.created_at)
+        messages_payload.append(
+            {
+                "id": msg.id,
+                "role": msg.sender_role,
+                "content": msg.content,
+                "created_at": created_local.isoformat(),
+                "created_display": created_local.strftime("%Y-%m-%d %H:%M"),
+            }
+        )
+
+    other_role = "seller" if viewer_role == "buyer" else "buyer"
+
+    decision_payload = None
+    offer = getattr(chat, "offer", None)
+    if offer and chat.is_open and offer.status == "conditional":
+        accepted_by_buyer = offer.accepted_by_buyer
+        accepted_by_seller = offer.accepted_by_seller
+
+        if viewer_role == "buyer":
+            viewer_can_accept = not accepted_by_buyer
+            viewer_can_reject = not accepted_by_buyer
+            accept_label = _("Accept terms")
+            reject_label = _("Decline offer")
+            if accepted_by_buyer and not accepted_by_seller:
+                status_label = _("Waiting for the builder to confirm.")
+                status_tone = "warning"
+                state = "waiting_on_seller"
+            elif not accepted_by_buyer and accepted_by_seller:
+                status_label = _(
+                    "The builder confirmed. Accept to finalise the agreement."
+                )
+                status_tone = "info"
+                state = "waiting_on_you"
+            else:
+                status_label = _("Review the terms and confirm when ready.")
+                status_tone = "info"
+                state = "pending"
+        else:
+            viewer_can_accept = not accepted_by_seller
+            viewer_can_reject = not (accepted_by_buyer and accepted_by_seller)
+            accept_label = _("Confirm agreement")
+            reject_label = _("Withdraw offer")
+            if accepted_by_buyer and not accepted_by_seller:
+                status_label = _("The buyer accepted your terms. Confirm to finalise.")
+                status_tone = "warning"
+                state = "waiting_on_you"
+            elif accepted_by_seller and not accepted_by_buyer:
+                status_label = _("Waiting for the buyer to accept your conditions.")
+                status_tone = "info"
+                state = "waiting_on_buyer"
+            else:
+                status_label = _("Share any adjustments or confirm when ready.")
+                status_tone = "info"
+                state = "pending"
+
+        decision_payload = {
+            "url": reverse("indy_hub:bp_chat_decide", args=[chat.id]),
+            "accepted_by_buyer": accepted_by_buyer,
+            "accepted_by_seller": accepted_by_seller,
+            "viewer_can_accept": viewer_can_accept,
+            "viewer_can_reject": viewer_can_reject,
+            "accept_label": accept_label,
+            "reject_label": reject_label,
+            "status_label": status_label,
+            "status_tone": status_tone,
+            "state": state,
+            "pending_label": _("Updating decision..."),
+        }
+
+    data = {
+        "chat": {
+            "id": chat.id,
+            "is_open": chat.is_open,
+            "closed_reason": chat.closed_reason,
+            "viewer_role": viewer_role,
+            "other_role": other_role,
+            "labels": role_labels,
+            "type_id": chat.request.type_id,
+            "type_name": get_type_name(chat.request.type_id),
+            "can_send": chat.is_open and viewer_role in {"buyer", "seller"},
+            "decision": decision_payload,
+        },
+        "messages": messages_payload,
+    }
+    chat.mark_seen(viewer_role)
+    return JsonResponse(data)
+
+
+@indy_hub_access_required
+@login_required
+@require_http_methods(["POST"])
+def bp_chat_send(request, chat_id: int):
+    chat = get_object_or_404(
+        BlueprintCopyChat.objects.select_related("request", "offer", "buyer", "seller"),
+        id=chat_id,
+    )
+    viewer_role = chat.role_for(request.user)
+    if viewer_role not in {"buyer", "seller"}:
+        return JsonResponse({"error": _("Unauthorized")}, status=403)
+    if not chat.is_open:
+        return JsonResponse(
+            {"error": _("This chat is closed."), "closed": True}, status=409
+        )
+
+    payload = {}
+    if request.content_type == "application/json":
+        try:
+            payload = json.loads(request.body.decode("utf-8"))
+        except json.JSONDecodeError:
+            payload = {}
+    if not payload:
+        payload = request.POST
+
+    message_content = (payload.get("message") or payload.get("content") or "").strip()
+    if not message_content:
+        return JsonResponse({"error": _("Message cannot be empty.")}, status=400)
+
+    msg = BlueprintCopyMessage(
+        chat=chat,
+        sender=request.user,
+        sender_role=viewer_role,
+        content=message_content,
+    )
+    try:
+        msg.full_clean()
+    except ValidationError as exc:
+        detail = ""
+        if hasattr(exc, "messages") and exc.messages:
+            detail = exc.messages[0]
+        else:
+            detail = str(exc)
+        return JsonResponse(
+            {"error": _("Invalid message."), "details": detail}, status=400
+        )
+    msg.save()
+    chat.register_message(sender_role=viewer_role)
+
+    logger.debug(
+        "bp_chat_send chat=%s user=%s role=%s", chat.id, request.user.id, viewer_role
+    )
+
+    other_user = chat.seller if viewer_role == "buyer" else chat.buyer
+    if getattr(other_user, "id", None):
+        link = request.build_absolute_uri(
+            reverse(
+                "indy_hub:bp_copy_my_requests"
+                if viewer_role == "seller"
+                else "indy_hub:bp_copy_fulfill_requests"
+            )
+        )
+        notify_user(
+            other_user,
+            _("New message in conditional offer"),
+            _("You received a new message for %(type)s (ME%(me)s, TE%(te)s).")
+            % {
+                "type": get_type_name(chat.request.type_id),
+                "me": chat.request.material_efficiency,
+                "te": chat.request.time_efficiency,
+            },
+            "info",
+            link=link,
+            link_label=_("Open details"),
+        )
+
+    created_local = timezone.localtime(msg.created_at)
+    response = {
+        "message": {
+            "id": msg.id,
+            "role": msg.sender_role,
+            "content": msg.content,
+            "created_at": created_local.isoformat(),
+            "created_display": created_local.strftime("%Y-%m-%d %H:%M"),
+        }
+    }
+    return JsonResponse(response, status=201)
+
+
+@indy_hub_access_required
+@login_required
+@require_http_methods(["POST"])
+def bp_chat_decide(request, chat_id: int):
+    chat = get_object_or_404(
+        BlueprintCopyChat.objects.select_related("request", "offer", "buyer", "seller"),
+        id=chat_id,
+    )
+
+    viewer_role = chat.role_for(request.user)
+    if viewer_role not in {"buyer", "seller"}:
+        return JsonResponse({"error": _("Unauthorized")}, status=403)
+
+    if not chat.is_open or chat.offer.status != "conditional":
+        return JsonResponse(
+            {"error": _("This conversation is already closed.")}, status=409
+        )
+
+    try:
+        payload = json.loads(request.body.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        payload = {}
+
+    decision = (payload.get("decision") or "").strip().lower()
+    if decision not in {"accept", "reject"}:
+        return JsonResponse({"error": _("Unsupported decision.")}, status=400)
+
+    offer = chat.offer
+    req = chat.request
+
+    if decision == "accept":
+        if viewer_role == "buyer":
+            finalized = _mark_offer_buyer_accept(offer)
+            if finalized:
+                return JsonResponse({"status": "accepted"})
+
+            fulfill_queue_url = build_site_url(
+                reverse("indy_hub:bp_copy_fulfill_requests")
+            )
+            notify_user(
+                chat.seller,
+                _("Conditional offer accepted"),
+                _(
+                    "%(buyer)s accepted your terms for %(type)s (ME%(me)s, TE%(te)s). Confirm in chat to finalise the agreement."
+                )
+                % {
+                    "buyer": req.requested_by.username,
+                    "type": get_type_name(req.type_id),
+                    "me": req.material_efficiency,
+                    "te": req.time_efficiency,
+                },
+                "info",
+                link=fulfill_queue_url,
+                link_label=_("Open fulfill queue"),
+            )
+            return JsonResponse(
+                {
+                    "status": "pending",
+                    "accepted_by_buyer": True,
+                    "accepted_by_seller": offer.accepted_by_seller,
+                }
+            )
+
+        finalized = _mark_offer_seller_accept(offer)
+        if finalized:
+            return JsonResponse({"status": "accepted"})
+
+        buyer_requests_url = build_site_url(reverse("indy_hub:bp_copy_my_requests"))
+        notify_user(
+            chat.buyer,
+            _("Builder confirmed your terms"),
+            _(
+                "%(builder)s confirmed the agreement for %(type)s (ME%(me)s, TE%(te)s). Accept in chat to finalise."
+            )
+            % {
+                "builder": offer.owner.username,
+                "type": get_type_name(req.type_id),
+                "me": req.material_efficiency,
+                "te": req.time_efficiency,
+            },
+            "info",
+            link=buyer_requests_url,
+            link_label=_("Review your requests"),
+        )
+        return JsonResponse(
+            {
+                "status": "pending",
+                "accepted_by_buyer": offer.accepted_by_buyer,
+                "accepted_by_seller": True,
+            }
+        )
+
+    # Reject path
+    offer.status = "rejected"
+    offer.accepted_by_buyer = False
+    offer.accepted_by_seller = False
+    offer.accepted_at = None
+    offer.save(
+        update_fields=[
+            "status",
+            "accepted_by_buyer",
+            "accepted_by_seller",
+            "accepted_at",
+        ]
+    )
+
+    chat.close(reason=BlueprintCopyChat.CloseReason.OFFER_REJECTED)
+
+    recipient = chat.seller if viewer_role == "buyer" else chat.buyer
+    if recipient:
+        notify_user(
+            recipient,
+            _("Conditional offer declined"),
+            _(
+                "%(actor)s declined the conditional offer for %(type)s (ME%(me)s, TE%(te)s)."
+            )
+            % {
+                "actor": request.user.username,
+                "type": get_type_name(req.type_id),
+                "me": req.material_efficiency,
+                "te": req.time_efficiency,
+            },
+            "warning",
+            link=build_site_url(
+                reverse(
+                    "indy_hub:bp_copy_fulfill_requests"
+                    if viewer_role == "buyer"
+                    else "indy_hub:bp_copy_my_requests"
+                )
+            ),
+            link_label=_("Open details"),
+        )
+
+    if viewer_role == "seller":
+        if _finalize_request_if_all_rejected(req):
+            return JsonResponse({"status": "rejected", "request_closed": True})
+
+    return JsonResponse({"status": "rejected"})
 
 
 @indy_hub_access_required

@@ -1,0 +1,17 @@
+{% load i18n %}
+{% if preview %}
+<div class="chat-preview" data-chat-preview>
+    <span class="chat-preview__title">{% trans "Recent chat" %}</span>
+    <div class="chat-preview__list">
+        {% for item in preview %}
+        <article class="chat-preview__item chat-preview__item--{{ item.role|default:'system' }}">
+            <div class="chat-preview__meta">
+                <span class="chat-preview__role">{{ item.role_label }}</span>
+                <time class="chat-preview__time">{{ item.created_display }}</time>
+            </div>
+            <p class="chat-preview__message">{{ item.content }}</p>
+        </article>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}

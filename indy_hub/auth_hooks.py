@@ -33,7 +33,11 @@ class IndyHubMenu(MenuItemHook):
         try:
             from .models import Blueprint, BlueprintCopyRequest
 
-            bps = Blueprint.objects.filter(owner_user=request.user, quantity=-1)
+            bps = Blueprint.objects.filter(
+                owner_user=request.user,
+                owner_kind=Blueprint.OwnerKind.CHARACTER,
+                quantity=-1,
+            )
             count = (
                 BlueprintCopyRequest.objects.filter(
                     type_id__in=bps.values_list("type_id", flat=True),

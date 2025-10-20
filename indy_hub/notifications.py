@@ -36,7 +36,7 @@ DM_ENABLED = getattr(settings, "INDY_HUB_DISCORD_DM_ENABLED", True)
 EMBED_FOOTER_TEXT = getattr(
     settings,
     "INDY_HUB_DISCORD_FOOTER_TEXT",
-    getattr(settings, "SITE_NAME", "Alliance Auth"),
+    getattr(settings, "Indy_Hub", "Alliance Auth"),
 )
 DEFAULT_LINK_LABEL = _("View details")
 

@@ -79,7 +79,10 @@ class Command(BaseCommand):
 
             # Get blueprint data
             if not options["characters_only"]:
-                blueprints = Blueprint.objects.filter(owner_user=user)
+                blueprints = Blueprint.objects.filter(
+                    owner_user=user,
+                    owner_kind=Blueprint.OwnerKind.CHARACTER,
+                )
                 blueprint_type_ids = [bp.type_id for bp in blueprints if bp.type_id]
                 total_type_ids.update(blueprint_type_ids)
                 self.stdout.write(
@@ -87,14 +90,20 @@ class Command(BaseCommand):
                 )
 
             if not options["types_only"]:
-                blueprints = Blueprint.objects.filter(owner_user=user)
+                blueprints = Blueprint.objects.filter(
+                    owner_user=user,
+                    owner_kind=Blueprint.OwnerKind.CHARACTER,
+                )
                 blueprint_character_ids = [
                     bp.character_id for bp in blueprints if bp.character_id
                 ]
                 total_character_ids.update(blueprint_character_ids)
 
             # Get industry job data
-            jobs = IndustryJob.objects.filter(owner_user=user)
+            jobs = IndustryJob.objects.filter(
+                owner_user=user,
+                owner_kind=Blueprint.OwnerKind.CHARACTER,
+            )
 
             if not options["characters_only"]:
                 job_blueprint_type_ids = [

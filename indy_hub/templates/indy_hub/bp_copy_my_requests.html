@@ -1,4 +1,4 @@
-{% extends "allianceauth/base-bs5.html" %}
+{% extends "indy_hub/base.html" %}
 {% load i18n %}
 {% load static %}
 {% load humanize %}
@@ -8,6 +8,7 @@
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
 <link rel="stylesheet" href="{% static 'indy_hub/css/blueprints.css' %}">
+<link rel="stylesheet" href="{% static 'indy_hub/css/chat.css' %}">
 {% endblock %}
 
 {% block content %}
@@ -108,7 +109,7 @@
         </section>
 
         {% if my_requests %}
-        <section class="row row-cols-1 row-cols-lg-2 g-3">
+        <section class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-3">
             {% for req in my_requests %}
             <div class="col">
                 <article class="card h-100 shadow-sm request-card">
@@ -168,34 +169,70 @@
                         {% elif req.cond_accepted %}
                         <div class="alert alert-info mb-0">
                             <i class="fas fa-file-signature me-2"></i>
-                            {% blocktrans with builder=req.cond_accepted.owner_username %}Conditional offer accepted from {{ builder }}{% endblocktrans %}
-                            {% if req.cond_accepted.message %}
-                            <p class="mb-0 small text-info mt-2">“{{ req.cond_accepted.message }}”</p>
-                            {% endif %}
+                            {% blocktrans with builder=req.cond_accepted.builder_label %}Conditional offer accepted from {{ builder }}{% endblocktrans %}
+                            <p class="mb-0 small text-info mt-2">{% trans "Conversation archived. Check previous chat messages if needed." %}</p>
                         </div>
+                        {% include "indy_hub/includes/chat_preview.html" with preview=req.cond_accepted.chat.preview %}
+                        {% endif %}
+
+                        {% if req.cond_waiting_builder %}
+                        <div class="alert alert-warning mb-0">
+                            <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2">
+                                <div>
+                                    <i class="fas fa-hourglass-half me-2"></i>
+                                    {% blocktrans with builder=req.cond_waiting_builder.builder_label %}You accepted {{ builder }}'s terms. Waiting for their confirmation.{% endblocktrans %}
+                                </div>
+                            </div>
+                        </div>
+                        {% include "indy_hub/includes/chat_preview.html" with preview=req.cond_waiting_builder.chat.preview %}
                         {% endif %}
 
                         {% if req.cond_offers %}
-                        <div class="d-flex flex-column gap-2">
-                            {% for offer in req.cond_offers %}
-                            <div class="alert bg-warning-subtle border-warning-subtle text-dark mb-0">
-                                <div class="d-flex flex-column flex-md-row justify-content-between gap-2">
-                                    <div>
-                                        <strong>{% blocktrans with builder=offer.owner_username %}Offer from {{ builder }}{% endblocktrans %}</strong>
-                                        {% if offer.message %}
-                                        <p class="mb-0 small text-dark">“{{ offer.message }}”</p>
-                                        {% endif %}
+                        {% with cond_count=req.cond_offers|length %}
+                        <div class="card bg-warning-subtle border-0">
+                            <div class="card-body p-3">
+                                <div class="d-flex align-items-center gap-2 mb-3">
+                                    <i class="fas fa-comments text-warning"></i>
+                                    <p class="small fw-semibold text-uppercase text-dark mb-0">
+                                        {% blocktrans count cond_count=cond_count %}
+                                        {{ cond_count }} conditional offer awaiting review
+                                        {% plural %}
+                                        {{ cond_count }} conditional offers awaiting review
+                                        {% endblocktrans %}
+                                    </p>
+                                </div>
+                                <div class="accordion accordion-flush" id="condOffers-{{ req.id }}">
+                                    {% for offer in req.cond_offers %}
+                                    <div class="accordion-item border rounded-3 shadow-sm mb-2">
+                                        <h3 class="accordion-header" id="condOfferHeading-{{ req.id }}-{{ offer.id }}">
+                                            <button
+                                                class="accordion-button collapsed"
+                                                type="button"
+                                                data-bs-toggle="collapse"
+                                                data-bs-target="#condOfferBody-{{ req.id }}-{{ offer.id }}"
+                                                aria-expanded="false"
+                                                aria-controls="condOfferBody-{{ req.id }}-{{ offer.id }}"
+                                            >
+                                                {% blocktrans with builder=offer.builder_label offer_id=offer.id %}Offer #{{ offer_id }} from {{ builder }}{% endblocktrans %}
+                                            </button>
+                                        </h3>
+                                        <div
+                                            id="condOfferBody-{{ req.id }}-{{ offer.id }}"
+                                            class="accordion-collapse collapse"
+                                            aria-labelledby="condOfferHeading-{{ req.id }}-{{ offer.id }}"
+                                            data-bs-parent="#condOffers-{{ req.id }}"
+                                        >
+                                            <div class="accordion-body">
+                                                <p class="text-muted small mb-3">{% trans "Review the conversation, then accept or decline via the chat actions." %}</p>
+                                                {% include "indy_hub/includes/chat_preview.html" with preview=offer.chat.preview %}
+                                            </div>
+                                        </div>
                                     </div>
-                                    <form method="post" action="{% url 'indy_hub:bp_buyer_accept_offer' offer.id %}" class="d-grid">
-                                        {% csrf_token %}
-                                        <button type="submit" class="btn btn-primary btn-sm">
-                                            <i class="fas fa-thumbs-up me-1"></i>{% trans "Accept this offer" %}
-                                        </button>
-                                    </form>
+                                    {% endfor %}
                                 </div>
                             </div>
-                            {% endfor %}
                         </div>
+                        {% endwith %}
                         {% endif %}
 
                         {% if req.delivered %}
@@ -204,24 +241,66 @@
                         </div>
                         {% endif %}
 
-                        <div class="mt-auto d-flex justify-content-center flex-wrap gap-2">
-                            {% if req.can_cancel %}
-                            <button
-                                type="button"
-                                class="btn btn-outline-primary btn-sm"
-                                data-bs-toggle="modal"
-                                data-bs-target="#editRequestModal-{{ req.id }}"
-                            >
-                                <i class="fas fa-edit me-1"></i>{% trans "Edit request" %}
-                            </button>
-                            <form action="{% url 'indy_hub:bp_cancel_copy_request' req.id %}" method="post">
-                                {% csrf_token %}
-                                <input type="hidden" name="next" value="{{ request.get_full_path }}">
-                                <button type="submit" class="btn btn-outline-danger btn-sm">
-                                    <i class="fas fa-times me-1"></i>{% trans "Cancel request" %}
-                                </button>
-                            </form>
-                            {% endif %}
+                        <div class="mt-auto">
+                            <div class="bp-card-toolbar">
+                                {% if req.chat_actions %}
+                                    {% for action in req.chat_actions %}
+                                    <div class="bp-card-toolbar__group bp-card-toolbar__group--stacked{% if forloop.first %} bp-card-toolbar__group--push{% endif %}" role="group" aria-label="{% trans 'Chat controls' %}">
+                                        <button
+                                            type="button"
+                                            class="bp-btn bp-chat-pill btn-sm bp-chat-trigger"
+                                            data-chat-fetch-url="{{ action.chat.fetch_url }}"
+                                            data-chat-send-url="{{ action.chat.send_url }}"
+                                            data-chat-role="buyer"
+                                            data-chat-type-name="{{ req.type_name }}"
+                                            data-chat-type-id="{{ req.type_id }}"
+                                            data-chat-has-unread="{{ action.chat.has_unread|yesno:'true,false' }}"
+                                            aria-haspopup="dialog"
+                                        >
+                                            <i class="fas fa-comments"></i>
+                                            <span>
+                                                {% if action.builder_label %}
+                                                    {% blocktrans with builder=action.builder_label %}Open chat ({{ builder }}){% endblocktrans %}
+                                                {% else %}
+                                                    {% trans "Open chat" %}
+                                                {% endif %}
+                                            </span>
+                                            {% if action.chat.has_unread %}
+                                            <span class="bp-chat-trigger__badge" aria-hidden="true">
+                                                <i class="fas fa-circle-dot"></i>
+                                            </span>
+                                            {% endif %}
+                                        </button>
+                                        {% if action.chat.last_message_display %}
+                                        <span class="bp-card-toolbar__timestamp">
+                                            {% blocktrans with timestamp=action.chat.last_message_display %}Last message {{ timestamp }}{% endblocktrans %}
+                                        </span>
+                                        {% endif %}
+                                    </div>
+                                    {% endfor %}
+                                {% endif %}
+                                {% if req.can_cancel %}
+                                <div class="bp-card-toolbar__group" role="group" aria-label="{% trans 'Request actions' %}">
+                                    <button
+                                        type="button"
+                                        class="bp-btn bp-btn-soft-secondary btn-sm"
+                                        data-bs-toggle="modal"
+                                        data-bs-target="#editRequestModal-{{ req.id }}"
+                                    >
+                                        <i class="fas fa-edit"></i>
+                                        <span>{% trans "Edit request" %}</span>
+                                    </button>
+                                    <form action="{% url 'indy_hub:bp_cancel_copy_request' req.id %}" method="post" class="bp-card-toolbar__form">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                                        <button type="submit" class="bp-btn bp-btn-soft-danger btn-sm">
+                                            <i class="fas fa-times"></i>
+                                            <span>{% trans "Cancel request" %}</span>
+                                        </button>
+                                    </form>
+                                </div>
+                                {% endif %}
+                            </div>
                         </div>
                     </div>
                 </article>
@@ -293,4 +372,24 @@
         {% endif %}
     </div>
 </main>
+{% block indy_hub_global_modals %}
+    {{ block.super }}
+    {% include "indy_hub/includes/bp_chat_modal.html" %}
+{% endblock %}
+{% endblock %}
+
+{% block extra_javascript %}
+{{ block.super }}
+<script>
+    window.indyChatDefaults = Object.assign({}, window.indyChatDefaults || {}, {
+        viewerRole: 'buyer',
+        labels: {
+            buyer: '{% trans "Buyer" %}',
+            seller: '{% trans "Builder" %}',
+            system: '{% trans "System" %}',
+            you: '{% trans "You" %}'
+        }
+    });
+</script>
+<script src="{% static 'indy_hub/js/bp_copy_chat.js' %}?v=20251021"></script>
 {% endblock %}

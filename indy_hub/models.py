@@ -1,9 +1,11 @@
 # Django
 from django.contrib.auth.models import User
+from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
+from django.utils.translation import ngettext
 
 from .utils.eve import get_blueprint_product_type_id, is_reaction_blueprint
 
@@ -21,6 +23,10 @@ class IndustryJobManager(models.Manager):
 
 
 class Blueprint(models.Model):
+    class OwnerKind(models.TextChoices):
+        CHARACTER = "character", _("Character-owned")
+        CORPORATION = "corporation", _("Corporation-owned")
+
     class BPType(models.TextChoices):
         REACTION = "REACTION", "Reaction"
         ORIGINAL = "ORIGINAL", "Original"
@@ -29,7 +35,9 @@ class Blueprint(models.Model):
     owner_user = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name="blueprints"
     )
-    character_id = models.BigIntegerField()
+    character_id = models.BigIntegerField(blank=True, null=True)
+    corporation_id = models.BigIntegerField(blank=True, null=True)
+    corporation_name = models.CharField(max_length=255, blank=True)
     item_id = models.BigIntegerField(unique=True)
     blueprint_id = models.BigIntegerField(blank=True, null=True)
     type_id = models.IntegerField()
@@ -37,6 +45,11 @@ class Blueprint(models.Model):
     location_name = models.CharField(max_length=255, blank=True)
     location_flag = models.CharField(max_length=50)
     quantity = models.IntegerField()
+    owner_kind = models.CharField(
+        max_length=16,
+        choices=OwnerKind.choices,
+        default=OwnerKind.CHARACTER,
+    )
     bp_type = models.CharField(
         max_length=16,
         choices=BPType.choices,
@@ -64,14 +77,30 @@ class Blueprint(models.Model):
                 fields=["owner_user", "last_updated"],
                 name="indy_hub_bl_owner_u_47cf92_idx",
             ),
+            models.Index(
+                fields=["owner_kind", "corporation_id", "type_id"],
+                name="indy_hub_bl_corp_scope_idx",
+            ),
         ]
         permissions = [
             ("can_access_indy_hub", "Can access Indy Hub module"),
+            (
+                "can_manage_copy_requests",
+                "Can request or share blueprint copies",
+            ),
+            (
+                "can_manage_corporate_assets",
+                "Can manage corporation blueprints and jobs",
+            ),
         ]
         default_permissions = ()  # Disable Django's add/change/delete/view permissions
 
     def __str__(self):
-        return f"{self.type_name or self.type_id} @ {self.character_id}"
+        if self.is_corporate:
+            anchor = self.corporation_name or self.corporation_id or "corp"
+        else:
+            anchor = self.character_name or self.character_id or "character"
+        return f"{self.type_name or self.type_id} @ {anchor}"
 
     @property
     def is_original(self):
@@ -84,6 +113,10 @@ class Blueprint(models.Model):
     @property
     def is_reaction(self):
         return self.bp_type == self.BPType.REACTION
+
+    @property
+    def is_corporate(self) -> bool:
+        return self.owner_kind == self.OwnerKind.CORPORATION
 
     @property
     def quantity_display(self):
@@ -175,7 +208,14 @@ class IndustryJob(models.Model):
     owner_user = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name="industry_jobs"
     )
-    character_id = models.BigIntegerField()
+    character_id = models.BigIntegerField(blank=True, null=True)
+    corporation_id = models.BigIntegerField(blank=True, null=True)
+    corporation_name = models.CharField(max_length=255, blank=True)
+    owner_kind = models.CharField(
+        max_length=16,
+        choices=Blueprint.OwnerKind.choices,
+        default=Blueprint.OwnerKind.CHARACTER,
+    )
     job_id = models.IntegerField(unique=True)
     installer_id = models.IntegerField()
     station_id = models.BigIntegerField(blank=True, null=True)
@@ -220,11 +260,19 @@ class IndustryJob(models.Model):
             models.Index(
                 fields=["activity_id", "status"], name="indy_hub_in_activit_8408d4_idx"
             ),
+            models.Index(
+                fields=["owner_kind", "corporation_id", "status"],
+                name="indy_hub_in_corp_scope_idx",
+            ),
         ]
         default_permissions = ()
 
     def __str__(self):
-        return f"Job {self.job_id} ({self.status})"
+        if self.owner_kind == Blueprint.OwnerKind.CORPORATION:
+            anchor = self.corporation_name or self.corporation_id or "corp"
+        else:
+            anchor = self.character_name or self.character_id or "character"
+        return f"Job {self.job_id} ({self.status}) for {anchor}"
 
     @property
     def is_active(self):
@@ -289,15 +337,66 @@ class IndustryJob(models.Model):
     @property
     def display_eta(self):
         """Return formatted remaining time or Completed for jobs"""
-        if self.end_date and self.end_date > timezone.now():
-            remaining = self.end_date - timezone.now()
+        if not self.end_date:
+            return ""
+
+        now = timezone.now()
+        if self.end_date > now:
+            remaining = self.end_date - now
             total_seconds = int(remaining.total_seconds())
-            hours, remainder = divmod(total_seconds, 3600)
+
+            weeks, remainder = divmod(total_seconds, 7 * 24 * 3600)
+            days, remainder = divmod(remainder, 24 * 3600)
+            hours, remainder = divmod(remainder, 3600)
             minutes, seconds = divmod(remainder, 60)
-            return f"{hours:d}:{minutes:02d}:{seconds:02d}"
-        if self.end_date:
-            return "Completed"
-        return ""
+
+            parts: list[str] = []
+            if weeks:
+                parts.append(
+                    ngettext("%(count)d week", "%(count)d weeks", weeks)
+                    % {"count": weeks}
+                )
+            if days:
+                parts.append(
+                    ngettext("%(count)d day", "%(count)d days", days) % {"count": days}
+                )
+            if hours:
+                parts.append(
+                    ngettext("%(count)d hour", "%(count)d hours", hours)
+                    % {"count": hours}
+                )
+            if minutes:
+                parts.append(
+                    ngettext(
+                        "%(count)d minute",
+                        "%(count)d minutes",
+                        minutes,
+                    )
+                    % {"count": minutes}
+                )
+            if seconds and not (weeks or days or hours):
+                parts.append(
+                    ngettext(
+                        "%(count)d second",
+                        "%(count)d seconds",
+                        seconds,
+                    )
+                    % {"count": seconds}
+                )
+
+            if not parts:
+                parts.append(
+                    ngettext(
+                        "%(count)d second",
+                        "%(count)d seconds",
+                        seconds,
+                    )
+                    % {"count": seconds}
+                )
+
+            return ", ".join(parts)
+
+        return _("Completed")
 
 
 class BlueprintCopyRequest(models.Model):
@@ -358,10 +457,228 @@ class BlueprintCopyOffer(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     accepted_by_buyer = models.BooleanField(default=False)
     accepted_at = models.DateTimeField(null=True, blank=True)
+    accepted_by_seller = models.BooleanField(default=False)
 
     class Meta:
         unique_together = ("request", "owner")
         default_permissions = ()
+
+    def ensure_chat(self):
+        """Return (and create if needed) the chat associated with this offer."""
+        chat, created = BlueprintCopyChat.objects.get_or_create(
+            offer=self,
+            defaults={
+                "request": self.request,
+                "buyer": self.request.requested_by,
+                "seller": self.owner,
+            },
+        )
+        if not created and not chat.is_open:
+            chat.reopen()
+        return chat
+
+
+class BlueprintCopyChat(models.Model):
+    class CloseReason(models.TextChoices):
+        REQUEST_WITHDRAWN = "request_closed", "Request closed"
+        OFFER_ACCEPTED = "offer_accepted", "Offer accepted"
+        OFFER_REJECTED = "offer_rejected", "Offer rejected"
+        EXPIRED = "expired", "Expired"
+        MANUAL = "manual", "Closed"
+        REOPENED = "reopened", "Reopened"
+
+    request = models.ForeignKey(
+        BlueprintCopyRequest,
+        on_delete=models.CASCADE,
+        related_name="chats",
+    )
+    offer = models.OneToOneField(
+        BlueprintCopyOffer,
+        on_delete=models.CASCADE,
+        related_name="chat",
+    )
+    buyer = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="bp_copy_chats_as_buyer",
+    )
+    seller = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="bp_copy_chats_as_seller",
+    )
+    is_open = models.BooleanField(default=True)
+    closed_reason = models.CharField(max_length=32, blank=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    last_message_at = models.DateTimeField(null=True, blank=True)
+    last_message_role = models.CharField(max_length=16, blank=True, null=True)
+    buyer_last_seen_at = models.DateTimeField(null=True, blank=True)
+    seller_last_seen_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        default_permissions = ()
+        indexes = [
+            models.Index(fields=["request_id", "is_open"], name="bp_copy_chat_state"),
+            models.Index(fields=["buyer_id"], name="bp_copy_chat_buyer"),
+            models.Index(fields=["seller_id"], name="bp_copy_chat_seller"),
+        ]
+
+    def __str__(self):
+        return f"Chat for request {self.request_id} / offer {self.offer_id}"
+
+    def role_for(self, user: User) -> str | None:
+        if user.id == self.buyer_id:
+            return "buyer"
+        if user.id == self.seller_id:
+            return "seller"
+        return None
+
+    def close(self, *, reason: str) -> None:
+        if not self.is_open:
+            if reason and reason != self.closed_reason:
+                self.closed_reason = reason
+                self.save(update_fields=["closed_reason", "updated_at"])
+            return
+        self.is_open = False
+        self.closed_reason = reason
+        self.closed_at = timezone.now()
+        self.save(update_fields=["is_open", "closed_reason", "closed_at", "updated_at"])
+
+    def reopen(self, *, reason: str | None = "") -> None:
+        updates = {}
+        if not self.is_open:
+            self.is_open = True
+            updates["is_open"] = True
+        if reason is not None:
+            self.closed_reason = reason
+            updates["closed_reason"] = reason
+        self.closed_at = None
+        updates["closed_at"] = None
+        if updates:
+            update_fields = list(updates.keys())
+            update_fields.append("updated_at")
+            self.save(update_fields=update_fields)
+
+    def register_message(self, *, sender_role: str | None = None) -> None:
+        now = timezone.now()
+        updates = {"last_message_at": now, "updated_at": now}
+        self.last_message_at = now
+        self.updated_at = now
+
+        if sender_role:
+            updates["last_message_role"] = sender_role
+            self.last_message_role = sender_role
+            if sender_role == BlueprintCopyMessage.SenderRole.BUYER:
+                updates["buyer_last_seen_at"] = now
+                self.buyer_last_seen_at = now
+            elif sender_role == BlueprintCopyMessage.SenderRole.SELLER:
+                updates["seller_last_seen_at"] = now
+                self.seller_last_seen_at = now
+
+        self.save(update_fields=list(updates.keys()))
+
+    def mark_seen(self, role: str) -> None:
+        if role not in {"buyer", "seller"}:
+            return
+
+        field = "buyer_last_seen_at" if role == "buyer" else "seller_last_seen_at"
+        last_seen = getattr(self, field)
+        target_timestamp = self.last_message_at
+
+        if not target_timestamp:
+            if not last_seen:
+                now = timezone.now()
+                setattr(self, field, now)
+                self.save(update_fields=[field, "updated_at"])
+            return
+
+        if self.last_message_role in {
+            None,
+            "",
+            role,
+            BlueprintCopyMessage.SenderRole.SYSTEM,
+        }:
+            if not last_seen:
+                now = timezone.now()
+                setattr(self, field, now)
+                self.save(update_fields=[field, "updated_at"])
+            return
+
+        if last_seen and last_seen >= target_timestamp:
+            return
+
+        now = timezone.now()
+        setattr(self, field, now)
+        self.save(update_fields=[field, "updated_at"])
+
+    def has_unread_for(self, role: str) -> bool:
+        if role not in {"buyer", "seller"}:
+            return False
+
+        if not self.last_message_at:
+            return False
+
+        if self.last_message_role in {
+            None,
+            "",
+            role,
+            BlueprintCopyMessage.SenderRole.SYSTEM,
+        }:
+            return False
+
+        last_seen = (
+            self.buyer_last_seen_at if role == "buyer" else self.seller_last_seen_at
+        )
+        if not last_seen:
+            return True
+        return last_seen < self.last_message_at
+
+
+class BlueprintCopyMessage(models.Model):
+    class SenderRole(models.TextChoices):
+        BUYER = "buyer", "Buyer"
+        SELLER = "seller", "Builder"
+        SYSTEM = "system", "System"
+
+    chat = models.ForeignKey(
+        BlueprintCopyChat,
+        on_delete=models.CASCADE,
+        related_name="messages",
+    )
+    sender = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="bp_copy_messages",
+        null=True,
+        blank=True,
+    )
+    sender_role = models.CharField(
+        max_length=16,
+        choices=SenderRole.choices,
+    )
+    content = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        default_permissions = ()
+        ordering = ["created_at", "id"]
+        indexes = [
+            models.Index(fields=["chat_id", "created_at"], name="bp_copy_msg_chat"),
+        ]
+
+    def __str__(self):
+        return f"ChatMessage {self.id} in chat {self.chat_id}"
+
+    def clean(self):
+        super().clean()
+        content = (self.content or "").strip()
+        if not content:
+            raise ValidationError("Message content cannot be empty.")
+        if len(content) > 2000:
+            raise ValidationError("Message content cannot exceed 2000 characters.")
+        self.content = content
 
 
 class UserOnboardingProgress(models.Model):
@@ -442,12 +759,58 @@ class CharacterSettings(models.Model):
         self.allow_copy_requests = scope != self.SCOPE_NONE
 
 
-class ProductionConfig(models.Model):
-    """
-    Stocke les configurations de production (Prod/Buy/Useless) pour chaque blueprint et utilisateur.
-    Maintenant lié à une simulation spécifique pour permettre de sauvegarder plusieurs configurations.
-    """
+class CorporationSharingSetting(models.Model):
+    """Stores per-corporation blueprint sharing preferences for a user."""
 
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="indy_corporation_sharing",
+    )
+    corporation_id = models.BigIntegerField()
+    corporation_name = models.CharField(max_length=255, blank=True)
+    share_scope = models.CharField(
+        max_length=20,
+        choices=CharacterSettings.COPY_SHARING_SCOPE_CHOICES,
+        default=CharacterSettings.SCOPE_NONE,
+    )
+    allow_copy_requests = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        default_permissions = ()
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "corporation_id"],
+                name="corp_sharing_user_corp_uq",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["user", "corporation_id"],
+                name="corp_sharing_user_corp_idx",
+            ),
+            models.Index(
+                fields=["user", "share_scope"],
+                name="corp_sharing_user_scope_idx",
+            ),
+        ]
+
+    def __str__(self):
+        corp_display = self.corporation_name or str(self.corporation_id)
+        scope_labels = dict(CharacterSettings.COPY_SHARING_SCOPE_CHOICES)
+        scope_display = scope_labels.get(self.share_scope, self.share_scope)
+        return f"{self.user.username} -> {corp_display} [{scope_display}]"
+
+    def set_share_scope(self, scope: str) -> None:
+        if scope not in dict(CharacterSettings.COPY_SHARING_SCOPE_CHOICES):
+            raise ValueError(f"Invalid copy sharing scope: {scope}")
+        self.share_scope = scope
+        self.allow_copy_requests = scope != CharacterSettings.SCOPE_NONE
+
+
+class ProductionConfig(models.Model):
     PRODUCTION_CHOICES = [
         ("prod", "Produce"),
         ("buy", "Buy"),
@@ -465,7 +828,9 @@ class ProductionConfig(models.Model):
     blueprint_type_id = models.BigIntegerField()  # Type ID du blueprint principal
     item_type_id = models.BigIntegerField()  # Type ID de l'item dans l'arbre
     production_mode = models.CharField(
-        max_length=10, choices=PRODUCTION_CHOICES, default="prod"
+        max_length=10,
+        choices=PRODUCTION_CHOICES,
+        default="prod",
     )
     quantity_needed = models.BigIntegerField(default=0)
     runs = models.IntegerField(default=1)  # Nombre de runs du blueprint principal
@@ -482,7 +847,10 @@ class ProductionConfig(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.user.username} - BP:{self.blueprint_type_id} - Item:{self.item_type_id} - {self.production_mode}"
+        return (
+            f"{self.user.username} - BP:{self.blueprint_type_id} - "
+            f"Item:{self.item_type_id} - {self.production_mode}"
+        )
 
 
 class BlueprintEfficiency(models.Model):
@@ -515,7 +883,10 @@ class BlueprintEfficiency(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.user.username} - BP:{self.blueprint_type_id} - ME:{self.material_efficiency} TE:{self.time_efficiency}"
+        return (
+            f"{self.user.username} - BP:{self.blueprint_type_id} - "
+            f"ME:{self.material_efficiency} TE:{self.time_efficiency}"
+        )
 
 
 class CustomPrice(models.Model):
@@ -558,28 +929,18 @@ class ProductionSimulation(models.Model):
     blueprint_type_id = models.BigIntegerField()
     blueprint_name = models.CharField(max_length=255)
     runs = models.IntegerField(default=1)
-    simulation_name = models.CharField(
-        max_length=255, blank=True
-    )  # Nom personnalisé optionnel
+    simulation_name = models.CharField(max_length=255, blank=True)
 
     # Métadonnées de résumé
-    total_items = models.IntegerField(default=0)  # Nombre d'items dans la config
-    total_buy_items = models.IntegerField(default=0)  # Nombre d'items à acheter
-    total_prod_items = models.IntegerField(default=0)  # Nombre d'items à produire
-    estimated_cost = models.DecimalField(
-        max_digits=20, decimal_places=2, default=0
-    )  # Coût estimé
-    estimated_revenue = models.DecimalField(
-        max_digits=20, decimal_places=2, default=0
-    )  # Revenus estimés
-    estimated_profit = models.DecimalField(
-        max_digits=20, decimal_places=2, default=0
-    )  # Profit estimé
+    total_items = models.IntegerField(default=0)
+    total_buy_items = models.IntegerField(default=0)
+    total_prod_items = models.IntegerField(default=0)
+    estimated_cost = models.DecimalField(max_digits=20, decimal_places=2, default=0)
+    estimated_revenue = models.DecimalField(max_digits=20, decimal_places=2, default=0)
+    estimated_profit = models.DecimalField(max_digits=20, decimal_places=2, default=0)
 
     # Configuration générale de la simulation
-    active_tab = models.CharField(
-        max_length=50, default="materials"
-    )  # Onglet actif (materials, blueprints, financial)
+    active_tab = models.CharField(max_length=50, default="materials")
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

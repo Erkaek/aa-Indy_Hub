@@ -1,17 +1,18 @@
-{% extends "allianceauth/base-bs5.html" %}
+{% extends "indy_hub/base.html" %}
 {% load i18n %}
 {% load static %}
 
 {% block page_title %}{% trans "Indy Hub" %}{% endblock page_title %}
 
 {% block extra_css %}
+<link rel="stylesheet" href="{% static 'indy_hub/css/components.css' %}">
 <link rel="stylesheet" href="{% static 'indy_hub/css/index.css' %}">
+<link rel="stylesheet" href="{% static 'indy_hub/css/chat.css' %}">
 {% endblock extra_css %}
 
 {% block content %}
 <div class="container-fluid py-4">
-    <div id="indy-hub-popup" class="alert alert-info d-none position-fixed top-0 start-50 translate-middle-x mt-3"
-        style="z-index: 2000; min-width: 300px; max-width: 90vw; text-align: center;"></div>
+    {% include "indy_hub/includes/popup.html" %}
 
     <section class="hero-section mb-4">
         <div class="row g-4 align-items-center">
@@ -27,9 +28,108 @@
                     {% trans "Monitor your production flow, understand your blueprint inventory, and coordinate copy requests in one glance." %}
                 </p>
             </div>
+            {% if copy_chat_unread_count %}
+            <div class="col-xl-auto ms-xl-auto d-flex justify-content-xl-end align-items-start">
+                <div class="chat-alert-dropdown dropdown mt-3 mt-xl-0">
+                    <button
+                        class="chat-alert-toggle"
+                        type="button"
+                        id="chat-alert-toggle"
+                        data-bs-toggle="dropdown"
+                        data-bs-auto-close="outside"
+                        aria-expanded="false"
+                    >
+                        <span class="chat-alert-toggle__icon" aria-hidden="true">
+                            <i class="fas fa-comments"></i>
+                        </span>
+                        <span class="chat-alert-toggle__label">{% trans "Unread chat" %}</span>
+                        <span class="chat-alert-toggle__count badge rounded-pill">{{ copy_chat_unread_count }}</span>
+                        <span class="visually-hidden">
+                            {% blocktrans count total=copy_chat_unread_count %}{{ total }} conversation needs your reply{% plural %}{{ total }} conversations need your reply{% endblocktrans %}
+                        </span>
+                        <i class="fas fa-chevron-down chat-alert-toggle__chevron" aria-hidden="true"></i>
+                    </button>
+                    <div class="dropdown-menu dropdown-menu-end chat-alert-menu" aria-labelledby="chat-alert-toggle">
+                        <div class="chat-alert-card">
+                            <header class="chat-alert-card__header">
+                                <span class="chat-alert-card__glyph" aria-hidden="true">
+                                    <i class="fas fa-comments"></i>
+                                </span>
+                                <div class="chat-alert-card__title">
+                                    <span class="chat-alert-card__eyebrow">{% trans "Unread chat" %}</span>
+                                    <h3 class="chat-alert-card__headline mb-0">
+                                        {% blocktrans count total=copy_chat_unread_count %}{{ total }} conversation needs your reply{% plural %}{{ total }} conversations need your reply{% endblocktrans %}
+                                    </h3>
+                                </div>
+                                <span class="chat-alert-card__count badge rounded-pill bg-primary text-white">{{ copy_chat_unread_count }}</span>
+                            </header>
+                            <div class="chat-alert-card__body">
+                                <ul class="chat-alert-list">
+                                    {% for alert in copy_chat_alerts %}
+                                    <li>
+                                        <div class="chat-alert-item">
+                                            <div class="chat-alert-item__main">
+                                                <span class="chat-alert-item__avatar">
+                                                    <img
+                                                        src="https://images.evetech.net/types/{{ alert.type_id }}/icon?size=64"
+                                                        alt=""
+                                                        loading="lazy"
+                                                        onerror="this.onerror=null;this.src='https://images.evetech.net/types/{{ alert.type_id }}/bp?size=64'"
+                                                    >
+                                                </span>
+                                                <div class="chat-alert-item__info">
+                                                    <span class="chat-alert-item__type">{{ alert.type_name }}</span>
+                                                    <p class="chat-alert-item__meta text-muted small mb-0">
+                                                        {% blocktrans with other=alert.other_label timesince=alert.last_message_at|timesince %}{{ other }} · {{ timesince }} ago{% endblocktrans %}
+                                                    </p>
+                                                    {% if alert.viewer_role == 'buyer' %}
+                                                        {% trans "Buyer" as viewer_label %}
+                                                    {% else %}
+                                                        {% trans "Builder" as viewer_label %}
+                                                    {% endif %}
+                                                    <div class="chat-alert-item__tags">
+                                                        <span class="chat-alert-chip chat-alert-chip--self">
+                                                            <span class="visually-hidden">{% trans "You" %}</span>
+                                                            <i class="fas fa-user"></i>
+                                                            <span aria-hidden="true">{% trans "You" %}</span>
+                                                            <span class="chat-alert-chip__role" aria-hidden="true">· {{ viewer_label }}</span>
+                                                        </span>
+                                                        <span class="chat-alert-chip">
+                                                            <i class="fas fa-user-group"></i>
+                                                            <span>{{ alert.other_label }}</span>
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="chat-alert-item__actions">
+                                                <button
+                                                    type="button"
+                                                    class="bp-btn bp-chat-pill btn-sm bp-chat-trigger chat-alert-item__action"
+                                                    data-chat-fetch-url="{{ alert.fetch_url }}"
+                                                    data-chat-send-url="{{ alert.send_url }}"
+                                                    data-chat-role="{{ alert.viewer_role }}"
+                                                    data-chat-type-name="{{ alert.type_name }}"
+                                                    data-chat-type-id="{{ alert.type_id }}"
+                                                    data-chat-has-unread="true"
+                                                    aria-haspopup="dialog"
+                                                >
+                                                    <i class="fas fa-reply"></i>
+                                                    <span>{% trans "Reply" %}</span>
+                                                    <span class="bp-chat-trigger__badge" aria-hidden="true"><i class="fas fa-circle-dot"></i></span>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </li>
+                                    {% endfor %}
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
         </div>
     </section>
-
     {% if onboarding.pending and onboarding.dismissed %}
     <div class="alert alert-warning-soft d-flex justify-content-between align-items-center gap-3 mb-4">
         <div class="d-flex align-items-start gap-3">
@@ -203,9 +303,9 @@
                             </div>
                         </div>
                         <p class="text-muted small mb-4">{% trans "Tokens enable copy-sharing queues, industry alerts, and blueprint metrics across every card." %}</p>
-                        <a href="{% url 'indy_hub:token_management' %}" class="btn btn-accent btn-slim align-self-start">
-                            <i class="fas fa-arrow-right me-2"></i>{% trans "Open token management" %}
-                        </a>
+                            <a href="{% url 'indy_hub:token_management' %}" class="btn btn-accent btn-slim align-self-start">
+                                <i class="fas fa-arrow-right me-2"></i>{% trans "Manage ESI tokens" %}
+                            </a>
                     </div>
                 </div>
             </div>
@@ -390,6 +490,7 @@
                                 <i class="fas fa-share-alt"></i>
                             </div>
                         </div>
+                        <div class="share-panel h-100 d-flex flex-column">
                             <div class="share-status mb-4" id="share-status-block">
                                 <span class="badge rounded-pill {{ copy_sharing_state.badge_class }} fw-semibold" id="share-status-badge">
                                     {{ copy_sharing_state.status_label }}
@@ -433,6 +534,7 @@
                                     </a>
                                 </div>
                             </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -560,7 +662,6 @@
                 </div>
         </div>
     </section>
-
     <footer class="dashboard-footer text-center text-muted small">
         <div class="container">
             <span>Indy Hub &copy; {{ year|default:2025 }} &mdash; {% trans "Powered by Alliance Auth" %}</span>
@@ -573,15 +674,31 @@
 </div>
 {% endblock content %}
 
+{% block indy_hub_global_modals %}
+    {{ block.super }}
+    {% include "indy_hub/includes/bp_chat_modal.html" %}
+{% endblock %}
+
 {% block extra_javascript %}
-<script src="{% static 'indy_hub/js/index.js' %}"></script>
 <script>
-// Configure URLs and text for the JavaScript module
 window.csrfToken = '{{ csrf_token }}';
 window.toggleJobNotificationsUrl = '{% url 'indy_hub:toggle_job_notifications' %}';
 window.toggleCopySharingUrl = '{% url 'indy_hub:toggle_copy_sharing' %}';
+window.toggleCorporationCopySharingUrl = '{% url 'indy_hub:toggle_corporation_copy_sharing' %}';
 window.notificationsOnText = '{% trans "Notifications ON" %}';
 window.notificationsOffText = '{% trans "Notifications OFF" %}';
 window.copySharingStates = JSON.parse('{{ copy_sharing_states_json|escapejs }}');
+window.corporationShareControls = JSON.parse('{{ corporation_share_controls_json|escapejs }}');
+window.indyChatDefaults = Object.assign({}, window.indyChatDefaults || {}, {
+    viewerRole: 'buyer',
+    labels: {
+        buyer: '{% trans "Buyer" %}',
+        seller: '{% trans "Builder" %}',
+        system: '{% trans "System" %}',
+        you: '{% trans "You" %}'
+    }
+});
 </script>
+<script src="{% static 'indy_hub/js/bp_copy_chat.js' %}?v=20251021"></script>
+<script src="{% static 'indy_hub/js/index.js' %}"></script>
 {% endblock extra_javascript %}

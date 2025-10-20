@@ -1,0 +1,25 @@
+{% comment %}Reusable nav link for Alliance Auth v4 headers{% endcomment %}
+{% with extra_class=link_class|default:btn_class %}
+<li class="nav-item{% if item_class %} {{ item_class }}{% endif %}">
+    <a class="nav-link d-flex align-items-center gap-2{% if extra_class %} {{ extra_class }}{% endif %}" href="{{ url }}">
+        {% if fa_icon %}
+            {% if icon_on_mobile %}
+                <span class="d-inline-flex d-lg-none">
+                    <i class="{{ fa_icon }}"></i>
+                </span>
+            {% endif %}
+            {% if icon_on_desktop %}
+                <span class="{% if icon_on_mobile %}d-none d-lg-inline-flex{% else %}d-inline-flex{% endif %}">
+                    <i class="{{ fa_icon }}"></i>
+                </span>
+            {% endif %}
+            {% if not icon_on_mobile and not icon_on_desktop %}
+                <span class="d-inline-flex">
+                    <i class="{{ fa_icon }}"></i>
+                </span>
+            {% endif %}
+        {% endif %}
+        <span class="nav-link-label">{{ title }}</span>
+    </a>
+</li>
+{% endwith %}

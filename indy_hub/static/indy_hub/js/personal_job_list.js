@@ -1,5 +1,21 @@
 /* Personal Job List JavaScript */
 
+function refreshJobs() {
+    const buttons = document.querySelectorAll('button[data-refresh-jobs]');
+    buttons.forEach(btn => {
+        const originalContent = btn.dataset.refreshOriginal || btn.innerHTML;
+        if (!btn.dataset.refreshOriginal) {
+            btn.dataset.refreshOriginal = originalContent;
+        }
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>' + btn.textContent.trim();
+        btn.disabled = true;
+    });
+
+    const url = new URL(window.location.href);
+    url.searchParams.set('refresh', '1');
+    window.location.href = url.toString();
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     // Image onerror handler
     document.querySelectorAll('img').forEach(function(img) {

@@ -11,6 +11,9 @@ from .views.industry import (
     bp_accept_copy_request,
     bp_buyer_accept_offer,
     bp_cancel_copy_request,
+    bp_chat_decide,
+    bp_chat_history,
+    bp_chat_send,
     bp_cond_copy_request,
     bp_copy_fulfill_requests,
     bp_copy_my_requests,
@@ -33,7 +36,11 @@ from .views.industry import (
 from .views.user import (
     authorize_all,
     authorize_blueprints,
+    authorize_corp_all,
+    authorize_corp_blueprints,
+    authorize_corp_jobs,
     authorize_jobs,
+    corporation_dashboard,
     index,
     onboarding_set_visibility,
     onboarding_toggle_task,
@@ -43,6 +50,7 @@ from .views.user import (
     sync_blueprints,
     sync_jobs,
     toggle_copy_sharing,
+    toggle_corporation_copy_sharing,
     toggle_job_notifications,
     token_management,
 )
@@ -50,9 +58,22 @@ from .views.user import (
 app_name = "indy_hub"
 urlpatterns = [
     path("", index, name="index"),
+    path("corporation/", corporation_dashboard, name="corporation_dashboard"),
     path("personnal-bp/", personnal_bp_list, name="personnal_bp_list"),
+    path(
+        "corporation-bp/",
+        personnal_bp_list,
+        {"scope": "corporation"},
+        name="corporation_bp_list",
+    ),
     path("all-bp/", all_bp_list, name="all_bp_list"),
     path("personnal-jobs/", personnal_job_list, name="personnal_job_list"),
+    path(
+        "corporation-jobs/",
+        personnal_job_list,
+        {"scope": "corporation"},
+        name="corporation_job_list",
+    ),
     path("tokens/", token_management, name="token_management"),
     path("tokens/sync-blueprints/", sync_blueprints, name="sync_blueprints"),
     path("tokens/sync-jobs/", sync_jobs, name="sync_jobs"),
@@ -60,6 +81,17 @@ urlpatterns = [
     path("authorize/blueprints/", authorize_blueprints, name="authorize_blueprints"),
     path("authorize/jobs/", authorize_jobs, name="authorize_jobs"),
     path("authorize/all/", authorize_all, name="authorize_all"),
+    path(
+        "authorize/corporation/blueprints/",
+        authorize_corp_blueprints,
+        name="authorize_corp_blueprints",
+    ),
+    path(
+        "authorize/corporation/jobs/",
+        authorize_corp_jobs,
+        name="authorize_corp_jobs",
+    ),
+    path("authorize/corporation/all/", authorize_corp_all, name="authorize_corp_all"),
     path("craft/<int:type_id>/", craft_bp, name="craft_bp"),
     path("api/fuzzwork-price/", fuzzwork_price, name="fuzzwork_price"),
     path(
@@ -136,6 +168,21 @@ urlpatterns = [
         name="bp_cancel_copy_request",
     ),
     path(
+        "bp-copy/chat/<int:chat_id>/",
+        bp_chat_history,
+        name="bp_chat_history",
+    ),
+    path(
+        "bp-copy/chat/<int:chat_id>/send/",
+        bp_chat_send,
+        name="bp_chat_send",
+    ),
+    path(
+        "bp-copy/chat/<int:chat_id>/decision/",
+        bp_chat_decide,
+        name="bp_chat_decide",
+    ),
+    path(
         "bp-copy/delivered/<int:request_id>/",
         bp_mark_copy_delivered,
         name="bp_mark_copy_delivered",
@@ -144,6 +191,11 @@ urlpatterns = [
         "toggle-job-notifications/",
         toggle_job_notifications,
         name="toggle_job_notifications",
+    ),
+    path(
+        "toggle-corporation-copy-sharing/",
+        toggle_corporation_copy_sharing,
+        name="toggle_corporation_copy_sharing",
     ),
     path("toggle-copy-sharing/", toggle_copy_sharing, name="toggle_copy_sharing"),
     path(

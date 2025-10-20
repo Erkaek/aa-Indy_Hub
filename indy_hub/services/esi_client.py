@@ -12,12 +12,19 @@ from requests import Response
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+try:
+    # Django
+    from django.conf import settings
+except Exception:  # pragma: no cover - settings might be unavailable in tests
+    settings = None
+
 # Alliance Auth
 from esi.models import Token
 
 logger = logging.getLogger(__name__)
 
 ESI_BASE_URL = "https://esi.evetech.net/latest"
+DEFAULT_COMPATIBILITY_DATE = "2025-09-30"
 
 
 class ESIClientError(Exception):
@@ -101,11 +108,13 @@ class ESIClient:
         timeout: int = 20,
         max_attempts: int = 3,
         backoff_factor: float = 0.75,
+        compatibility_date: str | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.max_attempts = max_attempts
         self.backoff_factor = backoff_factor
+        self.compatibility_date = (compatibility_date or "").strip() or None
         self.session = requests.Session()
         retry = Retry(
             total=max_attempts,
@@ -119,6 +128,15 @@ class ESIClient:
         adapter = HTTPAdapter(max_retries=retry)
         self.session.mount("https://", adapter)
         self.session.mount("http://", adapter)
+        self._default_headers: dict[str, str] = {"Accept": "application/json"}
+        if self.compatibility_date:
+            self._default_headers["X-Compatibility-Date"] = self.compatibility_date
+
+    def _merge_headers(self, headers: dict[str, str] | None) -> dict[str, str]:
+        merged = dict(self._default_headers)
+        if headers:
+            merged.update(headers)
+        return merged
 
     def fetch_character_blueprints(self, character_id: int) -> list[dict]:
         """Return the list of blueprints for a character."""
@@ -135,6 +153,45 @@ class ESIClient:
             scope="esi-industry.read_character_jobs.v1",
             endpoint=f"/characters/{character_id}/industry/jobs/",
         )
+
+    def fetch_corporation_blueprints(
+        self, corporation_id: int, *, character_id: int
+    ) -> list[dict]:
+        """Return the list of blueprints owned by a corporation."""
+
+        return self._fetch_paginated(
+            character_id=character_id,
+            scope="esi-corporations.read_blueprints.v1",
+            endpoint=f"/corporations/{corporation_id}/blueprints/",
+        )
+
+    def fetch_corporation_industry_jobs(
+        self, corporation_id: int, *, character_id: int
+    ) -> list[dict]:
+        """Return the list of industry jobs owned by a corporation."""
+
+        return self._fetch_paginated(
+            character_id=character_id,
+            scope="esi-industry.read_corporation_jobs.v1",
+            endpoint=f"/corporations/{corporation_id}/industry/jobs/",
+        )
+
+    def fetch_character_corporation_roles(self, character_id: int) -> dict:
+        """Return the corporation roles assigned to a character."""
+
+        access_token = self._get_access_token(
+            character_id, "esi-characters.read_corporation_roles.v1"
+        )
+        url = f"{self.base_url}/characters/{character_id}/roles/"
+        headers = {"Authorization": f"Bearer {access_token}"}
+        params = {"datasource": "tranquility"}
+        response = self._request("GET", url, headers=headers, params=params)
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise ESIClientError(
+                f"ESI {url} a retourné un format inattendu: {type(payload)}"
+            )
+        return payload
 
     def fetch_structure_name(
         self, structure_id: int, character_id: int | None = None
@@ -163,9 +220,13 @@ class ESIClient:
         attempt = 0
         while attempt < self.max_attempts:
             attempt += 1
+            request_headers = self._merge_headers(headers)
             try:
                 response = self.session.get(
-                    url, params=params, headers=headers, timeout=self.timeout
+                    url,
+                    params=params,
+                    headers=request_headers,
+                    timeout=self.timeout,
                 )
             except requests.RequestException as exc:
                 if attempt >= self.max_attempts:
@@ -281,6 +342,8 @@ class ESIClient:
         attempt = 0
         while True:
             attempt += 1
+            headers = kwargs.pop("headers", None)
+            kwargs["headers"] = self._merge_headers(headers)
             try:
                 response = self.session.request(
                     method, url, timeout=self.timeout, **kwargs
@@ -346,4 +409,13 @@ class ESIClient:
 
 
 # Module level singleton to avoid re-creating sessions
-shared_client = ESIClient()
+if settings is not None:
+    _compat_date = getattr(
+        settings,
+        "INDY_HUB_ESI_COMPATIBILITY_DATE",
+        DEFAULT_COMPATIBILITY_DATE,
+    )
+else:  # pragma: no cover - running without Django settings
+    _compat_date = DEFAULT_COMPATIBILITY_DATE
+
+shared_client = ESIClient(compatibility_date=_compat_date)

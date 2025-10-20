@@ -28,6 +28,7 @@ from ..utils.eve import (
     PLACEHOLDER_PREFIX,
     batch_cache_type_names,
     get_character_name,
+    get_corporation_name,
     get_type_name,
     resolve_location_name,
 )
@@ -37,6 +38,19 @@ logger = logging.getLogger(__name__)
 BLUEPRINT_SCOPE = "esi-characters.read_blueprints.v1"
 JOBS_SCOPE = "esi-industry.read_character_jobs.v1"
 STRUCTURE_SCOPE = "esi-universe.read_structures.v1"
+CORP_BLUEPRINT_SCOPE = "esi-corporations.read_blueprints.v1"
+CORP_JOBS_SCOPE = "esi-industry.read_corporation_jobs.v1"
+CORP_ROLES_SCOPE = "esi-characters.read_corporation_roles.v1"
+CORP_BLUEPRINT_SCOPE_SET = [
+    CORP_BLUEPRINT_SCOPE,
+    STRUCTURE_SCOPE,
+    CORP_ROLES_SCOPE,
+]
+CORP_JOBS_SCOPE_SET = [
+    CORP_JOBS_SCOPE,
+    STRUCTURE_SCOPE,
+    CORP_ROLES_SCOPE,
+]
 
 MANUAL_REFRESH_KIND_BLUEPRINTS = "blueprints"
 MANUAL_REFRESH_KIND_JOBS = "jobs"
@@ -46,6 +60,140 @@ _DEFAULT_BULK_WINDOWS = {
     MANUAL_REFRESH_KIND_BLUEPRINTS: 720,
     "industry_jobs": 120,
 }
+
+_OPTIONAL_CORPORATION_SCOPES = {STRUCTURE_SCOPE}
+_REQUIRED_CORPORATION_ROLES = {"DIRECTOR", "FACTORY_MANAGER"}
+_CORPORATION_ROLE_CACHE: dict[int, set[str]] = {}
+
+
+def _normalized_roles(roles: list[str] | tuple[str, ...] | None) -> set[str]:
+    if not roles:
+        return set()
+    return {str(role).upper() for role in roles if role}
+
+
+def _get_character_corporation_roles(character_id: int) -> set[str]:
+    if character_id in _CORPORATION_ROLE_CACHE:
+        return _CORPORATION_ROLE_CACHE[character_id]
+
+    payload = shared_client.fetch_character_corporation_roles(int(character_id))
+    collected: set[str] = set()
+    for key in ("roles", "roles_at_hq", "roles_at_base", "roles_at_other"):
+        collected.update(_normalized_roles(payload.get(key)))
+
+    _CORPORATION_ROLE_CACHE[character_id] = collected
+    return collected
+
+
+def _collect_corporation_contexts(
+    user: User, required_scopes: list[str]
+) -> dict[int, dict[str, int | str]]:
+    """Return mapping of corporation id to token context for the user."""
+
+    contexts: dict[int, dict[str, int | str]] = {}
+
+    if not required_scopes:
+        return contexts
+
+    ownerships = CharacterOwnership.objects.filter(user=user).select_related(
+        "character"
+    )
+
+    try:
+        # Alliance Auth
+        from esi.models import Token
+    except ImportError:  # pragma: no cover - defensive fallback
+        logger.debug("ESI Token model unavailable; skipping corp context collection")
+        return contexts
+
+    for ownership in ownerships:
+        corp_id = getattr(ownership.character, "corporation_id", None)
+        if not corp_id:
+            continue
+
+        char_id = ownership.character.character_id
+        base_qs = Token.objects.filter(character_id=char_id, user=user).order_by(
+            "-created"
+        )
+
+        if required_scopes:
+            base_scopes = list(required_scopes)
+            scope_groups: list[list[str]] = [base_scopes]
+            for optional_scope in _OPTIONAL_CORPORATION_SCOPES:
+                if optional_scope in base_scopes:
+                    reduced = [
+                        scope for scope in base_scopes if scope != optional_scope
+                    ]
+                    if reduced not in scope_groups:
+                        scope_groups.append(reduced)
+        else:
+            scope_groups = [[]]
+
+        token_qs = None
+        scopes_used: list[str] | None = None
+        for scopes in scope_groups:
+            candidate_qs = base_qs
+            if scopes:
+                candidate_qs = candidate_qs.require_scopes(scopes)
+            if candidate_qs.exists():
+                token_qs = candidate_qs
+                scopes_used = scopes
+                break
+
+        if token_qs is None or not token_qs.exists():
+            logger.info(
+                "Aucun jeton Alliance Auth avec les scopes %s pour le personnage %s (corp %s)",
+                base_scopes,
+                char_id,
+                corp_id,
+            )
+            continue
+
+        if scopes_used is not None and scopes_used != required_scopes:
+            logger.debug(
+                "Fallback to reduced scope %s for corporation %s via character %s",
+                scopes_used,
+                corp_id,
+                char_id,
+            )
+
+        try:
+            roles = _get_character_corporation_roles(char_id)
+        except ESITokenError:
+            logger.info(
+                "Le personnage %s n'a pas le scope corporation roles requis pour la corp %s",
+                char_id,
+                corp_id,
+            )
+            continue
+        except ESIClientError as exc:
+            logger.warning(
+                "Unable to load corporation roles for %s (%s); skipping corp %s",
+                char_id,
+                exc,
+                corp_id,
+            )
+            continue
+
+        if not roles.intersection(_REQUIRED_CORPORATION_ROLES):
+            logger.info(
+                "Le personnage %s n'a pas les rôles %s pour la corp %s",
+                char_id,
+                ", ".join(sorted(_REQUIRED_CORPORATION_ROLES)),
+                corp_id,
+            )
+            continue
+
+        contexts.setdefault(
+            corp_id,
+            {
+                "character_id": char_id,
+                "character_name": get_character_name(char_id),
+                "corporation_name": get_corporation_name(corp_id),
+            },
+        )
+
+    return contexts
 
 
 def _get_manual_refresh_cooldown_seconds() -> int:
@@ -144,32 +292,50 @@ def reset_manual_refresh_cooldown(kind: str, user_id: int) -> None:
 
 
 def queue_blueprint_update_for_user(
-    user_id: int, *, countdown: int = 0, priority: int | None = None
+    user_id: int,
+    *,
+    countdown: int = 0,
+    priority: int | None = None,
+    scope: str | None = None,
 ) -> None:
+    kwargs = {}
+    if scope:
+        kwargs["scope"] = scope
     update_blueprints_for_user.apply_async(
-        args=(user_id,), countdown=countdown, priority=priority
+        args=(user_id,), kwargs=kwargs, countdown=countdown, priority=priority
     )
 
 
 def queue_industry_job_update_for_user(
-    user_id: int, *, countdown: int = 0, priority: int | None = None
+    user_id: int,
+    *,
+    countdown: int = 0,
+    priority: int | None = None,
+    scope: str | None = None,
 ) -> None:
+    kwargs = {}
+    if scope:
+        kwargs["scope"] = scope
     update_industry_jobs_for_user.apply_async(
-        args=(user_id,), countdown=countdown, priority=priority
+        args=(user_id,), kwargs=kwargs, countdown=countdown, priority=priority
     )
 
 
 def request_manual_refresh(
-    kind: str, user_id: int, *, priority: int | None = None
+    kind: str,
+    user_id: int,
+    *,
+    priority: int | None = None,
+    scope: str | None = None,
 ) -> tuple[bool, timedelta | None]:
     allowed, remaining = manual_refresh_allowed(kind, user_id)
     if not allowed:
         return False, remaining
 
     if kind == MANUAL_REFRESH_KIND_BLUEPRINTS:
-        queue_blueprint_update_for_user(user_id, priority=priority)
+        queue_blueprint_update_for_user(user_id, priority=priority, scope=scope)
     elif kind == MANUAL_REFRESH_KIND_JOBS:
-        queue_industry_job_update_for_user(user_id, priority=priority)
+        queue_industry_job_update_for_user(user_id, priority=priority, scope=scope)
     else:
         raise ValueError(f"Unknown manual refresh kind: {kind}")
 
@@ -204,8 +370,12 @@ def _coerce_job_datetime(value):
 
 
 @shared_task(bind=True, max_retries=3)
-def update_blueprints_for_user(self, user_id):
-    required_scopes = [BLUEPRINT_SCOPE, STRUCTURE_SCOPE]
+def update_blueprints_for_user(self, user_id, scope: str | None = None):
+    base_scopes = [BLUEPRINT_SCOPE]
+    scope_preferences = [
+        base_scopes + [STRUCTURE_SCOPE],
+        base_scopes,
+    ]
     try:
         user = User.objects.get(id=user_id)
     except User.DoesNotExist as exc:  # pragma: no cover - defensive guard
@@ -214,12 +384,48 @@ def update_blueprints_for_user(self, user_id):
         )
         raise self.retry(exc=exc, countdown=60 * (2**self.request.retries))
 
-    logger.info("Synchronisation des blueprints pour %s", user.username)
+    normalized_scope = (scope or "").strip().lower()
+    if normalized_scope not in {"character", "corporation"}:
+        normalized_scope = None
+
+    scope_label = normalized_scope or "all"
+    logger.info(
+        "Synchronisation des blueprints pour %s (scope=%s)",
+        user.username,
+        scope_label,
+    )
     updated_count = 0
     deleted_total = 0
     error_messages: list[str] = []
+    corp_contexts: dict[int, dict[str, int | str]] = {}
 
-    ownerships = CharacterOwnership.objects.filter(user=user)
+    process_characters = normalized_scope in {None, "character"}
+    process_corporations = normalized_scope in {None, "corporation"}
+
+    if process_corporations and user.has_perm("indy_hub.can_manage_corporate_assets"):
+        corp_contexts = _collect_corporation_contexts(user, CORP_BLUEPRINT_SCOPE_SET)
+        logger.info(
+            "Contexte corporation détecté pour %s: %s",
+            user.username,
+            ", ".join(str(key) for key in corp_contexts.keys()) or "aucun",
+        )
+        if not corp_contexts:
+            logger.debug(
+                "Aucun contexte corporation disponible pour %s lors d'une synchronisation scope=%s",
+                user.username,
+                scope_label,
+            )
+    elif normalized_scope == "corporation":
+        message = (
+            "Synchronisation des blueprints corporate ignorée pour %s: permission manquante"
+            % user.username
+        )
+        logger.info(message)
+        error_messages.append(message)
+
+    ownerships = (
+        CharacterOwnership.objects.filter(user=user) if process_characters else []
+    )
     for ownership in ownerships:
         char_id = ownership.character.character_id
         character_name = get_character_name(char_id)
@@ -227,19 +433,33 @@ def update_blueprints_for_user(self, user_id):
             # Alliance Auth
             from esi.models import Token
 
-            token_exists = (
-                Token.objects.filter(character_id=char_id, user=user)
-                .require_scopes(required_scopes)
-                .exists()
+            token_qs = Token.objects.filter(character_id=char_id, user=user).order_by(
+                "-created"
             )
-            if not token_exists:
+
+            chosen_scopes: list[str] | None = None
+            for scope_set in scope_preferences:
+                candidate_qs = token_qs
+                if scope_set:
+                    candidate_qs = candidate_qs.require_scopes(scope_set)
+                if candidate_qs.exists():
+                    chosen_scopes = scope_set
+                    break
+
+            if chosen_scopes is None:
                 message = (
                     f"{character_name} ({char_id}) sans jeton pour les scopes "
-                    f"{', '.join(required_scopes)}"
+                    f"{', '.join(base_scopes)}"
                 )
                 logger.debug(message)
                 error_messages.append(message)
                 continue
+
+            if STRUCTURE_SCOPE not in chosen_scopes:
+                logger.debug(
+                    "Synchronisation des blueprints pour %s via token sans scope structure",
+                    character_name,
+                )
 
             blueprints = shared_client.fetch_character_blueprints(char_id)
         except ESITokenError as exc:
@@ -262,6 +482,13 @@ def update_blueprints_for_user(self, user_id):
         with transaction.atomic():
             for bp in blueprints:
                 item_id = bp.get("item_id")
+                if item_id is None:
+                    logger.debug(
+                        "Blueprint sans item_id ignoré pour %s (%s)",
+                        character_name,
+                        bp,
+                    )
+                    continue
                 esi_ids.add(item_id)
                 location_id = bp.get("location_id")
                 location_name = resolve_location_name(
@@ -270,10 +497,13 @@ def update_blueprints_for_user(self, user_id):
                     owner_user_id=user.id,
                 )
                 Blueprint.objects.update_or_create(
-                    owner_user=user,
-                    character_id=char_id,
                     item_id=item_id,
                     defaults={
+                        "owner_user": user,
+                        "owner_kind": Blueprint.OwnerKind.CHARACTER,
+                        "corporation_id": None,
+                        "corporation_name": "",
+                        "character_id": char_id,
                         "blueprint_id": bp.get("blueprint_id"),
                         "type_id": bp.get("type_id"),
                         "location_id": location_id,
@@ -289,7 +519,11 @@ def update_blueprints_for_user(self, user_id):
                 )
 
             deleted, _ = (
-                Blueprint.objects.filter(owner_user=user, character_id=char_id)
+                Blueprint.objects.filter(
+                    owner_user=user,
+                    owner_kind=Blueprint.OwnerKind.CHARACTER,
+                    character_id=char_id,
+                )
                 .exclude(item_id__in=esi_ids)
                 .delete()
             )
@@ -301,6 +535,97 @@ def update_blueprints_for_user(self, user_id):
             len(blueprints),
             deleted,
         )
+
+    if process_corporations and corp_contexts:
+        for corp_id, context in corp_contexts.items():
+            corp_char_id = context.get("character_id")
+            corp_name = context.get("corporation_name") or str(corp_id)
+            acting_character_name = context.get("character_name") or ""
+
+            if not corp_char_id:
+                logger.debug(
+                    "Contexte incomplet pour la corporation %s (aucun character_id)",
+                    corp_id,
+                )
+                continue
+
+            try:
+                corp_blueprints = shared_client.fetch_corporation_blueprints(
+                    int(corp_id), character_id=int(corp_char_id)
+                )
+            except ESITokenError as exc:
+                message = f"Jeton invalide pour la corporation {corp_name} ({corp_id}) via {acting_character_name}: {exc}"
+                logger.warning(message)
+                error_messages.append(message)
+                continue
+            except ESIClientError as exc:
+                message = f"Erreur ESI pour la corporation {corp_name} ({corp_id}) via {acting_character_name}: {exc}"
+                logger.error(message)
+                error_messages.append(message)
+                continue
+            except Exception as exc:  # pragma: no cover - unexpected
+                message = f"Erreur inattendue pour la corporation {corp_name} ({corp_id}) via {acting_character_name}: {exc}"
+                logger.exception(message)
+                error_messages.append(message)
+                continue
+
+            corp_esi_ids: set[int] = set()
+            with transaction.atomic():
+                for bp in corp_blueprints:
+                    item_id = bp.get("item_id")
+                    if item_id is None:
+                        logger.debug(
+                            "Blueprint corporate sans item_id ignoré pour %s (%s)",
+                            corp_name,
+                            bp,
+                        )
+                        continue
+                    corp_esi_ids.add(item_id)
+                    location_id = bp.get("location_id")
+                    location_name = resolve_location_name(
+                        location_id,
+                        character_id=int(corp_char_id),
+                        owner_user_id=user.id,
+                    )
+                    Blueprint.objects.update_or_create(
+                        item_id=item_id,
+                        defaults={
+                            "owner_user": user,
+                            "owner_kind": Blueprint.OwnerKind.CORPORATION,
+                            "corporation_id": corp_id,
+                            "corporation_name": corp_name,
+                            "character_id": None,
+                            "character_name": acting_character_name,
+                            "blueprint_id": bp.get("blueprint_id"),
+                            "type_id": bp.get("type_id"),
+                            "location_id": location_id,
+                            "location_name": location_name,
+                            "location_flag": bp.get("location_flag", ""),
+                            "quantity": bp.get("quantity"),
+                            "time_efficiency": bp.get("time_efficiency", 0),
+                            "material_efficiency": bp.get("material_efficiency", 0),
+                            "runs": bp.get("runs", 0),
+                            "type_name": get_type_name(bp.get("type_id")),
+                        },
+                    )
+
+                deleted, _ = (
+                    Blueprint.objects.filter(
+                        owner_kind=Blueprint.OwnerKind.CORPORATION,
+                        corporation_id=corp_id,
+                    )
+                    .exclude(item_id__in=corp_esi_ids)
+                    .delete()
+                )
+
+            updated_count += len(corp_blueprints)
+            deleted_total += deleted
+            logger.debug(
+                "Synchronisation des blueprints corporate terminée pour %s (%s mis à jour, %s supprimés)",
+                corp_name,
+                len(corp_blueprints),
+                deleted,
+            )
 
     logger.info(
         "Blueprints synchronisés pour %s: %s éléments mis à jour, %s supprimés",
@@ -324,7 +649,7 @@ def update_blueprints_for_user(self, user_id):
 
 
 @shared_task(bind=True, max_retries=3)
-def update_industry_jobs_for_user(self, user_id):
+def update_industry_jobs_for_user(self, user_id, scope: str | None = None):
     try:
         user = User.objects.get(id=user_id)
         logger.info("Starting industry jobs update for user %s", user.username)
@@ -335,7 +660,51 @@ def update_industry_jobs_for_user(self, user_id):
         lookup_budget = _get_location_lookup_budget()
         lookup_budget_warned = False
         ownerships = CharacterOwnership.objects.filter(user=user)
-        required_scopes = [JOBS_SCOPE, STRUCTURE_SCOPE]
+        base_scopes = [JOBS_SCOPE]
+        scope_preferences = [
+            base_scopes + [STRUCTURE_SCOPE],
+            base_scopes,
+        ]
+        corp_contexts: dict[int, dict[str, int | str]] = {}
+
+        normalized_scope = (scope or "").strip().lower()
+        if normalized_scope not in {"character", "corporation"}:
+            normalized_scope = None
+        scope_label = normalized_scope or "all"
+        logger.debug(
+            "Industry jobs update for %s using scope=%s",
+            user.username,
+            scope_label,
+        )
+
+        process_characters = normalized_scope in {None, "character"}
+        process_corporations = normalized_scope in {None, "corporation"}
+
+        if not process_characters:
+            ownerships = []
+
+        if process_corporations and user.has_perm(
+            "indy_hub.can_manage_corporate_assets"
+        ):
+            corp_contexts = _collect_corporation_contexts(user, CORP_JOBS_SCOPE_SET)
+            logger.info(
+                "Contexte corporation (jobs) détecté pour %s: %s",
+                user.username,
+                ", ".join(str(key) for key in corp_contexts.keys()) or "aucun",
+            )
+            if not corp_contexts:
+                logger.debug(
+                    "No corporate contexts found for %s during scope=%s job sync",
+                    user.username,
+                    scope_label,
+                )
+        elif normalized_scope == "corporation":
+            message = (
+                "Corporate industry job sync skipped for %s due to missing permission"
+                % user.username
+            )
+            logger.info(message)
+            error_messages.append(message)
 
         for ownership in ownerships:
             char_id = ownership.character.character_id
@@ -344,19 +713,33 @@ def update_industry_jobs_for_user(self, user_id):
                 # Alliance Auth
                 from esi.models import Token
 
-                token_exists = (
-                    Token.objects.filter(character_id=char_id, user=user)
-                    .require_scopes(required_scopes)
-                    .exists()
-                )
-                if not token_exists:
+                token_qs = Token.objects.filter(
+                    character_id=char_id, user=user
+                ).order_by("-created")
+
+                chosen_scopes: list[str] | None = None
+                for scope_set in scope_preferences:
+                    candidate_qs = token_qs
+                    if scope_set:
+                        candidate_qs = candidate_qs.require_scopes(scope_set)
+                    if candidate_qs.exists():
+                        chosen_scopes = scope_set
+                        break
+
+                if chosen_scopes is None:
                     message = (
                         f"{character_name} ({char_id}) sans jeton pour les scopes "
-                        f"{', '.join(required_scopes)}"
+                        f"{', '.join(base_scopes)}"
                     )
                     logger.debug(message)
                     error_messages.append(message)
                     continue
+
+                if STRUCTURE_SCOPE not in chosen_scopes:
+                    logger.debug(
+                        "Synchronisation des jobs pour %s via token sans scope structure",
+                        character_name,
+                    )
 
                 jobs = shared_client.fetch_character_industry_jobs(char_id)
             except ESITokenError as exc:
@@ -379,6 +762,13 @@ def update_industry_jobs_for_user(self, user_id):
             with transaction.atomic():
                 for job in jobs:
                     job_id = job.get("job_id")
+                    if job_id is None:
+                        logger.debug(
+                            "Job sans identifiant ignoré pour %s: %s",
+                            character_name,
+                            job,
+                        )
+                        continue
                     esi_job_ids.add(job_id)
                     station_id = job.get("station_id") or job.get("facility_id")
                     location_name = ""
@@ -451,10 +841,13 @@ def update_industry_jobs_for_user(self, user_id):
                         end_date = start_date
 
                     IndustryJob.objects.update_or_create(
-                        owner_user=user,
-                        character_id=char_id,
                         job_id=job_id,
                         defaults={
+                            "owner_user": user,
+                            "owner_kind": Blueprint.OwnerKind.CHARACTER,
+                            "corporation_id": None,
+                            "corporation_name": "",
+                            "character_id": char_id,
                             "installer_id": job.get("installer_id"),
                             "station_id": station_id,
                             "location_name": location_name,
@@ -477,11 +870,19 @@ def update_industry_jobs_for_user(self, user_id):
                             "blueprint_type_name": get_type_name(
                                 job.get("blueprint_type_id")
                             ),
+                            "product_type_name": get_type_name(
+                                job.get("product_type_id")
+                            ),
+                            "character_name": character_name,
                         },
                     )
 
                 deleted, _ = (
-                    IndustryJob.objects.filter(owner_user=user, character_id=char_id)
+                    IndustryJob.objects.filter(
+                        owner_user=user,
+                        owner_kind=Blueprint.OwnerKind.CHARACTER,
+                        character_id=char_id,
+                    )
                     .exclude(job_id__in=esi_job_ids)
                     .delete()
                 )
@@ -494,6 +895,178 @@ def update_industry_jobs_for_user(self, user_id):
                 len(jobs),
                 deleted,
             )
+
+        if process_corporations and corp_contexts:
+            for corp_id, context in corp_contexts.items():
+                corp_char_id = context.get("character_id")
+                corp_name = context.get("corporation_name") or str(corp_id)
+                acting_character_name = context.get("character_name") or ""
+
+                if not corp_char_id:
+                    logger.debug(
+                        "Contexte incomplet pour les jobs corporate de %s (aucun character_id)",
+                        corp_id,
+                    )
+                    continue
+
+                try:
+                    corp_jobs = shared_client.fetch_corporation_industry_jobs(
+                        int(corp_id), character_id=int(corp_char_id)
+                    )
+                except ESITokenError as exc:
+                    message = f"Jeton invalide pour la corporation {corp_name} ({corp_id}) via {acting_character_name}: {exc}"
+                    logger.warning(message)
+                    error_messages.append(message)
+                    continue
+                except ESIClientError as exc:
+                    message = f"Erreur ESI pour la corporation {corp_name} ({corp_id}) via {acting_character_name}: {exc}"
+                    logger.error(message)
+                    error_messages.append(message)
+                    continue
+                except Exception as exc:  # pragma: no cover - unexpected
+                    message = f"Erreur inattendue pour la corporation {corp_name} ({corp_id}) via {acting_character_name}: {exc}"
+                    logger.exception(message)
+                    error_messages.append(message)
+                    continue
+
+                corp_job_ids: set[int] = set()
+                with transaction.atomic():
+                    for job in corp_jobs:
+                        job_id = job.get("job_id")
+                        if job_id is None:
+                            logger.debug(
+                                "Job corporate sans identifiant ignoré pour %s: %s",
+                                corp_name,
+                                job,
+                            )
+                            continue
+
+                        corp_job_ids.add(job_id)
+                        station_id = job.get("station_id") or job.get("facility_id")
+                        location_name = ""
+                        if station_id is not None:
+                            try:
+                                location_key = int(station_id)
+                            except (TypeError, ValueError):
+                                location_key = None
+
+                            if location_key is not None:
+                                cached_name = location_cache.get(location_key)
+                                if cached_name is not None:
+                                    location_name = cached_name
+                                elif lookup_budget > 0:
+                                    try:
+                                        resolved_name = resolve_location_name(
+                                            location_key,
+                                            character_id=int(corp_char_id),
+                                            owner_user_id=user.id,
+                                        )
+                                    except Exception:  # pragma: no cover
+                                        logger.debug(
+                                            "Location resolution failed for %s via %s",
+                                            location_key,
+                                            acting_character_name,
+                                            exc_info=True,
+                                        )
+                                        resolved_name = None
+
+                                    lookup_budget -= 1
+                                    location_name = (
+                                        resolved_name
+                                        if resolved_name
+                                        else f"{PLACEHOLDER_PREFIX}{location_key}"
+                                    )
+                                    location_cache[location_key] = location_name
+                                else:
+                                    if not lookup_budget_warned:
+                                        logger.warning(
+                                            "Location lookup budget exhausted while syncing corporate jobs for %s; remaining locations will use placeholders.",
+                                            corp_name,
+                                        )
+                                        lookup_budget_warned = True
+                                    location_name = location_cache.setdefault(
+                                        location_key,
+                                        f"{PLACEHOLDER_PREFIX}{location_key}",
+                                    )
+
+                        start_date = _coerce_job_datetime(job.get("start_date"))
+                        end_date = _coerce_job_datetime(job.get("end_date"))
+                        pause_date = _coerce_job_datetime(job.get("pause_date"))
+                        completed_date = _coerce_job_datetime(job.get("completed_date"))
+
+                        if start_date is None:
+                            logger.warning(
+                                "Ignoring corporate job %s for %s due to invalid start date %r",
+                                job_id,
+                                corp_name,
+                                job.get("start_date"),
+                            )
+                            continue
+
+                        if end_date is None:
+                            logger.warning(
+                                "Corporate job %s for %s missing end date; defaulting to start date.",
+                                job_id,
+                                corp_name,
+                            )
+                            end_date = start_date
+
+                        IndustryJob.objects.update_or_create(
+                            job_id=job_id,
+                            defaults={
+                                "owner_user": user,
+                                "owner_kind": Blueprint.OwnerKind.CORPORATION,
+                                "corporation_id": corp_id,
+                                "corporation_name": corp_name,
+                                "character_id": None,
+                                "character_name": acting_character_name,
+                                "installer_id": job.get("installer_id"),
+                                "station_id": station_id,
+                                "location_name": location_name,
+                                "activity_id": job.get("activity_id"),
+                                "blueprint_id": job.get("blueprint_id"),
+                                "blueprint_type_id": job.get("blueprint_type_id"),
+                                "runs": job.get("runs"),
+                                "cost": job.get("cost"),
+                                "licensed_runs": job.get("licensed_runs"),
+                                "probability": job.get("probability"),
+                                "product_type_id": job.get("product_type_id"),
+                                "status": job.get("status"),
+                                "duration": job.get("duration"),
+                                "start_date": start_date,
+                                "end_date": end_date,
+                                "pause_date": pause_date,
+                                "completed_date": completed_date,
+                                "completed_character_id": job.get(
+                                    "completed_character_id"
+                                ),
+                                "successful_runs": job.get("successful_runs"),
+                                "blueprint_type_name": get_type_name(
+                                    job.get("blueprint_type_id")
+                                ),
+                                "product_type_name": get_type_name(
+                                    job.get("product_type_id")
+                                ),
+                            },
+                        )
+
+                deleted, _ = (
+                    IndustryJob.objects.filter(
+                        owner_kind=Blueprint.OwnerKind.CORPORATION,
+                        corporation_id=corp_id,
+                    )
+                    .exclude(job_id__in=corp_job_ids)
+                    .delete()
+                )
+
+                updated_count += len(corp_jobs)
+                deleted_total += deleted
+                logger.debug(
+                    "Synchronisation des jobs corporate terminée pour %s (%s mis à jour, %s supprimés)",
+                    corp_name,
+                    len(corp_jobs),
+                    deleted,
+                )
 
         logger.info(
             "Jobs synchronisés pour %s: %s mis à jour, %s supprimés",
@@ -536,24 +1109,37 @@ def cleanup_old_jobs():
     count_no_user = jobs_no_user.count()
     jobs_no_user.delete()
 
-    # Jobs sans character ownership
-    jobs = IndustryJob.objects.all()
+    # Jobs sans character ownership (uniquement ceux liés à un personnage)
     char_ids = set(
         CharacterOwnership.objects.values_list("character__character_id", flat=True)
     )
-    jobs_no_char = jobs.exclude(character_id__in=char_ids)
+    jobs_no_char = IndustryJob.objects.filter(character_id__isnull=False).exclude(
+        character_id__in=char_ids
+    )
     count_no_char = jobs_no_char.count()
     jobs_no_char.delete()
 
-    # Jobs sans token valide (aucun token pour ce user/char)
+    # Jobs sans token valide (uniquement ceux associés à un personnage)
+    token_pairs = {
+        (user_id, character_id)
+        for user_id, character_id in Token.objects.values_list(
+            "user_id", "character_id"
+        )
+    }
+
+    orphan_job_ids: list[int] = []
+    for job_id, owner_user_id, character_id in IndustryJob.objects.filter(
+        character_id__isnull=False,
+        owner_user__isnull=False,
+    ).values_list("id", "owner_user_id", "character_id"):
+        if (owner_user_id, character_id) not in token_pairs:
+            orphan_job_ids.append(job_id)
+
     deleted_tokenless = 0
-    for job in IndustryJob.objects.all():
-        has_token = Token.objects.filter(
-            user=job.owner_user, character_id=job.character_id
-        ).exists()
-        if not has_token:
-            job.delete()
-            deleted_tokenless += 1
+    if orphan_job_ids:
+        deleted_tokenless = IndustryJob.objects.filter(id__in=orphan_job_ids).delete()[
+            0
+        ]
 
     total_deleted = count_no_user + count_no_char + deleted_tokenless
     logger.info(
