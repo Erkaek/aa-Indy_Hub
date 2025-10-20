@@ -3,6 +3,7 @@
 import json
 import logging
 import secrets
+from collections.abc import Iterable
 from math import ceil
 from typing import Any
 from urllib.parse import urlencode
@@ -175,14 +176,26 @@ def _collect_corporation_scope_status(
         character_name: str | None,
         corporation_id: int,
         corporation_name: str | None,
+        *,
+        scopes_to_revoke: Iterable[str] | None = None,
     ) -> int:
         if not Token:
             return 0
-        corp_tokens_qs = token_queryset.require_scopes([CORP_ROLES_SCOPE])
-        token_ids = list(corp_tokens_qs.values_list("pk", flat=True))
+
+        normalized_scopes = sorted({scope for scope in scopes_to_revoke or [] if scope})
+        if not normalized_scopes:
+            return 0
+
+        token_ids: set[int] = set()
+        for scope in normalized_scopes:
+            token_ids.update(
+                token_queryset.require_scopes([scope]).values_list("pk", flat=True)
+            )
+
         if not token_ids:
             return 0
-        corp_tokens_qs.delete()
+
+        token_queryset.filter(pk__in=token_ids).delete()
         logger.info(
             "Revoked %s corporate tokens for character %s (%s) and corporation %s (%s)",
             len(token_ids),
@@ -190,6 +203,7 @@ def _collect_corporation_scope_status(
             character_name,
             corporation_id,
             corporation_name,
+            extra={"scopes": normalized_scopes},
         )
         return len(token_ids)
 
@@ -266,12 +280,18 @@ def _collect_corporation_scope_status(
                 character_id,
                 corp_id,
             )
+            scopes_to_revoke: list[str] = []
+            if blueprint_token:
+                scopes_to_revoke.append(CORP_BLUEPRINT_SCOPE)
+            if jobs_token:
+                scopes_to_revoke.append(CORP_JOBS_SCOPE)
             revoked_count = _revoke_corporation_tokens(
                 token_qs,
                 character_id,
                 character_name,
                 corp_id,
                 corp_name,
+                scopes_to_revoke=scopes_to_revoke,
             )
             if include_warnings:
                 warnings.append(
@@ -283,6 +303,7 @@ def _collect_corporation_scope_status(
                         "corporation_name": corp_name,
                         "tokens_revoked": bool(revoked_count),
                         "revoked_token_count": revoked_count,
+                        "revoked_token_scopes": sorted(set(scopes_to_revoke)),
                     }
                 )
             continue
@@ -301,12 +322,18 @@ def _collect_corporation_scope_status(
                 ", ".join(sorted(REQUIRED_CORPORATION_ROLES)),
                 corp_id,
             )
+            scopes_to_revoke = []
+            if blueprint_token:
+                scopes_to_revoke.append(CORP_BLUEPRINT_SCOPE)
+            if jobs_token:
+                scopes_to_revoke.append(CORP_JOBS_SCOPE)
             revoked_count = _revoke_corporation_tokens(
                 token_qs,
                 character_id,
                 character_name,
                 corp_id,
                 corp_name,
+                scopes_to_revoke=scopes_to_revoke,
             )
             if include_warnings:
                 warnings.append(
@@ -320,6 +347,7 @@ def _collect_corporation_scope_status(
                         "required_roles": sorted(REQUIRED_CORPORATION_ROLES),
                         "tokens_revoked": bool(revoked_count),
                         "revoked_token_count": revoked_count,
+                        "revoked_token_scopes": sorted(set(scopes_to_revoke)),
                     }
                 )
             continue

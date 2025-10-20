@@ -24,9 +24,15 @@ except ImportError:
 # AA Example App
 # Task imports
 from indy_hub.tasks.industry import (
+    CORP_BLUEPRINT_SCOPE,
+    CORP_JOBS_SCOPE,
+    REQUIRED_CORPORATION_ROLES,
+    get_character_corporation_roles,
     update_blueprints_for_user,
     update_industry_jobs_for_user,
 )
+
+from .services.esi_client import ESITokenError
 
 logger = logging.getLogger(__name__)
 
@@ -217,6 +223,40 @@ def setup_indyhub_periodic_tasks(sender, **kwargs):
 
 # --- NEW: Combined token sync trigger ---
 if Token:
+
+    @receiver(post_save, sender=Token)
+    def enforce_corporation_role_tokens(sender, instance, created, **kwargs):
+        if not created:
+            return
+
+        scope_names = set(instance.scopes.values_list("name", flat=True))
+        relevant_scopes = {CORP_BLUEPRINT_SCOPE, CORP_JOBS_SCOPE}
+        if not scope_names.intersection(relevant_scopes):
+            return
+
+        try:
+            roles = get_character_corporation_roles(instance.character_id)
+        except ESITokenError:
+            logger.info(
+                "Removing corporation token %s for character %s: missing roles scope",
+                instance.pk,
+                instance.character_id,
+                extra={"scopes": sorted(scope_names)},
+            )
+            instance.delete()
+            return
+
+        if roles.intersection(REQUIRED_CORPORATION_ROLES):
+            return
+
+        logger.info(
+            "Removing corporation token %s for character %s: lacks required roles %s",
+            instance.pk,
+            instance.character_id,
+            ", ".join(sorted(REQUIRED_CORPORATION_ROLES)),
+            extra={"scopes": sorted(scope_names)},
+        )
+        instance.delete()
 
     @receiver(post_save, sender=Token)
     def trigger_sync_on_token_save(sender, instance, created, **kwargs):
