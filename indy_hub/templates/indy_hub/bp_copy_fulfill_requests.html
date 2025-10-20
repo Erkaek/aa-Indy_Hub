@@ -147,7 +147,7 @@
         </section>
 
         {% if requests %}
-        <section class="row row-cols-1 row-cols-lg-2 g-3">
+    <section class="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-3">
             {% for req in requests %}
             <div class="col">
                 <article class="card h-100 shadow-sm request-card">
@@ -226,7 +226,7 @@
                         </div>
                         {% endif %}
 
-                        {% if req.my_offer_status %}
+                        {% if req.my_offer_status and req.status_key != 'waiting_on_buyer' %}
                         <div class="alert alert-light border d-flex flex-column gap-1 mb-0">
                             <span class="small text-uppercase text-secondary fw-semibold">{% trans "Your latest offer" %}</span>
                             <div class="d-flex align-items-center gap-2">
@@ -249,7 +249,7 @@
                             <div class="alert alert-warning mb-0">
                                 <i class="fas fa-hourglass-half me-1"></i>{% trans "The buyer accepted your terms. Confirm in chat to finalise the agreement." %}
                             </div>
-                            {% elif req.handshake.state == 'waiting_on_buyer' %}
+                            {% elif req.handshake.state == 'waiting_on_buyer' and req.show_offer_actions %}
                             <div class="alert alert-info mb-0">
                                 <i class="fas fa-user-clock me-1"></i>{% trans "Waiting for the buyer to accept your conditions." %}
                             </div>
@@ -261,63 +261,93 @@
                         {% endif %}
 
                         <div class="mt-auto">
-                            <div class="bp-card-toolbar">
-                                {% if req.show_offer_actions %}
-                                <div class="bp-card-toolbar__group" role="group" aria-label="{% trans 'Decision actions' %}">
-                                    <button
-                                        class="bp-btn bp-btn-soft-info btn-sm"
-                                        type="button"
-                                        data-bs-toggle="collapse"
-                                        data-bs-target="#{{ req.conditional_collapse_id }}"
-                                        aria-expanded="false"
-                                        aria-controls="{{ req.conditional_collapse_id }}"
-                                    >
-                                        <i class="fas fa-comment-dots"></i>
-                                        <span>{% trans "Send conditions" %}</span>
-                                    </button>
+                            {% if req.status_key == 'waiting_on_buyer' and not req.show_offer_actions %}
+                                <div class="alert alert-info w-100 mb-3">
+                                    <i class="fas fa-info-circle me-1"></i>
+                                    {% trans "Waiting for the requester to respond to your conditions." %}
                                 </div>
-                                {% endif %}
-
-                                {% if req.can_mark_delivered %}
-                                <div class="bp-card-toolbar__group">
-                                    <form method="post" action="{% url 'indy_hub:bp_mark_copy_delivered' req.id %}" class="bp-card-toolbar__form">
-                                        {% csrf_token %}
-                                        <button type="submit" class="bp-btn bp-btn-soft-primary btn-sm">
-                                            <i class="fas fa-box-check"></i>
-                                            <span>{% trans "Mark as delivered" %}</span>
+                                {% include "indy_hub/includes/chat_preview.html" with preview=req.chat_preview %}
+                            {% else %}
+                                <div class="bp-card-toolbar">
+                                    {% if req.show_offer_actions %}
+                                    <div class="bp-card-toolbar__group" role="group" aria-label="{% trans 'Primary decision actions' %}">
+                                        <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}" class="bp-card-toolbar__form">
+                                            {% csrf_token %}
+                                            <input type="hidden" name="action" value="accept">
+                                            <button type="submit" class="bp-btn bp-btn-soft-success btn-sm">
+                                                <i class="fas fa-hand-holding-heart"></i>
+                                                <span>{% trans "Accept for free" %}</span>
+                                            </button>
+                                        </form>
+                                        <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}" class="bp-card-toolbar__form">
+                                            {% csrf_token %}
+                                            <input type="hidden" name="action" value="reject">
+                                            <button
+                                                type="submit"
+                                                class="bp-btn bp-btn-soft-danger btn-sm"
+                                                onclick="return confirm('{% trans "Decline this request?" %}')"
+                                            >
+                                                <i class="fas fa-ban"></i>
+                                                <span>{% trans "Decline" %}</span>
+                                            </button>
+                                        </form>
+                                    </div>
+                                    <div class="bp-card-toolbar__group" role="group" aria-label="{% trans 'Conditional decision actions' %}">
+                                        <button
+                                            class="bp-btn bp-btn-soft-info btn-sm"
+                                            type="button"
+                                            data-bs-toggle="collapse"
+                                            data-bs-target="#{{ req.conditional_collapse_id }}"
+                                            aria-expanded="false"
+                                            aria-controls="{{ req.conditional_collapse_id }}"
+                                        >
+                                            <i class="fas fa-comment-dots"></i>
+                                            <span>{% trans "Send conditions" %}</span>
                                         </button>
-                                    </form>
-                                </div>
-                                {% endif %}
+                                    </div>
+                                    {% endif %}
 
-                                {% if req.chat %}
-                                <div class="bp-card-toolbar__group bp-card-toolbar__group--stacked bp-card-toolbar__group--push">
-                                    <button
-                                        type="button"
-                                        class="bp-btn bp-chat-pill btn-sm bp-chat-trigger"
-                                        data-chat-fetch-url="{{ req.chat.fetch_url }}"
-                                        data-chat-send-url="{{ req.chat.send_url }}"
-                                        data-chat-role="seller"
-                                        data-chat-type-name="{{ req.type_name }}"
-                                        data-chat-type-id="{{ req.type_id }}"
-                                        data-chat-has-unread="{{ req.chat.has_unread|yesno:'true,false' }}"
-                                        aria-haspopup="dialog"
-                                    >
-                                        <i class="fas fa-comments"></i>
-                                        <span>{% trans "Open chat" %}</span>
-                                        {% if req.chat.has_unread %}
-                                        <span class="bp-chat-trigger__badge" aria-hidden="true">
-                                            <i class="fas fa-circle-dot"></i>
+                                    {% if req.can_mark_delivered %}
+                                    <div class="bp-card-toolbar__group">
+                                        <form method="post" action="{% url 'indy_hub:bp_mark_copy_delivered' req.id %}" class="bp-card-toolbar__form">
+                                            {% csrf_token %}
+                                            <button type="submit" class="bp-btn bp-btn-soft-primary btn-sm">
+                                                <i class="fas fa-box-check"></i>
+                                                <span>{% trans "Mark as delivered" %}</span>
+                                            </button>
+                                        </form>
+                                    </div>
+                                    {% endif %}
+
+                                    {% if req.chat %}
+                                    <div class="bp-card-toolbar__group bp-card-toolbar__group--stacked bp-card-toolbar__group--push">
+                                        <button
+                                            type="button"
+                                            class="bp-btn bp-chat-pill btn-sm bp-chat-trigger"
+                                            data-chat-fetch-url="{{ req.chat.fetch_url }}"
+                                            data-chat-send-url="{{ req.chat.send_url }}"
+                                            data-chat-role="seller"
+                                            data-chat-type-name="{{ req.type_name }}"
+                                            data-chat-type-id="{{ req.type_id }}"
+                                            data-chat-has-unread="{{ req.chat.has_unread|yesno:'true,false' }}"
+                                            aria-haspopup="dialog"
+                                        >
+                                            <i class="fas fa-comments"></i>
+                                            <span>{% trans "Open chat" %}</span>
+                                            {% if req.chat.has_unread %}
+                                            <span class="bp-chat-trigger__badge" aria-hidden="true">
+                                                <i class="fas fa-circle-dot"></i>
+                                            </span>
+                                            {% endif %}
+                                        </button>
+                                        {% if req.chat.last_message_display %}
+                                        <span class="bp-card-toolbar__timestamp">
+                                            {% blocktrans with timestamp=req.chat.last_message_display %}Last message {{ timestamp }}{% endblocktrans %}
                                         </span>
                                         {% endif %}
-                                    </button>
-                                    {% if req.chat.last_message_display %}
-                                    <span class="bp-card-toolbar__timestamp">
-                                        {% blocktrans with timestamp=req.chat.last_message_display %}Last message {{ timestamp }}{% endblocktrans %}
-                                    </span>
+                                    </div>
                                     {% endif %}
                                 </div>
-                                {% endif %}
 
                                 {% if req.show_offer_actions %}
                                 <div class="collapse bp-card-toolbar__collapse" id="{{ req.conditional_collapse_id }}">
@@ -337,14 +367,10 @@
                                         </div>
                                     </form>
                                 </div>
-                                {% elif req.status_key == 'waiting_on_buyer' and req.my_offer_message %}
-                                <div class="alert alert-info w-100 mb-0">
-                                    <i class="fas fa-info-circle me-1"></i>
-                                    {% trans "Waiting for the requester to respond to your conditions." %}
-                                </div>
                                 {% endif %}
-                            </div>
-                            {% include "indy_hub/includes/chat_preview.html" with preview=req.chat_preview %}
+
+                                {% include "indy_hub/includes/chat_preview.html" with preview=req.chat_preview %}
+                            {% endif %}
                         </div>
                     </div>
                 </article>

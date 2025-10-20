@@ -735,6 +735,8 @@ class CharacterSettings(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        verbose_name = _("Character setting")
+        verbose_name_plural = _("Character settings")
         default_permissions = ()
         constraints = [
             models.UniqueConstraint(
@@ -775,6 +777,7 @@ class CorporationSharingSetting(models.Model):
         default=CharacterSettings.SCOPE_NONE,
     )
     allow_copy_requests = models.BooleanField(default=False)
+    authorized_characters = models.JSONField(default=list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -808,6 +811,45 @@ class CorporationSharingSetting(models.Model):
             raise ValueError(f"Invalid copy sharing scope: {scope}")
         self.share_scope = scope
         self.allow_copy_requests = scope != CharacterSettings.SCOPE_NONE
+
+    def set_authorized_characters(self, character_ids) -> None:
+        """Replace the manual authorization list with the provided character IDs."""
+
+        normalized: list[int] = []
+        for value in character_ids or []:
+            try:
+                normalized.append(int(value))
+            except (TypeError, ValueError):
+                continue
+        unique_sorted = sorted(set(normalized))
+        self.authorized_characters = unique_sorted
+
+    def _normalized_authorized_characters(self) -> list[int]:
+        normalized: list[int] = []
+        for value in self.authorized_characters or []:
+            try:
+                normalized.append(int(value))
+            except (TypeError, ValueError):
+                continue
+        return sorted(set(normalized))
+
+    @property
+    def authorized_character_ids(self) -> list[int]:
+        return self._normalized_authorized_characters()
+
+    @property
+    def restricts_characters(self) -> bool:
+        return bool(self._normalized_authorized_characters())
+
+    def is_character_authorized(self, character_id: int | None) -> bool:
+        allowed = self._normalized_authorized_characters()
+        if not allowed:
+            return True
+        try:
+            normalized = int(character_id)
+        except (TypeError, ValueError):
+            return False
+        return normalized in allowed
 
 
 class ProductionConfig(models.Model):

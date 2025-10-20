@@ -281,6 +281,14 @@
                                 <span class="stat-chip-value">{{ corporation_sharing.total_jobs|default:0 }}</span>
                             </div>
                         </div>
+                        {% if corporation_sharing.restricted_corporation_tokens %}
+                        <div class="alert alert-warning text-dark small py-2">
+                            <i class="fas fa-user-lock me-1"></i>
+                            {% blocktrans with count=corporation_sharing.restricted_corporation_tokens %}
+                                Manual whitelists active for {{ count }} corporations. Only selected directors can sync data.
+                            {% endblocktrans %}
+                        </div>
+                        {% endif %}
                         {% endif %}
                         <h6 class="text-uppercase text-muted fw-bold mb-2">{% trans "Required roles" %}</h6>
                         <ul class="list-unstyled small text-muted mb-4">
@@ -341,6 +349,19 @@
                                             <td>
                                                 <div class="fw-semibold">{{ corp.name }}</div>
                                                 <div class="small text-muted">ID {{ corp.corporation_id }}</div>
+                                                {% if corp.authorization.restricted %}
+                                                <div class="small text-muted">
+                                                    <i class="fas fa-user-lock me-1"></i>
+                                                    {% if corp.authorization.characters %}
+                                                        {% trans "Whitelisted" %}:
+                                                        {% for pilot in corp.authorization.characters %}
+                                                            {{ pilot.name|default:pilot.id }}{% if not forloop.last %}, {% endif %}
+                                                        {% endfor %}
+                                                    {% else %}
+                                                        {% trans "Whitelisted" %}: {% trans "no pilots selected" %}
+                                                    {% endif %}
+                                                </div>
+                                                {% endif %}
                                             </td>
                                             <td class="text-center">
                                                 {% if corp.blueprints.token.has_scope %}

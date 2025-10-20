@@ -21,7 +21,7 @@ from django.utils.dateparse import parse_datetime
 # Alliance Auth
 from allianceauth.authentication.models import CharacterOwnership
 
-from ..models import Blueprint, IndustryJob
+from ..models import Blueprint, CorporationSharingSetting, IndustryJob
 from ..services.esi_client import ESIClientError, ESITokenError, shared_client
 from ..services.location_population import populate_location_names
 from ..utils.eve import (
@@ -99,6 +99,11 @@ def _collect_corporation_contexts(
         "character"
     )
 
+    corp_settings = {
+        setting.corporation_id: setting
+        for setting in CorporationSharingSetting.objects.filter(user=user)
+    }
+
     try:
         # Alliance Auth
         from esi.models import Token
@@ -110,6 +115,8 @@ def _collect_corporation_contexts(
         corp_id = getattr(ownership.character, "corporation_id", None)
         if not corp_id:
             continue
+
+        setting = corp_settings.get(corp_id)
 
         char_id = ownership.character.character_id
         base_qs = Token.objects.filter(character_id=char_id, user=user).order_by(
@@ -180,6 +187,18 @@ def _collect_corporation_contexts(
                 "Le personnage %s n'a pas les rôles %s pour la corp %s",
                 char_id,
                 ", ".join(sorted(_REQUIRED_CORPORATION_ROLES)),
+                corp_id,
+            )
+            continue
+
+        if (
+            setting
+            and setting.restricts_characters
+            and not setting.is_character_authorized(char_id)
+        ):
+            logger.debug(
+                "Character %s skipped for corporation %s: not whitelisted in Indy Hub",
+                char_id,
                 corp_id,
             )
             continue

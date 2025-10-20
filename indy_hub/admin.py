@@ -8,6 +8,7 @@ from django.contrib import admin
 from .models import (
     Blueprint,
     CharacterSettings,
+    CorporationSharingSetting,
     IndustryJob,
     UserOnboardingProgress,
 )
@@ -187,3 +188,40 @@ class UserOnboardingProgressAdmin(admin.ModelAdmin):
             },
         ),
     )
+
+
+@admin.register(CorporationSharingSetting)
+class CorporationSharingSettingAdmin(admin.ModelAdmin):
+    list_display = [
+        "user",
+        "corporation_id",
+        "corporation_name",
+        "share_scope",
+        "allow_copy_requests",
+        "has_manual_whitelist",
+        "updated_at",
+    ]
+    list_filter = ["share_scope", "allow_copy_requests", "updated_at"]
+    search_fields = ["user__username", "corporation_id", "corporation_name"]
+    readonly_fields = ["created_at", "updated_at"]
+    fieldsets = (
+        (
+            None,
+            {
+                "fields": (
+                    "user",
+                    "corporation_id",
+                    "corporation_name",
+                    "share_scope",
+                    "allow_copy_requests",
+                    "authorized_characters",
+                    "created_at",
+                    "updated_at",
+                )
+            },
+        ),
+    )
+
+    @admin.display(boolean=True, description="Whitelisted")
+    def has_manual_whitelist(self, obj: CorporationSharingSetting) -> bool:
+        return obj.restricts_characters

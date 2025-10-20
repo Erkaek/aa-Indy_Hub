@@ -117,6 +117,27 @@ BLUEPRINT_SCOPE_SET = [BLUEPRINT_SCOPE, STRUCTURE_SCOPE]
 JOBS_SCOPE_SET = [JOBS_SCOPE, STRUCTURE_SCOPE]
 
 
+def _build_corporation_authorization_summary(
+    setting: CorporationSharingSetting | None,
+) -> dict[str, Any]:
+    if not setting:
+        return {"restricted": False, "characters": []}
+
+    characters: list[dict[str, Any]] = []
+    for char_id in setting.authorized_character_ids:
+        characters.append(
+            {
+                "id": char_id,
+                "name": get_character_name(char_id),
+            }
+        )
+
+    return {
+        "restricted": setting.restricts_characters,
+        "characters": characters,
+    }
+
+
 def _collect_corporation_scope_status(user) -> list[dict[str, Any]]:
     if not user.has_perm("indy_hub.can_manage_corporate_assets"):
         return []
@@ -127,6 +148,10 @@ def _collect_corporation_scope_status(user) -> list[dict[str, Any]]:
     ownerships = CharacterOwnership.objects.filter(user=user).select_related(
         "character"
     )
+    settings_map = {
+        setting.corporation_id: setting
+        for setting in CorporationSharingSetting.objects.filter(user=user)
+    }
     corp_status: dict[int, dict[str, Any]] = {}
 
     for ownership in ownerships:
@@ -134,11 +159,14 @@ def _collect_corporation_scope_status(user) -> list[dict[str, Any]]:
         if not corp_id:
             continue
 
+        setting = settings_map.get(corp_id)
+        corp_name = get_corporation_name(corp_id) or str(corp_id)
+
         entry = corp_status.setdefault(
             corp_id,
             {
                 "corporation_id": corp_id,
-                "corporation_name": get_corporation_name(corp_id) or str(corp_id),
+                "corporation_name": corp_name,
                 "blueprint": {
                     "has_scope": False,
                     "character_id": None,
@@ -151,12 +179,25 @@ def _collect_corporation_scope_status(user) -> list[dict[str, Any]]:
                     "character_name": None,
                     "last_updated": None,
                 },
+                "authorization": _build_corporation_authorization_summary(setting),
             },
         )
 
         character_id = ownership.character.character_id
         token_qs = Token.objects.filter(user=user, character_id=character_id)
         if not token_qs.exists():
+            continue
+
+        if (
+            setting
+            and setting.restricts_characters
+            and not setting.is_character_authorized(character_id)
+        ):
+            logger.debug(
+                "Character %s ignored for corporation %s: not authorised for Indy Hub",
+                character_id,
+                corp_id,
+            )
             continue
 
         if not entry["blueprint"]["has_scope"]:
@@ -220,6 +261,10 @@ def _default_corporation_summary_entry(
             "last_sync": None,
             "token": empty_token.copy(),
         },
+        "authorization": {
+            "restricted": False,
+            "characters": [],
+        },
     }
 
 
@@ -238,6 +283,7 @@ def build_corporation_sharing_context(user) -> dict[str, Any] | None:
         summary_entry = _default_corporation_summary_entry(corp_id, corp_name)
         summary_entry["blueprints"]["token"] = dict(entry.get("blueprint", {}) or {})
         summary_entry["jobs"]["token"] = dict(entry.get("jobs", {}) or {})
+        summary_entry["authorization"] = dict(entry.get("authorization", {}) or {})
         summary[corp_id] = summary_entry
 
     blueprint_rows = (
@@ -334,6 +380,9 @@ def build_corporation_sharing_context(user) -> dict[str, Any] | None:
         )
         for corp in corporations
     )
+    restricted_manual_tokens = sum(
+        1 for corp in corporations if corp.get("authorization", {}).get("restricted")
+    )
 
     return {
         "corporations": corporations,
@@ -341,6 +390,7 @@ def build_corporation_sharing_context(user) -> dict[str, Any] | None:
         "total_blueprints": total_blueprints,
         "total_jobs": total_jobs,
         "has_authorised_characters": has_authorised,
+        "restricted_corporation_tokens": restricted_manual_tokens,
         "token_management_url": reverse("indy_hub:token_management"),
         "required_roles": sorted(_REQUIRED_CORPORATION_ROLES),
         "scopes": {
@@ -394,6 +444,12 @@ def _build_corporation_share_controls(
                 "blueprint_character": entry.get("blueprint", {}).get("character_name"),
                 "has_jobs_scope": bool(entry.get("jobs", {}).get("has_scope")),
                 "jobs_character": entry.get("jobs", {}).get("character_name"),
+                "requires_manual_authorization": entry.get("authorization", {}).get(
+                    "restricted", False
+                ),
+                "authorized_characters": entry.get("authorization", {}).get(
+                    "characters", []
+                ),
             }
         )
 

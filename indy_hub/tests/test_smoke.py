@@ -21,6 +21,7 @@ from indy_hub.models import (
     BlueprintCopyOffer,
     BlueprintCopyRequest,
     CharacterSettings,
+    CorporationSharingSetting,
     IndustryJob,
     UserOnboardingProgress,
 )
@@ -61,6 +62,20 @@ def assign_main_character(user: User, *, character_id: int) -> EveCharacter:
     return character
 
 
+def grant_indy_permissions(user: User, *extra_codenames: str) -> None:
+    """Attach the requested Indy Hub permissions to the user."""
+
+    required = {"can_access_indy_hub", *extra_codenames}
+    permissions = Permission.objects.filter(
+        content_type__app_label="indy_hub", codename__in=required
+    )
+    found = {perm.codename: perm for perm in permissions}
+    missing = required - found.keys()
+    if missing:
+        raise AssertionError(f"Missing permissions: {sorted(missing)}")
+    user.user_permissions.add(*found.values())
+
+
 class IndyHubConfigTests(TestCase):
     def test_app_is_registered(self) -> None:
         """The indy_hub app should be installed and discoverable."""
@@ -98,6 +113,38 @@ class BlueprintModelClassificationTests(TestCase):
         blueprint.save()
         blueprint.refresh_from_db()
         self.assertEqual(blueprint.bp_type, Blueprint.BPType.COPY)
+
+
+class CorporationSharingSettingTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("director", password="secret123")
+        self.setting = CorporationSharingSetting.objects.create(
+            user=self.user,
+            corporation_id=4242,
+            corporation_name="Directive Industries",
+            share_scope=CharacterSettings.SCOPE_CORPORATION,
+            allow_copy_requests=True,
+        )
+
+    def test_default_allows_all_characters(self) -> None:
+        self.assertFalse(self.setting.restricts_characters)
+        self.assertTrue(self.setting.is_character_authorized(9001))
+
+    def test_whitelist_filters_characters(self) -> None:
+        self.setting.set_authorized_characters([1010, 2020])
+        self.setting.save(update_fields=["authorized_characters"])
+        self.setting.refresh_from_db()
+
+        self.assertTrue(self.setting.restricts_characters)
+        self.assertTrue(self.setting.is_character_authorized(1010))
+        self.assertFalse(self.setting.is_character_authorized(3030))
+
+    def test_authorized_character_ids_are_unique_and_sorted(self) -> None:
+        self.setting.set_authorized_characters(["5050", None, 4040, 5050])
+        self.setting.save(update_fields=["authorized_characters"])
+        self.setting.refresh_from_db()
+
+        self.assertEqual(self.setting.authorized_character_ids, [4040, 5050])
 
     def test_reaction_detection_from_name(self) -> None:
         blueprint = Blueprint.objects.create(
@@ -353,8 +400,7 @@ class BlueprintCopyFulfillViewTests(TestCase):
             allow_copy_requests=True,
             copy_sharing_scope=CharacterSettings.SCOPE_CORPORATION,
         )
-        permission = Permission.objects.get(codename="can_access_indy_hub")
-        self.user.user_permissions.add(permission)
+        grant_indy_permissions(self.user, "can_manage_copy_requests")
         self.client.force_login(self.user)
 
     def test_request_visible_for_own_blueprint(self) -> None:
@@ -497,8 +543,7 @@ class BlueprintCopyFulfillViewTests(TestCase):
             allow_copy_requests=True,
             copy_sharing_scope=CharacterSettings.SCOPE_CORPORATION,
         )
-        permission = Permission.objects.get(codename="can_access_indy_hub")
-        other_provider.user_permissions.add(permission)
+        grant_indy_permissions(other_provider, "can_manage_copy_requests")
         Blueprint.objects.create(
             owner_user=other_provider,
             character_id=55,
@@ -886,11 +931,16 @@ class BlueprintCopyRequestPageTests(TestCase):
     def setUp(self) -> None:
         self.user = User.objects.create_user("requester", password="secret123")
         assign_main_character(self.user, character_id=103001)
-        permission = Permission.objects.get(codename="can_access_indy_hub")
-        self.user.user_permissions.add(permission)
+        grant_indy_permissions(self.user, "can_manage_copy_requests")
         self.client.force_login(self.user)
 
         self.owner = User.objects.create_user("supplier", password="supply123")
+        CharacterSettings.objects.create(
+            user=self.owner,
+            character_id=0,
+            allow_copy_requests=True,
+            copy_sharing_scope=CharacterSettings.SCOPE_CORPORATION,
+        )
         Blueprint.objects.create(
             owner_user=self.owner,
             character_id=501,
@@ -960,8 +1010,7 @@ class BlueprintCopyMyRequestsTests(TestCase):
     def setUp(self) -> None:
         self.user = User.objects.create_user("buyer", password="secret123")
         assign_main_character(self.user, character_id=104001)
-        permission = Permission.objects.get(codename="can_access_indy_hub")
-        self.user.user_permissions.add(permission)
+        grant_indy_permissions(self.user, "can_manage_copy_requests")
         self.client.force_login(self.user)
 
         self.provider = User.objects.create_user("seller", password="sell123")
@@ -1226,8 +1275,7 @@ class DashboardNotificationCountsTests(TestCase):
             allow_copy_requests=True,
             copy_sharing_scope=CharacterSettings.SCOPE_CORPORATION,
         )
-        permission = Permission.objects.get(codename="can_access_indy_hub")
-        self.user.user_permissions.add(permission)
+        grant_indy_permissions(self.user, "can_manage_copy_requests")
         self.client.force_login(self.user)
 
         self.blueprint = Blueprint.objects.create(
@@ -1290,8 +1338,7 @@ class PersonnalBlueprintViewTests(TestCase):
     def setUp(self) -> None:
         self.user = User.objects.create_user("industrialist", password="secret123")
         assign_main_character(self.user, character_id=102001)
-        permission = Permission.objects.get(codename="can_access_indy_hub")
-        self.user.user_permissions.add(permission)
+        grant_indy_permissions(self.user)
         self.client.force_login(self.user)
 
     def test_reaction_blueprint_hides_efficiency_bars(self) -> None:
@@ -1326,8 +1373,7 @@ class BlueprintCopyMyRequestsViewTests(TestCase):
     def setUp(self) -> None:
         self.user = User.objects.create_user("buyer", password="test12345")
         assign_main_character(self.user, character_id=101003)
-        permission = Permission.objects.get(codename="can_access_indy_hub")
-        self.user.user_permissions.add(permission)
+        grant_indy_permissions(self.user, "can_manage_copy_requests")
         self.client.force_login(self.user)
 
     def test_my_requests_metrics_and_statuses(self) -> None:
@@ -1402,8 +1448,7 @@ class OnboardingViewsTests(TestCase):
     def setUp(self) -> None:
         self.user = User.objects.create_user("rookie", password="rookiepass")
         assign_main_character(self.user, character_id=2024001)
-        permission = Permission.objects.get(codename="can_access_indy_hub")
-        self.user.user_permissions.add(permission)
+        grant_indy_permissions(self.user)
         self.client.force_login(self.user)
         self.toggle_url = reverse("indy_hub:onboarding_toggle_task")
         self.visibility_url = reverse("indy_hub:onboarding_set_visibility")

@@ -656,12 +656,19 @@
     overflow: hidden;
     border: 1px solid var(--bp-border-color);
     box-shadow: none;
+    flex: 0 0 64px;
+    flex-shrink: 0;
 }
 
 .bp-request-card__avatar img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
+    width: 64px;
+    height: 64px;
+    max-width: none;
+    max-height: none;
+    flex: 0 0 64px;
+    object-fit: contain;
+    image-rendering: auto;
+    display: block;
 }
 
 .bp-request-card__title {
