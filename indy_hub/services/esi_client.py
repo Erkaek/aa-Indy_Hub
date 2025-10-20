@@ -34,6 +34,10 @@ class ESIClientError(Exception):
 class ESITokenError(ESIClientError):
     """Raised when a valid access token cannot be retrieved."""
 
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
 
 class ESIForbiddenError(ESIClientError):
     """Raised when ESI returns HTTP 403 for an authenticated lookup."""
@@ -308,14 +312,33 @@ class ESIClient:
         scope: str,
         endpoint: str,
     ) -> list[dict]:
-        access_token = self._get_access_token(character_id, scope)
+        token_obj = self._get_token(character_id, scope)
+        try:
+            access_token = token_obj.valid_access_token()
+        except Exception as exc:
+            raise ESITokenError(
+                f"Aucun jeton valide pour le personnage {character_id} et le scope {scope}"
+            ) from exc
         url = f"{self.base_url}{endpoint}"
         headers = {"Authorization": f"Bearer {access_token}"}
         params = {"datasource": "tranquility", "page": 1}
 
         aggregated: list[dict] = []
         while True:
-            response = self._request("GET", url, headers=headers, params=params)
+            try:
+                response = self._request("GET", url, headers=headers, params=params)
+            except ESITokenError as exc:
+                if exc.status_code == 403:
+                    self._handle_forbidden_token(
+                        token_obj,
+                        scope=scope,
+                        endpoint=endpoint,
+                    )
+                    raise ESIForbiddenError(
+                        f"Accès refusé pour {endpoint}",
+                        character_id=int(character_id),
+                    ) from exc
+                raise
             payload = response.json()
             if not isinstance(payload, list):
                 raise ESIClientError(
@@ -329,9 +352,17 @@ class ESIClient:
             params["page"] += 1
         return aggregated
 
-    def _get_access_token(self, character_id: int, scope: str) -> str:
+    def _get_token(self, character_id: int, scope: str) -> Token:
         try:
-            token = Token.get_token(character_id, scope)
+            return Token.get_token(character_id, scope)
+        except Exception as exc:  # pragma: no cover - Alliance Auth handles details
+            raise ESITokenError(
+                f"Aucun jeton valide pour le personnage {character_id} et le scope {scope}"
+            ) from exc
+
+    def _get_access_token(self, character_id: int, scope: str) -> str:
+        token = self._get_token(character_id, scope)
+        try:
             return token.valid_access_token()
         except Exception as exc:  # pragma: no cover - Alliance Auth handles details
             raise ESITokenError(
@@ -367,7 +398,8 @@ class ESIClient:
 
             if response.status_code in (401, 403):
                 raise ESITokenError(
-                    f"Jeton invalide pour {url} (statut {response.status_code})"
+                    f"Jeton invalide pour {url} (statut {response.status_code})",
+                    status_code=response.status_code,
                 )
             if response.status_code == 420:
                 sleep_for, remaining = rate_limit_wait_seconds(
@@ -406,6 +438,32 @@ class ESIClient:
                 continue
 
             return response
+
+    def _handle_forbidden_token(
+        self, token: Token, *, scope: str, endpoint: str
+    ) -> None:
+        character_id = getattr(token, "character_id", None)
+        user_repr = None
+        try:
+            user_repr = token.user.username  # type: ignore[union-attr]
+        except Exception:  # pragma: no cover - username optional
+            user_repr = getattr(token, "user_id", None)
+
+        logger.warning(
+            "ESI a renvoyé 403 pour %s (%s) via le personnage %s (utilisateur %s). Suppression du jeton.",
+            endpoint,
+            scope,
+            character_id,
+            user_repr,
+        )
+        try:
+            token.delete()
+        except Exception:  # pragma: no cover - defensive guard
+            logger.exception(
+                "Impossible de supprimer le jeton ESI %s pour le personnage %s",
+                token.id,
+                character_id,
+            )
 
 
 # Module level singleton to avoid re-creating sessions

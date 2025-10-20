@@ -21,7 +21,12 @@ from django.utils.dateparse import parse_datetime
 # Alliance Auth
 from allianceauth.authentication.models import CharacterOwnership
 
-from ..models import Blueprint, CorporationSharingSetting, IndustryJob
+from ..models import (
+    Blueprint,
+    CharacterSettings,
+    CorporationSharingSetting,
+    IndustryJob,
+)
 from ..services.esi_client import ESIClientError, ESITokenError, shared_client
 from ..services.location_population import populate_location_names
 from ..utils.eve import (
@@ -58,11 +63,17 @@ MANUAL_REFRESH_KIND_JOBS = "jobs"
 _MANUAL_REFRESH_CACHE_PREFIX = "indy_hub:manual_refresh"
 _DEFAULT_BULK_WINDOWS = {
     MANUAL_REFRESH_KIND_BLUEPRINTS: 720,
-    "industry_jobs": 120,
+    MANUAL_REFRESH_KIND_JOBS: 120,
+}
+
+_MANUAL_REFRESH_CACHE_PREFIX = "indy_hub:manual_refresh"
+_DEFAULT_BULK_WINDOWS = {
+    MANUAL_REFRESH_KIND_BLUEPRINTS: 720,
+    MANUAL_REFRESH_KIND_JOBS: 120,
 }
 
 _OPTIONAL_CORPORATION_SCOPES = {STRUCTURE_SCOPE}
-_REQUIRED_CORPORATION_ROLES = {"DIRECTOR", "FACTORY_MANAGER"}
+REQUIRED_CORPORATION_ROLES = {"DIRECTOR", "FACTORY_MANAGER"}
 _CORPORATION_ROLE_CACHE: dict[int, set[str]] = {}
 
 
@@ -72,7 +83,7 @@ def _normalized_roles(roles: list[str] | tuple[str, ...] | None) -> set[str]:
     return {str(role).upper() for role in roles if role}
 
 
-def _get_character_corporation_roles(character_id: int) -> set[str]:
+def get_character_corporation_roles(character_id: int) -> set[str]:
     if character_id in _CORPORATION_ROLE_CACHE:
         return _CORPORATION_ROLE_CACHE[character_id]
 
@@ -91,9 +102,6 @@ def _collect_corporation_contexts(
     """Return mapping of corporation id to token context for the user."""
 
     contexts: dict[int, dict[str, int | str]] = {}
-
-    if not required_scopes:
-        return contexts
 
     ownerships = CharacterOwnership.objects.filter(user=user).select_related(
         "character"
@@ -117,15 +125,28 @@ def _collect_corporation_contexts(
             continue
 
         setting = corp_settings.get(corp_id)
+        if setting is None:
+            corp_name = get_corporation_name(corp_id) or str(corp_id)
+            setting, _ = CorporationSharingSetting.objects.get_or_create(
+                user=user,
+                corporation_id=corp_id,
+                defaults={
+                    "corporation_name": corp_name,
+                    "share_scope": CharacterSettings.SCOPE_NONE,
+                    "allow_copy_requests": False,
+                },
+            )
+            corp_settings[corp_id] = setting
 
         char_id = ownership.character.character_id
         base_qs = Token.objects.filter(character_id=char_id, user=user).order_by(
             "-created"
         )
 
+        scope_groups: list[list[str]]
         if required_scopes:
             base_scopes = list(required_scopes)
-            scope_groups: list[list[str]] = [base_scopes]
+            scope_groups = [base_scopes]
             for optional_scope in _OPTIONAL_CORPORATION_SCOPES:
                 if optional_scope in base_scopes:
                     reduced = [
@@ -147,10 +168,16 @@ def _collect_corporation_contexts(
                 scopes_used = scopes
                 break
 
-        if token_qs is None or not token_qs.exists():
-            logger.info(
-                "Aucun jeton Alliance Auth avec les scopes %s pour le personnage %s (corp %s)",
-                base_scopes,
+        if token_qs is None:
+            continue
+
+        if (
+            setting
+            and setting.restricts_characters
+            and not setting.is_character_authorized(char_id)
+        ):
+            logger.debug(
+                "Character %s skipped for corporation %s: not whitelisted in Indy Hub",
                 char_id,
                 corp_id,
             )
@@ -158,14 +185,14 @@ def _collect_corporation_contexts(
 
         if scopes_used is not None and scopes_used != required_scopes:
             logger.debug(
-                "Fallback to reduced scope %s for corporation %s via character %s",
+                "Character %s uses fallback scopes %s for corporation %s",
+                char_id,
                 scopes_used,
                 corp_id,
-                char_id,
             )
 
         try:
-            roles = _get_character_corporation_roles(char_id)
+            roles = get_character_corporation_roles(char_id)
         except ESITokenError:
             logger.info(
                 "Le personnage %s n'a pas le scope corporation roles requis pour la corp %s",
@@ -182,23 +209,11 @@ def _collect_corporation_contexts(
             )
             continue
 
-        if not roles.intersection(_REQUIRED_CORPORATION_ROLES):
+        if not roles.intersection(REQUIRED_CORPORATION_ROLES):
             logger.info(
                 "Le personnage %s n'a pas les rôles %s pour la corp %s",
                 char_id,
-                ", ".join(sorted(_REQUIRED_CORPORATION_ROLES)),
-                corp_id,
-            )
-            continue
-
-        if (
-            setting
-            and setting.restricts_characters
-            and not setting.is_character_authorized(char_id)
-        ):
-            logger.debug(
-                "Character %s skipped for corporation %s: not whitelisted in Indy Hub",
-                char_id,
+                ", ".join(sorted(REQUIRED_CORPORATION_ROLES)),
                 corp_id,
             )
             continue

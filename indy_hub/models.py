@@ -844,7 +844,7 @@ class CorporationSharingSetting(models.Model):
     def is_character_authorized(self, character_id: int | None) -> bool:
         allowed = self._normalized_authorized_characters()
         if not allowed:
-            return True
+            return False
         try:
             normalized = int(character_id)
         except (TypeError, ValueError):

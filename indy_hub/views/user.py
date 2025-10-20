@@ -38,9 +38,9 @@ from ..models import (
     ProductionSimulation,
     UserOnboardingProgress,
 )
+from ..services.esi_client import ESIClientError, ESITokenError
 from ..services.simulations import summarize_simulations
 from ..tasks.industry import (
-    _REQUIRED_CORPORATION_ROLES,
     CORP_BLUEPRINT_SCOPE,
     CORP_BLUEPRINT_SCOPE_SET,
     CORP_JOBS_SCOPE,
@@ -48,9 +48,12 @@ from ..tasks.industry import (
     CORP_ROLES_SCOPE,
     MANUAL_REFRESH_KIND_BLUEPRINTS,
     MANUAL_REFRESH_KIND_JOBS,
+    REQUIRED_CORPORATION_ROLES,
+    get_character_corporation_roles,
     request_manual_refresh,
 )
 from ..utils.eve import get_character_name, get_corporation_name, get_type_name
+from .navigation import build_nav_context
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +124,12 @@ def _build_corporation_authorization_summary(
     setting: CorporationSharingSetting | None,
 ) -> dict[str, Any]:
     if not setting:
-        return {"restricted": False, "characters": []}
+        return {
+            "restricted": False,
+            "characters": [],
+            "authorized_count": 0,
+            "has_authorized": False,
+        }
 
     characters: list[dict[str, Any]] = []
     for char_id in setting.authorized_character_ids:
@@ -133,17 +141,23 @@ def _build_corporation_authorization_summary(
         )
 
     return {
-        "restricted": setting.restricts_characters,
+        "restricted": True,
         "characters": characters,
+        "authorized_count": len(characters),
+        "has_authorized": bool(characters),
     }
 
 
-def _collect_corporation_scope_status(user) -> list[dict[str, Any]]:
+def _collect_corporation_scope_status(
+    user, *, include_warnings: bool = False
+) -> list[dict[str, Any]] | tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     if not user.has_perm("indy_hub.can_manage_corporate_assets"):
-        return []
+        empty: list[dict[str, Any]] = []
+        return (empty, []) if include_warnings else empty
 
     if not Token:
-        return []
+        empty: list[dict[str, Any]] = []
+        return (empty, []) if include_warnings else empty
 
     ownerships = CharacterOwnership.objects.filter(user=user).select_related(
         "character"
@@ -153,14 +167,162 @@ def _collect_corporation_scope_status(user) -> list[dict[str, Any]]:
         for setting in CorporationSharingSetting.objects.filter(user=user)
     }
     corp_status: dict[int, dict[str, Any]] = {}
+    warnings: list[dict[str, Any]] = [] if include_warnings else []
+
+    def _revoke_corporation_tokens(
+        token_queryset,
+        character_id: int,
+        character_name: str | None,
+        corporation_id: int,
+        corporation_name: str | None,
+    ) -> int:
+        if not Token:
+            return 0
+        corp_tokens_qs = token_queryset.require_scopes([CORP_ROLES_SCOPE])
+        token_ids = list(corp_tokens_qs.values_list("pk", flat=True))
+        if not token_ids:
+            return 0
+        corp_tokens_qs.delete()
+        logger.info(
+            "Revoked %s corporate tokens for character %s (%s) and corporation %s (%s)",
+            len(token_ids),
+            character_id,
+            character_name,
+            corporation_id,
+            corporation_name,
+        )
+        return len(token_ids)
+
+    def _select_corporation_token(token_qs, primary_scope: str):
+        """Return the newest token covering the scope (roles required, structures optional)."""
+
+        scope_sets = (
+            [primary_scope, CORP_ROLES_SCOPE, STRUCTURE_SCOPE],
+            [primary_scope, CORP_ROLES_SCOPE],
+        )
+        seen: set[tuple[str, ...]] = set()
+        for scope_list in scope_sets:
+            normalized = tuple(sorted(scope_list))
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            candidate = token_qs.require_scopes(scope_list)
+            token = candidate.order_by("-created").first()
+            if token:
+                return token
+        return None
 
     for ownership in ownerships:
         corp_id = getattr(ownership.character, "corporation_id", None)
         if not corp_id:
             continue
 
-        setting = settings_map.get(corp_id)
         corp_name = get_corporation_name(corp_id) or str(corp_id)
+        setting = settings_map.get(corp_id)
+        if setting is None:
+            setting, _ = CorporationSharingSetting.objects.get_or_create(
+                user=user,
+                corporation_id=corp_id,
+                defaults={
+                    "corporation_name": corp_name,
+                    "share_scope": CharacterSettings.SCOPE_NONE,
+                    "allow_copy_requests": False,
+                },
+            )
+            settings_map[corp_id] = setting
+        elif corp_name and setting.corporation_name != corp_name:
+            setting.corporation_name = corp_name
+            setting.save(update_fields=["corporation_name", "updated_at"])
+
+        character_id = ownership.character.character_id
+        character_name = get_character_name(character_id)
+        token_qs = Token.objects.filter(user=user, character_id=character_id)
+        if not token_qs.exists():
+            continue
+
+        if (
+            setting
+            and setting.restricts_characters
+            and not setting.is_character_authorized(character_id)
+        ):
+            logger.debug(
+                "Character %s ignored for corporation %s: not authorised for Indy Hub",
+                character_id,
+                corp_id,
+            )
+            continue
+
+        blueprint_token = _select_corporation_token(token_qs, CORP_BLUEPRINT_SCOPE)
+        jobs_token = _select_corporation_token(token_qs, CORP_JOBS_SCOPE)
+
+        if not blueprint_token and not jobs_token:
+            continue
+
+        try:
+            roles = get_character_corporation_roles(character_id)
+        except ESITokenError:
+            logger.info(
+                "Character %s lacks corporation roles scope for corporation %s",
+                character_id,
+                corp_id,
+            )
+            revoked_count = _revoke_corporation_tokens(
+                token_qs,
+                character_id,
+                character_name,
+                corp_id,
+                corp_name,
+            )
+            if include_warnings:
+                warnings.append(
+                    {
+                        "reason": "missing_roles_scope",
+                        "character_id": character_id,
+                        "character_name": character_name,
+                        "corporation_id": corp_id,
+                        "corporation_name": corp_name,
+                        "tokens_revoked": bool(revoked_count),
+                        "revoked_token_count": revoked_count,
+                    }
+                )
+            continue
+        except ESIClientError as exc:
+            logger.warning(
+                "Unable to load corporation roles for character %s (corporation %s): %s",
+                character_id,
+                corp_id,
+                exc,
+            )
+            continue
+        if not roles.intersection(REQUIRED_CORPORATION_ROLES):
+            logger.info(
+                "Character %s lacks required roles %s for corporation %s",
+                character_id,
+                ", ".join(sorted(REQUIRED_CORPORATION_ROLES)),
+                corp_id,
+            )
+            revoked_count = _revoke_corporation_tokens(
+                token_qs,
+                character_id,
+                character_name,
+                corp_id,
+                corp_name,
+            )
+            if include_warnings:
+                warnings.append(
+                    {
+                        "reason": "missing_required_roles",
+                        "character_id": character_id,
+                        "character_name": character_name,
+                        "corporation_id": corp_id,
+                        "corporation_name": corp_name,
+                        "character_roles": sorted(roles),
+                        "required_roles": sorted(REQUIRED_CORPORATION_ROLES),
+                        "tokens_revoked": bool(revoked_count),
+                        "revoked_token_count": revoked_count,
+                    }
+                )
+            continue
 
         entry = corp_status.setdefault(
             corp_id,
@@ -183,68 +345,50 @@ def _collect_corporation_scope_status(user) -> list[dict[str, Any]]:
             },
         )
 
-        character_id = ownership.character.character_id
-        token_qs = Token.objects.filter(user=user, character_id=character_id)
-        if not token_qs.exists():
-            continue
+        if entry.get("corporation_name") != corp_name:
+            entry["corporation_name"] = corp_name
 
-        if (
-            setting
-            and setting.restricts_characters
-            and not setting.is_character_authorized(character_id)
-        ):
-            logger.debug(
-                "Character %s ignored for corporation %s: not authorised for Indy Hub",
-                character_id,
-                corp_id,
-            )
-            continue
+        entry["authorization"] = _build_corporation_authorization_summary(setting)
 
-        if not entry["blueprint"]["has_scope"]:
-            corp_bp_token = (
-                token_qs.require_scopes(CORP_BLUEPRINT_SCOPE_SET)
-                .order_by("-created")
-                .first()
-            )
-            if corp_bp_token:
-                entry["blueprint"] = {
-                    "has_scope": True,
-                    "character_id": character_id,
-                    "character_name": get_character_name(character_id),
-                    "last_updated": getattr(corp_bp_token, "created", None),
-                }
+        if blueprint_token and not entry["blueprint"]["has_scope"]:
+            entry["blueprint"] = {
+                "has_scope": True,
+                "character_id": character_id,
+                "character_name": character_name,
+                "last_updated": getattr(blueprint_token, "created", None),
+            }
 
-        if not entry["jobs"]["has_scope"]:
-            corp_job_token = (
-                token_qs.require_scopes(CORP_JOBS_SCOPE_SET)
-                .order_by("-created")
-                .first()
-            )
-            if corp_job_token:
-                entry["jobs"] = {
-                    "has_scope": True,
-                    "character_id": character_id,
-                    "character_name": get_character_name(character_id),
-                    "last_updated": getattr(corp_job_token, "created", None),
-                }
+        if jobs_token and not entry["jobs"]["has_scope"]:
+            entry["jobs"] = {
+                "has_scope": True,
+                "character_id": character_id,
+                "character_name": character_name,
+                "last_updated": getattr(jobs_token, "created", None),
+            }
 
-    return sorted(
+    result = sorted(
         corp_status.values(), key=lambda item: (item["corporation_name"] or "")
     )
+    if include_warnings:
+        return result, warnings
+    return result
 
 
 def _default_corporation_summary_entry(
-    corp_id: int, corp_name: str | None
+    corporation_id: int, corporation_name: str | None
 ) -> dict[str, Any]:
-    display_name = corp_name or get_corporation_name(corp_id) or str(corp_id)
+    display_name = (
+        corporation_name or get_corporation_name(corporation_id) or str(corporation_id)
+    )
     empty_token = {
         "has_scope": False,
         "character_id": None,
         "character_name": None,
         "last_updated": None,
     }
+
     return {
-        "corporation_id": corp_id,
+        "corporation_id": corporation_id,
         "name": display_name,
         "blueprints": {
             "total": 0,
@@ -392,7 +536,7 @@ def build_corporation_sharing_context(user) -> dict[str, Any] | None:
         "has_authorised_characters": has_authorised,
         "restricted_corporation_tokens": restricted_manual_tokens,
         "token_management_url": reverse("indy_hub:token_management"),
-        "required_roles": sorted(_REQUIRED_CORPORATION_ROLES),
+        "required_roles": sorted(REQUIRED_CORPORATION_ROLES),
         "scopes": {
             "blueprints": CORP_BLUEPRINT_SCOPE,
             "jobs": CORP_JOBS_SCOPE,
@@ -887,7 +1031,16 @@ def corporation_dashboard(request):
 def token_management(request):
     blueprint_tokens = None
     jobs_tokens = None
-    corp_scope_status = _collect_corporation_scope_status(request.user)
+    (
+        corp_scope_status,
+        corp_scope_warnings,
+    ) = _collect_corporation_scope_status(request.user, include_warnings=True)
+    corp_scope_status = [
+        status
+        for status in corp_scope_status
+        if status.get("blueprint", {}).get("has_scope")
+        or status.get("jobs", {}).get("has_scope")
+    ]
     corporation_sharing = build_corporation_sharing_context(request.user)
     can_manage_corp = request.user.has_perm("indy_hub.can_manage_corporate_assets")
     if Token:
@@ -951,6 +1104,58 @@ def token_management(request):
                 ),
             }
         )
+
+    warning_payload: list[dict[str, str]] = []
+    if corp_scope_warnings:
+        seen_messages: set[str] = set()
+        for warning in corp_scope_warnings:
+            reason = warning.get("reason")
+            corp_name = (
+                warning.get("corporation_name")
+                or get_corporation_name(warning.get("corporation_id"))
+                or str(warning.get("corporation_id"))
+            )
+            character_name = (
+                warning.get("character_name")
+                or get_character_name(warning.get("character_id"))
+                or str(warning.get("character_id"))
+            )
+
+            if reason == "missing_roles_scope":
+                message = _(
+                    "%(character)s must authorize the corporation roles scope before Indy Hub can use %(corporation)s director tokens."
+                ) % {
+                    "character": character_name,
+                    "corporation": corp_name,
+                }
+                if warning.get("tokens_revoked"):
+                    message += " " + _("Indy Hub removed the unusable tokens.")
+                level = "warning"
+            elif reason == "missing_required_roles":
+                required_roles = warning.get("required_roles") or sorted(
+                    REQUIRED_CORPORATION_ROLES
+                )
+                message = _(
+                    "%(character)s lacks the required corporation roles (%(roles)s) for %(corporation)s."
+                ) % {
+                    "character": character_name,
+                    "roles": ", ".join(required_roles),
+                    "corporation": corp_name,
+                }
+                if warning.get("tokens_revoked"):
+                    message += " " + _("Indy Hub removed the unusable tokens.")
+                else:
+                    message += " " + _("Tokens remain restricted.")
+                level = "danger"
+            else:
+                continue
+
+            if message in seen_messages:
+                continue
+            seen_messages.add(message)
+            warning_payload.append({"message": message, "level": level})
+
+    warning_payload_json = json.dumps(warning_payload) if warning_payload else ""
     context = {
         "has_blueprint_tokens": bool(blueprint_char_ids),
         "has_jobs_tokens": bool(jobs_char_ids),
@@ -972,7 +1177,14 @@ def token_management(request):
         "corp_jobs_scope_count": sum(
             1 for status in corp_scope_status if status["jobs"]["has_scope"]
         ),
+        "corp_role_warning_payload_json": warning_payload_json,
+        "corp_role_warning_count": len(warning_payload),
     }
+    context.update(
+        build_nav_context(
+            request.user, can_manage_corp=can_manage_corp, active_tab="personal"
+        )
+    )
     return render(request, "indy_hub/token_management.html", context)
 
 
@@ -1679,6 +1891,7 @@ def production_simulations(request):
         "total_simulations": total_simulations,
         "stats": stats,
     }
+    context.update(build_nav_context(request.user, active_tab="personal"))
 
     return render(request, "indy_hub/production_simulations.html", context)
 
@@ -1728,8 +1941,7 @@ def rename_production_simulation(request, simulation_id):
         )
         return redirect("indy_hub:production_simulations")
 
-    context = {
-        "simulation": simulation,
-    }
+    context = {"simulation": simulation}
+    context.update(build_nav_context(request.user, active_tab="personal"))
 
     return render(request, "indy_hub/rename_simulation.html", context)

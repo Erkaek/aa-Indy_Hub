@@ -58,7 +58,7 @@ function showIndyHubPopup(message, type) {
     if (indyHubPopupTimer) {
         clearTimeout(indyHubPopupTimer);
     }
-    indyHubPopupTimer = setTimeout(hideIndyHubPopup, 3200);
+        indyHubPopupTimer = setTimeout(hideIndyHubPopup, 5000);
 }
 
 // Initialize index page functionality

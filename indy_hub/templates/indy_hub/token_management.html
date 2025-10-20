@@ -5,12 +5,15 @@
 {% block page_title %}{% trans "Token Management" %}{% endblock page_title %}
 
 {% block extra_css %}
+<link rel="stylesheet" href="{% static 'indy_hub/css/components.css' %}">
 <link rel="stylesheet" href="{% static 'indy_hub/css/index.css' %}">
 <link rel="stylesheet" href="{% static 'indy_hub/css/token_management.css' %}">
 {% endblock extra_css %}
 
 {% block content %}
 <div class="container-fluid py-4">
+    {% include "indy_hub/includes/popup.html" %}
+
     <section class="hero-section mb-4">
         <div class="row g-4 align-items-center">
             <div class="col-xl-7">
@@ -281,21 +284,13 @@
                                 <span class="stat-chip-value">{{ corporation_sharing.total_jobs|default:0 }}</span>
                             </div>
                         </div>
-                        {% if corporation_sharing.restricted_corporation_tokens %}
-                        <div class="alert alert-warning text-dark small py-2">
-                            <i class="fas fa-user-lock me-1"></i>
-                            {% blocktrans with count=corporation_sharing.restricted_corporation_tokens %}
-                                Manual whitelists active for {{ count }} corporations. Only selected directors can sync data.
-                            {% endblocktrans %}
-                        </div>
-                        {% endif %}
                         {% endif %}
                         <h6 class="text-uppercase text-muted fw-bold mb-2">{% trans "Required roles" %}</h6>
                         <ul class="list-unstyled small text-muted mb-4">
                             {% if corporation_sharing %}
                             <li class="text-muted"><i class="fas fa-user-shield me-2"></i>{% trans "Director or station manager roles" %}</li>
                             <li class="text-muted"><i class="fas fa-scroll me-2"></i><code>{{ corporation_sharing.scopes.blueprints }}</code></li>
-                            <li class="text-muted"><i class="fas fa-industry me-2"></i><code>{{ corporation_sharing.scopes.industry }}</code></li>
+                            <li class="text-muted"><i class="fas fa-industry me-2"></i><code>{{ corporation_sharing.scopes.jobs }}</code></li>
                             {% if corporation_sharing.scopes.structures %}
                             <li class="text-muted"><i class="fas fa-key me-2"></i><code>{{ corporation_sharing.scopes.structures }}</code> {% trans "(optional - structure names)" %}</li>
                             {% endif %}
@@ -483,10 +478,31 @@
 
 
 {% block extra_javascript %}
+<script src="{% static 'indy_hub/js/index.js' %}"></script>
 <script src="{% static 'indy_hub/js/token_management.js' %}"></script>
 <script>
 // Configure text for the JavaScript module
 window.redirectingText = '{% trans "Redirecting..." %}';
+{% if corp_role_warning_payload_json %}
+document.addEventListener('DOMContentLoaded', function() {
+    try {
+        var corpRoleWarnings = JSON.parse('{{ corp_role_warning_payload_json|escapejs }}');
+        if (Array.isArray(corpRoleWarnings)) {
+            corpRoleWarnings.forEach(function(payload) {
+                if (!payload || !payload.message) {
+                    return;
+                }
+                var tone = payload.level || 'warning';
+                if (typeof showIndyHubPopup === 'function') {
+                    showIndyHubPopup(payload.message, tone);
+                }
+            });
+        }
+    } catch (err) {
+        console.error('Unable to display corporation role warnings:', err);
+    }
+});
+{% endif %}
 </script>
 {% endblock extra_javascript %}
 {% endblock content %}

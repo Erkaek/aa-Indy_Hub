@@ -1,4 +1,5 @@
-# Industry-related views
+"""Industry-related views for Indy Hub."""
+
 # Standard Library
 import json
 import logging
@@ -8,16 +9,6 @@ from math import ceil
 
 # Django
 from django.conf import settings
-
-if "eveuniverse" in getattr(settings, "INSTALLED_APPS", ()):  # pragma: no branch
-    try:  # pragma: no cover - EveUniverse optional
-        # Alliance Auth (External Libs)
-        from eveuniverse.models import EveType
-    except ImportError:  # pragma: no cover - fallback when EveUniverse absent
-        EveType = None
-else:  # pragma: no cover - EveUniverse not installed
-    EveType = None
-# Django
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
@@ -54,6 +45,16 @@ from ..tasks.industry import (
     request_manual_refresh,
 )
 from ..utils.eve import get_character_name, get_corporation_name, get_type_name
+from .navigation import build_nav_context
+
+if "eveuniverse" in getattr(settings, "INSTALLED_APPS", ()):  # pragma: no branch
+    try:  # pragma: no cover - EveUniverse optional
+        # Alliance Auth (External Libs)
+        from eveuniverse.models import EveType
+    except ImportError:  # pragma: no cover - fallback when EveUniverse absent
+        EveType = None
+else:  # pragma: no cover - EveUniverse not installed
+    EveType = None
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +81,43 @@ def _eligible_owner_ids_for_request(req: BlueprintCopyRequest) -> set[int]:
 
 def _finalize_request_if_all_rejected(req: BlueprintCopyRequest) -> bool:
     """Notify requester and delete request if all eligible providers rejected."""
+
+    eligible_owner_ids = _eligible_owner_ids_for_request(req)
+    offers_by_owner = dict(
+        req.offers.filter(owner_id__in=eligible_owner_ids).values_list(
+            "owner_id", "status"
+        )
+    )
+
+    if eligible_owner_ids:
+        outstanding = [
+            owner_id
+            for owner_id in eligible_owner_ids
+            if offers_by_owner.get(owner_id) != "rejected"
+        ]
+        if outstanding:
+            return False
+
+    my_requests_url = build_site_url(reverse("indy_hub:bp_copy_my_requests"))
+
+    notify_user(
+        req.requested_by,
+        _("Blueprint Copy Request Unavailable"),
+        _(
+            "All available builders declined your request for %(type)s (ME%(me)d, TE%(te)d)."
+        )
+        % {
+            "type": get_type_name(req.type_id),
+            "me": req.material_efficiency,
+            "te": req.time_efficiency,
+        },
+        "warning",
+        link=my_requests_url,
+        link_label=_("Review your requests"),
+    )
+    _close_request_chats(req, BlueprintCopyChat.CloseReason.REQUEST_WITHDRAWN)
+    req.delete()
+    return True
 
     eligible_owner_ids = _eligible_owner_ids_for_request(req)
     offers_by_owner = dict(
@@ -594,32 +632,14 @@ def personnal_bp_list(request, scope="character"):
             },
             "can_manage_corporate_assets": has_corporate_perm,
         }
-        personal_nav_url = reverse("indy_hub:index")
-        corporation_nav_url = (
-            reverse("indy_hub:corporation_dashboard") if has_corporate_perm else None
-        )
         context.update(
-            {
-                "personal_nav_url": personal_nav_url,
-                "personal_nav_class": (
-                    "" if is_corporation_scope else "active fw-semibold"
-                ),
-                "corporation_nav_url": corporation_nav_url,
-                "corporation_nav_class": (
-                    "active fw-semibold"
-                    if is_corporation_scope and corporation_nav_url
-                    else ""
-                ),
-                "current_dashboard": (
-                    "corporation" if is_corporation_scope else "personal"
-                ),
-                "back_to_dashboard_url": (
-                    corporation_nav_url
-                    if is_corporation_scope and corporation_nav_url
-                    else personal_nav_url
-                ),
-            }
+            build_nav_context(
+                request.user,
+                active_tab="corporation" if is_corporation_scope else "personal",
+                can_manage_corp=has_corporate_perm,
+            )
         )
+
         return render(request, "indy_hub/Personnal_BP_list.html", context)
     except Exception as e:
         logger.error(f"Error displaying blueprints: {e}")
@@ -724,21 +744,20 @@ def all_bp_list(request):
         blueprints_page = paginator.get_page(page)
         market_group_options = []
 
-    return render(
-        request,
-        "indy_hub/All_BP_list.html",
-        {
-            "blueprints": blueprints_page,
-            "filters": {
-                "search": search,
-                "activity_id": activity_id,
-                "market_group_id": market_group_id,
-            },
-            "activity_options": activity_options,
-            "market_group_options": market_group_options,
-            "per_page_options": [10, 25, 50, 100, 200],
+    context = {
+        "blueprints": blueprints_page,
+        "filters": {
+            "search": search,
+            "activity_id": activity_id,
+            "market_group_id": market_group_id,
         },
-    )
+        "activity_options": activity_options,
+        "market_group_options": market_group_options,
+        "per_page_options": [10, 25, 50, 100, 200],
+    }
+    context.update(build_nav_context(request.user, active_tab="personal"))
+
+    return render(request, "indy_hub/All_BP_list.html", context)
 
 
 @indy_hub_access_required
@@ -2025,22 +2044,21 @@ def bp_copy_request_page(request):
 
         flash_level(request, flash_message)
         return redirect("indy_hub:bp_copy_request_page")
-    return render(
-        request,
-        "indy_hub/bp_copy_request_page.html",
-        {
-            "page_obj": page_obj,
-            "search": search,
-            "min_me": min_me,
-            "min_te": min_te,
-            "per_page": per_page,
-            "per_page_options": per_page_options,
-            "me_options": me_options,
-            "te_options": te_options,
-            "page_range": page_range,
-            "requests": [],
-        },
-    )
+    context = {
+        "page_obj": page_obj,
+        "search": search,
+        "min_me": min_me,
+        "min_te": min_te,
+        "per_page": per_page,
+        "per_page_options": per_page_options,
+        "me_options": me_options,
+        "te_options": te_options,
+        "page_range": page_range,
+        "requests": [],
+    }
+    context.update(build_nav_context(request.user, active_tab="personal"))
+
+    return render(request, "indy_hub/bp_copy_request_page.html", context)
 
 
 @indy_hub_access_required
@@ -2055,10 +2073,11 @@ def bp_copy_fulfill_requests(request):
         character_id=0,  # Global settings only
         allow_copy_requests=True,
     ).first()
+    nav_context = build_nav_context(request.user, active_tab="personal")
     if not setting:
-        return render(
-            request, "indy_hub/bp_copy_fulfill_requests.html", {"requests": []}
-        )
+        context = {"requests": []}
+        context.update(nav_context)
+        return render(request, "indy_hub/bp_copy_fulfill_requests.html", context)
     my_bps_qs = Blueprint.objects.filter(
         owner_user=request.user,
         owner_kind=Blueprint.OwnerKind.CHARACTER,
@@ -2128,11 +2147,9 @@ def bp_copy_fulfill_requests(request):
     }
 
     if not my_bps:
-        return render(
-            request,
-            "indy_hub/bp_copy_fulfill_requests.html",
-            {"requests": [], "metrics": metrics},
-        )
+        context = {"requests": [], "metrics": metrics}
+        context.update(nav_context)
+        return render(request, "indy_hub/bp_copy_fulfill_requests.html", context)
 
     q = Q()
     has_filters = False
@@ -2145,11 +2162,9 @@ def bp_copy_fulfill_requests(request):
         )
 
     if not has_filters:
-        return render(
-            request,
-            "indy_hub/bp_copy_fulfill_requests.html",
-            {"requests": [], "metrics": metrics},
-        )
+        context = {"requests": [], "metrics": metrics}
+        context.update(nav_context)
+        return render(request, "indy_hub/bp_copy_fulfill_requests.html", context)
 
     def _init_occupancy():
         return {"count": 0, "soonest_end": None}
@@ -2344,11 +2359,10 @@ def bp_copy_fulfill_requests(request):
             }
         )
 
-    return render(
-        request,
-        "indy_hub/bp_copy_fulfill_requests.html",
-        {"requests": requests_to_fulfill, "metrics": metrics},
-    )
+    context = {"requests": requests_to_fulfill, "metrics": metrics}
+    context.update(nav_context)
+
+    return render(request, "indy_hub/bp_copy_fulfill_requests.html", context)
 
 
 @indy_hub_access_required
@@ -2932,11 +2946,10 @@ def bp_copy_my_requests(request):
             }
         )
 
-    return render(
-        request,
-        "indy_hub/bp_copy_my_requests.html",
-        {"my_requests": my_requests, "metrics": metrics},
-    )
+    context = {"my_requests": my_requests, "metrics": metrics}
+    context.update(build_nav_context(request.user, active_tab="personal"))
+
+    return render(request, "indy_hub/bp_copy_my_requests.html", context)
 
 
 @indy_hub_access_required
