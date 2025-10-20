@@ -9,12 +9,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### Added
 
-- Manual corporation token allow-lists that limit blueprint and job syncing to explicitly approved directors per corporation. Token management now surfaces whitelisted pilots and warns when no authorised characters are selected.
+- _Nothing yet._
 
 ## [1.11.0] - 2025-10-20
 
 ### Added
 
+- Manual corporation token allow-lists that limit blueprint and job syncing to explicitly approved directors per corporation. Token management now surfaces whitelisted pilots and warns when no authorised characters are selected.
 - Corporation ownership support for blueprints and industry jobs, including the `CorporationSharingSetting` model, director dashboards, and the `can_manage_corporate_assets` permission.
 - Conditional offer chat for blueprint copy negotiations with persistent history, modal UI, and buyer/seller decision tracking.
 - Shared UI components (`base.html`, chat modal/preview partials, `components.css`, `chat.css`, `bp_copy_chat.js`) for consistent styling across pages.
@@ -24,10 +25,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Blueprint copy fulfilment and my-requests views now render three cards per row, collapse conditional offers into accordions, and surface quick chat launchers.
 - Token management and corporation dashboards highlight director scope coverage and allow per-corporation copy sharing toggles.
 - Background sync reuses director tokens, validates required corporation roles, and records blueprint/job ownership metadata for corporate filters.
+- Corporation token storage now validates director roles up front and rejects tokens that lack the corporation roles scope before they can be used.
 - Alliance Auth administrators must assign the new Indy Hub permissions in Django admin to grant member, copy-manager, and corporate-director access levels.
 
 ### Fixed
 
+- Director-only ESI tokens are revoked scope-by-scope when mandatory corporation permissions are missing, preventing unrelated tokens from being deleted.
+- Corporation sharing settings without explicit allow-lists once again authorise all characters by default, matching legacy behaviour.
 - Backfilled `owner_kind` on existing blueprints and jobs to keep new filters accurate, and normalised legacy accepted offers for the new decision workflow.
 - Template indentation adjustments keep EditorConfig and pre-commit hooks passing.
 
