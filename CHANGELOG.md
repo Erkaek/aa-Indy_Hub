@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 - Nothing yet.
 
+## [1.11.0] - 2025-10-20
+
+### Added
+
+- Corporation ownership support for blueprints and industry jobs, including the `CorporationSharingSetting` model, director dashboards, and the `can_manage_corporate_assets` permission.
+- Conditional offer chat for blueprint copy negotiations with persistent history, modal UI, and buyer/seller decision tracking.
+- Shared UI components (`base.html`, chat modal/preview partials, `components.css`, `chat.css`, `bp_copy_chat.js`) for consistent styling across pages.
+
+### Changed
+
+- Blueprint copy fulfilment and my-requests views now render three cards per row, collapse conditional offers into accordions, and surface quick chat launchers.
+- Token management and corporation dashboards highlight director scope coverage and allow per-corporation copy sharing toggles.
+- Background sync reuses director tokens, validates required corporation roles, and records blueprint/job ownership metadata for corporate filters.
+- Alliance Auth administrators must assign the new Indy Hub permissions in Django admin to grant member, copy-manager, and corporate-director access levels.
+
+### Fixed
+
+- Backfilled `owner_kind` on existing blueprints and jobs to keep new filters accurate, and normalised legacy accepted offers for the new decision workflow.
+- Template indentation adjustments keep EditorConfig and pre-commit hooks passing.
+
 ## [1.10.2] - 2025-10-15
 
 ### Added

@@ -1,4 +1,5 @@
 # Generated manually by ChatGPT
+# Django
 from django.apps import apps as global_apps
 from django.contrib.auth.management import create_permissions
 from django.db import migrations, models

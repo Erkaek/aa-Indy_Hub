@@ -5,7 +5,10 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("indy_hub", "0032_alter_blueprint_options_alter_blueprint_owner_kind_and_more"),
+        (
+            "indy_hub",
+            "0032_alter_blueprint_options_alter_blueprint_owner_kind_and_more",
+        ),
     ]
 
     operations = [

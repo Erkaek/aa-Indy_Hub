@@ -6,11 +6,13 @@ ______________________________________________________________________
 
 ## ✨ Features (Current)
 
-- **Blueprint Library**: View, filter, and search all your EVE Online blueprints by character, type, and efficiency.
+- **Blueprint Library**: View, filter, and search all your EVE Online blueprints by character, corporation, type, and efficiency.
 - **Industry Job Tracking**: Monitor and filter your manufacturing, research, and invention jobs in real time.
 - **Blueprint Copy Sharing**: Request, offer, and deliver blueprint copies (BPCs) within your alliance, with notifications for each step.
-- **ESI Integration**: Secure OAuth2-based sync for blueprints and jobs, with periodic background updates (Celery required).
-- **Notifications**: In-app alerts for job completions, copy offers, and deliveries. Optional Discord notifications (via aa-discordnotify).
+- **Conditional Offer Chat**: Negotiate blueprint copy terms directly in Indy Hub with persistent history, status indicators, and decision tracking.
+- **Corporate Command Center**: Track corporation blueprints and jobs, configure sharing scopes, and review director token coverage from a dedicated dashboard.
+- **ESI Integration**: Secure OAuth2-based sync for blueprints and jobs (Celery required), including director-level corporation scopes and staggered background refreshes.
+- **Notifications**: In-app alerts for job completions, copy offers, chat messages, and deliveries. Optional Discord notifications (via aa-discordnotify).
 - **Modern UI**: Responsive Bootstrap 5 interface, theme-compatible, with accessibility and i18n support.
 
 ______________________________________________________________________
@@ -41,6 +43,7 @@ ______________________________________________________________________
 - Django (as required by AA)
 - django-eveuniverse (populated with industry data)
 - Celery (for background sync)
+- (Optional) Director characters with `esi-corporations.read_blueprints.v1`, `esi-industry.read_corporation_jobs.v1`, and `esi-characters.read_corporation_roles.v1` to unlock corporate dashboards.
 - (Optional) aa-discordnotify for Discord alerts
 
 ______________________________________________________________________
@@ -51,11 +54,10 @@ ______________________________________________________________________
 
 1. Add `eveuniverse` and `indy_hub` to `INSTALLED_APPS` in your AA settings.
 
-1. Add to your local.py:
+1. Add to your `local.py`:
 
-- EVEUNIVERSE_LOAD_TYPE_MATERIALS = True
-- EVEUNIVERSE_LOAD_MARKET_GROUPS = True
-- EVEUNIVERSE_LOAD_TYPE_MATERIALS = True
+- `EVEUNIVERSE_LOAD_TYPE_MATERIALS = True`
+- `EVEUNIVERSE_LOAD_MARKET_GROUPS = True`
 
 1. Run migrations: `python manage.py migrate`
 
@@ -65,7 +67,7 @@ ______________________________________________________________________
 
 1. Populate EveUniverse with industry data `python manage.py eveuniverse_load_data types --types-enabled-sections industry_activities type_materials`.
 
-1. Assign the `can access indy_hub` permission to users/groups.
+1. Assign the `can access indy_hub` permission to pilots, and grant `can_manage_corporate_assets` to directors who should manage corporation data.
 
 ______________________________________________________________________
 
@@ -73,18 +75,21 @@ ______________________________________________________________________
 
 These settings are optional and let you tune background behaviour:
 
-- `INDY_HUB_DISCORD_DM_ENABLED` (bool, défaut : `True`) : active l’envoi des notifications Discord en DM via `aadiscordbot` (avec repli `discordnotify`).
-- `INDY_HUB_MANUAL_REFRESH_COOLDOWN_SECONDS` (int, défaut : `3600`) : délai minimal entre deux rafraîchissements manuels demandés par le même utilisateur pour les plans ou les jobs.
-- `INDY_HUB_BULK_UPDATE_WINDOW_MINUTES` (int, défaut : `720`) : fenêtre maximale (en minutes) pour étaler les synchronisations en masse. Peut être affiné par type via :
-  - `INDY_HUB_BLUEPRINTS_BULK_WINDOW_MINUTES` (défaut : `720`, soit 12 h).
-  - `INDY_HUB_INDUSTRY_JOBS_BULK_WINDOW_MINUTES` (défaut : `120`, soit 2 h).
+- `INDY_HUB_DISCORD_DM_ENABLED` (bool, default: `True`): enable Discord DM notifications via `aadiscordbot`, falling back to `discordnotify` when available.
+- `INDY_HUB_MANUAL_REFRESH_COOLDOWN_SECONDS` (int, default: `3600`): minimum delay (in seconds) before the same user can trigger another manual sync for blueprints or jobs.
+- `INDY_HUB_BULK_UPDATE_WINDOW_MINUTES` (int, default: `720`): maximum window (in minutes) used to stagger large background synchronisations. You can further refine the cadence with:
+  - `INDY_HUB_BLUEPRINTS_BULK_WINDOW_MINUTES` (default: `720`, twelve hours).
+  - `INDY_HUB_INDUSTRY_JOBS_BULK_WINDOW_MINUTES` (default: `120`, two hours).
 
-Les tâches périodiques sont automatiquement (re)créées au démarrage :
+Scheduled tasks are automatically created or updated on startup:
 
-- `indy-hub-update-all-blueprints` s’exécute chaque jour à 03 h (UTC par défaut) et répartit les rafraîchissements utilisateurs sur la fenêtre configurée.
-- `indy-hub-update-all-industry-jobs` s’exécute toutes les 2 heures et étale également ses appels sur la fenêtre dédiée.
+- `indy-hub-update-all-blueprints` runs daily at 03:00 UTC and spreads user refreshes across the configured window.
+- `indy-hub-update-all-industry-jobs` runs every two hours and staggers its workload across the job window.
 
-Après une mise à jour, redémarrez vos workers Celery et Celery Beat pour appliquer la nouvelle planification.
+After upgrading, restart your Celery workers and Celery Beat to apply the new schedule.
+
+- Assign the `indy_hub.can_manage_corporate_assets` permission to directors who should access the corporation dashboard and manage cross-corporation sharing.
+- The corporation dashboard now exposes per-corporation copy sharing settings backed by `CorporationSharingSetting`.
 
 ______________________________________________________________________
 
