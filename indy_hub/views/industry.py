@@ -2923,7 +2923,8 @@ def bp_copy_my_requests(request):
             else None
         )
 
-        if status_key == "delivered":
+        is_history = status_key == "delivered"
+        if is_history:
             closed_at = req.delivered_at or req.fulfilled_at or req.created_at
             history_requests.append(
                 {
@@ -2939,7 +2940,6 @@ def bp_copy_my_requests(request):
                     "closed_at": closed_at,
                 }
             )
-            continue
 
         active_requests.append(
             {
@@ -2957,6 +2957,7 @@ def bp_copy_my_requests(request):
                 "cond_offers": cond_offer_data,
                 "chat_actions": chat_actions,
                 "delivered": req.delivered,
+                "is_history": is_history,
                 "status_key": status_key,
                 "status_label": status_info["label"],
                 "status_class": status_info["badge"],
