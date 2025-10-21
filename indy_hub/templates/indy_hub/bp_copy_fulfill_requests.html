@@ -12,7 +12,7 @@
 {% endblock %}
 
 {% block content %}
-<main class="bp-request-surface bg-body">
+<main class="bp-request-surface bg-body" data-auto-open-chat="{{ auto_open_chat_id|default_if_none:'' }}">
     <div class="container-fluid my-4">
         <section class="page-header bp-request-hero mb-4 position-relative overflow-hidden">
             <i class="fas fa-handshake header-bg"></i>
@@ -264,6 +264,7 @@
                                     data-chat-type-name="{{ req.type_name }}"
                                     data-chat-type-id="{{ req.type_id }}"
                                     data-chat-has-unread="{{ req.chat.has_unread|yesno:'true,false' }}"
+                                    data-chat-id="{{ req.chat.id }}"
                                     aria-haspopup="dialog"
                                 >
                                     <i class="fas fa-comments"></i>
@@ -300,6 +301,7 @@
                                         data-chat-type-name="{{ req.type_name }}"
                                         data-chat-type-id="{{ req.type_id }}"
                                         data-chat-has-unread="{{ req.chat.has_unread|yesno:'true,false' }}"
+                                        data-chat-id="{{ req.chat.id }}"
                                         aria-haspopup="dialog"
                                     >
                                         <i class="fas fa-comments"></i>
@@ -339,17 +341,17 @@
                                         </form>
                                     </div>
                                     <div class="bp-card-toolbar__group" role="group" aria-label="{% trans 'Conditional decision actions' %}">
-                                        <button
-                                            class="bp-btn bp-btn-soft-info btn-sm"
-                                            type="button"
-                                            data-bs-toggle="collapse"
-                                            data-bs-target="#{{ req.conditional_collapse_id }}"
-                                            aria-expanded="false"
-                                            aria-controls="{{ req.conditional_collapse_id }}"
-                                        >
-                                            <i class="fas fa-comment-dots"></i>
-                                            <span>{% trans "Send conditions" %}</span>
-                                        </button>
+                                        <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}" class="bp-card-toolbar__form">
+                                            {% csrf_token %}
+                                            <input type="hidden" name="action" value="conditional">
+                                            <button
+                                                type="submit"
+                                                class="bp-btn bp-btn-soft-info btn-sm"
+                                            >
+                                                <i class="fas fa-comment-dots"></i>
+                                                <span>{% trans "Send conditions" %}</span>
+                                            </button>
+                                        </form>
                                     </div>
                                     {% endif %}
 
@@ -376,6 +378,7 @@
                                             data-chat-type-name="{{ req.type_name }}"
                                             data-chat-type-id="{{ req.type_id }}"
                                             data-chat-has-unread="{{ req.chat.has_unread|yesno:'true,false' }}"
+                                            data-chat-id="{{ req.chat.id }}"
                                             aria-haspopup="dialog"
                                         >
                                             <i class="fas fa-comments"></i>
@@ -394,26 +397,6 @@
                                     </div>
                                     {% endif %}
                                 </div>
-
-                                {% if req.show_offer_actions %}
-                                <div class="collapse bp-card-toolbar__collapse" id="{{ req.conditional_collapse_id }}">
-                                    <form method="post" class="bp-card-toolbar__form" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}">
-                                        {% csrf_token %}
-                                        <input type="hidden" name="action" value="conditional">
-                                        <div class="input-group input-group-sm">
-                                            <span class="input-group-text"><i class="fas fa-pen"></i></span>
-                                            <textarea
-                                                name="message"
-                                                class="form-control"
-                                                rows="2"
-                                                placeholder="{% trans 'Describe your terms (amount, price, location...)' %}"
-                                                required
-                                            ></textarea>
-                                            <button type="submit" class="btn btn-primary btn-sm">{% trans "Send" %}</button>
-                                        </div>
-                                    </form>
-                                </div>
-                                {% endif %}
 
                                 {% include "indy_hub/includes/chat_preview.html" with preview=req.chat_preview %}
                             {% endif %}

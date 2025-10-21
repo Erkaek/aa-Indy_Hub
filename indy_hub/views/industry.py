@@ -7,6 +7,7 @@ from collections import defaultdict
 from decimal import Decimal
 from math import ceil
 from typing import Any
+from urllib.parse import urlencode
 
 # Django
 from django.conf import settings
@@ -2006,6 +2007,7 @@ def bp_copy_request_page(request):
             for owner in provider_users:
                 provider_body = notification_body
                 quick_actions = []
+                link_cta = _("Click here")
 
                 accept_link = build_action_link(
                     action="accept",
@@ -2013,7 +2015,20 @@ def bp_copy_request_page(request):
                     user_id=owner.id,
                 )
                 if accept_link:
-                    quick_actions.append(_("Accept: %(url)s") % {"url": accept_link})
+                    quick_actions.append(
+                        _("Accept: %(link)s") % {"link": f"[{link_cta}]({accept_link})"}
+                    )
+
+                conditional_link = build_action_link(
+                    action="conditional",
+                    request_id=new_request.id,
+                    user_id=owner.id,
+                )
+                if conditional_link:
+                    quick_actions.append(
+                        _("Send conditions: %(link)s")
+                        % {"link": f"[{link_cta}]({conditional_link})"}
+                    )
 
                 reject_link = build_action_link(
                     action="reject",
@@ -2021,7 +2036,10 @@ def bp_copy_request_page(request):
                     user_id=owner.id,
                 )
                 if reject_link:
-                    quick_actions.append(_("Decline: %(url)s") % {"url": reject_link})
+                    quick_actions.append(
+                        _("Decline: %(link)s")
+                        % {"link": f"[{link_cta}]({reject_link})"}
+                    )
 
                 if quick_actions:
                     provider_body = (
@@ -2069,10 +2087,25 @@ def bp_copy_fulfill_requests(request):
         character_id=0,  # Global settings only
         allow_copy_requests=True,
     ).first()
+    auto_open_chat_id: str | None = None
+    requested_chat = request.GET.get("open_chat")
+    if requested_chat:
+        try:
+            requested_chat_id = int(requested_chat)
+        except (TypeError, ValueError):
+            requested_chat_id = None
+        if requested_chat_id:
+            exists = BlueprintCopyChat.objects.filter(
+                id=requested_chat_id, seller=request.user
+            ).exists()
+            if exists:
+                auto_open_chat_id = str(requested_chat_id)
     nav_context = build_nav_context(request.user, active_tab="personal")
     if not setting:
         context = {"requests": []}
         context.update(nav_context)
+        if auto_open_chat_id:
+            context["auto_open_chat_id"] = auto_open_chat_id
         return render(request, "indy_hub/bp_copy_fulfill_requests.html", context)
     my_bps_qs = Blueprint.objects.filter(
         owner_user=request.user,
@@ -2356,6 +2389,8 @@ def bp_copy_fulfill_requests(request):
         )
 
     context = {"requests": requests_to_fulfill, "metrics": metrics}
+    if auto_open_chat_id:
+        context["auto_open_chat_id"] = auto_open_chat_id
     context.update(nav_context)
 
     return render(request, "indy_hub/bp_copy_fulfill_requests.html", context)
@@ -2372,7 +2407,7 @@ def _process_offer_action(
     if not action:
         return False
 
-    offer, _ = BlueprintCopyOffer.objects.get_or_create(request=req, owner=owner)
+    offer, _created = BlueprintCopyOffer.objects.get_or_create(request=req, owner=owner)
     my_requests_url = request_obj.build_absolute_uri(
         reverse("indy_hub:bp_copy_my_requests")
     )
@@ -2449,7 +2484,13 @@ def _process_offer_action(
             link=my_requests_url,
             link_label=_("Review your requests"),
         )
-        messages.success(request_obj, _("Conditional offer sent."))
+        if message:
+            messages.success(request_obj, _("Conditional offer sent."))
+        else:
+            messages.success(
+                request_obj,
+                _("Conditional offer started. Continue the discussion in chat."),
+            )
         return True
 
     if action == "reject":
@@ -2495,9 +2536,24 @@ def bp_offer_copy_request(request, request_id):
         action=action,
         message=message,
     )
-    if not handled:
+    redirect_url = reverse("indy_hub:bp_copy_fulfill_requests")
+    if handled:
+        if action == "conditional":
+            offer = (
+                BlueprintCopyOffer.objects.filter(request=req, owner=request.user)
+                .select_related("chat")
+                .first()
+            )
+            if offer:
+                try:
+                    chat_id = offer.chat.id
+                except BlueprintCopyChat.DoesNotExist:
+                    chat_id = None
+                if chat_id:
+                    redirect_url = f"{redirect_url}?{urlencode({'open_chat': chat_id})}"
+    else:
         messages.error(request, _("Unsupported action for this request."))
-    return redirect("indy_hub:bp_copy_fulfill_requests")
+    return redirect(redirect_url)
 
 
 @indy_hub_access_required
@@ -2564,14 +2620,40 @@ def bp_discord_action(request):
         )
         return redirect(redirect_url)
 
-    handled = _process_offer_action(
-        request_obj=request,
-        req=req,
-        owner=request.user,
-        action=action,
-    )
+    chat_id = None
+    if action == "conditional":
+        handled = _process_offer_action(
+            request_obj=request,
+            req=req,
+            owner=request.user,
+            action=action,
+            message="",
+        )
+        if handled:
+            offer = (
+                BlueprintCopyOffer.objects.filter(request=req, owner=request.user)
+                .select_related("chat")
+                .first()
+            )
+            if offer:
+                try:
+                    chat_id = offer.chat.id
+                except BlueprintCopyChat.DoesNotExist:
+                    chat_id = None
+    else:
+        handled = _process_offer_action(
+            request_obj=request,
+            req=req,
+            owner=request.user,
+            action=action,
+        )
+
     if not handled:
         messages.error(request, _("Unsupported action for this request."))
+        return redirect(redirect_url)
+
+    if chat_id:
+        redirect_url = f"{redirect_url}?{urlencode({'open_chat': chat_id})}"
     return redirect(redirect_url)
 
 

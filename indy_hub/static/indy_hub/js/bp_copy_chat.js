@@ -779,6 +779,39 @@
                 showModal();
             }
         });
+
+        var autoOpenRoot = document.querySelector('[data-auto-open-chat]');
+        if (autoOpenRoot) {
+            var autoChatId = autoOpenRoot.dataset.autoOpenChat;
+            if (autoChatId) {
+                var attemptAutoOpen = function () {
+                    var selector = '.bp-chat-trigger[data-chat-id="' + autoChatId + '"]';
+                    var autoTrigger = document.querySelector(selector);
+                    if (!autoTrigger) {
+                        return false;
+                    }
+                    openChat(autoTrigger);
+                    if (!useBootstrap) {
+                        showModal();
+                    }
+                    autoOpenRoot.dataset.autoOpenChat = '';
+                    try {
+                        var currentUrl = new URL(window.location.href);
+                        if (currentUrl.searchParams.has('open_chat')) {
+                            currentUrl.searchParams.delete('open_chat');
+                            window.history.replaceState({}, document.title, currentUrl.toString());
+                        }
+                    } catch (err) {
+                        console.warn('[IndyHub] Unable to clean auto-open query param', err);
+                    }
+                    return true;
+                };
+
+                if (!attemptAutoOpen()) {
+                    window.setTimeout(attemptAutoOpen, 200);
+                }
+            }
+        }
         state.boundClickListener = true;
     console.log('[IndyHub] Chat listeners bound');
     }
