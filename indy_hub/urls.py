@@ -18,6 +18,7 @@ from .views.industry import (
     bp_copy_fulfill_requests,
     bp_copy_my_requests,
     bp_copy_request_page,
+    bp_discord_action,
     bp_mark_copy_delivered,
     bp_offer_copy_request,
     bp_reject_copy_request,
@@ -142,6 +143,7 @@ urlpatterns = [
         bp_offer_copy_request,
         name="bp_offer_copy_request",
     ),
+    path("bp-copy/action/", bp_discord_action, name="bp_discord_action"),
     path(
         "bp-copy/accept-offer/<int:offer_id>/",
         bp_buyer_accept_offer,

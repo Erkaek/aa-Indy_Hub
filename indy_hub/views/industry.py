@@ -45,6 +45,13 @@ from ..tasks.industry import (
     MANUAL_REFRESH_KIND_JOBS,
     request_manual_refresh,
 )
+from ..utils.discord_actions import (
+    _DEFAULT_TOKEN_MAX_AGE,
+    BadSignature,
+    SignatureExpired,
+    build_action_link,
+    decode_action_token,
+)
 from ..utils.eve import get_character_name, get_corporation_name, get_type_name
 from .navigation import build_nav_context
 
@@ -82,43 +89,6 @@ def _eligible_owner_ids_for_request(req: BlueprintCopyRequest) -> set[int]:
 
 def _finalize_request_if_all_rejected(req: BlueprintCopyRequest) -> bool:
     """Notify requester and delete request if all eligible providers rejected."""
-
-    eligible_owner_ids = _eligible_owner_ids_for_request(req)
-    offers_by_owner = dict(
-        req.offers.filter(owner_id__in=eligible_owner_ids).values_list(
-            "owner_id", "status"
-        )
-    )
-
-    if eligible_owner_ids:
-        outstanding = [
-            owner_id
-            for owner_id in eligible_owner_ids
-            if offers_by_owner.get(owner_id) != "rejected"
-        ]
-        if outstanding:
-            return False
-
-    my_requests_url = build_site_url(reverse("indy_hub:bp_copy_my_requests"))
-
-    notify_user(
-        req.requested_by,
-        _("Blueprint Copy Request Unavailable"),
-        _(
-            "All available builders declined your request for %(type)s (ME%(me)d, TE%(te)d)."
-        )
-        % {
-            "type": get_type_name(req.type_id),
-            "me": req.material_efficiency,
-            "te": req.time_efficiency,
-        },
-        "warning",
-        link=my_requests_url,
-        link_label=_("Review your requests"),
-    )
-    _close_request_chats(req, BlueprintCopyChat.CloseReason.REQUEST_WITHDRAWN)
-    req.delete()
-    return True
 
     eligible_owner_ids = _eligible_owner_ids_for_request(req)
     offers_by_owner = dict(
@@ -2034,10 +2004,35 @@ def bp_copy_request_page(request):
 
             provider_users = User.objects.filter(id__in=eligible_owner_ids)
             for owner in provider_users:
+                provider_body = notification_body
+                quick_actions = []
+
+                accept_link = build_action_link(
+                    action="accept",
+                    request_id=new_request.id,
+                    user_id=owner.id,
+                )
+                if accept_link:
+                    quick_actions.append(_("Accept: %(url)s") % {"url": accept_link})
+
+                reject_link = build_action_link(
+                    action="reject",
+                    request_id=new_request.id,
+                    user_id=owner.id,
+                )
+                if reject_link:
+                    quick_actions.append(_("Decline: %(url)s") % {"url": reject_link})
+
+                if quick_actions:
+                    provider_body = (
+                        f"{provider_body}\n\n"
+                        f"{_('Quick actions:')}\n" + "\n".join(quick_actions)
+                    )
+
                 notify_user(
                     owner,
                     notification_title,
-                    notification_body,
+                    provider_body,
                     "info",
                     link=fulfill_queue_url,
                     link_label=fulfill_label,
@@ -2366,18 +2361,19 @@ def bp_copy_fulfill_requests(request):
     return render(request, "indy_hub/bp_copy_fulfill_requests.html", context)
 
 
-@indy_hub_access_required
-@indy_hub_permission_required("can_manage_copy_requests")
-@login_required
-def bp_offer_copy_request(request, request_id):
-    """Handle offering to fulfill a blueprint copy request."""
-    req = get_object_or_404(BlueprintCopyRequest, id=request_id, fulfilled=False)
-    action = request.POST.get("action")
-    message = request.POST.get("message", "").strip()
-    offer, created = BlueprintCopyOffer.objects.get_or_create(
-        request=req, owner=request.user
-    )
-    my_requests_url = request.build_absolute_uri(
+def _process_offer_action(
+    *,
+    request_obj,
+    req: BlueprintCopyRequest,
+    owner,
+    action: str | None,
+    message: str = "",
+) -> bool:
+    if not action:
+        return False
+
+    offer, _ = BlueprintCopyOffer.objects.get_or_create(request=req, owner=owner)
+    my_requests_url = request_obj.build_absolute_uri(
         reverse("indy_hub:bp_copy_my_requests")
     )
 
@@ -2397,24 +2393,22 @@ def bp_offer_copy_request(request, request_id):
             ]
         )
         _close_offer_chat_if_exists(offer, BlueprintCopyChat.CloseReason.OFFER_ACCEPTED)
-        # Notify requester: accepted (free)
         notify_user(
             req.requested_by,
             "Blueprint Copy Request Accepted",
-            f"{request.user.username} accepted your copy request for {get_type_name(req.type_id)} (ME{req.material_efficiency}, TE{req.time_efficiency}) for free.",
+            f"{owner.username} accepted your copy request for {get_type_name(req.type_id)} (ME{req.material_efficiency}, TE{req.time_efficiency}) for free.",
             "success",
             link=my_requests_url,
             link_label=_("Review your requests"),
         )
-        # Mark request as fulfilled, remove all other offers
         req.fulfilled = True
         req.fulfilled_at = timezone.now()
-        req.save()
-        BlueprintCopyOffer.objects.filter(request=req).exclude(
-            owner=request.user
-        ).delete()
-        messages.success(request, "Request accepted and requester notified.")
-    elif action == "conditional":
+        req.save(update_fields=["fulfilled", "fulfilled_at"])
+        BlueprintCopyOffer.objects.filter(request=req).exclude(owner=owner).delete()
+        messages.success(request_obj, _("Request accepted and requester notified."))
+        return True
+
+    if action == "conditional":
         offer.status = "conditional"
         offer.message = message
         offer.accepted_by_buyer = False
@@ -2433,14 +2427,13 @@ def bp_offer_copy_request(request, request_id):
         if message:
             chat_message = BlueprintCopyMessage(
                 chat=chat,
-                sender=request.user,
+                sender=owner,
                 sender_role=BlueprintCopyMessage.SenderRole.SELLER,
                 content=message,
             )
             chat_message.full_clean()
             chat_message.save()
             chat.register_message(sender_role=BlueprintCopyMessage.SenderRole.SELLER)
-        # Notify requester: conditional offer
         notify_user(
             req.requested_by,
             "Blueprint Copy Request - Conditional Offer",
@@ -2456,8 +2449,10 @@ def bp_offer_copy_request(request, request_id):
             link=my_requests_url,
             link_label=_("Review your requests"),
         )
-        messages.success(request, "Conditional offer sent.")
-    elif action == "reject":
+        messages.success(request_obj, _("Conditional offer sent."))
+        return True
+
+    if action == "reject":
         offer.status = "rejected"
         offer.message = message
         offer.accepted_by_buyer = False
@@ -2475,12 +2470,109 @@ def bp_offer_copy_request(request, request_id):
         _close_offer_chat_if_exists(offer, BlueprintCopyChat.CloseReason.OFFER_REJECTED)
         if _finalize_request_if_all_rejected(req):
             messages.success(
-                request,
+                request_obj,
                 _("Offer rejected. Requester notified that no builders are available."),
             )
         else:
-            messages.success(request, "Offer rejected.")
+            messages.success(request_obj, _("Offer rejected."))
+        return True
+
+    return False
+
+
+@indy_hub_access_required
+@indy_hub_permission_required("can_manage_copy_requests")
+@login_required
+def bp_offer_copy_request(request, request_id):
+    """Handle offering to fulfill a blueprint copy request."""
+    req = get_object_or_404(BlueprintCopyRequest, id=request_id, fulfilled=False)
+    action = request.POST.get("action")
+    message = request.POST.get("message", "").strip()
+    handled = _process_offer_action(
+        request_obj=request,
+        req=req,
+        owner=request.user,
+        action=action,
+        message=message,
+    )
+    if not handled:
+        messages.error(request, _("Unsupported action for this request."))
     return redirect("indy_hub:bp_copy_fulfill_requests")
+
+
+@indy_hub_access_required
+@indy_hub_permission_required("can_manage_copy_requests")
+@login_required
+def bp_discord_action(request):
+    """Process quick actions triggered from Discord notifications."""
+
+    redirect_url = reverse("indy_hub:bp_copy_fulfill_requests")
+    token = (request.GET.get("token") or "").strip()
+    if not token:
+        messages.error(request, _("Missing action token."))
+        return redirect(redirect_url)
+
+    try:
+        payload = decode_action_token(token, max_age=_DEFAULT_TOKEN_MAX_AGE)
+    except SignatureExpired:
+        messages.error(request, _("This action link has expired."))
+        return redirect(redirect_url)
+    except BadSignature:
+        messages.error(request, _("Invalid action token."))
+        return redirect(redirect_url)
+
+    expected_user_id = payload.get("u")
+    request_id = payload.get("r")
+    action = payload.get("a")
+
+    if expected_user_id != request.user.id:
+        messages.error(request, _("This action link is not for your account."))
+        return redirect(redirect_url)
+
+    if not request_id or not action:
+        messages.error(request, _("Incomplete action token."))
+        return redirect(redirect_url)
+
+    req = (
+        BlueprintCopyRequest.objects.filter(id=request_id, fulfilled=False)
+        .select_related("requested_by")
+        .first()
+    )
+    if not req:
+        messages.warning(
+            request,
+            _("This copy request is no longer available."),
+        )
+        return redirect(redirect_url)
+
+    if req.requested_by_id == request.user.id:
+        messages.error(
+            request,
+            _("You cannot respond to a copy request you created."),
+        )
+        return redirect(redirect_url)
+
+    existing_offer = BlueprintCopyOffer.objects.filter(
+        request=req, owner=request.user
+    ).first()
+    if not existing_offer and request.user.id not in _eligible_owner_ids_for_request(
+        req
+    ):
+        messages.error(
+            request,
+            _("You are no longer eligible to fulfil this copy request."),
+        )
+        return redirect(redirect_url)
+
+    handled = _process_offer_action(
+        request_obj=request,
+        req=req,
+        owner=request.user,
+        action=action,
+    )
+    if not handled:
+        messages.error(request, _("Unsupported action for this request."))
+    return redirect(redirect_url)
 
 
 @indy_hub_access_required
