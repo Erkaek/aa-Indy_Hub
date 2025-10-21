@@ -108,6 +108,44 @@
             </div>
         </section>
 
+        <ul class="nav nav-tabs bp-request-tabs" id="bp-request-tabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button
+                    class="nav-link active"
+                    id="bp-request-tab-active"
+                    data-bs-toggle="tab"
+                    data-bs-target="#bp-request-pane-active"
+                    type="button"
+                    role="tab"
+                    aria-controls="bp-request-pane-active"
+                    aria-selected="true"
+                >
+                    <i class="fas fa-stream me-1"></i>{% trans "Active" %}
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button
+                    class="nav-link"
+                    id="bp-request-tab-history"
+                    data-bs-toggle="tab"
+                    data-bs-target="#bp-request-pane-history"
+                    type="button"
+                    role="tab"
+                    aria-controls="bp-request-pane-history"
+                    aria-selected="false"
+                >
+                    <i class="fas fa-history me-1"></i>{% trans "History" %}
+                </button>
+            </li>
+        </ul>
+
+        <div class="tab-content mt-3" id="bp-request-tab-content">
+            <div
+                class="tab-pane fade show active"
+                id="bp-request-pane-active"
+                role="tabpanel"
+                aria-labelledby="bp-request-tab-active"
+            >
         {% if my_requests %}
         <section class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-3">
             {% for req in my_requests %}
@@ -370,6 +408,56 @@
             </div>
         </section>
         {% endif %}
+            </div>
+            <div
+                class="tab-pane fade"
+                id="bp-request-pane-history"
+                role="tabpanel"
+                aria-labelledby="bp-request-tab-history"
+            >
+                {% if history_requests %}
+                <div class="card shadow-sm border-0">
+                    <div class="card-body p-0">
+                        <div class="list-group list-group-flush">
+                            {% for item in history_requests %}
+                            <div class="list-group-item d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2">
+                                <div>
+                                    <h3 class="h6 mb-1">{{ item.type_name }}</h3>
+                                    <p class="text-muted small mb-1">
+                                        <i class="fas fa-check-double me-1"></i>{{ item.status_label }}
+                                    </p>
+                                    <p class="text-muted small mb-0">
+                                        <span class="text-uppercase">ME {{ item.material_efficiency }} • TE {{ item.time_efficiency }}</span>
+                                        · {% blocktrans with copies=item.copies_requested runs=item.runs_requested %}{{ copies }} copies, {{ runs }} runs{% endblocktrans %}
+                                    </p>
+                                </div>
+                                <div class="text-muted small text-md-end">
+                                    {% if item.closed_at %}
+                                    <p class="mb-1">
+                                        <i class="fas fa-calendar-check me-1"></i>
+                                        {% blocktrans with timestamp=item.closed_at|naturaltime %}Closed {{ timestamp }}{% endblocktrans %}
+                                    </p>
+                                    <p class="mb-0">
+                                        <i class="fas fa-clock me-1"></i>{{ item.closed_at|date:"Y-m-d H:i" }} {% trans "EVE time" %}
+                                    </p>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+                {% else %}
+                <section class="bp-request-empty card border-0 shadow-sm">
+                    <div class="card-body text-center py-5">
+                        <span class="bp-request-empty__icon"><i class="fas fa-archive"></i></span>
+                        <h2 class="h4 mt-3">{% trans "History is empty" %}</h2>
+                        <p class="text-muted small mb-0">{% trans "Delivered requests will appear here for easy reference." %}</p>
+                    </div>
+                </section>
+                {% endif %}
+            </div>
+        </div>
     </div>
 </main>
 {% block indy_hub_global_modals %}

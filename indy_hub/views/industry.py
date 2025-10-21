@@ -6,6 +6,7 @@ import logging
 from collections import defaultdict
 from decimal import Decimal
 from math import ceil
+from typing import Any
 
 # Django
 from django.conf import settings
@@ -2801,7 +2802,8 @@ def bp_copy_my_requests(request):
         "delivered": 0,
     }
 
-    my_requests = []
+    active_requests: list[dict[str, Any]] = []
+    history_requests: list[dict[str, Any]] = []
     for req in qs:
         offers = list(req.offers.all())
         accepted_offer_obj = next(
@@ -2921,7 +2923,25 @@ def bp_copy_my_requests(request):
             else None
         )
 
-        my_requests.append(
+        if status_key == "delivered":
+            closed_at = req.delivered_at or req.fulfilled_at or req.created_at
+            history_requests.append(
+                {
+                    "id": req.id,
+                    "type_id": req.type_id,
+                    "type_name": get_type_name(req.type_id),
+                    "material_efficiency": req.material_efficiency,
+                    "time_efficiency": req.time_efficiency,
+                    "copies_requested": req.copies_requested,
+                    "runs_requested": req.runs_requested,
+                    "status_label": status_info["label"],
+                    "status_hint": status_info["hint"],
+                    "closed_at": closed_at,
+                }
+            )
+            continue
+
+        active_requests.append(
             {
                 "id": req.id,
                 "type_id": req.type_id,
@@ -2946,7 +2966,15 @@ def bp_copy_my_requests(request):
             }
         )
 
-    context = {"my_requests": my_requests, "metrics": metrics}
+    context = {
+        "my_requests": active_requests,
+        "history_requests": sorted(
+            history_requests,
+            key=lambda item: item.get("closed_at") or timezone.now(),
+            reverse=True,
+        ),
+        "metrics": metrics,
+    }
     context.update(build_nav_context(request.user, active_tab="personal"))
 
     return render(request, "indy_hub/bp_copy_my_requests.html", context)
