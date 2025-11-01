@@ -108,13 +108,13 @@ def _resolve_blueprint(job) -> Blueprint | None:
 
     if blueprint_id:
         candidate = (
-            query.filter(blueprint_id=blueprint_id).order_by("-updated_at").first()
+            query.filter(blueprint_id=blueprint_id).order_by("-last_updated").first()
         )
         if candidate:
             return candidate
 
     if blueprint_type_id:
-        return query.filter(type_id=blueprint_type_id).order_by("-updated_at").first()
+        return query.filter(type_id=blueprint_type_id).order_by("-last_updated").first()
 
     return None
 

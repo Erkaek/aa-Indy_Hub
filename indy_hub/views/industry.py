@@ -1225,7 +1225,7 @@ def personnal_job_notification_test(request):
         installer_id=character_id or request.user.id,
         job_id=999999,
         blueprint_id=123456789,
-        blueprint_type_id=2185,
+        blueprint_type_id=23528,
         blueprint_type_name="Drone Link Augmentor I Blueprint",
         activity_id=3,
         activity_name=_("Time Efficiency Research"),
@@ -1239,7 +1239,7 @@ def personnal_job_notification_test(request):
     sample_blueprint = Blueprint(
         owner_user=request.user,
         item_id=0,
-        type_id=2185,
+        type_id=23528,
         type_name="Drone Link Augmentor I Blueprint",
         time_efficiency=20,
         material_efficiency=10,

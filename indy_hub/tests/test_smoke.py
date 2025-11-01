@@ -419,10 +419,10 @@ class JobNotificationPreviewTests(TestCase):
         self.assertIn("Job #999999", args[1])
         body = args[2]
         self.assertIn("Result: TE 16 -> 20", body)
-        self.assertIn("https://images.evetech.net/types/2185/bp", body)
+        self.assertIn("https://images.evetech.net/types/23528/bp", body)
         self.assertEqual(
             kwargs.get("thumbnail_url"),
-            "https://images.evetech.net/types/2185/bp",
+            "https://images.evetech.net/types/23528/bp",
         )
 
 
