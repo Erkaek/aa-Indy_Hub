@@ -318,7 +318,7 @@ def get_blueprint_product_type_id(blueprint_type_id: int | None) -> int | None:
                     product_id = product.product_eve_type_id
         except Exception:  # pragma: no cover - defensive fallback
             logger.debug(
-                "Impossible de résoudre le produit pour le blueprint %s via ESI Universe",
+                "Unable to resolve the product for blueprint %s via ESI Universe",
                 blueprint_type_id,
                 exc_info=True,
             )
@@ -345,7 +345,7 @@ def is_reaction_blueprint(blueprint_type_id: int | None) -> bool:
             ).exists()
         except Exception:  # pragma: no cover - defensive fallback
             logger.debug(
-                "Impossible de déterminer l'activité pour le blueprint %s",
+                "Unable to determine the activity for blueprint %s",
                 blueprint_type_id,
                 exc_info=True,
             )

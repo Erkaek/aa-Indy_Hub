@@ -654,6 +654,9 @@ def get_copy_sharing_states() -> dict[str, dict[str, object]]:
             "subtitle": _(
                 "Keep your library private until you're ready to collaborate."
             ),
+            "explanation": _(
+                "Only you can view or request copies; other pilots cannot see your originals."
+            ),
         },
         CharacterSettings.SCOPE_CORPORATION: {
             "enabled": True,
@@ -665,6 +668,9 @@ def get_copy_sharing_states() -> dict[str, dict[str, object]]:
             "popup_message": _("Blueprint sharing enabled for your corporation."),
             "fulfill_hint": _("Corporation pilots may be waiting on your copies."),
             "subtitle": _("Share duplicates with trusted corp industrialists."),
+            "explanation": _(
+                "Pilots in your corporation can see your originals and submit copy requests."
+            ),
         },
         CharacterSettings.SCOPE_ALLIANCE: {
             "enabled": True,
@@ -676,6 +682,31 @@ def get_copy_sharing_states() -> dict[str, dict[str, object]]:
             "popup_message": _("Blueprint sharing enabled for the entire alliance."),
             "fulfill_hint": _("Alliance pilots may be waiting on you."),
             "subtitle": _("Coordinate duplicate production across your alliance."),
+            "explanation": _(
+                "Everyone in your alliance can browse your originals and ask for copies."
+            ),
+        },
+        CharacterSettings.SCOPE_EVERYONE: {
+            "enabled": True,
+            "button_label": _("Everyone"),
+            "button_hint": _(
+                "All pilots with copy permissions can request your originals."
+            ),
+            "status_label": _("Shared with everyone"),
+            "status_hint": _(
+                "Blueprint requests are visible to all authorized Indy Hub users."
+            ),
+            "badge_class": "bg-success-subtle text-success",
+            "popup_message": _("Blueprint sharing enabled for everyone."),
+            "fulfill_hint": _(
+                "Any pilot with copy privileges may be waiting on your response."
+            ),
+            "subtitle": _(
+                "Open your originals to the wider alliance community who can share copies."
+            ),
+            "explanation": _(
+                "Any Indy Hub pilot with the copy permission can see your originals and request copies."
+            ),
         },
     }
 
@@ -1678,7 +1709,7 @@ def sync_jobs(request):
 @login_required
 @require_POST
 def toggle_job_notifications(request):
-    # Basculer la préférence de notification
+    # Toggle the notification preference
     settings, _created = CharacterSettings.objects.get_or_create(
         user=request.user, character_id=0
     )
@@ -1699,6 +1730,7 @@ def toggle_copy_sharing(request):
         CharacterSettings.SCOPE_NONE,
         CharacterSettings.SCOPE_CORPORATION,
         CharacterSettings.SCOPE_ALLIANCE,
+        CharacterSettings.SCOPE_EVERYONE,
     ]
     payload = {}
     if request.body:
@@ -1904,7 +1936,7 @@ def onboarding_set_visibility(request):
 @login_required
 def production_simulations(request):
     """
-    Page de gestion des simulations de production sauvegardées.
+    Management page for saved production simulations.
     """
     simulations = (
         ProductionSimulation.objects.filter(user=request.user)
@@ -1929,13 +1961,13 @@ def production_simulations(request):
 @require_POST
 def delete_production_simulation(request, simulation_id):
     """
-    Supprimer une simulation de production.
+    Delete a production simulation.
     """
     simulation = get_object_or_404(
         ProductionSimulation, id=simulation_id, user=request.user
     )
 
-    # Supprimer aussi toutes les configurations associées
+    # Remove all related configurations as well
     ProductionConfig.objects.filter(
         user=request.user,
         blueprint_type_id=simulation.blueprint_type_id,
@@ -1945,7 +1977,7 @@ def delete_production_simulation(request, simulation_id):
     simulation_name = simulation.display_name
     simulation.delete()
 
-    messages.success(request, f'Simulation "{simulation_name}" supprimée avec succès.')
+    messages.success(request, f'Simulation "{simulation_name}" deleted successfully.')
     return redirect("indy_hub:production_simulations")
 
 
@@ -1953,7 +1985,7 @@ def delete_production_simulation(request, simulation_id):
 @login_required
 def rename_production_simulation(request, simulation_id):
     """
-    Renommer une simulation de production.
+    Rename a production simulation.
     """
     simulation = get_object_or_404(
         ProductionSimulation, id=simulation_id, user=request.user
@@ -1964,9 +1996,7 @@ def rename_production_simulation(request, simulation_id):
         simulation.simulation_name = new_name
         simulation.save(update_fields=["simulation_name"])
 
-        messages.success(
-            request, f'Simulation renommée en "{simulation.display_name}".'
-        )
+        messages.success(request, f'Simulation renamed to "{simulation.display_name}".')
         return redirect("indy_hub:production_simulations")
 
     context = {"simulation": simulation}

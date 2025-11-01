@@ -1,6 +1,6 @@
-# Tâches asynchrones pour l'industrie (exemple)
-# Copie ici les tâches liées à l'industrie extraites de tasks.py
-# Place ici les tâches asynchrones spécifiques à l'industrie extraites de tasks.py si besoin
+# Asynchronous tasks for the industry module (example)
+# Copy industry-related tasks that were previously in tasks.py here.
+# Place any industry-specific asynchronous tasks from tasks.py here when needed.
 
 # Standard Library
 import logging
@@ -195,7 +195,7 @@ def _collect_corporation_contexts(
             roles = get_character_corporation_roles(char_id)
         except ESITokenError:
             logger.info(
-                "Le personnage %s n'a pas le scope corporation roles requis pour la corp %s",
+                "Character %s lacks the required corporation roles scope for corporation %s",
                 char_id,
                 corp_id,
             )
@@ -211,7 +211,7 @@ def _collect_corporation_contexts(
 
         if not roles.intersection(REQUIRED_CORPORATION_ROLES):
             logger.info(
-                "Le personnage %s n'a pas les rôles %s pour la corp %s",
+                "Character %s does not have roles %s for corporation %s",
                 char_id,
                 ", ".join(sorted(REQUIRED_CORPORATION_ROLES)),
                 corp_id,
@@ -413,9 +413,7 @@ def update_blueprints_for_user(self, user_id, scope: str | None = None):
     try:
         user = User.objects.get(id=user_id)
     except User.DoesNotExist as exc:  # pragma: no cover - defensive guard
-        logger.warning(
-            "Utilisateur %s introuvable pour la synchronisation des plans", user_id
-        )
+        logger.warning("User %s not found during blueprint synchronization", user_id)
         raise self.retry(exc=exc, countdown=60 * (2**self.request.retries))
 
     normalized_scope = (scope or "").strip().lower()
@@ -424,7 +422,7 @@ def update_blueprints_for_user(self, user_id, scope: str | None = None):
 
     scope_label = normalized_scope or "all"
     logger.info(
-        "Synchronisation des blueprints pour %s (scope=%s)",
+        "Blueprint synchronization for %s (scope=%s)",
         user.username,
         scope_label,
     )
@@ -439,19 +437,19 @@ def update_blueprints_for_user(self, user_id, scope: str | None = None):
     if process_corporations and user.has_perm("indy_hub.can_manage_corporate_assets"):
         corp_contexts = _collect_corporation_contexts(user, CORP_BLUEPRINT_SCOPE_SET)
         logger.info(
-            "Contexte corporation détecté pour %s: %s",
+            "Corporation context detected for %s: %s",
             user.username,
-            ", ".join(str(key) for key in corp_contexts.keys()) or "aucun",
+            ", ".join(str(key) for key in corp_contexts.keys()) or "none",
         )
         if not corp_contexts:
             logger.debug(
-                "Aucun contexte corporation disponible pour %s lors d'une synchronisation scope=%s",
+                "No corporation context available for %s during a scope=%s synchronization",
                 user.username,
                 scope_label,
             )
     elif normalized_scope == "corporation":
         message = (
-            "Synchronisation des blueprints corporate ignorée pour %s: permission manquante"
+            "Skipped corporate blueprint synchronization for %s: missing permission"
             % user.username
         )
         logger.info(message)
@@ -482,7 +480,7 @@ def update_blueprints_for_user(self, user_id, scope: str | None = None):
 
             if chosen_scopes is None:
                 message = (
-                    f"{character_name} ({char_id}) sans jeton pour les scopes "
+                    f"{character_name} ({char_id}) has no token for scopes "
                     f"{', '.join(base_scopes)}"
                 )
                 logger.debug(message)
@@ -491,23 +489,23 @@ def update_blueprints_for_user(self, user_id, scope: str | None = None):
 
             if STRUCTURE_SCOPE not in chosen_scopes:
                 logger.debug(
-                    "Synchronisation des blueprints pour %s via token sans scope structure",
+                    "Blueprint synchronization for %s using a token without the structure scope",
                     character_name,
                 )
 
             blueprints = shared_client.fetch_character_blueprints(char_id)
         except ESITokenError as exc:
-            message = f"Jeton invalide pour {character_name} ({char_id}): {exc}"
+            message = f"Invalid token for {character_name} ({char_id}): {exc}"
             logger.warning(message)
             error_messages.append(message)
             continue
         except ESIClientError as exc:
-            message = f"Erreur ESI pour {character_name} ({char_id}): {exc}"
+            message = f"ESI error for {character_name} ({char_id}): {exc}"
             logger.error(message)
             error_messages.append(message)
             continue
         except Exception as exc:  # pragma: no cover - unexpected
-            message = f"Erreur inattendue pour {character_name} ({char_id}): {exc}"
+            message = f"Unexpected error for {character_name} ({char_id}): {exc}"
             logger.exception(message)
             error_messages.append(message)
             continue
@@ -518,7 +516,7 @@ def update_blueprints_for_user(self, user_id, scope: str | None = None):
                 item_id = bp.get("item_id")
                 if item_id is None:
                     logger.debug(
-                        "Blueprint sans item_id ignoré pour %s (%s)",
+                        "Blueprint without item_id ignored for %s (%s)",
                         character_name,
                         bp,
                     )
@@ -564,7 +562,7 @@ def update_blueprints_for_user(self, user_id, scope: str | None = None):
         deleted_total += deleted
         updated_count += len(blueprints)
         logger.debug(
-            "Synchronisation des blueprints terminée pour %s (%s mis à jour, %s supprimés)",
+            "Blueprint synchronization finished for %s (%s updated, %s deleted)",
             character_name,
             len(blueprints),
             deleted,
@@ -578,7 +576,7 @@ def update_blueprints_for_user(self, user_id, scope: str | None = None):
 
             if not corp_char_id:
                 logger.debug(
-                    "Contexte incomplet pour la corporation %s (aucun character_id)",
+                    "Incomplete context for corporation %s (missing character_id)",
                     corp_id,
                 )
                 continue
@@ -588,17 +586,17 @@ def update_blueprints_for_user(self, user_id, scope: str | None = None):
                     int(corp_id), character_id=int(corp_char_id)
                 )
             except ESITokenError as exc:
-                message = f"Jeton invalide pour la corporation {corp_name} ({corp_id}) via {acting_character_name}: {exc}"
+                message = f"Invalid token for corporation {corp_name} ({corp_id}) via {acting_character_name}: {exc}"
                 logger.warning(message)
                 error_messages.append(message)
                 continue
             except ESIClientError as exc:
-                message = f"Erreur ESI pour la corporation {corp_name} ({corp_id}) via {acting_character_name}: {exc}"
+                message = f"ESI error for corporation {corp_name} ({corp_id}) via {acting_character_name}: {exc}"
                 logger.error(message)
                 error_messages.append(message)
                 continue
             except Exception as exc:  # pragma: no cover - unexpected
-                message = f"Erreur inattendue pour la corporation {corp_name} ({corp_id}) via {acting_character_name}: {exc}"
+                message = f"Unexpected error for corporation {corp_name} ({corp_id}) via {acting_character_name}: {exc}"
                 logger.exception(message)
                 error_messages.append(message)
                 continue
@@ -609,7 +607,7 @@ def update_blueprints_for_user(self, user_id, scope: str | None = None):
                     item_id = bp.get("item_id")
                     if item_id is None:
                         logger.debug(
-                            "Blueprint corporate sans item_id ignoré pour %s (%s)",
+                            "Corporate blueprint without item_id ignored for %s (%s)",
                             corp_name,
                             bp,
                         )
@@ -655,21 +653,21 @@ def update_blueprints_for_user(self, user_id, scope: str | None = None):
             updated_count += len(corp_blueprints)
             deleted_total += deleted
             logger.debug(
-                "Synchronisation des blueprints corporate terminée pour %s (%s mis à jour, %s supprimés)",
+                "Corporate blueprint synchronization finished for %s (%s updated, %s deleted)",
                 corp_name,
                 len(corp_blueprints),
                 deleted,
             )
 
     logger.info(
-        "Blueprints synchronisés pour %s: %s éléments mis à jour, %s supprimés",
+        "Blueprints synchronized for %s: %s updated, %s deleted",
         user.username,
         updated_count,
         deleted_total,
     )
     if error_messages:
         logger.warning(
-            "Incidents lors de la synchronisation des blueprints %s: %s",
+            "Issues during blueprint synchronization %s: %s",
             user.username,
             "; ".join(error_messages),
         )
@@ -722,9 +720,9 @@ def update_industry_jobs_for_user(self, user_id, scope: str | None = None):
         ):
             corp_contexts = _collect_corporation_contexts(user, CORP_JOBS_SCOPE_SET)
             logger.info(
-                "Contexte corporation (jobs) détecté pour %s: %s",
+                "Detected corporation context (jobs) for %s: %s",
                 user.username,
-                ", ".join(str(key) for key in corp_contexts.keys()) or "aucun",
+                ", ".join(str(key) for key in corp_contexts.keys()) or "none",
             )
             if not corp_contexts:
                 logger.debug(
@@ -761,33 +759,31 @@ def update_industry_jobs_for_user(self, user_id, scope: str | None = None):
                         break
 
                 if chosen_scopes is None:
-                    message = (
-                        f"{character_name} ({char_id}) sans jeton pour les scopes "
-                        f"{', '.join(base_scopes)}"
-                    )
+                    scope_list = ", ".join(base_scopes)
+                    message = f"{character_name} ({char_id}) missing token for scopes {scope_list}"
                     logger.debug(message)
                     error_messages.append(message)
                     continue
 
                 if STRUCTURE_SCOPE not in chosen_scopes:
                     logger.debug(
-                        "Synchronisation des jobs pour %s via token sans scope structure",
+                        "Job synchronization for %s using token without structure scope",
                         character_name,
                     )
 
                 jobs = shared_client.fetch_character_industry_jobs(char_id)
             except ESITokenError as exc:
-                message = f"Jeton invalide pour {character_name} ({char_id}): {exc}"
+                message = f"Invalid token for {character_name} ({char_id}): {exc}"
                 logger.warning(message)
                 error_messages.append(message)
                 continue
             except ESIClientError as exc:
-                message = f"Erreur ESI pour {character_name} ({char_id}): {exc}"
+                message = f"ESI error for {character_name} ({char_id}): {exc}"
                 logger.error(message)
                 error_messages.append(message)
                 continue
             except Exception as exc:  # pragma: no cover - unexpected
-                message = f"Erreur inattendue pour {character_name} ({char_id}): {exc}"
+                message = f"Unexpected error for {character_name} ({char_id}): {exc}"
                 logger.exception(message)
                 error_messages.append(message)
                 continue
@@ -798,7 +794,7 @@ def update_industry_jobs_for_user(self, user_id, scope: str | None = None):
                     job_id = job.get("job_id")
                     if job_id is None:
                         logger.debug(
-                            "Job sans identifiant ignoré pour %s: %s",
+                            "Skipping job without identifier for %s: %s",
                             character_name,
                             job,
                         )
@@ -924,7 +920,7 @@ def update_industry_jobs_for_user(self, user_id, scope: str | None = None):
             deleted_total += deleted
             updated_count += len(jobs)
             logger.debug(
-                "Synchronisation des jobs terminée pour %s (%s mis à jour, %s supprimés)",
+                "Finished syncing jobs for %s (%s updated, %s removed)",
                 character_name,
                 len(jobs),
                 deleted,
@@ -938,7 +934,7 @@ def update_industry_jobs_for_user(self, user_id, scope: str | None = None):
 
                 if not corp_char_id:
                     logger.debug(
-                        "Contexte incomplet pour les jobs corporate de %s (aucun character_id)",
+                        "Incomplete corporate job context for %s (missing character_id)",
                         corp_id,
                     )
                     continue
@@ -948,17 +944,17 @@ def update_industry_jobs_for_user(self, user_id, scope: str | None = None):
                         int(corp_id), character_id=int(corp_char_id)
                     )
                 except ESITokenError as exc:
-                    message = f"Jeton invalide pour la corporation {corp_name} ({corp_id}) via {acting_character_name}: {exc}"
+                    message = f"Invalid token for corporation {corp_name} ({corp_id}) via {acting_character_name}: {exc}"
                     logger.warning(message)
                     error_messages.append(message)
                     continue
                 except ESIClientError as exc:
-                    message = f"Erreur ESI pour la corporation {corp_name} ({corp_id}) via {acting_character_name}: {exc}"
+                    message = f"ESI error for corporation {corp_name} ({corp_id}) via {acting_character_name}: {exc}"
                     logger.error(message)
                     error_messages.append(message)
                     continue
                 except Exception as exc:  # pragma: no cover - unexpected
-                    message = f"Erreur inattendue pour la corporation {corp_name} ({corp_id}) via {acting_character_name}: {exc}"
+                    message = f"Unexpected error for corporation {corp_name} ({corp_id}) via {acting_character_name}: {exc}"
                     logger.exception(message)
                     error_messages.append(message)
                     continue
@@ -969,7 +965,7 @@ def update_industry_jobs_for_user(self, user_id, scope: str | None = None):
                         job_id = job.get("job_id")
                         if job_id is None:
                             logger.debug(
-                                "Job corporate sans identifiant ignoré pour %s: %s",
+                                "Skipping corporate job without identifier for %s: %s",
                                 corp_name,
                                 job,
                             )
@@ -1096,21 +1092,21 @@ def update_industry_jobs_for_user(self, user_id, scope: str | None = None):
                 updated_count += len(corp_jobs)
                 deleted_total += deleted
                 logger.debug(
-                    "Synchronisation des jobs corporate terminée pour %s (%s mis à jour, %s supprimés)",
+                    "Finished syncing corporate jobs for %s (%s updated, %s removed)",
                     corp_name,
                     len(corp_jobs),
                     deleted,
                 )
 
         logger.info(
-            "Jobs synchronisés pour %s: %s mis à jour, %s supprimés",
+            "Jobs synced for %s: %s updated, %s removed",
             user.username,
             updated_count,
             deleted_total,
         )
         if error_messages:
             logger.warning(
-                "Incidents lors de la synchronisation des jobs %s: %s",
+                "Issues occurred while syncing jobs for %s: %s",
                 user.username,
                 "; ".join(error_messages),
             )
@@ -1129,10 +1125,10 @@ def update_industry_jobs_for_user(self, user_id, scope: str | None = None):
 @shared_task
 def cleanup_old_jobs():
     """
-    Supprime uniquement les jobs orphelins :
-    - jobs dont le owner_user n'existe plus
-    - jobs dont le character_id ne correspond à aucun CharacterOwnership
-    - jobs dont le token ESI n'existe plus pour ce user/char
+    Delete only orphaned jobs:
+    - jobs whose owner_user no longer exists
+    - jobs whose character_id does not match any CharacterOwnership
+    - jobs whose ESI token no longer exists for the user/character pair
     """
     # Alliance Auth
     from allianceauth.authentication.models import CharacterOwnership
@@ -1143,7 +1139,7 @@ def cleanup_old_jobs():
     count_no_user = jobs_no_user.count()
     jobs_no_user.delete()
 
-    # Jobs sans character ownership (uniquement ceux liés à un personnage)
+    # Jobs without character ownership (applies only to character-related jobs)
     char_ids = set(
         CharacterOwnership.objects.values_list("character__character_id", flat=True)
     )
@@ -1153,7 +1149,7 @@ def cleanup_old_jobs():
     count_no_char = jobs_no_char.count()
     jobs_no_char.delete()
 
-    # Jobs sans token valide (uniquement ceux associés à un personnage)
+    # Jobs without a valid token (applies only to character-related jobs)
     token_pairs = {
         (user_id, character_id)
         for user_id, character_id in Token.objects.values_list(

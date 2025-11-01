@@ -1005,6 +1005,19 @@ class BlueprintCopyRequestPageTests(TestCase):
             self.assertEqual(open_requests.count(), 2)
             self.assertEqual(mock_notify.call_count, 2)
 
+    def test_everyone_scope_shows_blueprint(self) -> None:
+        settings = CharacterSettings.objects.get(user=self.owner, character_id=0)
+        settings.copy_sharing_scope = CharacterSettings.SCOPE_EVERYONE
+        settings.allow_copy_requests = True
+        settings.save(update_fields=["copy_sharing_scope", "allow_copy_requests"])
+
+        response = self.client.get(reverse("indy_hub:bp_copy_request_page"))
+
+        self.assertEqual(response.status_code, 200)
+        page_obj = response.context["page_obj"]
+        visible_type_ids = {entry["type_id"] for entry in page_obj}
+        self.assertIn(605001, visible_type_ids)
+
 
 class BlueprintCopyMyRequestsTests(TestCase):
     def setUp(self) -> None:

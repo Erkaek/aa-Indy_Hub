@@ -37,11 +37,7 @@
                         id="chat-alert-toggle"
                         data-bs-toggle="dropdown"
                         data-bs-auto-close="outside"
-                        aria-expanded="false"
                     >
-                        <span class="chat-alert-toggle__icon" aria-hidden="true">
-                            <i class="fas fa-comments"></i>
-                        </span>
                         <span class="chat-alert-toggle__label">{% trans "Unread chat" %}</span>
                         <span class="chat-alert-toggle__count badge rounded-pill">{{ copy_chat_unread_count }}</span>
                         <span class="visually-hidden">
@@ -612,9 +608,6 @@
                                 <div class="preference-text share-preference-info">
                                     <div class="share-preference-header">
                                         <span class="preference-label">{% trans "Blueprint sharing" %}</span>
-                                        <span class="badge rounded-pill share-mode-badge {{ copy_sharing_state.badge_class }}" id="copy-sharing-state">
-                                            {{ copy_sharing_state.button_label }}
-                                        </span>
                                     </div>
                                     <p class="preference-hint mb-0" id="copy-sharing-hint">{{ copy_sharing_state.button_hint }}</p>
                                 </div>
@@ -652,7 +645,17 @@
                                         <i class="fas fa-people-group"></i>
                                         <span>{% trans "Alliance" %}</span>
                                     </button>
+                                    <button
+                                        type="button"
+                                        class="share-mode-chip {% if copy_sharing_scope == 'everyone' %}is-active{% endif %}"
+                                        data-share-scope="everyone"
+                                        aria-pressed="{% if copy_sharing_scope == 'everyone' %}true{% else %}false{% endif %}"
+                                    >
+                                        <i class="fas fa-globe"></i>
+                                        <span>{% trans "Everyone" %}</span>
+                                    </button>
                                 </div>
+                                <p class="text-muted small mt-2" id="copy-sharing-explanation">{{ copy_sharing_state.explanation }}</p>
                             </div>
                         </div>
                         <a href="{% url 'indy_hub:token_management' %}" class="btn btn-outline-primary btn-slim mt-3 align-self-start">

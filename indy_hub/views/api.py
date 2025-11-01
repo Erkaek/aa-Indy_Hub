@@ -144,7 +144,7 @@ def save_production_config(request):
         if not blueprint_type_id:
             return JsonResponse({"error": "blueprint_type_id is required"}, status=400)
 
-        # Créer ou mettre à jour la simulation
+        # Create or update the simulation
         simulation, created = ProductionSimulation.objects.get_or_create(
             user=request.user,
             blueprint_type_id=blueprint_type_id,
@@ -162,7 +162,7 @@ def save_production_config(request):
         )
 
         if not created:
-            # Mettre à jour la simulation existante
+            # Update the existing simulation
             simulation.blueprint_name = data.get(
                 "blueprint_name", simulation.blueprint_name
             )
@@ -181,13 +181,13 @@ def save_production_config(request):
             )
             simulation.save()
 
-        # 1. Sauvegarder les configurations Prod/Buy/Useless
+        # 1. Save the Prod/Buy/Useless configurations
         items = data.get("items", [])
         if items:
-            # Supprimer les anciennes configurations
+            # Remove the previous configurations
             ProductionConfig.objects.filter(simulation=simulation).delete()
 
-            # Créer les nouvelles configurations
+            # Create the new configurations
             configs = []
             for item in items:
                 config = ProductionConfig(
@@ -203,18 +203,18 @@ def save_production_config(request):
 
             ProductionConfig.objects.bulk_create(configs)
 
-            # Mettre à jour les statistiques de la simulation
+            # Update the simulation statistics
             simulation.total_items = len(items)
             simulation.total_buy_items = len([i for i in items if i["mode"] == "buy"])
             simulation.total_prod_items = len([i for i in items if i["mode"] == "prod"])
 
-        # 2. Sauvegarder les efficacités ME/TE des blueprints
+        # 2. Save the blueprint ME/TE efficiencies
         blueprint_efficiencies = data.get("blueprint_efficiencies", [])
         if blueprint_efficiencies:
-            # Supprimer les anciennes efficacités
+            # Remove previous efficiencies
             BlueprintEfficiency.objects.filter(simulation=simulation).delete()
 
-            # Créer les nouvelles efficacités
+            # Create the new efficiencies
             efficiencies = []
             for eff in blueprint_efficiencies:
                 efficiency = BlueprintEfficiency(
@@ -228,13 +228,13 @@ def save_production_config(request):
 
             BlueprintEfficiency.objects.bulk_create(efficiencies)
 
-        # 3. Sauvegarder les prix personnalisés
+        # 3. Save the custom prices
         custom_prices = data.get("custom_prices", [])
         if custom_prices:
-            # Supprimer les anciens prix
+            # Remove previous prices
             CustomPrice.objects.filter(simulation=simulation).delete()
 
-            # Créer les nouveaux prix
+            # Create the new prices
             prices = []
             for price in custom_prices:
                 custom_price = CustomPrice(
@@ -310,8 +310,7 @@ def load_production_config(request):
         )
 
     try:
-        # Charger la simulation
-        simulation = None
+        simulation = None  # Load the simulation if it exists
         try:
             simulation = ProductionSimulation.objects.get(
                 user=request.user, blueprint_type_id=blueprint_type_id, runs=runs
@@ -319,8 +318,7 @@ def load_production_config(request):
         except ProductionSimulation.DoesNotExist:
             pass
 
-        # 1. Charger les configurations Prod/Buy/Useless
-        items = []
+        items = []  # Step 1: production/buy/useless configurations
         if simulation:
             configs = ProductionConfig.objects.filter(simulation=simulation)
             for config in configs:
@@ -332,8 +330,7 @@ def load_production_config(request):
                     }
                 )
 
-        # 2. Charger les efficacités ME/TE des blueprints
-        blueprint_efficiencies = []
+        blueprint_efficiencies = []  # Step 2: blueprint ME/TE efficiencies
         if simulation:
             efficiencies = BlueprintEfficiency.objects.filter(simulation=simulation)
             for eff in efficiencies:
@@ -345,8 +342,7 @@ def load_production_config(request):
                     }
                 )
 
-        # 3. Charger les prix personnalisés
-        custom_prices = []
+        custom_prices = []  # Step 3: custom prices
         if simulation:
             prices = CustomPrice.objects.filter(simulation=simulation)
             for price in prices:
@@ -366,8 +362,7 @@ def load_production_config(request):
             "custom_prices": custom_prices,
         }
 
-        # Ajouter les métadonnées de simulation si elle existe
-        if simulation:
+        if simulation:  # Add simulation metadata when it exists
             response_data.update(
                 {
                     "simulation_id": simulation.id,

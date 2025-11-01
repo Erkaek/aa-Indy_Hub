@@ -711,16 +711,18 @@ class UserOnboardingProgress(models.Model):
 
 class CharacterSettings(models.Model):
     """
-    Regroupe les préférences utilisateur pour les notifications de jobs et le partage de copies.
+    Collect user preferences for job notifications and blueprint copy sharing.
     """
 
     SCOPE_NONE = "none"
     SCOPE_CORPORATION = "corporation"
     SCOPE_ALLIANCE = "alliance"
+    SCOPE_EVERYONE = "everyone"
     COPY_SHARING_SCOPE_CHOICES = [
         (SCOPE_NONE, "None"),
         (SCOPE_CORPORATION, "Corporation"),
         (SCOPE_ALLIANCE, "Alliance"),
+        (SCOPE_EVERYONE, "Everyone"),
     ]
 
     user = models.ForeignKey(User, on_delete=models.CASCADE)
@@ -867,15 +869,15 @@ class ProductionConfig(models.Model):
         null=True,
         blank=True,
     )
-    blueprint_type_id = models.BigIntegerField()  # Type ID du blueprint principal
-    item_type_id = models.BigIntegerField()  # Type ID de l'item dans l'arbre
+    blueprint_type_id = models.BigIntegerField()  # Type ID of the main blueprint
+    item_type_id = models.BigIntegerField()  # Type ID of the item within the tree
     production_mode = models.CharField(
         max_length=10,
         choices=PRODUCTION_CHOICES,
         default="prod",
     )
     quantity_needed = models.BigIntegerField(default=0)
-    runs = models.IntegerField(default=1)  # Nombre de runs du blueprint principal
+    runs = models.IntegerField(default=1)  # Number of runs for the main blueprint
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -897,7 +899,7 @@ class ProductionConfig(models.Model):
 
 class BlueprintEfficiency(models.Model):
     """
-    Stocke les valeurs ME/TE personnalisées définies par l'utilisateur pour chaque blueprint.
+    Store the user-defined ME/TE values for each blueprint.
     """
 
     user = models.ForeignKey(User, on_delete=models.CASCADE)
@@ -933,7 +935,7 @@ class BlueprintEfficiency(models.Model):
 
 class CustomPrice(models.Model):
     """
-    Stocke les prix manuels définis par l'utilisateur pour chaque item dans l'onglet Financial.
+    Store the user-defined manual prices for each item in the Financial tab.
     """
 
     user = models.ForeignKey(User, on_delete=models.CASCADE)
@@ -944,7 +946,7 @@ class CustomPrice(models.Model):
     unit_price = models.DecimalField(max_digits=20, decimal_places=2, default=0)
     is_sale_price = models.BooleanField(
         default=False
-    )  # True si c'est le prix de vente du produit final
+    )  # True when this is the sale price of the final product
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -963,8 +965,8 @@ class CustomPrice(models.Model):
 
 class ProductionSimulation(models.Model):
     """
-    Métadonnées des simulations de production sauvegardées par utilisateur.
-    Chaque simulation stocke toutes les configurations: switches, ME/TE, prix manuels, etc.
+    Metadata for saved production simulations per user.
+    Each simulation stores every configuration: toggles, ME/TE, manual prices, and more.
     """
 
     user = models.ForeignKey(User, on_delete=models.CASCADE)
@@ -973,7 +975,7 @@ class ProductionSimulation(models.Model):
     runs = models.IntegerField(default=1)
     simulation_name = models.CharField(max_length=255, blank=True)
 
-    # Métadonnées de résumé
+    # Summary metadata
     total_items = models.IntegerField(default=0)
     total_buy_items = models.IntegerField(default=0)
     total_prod_items = models.IntegerField(default=0)
@@ -981,7 +983,7 @@ class ProductionSimulation(models.Model):
     estimated_revenue = models.DecimalField(max_digits=20, decimal_places=2, default=0)
     estimated_profit = models.DecimalField(max_digits=20, decimal_places=2, default=0)
 
-    # Configuration générale de la simulation
+    # Overall simulation configuration
     active_tab = models.CharField(max_length=50, default="materials")
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -1007,20 +1009,20 @@ class ProductionSimulation(models.Model):
         return f"{self.blueprint_name} x{self.runs}"
 
     def get_production_configs(self):
-        """Retourne toutes les configurations Prod/Buy/Useless de cette simulation."""
+        """Return every Prod/Buy/Useless configuration for this simulation."""
         return self.production_configs.all()
 
     @property
     def productionconfig_set(self):
-        """Compatibilité rétro pour l'ancien nom de relation Django."""
+        """Legacy compatibility for the old Django relation name."""
         return self.production_configs
 
     def get_blueprint_efficiencies(self):
-        """Retourne toutes les configurations ME/TE de cette simulation."""
+        """Return every ME/TE configuration for this simulation."""
         return self.blueprint_efficiencies.all()
 
     def get_custom_prices(self):
-        """Retourne tous les prix manuels de cette simulation."""
+        """Return every manual price for this simulation."""
         return self.custom_prices.all()
 
     @property
@@ -1055,7 +1057,7 @@ class ProductionSimulation(models.Model):
 
     @property
     def profit_margin(self):
-        """Calcule la marge de profit en pourcentage."""
+        """Calculate the profit margin percentage."""
         if self.estimated_revenue > 0:
             return float((self.estimated_profit / self.estimated_revenue) * 100)
         return 0.0

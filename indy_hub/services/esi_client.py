@@ -193,7 +193,7 @@ class ESIClient:
         payload = response.json()
         if not isinstance(payload, dict):
             raise ESIClientError(
-                f"ESI {url} a retourné un format inattendu: {type(payload)}"
+                f"ESI {url} returned an unexpected payload type: {type(payload)}"
             )
         return payload
 
@@ -317,7 +317,7 @@ class ESIClient:
             access_token = token_obj.valid_access_token()
         except Exception as exc:
             raise ESITokenError(
-                f"Aucun jeton valide pour le personnage {character_id} et le scope {scope}"
+                f"No valid token for character {character_id} and scope {scope}"
             ) from exc
         url = f"{self.base_url}{endpoint}"
         headers = {"Authorization": f"Bearer {access_token}"}
@@ -335,14 +335,14 @@ class ESIClient:
                         endpoint=endpoint,
                     )
                     raise ESIForbiddenError(
-                        f"Accès refusé pour {endpoint}",
+                        f"Access denied for {endpoint}",
                         character_id=int(character_id),
                     ) from exc
                 raise
             payload = response.json()
             if not isinstance(payload, list):
                 raise ESIClientError(
-                    f"ESI {endpoint} a retourné un format inattendu: {type(payload)}"
+                    f"ESI {endpoint} returned an unexpected payload type: {type(payload)}"
                 )
             aggregated.extend(payload)
 
@@ -357,7 +357,7 @@ class ESIClient:
             return Token.get_token(character_id, scope)
         except Exception as exc:  # pragma: no cover - Alliance Auth handles details
             raise ESITokenError(
-                f"Aucun jeton valide pour le personnage {character_id} et le scope {scope}"
+                f"No valid token for character {character_id} and scope {scope}"
             ) from exc
 
     def _get_access_token(self, character_id: int, scope: str) -> str:
@@ -366,7 +366,7 @@ class ESIClient:
             return token.valid_access_token()
         except Exception as exc:  # pragma: no cover - Alliance Auth handles details
             raise ESITokenError(
-                f"Aucun jeton valide pour le personnage {character_id} et le scope {scope}"
+                f"No valid token for character {character_id} and scope {scope}"
             ) from exc
 
     def _request(self, method: str, url: str, **kwargs) -> Response:
@@ -382,11 +382,11 @@ class ESIClient:
             except requests.RequestException as exc:
                 if attempt >= self.max_attempts:
                     raise ESIClientError(
-                        f"Echec de la requête ESI {method} {url} après {attempt} tentatives"
+                        f"ESI request {method} {url} failed after {attempt} attempts"
                     ) from exc
                 sleep_for = self.backoff_factor * (2 ** (attempt - 1))
                 logger.warning(
-                    "Requête ESI en échec (%s %s), tentative %s/%s, nouvel essai dans %.1fs",
+                    "ESI request failed (%s %s), attempt %s/%s, retrying in %.1fs",
                     method,
                     url,
                     attempt,
@@ -398,7 +398,7 @@ class ESIClient:
 
             if response.status_code in (401, 403):
                 raise ESITokenError(
-                    f"Jeton invalide pour {url} (statut {response.status_code})",
+                    f"Invalid token for {url} (status {response.status_code})",
                     status_code=response.status_code,
                 )
             if response.status_code == 420:
@@ -423,11 +423,11 @@ class ESIClient:
             if response.status_code >= 400:
                 if attempt >= self.max_attempts:
                     raise ESIClientError(
-                        f"ESI a retourné {response.status_code} pour {url}: {response.text}"
+                        f"ESI returned {response.status_code} for {url}: {response.text}"
                     )
                 sleep_for = self.backoff_factor * (2 ** (attempt - 1))
                 logger.warning(
-                    "Statut %s reçu pour %s, tentative %s/%s, nouvel essai dans %.1fs",
+                    "Status %s received for %s, attempt %s/%s, retrying in %.1fs",
                     response.status_code,
                     url,
                     attempt,
@@ -450,7 +450,7 @@ class ESIClient:
             user_repr = getattr(token, "user_id", None)
 
         logger.warning(
-            "ESI a renvoyé 403 pour %s (%s) via le personnage %s (utilisateur %s). Suppression du jeton.",
+            "ESI returned 403 for %s (%s) through character %s (user %s). Token will be deleted.",
             endpoint,
             scope,
             character_id,

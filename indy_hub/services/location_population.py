@@ -161,7 +161,7 @@ def _enqueue_structure_refresh(structure_id: int) -> bool:
         from indy_hub.tasks.location import refresh_structure_location
     except Exception:  # pragma: no cover - task unavailable or import error
         logger.debug(
-            "Impossible de planifier la mise à jour de la structure %s (tâche indisponible)",
+            "Unable to schedule structure %s refresh (task unavailable)",
             structure_id,
             exc_info=True,
         )
@@ -173,13 +173,13 @@ def _enqueue_structure_refresh(structure_id: int) -> bool:
             priority=DEFAULT_TASK_PRIORITY,
         )
         logger.debug(
-            "Mise à jour asynchrone programmée pour la structure %s",
+            "Asynchronous refresh scheduled for structure %s",
             structure_id,
         )
         return True
     except Exception:  # pragma: no cover - broker indisponible
         logger.debug(
-            "Impossible de planifier la mise à jour de la structure %s (broker indisponible)",
+            "Unable to schedule structure %s refresh (broker unavailable)",
             structure_id,
             exc_info=True,
         )
@@ -204,7 +204,7 @@ def populate_location_names(
         dry_run: when True, performs no writes and only reports the impact.
         logger_override: optional logger to emit progress messages.
         schedule_async: when True, queue a background refresh task for structures
-            qui restent avec un nom fictif (placeholder) après la résolution.
+            that still use a placeholder name after resolution.
 
     Returns:
         Summary dictionary with counts of updated objects.

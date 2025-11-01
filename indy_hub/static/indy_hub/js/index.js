@@ -134,6 +134,8 @@ document.addEventListener('DOMContentLoaded', function() {
             var shareStatusText = document.getElementById('share-status-text');
             var fulfillHint = document.getElementById('share-fulfill-hint');
             var shareSubtitle = document.getElementById('share-subtitle');
+            var shareExplanation = document.getElementById('copy-sharing-explanation');
+            var shareExplanation = document.getElementById('copy-sharing-explanation');
 
             if (shareState) {
                 var stateClass = 'badge rounded-pill share-mode-badge ' + (data && data.badge_class ? data.badge_class : 'bg-secondary-subtle text-secondary');
@@ -165,6 +167,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
             if (shareSubtitle && data && Object.prototype.hasOwnProperty.call(data, 'subtitle')) {
                 shareSubtitle.textContent = data.subtitle || '';
+            }
+
+            if (shareExplanation && data && Object.prototype.hasOwnProperty.call(data, 'explanation')) {
+                shareExplanation.textContent = data.explanation || '';
+            }
+
+            if (shareExplanation && data && Object.prototype.hasOwnProperty.call(data, 'explanation')) {
+                shareExplanation.textContent = data.explanation || '';
             }
         }
 

@@ -59,7 +59,7 @@
     padding: clamp(2rem, 3vw + 1rem, 2.75rem) clamp(1.5rem, 3vw, 2.5rem);
     color: var(--indy-hero-fg);
     position: relative;
-    overflow: visible;
+    overflow: hidden;
     z-index: auto;
 }
 
@@ -382,7 +382,7 @@
 }
 
 .chat-alert-menu {
-    width: min(520px, calc(100vw - 2rem));
+    width: min(520px, 90vw);
     padding: 0.75rem;
     border-radius: 24px;
     border: 1px solid rgba(var(--bs-primary-rgb), 0.22);

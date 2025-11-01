@@ -204,7 +204,7 @@ def cache_industry_job_data(sender, instance, created, **kwargs):
 
 @receiver(post_migrate)
 def setup_indyhub_periodic_tasks(sender, **kwargs):
-    # N'exécute que pour l'app indy_hub
+    # Only run for the indy_hub app
     if getattr(sender, "name", None) != "indy_hub":
         return
     try:

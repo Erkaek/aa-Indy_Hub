@@ -1198,29 +1198,27 @@ def personnal_job_list(request, scope="character"):
 
 
 def collect_blueprints_with_level(blueprint_configs):
-    """
-    Annoter chaque blueprint config avec un attribut 'level' correspondant à la profondeur maximale de l'arbre de matériaux.
-    """
-    # Mapping type_id -> blueprint config pour accès rapide
+    """Annotate each blueprint config with a "level" matching the deepest branch depth."""
+    # Map type_id -> blueprint config for quick lookup
     config_map = {bc["type_id"]: bc for bc in blueprint_configs}
 
     def get_level(type_id):
         bc = config_map.get(type_id)
         if bc is None:
             return 0
-        # Si déjà calculé, on retourne la valeur
+        # Return the stored value when already computed
         if bc.get("level") is not None:
             return bc["level"]
-        # Récupère les enfants (matériaux), ou liste vide si non défini
+        # Retrieve children (materials) or an empty list when none are defined
         children = (
             [m["type_id"] for m in bc.get("materials", [])] if "materials" in bc else []
         )
-        # Calcul récursif du niveau
+        # Compute the level recursively
         level = 1 + max((get_level(child_id) for child_id in children), default=0)
         bc["level"] = level
         return level
 
-    # Calcul du niveau pour chaque blueprint
+    # Compute the level for each blueprint
     for bc in blueprint_configs:
         get_level(bc["type_id"])
     return blueprint_configs
@@ -1229,8 +1227,6 @@ def collect_blueprints_with_level(blueprint_configs):
 @indy_hub_access_required
 @login_required
 def craft_bp(request, type_id):
-
-    # --- Paramètres de la requête ---
     try:
         num_runs = int(request.GET.get("runs", 1))
         if num_runs < 1:
@@ -1249,10 +1245,10 @@ def craft_bp(request, type_id):
     me = max(0, min(me, 10))
     te = max(0, min(te, 20))
 
-    # --- Récupération de l'onglet actif depuis les paramètres ---
-    active_tab = request.GET.get("active_tab", "materials")  # Par défaut Materials
+    active_tab = request.GET.get(
+        "active_tab", "materials"
+    )  # Active tab from query parameters, defaults to Materials
 
-    # --- Récupération des décisions buy/craft depuis les paramètres de la requête ---
     buy_decisions = set()
     buy_list = request.GET.get("buy", "")
     if buy_list:
@@ -1298,7 +1294,7 @@ def craft_bp(request, type_id):
         def get_materials_tree(
             bp_id, runs, blueprint_me=0, depth=0, max_depth=10, seen=None
         ):
-            """Construit récursivement l'arbre des matériaux pour un blueprint donné."""
+            """Recursively build the material tree for a given blueprint."""
             if seen is None:
                 seen = set()
             if depth > max_depth or bp_id in seen:
@@ -1317,7 +1313,7 @@ def craft_bp(request, type_id):
                 mats = []
                 for row in cursor.fetchall():
                     base_qty = row[2] * runs
-                    # Utiliser le ME spécifique au blueprint et arrondir à l'unité supérieure
+                    # Apply blueprint-specific ME and round up to the next whole number
                     # Standard Library
 
                     qty = ceil(base_qty * (100 - blueprint_me) / 100)
@@ -1375,19 +1371,19 @@ def craft_bp(request, type_id):
 
         materials_tree = get_materials_tree(type_id, num_runs, me)
 
-        # --- Fonction pour collecter tous les blueprints à exclure des configs ---
+        # --- Function to collect all blueprints that should be excluded from configs ---
         def collect_buy_exclusions(tree, buy_set, excluded=None):
             """
-            Collecte tous les blueprint type_ids qui doivent être exclus des blueprints config.
-            Si un item est marqué pour achat, le blueprint qui le produit et tous ses enfants sont exclus.
+            Collect all blueprint type_ids that need to be excluded from the blueprint configs.
+            If an item is marked for purchase, the blueprint that produces it and all descendants are excluded.
             """
             if excluded is None:
                 excluded = set()
 
             for mat in tree:
-                # Si ce matériau est marqué pour achat au lieu d'être produit
+                # If this material is marked for purchase instead of production
                 if mat["type_id"] in buy_set:
-                    # Trouver le blueprint qui produit ce matériau et l'exclure
+                    # Find the blueprint that produces this material and exclude it
                     with connection.cursor() as cursor:
                         cursor.execute(
                             """
@@ -1402,23 +1398,23 @@ def craft_bp(request, type_id):
                         if bp_row:
                             excluded.add(
                                 bp_row[0]
-                            )  # Exclure le blueprint qui produit cet item
+                            )  # Exclude the blueprint that produces this item
 
-                    # Récursivement exclure tous les blueprints enfants
+                    # Recursively exclude every downstream blueprint
                     if mat.get("sub_materials"):
                         collect_all_descendant_blueprints(
                             mat["sub_materials"], excluded
                         )
                 elif mat.get("sub_materials"):
-                    # Continuer la recherche dans les enfants
+                    # Continue scanning child materials
                     collect_buy_exclusions(mat["sub_materials"], buy_set, excluded)
 
             return excluded
 
         def collect_all_descendant_blueprints(tree, excluded):
-            """Collecte récursivement tous les blueprints descendants d'un arbre."""
+            """Recursively collect every descendant blueprint in a tree."""
             for mat in tree:
-                # Trouver le blueprint qui produit ce matériau
+                # Find the blueprint that produces this material
                 with connection.cursor() as cursor:
                     cursor.execute(
                         """
@@ -1436,7 +1432,7 @@ def craft_bp(request, type_id):
                 if mat.get("sub_materials"):
                     collect_all_descendant_blueprints(mat["sub_materials"], excluded)
 
-        # Collecter les exclusions basées sur les décisions buy/craft
+        # Gather exclusions based on buy/craft decisions
         blueprint_exclusions = collect_buy_exclusions(materials_tree, buy_decisions)
         logger.info(f"Blueprint exclusions: {blueprint_exclusions}")  # Debug log
 
@@ -1476,9 +1472,9 @@ def craft_bp(request, type_id):
                 for type_id, data in material_accumulator.items()
             ]
 
-        # --- Extraction de tous les blueprints impliqués (racine + enfants) ---
+        # --- Extract every blueprint involved (root + children) ---
         def extract_all_blueprint_type_ids(bp_id, acc=None, depth=0, max_depth=10):
-            """Récupère récursivement tous les type_id de blueprints (racine + enfants)."""
+            """Recursively retrieve every blueprint type_id (root and descendants)."""
             if acc is None:
                 acc = set()
             if depth > max_depth or bp_id in acc:
@@ -1515,7 +1511,7 @@ def craft_bp(request, type_id):
 
         all_bp_ids = extract_all_blueprint_type_ids(type_id)
 
-        # --- Récupération des configurations pour tous les blueprints collectés ---
+        # --- Retrieve configurations for every collected blueprint ---
         if all_bp_ids:
             placeholders = ",".join(["%s"] * len(all_bp_ids))
             params = list(all_bp_ids)
@@ -1557,20 +1553,20 @@ def craft_bp(request, type_id):
                     for row in cursor.fetchall()
                 ]
 
-                # --- Mise à jour des valeurs ME/TE pour le blueprint principal ---
+                # --- Apply ME/TE values for the primary blueprint ---
                 for bc in blueprint_configs:
-                    if bc["type_id"] == type_id:  # Blueprint principal
+                    if bc["type_id"] == type_id:  # Main blueprint
                         bc["material_efficiency"] = me
                         bc["time_efficiency"] = te
                         break
         else:
             blueprint_configs = []
 
-        # --- Injection de la structure des matériaux dans chaque blueprint_config ---
+        # --- Inject the material structure into each blueprint_config ---
         config_map = {bc["type_id"]: bc for bc in blueprint_configs}
 
         def inject_materials(tree):
-            """Injecte récursivement les enfants (matériaux) dans chaque blueprint_config."""
+            """Recursively inject child materials into each blueprint_config."""
             for node in tree:
                 bc = config_map.get(node["type_id"])
                 if bc is not None:
@@ -1585,15 +1581,15 @@ def craft_bp(request, type_id):
 
         inject_materials([{"type_id": type_id, "sub_materials": materials_tree}])
 
-        # --- Calcul du niveau de profondeur pour chaque blueprint ---
+        # --- Compute the depth level for each blueprint ---
         blueprint_configs = collect_blueprints_with_level(blueprint_configs)
 
-        # --- Regroupement par groupe puis par niveau ---
+        # --- Group by EVE group and then by level ---
         grouping = {}
         for bc in blueprint_configs:
-            # On ne garde que les blueprints utiles (matériaux non vides OU quantité > 0)
-            # Et on exclut les blueprints de réaction (activity_id 9, 11) car ils ne peuvent pas être modifiés en ME/TE
-            # Et on exclut les blueprints dont les items sont marqués pour achat
+            # Keep only blueprints with useful data (materials present or quantity > 0)
+            # Exclude reaction blueprints (activity_id 9, 11) since their ME/TE cannot be adjusted
+            # Exclude blueprints whose items are marked for purchase
             if (
                 bc["type_id"] is not None
                 and (
@@ -1601,23 +1597,23 @@ def craft_bp(request, type_id):
                     or bc.get("quantity", 0) > 0
                 )
                 and bc.get("activity_id")
-                not in [9, 11]  # Exclure les Composite Reaction Formulas
+                not in [9, 11]  # Exclude Composite Reaction Formulas
                 and bc["type_id"] not in blueprint_exclusions
-            ):  # Exclure les blueprints marqués pour achat
+            ):  # Exclude blueprints flagged for purchase
                 grouping.setdefault(
                     bc["group_id"], {"group_name": bc["group_name"], "levels": {}}
                 )
                 lvl = bc["level"]
                 grouping[bc["group_id"]]["levels"].setdefault(lvl, []).append(bc)
 
-        # --- Structuration finale pour le template ---
+        # --- Build the final structure for the template ---
         blueprint_configs_grouped = []
         for group_id, info in grouping.items():
             levels = []
             for lvl in sorted(info["levels"].keys()):
-                # Filtrer les blueprints réellement utiles (ayant des matériaux ou quantité > 0)
-                # Et exclure les blueprints de réaction (activity_id 9, 11) car ils ne peuvent pas être modifiés en ME/TE
-                # Et exclure les blueprints dont les items sont marqués pour achat
+                # Filter to blueprints that remain useful (materials present or quantity > 0)
+                # Exclude reaction blueprints (activity_id 9, 11) since their ME/TE cannot be adjusted
+                # Exclude blueprints whose items are marked for purchase
                 blueprints_utiles = [
                     bc
                     for bc in info["levels"][lvl]
@@ -1626,13 +1622,13 @@ def craft_bp(request, type_id):
                         or bc.get("quantity", 0) > 0
                     )
                     and bc.get("activity_id")
-                    not in [9, 11]  # Exclure les Composite Reaction Formulas
+                    not in [9, 11]  # Exclude Composite Reaction Formulas
                     and bc["type_id"]
-                    not in blueprint_exclusions  # Exclure les blueprints marqués pour achat
+                    not in blueprint_exclusions  # Exclude blueprints flagged for purchase
                 ]
                 if blueprints_utiles:
                     levels.append({"level": lvl, "blueprints": blueprints_utiles})
-            # Ne garder que les groupes qui ont au moins un blueprint utile dans un niveau
+            # Keep only groups that have at least one useful blueprint within a level
             if levels:
                 blueprint_configs_grouped.append(
                     {
@@ -1644,13 +1640,13 @@ def craft_bp(request, type_id):
         if not blueprint_configs_grouped:
             blueprint_configs_grouped = None
 
-        # --- Calcul cumulatif des cycles/produits/surplus pour chaque item craftable ---
+        # --- Accumulate cycles/production/surplus for every craftable item ---
         # Standard Library
         from collections import defaultdict
 
         def collect_craftables(materials, craftables):
             for mat in materials:
-                # On ne cumule que si l'item est craftable (produit par un blueprint)
+                # Only accumulate values when the item is craftable (produced by a blueprint)
                 with connection.cursor() as cursor:
                     cursor.execute(
                         """
@@ -1663,12 +1659,12 @@ def craft_bp(request, type_id):
                     )
                     sub_bp_row = cursor.fetchone()
                     if sub_bp_row:
-                        # On cumule la quantité demandée
+                        # Accumulate the requested quantity
                         craftables[mat["type_id"]]["type_name"] = mat["type_name"]
                         craftables[mat["type_id"]]["total_needed"] += ceil(
                             mat["quantity"]
                         )
-                        # On récupère la quantité produite par cycle
+                        # Retrieve the quantity produced per cycle
                         cursor.execute(
                             """
                             SELECT quantity
@@ -1681,7 +1677,7 @@ def craft_bp(request, type_id):
                         prod_qty_row = cursor.fetchone()
                         output_qty = prod_qty_row[0] if prod_qty_row else 1
                         craftables[mat["type_id"]]["produced_per_cycle"] = output_qty
-                        # On continue dans les sous-matériaux
+                        # Continue descending into sub-materials
                         if "sub_materials" in mat:
                             collect_craftables(mat["sub_materials"], craftables)
 
@@ -1726,8 +1722,8 @@ def craft_bp(request, type_id):
         if not materials_list:
             # Use direct materials as fallback
             materials_list = direct_materials_list
-        # --- Ajout du mapping type_id -> nom de groupe Eve pour l'onglet Financial ---
-        # Récupère tous les type_id utilisés dans les matériaux à acheter
+        # --- Add a type_id -> EVE group mapping for the Financial tab ---
+        # Collect every type_id used in materials that will be purchased
         all_type_ids = {mat["type_id"] for mat in materials_list}
         eve_types_query = []
         if EveType is not None:
@@ -1827,7 +1823,7 @@ def craft_bp(request, type_id):
         return render(request, "indy_hub/Craft_BP.html", context)
 
     except Exception as e:
-        # Gestion d'erreur : on affiche la page avec un message d'erreur et des valeurs par défaut
+        # Error handling: render the page with a message and default values
         with connection.cursor() as cursor:
             cursor.execute(
                 "SELECT name FROM eveuniverse_evetype WHERE id=%s", [type_id]
@@ -1857,7 +1853,7 @@ def craft_bp(request, type_id):
 @login_required
 def bp_copy_request_page(request):
     # Alliance Auth
-    from allianceauth.authentication.models import CharacterOwnership
+    from allianceauth.eveonline.models import EveCharacter
 
     search = request.GET.get("search", "").strip()
     min_me = request.GET.get("min_me", "")
@@ -1867,16 +1863,20 @@ def bp_copy_request_page(request):
     # Determine viewer affiliations (corporation / alliance)
     viewer_corp_ids: set[int] = set()
     viewer_alliance_ids: set[int] = set()
-    viewer_ownerships = CharacterOwnership.objects.filter(
-        user=request.user
-    ).select_related("character")
-    for ownership in viewer_ownerships:
-        corp_id = getattr(ownership.character, "corporation_id", None)
-        if corp_id:
+    viewer_characters = EveCharacter.objects.filter(
+        character_ownership__user=request.user
+    ).values("corporation_id", "alliance_id")
+    for char in viewer_characters:
+        corp_id = char.get("corporation_id")
+        if corp_id is not None:
             viewer_corp_ids.add(corp_id)
-        alliance_id = getattr(ownership.character, "alliance_id", None)
-        if alliance_id:
+        alliance_id = char.get("alliance_id")
+        if alliance_id is not None:
             viewer_alliance_ids.add(alliance_id)
+
+    viewer_can_request_copies = request.user.has_perm(
+        "indy_hub.can_manage_copy_requests"
+    )
 
     # Fetch users who enabled copy sharing (global settings)
     settings_qs = CharacterSettings.objects.filter(
@@ -1888,19 +1888,23 @@ def bp_copy_request_page(request):
 
     owner_affiliations: dict[int, dict[str, set[int]]] = {}
     if owner_user_ids:
-        owner_ownerships = CharacterOwnership.objects.filter(
-            user_id__in=owner_user_ids
-        ).select_related("character")
-        for ownership in owner_ownerships:
+        owner_characters = EveCharacter.objects.filter(
+            character_ownership__user_id__in=owner_user_ids
+        ).values(
+            "character_ownership__user_id",
+            "corporation_id",
+            "alliance_id",
+        )
+        for char in owner_characters:
+            user_id = char["character_ownership__user_id"]
             data = owner_affiliations.setdefault(
-                ownership.user_id,
-                {"corp_ids": set(), "alliance_ids": set()},
+                user_id, {"corp_ids": set(), "alliance_ids": set()}
             )
-            corp_id = getattr(ownership.character, "corporation_id", None)
-            if corp_id:
+            corp_id = char.get("corporation_id")
+            if corp_id is not None:
                 data["corp_ids"].add(corp_id)
-            alliance_id = getattr(ownership.character, "alliance_id", None)
-            if alliance_id:
+            alliance_id = char.get("alliance_id")
+            if alliance_id is not None:
                 data["alliance_ids"].add(alliance_id)
 
     allowed_user_ids: set[int] = set()
@@ -1916,6 +1920,9 @@ def bp_copy_request_page(request):
                 allowed_user_ids.add(setting.user_id)
         elif setting.copy_sharing_scope == CharacterSettings.SCOPE_ALLIANCE:
             if (viewer_alliance_ids & alliance_ids) or (viewer_corp_ids & corp_ids):
+                allowed_user_ids.add(setting.user_id)
+        elif setting.copy_sharing_scope == CharacterSettings.SCOPE_EVERYONE:
+            if viewer_can_request_copies:
                 allowed_user_ids.add(setting.user_id)
 
     if not allowed_user_ids:
@@ -3499,8 +3506,8 @@ def bp_chat_decide(request, chat_id: int):
 @login_required
 def production_simulations_list(request):
     """
-    Affiche la liste des simulations de production sauvegardées par l'utilisateur.
-    Peut retourner du JSON si api=1 est passé en paramètre.
+    Display the list of production simulations saved by the user.
+    Return JSON when api=1 is included in the query string.
     """
     simulations = (
         ProductionSimulation.objects.filter(user=request.user)
@@ -3508,7 +3515,7 @@ def production_simulations_list(request):
         .prefetch_related("production_configs")
     )
 
-    # Si demande API, retourner du JSON
+    # Return JSON when the API payload is requested
     if request.GET.get("api") == "1":
         simulations_data = []
         for sim in simulations:
@@ -3540,23 +3547,23 @@ def production_simulations_list(request):
             }
         )
 
-    # Préparer les statistiques agrégées pour l'affichage HTML
+    # Prepare aggregate statistics for the HTML view
     total_simulations, stats = summarize_simulations(simulations)
 
-    # Sinon, affichage HTML normal
+    # Otherwise render the standard HTML page
     # Pagination
     paginator = Paginator(simulations, 20)
     page_number = request.GET.get("page")
     page_obj = paginator.get_page(page_number)
 
-    # --- Ajout du mapping type_id -> nom de groupe Eve pour Craft_BP.html ---
-    # Récupère tous les type_id utilisés dans les simulations de l'utilisateur
+    # --- Add a type_id -> EVE group mapping for Craft_BP.html ---
+    # Collect every type_id used across the user's simulations
     type_ids = set()
     for sim in simulations:
         configs = sim.production_configs.all()
         for config in configs:
             type_ids.add(config.item_type_id)
-    # Récupère le nom du groupe Eve pour chaque type_id
+    # Resolve the EVE group name for each type_id
     market_group_map = {}
     if EveType is not None and type_ids:
         eve_types = EveType.objects.filter(id__in=type_ids).select_related("eve_group")
@@ -3577,7 +3584,7 @@ def production_simulations_list(request):
 @login_required
 def delete_production_simulation(request, simulation_id):
     """
-    Supprime une simulation de production et ses configurations associées.
+    Delete a production simulation and its related configurations.
     """
     simulation = get_object_or_404(
         ProductionSimulation, id=simulation_id, user=request.user
@@ -3588,12 +3595,12 @@ def delete_production_simulation(request, simulation_id):
         runs = simulation.runs
         simulation_name = simulation.display_name
 
-        # Supprimer les configurations associées (nouvelle relation directe)
+        # Delete the related configurations (new direct relation)
         related_configs = simulation.production_configs.all()
         if related_configs.exists():
             related_configs.delete()
         else:
-            # Fallback legacy: nettoyer d'anciennes lignes sans FK renseignée
+            # Legacy fallback: clean old rows without a populated FK
             ProductionConfig.objects.filter(
                 user=request.user,
                 blueprint_type_id=blueprint_type_id,
@@ -3601,11 +3608,11 @@ def delete_production_simulation(request, simulation_id):
                 simulation__isnull=True,
             ).delete()
 
-        # Supprimer la simulation
+        # Delete the simulation itself
         simulation.delete()
 
         messages.success(
-            request, f'Simulation "{simulation_name}" supprimée avec succès.'
+            request, f'Simulation "{simulation_name}" deleted successfully.'
         )
         return redirect("indy_hub:production_simulations_list")
 
@@ -3620,7 +3627,7 @@ def delete_production_simulation(request, simulation_id):
 @login_required
 def edit_simulation_name(request, simulation_id):
     """
-    Permet de modifier le nom personnalisé d'une simulation.
+    Allow editing the custom name of a simulation.
     """
     simulation = get_object_or_404(
         ProductionSimulation, id=simulation_id, user=request.user
@@ -3631,7 +3638,7 @@ def edit_simulation_name(request, simulation_id):
         simulation.simulation_name = new_name
         simulation.save()
 
-        messages.success(request, "Nom de la simulation mis à jour avec succès.")
+        messages.success(request, "Simulation name updated successfully.")
         return redirect("indy_hub:production_simulations_list")
 
     context = {
