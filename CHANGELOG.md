@@ -7,13 +7,23 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [1.12.1] - 2025-11-01
+
 ### Added
 
 - Signed Discord quick-action links for blueprint copy requests let builders accept, decline, or send conditions directly from notifications, with token validation before redirecting into Alliance Auth.
+- Added an "Everyone" sharing scope for blueprint copy sharing so corporations and characters can expose their blueprint libraries without maintaining manual allow-lists.
 
 ### Changed
 
 - Conditional offer responses now launch the copy-request chat automatically and drop the inline textarea so negotiations stay inside the dedicated conversation thread.
+- Refreshed copy-sharing dashboards and helper text to surface the new sharing scope and clarify how visibility works across characters and corporations.
+
+### Fixed
+
+- Normalised lingering French error strings and inline comments to English for consistent end-user messaging and debugging output.
 
 ## [1.11.0] - 2025-10-20
 

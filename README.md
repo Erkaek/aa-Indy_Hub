@@ -8,7 +8,8 @@ ______________________________________________________________________
 
 - **Blueprint Library**: View, filter, and search all your EVE Online blueprints by character, corporation, type, and efficiency.
 - **Industry Job Tracking**: Monitor and filter your manufacturing, research, and invention jobs in real time.
-- **Blueprint Copy Sharing**: Request, offer, and deliver blueprint copies (BPCs) within your alliance, with notifications for each step.
+- **Blueprint Copy Sharing**: Request, offer, and deliver blueprint copies (BPCs) within your alliance, complete with signed Discord quick-action links, auto-launching chats for conditional offers, and notifications for each step.
+- **Flexible Sharing Scopes**: Expose blueprint libraries per character, per corporation, or to everyone at once, all controlled from the sharing dashboard and allow-list toggles.
 - **Conditional Offer Chat**: Negotiate blueprint copy terms directly in Indy Hub with persistent history, status indicators, and decision tracking.
 - **Corporate Command Center**: Track corporation blueprints and jobs, configure sharing scopes, and review director token coverage from a dedicated dashboard.
 - **ESI Integration**: Secure OAuth2-based sync for blueprints and jobs (Celery required), including director-level corporation scopes and staggered background refreshes.
@@ -80,6 +81,7 @@ These settings are optional and let you tune background behaviour:
 - `INDY_HUB_BULK_UPDATE_WINDOW_MINUTES` (int, default: `720`): maximum window (in minutes) used to stagger large background synchronisations. You can further refine the cadence with:
   - `INDY_HUB_BLUEPRINTS_BULK_WINDOW_MINUTES` (default: `720`, twelve hours).
   - `INDY_HUB_INDUSTRY_JOBS_BULK_WINDOW_MINUTES` (default: `120`, two hours).
+- Blueprint copy sharing scopes are configured in the Indy Hub UI. Character settings and corporation dashboards now provide an "Everyone" option alongside character/corporation allow-lists so you can expose libraries broadly without manual maintenance.
 
 Scheduled tasks are automatically created or updated on startup:
 
