@@ -310,11 +310,11 @@ class JobNotificationSignalTests(TestCase):
         self.assertIn("Activity: Manufacturing", message)
         self.assertIn("Result: Product: Widget (qty 1)", message)
         self.assertIn("Location: Factory", message)
-        self.assertIn("https://images.evetech.net/types/7002/bp?size=64", message)
+        self.assertIn("https://images.evetech.net/types/7002/icon", message)
         self.assertTrue(job.job_completed_notified)
         self.assertEqual(
             kwargs.get("thumbnail_url"),
-            "https://images.evetech.net/types/7002/bp?size=64",
+            "https://images.evetech.net/types/7002/icon",
         )
 
     @patch("indy_hub.signals.notify_user")
@@ -419,10 +419,10 @@ class JobNotificationPreviewTests(TestCase):
         self.assertIn("Job #999999", args[1])
         body = args[2]
         self.assertIn("Result: TE 16 -> 20", body)
-        self.assertIn("https://images.evetech.net/types/2185/bp?size=64", body)
+        self.assertIn("https://images.evetech.net/types/2185/bp", body)
         self.assertEqual(
             kwargs.get("thumbnail_url"),
-            "https://images.evetech.net/types/2185/bp?size=64",
+            "https://images.evetech.net/types/2185/bp",
         )
 
 

@@ -40,7 +40,7 @@ def build_job_notification_payload(job, *, blueprint=None) -> JobNotificationPay
     activity_label = _resolve_activity_label(job)
     result_line = _resolve_result(job, blueprint_obj)
     location_label = _resolve_location(job)
-    thumbnail_url = _resolve_image_url(job)
+    thumbnail_url = _resolve_image_url(job, blueprint_obj)
 
     title = _("%(character)s - Job #%(job_id)s completed") % {
         "character": character_name,
@@ -60,7 +60,7 @@ def build_job_notification_payload(job, *, blueprint=None) -> JobNotificationPay
     lines.append(_("Location: %(location)s") % {"location": location_label})
 
     if thumbnail_url:
-        lines.append(_("Blueprint image: %(url)s") % {"url": thumbnail_url})
+        lines.append(_("Image preview: %(url)s") % {"url": thumbnail_url})
 
     message = "\n".join(lines)
 
@@ -213,11 +213,44 @@ def _resolve_location(job) -> str:
     return _("Unknown location")
 
 
-def _resolve_image_url(job) -> str | None:
-    type_id = getattr(job, "blueprint_type_id", None)
+def _resolve_image_url(job, blueprint) -> str | None:
+    activity_id = getattr(job, "activity_id", None)
+
+    def _blueprint_type_id() -> int | None:
+        for attr in ("blueprint_type_id",):
+            value = getattr(job, attr, None)
+            if value:
+                return value
+        if blueprint is not None and getattr(blueprint, "type_id", None):
+            return blueprint.type_id
+        return None
+
+    def _product_type_id() -> int | None:
+        for attr in ("product_type_id", "blueprint_type_id"):
+            value = getattr(job, attr, None)
+            if value:
+                return value
+        if blueprint is not None:
+            for attr in ("product_type_id", "type_id"):
+                value = getattr(blueprint, attr, None)
+                if value:
+                    return value
+        return None
+
+    if activity_id in {3, 4}:  # TE / ME research
+        type_id = _blueprint_type_id()
+        suffix = "bp"
+    elif activity_id == 5:  # Copying
+        type_id = _blueprint_type_id()
+        suffix = "bpc"
+    else:  # Manufacturing, reactions, or other
+        type_id = _product_type_id()
+        suffix = "icon"
+
     if not type_id:
         return None
-    return f"https://images.evetech.net/types/{type_id}/bp?size=64"
+
+    return f"https://images.evetech.net/types/{type_id}/{suffix}"
 
 
 def _coalesce(*values: int | None) -> int | None:
