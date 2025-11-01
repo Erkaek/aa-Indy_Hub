@@ -161,6 +161,7 @@ def _handle_job_completion_notification(job: IndustryJob) -> None:
             level="success",
             link=jobs_url,
             link_label=_("View job dashboard"),
+            thumbnail_url=payload.thumbnail_url,
         )
         logger.info(
             "Notified user %s about completed job %s",

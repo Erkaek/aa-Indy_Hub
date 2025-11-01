@@ -1255,6 +1255,7 @@ def personnal_job_notification_test(request):
         level="success",
         link=jobs_url,
         link_label=_("View job dashboard"),
+        thumbnail_url=payload.thumbnail_url,
     )
 
     messages.success(

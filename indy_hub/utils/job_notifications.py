@@ -22,6 +22,7 @@ class JobNotificationPayload:
 
     title: str
     message: str
+    thumbnail_url: str | None = None
 
 
 def build_job_notification_payload(job, *, blueprint=None) -> JobNotificationPayload:
@@ -39,7 +40,7 @@ def build_job_notification_payload(job, *, blueprint=None) -> JobNotificationPay
     activity_label = _resolve_activity_label(job)
     result_line = _resolve_result(job, blueprint_obj)
     location_label = _resolve_location(job)
-    image_line = _resolve_image(job)
+    thumbnail_url = _resolve_image_url(job)
 
     title = _("%(character)s - Job #%(job_id)s completed") % {
         "character": character_name,
@@ -58,12 +59,16 @@ def build_job_notification_payload(job, *, blueprint=None) -> JobNotificationPay
 
     lines.append(_("Location: %(location)s") % {"location": location_label})
 
-    if image_line:
-        lines.append(image_line)
+    if thumbnail_url:
+        lines.append(_("Blueprint image: %(url)s") % {"url": thumbnail_url})
 
     message = "\n".join(lines)
 
-    return JobNotificationPayload(title=title, message=message)
+    return JobNotificationPayload(
+        title=title,
+        message=message,
+        thumbnail_url=thumbnail_url,
+    )
 
 
 def _resolve_character_name(job) -> str:
@@ -208,11 +213,11 @@ def _resolve_location(job) -> str:
     return _("Unknown location")
 
 
-def _resolve_image(job) -> str | None:
+def _resolve_image_url(job) -> str | None:
     type_id = getattr(job, "blueprint_type_id", None)
     if not type_id:
         return None
-    return f"![Blueprint](https://images.evetech.net/types/{type_id}/bp?size=64)"
+    return f"https://images.evetech.net/types/{type_id}/bp?size=64"
 
 
 def _coalesce(*values: int | None) -> int | None:

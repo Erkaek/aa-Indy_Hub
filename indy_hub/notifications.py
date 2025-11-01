@@ -126,7 +126,14 @@ def build_blueprint_summary_lines(
     return summary
 
 
-def _build_discord_embed(title: str, body: str, level: str, *, url: str | None = None):
+def _build_discord_embed(
+    title: str,
+    body: str,
+    level: str,
+    *,
+    url: str | None = None,
+    thumbnail_url: str | None = None,
+):
     try:
         # Third Party
         from discord import Embed
@@ -141,6 +148,9 @@ def _build_discord_embed(title: str, body: str, level: str, *, url: str | None =
     embed.timestamp = timezone.now()
     if url:
         embed.url = url
+
+    if thumbnail_url:
+        embed.set_thumbnail(url=thumbnail_url)
 
     if EMBED_FOOTER_TEXT:
         embed.set_footer(text=str(EMBED_FOOTER_TEXT))
@@ -162,6 +172,7 @@ def _send_via_aadiscordbot(
     level: str,
     *,
     link: str | None = None,
+    thumbnail_url: str | None = None,
 ) -> bool:
     if not apps.is_installed("aadiscordbot"):
         return False
@@ -173,7 +184,13 @@ def _send_via_aadiscordbot(
         logger.debug("aadiscordbot.tasks.send_message unavailable", exc_info=True)
         return False
 
-    embed = _build_discord_embed(title, body, level, url=link)
+    embed = _build_discord_embed(
+        title,
+        body,
+        level,
+        url=link,
+        thumbnail_url=thumbnail_url,
+    )
     if embed and embed.description:
         content = ""
     else:
@@ -223,6 +240,7 @@ def _dispatch_discord_dm(
     *,
     allow_bot: bool = True,
     link: str | None = None,
+    thumbnail_url: str | None = None,
 ) -> None:
     if not DM_ENABLED or not user:
         return
@@ -230,7 +248,14 @@ def _dispatch_discord_dm(
     sent = False
     if allow_bot:
         try:
-            sent = _send_via_aadiscordbot(user, title, body, level, link=link)
+            sent = _send_via_aadiscordbot(
+                user,
+                title,
+                body,
+                level,
+                link=link,
+                thumbnail_url=thumbnail_url,
+            )
         except Exception as exc:  # pragma: no cover - defensive logging
             logger.warning(
                 "Failed to send Discord DM via aadiscordbot: %s", exc, exc_info=True
@@ -259,6 +284,7 @@ def notify_user(
     *,
     link: str | None = None,
     link_label: str | None = None,
+    thumbnail_url: str | None = None,
 ):
     """Send a notification via Alliance Auth and mirror it to Discord DMs."""
 
@@ -298,6 +324,7 @@ def notify_user(
                 dm_body,
                 level_value,
                 link=effective_link,
+                thumbnail_url=thumbnail_url,
             ):
                 logger.info("Discord bot notification sent to %s: %s", user, title)
                 return
@@ -328,6 +355,7 @@ def notify_user(
             level_value,
             allow_bot=False,
             link=effective_link,
+            thumbnail_url=thumbnail_url,
         )
 
 

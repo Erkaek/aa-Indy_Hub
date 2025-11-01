@@ -312,6 +312,10 @@ class JobNotificationSignalTests(TestCase):
         self.assertIn("Location: Factory", message)
         self.assertIn("https://images.evetech.net/types/7002/bp?size=64", message)
         self.assertTrue(job.job_completed_notified)
+        self.assertEqual(
+            kwargs.get("thumbnail_url"),
+            "https://images.evetech.net/types/7002/bp?size=64",
+        )
 
     @patch("indy_hub.signals.notify_user")
     def test_notification_skipped_when_preference_disabled(self, mock_notify):
@@ -416,6 +420,10 @@ class JobNotificationPreviewTests(TestCase):
         body = args[2]
         self.assertIn("Result: TE 16 -> 20", body)
         self.assertIn("https://images.evetech.net/types/2185/bp?size=64", body)
+        self.assertEqual(
+            kwargs.get("thumbnail_url"),
+            "https://images.evetech.net/types/2185/bp?size=64",
+        )
 
 
 class BlueprintCopyFulfillViewTests(TestCase):
@@ -1299,6 +1307,7 @@ class NotificationRoutingTests(TestCase):
         bot_args, bot_kwargs = mock_bot.call_args
         self.assertEqual(bot_args[2], expected_message)
         self.assertEqual(bot_kwargs.get("link"), link)
+        self.assertIsNone(bot_kwargs.get("thumbnail_url"))
 
         mock_notify.assert_called_once()
         notify_kwargs = mock_notify.call_args.kwargs
