@@ -25,6 +25,9 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.translation import gettext_lazy as _
 from django.views.decorators.http import require_http_methods
 
+# Alliance Auth
+from allianceauth.authentication.models import CharacterOwnership
+
 # AA Example App
 from indy_hub.models import CharacterSettings
 
@@ -54,6 +57,7 @@ from ..utils.discord_actions import (
     decode_action_token,
 )
 from ..utils.eve import get_character_name, get_corporation_name, get_type_name
+from ..utils.job_notifications import build_job_notification_payload
 from .navigation import build_nav_context
 
 if "eveuniverse" in getattr(settings, "INSTALLED_APPS", ()):  # pragma: no branch
@@ -1195,6 +1199,69 @@ def personnal_job_list(request, scope="character"):
         logger.error(f"Error displaying industry jobs: {e}")
         messages.error(request, f"Error displaying industry jobs: {e}")
         return redirect("indy_hub:index")
+
+
+@indy_hub_access_required
+@login_required
+def personnal_job_notification_test(request):
+    ownership = (
+        CharacterOwnership.objects.filter(user=request.user)
+        .select_related("character")
+        .first()
+    )
+    character_id = None
+    character_name = request.user.username
+    if ownership and getattr(ownership, "character", None):
+        character_id = getattr(ownership.character, "character_id", None)
+        stored_name = getattr(ownership.character, "character_name", None)
+        character_name = (
+            get_character_name(character_id) or stored_name or request.user.username
+        )
+
+    sample_job = IndustryJob(
+        owner_user=request.user,
+        owner_kind=Blueprint.OwnerKind.CHARACTER,
+        character_id=character_id,
+        installer_id=character_id or request.user.id,
+        job_id=999999,
+        blueprint_id=123456789,
+        blueprint_type_id=2185,
+        blueprint_type_name="Drone Link Augmentor I Blueprint",
+        activity_id=3,
+        activity_name=_("Time Efficiency Research"),
+        runs=4,
+        successful_runs=4,
+        location_name=_("Test Research Lab"),
+        product_type_name=_("Blueprint copy"),
+        character_name=character_name,
+    )
+
+    sample_blueprint = Blueprint(
+        owner_user=request.user,
+        item_id=0,
+        type_id=2185,
+        type_name="Drone Link Augmentor I Blueprint",
+        time_efficiency=20,
+        material_efficiency=10,
+    )
+
+    payload = build_job_notification_payload(sample_job, blueprint=sample_blueprint)
+    jobs_url = build_site_url(reverse("indy_hub:personnal_job_list"))
+
+    notify_user(
+        request.user,
+        payload.title,
+        payload.message,
+        level="success",
+        link=jobs_url,
+        link_label=_("View job dashboard"),
+    )
+
+    messages.success(
+        request,
+        _("Test industry job notification sent. Check your notifications panel."),
+    )
+    return redirect("indy_hub:personnal_job_list")
 
 
 def collect_blueprints_with_level(blueprint_configs):

@@ -302,8 +302,15 @@ class JobNotificationSignalTests(TestCase):
         mock_notify.assert_called_once()
         args, kwargs = mock_notify.call_args
         self.assertEqual(args[0], self.user)
-        self.assertEqual(args[1], "Industry Job Completed")
-        self.assertIn("88001", args[2])
+        self.assertEqual(args[1], "Notifier - Job #88001 completed")
+        message = args[2]
+        self.assertIn("Character: Notifier", message)
+        self.assertIn("Job: #88001", message)
+        self.assertIn("Blueprint: Widget Blueprint", message)
+        self.assertIn("Activity: Manufacturing", message)
+        self.assertIn("Result: Product: Widget (qty 1)", message)
+        self.assertIn("Location: Factory", message)
+        self.assertIn("https://images.evetech.net/types/7002/bp?size=64", message)
         self.assertTrue(job.job_completed_notified)
 
     @patch("indy_hub.signals.notify_user")
@@ -388,6 +395,27 @@ class JobNotificationSignalTests(TestCase):
 
         mock_notify.assert_called_once()
         self.assertTrue(job.job_completed_notified)
+
+
+class JobNotificationPreviewTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("previewer", password="secret123")
+        assign_main_character(self.user, character_id=830001)
+        grant_indy_permissions(self.user)
+        self.client.force_login(self.user)
+
+    @patch("indy_hub.views.industry.notify_user")
+    def test_preview_endpoint_sends_notification(self, mock_notify) -> None:
+        response = self.client.get(reverse("indy_hub:personnal_job_notification_test"))
+
+        self.assertRedirects(response, reverse("indy_hub:personnal_job_list"))
+        mock_notify.assert_called_once()
+        args, kwargs = mock_notify.call_args
+        self.assertEqual(args[0], self.user)
+        self.assertIn("Job #999999", args[1])
+        body = args[2]
+        self.assertIn("Result: TE 16 -> 20", body)
+        self.assertIn("https://images.evetech.net/types/2185/bp?size=64", body)
 
 
 class BlueprintCopyFulfillViewTests(TestCase):

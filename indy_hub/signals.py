@@ -13,6 +13,7 @@ from django.utils.translation import gettext_lazy as _
 from .models import Blueprint, CharacterSettings, IndustryJob
 from .notifications import build_site_url, notify_user
 from .utils.eve import PLACEHOLDER_PREFIX, resolve_location_name
+from .utils.job_notifications import build_job_notification_payload
 
 # Alliance Auth: Token model
 try:
@@ -149,16 +150,14 @@ def _handle_job_completion_notification(job: IndustryJob) -> None:
         _mark_job_notified(job)
         return
 
-    title = "Industry Job Completed"
-    job_display = job.blueprint_type_name or f"Type {job.blueprint_type_id}"
-    message = f"Your industry job #{job.job_id} ({job_display}) has completed."
+    payload = build_job_notification_payload(job)
     jobs_url = build_site_url(reverse("indy_hub:personnal_job_list"))
 
     try:
         notify_user(
             user,
-            title,
-            message,
+            payload.title,
+            payload.message,
             level="success",
             link=jobs_url,
             link_label=_("View job dashboard"),
