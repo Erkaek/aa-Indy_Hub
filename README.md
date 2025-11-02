@@ -13,7 +13,7 @@ ______________________________________________________________________
 - **Conditional Offer Chat**: Negotiate blueprint copy terms directly in Indy Hub with persistent history, status indicators, and decision tracking.
 - **Corporate Command Center**: Track corporation blueprints and jobs, configure sharing scopes, and review director token coverage from a dedicated dashboard.
 - **ESI Integration**: Secure OAuth2-based sync for blueprints and jobs (Celery required), including director-level corporation scopes and staggered background refreshes.
-- **Notifications**: In-app alerts for job completions, copy offers, chat messages, and deliveries. Optional Discord notifications (via aa-discordnotify).
+- **Notifications**: In-app alerts for job completions, copy offers, chat messages, and deliveries, featuring rich job completion digests with activity-aware thumbnails, optional Discord embeds (via aa-discordnotify), and dedicated preview endpoints for both live and digest payloads.
 - **Modern UI**: Responsive Bootstrap 5 interface, theme-compatible, with accessibility and i18n support.
 
 ______________________________________________________________________
@@ -100,6 +100,7 @@ ______________________________________________________________________
 - Go to the Indy Hub dashboard in Alliance Auth.
 - Authorize ESI for blueprints and jobs.
 - View/manage your blueprints and jobs, request/offer BPCs, and receive notifications.
+- Use `/indy_hub/personnal-jobs/notification_test/` or the live/digest preview endpoints under `/indy_hub/personnal-jobs/notifications/preview/` to validate job completion payloads before enabling production Discord routing.
 
 ______________________________________________________________________
 

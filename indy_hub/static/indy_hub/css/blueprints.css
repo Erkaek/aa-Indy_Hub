@@ -584,14 +584,12 @@
     gap: 0.15rem;
 }
 
-
 .bp-request-hero__metric-label {
     text-transform: uppercase;
     font-size: 0.7rem;
     color: rgba(var(--bs-light-rgb), 0.7);
     letter-spacing: 0.12em;
 }
-
 
 .bp-request-hero__metric-value {
     font-size: 1.75rem;
@@ -671,13 +669,69 @@
     display: block;
 }
 
+.bp-request-card__header {
+    min-width: 0;
+}
+
 .bp-request-card__title {
     color: var(--bs-body-color);
     font-weight: 600;
+    line-height: 1.3;
+    word-break: break-word;
+    hyphens: auto;
+    text-wrap: pretty;
 }
 
 .bp-request-card__subtitle {
     letter-spacing: 0.08em;
+}
+
+.bp-request-card__meta {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 0.35rem 1rem;
+    line-height: 1.4;
+    min-width: 0;
+}
+
+.bp-request-card__meta-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    color: inherit;
+    min-width: 0;
+}
+
+.bp-request-card__meta-item i {
+    font-size: 0.9rem;
+    opacity: 0.7;
+}
+
+.bp-request-card__meta-item span,
+.bp-request-card__meta-item time {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    min-width: 0;
+}
+
+.bp-request-card__meta-item--full {
+    grid-column: 1 / -1;
+}
+
+.bp-request-card__status {
+    max-width: 100%;
+    white-space: normal;
+    word-break: break-word;
+    text-align: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.35rem 0.75rem !important;
+    font-size: 0.7rem;
+    line-height: 1.2;
+    letter-spacing: 0.06em;
+    text-wrap: balance;
 }
 
 .bp-request-card__badges .badge {
@@ -1046,14 +1100,6 @@
 
     .bp-card-toolbar__group--push {
         margin-left: 0;
-    }
-
-    .bp-card-toolbar__group {
-        justify-content: center;
-    }
-
-    .bp-card-toolbar__group--stacked {
-        align-items: center;
     }
 
     .bp-card-toolbar__meta,

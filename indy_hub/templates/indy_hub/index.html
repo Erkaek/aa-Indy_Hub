@@ -154,15 +154,15 @@
                 <p class="text-muted small mb-0">{% trans "Follow these steps to unlock the full Indy Hub workflow." %}</p>
             </div>
             <form method="post" action="{% url 'indy_hub:onboarding_set_visibility' %}" class="d-inline">
-                {% csrf_token %}
-                <input type="hidden" name="action" value="dismiss">
-                <input type="hidden" name="next" value="{{ request.get_full_path }}">
-                <button type="submit" class="btn btn-link text-muted text-decoration-none small">
-                    <i class="fas fa-eye-slash me-1"></i>{% trans "Hide checklist" %}
+                                            <button
+                                                type="button"
+                                                class="btn btn-primary btn-sm px-3 rounded-pill"
+                                                id="job-notification-apply"
+                                            >
                 </button>
             </form>
         </header>
-        <div class="card focus-card">
+    <div class="card focus-card">
             <div class="card-body p-4">
                 <div class="d-flex flex-column flex-lg-row gap-4 align-items-lg-center mb-4">
                     <div class="flex-grow-1">
@@ -585,24 +585,150 @@
                             <div class="preference-item">
                                 <div class="preference-text">
                                     <span class="preference-label">{% trans "Industry job alerts" %}</span>
-                                    <p class="preference-hint mb-0" id="notify-hint">
-                                        {% if jobs_notify_completed %}{% trans "Notifications enabled: we'll ping you when jobs finish." %}{% else %}{% trans "Notifications disabled: job completions stay quiet." %}{% endif %}
-                                    </p>
+                                    <p class="preference-hint mb-0" id="notify-hint">{{ job_notification_hint }}</p>
                                 </div>
-                                <button
-                                    id="toggle-job-notify"
-                                    class="toggle-chip {% if jobs_notify_completed %}is-active{% endif %}"
-                                    type="button"
-                                    data-enabled="{{ jobs_notify_completed|yesno:'true,false' }}"
-                                    data-on-label="{% trans "ON" %}"
-                                    data-off-label="{% trans "OFF" %}"
-                                    data-on-hint="{% trans "Notifications enabled: we'll ping you when jobs finish." %}"
-                                    data-off-hint="{% trans "Notifications disabled: job completions stay quiet." %}"
-                                >
-                                    <span class="toggle-state" id="notify-state">
-                                        {% if jobs_notify_completed %}{% trans "ON" %}{% else %}{% trans "OFF" %}{% endif %}
-                                    </span>
-                                </button>
+                                <div class="notification-preference" id="job-notification-controls">
+                                    <div
+                                        class="notify-mode-grid"
+                                        id="job-notification-group"
+                                        role="group"
+                                        aria-label="{% trans 'Industry job notification cadence' %}"
+                                        data-current-frequency="{{ job_notification_frequency }}"
+                                    >
+                                        <button
+                                            type="button"
+                                            class="notify-mode-tile {% if job_notification_frequency == 'disabled' %}is-active{% endif %}"
+                                            data-frequency="disabled"
+                                            data-hint="{% trans "Muted: we stay quiet until you re-enable alerts." %}"
+                                            aria-pressed="{% if job_notification_frequency == 'disabled' %}true{% else %}false{% endif %}"
+                                        >
+                                            <span class="notify-tile-icon muted">
+                                                <i class="fas fa-bell-slash"></i>
+                                            </span>
+                                            <div class="notify-tile-main">
+                                                <span class="notify-tile-title">{% trans "Muted" %}</span>
+                                                <span class="notify-tile-tag">{% trans "Off" %}</span>
+                                            </div>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            class="notify-mode-tile {% if job_notification_frequency == 'immediate' %}is-active{% endif %}"
+                                            data-frequency="immediate"
+                                            data-hint="{% trans "Instant: we ping you the moment a job completes." %}"
+                                            aria-pressed="{% if job_notification_frequency == 'immediate' %}true{% else %}false{% endif %}"
+                                        >
+                                            <span class="notify-tile-icon instant">
+                                                <i class="fas fa-bolt"></i>
+                                            </span>
+                                            <div class="notify-tile-main">
+                                                <span class="notify-tile-title">{% trans "Instant" %}</span>
+                                                <span class="notify-tile-tag">{% trans "Live" %}</span>
+                                            </div>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            class="notify-mode-tile {% if job_notification_frequency == 'daily' %}is-active{% endif %}"
+                                            data-frequency="daily"
+                                            data-hint="{% trans "Daily digest: one summary every night." %}"
+                                            aria-pressed="{% if job_notification_frequency == 'daily' %}true{% else %}false{% endif %}"
+                                        >
+                                            <span class="notify-tile-icon digest">
+                                                <i class="fas fa-sun"></i>
+                                            </span>
+                                            <div class="notify-tile-main">
+                                                <span class="notify-tile-title">{% trans "Daily" %}</span>
+                                                <span class="notify-tile-tag">{% trans "Digest" %}</span>
+                                            </div>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            class="notify-mode-tile {% if job_notification_frequency == 'weekly' %}is-active{% endif %}"
+                                            data-frequency="weekly"
+                                            data-hint="{% trans "Weekly digest: recap every seven days." %}"
+                                            aria-pressed="{% if job_notification_frequency == 'weekly' %}true{% else %}false{% endif %}"
+                                        >
+                                            <span class="notify-tile-icon digest">
+                                                <i class="fas fa-calendar-week"></i>
+                                            </span>
+                                            <div class="notify-tile-main">
+                                                <span class="notify-tile-title">{% trans "Weekly" %}</span>
+                                                <span class="notify-tile-tag">{% trans "Digest" %}</span>
+                                            </div>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            class="notify-mode-tile {% if job_notification_frequency == 'monthly' %}is-active{% endif %}"
+                                            data-frequency="monthly"
+                                            data-hint="{% trans "Monthly digest: grouped update every thirty days." %}"
+                                            aria-pressed="{% if job_notification_frequency == 'monthly' %}true{% else %}false{% endif %}"
+                                        >
+                                            <span class="notify-tile-icon digest">
+                                                <i class="fas fa-calendar-days"></i>
+                                            </span>
+                                            <div class="notify-tile-main">
+                                                <span class="notify-tile-title">{% trans "Monthly" %}</span>
+                                                <span class="notify-tile-tag">{% trans "Digest" %}</span>
+                                            </div>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            class="notify-mode-tile {% if job_notification_frequency == 'custom' %}is-active{% endif %}"
+                                            data-frequency="custom"
+                                            data-hint="{% blocktrans with days=job_notification_custom_days|default:3 %}Custom cadence: grouped alert every {{ days }} day(s).{% endblocktrans %}"
+                                            data-hint-template="{% trans 'Custom cadence: grouped alert every __days__ day(s).' %}"
+                                            data-hint-placeholder="__days__"
+                                            data-hint-default-days="{{ job_notification_custom_days|default:3 }}"
+                                            aria-pressed="{% if job_notification_frequency == 'custom' %}true{% else %}false{% endif %}"
+                                        >
+                                            <span class="notify-tile-icon custom">
+                                                <i class="fas fa-sliders"></i>
+                                            </span>
+                                            <div class="notify-tile-main">
+                                                <span class="notify-tile-title">{% trans "Custom" %}</span>
+                                                <span class="notify-tile-tag">{% trans "Custom" %}</span>
+                                            </div>
+                                        </button>
+                                    </div>
+                                    <div
+                                        class="notification-custom mt-3{% if job_notification_frequency != 'custom' %} d-none{% endif %}"
+                                        id="job-notification-custom-wrapper"
+                                        aria-live="polite"
+                                    >
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text">{% trans "Every" %}</span>
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                max="90"
+                                                step="1"
+                                                class="form-control"
+                                                id="job-notification-custom-days"
+                                                value="{{ job_notification_custom_days }}"
+                                                aria-describedby="job-notification-help"
+                                                aria-label="{% trans "Custom digest cadence" %}"
+                                            >
+                                            <span class="input-group-text">{% trans "day(s)" %}</span>
+                                        </div>
+                                        <p class="text-muted small mt-2 mb-0" id="job-notification-help">{% trans "Set how many days should pass between grouped alerts." %}</p>
+                                    </div>
+                                    <div class="preference-actions mt-3">
+                                        <button
+                                            type="button"
+                                            class="btn btn-primary btn-sm px-3 rounded-pill"
+                                            id="job-notification-apply"
+                                        >
+                                            <i class="fas fa-save me-1"></i>{% trans "Save cadence" %}
+                                        </button>
+                                        <div class="notify-preview-actions">
+                                            <a href="{% url 'indy_hub:job_notification_preview_live' %}" class="btn btn-outline-secondary btn-sm px-3 rounded-pill">
+                                                <i class="fas fa-bell me-1"></i>{% trans "Preview live" %}
+                                            </a>
+                                            <a href="{% url 'indy_hub:job_notification_preview_digest' %}" class="btn btn-outline-secondary btn-sm px-3 rounded-pill">
+                                                <i class="fas fa-list-ul me-1"></i>{% trans "Preview digest" %}
+                                            </a>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                             <div class="preference-item share-preference">
                                 <div class="preference-text share-preference-info">
@@ -685,13 +811,16 @@
 {% block extra_javascript %}
 <script>
 window.csrfToken = '{{ csrf_token }}';
-window.toggleJobNotificationsUrl = '{% url 'indy_hub:toggle_job_notifications' %}';
+window.updateJobNotificationsUrl = '{% url 'indy_hub:toggle_job_notifications' %}';
 window.toggleCopySharingUrl = '{% url 'indy_hub:toggle_copy_sharing' %}';
 window.toggleCorporationCopySharingUrl = '{% url 'indy_hub:toggle_corporation_copy_sharing' %}';
-window.notificationsOnText = '{% trans "Notifications ON" %}';
-window.notificationsOffText = '{% trans "Notifications OFF" %}';
 window.copySharingStates = JSON.parse('{{ copy_sharing_states_json|escapejs }}');
 window.corporationShareControls = JSON.parse('{{ corporation_share_controls_json|escapejs }}');
+window.jobNotificationState = {
+    frequency: '{{ job_notification_frequency }}',
+    customDays: {{ job_notification_custom_days|default:3 }},
+    hint: '{{ job_notification_hint|escapejs }}'
+};
 window.indyChatDefaults = Object.assign({}, window.indyChatDefaults || {}, {
     viewerRole: 'buyer',
     labels: {

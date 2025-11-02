@@ -71,40 +71,274 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // Job notifications toggle
-    var notifyBtn = document.getElementById('toggle-job-notify');
-    if (notifyBtn) {
-        notifyBtn.addEventListener('click', function() {
-            fetch(window.toggleJobNotificationsUrl, {
-                method: 'POST',
-                headers: {
-                    'X-CSRFToken': window.csrfToken,
-                    'Accept': 'application/json'
+    var jobNotificationState = Object.assign({
+        frequency: 'disabled',
+        customDays: 3,
+        hint: ''
+    }, window.jobNotificationState || {});
+
+    var notifyGroup = document.getElementById('job-notification-group');
+    var notifyButtons = notifyGroup ? Array.from(notifyGroup.querySelectorAll('[data-frequency]')) : [];
+    var customWrapper = document.getElementById('job-notification-custom-wrapper');
+    var customDaysInput = document.getElementById('job-notification-custom-days');
+    var applyBtn = document.getElementById('job-notification-apply');
+    var notifyHint = document.getElementById('notify-hint');
+
+    function setNotifyHint(text) {
+        if (notifyHint) {
+            notifyHint.textContent = text || '';
+        }
+    }
+
+    function toggleCustomVisibility(value) {
+        if (!customWrapper) {
+            return;
+        }
+        if (value === 'custom') {
+            customWrapper.classList.remove('d-none');
+        } else {
+            customWrapper.classList.add('d-none');
+        }
+    }
+
+    function getNotificationButton(frequency) {
+        if (!notifyGroup) {
+            return null;
+        }
+        return notifyGroup.querySelector('[data-frequency="' + frequency + '"]');
+    }
+
+    function getFrequencyHint(frequency) {
+        var button = getNotificationButton(frequency);
+        if (!button) {
+            return null;
+        }
+
+        if (frequency === 'custom') {
+            var template = button.getAttribute('data-hint-template');
+            if (template) {
+                var placeholder = button.getAttribute('data-hint-placeholder') || '__days__';
+                var days = null;
+                if (customDaysInput) {
+                    days = parseCustomDays(customDaysInput.value);
                 }
+                if (days == null) {
+                    if (typeof jobNotificationState.customDays === 'number') {
+                        days = jobNotificationState.customDays;
+                    } else {
+                        var defaultDays = parseInt(button.getAttribute('data-hint-default-days'), 10);
+                        if (!isNaN(defaultDays)) {
+                            days = defaultDays;
+                        }
+                    }
+                }
+                if (days == null) {
+                    days = 1;
+                }
+                var stringDays = String(days);
+                return template.split(placeholder).join(stringDays);
+            }
+        }
+
+        var hint = button.getAttribute('data-hint');
+        return hint && hint.length ? hint : null;
+    }
+
+    function previewFrequencyHint(frequency) {
+        var hint = getFrequencyHint(frequency);
+        if (hint) {
+            setNotifyHint(hint);
+            jobNotificationState.hint = hint;
+        }
+    }
+
+    function setActiveFrequency(frequency) {
+        if (!notifyGroup) {
+            return;
+        }
+        notifyGroup.dataset.currentFrequency = frequency || 'disabled';
+        notifyButtons.forEach(function(btn) {
+            var isActive = btn.dataset.frequency === frequency;
+            btn.classList.toggle('is-active', isActive);
+            btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+        });
+    }
+
+    function getActiveFrequency() {
+        if (notifyGroup) {
+            var current = notifyGroup.dataset.currentFrequency;
+            if (current) {
+                return current;
+            }
+        }
+        return jobNotificationState.frequency || 'disabled';
+    }
+
+    function parseCustomDays(value) {
+        var parsed = parseInt(value, 10);
+        if (isNaN(parsed) || parsed < 1) {
+            return null;
+        }
+        return Math.min(parsed, 365);
+    }
+
+    function submitNotificationPreference(frequency, customDays) {
+        if (!window.updateJobNotificationsUrl) {
+            return;
+        }
+
+        var payload = { frequency: frequency };
+        if (frequency === 'custom') {
+            payload.custom_days = customDays;
+        }
+
+        var previousFrequency = jobNotificationState.frequency;
+        var previousCustomDays = jobNotificationState.customDays;
+        var previousHint = jobNotificationState.hint;
+
+        if (applyBtn) {
+            applyBtn.disabled = true;
+        }
+        notifyButtons.forEach(function(btn) {
+            btn.disabled = true;
+        });
+
+        fetch(window.updateJobNotificationsUrl, {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': window.csrfToken,
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        })
+            .then(function(response) {
+                if (!response.ok) {
+                    throw new Error('bad_response');
+                }
+                return response.json();
             })
-            .then(r => r.json())
-            .then(data => {
-                notifyBtn.dataset.enabled = data.enabled ? 'true' : 'false';
-                notifyBtn.classList.toggle('is-active', Boolean(data.enabled));
-                notifyBtn.setAttribute('aria-pressed', data.enabled ? 'true' : 'false');
-
-                var notifyState = document.getElementById('notify-state');
-                var notifyHint = document.getElementById('notify-hint');
-                if (notifyState) {
-                    notifyState.textContent = data.enabled ? notifyBtn.dataset.onLabel : notifyBtn.dataset.offLabel;
+            .then(function(data) {
+                jobNotificationState.frequency = data.frequency || frequency;
+                if (typeof data.custom_days === 'number') {
+                    jobNotificationState.customDays = data.custom_days;
+                } else if (frequency === 'custom' && typeof customDays === 'number') {
+                    jobNotificationState.customDays = customDays;
                 }
-                if (notifyHint) {
-                    notifyHint.textContent = data.enabled ? notifyBtn.dataset.onHint : notifyBtn.dataset.offHint;
+                if (typeof data.hint === 'string' && data.hint.length) {
+                    jobNotificationState.hint = data.hint;
                 }
 
-                showIndyHubPopup(
-                    data.enabled ? 'Job notifications enabled.' : 'Job notifications disabled.',
-                    data.enabled ? 'success' : 'secondary'
-                );
+                setActiveFrequency(jobNotificationState.frequency);
+                toggleCustomVisibility(jobNotificationState.frequency);
+
+                if (customDaysInput && jobNotificationState.customDays) {
+                    customDaysInput.value = jobNotificationState.customDays;
+                }
+
+                previewFrequencyHint(jobNotificationState.frequency);
+
+                var popupMessage = data.message || 'Job notification preferences updated.';
+                showIndyHubPopup(popupMessage, 'success');
             })
             .catch(function() {
-                showIndyHubPopup('Error updating job notifications.', 'danger');
+                jobNotificationState.frequency = previousFrequency;
+                jobNotificationState.customDays = previousCustomDays;
+                jobNotificationState.hint = previousHint;
+                setActiveFrequency(previousFrequency);
+                toggleCustomVisibility(previousFrequency);
+                if (customDaysInput && previousCustomDays) {
+                    customDaysInput.value = previousCustomDays;
+                }
+                previewFrequencyHint(previousFrequency);
+                showIndyHubPopup('Error updating job notification preferences.', 'danger');
+            })
+            .finally(function() {
+                if (applyBtn) {
+                    applyBtn.disabled = false;
+                }
+                notifyButtons.forEach(function(btn) {
+                    btn.disabled = false;
+                });
             });
+    }
+
+    if (notifyGroup) {
+        var initialFrequency = jobNotificationState.frequency || notifyGroup.dataset.currentFrequency || 'disabled';
+        setActiveFrequency(initialFrequency);
+        toggleCustomVisibility(initialFrequency);
+
+        var initialHint = getFrequencyHint(initialFrequency) || jobNotificationState.hint;
+        setNotifyHint(initialHint);
+        if (initialHint) {
+            jobNotificationState.hint = initialHint;
+        }
+
+        notifyButtons.forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var desired = btn.dataset.frequency;
+                if (!desired) {
+                    return;
+                }
+
+                previewFrequencyHint(desired);
+
+                var current = getActiveFrequency();
+                if (desired === current && desired !== 'custom') {
+                    return;
+                }
+
+                setActiveFrequency(desired);
+                toggleCustomVisibility(desired);
+
+                if (desired === 'custom') {
+                    jobNotificationState.frequency = 'custom';
+                    if (customDaysInput) {
+                        customDaysInput.focus();
+                        customDaysInput.select();
+                    }
+                    return;
+                }
+
+                submitNotificationPreference(desired, jobNotificationState.customDays);
+            });
+        });
+    } else {
+        toggleCustomVisibility(jobNotificationState.frequency);
+        previewFrequencyHint(jobNotificationState.frequency);
+    }
+
+    if (applyBtn) {
+        applyBtn.addEventListener('click', function() {
+            var selected = getActiveFrequency();
+            var customValue = customDaysInput ? parseCustomDays(customDaysInput.value) : null;
+
+            if (selected === 'custom' && !customValue) {
+                showIndyHubPopup('Please enter a valid number of days for the custom cadence.', 'warning');
+                if (customDaysInput) {
+                    customDaysInput.focus();
+                }
+                return;
+            }
+
+            var cadenceDays = selected === 'custom' ? (customValue || jobNotificationState.customDays) : jobNotificationState.customDays;
+            if (selected === 'custom' && typeof cadenceDays === 'number') {
+                jobNotificationState.customDays = cadenceDays;
+                previewFrequencyHint('custom');
+            }
+            submitNotificationPreference(selected, cadenceDays);
+        });
+    }
+
+    if (customDaysInput) {
+        customDaysInput.addEventListener('input', function() {
+            var parsed = parseCustomDays(customDaysInput.value);
+            if (parsed) {
+                jobNotificationState.customDays = parsed;
+            }
+            if (getActiveFrequency() === 'custom') {
+                previewFrequencyHint('custom');
+            }
         });
     }
 

@@ -85,24 +85,50 @@
 }
 
 /* Filter Controls */
-.filter-controls {
-    background: #fff;
-    border: 1px solid #e9ecef;
-    border-radius: 12px;
-    box-shadow: 0 8px 16px rgb(0 0 0 / 12%);
+.job-filter-panel {
+    background: var(--bs-body-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius-xl, 1.25rem);
+    padding: 1.75rem;
+    box-shadow: 0 1.5rem 3rem rgb(15 23 42 / 12%);
 }
 
-.filter-controls .form-control,
-.filter-controls .form-select {
-    border: 1px solid #e9ecef;
-    border-radius: 8px;
-    transition: all 0.2s ease;
+.job-filter-panel__form .form-control,
+.job-filter-panel__form .form-select {
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius, 0.75rem);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.filter-controls .form-control:focus,
-.filter-controls .form-select:focus {
-    border-color: #007bff;
-    box-shadow: 0 0 0 0.2rem rgb(0 123 255 / 10%);
+.job-filter-panel__form .form-control:focus,
+.job-filter-panel__form .form-select:focus {
+    border-color: var(--bs-primary);
+    box-shadow: 0 0 0 0.2rem rgba(var(--bs-primary-rgb), 0.15);
+}
+
+.job-filter-panel__form .form-label {
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.06em;
+}
+
+.job-filter-panel__actions {
+    display: grid;
+    align-items: stretch;
+}
+
+.job-filter-panel__actions .btn {
+    height: 100%;
+}
+
+@media (max-width: 991.98px) {
+    .job-filter-panel {
+        padding: 1.25rem;
+    }
+
+    .job-filter-panel__actions {
+        grid-column: span 2;
+    }
 }
 
 /* Activity Badges */

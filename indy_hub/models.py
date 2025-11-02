@@ -1,3 +1,6 @@
+# Standard Library
+from datetime import timedelta
+
 # Django
 from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
@@ -725,9 +728,33 @@ class CharacterSettings(models.Model):
         (SCOPE_EVERYONE, "Everyone"),
     ]
 
+    NOTIFY_DISABLED = "disabled"
+    NOTIFY_IMMEDIATE = "immediate"
+    NOTIFY_DAILY = "daily"
+    NOTIFY_WEEKLY = "weekly"
+    NOTIFY_MONTHLY = "monthly"
+    NOTIFY_CUSTOM = "custom"
+
+    JOB_NOTIFICATION_FREQUENCY_CHOICES = [
+        (NOTIFY_DISABLED, "Disabled"),
+        (NOTIFY_IMMEDIATE, "Immediate"),
+        (NOTIFY_DAILY, "Daily digest"),
+        (NOTIFY_WEEKLY, "Weekly digest"),
+        (NOTIFY_MONTHLY, "Monthly digest"),
+        (NOTIFY_CUSTOM, "Custom cadence"),
+    ]
+
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     character_id = models.BigIntegerField()
     jobs_notify_completed = models.BooleanField(default=False)
+    jobs_notify_frequency = models.CharField(
+        max_length=20,
+        choices=JOB_NOTIFICATION_FREQUENCY_CHOICES,
+        default=NOTIFY_DISABLED,
+    )
+    jobs_notify_custom_days = models.PositiveSmallIntegerField(default=3)
+    jobs_next_digest_at = models.DateTimeField(null=True, blank=True)
+    jobs_last_digest_at = models.DateTimeField(null=True, blank=True)
     allow_copy_requests = models.BooleanField(default=False)
     copy_sharing_scope = models.CharField(
         max_length=20,
@@ -761,6 +788,116 @@ class CharacterSettings(models.Model):
             raise ValueError(f"Invalid copy sharing scope: {scope}")
         self.copy_sharing_scope = scope
         self.allow_copy_requests = scope != self.SCOPE_NONE
+
+    def set_job_notification_frequency(
+        self,
+        frequency: str,
+        *,
+        custom_days: int | None = None,
+    ) -> None:
+        valid = dict(self.JOB_NOTIFICATION_FREQUENCY_CHOICES)
+        if frequency not in valid:
+            raise ValueError(f"Invalid job notification frequency: {frequency}")
+        self.jobs_notify_frequency = frequency
+        if frequency == self.NOTIFY_DISABLED:
+            self.jobs_notify_completed = False
+            self.jobs_next_digest_at = None
+        else:
+            self.jobs_notify_completed = True
+
+        if frequency == self.NOTIFY_CUSTOM:
+            days_value = (
+                custom_days if custom_days is not None else self.jobs_notify_custom_days
+            )
+            try:
+                days_value = int(days_value)
+            except (TypeError, ValueError):
+                days_value = self.jobs_notify_custom_days or 1
+            self.jobs_notify_custom_days = max(1, days_value)
+
+    def compute_next_digest(self, *, reference=None):
+        if reference is None:
+            reference = timezone.now()
+
+        freq = self.jobs_notify_frequency
+        if freq in {self.NOTIFY_DISABLED, self.NOTIFY_IMMEDIATE}:
+            return None
+
+        if freq == self.NOTIFY_DAILY:
+            delta = timedelta(days=1)
+        elif freq == self.NOTIFY_WEEKLY:
+            delta = timedelta(days=7)
+        elif freq == self.NOTIFY_MONTHLY:
+            delta = timedelta(days=30)
+        else:
+            days = max(1, self.jobs_notify_custom_days or 1)
+            delta = timedelta(days=days)
+
+        return reference + delta
+
+    def schedule_next_digest(self, *, reference=None) -> None:
+        next_at = self.compute_next_digest(reference=reference)
+        self.jobs_next_digest_at = next_at
+
+    def save(self, *args, **kwargs):
+        if (
+            self.jobs_notify_completed
+            and self.jobs_notify_frequency == self.NOTIFY_DISABLED
+        ):
+            self.jobs_notify_frequency = self.NOTIFY_IMMEDIATE
+
+        if self.jobs_notify_frequency == self.NOTIFY_DISABLED:
+            self.jobs_notify_completed = False
+            self.jobs_next_digest_at = None
+        elif self.jobs_notify_frequency:
+            self.jobs_notify_completed = True
+            if (
+                self.jobs_notify_frequency != self.NOTIFY_IMMEDIATE
+                and not self.jobs_next_digest_at
+            ):
+                self.schedule_next_digest()
+        super().save(*args, **kwargs)
+
+
+class JobNotificationDigestEntry(models.Model):
+    """Queued job notifications awaiting digest dispatch."""
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="indy_job_notification_entries",
+    )
+    job_id = models.BigIntegerField()
+    payload = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        default_permissions = ()
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "job_id"],
+                name="job_digest_user_job_uq",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["user", "sent_at"],
+                name="job_digest_user_sent_idx",
+            ),
+        ]
+
+    def __str__(self):
+        status = "sent" if self.sent_at else "pending"
+        return f"Job digest entry {self.job_id} for {self.user.username} ({status})"
+
+    @property
+    def is_sent(self) -> bool:
+        return self.sent_at is not None
+
+    def mark_sent(self) -> None:
+        self.sent_at = timezone.now()
 
 
 class CorporationSharingSetting(models.Model):

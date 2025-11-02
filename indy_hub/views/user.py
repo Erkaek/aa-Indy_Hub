@@ -268,7 +268,6 @@ def _collect_corporation_scope_status(
 
         blueprint_token = _select_corporation_token(token_qs, CORP_BLUEPRINT_SCOPE)
         jobs_token = _select_corporation_token(token_qs, CORP_JOBS_SCOPE)
-
         if not blueprint_token and not jobs_token:
             continue
 
@@ -636,6 +635,28 @@ def _build_corporation_share_controls(
     return controls, summary
 
 
+def _describe_job_notification_hint(frequency: str, custom_days: int) -> str:
+    custom_days = max(1, custom_days or 1)
+    hints = {
+        CharacterSettings.NOTIFY_DISABLED: _(
+            "Muted: we stay quiet until you re-enable alerts."
+        ),
+        CharacterSettings.NOTIFY_IMMEDIATE: _(
+            "Instant: we ping you the moment a job completes."
+        ),
+        CharacterSettings.NOTIFY_DAILY: _("Daily digest: one summary every night."),
+        CharacterSettings.NOTIFY_WEEKLY: _("Weekly digest: recap every seven days."),
+        CharacterSettings.NOTIFY_MONTHLY: _(
+            "Monthly digest: grouped update every thirty days."
+        ),
+        CharacterSettings.NOTIFY_CUSTOM: _(
+            "Custom cadence: grouped alert every %(days)s day(s)."
+        )
+        % {"days": custom_days},
+    }
+    return hints.get(frequency, hints[CharacterSettings.NOTIFY_DISABLED])
+
+
 def get_copy_sharing_states() -> dict[str, dict[str, object]]:
     return {
         CharacterSettings.SCOPE_NONE: {
@@ -784,7 +805,48 @@ def _build_dashboard_context(request):
     settings_obj, _created = CharacterSettings.objects.get_or_create(
         user=request.user, character_id=0
     )
-    jobs_notify_completed = settings_obj.jobs_notify_completed
+
+    pending_updates: list[str] = []
+    if not settings_obj.jobs_notify_frequency:
+        default_frequency = (
+            CharacterSettings.NOTIFY_IMMEDIATE
+            if settings_obj.jobs_notify_completed
+            else CharacterSettings.NOTIFY_DISABLED
+        )
+        settings_obj.jobs_notify_frequency = default_frequency
+        pending_updates.append("jobs_notify_frequency")
+
+    if (
+        not settings_obj.jobs_notify_custom_days
+        or settings_obj.jobs_notify_custom_days < 1
+    ):
+        settings_obj.jobs_notify_custom_days = 3
+        pending_updates.append("jobs_notify_custom_days")
+
+    if pending_updates:
+        settings_obj.save(update_fields=pending_updates)
+
+    jobs_notify_frequency = settings_obj.jobs_notify_frequency
+    valid_frequencies = dict(CharacterSettings.JOB_NOTIFICATION_FREQUENCY_CHOICES)
+    if jobs_notify_frequency not in valid_frequencies:
+        jobs_notify_frequency = CharacterSettings.NOTIFY_DISABLED
+        if settings_obj.jobs_notify_frequency != jobs_notify_frequency:
+            settings_obj.jobs_notify_frequency = jobs_notify_frequency
+            settings_obj.save(update_fields=["jobs_notify_frequency"])
+
+    jobs_notify_completed = jobs_notify_frequency != CharacterSettings.NOTIFY_DISABLED
+    if settings_obj.jobs_notify_completed != jobs_notify_completed:
+        settings_obj.jobs_notify_completed = jobs_notify_completed
+        settings_obj.save(update_fields=["jobs_notify_completed"])
+
+    job_notification_custom_days = max(1, settings_obj.jobs_notify_custom_days or 1)
+    if job_notification_custom_days != settings_obj.jobs_notify_custom_days:
+        settings_obj.jobs_notify_custom_days = job_notification_custom_days
+        settings_obj.save(update_fields=["jobs_notify_custom_days"])
+
+    job_notification_hint = _describe_job_notification_hint(
+        jobs_notify_frequency, job_notification_custom_days
+    )
     copy_sharing_scope = settings_obj.copy_sharing_scope
     if copy_sharing_scope not in dict(CharacterSettings.COPY_SHARING_SCOPE_CHOICES):
         copy_sharing_scope = CharacterSettings.SCOPE_NONE
@@ -1005,6 +1067,10 @@ def _build_dashboard_context(request):
         "completed_jobs_count": completed_jobs_count,
         "completed_jobs_today": completed_jobs_today,
         "jobs_notify_completed": jobs_notify_completed,
+        "job_notification_frequency": jobs_notify_frequency,
+        "job_notification_custom_days": job_notification_custom_days,
+        "job_notification_hint": job_notification_hint,
+        "job_notification_next_digest": settings_obj.jobs_next_digest_at,
         "allow_copy_requests": sharing_state["enabled"],
         "copy_sharing_scope": copy_sharing_scope,
         "copy_sharing_state": sharing_state,

@@ -153,7 +153,7 @@
                 <article class="card h-100 shadow-sm request-card">
                     <div class="card-body d-flex flex-column gap-3">
                         <div class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-start gap-3">
-                            <div class="d-flex align-items-center gap-3">
+                            <div class="d-flex align-items-start gap-3 w-100">
                                 <span class="bp-request-card__avatar">
                                     <img
                                         src="{{ req.icon_url }}"
@@ -162,17 +162,27 @@
                                         onerror="this.onerror=null;this.src='https://images.evetech.net/types/{{ req.type_id }}/icon?size=64'"
                                     >
                                 </span>
-                                <div>
-                                    <h2 class="h5 mb-1">{{ req.type_name }}</h2>
-                                    <p class="text-muted small mb-0">
-                                        <i class="fas fa-user me-1"></i>{% trans "Requested by" %} {{ req.requester }}
-                                    </p>
-                                    <p class="text-muted small mb-0">
-                                        <i class="fas fa-clock me-1"></i>{{ req.created_at|naturaltime }}
-                                    </p>
+                                <div class="bp-request-card__header flex-grow-1">
+                                    <h2 class="h5 mb-2 bp-request-card__title text-break" title="{{ req.type_name }}">{{ req.type_name }}</h2>
+                                    <div class="bp-request-card__meta small text-muted">
+                                        <span class="bp-request-card__meta-item">
+                                            <i class="fas fa-user"></i>
+                                            <span>{% trans "Requested by" %} {{ req.requester }}</span>
+                                        </span>
+                                        <span class="bp-request-card__meta-item">
+                                            <i class="fas fa-clock"></i>
+                                            <time datetime="{{ req.created_at|date:'c' }}" title="{{ req.created_at|date:'Y-m-d H:i' }}">{{ req.created_at|naturaltime }}</time>
+                                        </span>
+                                        {% if req.is_corporate %}
+                                        <span class="bp-request-card__meta-item bp-request-card__meta-item--full">
+                                            <i class="fas fa-building"></i>
+                                            <span>{% blocktrans trimmed with corps=req.corporation_names|join:", " %}Corporate original: {{ corps }}{% endblocktrans %}</span>
+                                        </span>
+                                        {% endif %}
+                                    </div>
                                 </div>
                             </div>
-                            <span class="badge {{ req.status_class }} fw-semibold text-uppercase px-3 py-2">
+                            <span class="badge bp-request-card__status {{ req.status_class }} fw-semibold text-uppercase px-3 py-2">
                                 {{ req.status_label }}
                             </span>
                         </div>
@@ -318,41 +328,126 @@
                             {% else %}
                                 <div class="bp-card-toolbar">
                                     {% if req.show_offer_actions %}
-                                    <div class="bp-card-toolbar__group" role="group" aria-label="{% trans 'Primary decision actions' %}">
-                                        <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}" class="bp-card-toolbar__form">
-                                            {% csrf_token %}
-                                            <input type="hidden" name="action" value="accept">
-                                            <button type="submit" class="bp-btn bp-btn-soft-success btn-sm">
-                                                <i class="fas fa-hand-holding-heart"></i>
-                                                <span>{% trans "Accept for free" %}</span>
-                                            </button>
-                                        </form>
-                                        <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}" class="bp-card-toolbar__form">
-                                            {% csrf_token %}
-                                            <input type="hidden" name="action" value="reject">
-                                            <button
-                                                type="submit"
-                                                class="bp-btn bp-btn-soft-danger btn-sm"
-                                                onclick="return confirm('{% trans "Decline this request?" %}')"
-                                            >
-                                                <i class="fas fa-ban"></i>
-                                                <span>{% trans "Decline" %}</span>
-                                            </button>
-                                        </form>
-                                    </div>
-                                    <div class="bp-card-toolbar__group" role="group" aria-label="{% trans 'Conditional decision actions' %}">
-                                        <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}" class="bp-card-toolbar__form">
-                                            {% csrf_token %}
-                                            <input type="hidden" name="action" value="conditional">
-                                            <button
-                                                type="submit"
-                                                class="bp-btn bp-btn-soft-info btn-sm"
-                                            >
-                                                <i class="fas fa-comment-dots"></i>
-                                                <span>{% trans "Send conditions" %}</span>
-                                            </button>
-                                        </form>
-                                    </div>
+                                        {% if req.has_dual_sources %}
+                                            <div class="row g-3">
+                                                <div class="col-12 col-lg-6">
+                                                    <div class="border rounded-3 p-3 h-100">
+                                                        <p class="text-uppercase small text-muted fw-semibold mb-1">{% trans "Personal originals" %}</p>
+                                                        <p class="text-muted small mb-3">
+                                                            {% blocktrans trimmed count personal=req.personal_blueprints %}
+                                                                {{ personal }} personal original available
+                                                            {% plural %}
+                                                                {{ personal }} personal originals available
+                                                            {% endblocktrans %}
+                                                        </p>
+                                                        <div class="bp-card-toolbar__group" role="group" aria-label="{% trans 'Personal decision actions' %}">
+                                                            <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}" class="bp-card-toolbar__form">
+                                                                {% csrf_token %}
+                                                                <input type="hidden" name="action" value="accept">
+                                                                <input type="hidden" name="scope" value="personal">
+                                                                <button type="submit" class="bp-btn bp-btn-soft-success btn-sm">
+                                                                    <i class="fas fa-hand-holding-heart"></i>
+                                                                    <span>{% trans "Accept for free" %}</span>
+                                                                </button>
+                                                            </form>
+                                                        </div>
+                                                        <div class="bp-card-toolbar__group" role="group" aria-label="{% trans 'Personal conditional actions' %}">
+                                                            <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}" class="bp-card-toolbar__form">
+                                                                {% csrf_token %}
+                                                                <input type="hidden" name="action" value="conditional">
+                                                                <input type="hidden" name="scope" value="personal">
+                                                                <button type="submit" class="bp-btn bp-btn-soft-info btn-sm">
+                                                                    <i class="fas fa-comment-dots"></i>
+                                                                    <span>{% trans "Send conditions" %}</span>
+                                                                </button>
+                                                            </form>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="col-12 col-lg-6">
+                                                    <div class="border rounded-3 p-3 h-100">
+                                                        <p class="text-uppercase small text-muted fw-semibold mb-1">{% trans "For corporation" %}</p>
+                                                        <p class="text-muted small mb-3">
+                                                            {% blocktrans trimmed count corp=req.corporate_blueprints %}
+                                                                {{ corp }} corporate original available
+                                                            {% plural %}
+                                                                {{ corp }} corporate originals available
+                                                            {% endblocktrans %}
+                                                        </p>
+                                                        <div class="bp-card-toolbar__group" role="group" aria-label="{% trans 'Corporation decision actions' %}">
+                                                            <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}" class="bp-card-toolbar__form">
+                                                                {% csrf_token %}
+                                                                <input type="hidden" name="action" value="accept">
+                                                                <input type="hidden" name="scope" value="corporation">
+                                                                <button type="submit" class="bp-btn bp-btn-soft-success btn-sm">
+                                                                    <i class="fas fa-hand-holding-heart"></i>
+                                                                    <span>{% trans "Accept for free" %}</span>
+                                                                </button>
+                                                            </form>
+                                                        </div>
+                                                        <div class="bp-card-toolbar__group" role="group" aria-label="{% trans 'Corporation conditional actions' %}">
+                                                            <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}" class="bp-card-toolbar__form">
+                                                                {% csrf_token %}
+                                                                <input type="hidden" name="action" value="conditional">
+                                                                <input type="hidden" name="scope" value="corporation">
+                                                                <button type="submit" class="bp-btn bp-btn-soft-info btn-sm">
+                                                                    <i class="fas fa-comment-dots"></i>
+                                                                    <span>{% trans "Send conditions" %}</span>
+                                                                </button>
+                                                            </form>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="bp-card-toolbar__group mt-3" role="group" aria-label="{% trans 'Decline request' %}">
+                                                <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}" class="bp-card-toolbar__form">
+                                                    {% csrf_token %}
+                                                    <input type="hidden" name="action" value="reject">
+                                                    <button type="submit" class="bp-btn bp-btn-soft-danger btn-sm" onclick="return confirm('{% trans "Decline this request?" %}')">
+                                                        <i class="fas fa-ban"></i>
+                                                        <span>{% trans "Decline" %}</span>
+                                                    </button>
+                                                </form>
+                                            </div>
+                                        {% else %}
+                                            <div class="bp-card-toolbar__group" role="group" aria-label="{% trans 'Primary decision actions' %}">
+                                                <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}" class="bp-card-toolbar__form">
+                                                    {% csrf_token %}
+                                                    <input type="hidden" name="action" value="accept">
+                                                    {% if req.default_scope %}
+                                                    <input type="hidden" name="scope" value="{{ req.default_scope }}">
+                                                    {% endif %}
+                                                    <button type="submit" class="bp-btn bp-btn-soft-success btn-sm">
+                                                        <i class="fas fa-hand-holding-heart"></i>
+                                                        <span>{% trans "Accept for free" %}</span>
+                                                    </button>
+                                                </form>
+                                                <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}" class="bp-card-toolbar__form">
+                                                    {% csrf_token %}
+                                                    <input type="hidden" name="action" value="reject">
+                                                    {% if req.default_scope %}
+                                                    <input type="hidden" name="scope" value="{{ req.default_scope }}">
+                                                    {% endif %}
+                                                    <button type="submit" class="bp-btn bp-btn-soft-danger btn-sm" onclick="return confirm('{% trans "Decline this request?" %}')">
+                                                        <i class="fas fa-ban"></i>
+                                                        <span>{% trans "Decline" %}</span>
+                                                    </button>
+                                                </form>
+                                            </div>
+                                            <div class="bp-card-toolbar__group" role="group" aria-label="{% trans 'Conditional decision actions' %}">
+                                                <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}" class="bp-card-toolbar__form">
+                                                    {% csrf_token %}
+                                                    <input type="hidden" name="action" value="conditional">
+                                                    {% if req.default_scope %}
+                                                    <input type="hidden" name="scope" value="{{ req.default_scope }}">
+                                                    {% endif %}
+                                                    <button type="submit" class="bp-btn bp-btn-soft-info btn-sm">
+                                                        <i class="fas fa-comment-dots"></i>
+                                                        <span>{% trans "Send conditions" %}</span>
+                                                    </button>
+                                                </form>
+                                            </div>
+                                        {% endif %}
                                     {% endif %}
 
                                     {% if req.can_mark_delivered %}
@@ -441,3 +536,4 @@
 </script>
 <script src="{% static 'indy_hub/js/bp_copy_chat.js' %}?v=20251021"></script>
 {% endblock %}
+k %}

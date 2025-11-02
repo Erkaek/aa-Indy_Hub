@@ -4,6 +4,7 @@
 import json
 import logging
 from collections import defaultdict
+from datetime import timedelta
 from decimal import Decimal
 from math import ceil
 from typing import Any
@@ -13,6 +14,7 @@ from urllib.parse import urlencode
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db import connection
@@ -29,7 +31,7 @@ from django.views.decorators.http import require_http_methods
 from allianceauth.authentication.models import CharacterOwnership
 
 # AA Example App
-from indy_hub.models import CharacterSettings
+from indy_hub.models import CharacterSettings, CorporationSharingSetting
 
 from ..decorators import indy_hub_access_required, indy_hub_permission_required
 from ..models import (
@@ -57,7 +59,11 @@ from ..utils.discord_actions import (
     decode_action_token,
 )
 from ..utils.eve import get_character_name, get_corporation_name, get_type_name
-from ..utils.job_notifications import build_job_notification_payload
+from ..utils.job_notifications import (
+    build_digest_notification_body,
+    build_job_notification_payload,
+    serialize_job_notification_for_digest,
+)
 from .navigation import build_nav_context
 
 if "eveuniverse" in getattr(settings, "INSTALLED_APPS", ()):  # pragma: no branch
@@ -75,21 +81,101 @@ logger = logging.getLogger(__name__)
 def _eligible_owner_ids_for_request(req: BlueprintCopyRequest) -> set[int]:
     """Return user IDs that can fulfil the request based on owned originals."""
 
-    eligible_owner_ids = (
-        Blueprint.objects.filter(
-            owner_user__charactersettings__character_id=0,
-            owner_user__charactersettings__allow_copy_requests=True,
-            owner_kind=Blueprint.OwnerKind.CHARACTER,
-            bp_type__in=[Blueprint.BPType.ORIGINAL, Blueprint.BPType.REACTION],
-            type_id=req.type_id,
-            material_efficiency=req.material_efficiency,
-            time_efficiency=req.time_efficiency,
-        )
-        .exclude(owner_user_id=req.requested_by_id)
-        .values_list("owner_user_id", flat=True)
+    matching_blueprints = Blueprint.objects.filter(
+        bp_type__in=[Blueprint.BPType.ORIGINAL, Blueprint.BPType.REACTION],
+        type_id=req.type_id,
+        material_efficiency=req.material_efficiency,
+        time_efficiency=req.time_efficiency,
+    )
+
+    character_owner_ids = matching_blueprints.filter(
+        owner_kind=Blueprint.OwnerKind.CHARACTER,
+        owner_user__charactersettings__character_id=0,
+        owner_user__charactersettings__allow_copy_requests=True,
+    ).values_list("owner_user_id", flat=True)
+
+    corporation_ids = list(
+        matching_blueprints.filter(owner_kind=Blueprint.OwnerKind.CORPORATION)
+        .exclude(corporation_id__isnull=True)
+        .values_list("corporation_id", flat=True)
         .distinct()
     )
-    return set(eligible_owner_ids)
+
+    corporate_settings: list[CorporationSharingSetting] = []
+    corporate_owner_ids: set[int] = set()
+    if corporation_ids:
+        corporate_settings = list(
+            CorporationSharingSetting.objects.filter(
+                corporation_id__in=corporation_ids,
+                allow_copy_requests=True,
+                share_scope__in=[
+                    CharacterSettings.SCOPE_CORPORATION,
+                    CharacterSettings.SCOPE_ALLIANCE,
+                    CharacterSettings.SCOPE_EVERYONE,
+                ],
+            )
+        )
+        corporate_owner_ids = {setting.user_id for setting in corporate_settings}
+
+    additional_corp_manager_ids: set[int] = set()
+    if corporation_ids and corporate_settings:
+        settings_by_corp: dict[int, list[CorporationSharingSetting]] = defaultdict(list)
+        for setting_obj in corporate_settings:
+            settings_by_corp[setting_obj.corporation_id].append(setting_obj)
+
+        corp_memberships = CharacterOwnership.objects.filter(
+            character__corporation_id__in=corporation_ids
+        ).values("user_id", "character__corporation_id", "character__character_id")
+
+        corp_user_chars: dict[int, dict[int, set[int]]] = defaultdict(
+            lambda: defaultdict(set)
+        )
+        corp_member_user_ids: set[int] = set()
+        for membership in corp_memberships:
+            corp_id = membership.get("character__corporation_id")
+            user_id = membership.get("user_id")
+            char_id = membership.get("character__character_id")
+            if corp_id and user_id:
+                corp_user_chars[corp_id][user_id].add(char_id)
+                corp_member_user_ids.add(user_id)
+
+        if corp_member_user_ids:
+            corp_manager_ids = set(
+                User.objects.filter(id__in=corp_member_user_ids)
+                .filter(
+                    Q(user_permissions__codename="can_manage_corporate_assets")
+                    | Q(groups__permissions__codename="can_manage_corporate_assets")
+                )
+                .values_list("id", flat=True)
+            )
+
+            for corp_id, users in corp_user_chars.items():
+                corp_settings = settings_by_corp.get(corp_id)
+                if not corp_settings:
+                    continue
+                for user_id, char_ids in users.items():
+                    if user_id not in corp_manager_ids:
+                        continue
+                    if user_id in corporate_owner_ids:
+                        continue
+                    if user_id == req.requested_by_id:
+                        continue
+                    # Require at least one character authorised by any corp setting
+                    if any(
+                        not setting_obj.restricts_characters
+                        or any(
+                            setting_obj.is_character_authorized(char_id)
+                            for char_id in char_ids
+                        )
+                        for setting_obj in corp_settings
+                    ):
+                        additional_corp_manager_ids.add(user_id)
+
+    eligible_owner_ids: set[int] = (
+        set(character_owner_ids) | corporate_owner_ids | additional_corp_manager_ids
+    )
+    eligible_owner_ids.discard(req.requested_by_id)
+    return eligible_owner_ids
 
 
 def _finalize_request_if_all_rejected(req: BlueprintCopyRequest) -> bool:
@@ -1201,9 +1287,7 @@ def personnal_job_list(request, scope="character"):
         return redirect("indy_hub:index")
 
 
-@indy_hub_access_required
-@login_required
-def personnal_job_notification_test(request):
+def _resolve_preview_character(request):
     ownership = (
         CharacterOwnership.objects.filter(user=request.user)
         .select_related("character")
@@ -1217,35 +1301,67 @@ def personnal_job_notification_test(request):
         character_name = (
             get_character_name(character_id) or stored_name or request.user.username
         )
+    return character_id, character_name
 
-    sample_job = IndustryJob(
-        owner_user=request.user,
-        owner_kind=Blueprint.OwnerKind.CHARACTER,
-        character_id=character_id,
-        installer_id=character_id or request.user.id,
-        job_id=999999,
-        blueprint_id=123456789,
-        blueprint_type_id=23528,
-        blueprint_type_name="Drone Link Augmentor I Blueprint",
-        activity_id=3,
-        activity_name=_("Time Efficiency Research"),
-        runs=4,
-        successful_runs=4,
-        location_name=_("Test Research Lab"),
-        product_type_name=_("Blueprint copy"),
-        character_name=character_name,
-    )
 
-    sample_blueprint = Blueprint(
-        owner_user=request.user,
-        item_id=0,
-        type_id=23528,
-        type_name="Drone Link Augmentor I Blueprint",
-        time_efficiency=20,
-        material_efficiency=10,
-    )
+def _build_preview_job(
+    request,
+    *,
+    job_overrides: dict | None = None,
+    blueprint_overrides: dict | None = None,
+):
+    character_id, character_name = _resolve_preview_character(request)
 
-    payload = build_job_notification_payload(sample_job, blueprint=sample_blueprint)
+    base_job_attrs = {
+        "owner_user": request.user,
+        "owner_kind": Blueprint.OwnerKind.CHARACTER,
+        "character_id": character_id,
+        "installer_id": character_id or request.user.id,
+        "job_id": 999_999,
+        "blueprint_id": 123_456_789,
+        "blueprint_type_id": 23_528,
+        "blueprint_type_name": "Drone Link Augmentor I Blueprint",
+        "activity_id": 3,
+        "activity_name": _("Time Efficiency Research"),
+        "runs": 4,
+        "successful_runs": 4,
+        "location_name": _("Test Research Lab"),
+        "product_type_name": _("Blueprint copy"),
+        "status": "delivered",
+        "duration": 3600,
+        "start_date": timezone.now() - timedelta(hours=2),
+        "end_date": timezone.now() - timedelta(minutes=5),
+        "character_name": character_name,
+    }
+
+    if job_overrides:
+        base_job_attrs.update(job_overrides)
+
+    job = IndustryJob(**base_job_attrs)
+
+    base_blueprint_attrs = {
+        "owner_user": request.user,
+        "item_id": 0,
+        "type_id": base_job_attrs.get("blueprint_type_id", 23_528),
+        "type_name": base_job_attrs.get(
+            "blueprint_type_name", "Drone Link Augmentor I Blueprint"
+        ),
+        "time_efficiency": 20,
+        "material_efficiency": 10,
+    }
+
+    if blueprint_overrides:
+        base_blueprint_attrs.update(blueprint_overrides)
+
+    blueprint = Blueprint(**base_blueprint_attrs)
+    return job, blueprint
+
+
+@indy_hub_access_required
+@login_required
+def personnal_job_notification_test(request):
+    job, blueprint = _build_preview_job(request)
+    payload = build_job_notification_payload(job, blueprint=blueprint)
     jobs_url = build_site_url(reverse("indy_hub:personnal_job_list"))
 
     notify_user(
@@ -1261,6 +1377,115 @@ def personnal_job_notification_test(request):
     messages.success(
         request,
         _("Test industry job notification sent. Check your notifications panel."),
+    )
+    return redirect("indy_hub:personnal_job_list")
+
+
+@indy_hub_access_required
+@login_required
+def preview_job_notification_live(request):
+    job, blueprint = _build_preview_job(request)
+    payload = build_job_notification_payload(job, blueprint=blueprint)
+    jobs_url = build_site_url(reverse("indy_hub:personnal_job_list"))
+
+    notify_user(
+        request.user,
+        payload.title,
+        payload.message,
+        level="success",
+        link=jobs_url,
+        link_label=_("View job dashboard"),
+        thumbnail_url=payload.thumbnail_url,
+    )
+
+    messages.success(
+        request,
+        _("Live industry job notification preview sent. Check your notifications."),
+    )
+    return redirect("indy_hub:personnal_job_list")
+
+
+@indy_hub_access_required
+@login_required
+def preview_job_notification_digest(request):
+    scenarios = [
+        {
+            "job_overrides": {
+                "job_id": 1_000_001,
+                "activity_id": 1,
+                "activity_name": _("Manufacturing"),
+                "runs": 6,
+                "product_type_name": "Heavy Missile",
+                "product_type_id": 20308,
+            },
+            "blueprint_overrides": {
+                "type_id": 51_223,
+                "type_name": "Heavy Missile Blueprint",
+            },
+        },
+        {
+            "job_overrides": {
+                "job_id": 1_000_002,
+                "activity_id": 5,
+                "activity_name": _("Copying"),
+                "runs": 3,
+                "licensed_runs": 10,
+                "blueprint_type_name": "Capital Armor Plate Blueprint",
+                "blueprint_type_id": 44_401,
+                "product_type_name": _("Blueprint copy"),
+            },
+            "blueprint_overrides": {
+                "type_id": 44_401,
+                "type_name": "Capital Armor Plate Blueprint",
+                "time_efficiency": 12,
+                "material_efficiency": 8,
+            },
+        },
+        {
+            "job_overrides": {
+                "job_id": 1_000_003,
+                "activity_id": 3,
+                "activity_name": _("Time Efficiency Research"),
+                "runs": 1,
+                "successful_runs": 1,
+                "blueprint_type_name": "Warp Core Stabilizer Blueprint",
+                "blueprint_type_id": 43_486,
+            },
+            "blueprint_overrides": {
+                "type_id": 43_486,
+                "type_name": "Warp Core Stabilizer Blueprint",
+                "time_efficiency": 20,
+                "material_efficiency": 12,
+            },
+        },
+    ]
+
+    digest_rows: list[dict] = []
+    for scenario in scenarios:
+        job, blueprint = _build_preview_job(
+            request,
+            job_overrides=scenario.get("job_overrides"),
+            blueprint_overrides=scenario.get("blueprint_overrides"),
+        )
+        payload = build_job_notification_payload(job, blueprint=blueprint)
+        digest_rows.append(serialize_job_notification_for_digest(job, payload))
+
+    title, body, thumbnail_url = build_digest_notification_body(digest_rows)
+    jobs_url = build_site_url(reverse("indy_hub:personnal_job_list"))
+
+    notify_user(
+        request.user,
+        title,
+        body,
+        level="info",
+        link=jobs_url,
+        link_label=_("Open industry jobs"),
+        thumbnail_url=thumbnail_url,
+    )
+
+    messages.success(
+        request,
+        _("Digest preview sent. Review the grouped message in your notifications."),
     )
     return redirect("indy_hub:personnal_job_list")
 
@@ -1946,15 +2171,26 @@ def bp_copy_request_page(request):
         "indy_hub.can_manage_copy_requests"
     )
 
-    # Fetch users who enabled copy sharing (global settings)
-    settings_qs = CharacterSettings.objects.filter(
-        character_id=0,
-        allow_copy_requests=True,
-    ).exclude(copy_sharing_scope=CharacterSettings.SCOPE_NONE)
-    settings_list = list(settings_qs)
-    owner_user_ids = [setting.user_id for setting in settings_list]
+    # Fetch copy sharing configuration for character-owned and corporation-owned originals
+    character_settings = list(
+        CharacterSettings.objects.filter(
+            character_id=0,
+            allow_copy_requests=True,
+        ).exclude(copy_sharing_scope=CharacterSettings.SCOPE_NONE)
+    )
+    corporation_settings = list(
+        CorporationSharingSetting.objects.filter(allow_copy_requests=True)
+        .exclude(share_scope=CharacterSettings.SCOPE_NONE)
+        .only("user_id", "corporation_id", "share_scope")
+    )
+
+    owner_user_ids = {
+        setting.user_id for setting in character_settings + corporation_settings
+    }
 
     owner_affiliations: dict[int, dict[str, set[int]]] = {}
+    corp_alliance_map: dict[int, set[int]] = defaultdict(set)
+
     if owner_user_ids:
         owner_characters = EveCharacter.objects.filter(
             character_ownership__user_id__in=owner_user_ids
@@ -1965,18 +2201,39 @@ def bp_copy_request_page(request):
         )
         for char in owner_characters:
             user_id = char["character_ownership__user_id"]
+            corp_id = char.get("corporation_id")
+            alliance_id = char.get("alliance_id")
+
             data = owner_affiliations.setdefault(
                 user_id, {"corp_ids": set(), "alliance_ids": set()}
             )
-            corp_id = char.get("corporation_id")
             if corp_id is not None:
                 data["corp_ids"].add(corp_id)
-            alliance_id = char.get("alliance_id")
-            if alliance_id is not None:
+                if alliance_id:
+                    corp_alliance_map[corp_id].add(alliance_id)
+            if alliance_id:
                 data["alliance_ids"].add(alliance_id)
 
-    allowed_user_ids: set[int] = set()
-    for setting in settings_list:
+    missing_corp_ids = {
+        setting.corporation_id
+        for setting in corporation_settings
+        if setting.corporation_id and not corp_alliance_map.get(setting.corporation_id)
+    }
+    if missing_corp_ids:
+        # Alliance Auth
+        from allianceauth.eveonline.models import EveCorporationInfo
+
+        corp_records = EveCorporationInfo.objects.filter(
+            corporation_id__in=missing_corp_ids
+        ).values("corporation_id", "alliance_id")
+        for record in corp_records:
+            corp_id = record.get("corporation_id")
+            alliance_id = record.get("alliance_id")
+            if corp_id and alliance_id:
+                corp_alliance_map[corp_id].add(alliance_id)
+
+    allowed_character_user_ids: set[int] = set()
+    for setting in character_settings:
         affiliations = owner_affiliations.get(
             setting.user_id, {"corp_ids": set(), "alliance_ids": set()}
         )
@@ -1985,22 +2242,68 @@ def bp_copy_request_page(request):
 
         if setting.copy_sharing_scope == CharacterSettings.SCOPE_CORPORATION:
             if viewer_corp_ids & corp_ids:
-                allowed_user_ids.add(setting.user_id)
+                allowed_character_user_ids.add(setting.user_id)
         elif setting.copy_sharing_scope == CharacterSettings.SCOPE_ALLIANCE:
-            if (viewer_alliance_ids & alliance_ids) or (viewer_corp_ids & corp_ids):
-                allowed_user_ids.add(setting.user_id)
+            if (viewer_corp_ids & corp_ids) or (viewer_alliance_ids & alliance_ids):
+                allowed_character_user_ids.add(setting.user_id)
         elif setting.copy_sharing_scope == CharacterSettings.SCOPE_EVERYONE:
             if viewer_can_request_copies:
-                allowed_user_ids.add(setting.user_id)
+                allowed_character_user_ids.add(setting.user_id)
 
-    if not allowed_user_ids:
+    allowed_corporate_pairs: set[tuple[int, int]] = set()
+    for setting in corporation_settings:
+        corp_id = setting.corporation_id
+        if not corp_id:
+            continue
+
+        allowed = False
+        if setting.share_scope == CharacterSettings.SCOPE_CORPORATION:
+            allowed = corp_id in viewer_corp_ids
+        elif setting.share_scope == CharacterSettings.SCOPE_ALLIANCE:
+            alliance_ids = corp_alliance_map.get(corp_id, set())
+            allowed = (corp_id in viewer_corp_ids) or bool(
+                viewer_alliance_ids & alliance_ids
+            )
+        elif setting.share_scope == CharacterSettings.SCOPE_EVERYONE:
+            allowed = viewer_can_request_copies
+
+        if allowed:
+            allowed_corporate_pairs.add((setting.user_id, corp_id))
+
+    blueprint_filters: list[Q] = []
+    if allowed_character_user_ids:
+        blueprint_filters.append(
+            Q(
+                owner_user_id__in=allowed_character_user_ids,
+                owner_kind=Blueprint.OwnerKind.CHARACTER,
+            )
+        )
+
+    for user_id, corp_id in allowed_corporate_pairs:
+        blueprint_filters.append(
+            Q(
+                owner_user_id=user_id,
+                owner_kind=Blueprint.OwnerKind.CORPORATION,
+                corporation_id=corp_id,
+            )
+        )
+
+    combined_blueprint_filter: Q | None = None
+    for condition in blueprint_filters:
+        combined_blueprint_filter = (
+            condition
+            if combined_blueprint_filter is None
+            else combined_blueprint_filter | condition
+        )
+
+    if combined_blueprint_filter is None:
         qs = Blueprint.objects.none()
     else:
-        qs = Blueprint.objects.filter(
-            owner_user_id__in=allowed_user_ids,
-            owner_kind=Blueprint.OwnerKind.CHARACTER,
-            bp_type=Blueprint.BPType.ORIGINAL,
-        ).order_by("type_name", "material_efficiency", "time_efficiency")
+        qs = (
+            Blueprint.objects.filter(combined_blueprint_filter)
+            .filter(bp_type=Blueprint.BPType.ORIGINAL)
+            .order_by("type_name", "material_efficiency", "time_efficiency")
+        )
     seen = set()
     bp_list = []
     for bp in qs:
@@ -2162,6 +2465,46 @@ def bp_copy_fulfill_requests(request):
         character_id=0,  # Global settings only
         allow_copy_requests=True,
     ).first()
+    can_manage_corporate = request.user.has_perm("indy_hub.can_manage_corporate_assets")
+
+    accessible_corporation_ids: set[int] = set()
+    characters_by_corp: dict[int, set[int]] = defaultdict(set)
+
+    if can_manage_corporate:
+        memberships = CharacterOwnership.objects.filter(user=request.user).values(
+            "character__character_id",
+            "character__corporation_id",
+        )
+        for entry in memberships:
+            corp_id = entry.get("character__corporation_id")
+            char_id = entry.get("character__character_id")
+            if corp_id:
+                characters_by_corp[corp_id].add(char_id)
+
+        if characters_by_corp:
+            corp_settings_qs = CorporationSharingSetting.objects.filter(
+                corporation_id__in=characters_by_corp.keys(),
+                allow_copy_requests=True,
+                share_scope__in=[
+                    CharacterSettings.SCOPE_CORPORATION,
+                    CharacterSettings.SCOPE_ALLIANCE,
+                    CharacterSettings.SCOPE_EVERYONE,
+                ],
+            )
+
+            for setting_obj in corp_settings_qs:
+                corp_id = setting_obj.corporation_id
+                if corp_id is None:
+                    continue
+                viewer_chars = characters_by_corp.get(corp_id, set())
+                if not viewer_chars:
+                    continue
+                if setting_obj.restricts_characters and not any(
+                    setting_obj.is_character_authorized(char_id)
+                    for char_id in viewer_chars
+                ):
+                    continue
+                accessible_corporation_ids.add(corp_id)
     auto_open_chat_id: str | None = None
     requested_chat = request.GET.get("open_chat")
     if requested_chat:
@@ -2176,23 +2519,32 @@ def bp_copy_fulfill_requests(request):
             if exists:
                 auto_open_chat_id = str(requested_chat_id)
     nav_context = build_nav_context(request.user, active_tab="personal")
-    if not setting:
+    if not setting and not accessible_corporation_ids:
         context = {"requests": []}
         context.update(nav_context)
         if auto_open_chat_id:
             context["auto_open_chat_id"] = auto_open_chat_id
         return render(request, "indy_hub/bp_copy_fulfill_requests.html", context)
+
     my_bps_qs = Blueprint.objects.filter(
         owner_user=request.user,
         owner_kind=Blueprint.OwnerKind.CHARACTER,
         bp_type=Blueprint.BPType.ORIGINAL,
     )
-    my_bps = list(my_bps_qs)
+    accessible_blueprints = list(my_bps_qs)
+
+    if accessible_corporation_ids:
+        corp_bp_qs = Blueprint.objects.filter(
+            owner_kind=Blueprint.OwnerKind.CORPORATION,
+            bp_type=Blueprint.BPType.ORIGINAL,
+            corporation_id__in=accessible_corporation_ids,
+        )
+        accessible_blueprints.extend(list(corp_bp_qs))
 
     bp_index = defaultdict(list)
     bp_item_map = {}
 
-    for bp in my_bps:
+    for bp in accessible_blueprints:
         key = (bp.type_id, bp.material_efficiency, bp.time_efficiency)
         bp_index[key].append(bp)
         if bp.item_id is not None:
@@ -2250,14 +2602,14 @@ def bp_copy_fulfill_requests(request):
         "offer_rejected": 0,
     }
 
-    if not my_bps:
+    if not accessible_blueprints:
         context = {"requests": [], "metrics": metrics}
         context.update(nav_context)
         return render(request, "indy_hub/bp_copy_fulfill_requests.html", context)
 
     q = Q()
     has_filters = False
-    for bp in my_bps:
+    for bp in accessible_blueprints:
         has_filters = True
         q |= Q(
             type_id=bp.type_id,
@@ -2293,6 +2645,21 @@ def bp_copy_fulfill_requests(request):
             info = occupancy_map[matched_key]
             info["count"] += 1
             _update_soonest(info, job.end_date)
+
+    if accessible_corporation_ids:
+        corp_jobs = IndustryJob.objects.filter(
+            owner_kind=Blueprint.OwnerKind.CORPORATION,
+            corporation_id__in=accessible_corporation_ids,
+            status="active",
+            activity_id__in=blocking_activities,
+        ).only("blueprint_id", "blueprint_type_id", "end_date")
+
+        for job in corp_jobs:
+            matched_key = bp_item_map.get(job.blueprint_id)
+            if matched_key is not None:
+                info = occupancy_map[matched_key]
+                info["count"] += 1
+                _update_soonest(info, job.end_date)
 
     offer_status_labels = {
         "accepted": _("Accepted"),
@@ -2345,6 +2712,47 @@ def bp_copy_fulfill_requests(request):
         all_copies_busy = (
             owned_blueprints > 0 and available_blueprints == 0 and total_active_jobs > 0
         )
+
+        corporate_names: list[str] = []
+        personal_sources: list[Blueprint] = []
+        corporate_sources: list[Blueprint] = []
+        if matching_blueprints:
+            seen_corporations: set[int] = set()
+            for blueprint in matching_blueprints:
+                if (
+                    blueprint.owner_kind == Blueprint.OwnerKind.CHARACTER
+                    and blueprint.owner_user_id == request.user.id
+                ):
+                    personal_sources.append(blueprint)
+                elif (
+                    blueprint.owner_kind == Blueprint.OwnerKind.CORPORATION
+                    and blueprint.corporation_id in accessible_corporation_ids
+                ):
+                    corporate_sources.append(blueprint)
+
+                if blueprint.owner_kind != Blueprint.OwnerKind.CORPORATION:
+                    continue
+                corp_id = blueprint.corporation_id
+                if corp_id is not None and corp_id in seen_corporations:
+                    continue
+                if corp_id is not None:
+                    seen_corporations.add(corp_id)
+                display_name = blueprint.corporation_name or (
+                    str(corp_id) if corp_id is not None else ""
+                )
+                if display_name:
+                    corporate_names.append(display_name)
+
+        corporate_names = sorted(set(corporate_names), key=lambda name: name.lower())
+        is_corporate_source = bool(corporate_names)
+        personal_count = len(personal_sources)
+        corporate_count = len(corporate_sources)
+        has_dual_sources = bool(personal_count and corporate_count)
+        default_scope = "personal"
+        if not personal_count and corporate_count:
+            default_scope = "corporation"
+        elif not personal_count and not corporate_count:
+            default_scope = ""
 
         if is_self_request:
             status_key = "self_request"
@@ -2460,6 +2868,12 @@ def bp_copy_fulfill_requests(request):
                     offer_chat_payload.get("preview", []) if offer_chat_payload else []
                 ),
                 "handshake": handshake_state,
+                "is_corporate": is_corporate_source,
+                "corporation_names": corporate_names,
+                "personal_blueprints": personal_count,
+                "corporate_blueprints": corporate_count,
+                "has_dual_sources": has_dual_sources,
+                "default_scope": default_scope,
             }
         )
 

@@ -4,9 +4,10 @@ from __future__ import annotations
 
 # Standard Library
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 # Django
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from .eve import get_character_name
@@ -22,7 +23,9 @@ class JobNotificationPayload:
 
     title: str
     message: str
+    summary: str
     thumbnail_url: str | None = None
+    metadata: dict[str, Any] | None = None
 
 
 def build_job_notification_payload(job, *, blueprint=None) -> JobNotificationPayload:
@@ -64,10 +67,26 @@ def build_job_notification_payload(job, *, blueprint=None) -> JobNotificationPay
 
     message = "\n".join(lines)
 
+    summary_parts = [blueprint_name, activity_label]
+    if result_line:
+        summary_parts.append(result_line)
+    summary_text = " — ".join(str(part) for part in summary_parts if part)
+
+    metadata = {
+        "character_name": character_name,
+        "job_id": getattr(job, "job_id", None),
+        "blueprint_name": blueprint_name,
+        "activity_label": activity_label,
+        "result": result_line,
+        "location": location_label,
+    }
+
     return JobNotificationPayload(
         title=title,
         message=message,
+        summary=summary_text,
         thumbnail_url=thumbnail_url,
+        metadata=metadata,
     )
 
 
@@ -258,3 +277,47 @@ def _coalesce(*values: int | None) -> int | None:
         if value is not None:
             return value
     return None
+
+
+def serialize_job_notification_for_digest(
+    job,
+    payload: JobNotificationPayload,
+) -> dict[str, Any]:
+    """Return a JSON-serialisable snapshot for digest aggregation."""
+
+    data: dict[str, Any] = {
+        "job_id": getattr(job, "job_id", None),
+        "summary": payload.summary,
+        "message": payload.message,
+        "thumbnail_url": payload.thumbnail_url,
+        "recorded_at": timezone.now().isoformat(),
+    }
+    if payload.metadata:
+        data["metadata"] = payload.metadata
+    return data
+
+
+def build_digest_notification_body(
+    entries: list[dict[str, Any]],
+) -> tuple[str, str, str | None]:
+    """Return (title, body, thumbnail) for a digest message."""
+
+    if not entries:
+        raise ValueError("Digest entries list cannot be empty")
+
+    summaries = [entry.get("summary") for entry in entries if entry.get("summary")]
+    count = len(entries)
+    title = _("Industry jobs summary · %(count)s completion(s)") % {"count": count}
+
+    if summaries:
+        bullet_lines = [f"• {summary}" for summary in summaries]
+        body = "\n".join(bullet_lines)
+    else:
+        body = _("No job details captured for this digest.")
+
+    thumbnail_url = next(
+        (entry.get("thumbnail_url") for entry in entries if entry.get("thumbnail_url")),
+        None,
+    )
+
+    return title, body, thumbnail_url

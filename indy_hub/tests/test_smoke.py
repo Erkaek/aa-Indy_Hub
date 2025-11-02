@@ -12,7 +12,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 # Alliance Auth
-from allianceauth.authentication.models import UserProfile
+from allianceauth.authentication.models import CharacterOwnership, UserProfile
 from allianceauth.eveonline.models import EveCharacter
 
 # AA Example App
@@ -436,7 +436,11 @@ class BlueprintCopyFulfillViewTests(TestCase):
             allow_copy_requests=True,
             copy_sharing_scope=CharacterSettings.SCOPE_CORPORATION,
         )
-        grant_indy_permissions(self.user, "can_manage_copy_requests")
+        grant_indy_permissions(
+            self.user,
+            "can_manage_copy_requests",
+            "can_manage_corporate_assets",
+        )
         self.client.force_login(self.user)
 
     def test_request_visible_for_own_blueprint(self) -> None:
@@ -476,6 +480,12 @@ class BlueprintCopyFulfillViewTests(TestCase):
         self.assertEqual(requests[0]["status_key"], "awaiting_response")
         self.assertTrue(requests[0]["show_offer_actions"])
         self.assertFalse(requests[0]["is_self_request"])
+        self.assertFalse(requests[0]["is_corporate"])
+        self.assertEqual(requests[0]["corporation_names"], [])
+        self.assertEqual(requests[0]["personal_blueprints"], 1)
+        self.assertEqual(requests[0]["corporate_blueprints"], 0)
+        self.assertFalse(requests[0]["has_dual_sources"])
+        self.assertEqual(requests[0]["default_scope"], "personal")
 
     def test_self_request_visible_but_read_only(self) -> None:
         blueprint = Blueprint.objects.create(
@@ -514,6 +524,200 @@ class BlueprintCopyFulfillViewTests(TestCase):
         self.assertEqual(requests[0]["status_key"], "self_request")
         self.assertFalse(requests[0]["show_offer_actions"])
         self.assertFalse(requests[0]["can_mark_delivered"])
+        self.assertFalse(requests[0]["is_corporate"])
+        self.assertEqual(requests[0]["personal_blueprints"], 1)
+        self.assertEqual(requests[0]["corporate_blueprints"], 0)
+        self.assertFalse(requests[0]["has_dual_sources"])
+        self.assertEqual(requests[0]["default_scope"], "personal")
+
+    def test_corporate_manager_without_personal_share_sees_requests(self) -> None:
+        settings = CharacterSettings.objects.get(user=self.user, character_id=0)
+        settings.allow_copy_requests = False
+        settings.copy_sharing_scope = CharacterSettings.SCOPE_NONE
+        settings.save(update_fields=["allow_copy_requests", "copy_sharing_scope"])
+
+        corp_id = 3_000_000
+        manager_character = EveCharacter.objects.get(character_id=101001)
+        manager_character.corporation_id = corp_id
+        manager_character.corporation_name = "Manager Corp"
+        manager_character.corporation_ticker = "MGR"
+        manager_character.save(
+            update_fields=[
+                "corporation_id",
+                "corporation_name",
+                "corporation_ticker",
+            ]
+        )
+        CharacterOwnership.objects.update_or_create(
+            user=self.user,
+            character=manager_character,
+            defaults={
+                "owner_hash": f"hash-{manager_character.character_id}-{self.user.id}",
+            },
+        )
+        provider = User.objects.create_user("corp_seller", password="sellcorp123")
+        assign_main_character(provider, character_id=303110)
+        grant_indy_permissions(
+            provider,
+            "can_manage_copy_requests",
+            "can_manage_corporate_assets",
+        )
+        provider_character = EveCharacter.objects.get(character_id=303110)
+        provider_character.corporation_id = corp_id
+        provider_character.corporation_name = "Manager Corp"
+        provider_character.corporation_ticker = "MGR"
+        provider_character.save(
+            update_fields=[
+                "corporation_id",
+                "corporation_name",
+                "corporation_ticker",
+            ]
+        )
+        CharacterOwnership.objects.update_or_create(
+            user=provider,
+            character=provider_character,
+            defaults={
+                "owner_hash": f"hash-{provider_character.character_id}-{provider.id}",
+            },
+        )
+        CorporationSharingSetting.objects.create(
+            user=provider,
+            corporation_id=corp_id,
+            corporation_name="Manager Corp",
+            share_scope=CharacterSettings.SCOPE_CORPORATION,
+            allow_copy_requests=True,
+        )
+
+        Blueprint.objects.create(
+            owner_user=provider,
+            owner_kind=Blueprint.OwnerKind.CORPORATION,
+            corporation_id=corp_id,
+            corporation_name="Manager Corp",
+            item_id=9054001,
+            blueprint_id=9054002,
+            type_id=888001,
+            location_id=9054003,
+            location_flag="corp_hangar",
+            quantity=-1,
+            time_efficiency=14,
+            material_efficiency=12,
+            runs=0,
+            type_name="Manager Corp Blueprint",
+        )
+
+        buyer = User.objects.create_user("buyer_corp", password="buycorp123")
+        request_obj = BlueprintCopyRequest.objects.create(
+            type_id=888001,
+            material_efficiency=12,
+            time_efficiency=14,
+            requested_by=buyer,
+            runs_requested=2,
+            copies_requested=1,
+        )
+
+        response = self.client.get(reverse("indy_hub:bp_copy_fulfill_requests"))
+
+        self.assertEqual(response.status_code, 200)
+        requests = response.context["requests"]
+        self.assertEqual(len(requests), 1)
+        entry = requests[0]
+        self.assertEqual(entry["id"], request_obj.id)
+        self.assertEqual(entry["status_key"], "awaiting_response")
+        self.assertTrue(entry["show_offer_actions"])
+        self.assertEqual(entry["owned_blueprints"], 1)
+        self.assertEqual(entry["available_blueprints"], 1)
+        self.assertTrue(entry["is_corporate"])
+        self.assertIn("Manager Corp", entry["corporation_names"])
+        self.assertEqual(entry["personal_blueprints"], 0)
+        self.assertEqual(entry["corporate_blueprints"], 1)
+        self.assertFalse(entry["has_dual_sources"])
+        self.assertEqual(entry["default_scope"], "corporation")
+
+    def test_dual_source_requests_present_split_actions(self) -> None:
+        corp_id = 4_200_123
+        main_character = EveCharacter.objects.get(character_id=101001)
+        main_character.corporation_id = corp_id
+        main_character.corporation_name = "Dual Source Corp"
+        main_character.corporation_ticker = "DUAL"
+        main_character.save(
+            update_fields=[
+                "corporation_id",
+                "corporation_name",
+                "corporation_ticker",
+            ]
+        )
+        CharacterOwnership.objects.update_or_create(
+            user=self.user,
+            character=main_character,
+            defaults={
+                "owner_hash": f"hash-{main_character.character_id}-{self.user.id}",
+            },
+        )
+        CorporationSharingSetting.objects.create(
+            user=self.user,
+            corporation_id=corp_id,
+            corporation_name="Dual Source Corp",
+            allow_copy_requests=True,
+            share_scope=CharacterSettings.SCOPE_CORPORATION,
+        )
+
+        personal_bp = Blueprint.objects.create(
+            owner_user=self.user,
+            character_id=main_character.character_id,
+            item_id=51001,
+            blueprint_id=52001,
+            type_id=777001,
+            location_id=53001,
+            location_flag="hangar",
+            quantity=-1,
+            time_efficiency=6,
+            material_efficiency=4,
+            runs=0,
+            character_name="Capsuleer",
+            type_name="Dual Blueprint",
+        )
+        Blueprint.objects.create(
+            owner_user=self.user,
+            owner_kind=Blueprint.OwnerKind.CORPORATION,
+            corporation_id=corp_id,
+            corporation_name="Dual Source Corp",
+            item_id=51002,
+            blueprint_id=52002,
+            type_id=personal_bp.type_id,
+            location_id=53002,
+            location_flag="corp_hangar",
+            quantity=-1,
+            time_efficiency=personal_bp.time_efficiency,
+            material_efficiency=personal_bp.material_efficiency,
+            runs=0,
+            type_name="Dual Blueprint",
+        )
+
+        buyer = User.objects.create_user("dual_requester", password="test12345")
+        BlueprintCopyRequest.objects.create(
+            type_id=personal_bp.type_id,
+            material_efficiency=personal_bp.material_efficiency,
+            time_efficiency=personal_bp.time_efficiency,
+            requested_by=buyer,
+            runs_requested=2,
+            copies_requested=1,
+        )
+
+        response = self.client.get(reverse("indy_hub:bp_copy_fulfill_requests"))
+
+        self.assertEqual(response.status_code, 200)
+        requests = response.context["requests"]
+        self.assertEqual(len(requests), 1)
+        entry = requests[0]
+        self.assertTrue(entry["has_dual_sources"])
+        self.assertEqual(entry["personal_blueprints"], 1)
+        self.assertEqual(entry["corporate_blueprints"], 1)
+        self.assertEqual(entry["default_scope"], "personal")
+        self.assertIn("Dual Source Corp", entry["corporation_names"])
+
+        html = response.content.decode()
+        self.assertIn('name="scope" value="personal"', html)
+        self.assertIn('name="scope" value="corporation"', html)
 
     def test_rejected_offer_hidden_from_queue(self) -> None:
         blueprint = Blueprint.objects.create(
@@ -970,6 +1174,15 @@ class BlueprintCopyRequestPageTests(TestCase):
         grant_indy_permissions(self.user, "can_manage_copy_requests")
         self.client.force_login(self.user)
 
+        viewer_character = EveCharacter.objects.get(character_id=103001)
+        CharacterOwnership.objects.get_or_create(
+            user=self.user,
+            character=viewer_character,
+            defaults={
+                "owner_hash": f"hash-{viewer_character.character_id}-{self.user.id}",
+            },
+        )
+
         self.owner = User.objects.create_user("supplier", password="supply123")
         CharacterSettings.objects.create(
             user=self.owner,
@@ -1053,6 +1266,224 @@ class BlueprintCopyRequestPageTests(TestCase):
         page_obj = response.context["page_obj"]
         visible_type_ids = {entry["type_id"] for entry in page_obj}
         self.assertIn(605001, visible_type_ids)
+
+    def test_corporation_scope_shows_corporate_blueprint(self) -> None:
+        corp_id = 2_000_000
+        CorporationSharingSetting.objects.create(
+            user=self.owner,
+            corporation_id=corp_id,
+            corporation_name="Test Corp",
+            share_scope=CharacterSettings.SCOPE_CORPORATION,
+            allow_copy_requests=True,
+        )
+
+        supplier_character, _ = EveCharacter.objects.get_or_create(
+            character_id=303001,
+            defaults={
+                "character_name": "SupplierCorpPilot",
+                "corporation_id": corp_id,
+                "corporation_name": "Test Corp",
+                "corporation_ticker": "TEST",
+                "alliance_id": 4_000_000,
+                "alliance_name": "Widget Alliance",
+                "alliance_ticker": "WID",
+            },
+        )
+        CharacterOwnership.objects.get_or_create(
+            user=self.owner,
+            character=supplier_character,
+            defaults={
+                "owner_hash": f"hash-{supplier_character.character_id}-{self.owner.id}",
+            },
+        )
+
+        Blueprint.objects.create(
+            owner_user=self.owner,
+            owner_kind=Blueprint.OwnerKind.CORPORATION,
+            corporation_id=corp_id,
+            corporation_name="Test Corp",
+            item_id=9051001,
+            blueprint_id=9051002,
+            type_id=705001,
+            location_id=805001,
+            location_flag="corp_hangar",
+            quantity=-1,
+            time_efficiency=14,
+            material_efficiency=10,
+            runs=0,
+            type_name="Corporate Widget Blueprint",
+        )
+
+        response = self.client.get(reverse("indy_hub:bp_copy_request_page"))
+
+        self.assertEqual(response.status_code, 200)
+        visible_type_ids = {entry["type_id"] for entry in response.context["page_obj"]}
+        self.assertIn(705001, visible_type_ids)
+
+    def test_corporate_director_receives_notification(self) -> None:
+        corp_id = 2_500_000
+        CorporationSharingSetting.objects.create(
+            user=self.owner,
+            corporation_id=corp_id,
+            corporation_name="Directorate Industries",
+            share_scope=CharacterSettings.SCOPE_CORPORATION,
+            allow_copy_requests=True,
+        )
+
+        supplier_character, _ = EveCharacter.objects.get_or_create(
+            character_id=303010,
+            defaults={
+                "character_name": "CorpSupplier",
+                "corporation_id": corp_id,
+                "corporation_name": "Directorate Industries",
+                "corporation_ticker": "DIR",
+            },
+        )
+        CharacterOwnership.objects.update_or_create(
+            user=self.owner,
+            character=supplier_character,
+            defaults={
+                "owner_hash": f"hash-{supplier_character.character_id}-{self.owner.id}",
+            },
+        )
+
+        Blueprint.objects.create(
+            owner_user=self.owner,
+            owner_kind=Blueprint.OwnerKind.CORPORATION,
+            corporation_id=corp_id,
+            corporation_name="Directorate Industries",
+            item_id=9053001,
+            blueprint_id=9053002,
+            type_id=805001,
+            location_id=905001,
+            location_flag="corp_hangar",
+            quantity=-1,
+            time_efficiency=12,
+            material_efficiency=10,
+            runs=0,
+            type_name="Directorate Blueprint",
+        )
+
+        manager = User.objects.create_user("corpmanager", password="manage123")
+        assign_main_character(manager, character_id=403010)
+        grant_indy_permissions(
+            manager,
+            "can_manage_copy_requests",
+            "can_manage_corporate_assets",
+        )
+        manager_character = EveCharacter.objects.get(character_id=403010)
+        manager_character.corporation_id = corp_id
+        manager_character.corporation_name = "Directorate Industries"
+        manager_character.corporation_ticker = "DIR"
+        manager_character.save(
+            update_fields=[
+                "corporation_id",
+                "corporation_name",
+                "corporation_ticker",
+            ]
+        )
+        CharacterOwnership.objects.update_or_create(
+            user=manager,
+            character=manager_character,
+            defaults={
+                "owner_hash": f"hash-{manager_character.character_id}-{manager.id}",
+            },
+        )
+        post_data = {
+            "type_id": 805001,
+            "material_efficiency": 10,
+            "time_efficiency": 12,
+            "runs_requested": 1,
+            "copies_requested": 1,
+        }
+
+        with patch("indy_hub.views.industry.notify_user") as mock_notify:
+            response = self.client.post(
+                reverse("indy_hub:bp_copy_request_page"), post_data
+            )
+
+        self.assertRedirects(response, reverse("indy_hub:bp_copy_request_page"))
+        recipients = {call.args[0] for call in mock_notify.call_args_list}
+        self.assertSetEqual({self.owner, manager}, recipients)
+
+    def test_alliance_scope_shows_corporate_blueprint_for_allied_member(self) -> None:
+        corp_id = 2_000_000
+        CorporationSharingSetting.objects.create(
+            user=self.owner,
+            corporation_id=corp_id,
+            corporation_name="Test Corp",
+            share_scope=CharacterSettings.SCOPE_ALLIANCE,
+            allow_copy_requests=True,
+        )
+
+        supplier_character, _ = EveCharacter.objects.get_or_create(
+            character_id=303002,
+            defaults={
+                "character_name": "SupplierAlliancePilot",
+                "corporation_id": corp_id,
+                "corporation_name": "Test Corp",
+                "corporation_ticker": "TEST",
+                "alliance_id": 5_000_000,
+                "alliance_name": "Alliance Umbrella",
+                "alliance_ticker": "UMB",
+            },
+        )
+        CharacterOwnership.objects.update_or_create(
+            user=self.owner,
+            character=supplier_character,
+            defaults={
+                "owner_hash": f"hash-{supplier_character.character_id}-{self.owner.id}",
+            },
+        )
+
+        allied_character, _ = EveCharacter.objects.get_or_create(
+            character_id=203001,
+            defaults={
+                "character_name": "AllianceBuyer",
+                "corporation_id": 2_100_000,
+                "corporation_name": "Ally Corp",
+                "corporation_ticker": "ALLY",
+                "alliance_id": 5_000_000,
+                "alliance_name": "Alliance Umbrella",
+                "alliance_ticker": "UMB",
+            },
+        )
+        CharacterOwnership.objects.update_or_create(
+            user=self.user,
+            character=allied_character,
+            defaults={
+                "owner_hash": f"hash-{allied_character.character_id}-{self.user.id}",
+            },
+        )
+        CharacterOwnership.objects.filter(user=self.user).exclude(
+            character=allied_character
+        ).delete()
+        profile = UserProfile.objects.get(user=self.user)
+        profile.main_character = allied_character
+        profile.save(update_fields=["main_character"])
+
+        Blueprint.objects.create(
+            owner_user=self.owner,
+            owner_kind=Blueprint.OwnerKind.CORPORATION,
+            corporation_id=corp_id,
+            corporation_name="Test Corp",
+            item_id=9052001,
+            blueprint_id=9052002,
+            type_id=705002,
+            location_id=805002,
+            location_flag="corp_hangar",
+            quantity=-1,
+            time_efficiency=16,
+            material_efficiency=12,
+            runs=0,
+            type_name="Alliance Widget Blueprint",
+        )
+
+        response = self.client.get(reverse("indy_hub:bp_copy_request_page"))
+
+        self.assertEqual(response.status_code, 200)
+        visible_type_ids = {entry["type_id"] for entry in response.context["page_obj"]}
+        self.assertIn(705002, visible_type_ids)
 
 
 class BlueprintCopyMyRequestsTests(TestCase):

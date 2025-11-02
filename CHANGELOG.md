@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 _Nothing yet._
 
+## [1.12.3] - 2025-11-02
+
+### Changed
+
+- Character notification preferences now retain the "immediate" delivery cadence whenever completion pings stay enabled, matching legacy behaviour after users toggle digest mode.
+
+### Fixed
+
+- Restored `/indy_hub/personnal-jobs/notification_test/` in the URLconf so the job notification preview works again and reuses the shared preview builders, resolving the `NoReverseMatch` regression surfaced by the smoke tests.
+
+## [1.12.2] - 2025-11-01
+
+### Added
+
+- Rich job completion notifications now include activity-aware thumbnails, detailed result summaries, and location context for both in-app and Discord delivery.
+- Added `/indy_hub/personnal-jobs/notification_test/` so admins can preview the Discord embed formatting and verify notification routing without waiting for live jobs to finish.
+
+### Changed
+
+- Discord embeds use the new payload structure and automatically pick the correct image suffix (bp, bpc, icon) based on the underlying industry activity.
+- Job notification blueprint resolution now prefers the latest blueprint records by using the existing `last_updated` field when finding a match.
+
+### Fixed
+
+- Resolved a `FieldError` that could appear while building job completion notifications when the resolver attempted to order by a non-existent `updated_at` column.
+
 ## [1.12.1] - 2025-11-01
 
 ### Added
