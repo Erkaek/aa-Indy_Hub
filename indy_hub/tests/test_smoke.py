@@ -1786,30 +1786,29 @@ class DashboardNotificationCountsTests(TestCase):
             copies_requested=2,
         )
 
-        IndustryJob.objects.create(
-            owner_user=self.user,
-            character_id=self.blueprint.character_id,
-            job_id=7770001,
-            installer_id=self.user.id,
-            station_id=self.blueprint.location_id,
-            location_name="Busy Location",
-            activity_id=5,
-            blueprint_id=self.blueprint.item_id,
-            blueprint_type_id=self.blueprint.type_id,
-            runs=1,
-            status="active",
-            duration=3600,
-            start_date=timezone.now() - timedelta(minutes=10),
-            end_date=timezone.now() + timedelta(hours=2),
-            activity_name="Copying",
-            blueprint_type_name=self.blueprint.type_name,
-            product_type_name="Busy Product",
-            character_name=self.blueprint.character_name,
+        BlueprintCopyRequest.objects.create(
+            type_id=789001,
+            material_efficiency=4,
+            time_efficiency=6,
+            requested_by=self.user,
+            runs_requested=1,
+            copies_requested=1,
+        )
+
+        BlueprintCopyRequest.objects.create(
+            type_id=789002,
+            material_efficiency=10,
+            time_efficiency=12,
+            requested_by=self.user,
+            runs_requested=3,
+            copies_requested=2,
+            fulfilled=True,
+            delivered=False,
         )
         response = self.client.get(reverse("indy_hub:index"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context["copy_fulfill_count"], 2)
+        self.assertEqual(response.context["copy_fulfill_count"], 1)
         self.assertEqual(response.context["copy_my_requests_open"], 1)
         self.assertEqual(response.context["copy_my_requests_pending_delivery"], 1)
         self.assertEqual(response.context["copy_my_requests_total"], 2)

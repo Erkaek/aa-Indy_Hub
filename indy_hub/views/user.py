@@ -13,7 +13,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
-from django.db.models import Count, F, Max, Q, Sum
+from django.db.models import Count, F, Max, Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -865,50 +865,37 @@ def _build_dashboard_context(request):
         settings_obj.save(update_fields=["allow_copy_requests"])
 
     copy_fulfill_count = 0
-    copy_my_requests_open = 0
-    copy_my_requests_pending_delivery = 0
+
+    my_open_requests_qs = BlueprintCopyRequest.objects.filter(
+        requested_by=request.user, fulfilled=False
+    )
+    copy_my_requests_open = my_open_requests_qs.count()
+
+    copy_my_requests_pending_delivery = BlueprintCopyRequest.objects.filter(
+        requested_by=request.user,
+        fulfilled=True,
+        delivered=False,
+    ).count()
 
     if sharing_state["enabled"]:
         fulfill_filters = Q()
         originals_for_fulfill = blueprints_qs.filter(
             bp_type__in=[Blueprint.BPType.ORIGINAL, Blueprint.BPType.REACTION]
         )
-        original_blueprint_type_ids: set[int] = set()
+
         for bp in originals_for_fulfill:
-            original_blueprint_type_ids.add(bp.type_id)
             fulfill_filters |= Q(
                 type_id=bp.type_id,
                 material_efficiency=bp.material_efficiency,
                 time_efficiency=bp.time_efficiency,
             )
 
-        open_requests_qs = BlueprintCopyRequest.objects.none()
-        open_requests_to_fulfill = 0
         if fulfill_filters:
             open_requests_qs = BlueprintCopyRequest.objects.filter(
-                fulfill_filters, fulfilled=False
-            )
-            copy_fulfill_count = (
-                open_requests_qs.exclude(requested_by=request.user)
-                .aggregate(total=Sum("copies_requested"))
-                .get("total")
-                or 0
-            )
-            open_requests_to_fulfill = open_requests_qs.exclude(
-                requested_by=request.user
-            ).count()
-
-        my_open_requests = BlueprintCopyRequest.objects.filter(
-            requested_by=request.user, fulfilled=False
-        ).count()
-        copy_my_requests_open = open_requests_to_fulfill + my_open_requests
-
-        if original_blueprint_type_ids:
-            copy_my_requests_pending_delivery = jobs_qs.filter(
-                activity_id=5,
-                blueprint_type_id__in=list(original_blueprint_type_ids),
-                status__in=["active", "ready"],
-            ).count()
+                fulfill_filters,
+                fulfilled=False,
+            ).exclude(requested_by=request.user)
+            copy_fulfill_count = open_requests_qs.count()
 
     copy_my_requests_total = copy_my_requests_open + copy_my_requests_pending_delivery
 
