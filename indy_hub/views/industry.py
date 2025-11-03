@@ -4,6 +4,7 @@
 import json
 import logging
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import timedelta
 from decimal import Decimal
 from math import ceil
@@ -78,8 +79,18 @@ else:  # pragma: no cover - EveUniverse not installed
 logger = logging.getLogger(__name__)
 
 
-def _eligible_owner_ids_for_request(req: BlueprintCopyRequest) -> set[int]:
-    """Return user IDs that can fulfil the request based on owned originals."""
+@dataclass
+class EligibleOwnerDetails:
+    owner_ids: set[int]
+    character_owner_ids: set[int]
+    corporate_members_by_corp: dict[int, set[int]]
+    user_to_corporation: dict[int, int]
+
+
+def _eligible_owner_details_for_request(
+    req: BlueprintCopyRequest,
+) -> EligibleOwnerDetails:
+    """Return detailed information about users who can fulfil a request."""
 
     matching_blueprints = Blueprint.objects.filter(
         bp_type__in=[Blueprint.BPType.ORIGINAL, Blueprint.BPType.REACTION],
@@ -88,11 +99,13 @@ def _eligible_owner_ids_for_request(req: BlueprintCopyRequest) -> set[int]:
         time_efficiency=req.time_efficiency,
     )
 
-    character_owner_ids = matching_blueprints.filter(
-        owner_kind=Blueprint.OwnerKind.CHARACTER,
-        owner_user__charactersettings__character_id=0,
-        owner_user__charactersettings__allow_copy_requests=True,
-    ).values_list("owner_user_id", flat=True)
+    character_owner_ids = set(
+        matching_blueprints.filter(
+            owner_kind=Blueprint.OwnerKind.CHARACTER,
+            owner_user__charactersettings__character_id=0,
+            owner_user__charactersettings__allow_copy_requests=True,
+        ).values_list("owner_user_id", flat=True)
+    )
 
     corporation_ids = list(
         matching_blueprints.filter(owner_kind=Blueprint.OwnerKind.CORPORATION)
@@ -103,6 +116,9 @@ def _eligible_owner_ids_for_request(req: BlueprintCopyRequest) -> set[int]:
 
     corporate_settings: list[CorporationSharingSetting] = []
     corporate_owner_ids: set[int] = set()
+    corporate_members_by_corp: dict[int, set[int]] = defaultdict(set)
+    user_to_corp: dict[int, int] = {}
+
     if corporation_ids:
         corporate_settings = list(
             CorporationSharingSetting.objects.filter(
@@ -115,6 +131,12 @@ def _eligible_owner_ids_for_request(req: BlueprintCopyRequest) -> set[int]:
                 ],
             )
         )
+        for setting in corporate_settings:
+            corp_id = setting.corporation_id
+            if corp_id is None:
+                continue
+            corporate_members_by_corp[corp_id].add(setting.user_id)
+            user_to_corp[setting.user_id] = corp_id
         corporate_owner_ids = {setting.user_id for setting in corporate_settings}
 
     additional_corp_manager_ids: set[int] = set()
@@ -160,7 +182,6 @@ def _eligible_owner_ids_for_request(req: BlueprintCopyRequest) -> set[int]:
                         continue
                     if user_id == req.requested_by_id:
                         continue
-                    # Require at least one character authorised by any corp setting
                     if any(
                         not setting_obj.restricts_characters
                         or any(
@@ -170,18 +191,45 @@ def _eligible_owner_ids_for_request(req: BlueprintCopyRequest) -> set[int]:
                         for setting_obj in corp_settings
                     ):
                         additional_corp_manager_ids.add(user_id)
+                        corporate_members_by_corp[corp_id].add(user_id)
+                        user_to_corp[user_id] = corp_id
 
-    eligible_owner_ids: set[int] = (
+    owner_ids: set[int] = (
         set(character_owner_ids) | corporate_owner_ids | additional_corp_manager_ids
     )
-    eligible_owner_ids.discard(req.requested_by_id)
-    return eligible_owner_ids
+
+    owner_ids.discard(req.requested_by_id)
+    character_owner_ids.discard(req.requested_by_id)
+    for members in corporate_members_by_corp.values():
+        members.discard(req.requested_by_id)
+
+    user_to_corp = {uid: cid for uid, cid in user_to_corp.items() if uid in owner_ids}
+    corporate_members_by_corp = {
+        corp_id: {uid for uid in members if uid in owner_ids}
+        for corp_id, members in corporate_members_by_corp.items()
+        if members
+    }
+
+    return EligibleOwnerDetails(
+        owner_ids=owner_ids,
+        character_owner_ids=set(character_owner_ids),
+        corporate_members_by_corp=corporate_members_by_corp,
+        user_to_corporation=user_to_corp,
+    )
+
+
+def _eligible_owner_ids_for_request(req: BlueprintCopyRequest) -> set[int]:
+    """Return user IDs that can fulfil the request based on owned originals."""
+
+    details = _eligible_owner_details_for_request(req)
+    return set(details.owner_ids)
 
 
 def _finalize_request_if_all_rejected(req: BlueprintCopyRequest) -> bool:
     """Notify requester and delete request if all eligible providers rejected."""
 
-    eligible_owner_ids = _eligible_owner_ids_for_request(req)
+    details = _eligible_owner_details_for_request(req)
+    eligible_owner_ids = details.owner_ids
     offers_by_owner = dict(
         req.offers.filter(owner_id__in=eligible_owner_ids).values_list(
             "owner_id", "status"
@@ -189,11 +237,36 @@ def _finalize_request_if_all_rejected(req: BlueprintCopyRequest) -> bool:
     )
 
     if eligible_owner_ids:
-        outstanding = [
-            owner_id
-            for owner_id in eligible_owner_ids
-            if offers_by_owner.get(owner_id) != "rejected"
-        ]
+        outstanding: list[int | tuple[str, int]] = []
+
+        for owner_id in details.character_owner_ids:
+            if offers_by_owner.get(owner_id) != "rejected":
+                outstanding.append(owner_id)
+
+        all_corp_member_ids: set[int] = set()
+        for corp_id, members in details.corporate_members_by_corp.items():
+            all_corp_member_ids.update(members)
+            member_statuses = [offers_by_owner.get(member_id) for member_id in members]
+            if not member_statuses:
+                outstanding.append(("corporation", corp_id))
+                continue
+
+            has_active_status = any(
+                status not in (None, "rejected") for status in member_statuses
+            )
+            has_rejection = any(status == "rejected" for status in member_statuses)
+            if has_active_status:
+                outstanding.append(("corporation", corp_id))
+            elif not has_rejection:
+                outstanding.append(("corporation", corp_id))
+
+        remaining_owner_ids = (
+            eligible_owner_ids - details.character_owner_ids - all_corp_member_ids
+        )
+        for owner_id in remaining_owner_ids:
+            if offers_by_owner.get(owner_id) != "rejected":
+                outstanding.append(owner_id)
+
         if outstanding:
             return False
 
@@ -2714,6 +2787,8 @@ def bp_copy_fulfill_requests(request):
         my_offer = next(
             (offer for offer in offers if offer.owner_id == request.user.id), None
         )
+        offers_by_owner = {offer.owner_id: offer.status for offer in offers}
+        eligible_details = _eligible_owner_details_for_request(req)
 
         is_self_request = req.requested_by_id == request.user.id
 
@@ -2782,6 +2857,18 @@ def bp_copy_fulfill_requests(request):
             default_scope = "corporation"
         elif not personal_count and not corporate_count:
             default_scope = ""
+
+        user_corp_id = eligible_details.user_to_corporation.get(request.user.id)
+        if user_corp_id is not None and personal_count == 0 and not is_self_request:
+            corp_members = eligible_details.corporate_members_by_corp.get(
+                user_corp_id, set()
+            )
+            if any(
+                offers_by_owner.get(member_id) == "rejected"
+                for member_id in corp_members
+            ):
+                # Another authorised manager already declined on behalf of the corporation
+                continue
 
         if is_self_request:
             status_key = "self_request"

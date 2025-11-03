@@ -891,11 +891,21 @@ def _build_dashboard_context(request):
             )
 
         if fulfill_filters:
-            open_requests_qs = BlueprintCopyRequest.objects.filter(
-                fulfill_filters,
-                fulfilled=False,
+            fulfill_qs = BlueprintCopyRequest.objects.filter(fulfill_filters)
+            fulfill_qs = fulfill_qs.filter(
+                Q(fulfilled=False)
+                | Q(
+                    fulfilled=True,
+                    delivered=False,
+                    offers__owner=request.user,
+                )
             ).exclude(requested_by=request.user)
-            copy_fulfill_count = open_requests_qs.count()
+
+            fulfill_qs = fulfill_qs.exclude(
+                offers__owner=request.user, offers__status="rejected"
+            )
+
+            copy_fulfill_count = fulfill_qs.distinct().count()
 
     copy_my_requests_total = copy_my_requests_open + copy_my_requests_pending_delivery
 

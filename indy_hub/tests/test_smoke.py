@@ -719,6 +719,199 @@ class BlueprintCopyFulfillViewTests(TestCase):
         self.assertIn('name="scope" value="personal"', html)
         self.assertIn('name="scope" value="corporation"', html)
 
+    def test_corporate_rejection_hides_request_for_all_managers(self) -> None:
+        settings = CharacterSettings.objects.get(user=self.user, character_id=0)
+        settings.allow_copy_requests = False
+        settings.copy_sharing_scope = CharacterSettings.SCOPE_NONE
+        settings.save(update_fields=["allow_copy_requests", "copy_sharing_scope"])
+
+        corp_id = 8_801_234
+        corp_name = "Shared Access Corp"
+
+        manager_character = EveCharacter.objects.get(character_id=101001)
+        manager_character.corporation_id = corp_id
+        manager_character.corporation_name = corp_name
+        manager_character.corporation_ticker = "SAC"
+        manager_character.save(
+            update_fields=[
+                "corporation_id",
+                "corporation_name",
+                "corporation_ticker",
+            ]
+        )
+        CharacterOwnership.objects.update_or_create(
+            user=self.user,
+            character=manager_character,
+            defaults={
+                "owner_hash": f"hash-{manager_character.character_id}-{self.user.id}"
+            },
+        )
+
+        corp_owner = User.objects.create_user("corp_owner", password="owner123")
+        owner_character = assign_main_character(corp_owner, character_id=2022001)
+        owner_character.corporation_id = corp_id
+        owner_character.corporation_name = corp_name
+        owner_character.corporation_ticker = "SAC"
+        owner_character.save(
+            update_fields=[
+                "corporation_id",
+                "corporation_name",
+                "corporation_ticker",
+            ]
+        )
+        CharacterOwnership.objects.update_or_create(
+            user=corp_owner,
+            character=owner_character,
+            defaults={
+                "owner_hash": f"hash-{owner_character.character_id}-{corp_owner.id}"
+            },
+        )
+        CharacterSettings.objects.create(
+            user=corp_owner,
+            character_id=0,
+            allow_copy_requests=True,
+            copy_sharing_scope=CharacterSettings.SCOPE_CORPORATION,
+        )
+        grant_indy_permissions(
+            corp_owner,
+            "can_manage_copy_requests",
+            "can_manage_corporate_assets",
+        )
+
+        CorporationSharingSetting.objects.create(
+            user=corp_owner,
+            corporation_id=corp_id,
+            corporation_name=corp_name,
+            share_scope=CharacterSettings.SCOPE_CORPORATION,
+            allow_copy_requests=True,
+        )
+
+        blueprint = Blueprint.objects.create(
+            owner_user=corp_owner,
+            owner_kind=Blueprint.OwnerKind.CORPORATION,
+            corporation_id=corp_id,
+            corporation_name=corp_name,
+            item_id=88001,
+            blueprint_id=88002,
+            type_id=660001,
+            location_id=88003,
+            location_flag="corp_hangar",
+            quantity=-1,
+            time_efficiency=12,
+            material_efficiency=10,
+            runs=0,
+            type_name="Shared Corp Blueprint",
+        )
+
+        rejector = User.objects.create_user("corp_manager", password="manager123")
+        rejector_character = assign_main_character(rejector, character_id=2022002)
+        rejector_character.corporation_id = corp_id
+        rejector_character.corporation_name = corp_name
+        rejector_character.corporation_ticker = "SAC"
+        rejector_character.save(
+            update_fields=[
+                "corporation_id",
+                "corporation_name",
+                "corporation_ticker",
+            ]
+        )
+        CharacterOwnership.objects.update_or_create(
+            user=rejector,
+            character=rejector_character,
+            defaults={
+                "owner_hash": f"hash-{rejector_character.character_id}-{rejector.id}"
+            },
+        )
+        CharacterSettings.objects.create(
+            user=rejector,
+            character_id=0,
+            allow_copy_requests=False,
+            copy_sharing_scope=CharacterSettings.SCOPE_NONE,
+        )
+        grant_indy_permissions(
+            rejector,
+            "can_manage_copy_requests",
+            "can_manage_corporate_assets",
+        )
+
+        personal_provider = User.objects.create_user(
+            "personal_builder", password="build123"
+        )
+        personal_character = assign_main_character(
+            personal_provider, character_id=3033001
+        )
+        CharacterOwnership.objects.update_or_create(
+            user=personal_provider,
+            character=personal_character,
+            defaults={
+                "owner_hash": f"hash-{personal_character.character_id}-{personal_provider.id}"
+            },
+        )
+        CharacterSettings.objects.create(
+            user=personal_provider,
+            character_id=0,
+            allow_copy_requests=True,
+            copy_sharing_scope=CharacterSettings.SCOPE_CORPORATION,
+        )
+        grant_indy_permissions(personal_provider, "can_manage_copy_requests")
+        Blueprint.objects.create(
+            owner_user=personal_provider,
+            character_id=personal_character.character_id,
+            item_id=personal_character.character_id + 100,
+            blueprint_id=personal_character.character_id + 200,
+            type_id=blueprint.type_id,
+            location_id=personal_character.character_id + 300,
+            location_flag="hangar",
+            quantity=-1,
+            time_efficiency=blueprint.time_efficiency,
+            material_efficiency=blueprint.material_efficiency,
+            runs=0,
+            character_name="Personal Builder",
+            type_name="Shared Corp Blueprint",
+        )
+
+        buyer = User.objects.create_user("corporate_customer", password="buyme123")
+        request_obj = BlueprintCopyRequest.objects.create(
+            type_id=blueprint.type_id,
+            material_efficiency=blueprint.material_efficiency,
+            time_efficiency=blueprint.time_efficiency,
+            requested_by=buyer,
+            runs_requested=1,
+            copies_requested=1,
+        )
+
+        response = self.client.get(reverse("indy_hub:bp_copy_fulfill_requests"))
+        self.assertEqual(response.status_code, 200)
+        initial_requests = response.context["requests"]
+        self.assertEqual(len(initial_requests), 1)
+        self.assertEqual(initial_requests[0]["id"], request_obj.id)
+
+        self.client.logout()
+        self.client.force_login(rejector)
+        response = self.client.post(
+            reverse("indy_hub:bp_offer_copy_request", args=[request_obj.id]),
+            {"action": "reject", "message": "Corp unavailable"},
+        )
+        self.assertRedirects(response, reverse("indy_hub:bp_copy_fulfill_requests"))
+        self.assertTrue(BlueprintCopyRequest.objects.filter(id=request_obj.id).exists())
+
+        self.client.logout()
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("indy_hub:bp_copy_fulfill_requests"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["requests"], [])
+
+        self.client.logout()
+        self.client.force_login(personal_provider)
+        response = self.client.get(reverse("indy_hub:bp_copy_fulfill_requests"))
+        self.assertEqual(response.status_code, 200)
+        remaining_requests = response.context["requests"]
+        self.assertEqual(len(remaining_requests), 1)
+        self.assertEqual(remaining_requests[0]["id"], request_obj.id)
+
+        self.client.logout()
+        self.client.force_login(self.user)
+
     def test_rejected_offer_hidden_from_queue(self) -> None:
         blueprint = Blueprint.objects.create(
             owner_user=self.user,
@@ -1812,6 +2005,54 @@ class DashboardNotificationCountsTests(TestCase):
         self.assertEqual(response.context["copy_my_requests_open"], 1)
         self.assertEqual(response.context["copy_my_requests_pending_delivery"], 1)
         self.assertEqual(response.context["copy_my_requests_total"], 2)
+
+    def test_dashboard_fulfill_count_skips_requests_i_rejected(self) -> None:
+        other_user = User.objects.create_user("buyer", password="buyerpass")
+        request_obj = BlueprintCopyRequest.objects.create(
+            type_id=self.blueprint.type_id,
+            material_efficiency=self.blueprint.material_efficiency,
+            time_efficiency=self.blueprint.time_efficiency,
+            requested_by=other_user,
+            runs_requested=1,
+            copies_requested=1,
+        )
+
+        BlueprintCopyOffer.objects.create(
+            request=request_obj,
+            owner=self.user,
+            status="rejected",
+        )
+
+        response = self.client.get(reverse("indy_hub:index"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["copy_fulfill_count"], 0)
+
+    def test_dashboard_fulfill_count_includes_ready_to_deliver(self) -> None:
+        other_user = User.objects.create_user("buyer", password="buyerpass")
+        request_obj = BlueprintCopyRequest.objects.create(
+            type_id=self.blueprint.type_id,
+            material_efficiency=self.blueprint.material_efficiency,
+            time_efficiency=self.blueprint.time_efficiency,
+            requested_by=other_user,
+            runs_requested=1,
+            copies_requested=1,
+            fulfilled=True,
+            delivered=False,
+        )
+
+        BlueprintCopyOffer.objects.create(
+            request=request_obj,
+            owner=self.user,
+            status="accepted",
+            accepted_by_buyer=True,
+            accepted_by_seller=True,
+        )
+
+        response = self.client.get(reverse("indy_hub:index"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["copy_fulfill_count"], 1)
 
 
 class PersonnalBlueprintViewTests(TestCase):
