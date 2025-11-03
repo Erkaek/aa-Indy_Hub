@@ -2367,6 +2367,33 @@ def bp_copy_request_page(request):
             "copies": copies,
         }
 
+        corporate_source_line = ""
+        corporate_blueprint_qs = Blueprint.objects.filter(
+            owner_kind=Blueprint.OwnerKind.CORPORATION,
+            type_id=type_id,
+            material_efficiency=me,
+            time_efficiency=te,
+        ).values("corporation_id", "corporation_name")
+
+        corp_labels: set[str] = set()
+        for corp_entry in corporate_blueprint_qs:
+            corp_name = corp_entry.get("corporation_name")
+            corp_id = corp_entry.get("corporation_id")
+            label = corp_name.strip() if isinstance(corp_name, str) else ""
+            if not label and corp_id:
+                label = str(corp_id)
+            if label:
+                corp_labels.add(label)
+
+        if corp_labels:
+            formatted_corps = ", ".join(sorted(corp_labels, key=str.lower))
+            corporate_source_line = (
+                _(  # Inform providers when the blueprint comes from a corporation
+                    "Corporate source: %(corporations)s"
+                )
+                % {"corporations": formatted_corps}
+            )
+
         if eligible_owner_ids:
             notification_title = _("New blueprint copy request")
             notification_body = (
@@ -2384,6 +2411,8 @@ def bp_copy_request_page(request):
             provider_users = User.objects.filter(id__in=eligible_owner_ids)
             for owner in provider_users:
                 provider_body = notification_body
+                if corporate_source_line:
+                    provider_body = f"{provider_body}\n\n{corporate_source_line}"
                 quick_actions = []
                 link_cta = _("Click here")
 

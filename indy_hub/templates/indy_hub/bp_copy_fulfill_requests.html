@@ -174,9 +174,14 @@
                                             <time datetime="{{ req.created_at|date:'c' }}" title="{{ req.created_at|date:'Y-m-d H:i' }}">{{ req.created_at|naturaltime }}</time>
                                         </span>
                                         {% if req.is_corporate %}
-                                        <span class="bp-request-card__meta-item bp-request-card__meta-item--full">
-                                            <i class="fas fa-building"></i>
-                                            <span>{% blocktrans trimmed with corps=req.corporation_names|join:", " %}Corporate original: {{ corps }}{% endblocktrans %}</span>
+                                        <span class="bp-request-card__meta-item bp-request-card__meta-item--full bp-request-card__meta-item--corp" role="status">
+                                            <span class="bp-request-card__corp-pill">
+                                                <i class="fas fa-building"></i>
+                                                {% trans "Corp source" %}
+                                            </span>
+                                            <span class="bp-request-card__corp-label">
+                                                {% blocktrans trimmed with corps=req.corporation_names|join:", " %}{{ corps }}{% endblocktrans %}
+                                            </span>
                                         </span>
                                         {% endif %}
                                     </div>
@@ -190,6 +195,11 @@
                         <div class="d-flex flex-wrap gap-2">
                             <span class="badge rounded-pill bg-primary-subtle text-primary fw-semibold">ME {{ req.material_efficiency }}</span>
                             <span class="badge rounded-pill bg-success-subtle text-success fw-semibold">TE {{ req.time_efficiency }}</span>
+                            {% if req.is_corporate %}
+                            <span class="badge bp-corporate-badge text-uppercase fw-semibold">
+                                <i class="fas fa-building me-1"></i>{% trans "Corp BP" %}
+                            </span>
+                            {% endif %}
                         </div>
 
                         <div class="row g-2">
@@ -536,4 +546,3 @@
 </script>
 <script src="{% static 'indy_hub/js/bp_copy_chat.js' %}?v=20251021"></script>
 {% endblock %}
-k %}

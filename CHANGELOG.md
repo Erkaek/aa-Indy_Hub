@@ -14,6 +14,7 @@ _Nothing yet._
 ### Changed
 
 - Character notification preferences now retain the "immediate" delivery cadence whenever completion pings stay enabled, matching legacy behaviour after users toggle digest mode.
+- Blueprint copy request notifications now append the corporation name(s) when the matching originals are corporate-owned so Discord previews clearly indicate the source.
 
 ### Fixed
 
