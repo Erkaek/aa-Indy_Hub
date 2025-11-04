@@ -14,3 +14,4 @@ __pycache__
 .coverage
 /coverage.xml
 alliance_auth.sqlite3
+/.cache/

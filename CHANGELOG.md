@@ -9,16 +9,18 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 _Nothing yet._
 
-## [1.12.3] - 2025-11-02
+## [1.13.0] - 2025-11-02
 
 ### Changed
 
 - Character notification preferences now retain the "immediate" delivery cadence whenever completion pings stay enabled, matching legacy behaviour after users toggle digest mode.
 - Blueprint copy request notifications now append the corporation name(s) when the matching originals are corporate-owned so Discord previews clearly indicate the source.
+- Alliance Auth navigation badges now mirror the dashboard metrics by combining outstanding fulfil requests with unread copy chats while avoiding double counting shared items.
 
 ### Fixed
 
 - Restored `/indy_hub/personnal-jobs/notification_test/` in the URLconf so the job notification preview works again and reuses the shared preview builders, resolving the `NoReverseMatch` regression surfaced by the smoke tests.
+- Job notification preview actions now return to the originating dashboard via the shared redirect helper instead of dropping users on the job list unexpectedly.
 
 ## [1.12.2] - 2025-11-01
 
