@@ -1454,6 +1454,29 @@ def personnal_job_notification_test(request):
     return redirect("indy_hub:personnal_job_list")
 
 
+def _redirect_preview_back(request, *, default_route: str = "indy_hub:index"):
+    """Redirect previews back to the originating page when safe."""
+
+    allowed_hosts = {request.get_host()}
+    next_url = request.GET.get("next")
+    if next_url and url_has_allowed_host_and_scheme(
+        next_url,
+        allowed_hosts=allowed_hosts,
+        require_https=request.is_secure(),
+    ):
+        return redirect(next_url)
+
+    referer = request.headers.get("referer")
+    if referer and url_has_allowed_host_and_scheme(
+        referer,
+        allowed_hosts=allowed_hosts,
+        require_https=request.is_secure(),
+    ):
+        return redirect(referer)
+
+    return redirect(default_route)
+
+
 @indy_hub_access_required
 @login_required
 def preview_job_notification_live(request):
@@ -1475,7 +1498,7 @@ def preview_job_notification_live(request):
         request,
         _("Live industry job notification preview sent. Check your notifications."),
     )
-    return redirect("indy_hub:personnal_job_list")
+    return _redirect_preview_back(request)
 
 
 @indy_hub_access_required
@@ -1560,7 +1583,7 @@ def preview_job_notification_digest(request):
         request,
         _("Digest preview sent. Review the grouped message in your notifications."),
     )
-    return redirect("indy_hub:personnal_job_list")
+    return _redirect_preview_back(request)
 
 
 def collect_blueprints_with_level(blueprint_configs):

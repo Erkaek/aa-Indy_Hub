@@ -7,7 +7,7 @@ from unittest.mock import patch
 # Django
 from django.apps import apps
 from django.contrib.auth.models import Permission, User
-from django.test import TestCase
+from django.test import RequestFactory, TestCase
 from django.urls import reverse
 from django.utils import timezone
 
@@ -16,8 +16,10 @@ from allianceauth.authentication.models import CharacterOwnership, UserProfile
 from allianceauth.eveonline.models import EveCharacter
 
 # AA Example App
+from indy_hub.auth_hooks import IndyHubMenu
 from indy_hub.models import (
     Blueprint,
+    BlueprintCopyChat,
     BlueprintCopyOffer,
     BlueprintCopyRequest,
     CharacterSettings,
@@ -85,6 +87,130 @@ class IndyHubConfigTests(TestCase):
     def test_get_type_name_graceful_fallback(self) -> None:
         """`get_type_name` should fall back to the stringified id when EveUniverse is absent."""
         self.assertEqual(get_type_name(12345), "12345")
+
+
+class NavigationMenuBadgeTests(TestCase):
+    def setUp(self) -> None:
+        self.factory = RequestFactory()
+
+        self.builder = User.objects.create_user("navbuilder", password="secret123")
+        assign_main_character(self.builder, character_id=7001001)
+        grant_indy_permissions(self.builder, "can_manage_copy_requests")
+        CharacterSettings.objects.create(
+            user=self.builder,
+            character_id=0,
+            allow_copy_requests=True,
+            copy_sharing_scope=CharacterSettings.SCOPE_EVERYONE,
+        )
+
+        self.customer = User.objects.create_user("navcustomer", password="secret123")
+        assign_main_character(self.customer, character_id=7002001)
+        grant_indy_permissions(self.customer)
+        CharacterSettings.objects.create(
+            user=self.customer,
+            character_id=0,
+            allow_copy_requests=True,
+            copy_sharing_scope=CharacterSettings.SCOPE_EVERYONE,
+        )
+
+    def _render_menu(self, user: User) -> IndyHubMenu:
+        request = self.factory.get("/")
+        request.user = user
+        menu = IndyHubMenu()
+        menu.render(request)
+        return menu
+
+    def test_menu_count_deduplicates_chat_from_fulfill_queue(self) -> None:
+        blueprint = Blueprint.objects.create(
+            owner_user=self.builder,
+            character_id=1111001,
+            item_id=2222001,
+            blueprint_id=3333001,
+            type_id=4444001,
+            location_id=5555001,
+            location_flag="hangar",
+            quantity=-1,
+            time_efficiency=10,
+            material_efficiency=8,
+            runs=0,
+            character_name="Nav Builder",
+            type_name="Navigation Blueprint",
+        )
+
+        request_obj = BlueprintCopyRequest.objects.create(
+            type_id=blueprint.type_id,
+            material_efficiency=blueprint.material_efficiency,
+            time_efficiency=blueprint.time_efficiency,
+            requested_by=self.customer,
+            runs_requested=2,
+            copies_requested=1,
+        )
+
+        offer = BlueprintCopyOffer.objects.create(
+            request=request_obj,
+            owner=self.builder,
+            status="accepted",
+        )
+
+        BlueprintCopyChat.objects.create(
+            request=request_obj,
+            offer=offer,
+            buyer=self.customer,
+            seller=self.builder,
+            is_open=True,
+            last_message_at=timezone.now(),
+            last_message_role="buyer",
+            seller_last_seen_at=None,
+        )
+
+        menu = self._render_menu(self.builder)
+        self.assertEqual(menu.count, 1)
+
+    def test_menu_count_includes_unread_chats_for_buyers(self) -> None:
+        blueprint = Blueprint.objects.create(
+            owner_user=self.builder,
+            character_id=1111002,
+            item_id=2222002,
+            blueprint_id=3333002,
+            type_id=4444002,
+            location_id=5555002,
+            location_flag="hangar",
+            quantity=-1,
+            time_efficiency=9,
+            material_efficiency=7,
+            runs=0,
+            character_name="Nav Builder",
+            type_name="Navigation Blueprint",
+        )
+
+        request_obj = BlueprintCopyRequest.objects.create(
+            type_id=blueprint.type_id,
+            material_efficiency=blueprint.material_efficiency,
+            time_efficiency=blueprint.time_efficiency,
+            requested_by=self.customer,
+            runs_requested=1,
+            copies_requested=1,
+        )
+
+        offer = BlueprintCopyOffer.objects.create(
+            request=request_obj,
+            owner=self.builder,
+            status="accepted",
+        )
+
+        BlueprintCopyChat.objects.create(
+            request=request_obj,
+            offer=offer,
+            buyer=self.customer,
+            seller=self.builder,
+            is_open=True,
+            last_message_at=timezone.now(),
+            last_message_role="seller",
+            buyer_last_seen_at=None,
+        )
+
+        menu = self._render_menu(self.customer)
+        self.assertEqual(menu.count, 1)
 
 
 class BlueprintModelClassificationTests(TestCase):
@@ -424,6 +550,32 @@ class JobNotificationPreviewTests(TestCase):
             kwargs.get("thumbnail_url"),
             "https://images.evetech.net/types/23528/bp",
         )
+
+    @patch("indy_hub.views.industry.notify_user")
+    def test_live_preview_redirects_back_to_index(self, mock_notify) -> None:
+        index_url = reverse("indy_hub:index")
+        response = self.client.get(
+            reverse("indy_hub:job_notification_preview_live"),
+            headers={"referer": f"http://testserver{index_url}"},
+        )
+
+        expected_url = f"http://{response.wsgi_request.get_host()}{index_url}"
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, expected_url)
+        mock_notify.assert_called_once()
+
+    @patch("indy_hub.views.industry.notify_user")
+    def test_digest_preview_redirects_back_to_index(self, mock_notify) -> None:
+        index_url = reverse("indy_hub:index")
+        response = self.client.get(
+            reverse("indy_hub:job_notification_preview_digest"),
+            headers={"referer": f"http://testserver{index_url}"},
+        )
+
+        expected_url = f"http://{response.wsgi_request.get_host()}{index_url}"
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, expected_url)
+        mock_notify.assert_called_once()
 
 
 class BlueprintCopyFulfillViewTests(TestCase):
