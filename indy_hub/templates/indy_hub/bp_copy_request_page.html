@@ -1,13 +1,14 @@
 {% extends "indy_hub/base.html" %}
 {% load i18n %}
 {% load static %}
+{% load theme_tags %}
 {% block page_title %}{% trans "Request Blueprint Copy" %}{% endblock %}
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
 <link rel="stylesheet" href="{% static 'indy_hub/css/blueprints.css' %}">
 {% endblock extra_css %}
 {% block content %}
-<main class="bp-request-surface bg-body">
+<main class="bp-request-surface bg-body" style="--aa-nav-gap: {% header_padding_size %};">
     <div class="container-fluid my-4">
         <section class="page-header bp-request-hero mb-4 position-relative overflow-hidden">
             <i class="fas fa-copy header-bg"></i>

@@ -64,7 +64,10 @@
     border-radius: calc(var(--bs-border-radius-lg, 1rem) - 0.25rem);
     background: var(--bp-tertiary-bg);
     display: inline-flex;
-    align-items: center;
+        padding: 3rem 0;
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
     justify-content: center;
     overflow: hidden;
     border: 1px solid var(--bp-border-color);
@@ -478,20 +481,39 @@
 
 
 .bp-request-surface {
-    background: var(--bs-tertiary-bg);
-    min-height: 100vh;
+    background: var(--bs-body-bg);
+    padding: 0;
+    min-height: calc(100vh - var(--aa-nav-gap, 0px) - 2rem);
+    padding-bottom: clamp(3rem, 6vh, 4rem);
 }
 
-.bp-request-hero {
-    background: linear-gradient(
-        135deg,
-        rgba(var(--bs-primary-rgb), 0.92) 0%,
-        rgba(var(--bs-secondary-rgb, var(--bs-primary-rgb)), 0.85) 100%
-    );
-    border-radius: var(--bp-card-radius);
-    padding: 2.75rem 2.5rem;
-    color: var(--bs-light);
-    box-shadow: var(--bp-surface-shadow-lg);
+
+.bp-request-surface > .container-fluid {
+    padding-inline: clamp(1rem, 3vw, 2rem);
+}
+
+.nav-padding:has(.bp-request-surface) {
+    background: var(--bs-body-bg);
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+}
+
+.nav-padding:has(.bp-request-surface) > .my-3 {
+    display: flex;
+    flex-direction: column;
+    min-height: calc(100vh - var(--aa-nav-gap, 0px));
+    margin: 0;
+    padding: 0;
+}
+
+.nav-padding:has(.bp-request-surface) .bp-request-surface {
+    flex: 1 1 auto;
+    min-height: calc(100vh - var(--aa-nav-gap, 0px));
+}
+
+body:has(.bp-request-surface) {
+    background: var(--bs-body-bg);
+    overflow: hidden;
 }
 
 
@@ -501,6 +523,7 @@
     padding: 1.5rem;
     box-shadow: var(--bp-surface-shadow-sm);
     border: 1px solid var(--bp-border-color);
+    margin-inline: clamp(1rem, 3vw, 2rem);
 }
 
 .bp-metrics-row .col-md-3 {
@@ -708,7 +731,8 @@
 }
 
 .bp-request-card__meta-item span,
-.bp-request-card__meta-item time {
+.bp-request-card__meta-item time,
+.bp-request-card__meta-item strong {
     display: inline-flex;
     align-items: center;
     gap: 0.25rem;
@@ -722,6 +746,40 @@
 .bp-request-card__meta-item--corp {
     padding-top: 0.35rem;
     border-top: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+.bp-request-feed__stats-wrapper {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    flex: 1 1 100%;
+    min-width: 0;
+}
+
+.bp-request-feed__stats {
+    width: 100%;
+    max-width: 24rem;
+    margin: 0 auto;
+
+    --bs-gutter-x: 0.75rem;
+    --bs-gutter-y: 0.75rem;
+}
+
+@media (min-width: 1200px) {
+    .bp-request-feed__stats-wrapper {
+        flex: 0 1 24rem;
+        margin-inline: auto;
+    }
+}
+
+.bp-request-feed__stats .badge {
+    padding: 0.35rem 0.75rem;
+    font-size: 0.85rem;
+    gap: 0.4rem;
+}
+
+.bp-request-feed__stats .badge i {
+    font-size: 0.85rem;
 }
 
 .bp-request-card__corp-pill {

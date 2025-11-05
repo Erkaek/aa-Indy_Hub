@@ -29,7 +29,7 @@ from django.utils.translation import gettext_lazy as _
 from django.views.decorators.http import require_http_methods
 
 # Alliance Auth
-from allianceauth.authentication.models import CharacterOwnership
+from allianceauth.authentication.models import CharacterOwnership, UserProfile
 
 # AA Example App
 from indy_hub.models import CharacterSettings, CorporationSharingSetting
@@ -2712,9 +2712,7 @@ def bp_copy_fulfill_requests(request):
         "self_request": {
             "label": _("Your tracked request"),
             "badge": "bg-secondary text-white",
-            "hint": _(
-                "You posted this ask. Another builder will pick it up; no action needed from you."
-            ),
+            "hint": "",
         },
     }
 
@@ -2798,11 +2796,51 @@ def bp_copy_fulfill_requests(request):
             Q(fulfilled=False)
             | Q(fulfilled=True, delivered=False, offers__owner=request.user)
         )
-        .select_related("requested_by")
+        .select_related(
+            "requested_by",
+            "requested_by__profile__main_character",
+        )
         .prefetch_related("offers__owner", "offers__chat")
         .order_by("-created_at")
         .distinct()
     )
+
+    identity_cache: dict[int, dict[str, Any]] = {}
+
+    def _resolve_requester_identity(user: User) -> dict[str, Any]:
+        cached = identity_cache.get(user.id)
+        if cached is not None:
+            return cached
+
+        character_name = ""
+        character_id = None
+        corporation_name = ""
+        corporation_id = None
+        try:
+            profile = user.profile
+        except UserProfile.DoesNotExist:  # pragma: no cover - legacy edge
+            profile = None
+
+        character = getattr(profile, "main_character", None) if profile else None
+        if character:
+            character_name = character.character_name or ""
+            character_id = getattr(character, "character_id", None)
+            corporation_name = character.corporation_name or ""
+            corporation_id = getattr(character, "corporation_id", None)
+            if not corporation_name and corporation_id:
+                lookup_name = get_corporation_name(corporation_id)
+                if lookup_name:
+                    corporation_name = lookup_name
+
+        identity = {
+            "username": user.username,
+            "character_name": character_name,
+            "character_id": character_id,
+            "corporation_name": corporation_name,
+            "corporation_id": corporation_id,
+        }
+        identity_cache[user.id] = identity
+        return identity
 
     requests_to_fulfill = []
     for req in qset:
@@ -2880,6 +2918,48 @@ def bp_copy_fulfill_requests(request):
             default_scope = "corporation"
         elif not personal_count and not corporate_count:
             default_scope = ""
+
+        eligible_holders: list[dict[str, str]] = []
+        seen_holders: set[tuple[str, int | str]] = set()
+
+        def _add_holder(kind: str, ident: int | str | None, display_name: str) -> None:
+            if not display_name:
+                return
+            key = (kind, ident if ident is not None else display_name.lower())
+            if key in seen_holders:
+                return
+            seen_holders.add(key)
+            eligible_holders.append({"name": display_name, "kind": kind})
+
+        for blueprint in personal_sources:
+            name = blueprint.character_name or ""
+            if not name and blueprint.character_id:
+                lookup_name = get_character_name(blueprint.character_id)
+                if lookup_name:
+                    name = lookup_name
+            if not name:
+                try:
+                    profile = blueprint.owner_user.profile
+                except UserProfile.DoesNotExist:  # pragma: no cover - legacy edge
+                    profile = None
+                if profile and getattr(profile, "main_character", None):
+                    main_char = profile.main_character
+                    name = getattr(main_char, "character_name", "") or name
+            if not name:
+                name = blueprint.owner_user.username
+            holder_identifier = blueprint.character_id or blueprint.owner_user_id
+            _add_holder("character", holder_identifier, name)
+
+        for blueprint in corporate_sources:
+            name = blueprint.corporation_name or ""
+            if not name and blueprint.corporation_id:
+                lookup_name = get_corporation_name(blueprint.corporation_id)
+                if lookup_name:
+                    name = lookup_name
+            if not name:
+                name = str(_("Corporation"))
+            holder_identifier = blueprint.corporation_id or name
+            _add_holder("corporation", holder_identifier, name)
 
         user_corp_id = eligible_details.user_to_corporation.get(request.user.id)
         if user_corp_id is not None and personal_count == 0 and not is_self_request:
@@ -2961,6 +3041,8 @@ def bp_copy_fulfill_requests(request):
         if is_self_request:
             offer_chat_payload = None
 
+        requester_identity = _resolve_requester_identity(req.requested_by)
+
         requests_to_fulfill.append(
             {
                 "id": req.id,
@@ -2973,6 +3055,11 @@ def bp_copy_fulfill_requests(request):
                 "copies_requested": getattr(req, "copies_requested", 1),
                 "created_at": req.created_at,
                 "requester": req.requested_by.username,
+                "requester_username": requester_identity["username"],
+                "requester_character_name": requester_identity["character_name"],
+                "requester_character_id": requester_identity["character_id"],
+                "requester_corporation_name": requester_identity["corporation_name"],
+                "requester_corporation_id": requester_identity["corporation_id"],
                 "is_self_request": is_self_request,
                 "status_key": status_key,
                 "status_label": status_info["label"],
@@ -3013,6 +3100,7 @@ def bp_copy_fulfill_requests(request):
                 "corporate_blueprints": corporate_count,
                 "has_dual_sources": has_dual_sources,
                 "default_scope": default_scope,
+                "eligible_holders": eligible_holders,
             }
         )
 
