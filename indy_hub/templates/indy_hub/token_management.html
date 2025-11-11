@@ -18,12 +18,12 @@
         <div class="row g-4 align-items-center">
             <div class="col-xl-7">
                 <span class="hero-badge text-uppercase">{% trans "ESI tokens" %}</span>
-                <h1 class="hero-title d-flex align-items-center">
+                <h2 class="hero-title d-flex align-items-center">
                     <span class="hero-icon me-3">
                         <i class="fas fa-key"></i>
                     </span>
                     {% trans "Token Management" %}
-                </h1>
+                </h2>
                 <p class="hero-lead mb-0">
                     {% trans "Keep your characters and corporations synchronized with the scopes Indy Hub needs." %}
                 </p>
@@ -34,7 +34,7 @@
     <section class="dashboard-section mb-4">
         <header class="section-heading">
             <div>
-                <h2>{% trans "ESI overview" %}</h2>
+                <h3>{% trans "ESI overview" %}</h3>
                 <p class="text-muted small mb-0">{% trans "Check what is authorized and add the missing scopes." %}</p>
             </div>
         </header>
@@ -197,7 +197,7 @@
     <section class="dashboard-section mb-5">
         <header class="section-heading">
             <div>
-                <h2>{% trans "Character access" %}</h2>
+                <h3>{% trans "Character access" %}</h3>
                 <p class="text-muted small mb-0">{% trans "Blueprint and industry tokens per pilot." %}</p>
             </div>
         </header>
@@ -258,7 +258,7 @@
     <section class="dashboard-section mb-5">
         <header class="section-heading">
             <div>
-                <h2>{% trans "Corporation sharing" %}</h2>
+                <h3>{% trans "Corporation sharing" %}</h3>
                 <p class="text-muted small mb-0">{% trans "Directors keep corp blueprints and jobs available for the team." %}</p>
             </div>
         </header>
@@ -268,7 +268,7 @@
                     <div class="card-body p-4 d-flex flex-column">
                         <div class="d-flex justify-content-between align-items-start mb-3">
                             <div>
-                                <h5 class="card-title mb-1">{% trans "Who should authorize?" %}</h5>
+                                <h6 class="card-title mb-1">{% trans "Who should authorize?" %}</h6>
                                 <p class="text-muted small mb-0">{% trans "Use trusted directors with the required roles because corporate tokens expose hangar blueprints and job data to Indy Hub." %}</p>
                             </div>
                             <span class="badge rounded-pill bg-info-subtle text-info">{{ corp_count|default:0 }}</span>
@@ -307,7 +307,7 @@
                     <div class="card-body p-4 d-flex flex-column">
                         <div class="d-flex justify-content-between align-items-start mb-3">
                             <div>
-                                <h5 class="card-title mb-1">{% trans "Sync overview" %}</h5>
+                                <h6 class="card-title mb-1">{% trans "Sync overview" %}</h6>
                                 <p class="text-muted small mb-0">{% trans "Track which corporations are covered and who authorised them." %}</p>
                             </div>
                             {% if corporation_sharing and not corporation_sharing.has_authorised_characters %}
@@ -418,7 +418,7 @@
     <section class="dashboard-section mb-4">
             <header class="section-heading">
                 <div>
-                    <h2>{% trans "Help & resources" %}</h2>
+                    <h3>{% trans "Help & resources" %}</h3>
                     <p class="text-muted small mb-0">{% trans "Understand how ESI authorization fits into Indy Hub." %}</p>
                 </div>
             </header>

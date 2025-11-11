@@ -634,12 +634,14 @@ class BlueprintCopyFulfillViewTests(TestCase):
         self.assertFalse(requests[0]["is_self_request"])
         self.assertFalse(requests[0]["is_corporate"])
         self.assertEqual(requests[0]["corporation_names"], [])
+        self.assertEqual(requests[0].get("requester_corporation_ticker", ""), "")
+        self.assertEqual(requests[0]["corporation_tickers"], [])
         self.assertEqual(requests[0]["personal_blueprints"], 1)
         self.assertEqual(requests[0]["corporate_blueprints"], 0)
         self.assertFalse(requests[0]["has_dual_sources"])
         self.assertEqual(requests[0]["default_scope"], "personal")
 
-    def test_self_request_visible_but_read_only(self) -> None:
+    def test_self_request_visible_with_actions(self) -> None:
         blueprint = Blueprint.objects.create(
             owner_user=self.user,
             character_id=42,
@@ -674,7 +676,7 @@ class BlueprintCopyFulfillViewTests(TestCase):
         self.assertEqual(response.context["metrics"]["awaiting_response"], 0)
         self.assertTrue(requests[0]["is_self_request"])
         self.assertEqual(requests[0]["status_key"], "self_request")
-        self.assertFalse(requests[0]["show_offer_actions"])
+        self.assertTrue(requests[0]["show_offer_actions"])
         self.assertFalse(requests[0]["can_mark_delivered"])
         self.assertFalse(requests[0]["is_corporate"])
         self.assertEqual(requests[0]["personal_blueprints"], 1)
@@ -780,6 +782,7 @@ class BlueprintCopyFulfillViewTests(TestCase):
         self.assertEqual(entry["available_blueprints"], 1)
         self.assertTrue(entry["is_corporate"])
         self.assertIn("Manager Corp", entry["corporation_names"])
+        self.assertIn("MGR", entry["corporation_tickers"])
         self.assertEqual(entry["personal_blueprints"], 0)
         self.assertEqual(entry["corporate_blueprints"], 1)
         self.assertFalse(entry["has_dual_sources"])
@@ -866,10 +869,14 @@ class BlueprintCopyFulfillViewTests(TestCase):
         self.assertEqual(entry["corporate_blueprints"], 1)
         self.assertEqual(entry["default_scope"], "personal")
         self.assertIn("Dual Source Corp", entry["corporation_names"])
+        self.assertIn("DUAL", entry["corporation_tickers"])
 
         html = response.content.decode()
-        self.assertIn('name="scope" value="personal"', html)
-        self.assertIn('name="scope" value="corporation"', html)
+        scope_script_id = f"bp-scope-options-{entry['id']}"
+        self.assertIn(scope_script_id, html)
+        self.assertIn("data-scope-trigger", html)
+        self.assertIn('data-scope-action="accept"', html)
+        self.assertIn('data-scope-action="conditional"', html)
 
     def test_corporate_rejection_hides_request_for_all_managers(self) -> None:
         settings = CharacterSettings.objects.get(user=self.user, character_id=0)

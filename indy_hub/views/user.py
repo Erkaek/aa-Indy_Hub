@@ -1772,13 +1772,99 @@ def sync_jobs(request):
 @login_required
 @require_POST
 def toggle_job_notifications(request):
-    # Toggle the notification preference
+    payload: dict[str, object] = {}
+    if request.body:
+        try:
+            payload = json.loads(request.body.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
+            return JsonResponse({"error": "invalid_payload"}, status=400)
+
     settings, _created = CharacterSettings.objects.get_or_create(
         user=request.user, character_id=0
     )
-    settings.jobs_notify_completed = not settings.jobs_notify_completed
-    settings.save(update_fields=["jobs_notify_completed"])
-    return JsonResponse({"enabled": settings.jobs_notify_completed})
+
+    frequency = None
+    custom_days = None
+    if isinstance(payload, dict):
+        frequency = payload.get("frequency")
+        custom_days = payload.get("custom_days")
+
+    valid_frequencies = dict(CharacterSettings.JOB_NOTIFICATION_FREQUENCY_CHOICES)
+
+    if frequency not in valid_frequencies:
+        # Legacy fallback: toggle simple on/off when no explicit frequency supplied.
+        settings.jobs_notify_completed = not settings.jobs_notify_completed
+        if settings.jobs_notify_completed:
+            frequency = (
+                settings.jobs_notify_frequency
+                if settings.jobs_notify_frequency
+                and settings.jobs_notify_frequency != CharacterSettings.NOTIFY_DISABLED
+                else CharacterSettings.NOTIFY_IMMEDIATE
+            )
+        else:
+            frequency = CharacterSettings.NOTIFY_DISABLED
+        settings.set_job_notification_frequency(frequency)
+    else:
+        days_value = None
+        if frequency == CharacterSettings.NOTIFY_CUSTOM:
+            if custom_days is None:
+                custom_days = settings.jobs_notify_custom_days
+            try:
+                days_value = int(custom_days)
+            except (TypeError, ValueError):
+                return JsonResponse({"error": "invalid_custom_days"}, status=400)
+            if days_value < 1 or days_value > 365:
+                return JsonResponse({"error": "invalid_custom_days"}, status=400)
+        settings.set_job_notification_frequency(frequency, custom_days=days_value)
+
+    if frequency in {
+        CharacterSettings.NOTIFY_DAILY,
+        CharacterSettings.NOTIFY_WEEKLY,
+        CharacterSettings.NOTIFY_MONTHLY,
+        CharacterSettings.NOTIFY_CUSTOM,
+    }:
+        settings.schedule_next_digest()
+    else:
+        settings.jobs_next_digest_at = None
+
+    settings.save(
+        update_fields=[
+            "jobs_notify_frequency",
+            "jobs_notify_custom_days",
+            "jobs_notify_completed",
+            "jobs_next_digest_at",
+            "updated_at",
+        ]
+    )
+
+    hint = _describe_job_notification_hint(
+        settings.jobs_notify_frequency, settings.jobs_notify_custom_days
+    )
+
+    message_map = {
+        CharacterSettings.NOTIFY_DISABLED: _("Industry job alerts muted."),
+        CharacterSettings.NOTIFY_IMMEDIATE: _("You'll receive live job alerts."),
+        CharacterSettings.NOTIFY_DAILY: _("Daily job digest enabled."),
+        CharacterSettings.NOTIFY_WEEKLY: _("Weekly job digest enabled."),
+        CharacterSettings.NOTIFY_MONTHLY: _("Monthly job digest enabled."),
+        CharacterSettings.NOTIFY_CUSTOM: _("Custom job digest every %(days)s day(s).")
+        % {"days": settings.jobs_notify_custom_days},
+    }
+
+    response_payload = {
+        "frequency": settings.jobs_notify_frequency,
+        "custom_days": settings.jobs_notify_custom_days,
+        "hint": hint,
+        "message": message_map.get(
+            settings.jobs_notify_frequency,
+            _("Job notification preferences updated."),
+        ),
+        "enabled": settings.jobs_notify_completed,
+    }
+    if settings.jobs_next_digest_at:
+        response_payload["next_digest_at"] = settings.jobs_next_digest_at.isoformat()
+
+    return JsonResponse(response_payload)
 
 
 # Toggle pooling de partage de copies
@@ -1987,10 +2073,6 @@ def onboarding_set_visibility(request):
         progress.dismissed = dismiss
         progress.save(update_fields=["dismissed", "updated_at"])
 
-    if dismiss:
-        messages.info(request, _("Checklist hidden. You can bring it back anytime."))
-    else:
-        messages.success(request, _("Checklist restored."))
     return redirect(next_url)
 
 

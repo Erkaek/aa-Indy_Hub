@@ -147,16 +147,16 @@
                 aria-labelledby="bp-request-tab-active"
             >
         {% if my_requests %}
-        <section class="bp-request-feed">
-            <ul class="list-unstyled m-0">
-                {% for req in my_requests %}
-                {% if not req.is_history %}
-                <li class="bp-request-feed__item border-bottom border-body-tertiary py-4{% if forloop.first %} pt-0{% endif %}{% if forloop.last %} border-0 pb-0{% endif %}">
-                    <article class="d-flex flex-column gap-2">
-                        <header class="bp-request-feed__header d-flex flex-column gap-2">
-                            <div class="d-flex flex-column flex-xl-row align-items-xl-center gap-2">
-                                <div class="d-flex align-items-start gap-2 flex-grow-1">
-                                    <span class="bp-request-card__avatar bp-request-card__avatar--sm flex-shrink-0">
+        <section class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-3">
+            {% for req in my_requests %}
+            {% if not req.is_history %}
+            <div class="col">
+                <article class="card h-100 shadow-sm request-card">
+                    <div class="card-body bp-request-card__layout">
+                        <div class="bp-request-card__primary">
+                            <div class="bp-request-card__top">
+                                <div class="bp-request-card__identity">
+                                    <span class="bp-request-card__avatar">
                                         <img
                                             src="{{ req.icon_url }}"
                                             alt="{{ req.type_name }}"
@@ -164,122 +164,52 @@
                                             onerror="this.onerror=null;this.src='https://images.evetech.net/types/{{ req.type_id }}/icon?size=64'"
                                         >
                                     </span>
-                                    <div class="d-flex flex-column gap-1">
-                                        <span class="small text-uppercase text-muted">{% trans "Blueprint" %}</span>
-                                        <h2 class="h6 mb-0 text-break" title="{{ req.type_name }}">{{ req.type_name }}</h2>
-                                        <div class="small text-muted d-flex flex-wrap gap-2">
-                                            <span>{% blocktrans with timestamp=req.created_at|naturaltime %}Opened {{ timestamp }}{% endblocktrans %}</span>
-                                        </div>
-                                        {% if req.is_corporate and req.corporation_names %}
-                                        <div class="d-flex flex-wrap gap-2">
-                                            {% for corp_name in req.corporation_names %}
-                                            <span class="badge bg-light text-body border fw-semibold">{{ corp_name }}</span>
-                                            {% endfor %}
-                                        </div>
-                                        {% endif %}
-                                    </div>
-                                </div>
-                                <div class="bp-request-feed__stats-wrapper">
-                                    <div class="bp-request-feed__stats row g-2 small justify-content-center">
-                                        <div class="col-12 col-sm-6">
-                                            <div class="border rounded-3 bg-body-tertiary p-2 h-100 text-center">
-                                                <span class="text-uppercase small text-muted fw-semibold d-block">{% trans "Request" %}</span>
-                                                <div class="d-flex flex-wrap justify-content-center gap-2 mt-2">
-                                                    <span class="badge rounded-pill bg-primary-subtle text-primary d-inline-flex align-items-center justify-content-center gap-2 px-3 py-2">
-                                                        <i class="fas fa-copy"></i>
-                                                        {{ req.copies_requested }} {% trans "copies" %}
-                                                    </span>
-                                                    <span class="badge rounded-pill bg-primary-subtle text-primary d-inline-flex align-items-center justify-content-center gap-2 px-3 py-2">
-                                                        <i class="fas fa-repeat"></i>
-                                                        {{ req.runs_requested }} {% trans "runs" %}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div class="col-12 col-sm-6">
-                                            <div class="border rounded-3 bg-info-subtle text-info-emphasis p-2 h-100 text-center">
-                                                <span class="text-uppercase small fw-semibold d-block">{% trans "Blueprint research" %}</span>
-                                                <div class="d-flex flex-wrap justify-content-center gap-2 mt-2">
-                                                    <span class="badge rounded-pill bg-info text-white d-inline-flex align-items-center justify-content-center gap-2 px-3 py-2">
-                                                        <i class="fas fa-flask"></i>
-                                                        ME {{ req.material_efficiency }}
-                                                    </span>
-                                                    <span class="badge rounded-pill bg-info text-white d-inline-flex align-items-center justify-content-center gap-2 px-3 py-2">
-                                                        <i class="fas fa-bolt"></i>
-                                                        TE {{ req.time_efficiency }}
-                                                    </span>
-                                                </div>
-                                            </div>
+                                    <div class="bp-request-card__identity-body">
+                                        <h2 class="h5 mb-1 bp-request-card__title text-break" title="{{ req.type_name }}">{{ req.type_name }}</h2>
+                                        <div class="bp-request-card__identity-meta text-muted small">
+                                            <i class="fas fa-clock me-1"></i>
+                                            <time datetime="{{ req.created_at|date:'c' }}" title="{{ req.created_at|date:'Y-m-d H:i' }}">{{ req.created_at|naturaltime }}</time>
                                         </div>
                                     </div>
                                 </div>
-                                <div class="d-flex flex-column align-items-xl-end gap-2 flex-xl-shrink-0 ms-xl-3">
-                                    <span class="badge {{ req.status_class }} text-uppercase fw-semibold px-3 py-2">{{ req.status_label }}</span>
-                                </div>
+                                <span class="badge bp-request-card__status {{ req.status_class }} fw-semibold text-uppercase px-3 py-2">
+                                    {{ req.status_label }}
+                                </span>
                             </div>
-                        </header>
 
-                        <div class="d-flex flex-column flex-lg-row gap-2 small">
-                            <div class="flex-lg-grow-1">
-                                <span class="text-uppercase small text-muted fw-semibold d-block">{% trans "Progress" %}</span>
-                                {% if req.status_hint %}
-                                <p class="mb-0 text-muted">{{ req.status_hint }}</p>
-                                {% else %}
-                                <p class="mb-0 text-muted">{% trans "Waiting for builder updates." %}</p>
-                                {% endif %}
-                            </div>
-                            <div class="flex-lg-shrink-0 border-top pt-3 pt-lg-0 ps-lg-3 d-flex flex-column gap-2">
-                                {% if req.accepted_offer %}
-                                <div>
-                                    <span class="text-uppercase small text-muted fw-semibold d-block">{% trans "Accepted by" %}</span>
-                                    <span class="fw-semibold text-body">{{ req.accepted_offer.owner_username }}</span>
-                                </div>
-                                {% elif req.cond_accepted %}
-                                <div>
-                                    <span class="text-uppercase small text-muted fw-semibold d-block">{% trans "Awaiting confirmation" %}</span>
-                                    <span class="text-muted">{% trans "Builder reviewing your acceptance." %}</span>
-                                </div>
-                                {% elif req.cond_offers %}
-                                <div>
-                                    <span class="text-uppercase small text-muted fw-semibold d-block">{% trans "Pending review" %}</span>
-                                    {% with cond_count=req.cond_offers|length %}
-                                    <span class="fw-semibold text-body">
-                                        {% blocktrans count cond_count=cond_count %}
-                                        {{ cond_count }} conditional offer
-                                        {% plural %}
-                                        {{ cond_count }} conditional offers
-                                        {% endblocktrans %}
-                                    </span>
-                                    {% endwith %}
-                                </div>
-                                {% elif req.chat_actions %}
-                                <div>
-                                    <span class="text-uppercase small text-muted fw-semibold d-block">{% trans "Active chats" %}</span>
-                                    {% with chat_count=req.chat_actions|length %}
-                                    <span class="fw-semibold text-body">
-                                        {% blocktrans count chat_count=chat_count %}
-                                        {{ chat_count }} conversation
-                                        {% plural %}
-                                        {{ chat_count }} conversations
-                                        {% endblocktrans %}
-                                    </span>
-                                    {% endwith %}
-                                </div>
-                                {% elif req.delivered %}
-                                <div>
-                                    <span class="text-uppercase small text-muted fw-semibold d-block">{% trans "Status" %}</span>
-                                    <span class="text-muted">{% trans "Delivery confirmed." %}</span>
-                                </div>
-                                {% else %}
-                                <div>
-                                    <span class="text-uppercase small text-muted fw-semibold d-block">{% trans "Status" %}</span>
-                                    <span class="text-muted">{% trans "Awaiting builder response." %}</span>
-                                </div>
-                                {% endif %}
+                            <div class="bp-request-card__metrics-panel" role="group" aria-label="{% trans 'Blueprint copy request details' %}">
+                                <ul class="bp-request-card__metrics">
+                                    <li class="bp-request-card__metric bp-request-card__metric--copies">
+                                        <span class="bp-request-card__metric-label">
+                                            <i class="fas fa-clone"></i>{% trans "Copies" %}
+                                        </span>
+                                        <span class="bp-request-card__metric-value">{{ req.copies_requested|default_if_none:"—" }}</span>
+                                    </li>
+                                    <li class="bp-request-card__metric bp-request-card__metric--runs">
+                                        <span class="bp-request-card__metric-label">
+                                            <i class="fas fa-cogs"></i>{% trans "Runs" %}
+                                        </span>
+                                        <span class="bp-request-card__metric-value">{{ req.runs_requested|default_if_none:"—" }}</span>
+                                    </li>
+                                    <li class="bp-request-card__metric bp-request-card__metric--me">
+                                        <span class="bp-request-card__metric-label">
+                                            <i class="fas fa-industry"></i>{% trans "Material efficiency" %}
+                                        </span>
+                                        <span class="bp-request-card__metric-value">{{ req.material_efficiency }}</span>
+                                    </li>
+                                    <li class="bp-request-card__metric bp-request-card__metric--te">
+                                        <span class="bp-request-card__metric-label">
+                                            <i class="fas fa-stopwatch"></i>{% trans "Time efficiency" %}
+                                        </span>
+                                        <span class="bp-request-card__metric-value">{{ req.time_efficiency }}</span>
+                                    </li>
+                                </ul>
                             </div>
                         </div>
 
-                        <div class="d-flex flex-column gap-3">
+                        <div class="bp-request-card__secondary">
+                            <p class="bp-request-card__status-hint text-muted small mb-0">{{ req.status_hint }}</p>
+
                             {% if req.accepted_offer %}
                             <div class="alert alert-success mb-0">
                                 <i class="fas fa-handshake me-2"></i>
@@ -294,9 +224,6 @@
                                 {% blocktrans with builder=req.cond_accepted.builder_label %}Conditional offer accepted from {{ builder }}{% endblocktrans %}
                                 <p class="mb-0 small text-info mt-2">{% trans "Conversation archived. Check previous chat messages if needed." %}</p>
                             </div>
-                            {% endif %}
-
-                            {% if req.cond_accepted %}
                             {% include "indy_hub/includes/chat_preview.html" with preview=req.cond_accepted.chat.preview %}
                             {% endif %}
 
@@ -365,125 +292,125 @@
                                 <i class="fas fa-check-double me-1"></i>{% trans "Delivery confirmed. Blueprints are in your hands." %}
                             </div>
                             {% endif %}
-                        </div>
 
-                        <div class="mt-auto">
-                            <div class="bp-card-toolbar">
-                                {% if req.chat_actions %}
-                                    {% for action in req.chat_actions %}
-                                    <div class="bp-card-toolbar__group bp-card-toolbar__group--stacked{% if forloop.first %} bp-card-toolbar__group--push{% endif %}" role="group" aria-label="{% trans 'Chat controls' %}">
-                                        <button
-                                            type="button"
-                                            class="bp-btn bp-chat-pill btn-sm bp-chat-trigger"
-                                            data-chat-fetch-url="{{ action.chat.fetch_url }}"
-                                            data-chat-send-url="{{ action.chat.send_url }}"
-                                            data-chat-role="buyer"
-                                            data-chat-type-name="{{ req.type_name }}"
-                                            data-chat-type-id="{{ req.type_id }}"
-                                            data-chat-has-unread="{{ action.chat.has_unread|yesno:'true,false' }}"
-                                            aria-haspopup="dialog"
-                                        >
-                                            <i class="fas fa-comments"></i>
-                                            <span>
-                                                {% if action.builder_label %}
-                                                    {% blocktrans with builder=action.builder_label %}Open chat ({{ builder }}){% endblocktrans %}
-                                                {% else %}
-                                                    {% trans "Open chat" %}
+                            <div class="mt-auto">
+                                <div class="bp-card-toolbar">
+                                    {% if req.chat_actions %}
+                                        {% for action in req.chat_actions %}
+                                        <div class="bp-card-toolbar__group bp-card-toolbar__group--stacked{% if forloop.first %} bp-card-toolbar__group--push{% endif %}" role="group" aria-label="{% trans 'Chat controls' %}">
+                                            <button
+                                                type="button"
+                                                class="bp-btn bp-chat-pill btn-sm bp-chat-trigger"
+                                                data-chat-fetch-url="{{ action.chat.fetch_url }}"
+                                                data-chat-send-url="{{ action.chat.send_url }}"
+                                                data-chat-role="buyer"
+                                                data-chat-type-name="{{ req.type_name }}"
+                                                data-chat-type-id="{{ req.type_id }}"
+                                                data-chat-has-unread="{{ action.chat.has_unread|yesno:'true,false' }}"
+                                                aria-haspopup="dialog"
+                                            >
+                                                <i class="fas fa-comments"></i>
+                                                <span>
+                                                    {% if action.builder_label %}
+                                                        {% blocktrans with builder=action.builder_label %}Open chat ({{ builder }}){% endblocktrans %}
+                                                    {% else %}
+                                                        {% trans "Open chat" %}
+                                                    {% endif %}
+                                                </span>
+                                                {% if action.chat.has_unread %}
+                                                <span class="bp-chat-trigger__badge" aria-hidden="true">
+                                                    <i class="fas fa-circle-dot"></i>
+                                                </span>
                                                 {% endif %}
-                                            </span>
-                                            {% if action.chat.has_unread %}
-                                            <span class="bp-chat-trigger__badge" aria-hidden="true">
-                                                <i class="fas fa-circle-dot"></i>
+                                            </button>
+                                            {% if action.chat.last_message_display %}
+                                            <span class="bp-card-toolbar__timestamp">
+                                                {% blocktrans with timestamp=action.chat.last_message_display %}Last message {{ timestamp }}{% endblocktrans %}
                                             </span>
                                             {% endif %}
+                                        </div>
+                                        {% endfor %}
+                                    {% endif %}
+                                    {% if req.can_cancel %}
+                                    <div class="bp-card-toolbar__group" role="group" aria-label="{% trans 'Request actions' %}">
+                                        <button
+                                            type="button"
+                                            class="bp-btn bp-btn-soft-secondary btn-sm"
+                                            data-bs-toggle="modal"
+                                            data-bs-target="#editRequestModal-{{ req.id }}"
+                                        >
+                                            <i class="fas fa-edit"></i>
+                                            <span>{% trans "Edit request" %}</span>
                                         </button>
-                                        {% if action.chat.last_message_display %}
-                                        <span class="bp-card-toolbar__timestamp">
-                                            {% blocktrans with timestamp=action.chat.last_message_display %}Last message {{ timestamp }}{% endblocktrans %}
-                                        </span>
-                                        {% endif %}
+                                        <form action="{% url 'indy_hub:bp_cancel_copy_request' req.id %}" method="post" class="bp-card-toolbar__form">
+                                            {% csrf_token %}
+                                            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                                            <button type="submit" class="bp-btn bp-btn-soft-danger btn-sm">
+                                                <i class="fas fa-times"></i>
+                                                <span>{% trans "Cancel request" %}</span>
+                                            </button>
+                                        </form>
                                     </div>
-                                    {% endfor %}
-                                {% endif %}
-                                {% if req.can_cancel %}
-                                <div class="bp-card-toolbar__group" role="group" aria-label="{% trans 'Request actions' %}">
-                                    <button
-                                        type="button"
-                                        class="bp-btn bp-btn-soft-secondary btn-sm"
-                                        data-bs-toggle="modal"
-                                        data-bs-target="#editRequestModal-{{ req.id }}"
-                                    >
-                                        <i class="fas fa-edit"></i>
-                                        <span>{% trans "Edit request" %}</span>
-                                    </button>
-                                    <form action="{% url 'indy_hub:bp_cancel_copy_request' req.id %}" method="post" class="bp-card-toolbar__form">
-                                        {% csrf_token %}
-                                        <input type="hidden" name="next" value="{{ request.get_full_path }}">
-                                        <button type="submit" class="bp-btn bp-btn-soft-danger btn-sm">
-                                            <i class="fas fa-times"></i>
-                                            <span>{% trans "Cancel request" %}</span>
-                                        </button>
-                                    </form>
+                                    {% endif %}
                                 </div>
-                                {% endif %}
-                            </div>
-                        </div>
-                    </article>
-                    {% if req.can_cancel %}
-                    <div class="modal fade" id="editRequestModal-{{ req.id }}" tabindex="-1" aria-labelledby="editRequestModalLabel-{{ req.id }}" aria-hidden="true">
-                        <div class="modal-dialog modal-dialog-centered">
-                            <div class="modal-content">
-                                <form method="post" action="{% url 'indy_hub:bp_update_copy_request' req.id %}">
-                                    {% csrf_token %}
-                                    <div class="modal-header">
-                                        <h5 class="modal-title" id="editRequestModalLabel-{{ req.id }}">{% trans "Update request" %}</h5>
-                                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
-                                    </div>
-                                    <div class="modal-body">
-                                        <p class="small text-muted mb-3">
-                                            <strong>{{ req.type_name }}</strong><br>
-                                            <span class="text-uppercase">ME {{ req.material_efficiency }} • TE {{ req.time_efficiency }}</span>
-                                        </p>
-                                        <div class="mb-3">
-                                            <label class="form-label" for="copiesRequested-{{ req.id }}">{% trans "Copies requested" %}</label>
-                                            <input
-                                                type="number"
-                                                min="1"
-                                                class="form-control"
-                                                id="copiesRequested-{{ req.id }}"
-                                                name="copies_requested"
-                                                value="{{ req.copies_requested }}"
-                                                required
-                                            >
-                                        </div>
-                                        <div class="mb-0">
-                                            <label class="form-label" for="runsRequested-{{ req.id }}">{% trans "Runs requested" %}</label>
-                                            <input
-                                                type="number"
-                                                min="1"
-                                                class="form-control"
-                                                id="runsRequested-{{ req.id }}"
-                                                name="runs_requested"
-                                                value="{{ req.runs_requested }}"
-                                                required
-                                            >
-                                        </div>
-                                    </div>
-                                    <div class="modal-footer">
-                                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{% trans "Cancel" %}</button>
-                                        <button type="submit" class="btn btn-primary">
-                                            <i class="fas fa-save me-1"></i>{% trans "Save changes" %}
-                                        </button>
-                                    </div>
-                                </form>
                             </div>
                         </div>
                     </div>
-                    {% endif %}
-                </li>
+                </article>
+                {% if req.can_cancel %}
+                <div class="modal fade" id="editRequestModal-{{ req.id }}" tabindex="-1" aria-labelledby="editRequestModalLabel-{{ req.id }}" aria-hidden="true">
+                    <div class="modal-dialog modal-dialog-centered">
+                        <div class="modal-content">
+                            <form method="post" action="{% url 'indy_hub:bp_update_copy_request' req.id %}">
+                                {% csrf_token %}
+                                <div class="modal-header">
+                                    <h5 class="modal-title" id="editRequestModalLabel-{{ req.id }}">{% trans "Update request" %}</h5>
+                                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
+                                </div>
+                                <div class="modal-body">
+                                    <p class="small text-muted mb-3">
+                                        <strong>{{ req.type_name }}</strong><br>
+                                        <span class="text-uppercase">ME {{ req.material_efficiency }} • TE {{ req.time_efficiency }}</span>
+                                    </p>
+                                    <div class="mb-3">
+                                        <label class="form-label" for="copiesRequested-{{ req.id }}">{% trans "Copies requested" %}</label>
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            class="form-control"
+                                            id="copiesRequested-{{ req.id }}"
+                                            name="copies_requested"
+                                            value="{{ req.copies_requested }}"
+                                            required
+                                        >
+                                    </div>
+                                    <div class="mb-0">
+                                        <label class="form-label" for="runsRequested-{{ req.id }}">{% trans "Runs requested" %}</label>
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            class="form-control"
+                                            id="runsRequested-{{ req.id }}"
+                                            name="runs_requested"
+                                            value="{{ req.runs_requested }}"
+                                            required
+                                        >
+                                    </div>
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{% trans "Cancel" %}</button>
+                                    <button type="submit" class="btn btn-primary">
+                                        <i class="fas fa-save me-1"></i>{% trans "Save changes" %}
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
                 {% endif %}
-                {% endfor %}
-            </ul>
+            </div>
+            {% endif %}
+            {% endfor %}
         </section>
         {% else %}
         <section class="bp-request-empty card border-0 shadow-sm">

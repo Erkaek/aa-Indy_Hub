@@ -18,12 +18,12 @@
         <div class="row g-4 align-items-center">
             <div class="col-xl-7">
                 <span class="hero-badge text-uppercase">{% trans "Industrial command center" %}</span>
-                <h1 class="hero-title d-flex align-items-center">
+                <h2 class="hero-title d-flex align-items-center">
                     <span class="hero-icon me-3">
                         <i class="fas fa-industry"></i>
                     </span>
                     {% trans "Welcome to Indy Hub" %}
-                </h1>
+                </h2>
                 <p class="hero-lead mb-0">
                     {% trans "Monitor your production flow, understand your blueprint inventory, and coordinate copy requests in one glance." %}
                 </p>
@@ -53,9 +53,9 @@
                                 </span>
                                 <div class="chat-alert-card__title">
                                     <span class="chat-alert-card__eyebrow">{% trans "Unread chat" %}</span>
-                                    <h3 class="chat-alert-card__headline mb-0">
+                                    <h4 class="chat-alert-card__headline mb-0">
                                         {% blocktrans count total=copy_chat_unread_count %}{{ total }} conversation needs your reply{% plural %}{{ total }} conversations need your reply{% endblocktrans %}
-                                    </h3>
+                                    </h4>
                                 </div>
                                 <span class="chat-alert-card__count badge rounded-pill bg-primary text-white">{{ copy_chat_unread_count }}</span>
                             </header>
@@ -150,15 +150,15 @@
     <section class="dashboard-section mb-5">
         <header class="section-heading">
             <div>
-                <h2>{% trans "New pilot onboarding" %}</h2>
+                <h3>{% trans "New pilot onboarding" %}</h3>
                 <p class="text-muted small mb-0">{% trans "Follow these steps to unlock the full Indy Hub workflow." %}</p>
             </div>
             <form method="post" action="{% url 'indy_hub:onboarding_set_visibility' %}" class="d-inline">
-                                            <button
-                                                type="button"
-                                                class="btn btn-primary btn-sm px-3 rounded-pill"
-                                                id="job-notification-apply"
-                                            >
+                {% csrf_token %}
+                <input type="hidden" name="action" value="dismiss">
+                <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                <button type="submit" class="btn btn-outline-secondary btn-sm px-3 rounded-pill">
+                    <i class="fas fa-eye-slash me-2"></i>{% trans "Hide onboarding" %}
                 </button>
             </form>
         </header>
@@ -236,7 +236,7 @@
                     </div>
                     <div class="col-lg-5">
                         <div class="border rounded-4 p-4 h-100 bg-light-subtle">
-                            <h5 class="mb-3">{% trans "Why it matters" %}</h5>
+                            <h6 class="mb-3">{% trans "Why it matters" %}</h6>
                             <ul class="list-unstyled small text-muted d-flex flex-column gap-2 mb-0">
                                 <li class="d-flex gap-2">
                                     <i class="fas fa-arrow-trend-up mt-1 text-success"></i>
@@ -263,7 +263,7 @@
     <section class="dashboard-section mb-5">
         <header class="section-heading">
             <div>
-                <h2>{% trans "Finish your setup" %}</h2>
+                <h3>{% trans "Finish your setup" %}</h3>
                 <p class="text-muted small mb-0">{% trans "Authorize blueprint and industry tokens to unlock live insights across the dashboard." %}</p>
             </div>
         </header>
@@ -273,7 +273,7 @@
                     <div class="card-body p-4 d-flex flex-column">
                         <div class="d-flex justify-content-between align-items-start mb-3">
                             <div>
-                                <h5 class="card-title mb-1">{% trans "Authorize data sync" %}</h5>
+                                <h6 class="card-title mb-1">{% trans "Authorize data sync" %}</h6>
                                 <p class="text-muted small mb-0">{% trans "Connect at least one character for blueprints and jobs so Indy Hub can stay current." %}</p>
                             </div>
                             <div class="focus-icon bg-warning bg-opacity-10 text-warning">
@@ -308,7 +308,7 @@
             <div class="col-xl-4 col-lg-12">
                 <div class="card focus-card h-100">
                     <div class="card-body p-4 d-flex flex-column">
-                        <h5 class="card-title mb-3">{% trans "Quick reminders" %}</h5>
+                        <h6 class="card-title mb-3">{% trans "Quick reminders" %}</h6>
                         <ul class="list-unstyled text-muted small mb-0 d-flex flex-column gap-2">
                             <li class="d-flex align-items-start gap-2">
                                 <i class="fas fa-circle-info text-warning mt-1"></i>
@@ -333,7 +333,7 @@
     <section class="dashboard-section mb-5">
         <header class="section-heading">
             <div>
-                <h2>{% trans "Watch your operations" %}</h2>
+                <h3>{% trans "Watch your operations" %}</h3>
                 <p class="text-muted small mb-0">{% trans "Review personal blueprints, industry jobs, and plan your next run." %}</p>
             </div>
         </header>
@@ -343,7 +343,7 @@
                     <div class="card-body p-4 d-flex flex-column">
                         <div class="d-flex justify-content-between align-items-start mb-3">
                             <div>
-                                <h5 class="card-title mb-1">{% trans "Blueprint library" %}</h5>
+                                <h6 class="card-title mb-1">{% trans "Blueprint library" %}</h6>
                                 <p class="text-muted small mb-0">{% trans "Originals and copies at a glance." %}</p>
                             </div>
                             <div class="d-flex align-items-center gap-2">
@@ -395,7 +395,7 @@
                     <div class="card-body p-4 d-flex flex-column">
                         <div class="d-flex justify-content-between align-items-start mb-3">
                             <div>
-                                <h5 class="card-title mb-1">{% trans "Industry jobs" %}</h5>
+                                <h6 class="card-title mb-1">{% trans "Industry jobs" %}</h6>
                                 <p class="text-muted small mb-0">{% trans "Track active slots and completed work." %}</p>
                             </div>
                             <div class="d-flex align-items-center gap-2">
@@ -447,7 +447,7 @@
                     <div class="card-body p-4 d-flex flex-column">
                         <div class="d-flex justify-content-between align-items-start mb-3">
                             <div>
-                                <h5 class="card-title mb-1">{% trans "Production simulations" %}</h5>
+                                <h6 class="card-title mb-1">{% trans "Production simulations" %}</h6>
                                 <p class="text-muted small mb-0">{% trans "Plan taxes, fees, and profitability scenarios." %}</p>
                             </div>
                             <div class="focus-icon bg-secondary bg-opacity-10 text-secondary">
@@ -469,7 +469,7 @@
     <section class="dashboard-section mb-5">
         <header class="section-heading">
             <div>
-                <h2>{% trans "Collaboration hub" %}</h2>
+                <h3>{% trans "Collaboration hub" %}</h3>
                 <p class="text-muted small mb-0">{% trans "Coordinate duplicates, fulfil copy queues, and keep your corp in sync." %}</p>
             </div>
         </header>
@@ -479,7 +479,7 @@
                     <div class="card-body p-4 d-flex flex-column">
                         <div class="d-flex justify-content-between align-items-start mb-3">
                             <div>
-                                <h5 class="card-title mb-1">{% trans "Blueprint sharing" %}</h5>
+                                <h6 class="card-title mb-1">{% trans "Blueprint sharing" %}</h6>
                                 <p class="text-muted small mb-0" id="share-subtitle">{{ copy_sharing_state.subtitle }}</p>
                             </div>
                             <div class="focus-icon bg-warning bg-opacity-10 text-warning">
@@ -540,7 +540,7 @@
     <section class="dashboard-section mb-5">
         <header class="section-heading">
             <div>
-                <h2>{% trans "Tools & references" %}</h2>
+                <h3>{% trans "Tools & references" %}</h3>
                 <p class="text-muted small mb-0">{% trans "Jump into catalogs and documentation." %}</p>
             </div>
         </header>
@@ -550,7 +550,7 @@
                     <div class="card-body p-4 d-flex flex-column">
                         <div class="d-flex justify-content-between align-items-start mb-3">
                             <div>
-                                <h5 class="card-title mb-1">{% trans "All EVE blueprints" %}</h5>
+                                <h6 class="card-title mb-1">{% trans "All EVE blueprints" %}</h6>
                                 <p class="text-muted small mb-0">{% trans "Reference database with search and filters." %}</p>
                             </div>
                             <div class="focus-icon bg-info bg-opacity-10 text-info">
@@ -572,7 +572,7 @@
     <section class="dashboard-section mb-4">
         <header class="section-heading">
             <div>
-                <h2>{% trans "Preferences & access" %}</h2>
+                <h3>{% trans "Preferences & access" %}</h3>
                 <p class="text-muted small mb-0">{% trans "Tune notifications and keep your ESI connections healthy." %}</p>
             </div>
         </header>
@@ -580,7 +580,7 @@
             <div class="col-xxl-9 col-xl-10 col-lg-11 col-md-12">
                 <div class="card preference-card h-100">
                     <div class="card-body p-4 d-flex flex-column">
-                        <h5 class="card-title mb-3">{% trans "Quick preferences" %}</h5>
+                        <h6 class="card-title mb-3">{% trans "Quick preferences" %}</h6>
                         <div class="preference-stack">
                             <div class="preference-item">
                                 <div class="preference-text">

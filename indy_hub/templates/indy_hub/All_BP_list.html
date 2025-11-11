@@ -15,10 +15,10 @@
         <div class="page-header mb-4">
             <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
                 <div>
-                    <h1 class="h2 mb-1">
+                    <h2 class="h3 mb-1">
                         <i class="fas fa-database me-2"></i>
                         {% trans "All EVE Online Blueprints" %}
-                    </h1>
+                    </h2>
                     <p class="description">{% trans "Reference of all blueprints available in EVE Online." %}</p>
                 </div>
                 <div class="d-flex gap-2">
@@ -83,7 +83,7 @@
                     </div>
                     <div class="flex-grow-1 min-width-0 blueprint-list-content">
                         <div class="blueprint-meta mb-0">
-                            <h4 class="blueprint-title mb-0">{{ bp.type_name|default:"Unknown Blueprint" }}</h4>
+                            <h5 class="blueprint-title mb-0">{{ bp.type_name|default:"Unknown Blueprint" }}</h5>
                             <a href="{% url 'indy_hub:craft_bp' bp.type_id %}?next={{ request.get_full_path|urlencode }}" class="btn btn-outline-info btn-sm">
                                 <i class="fas fa-tools me-1"></i>{% trans "View Craft" %}
                             </a>

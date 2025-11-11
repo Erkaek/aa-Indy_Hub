@@ -13,9 +13,9 @@
     <div class="page-header mb-4">
         <div class="d-flex flex-column flex-lg-row align-items-start align-items-lg-center justify-content-between gap-3">
             <div>
-                <h1 class="h2 mb-1">
+                <h2 class="h3 mb-1">
                     <i class="fas fa-flask me-2"></i>{% trans "My Production Simulations" %}
-                </h1>
+                </h2>
                 <p class="description mb-0">{% trans "Review, reopen and curate the craft scenarios you have saved." %}</p>
             </div>
             <div class="d-flex flex-wrap gap-2">
@@ -36,9 +36,9 @@
     <section class="glass-panel mb-4 p-4">
         <div class="d-flex flex-column flex-lg-row align-items-start align-items-lg-center justify-content-between gap-3 mb-3">
             <div>
-                <h2 class="h5 mb-1 d-flex align-items-center gap-2">
+                <h3 class="h6 mb-1 d-flex align-items-center gap-2">
                     <i class="fas fa-route text-primary"></i>{% trans "Turn requests into production" %}
-                </h2>
+                </h3>
                 <p class="text-muted small mb-0">{% trans "Use saved scenarios to plan the build effort once copy requests are accepted." %}</p>
             </div>
         </div>
@@ -48,7 +48,7 @@
                     <div class="card-body">
                         <div class="d-flex align-items-center gap-3 mb-2">
                             <span class="badge bg-primary text-white rounded-circle px-2 py-1">1</span>
-                            <h3 class="h6 mb-0">{% trans "Validate the demand" %}</h3>
+                            <h4 class="h6 mb-0">{% trans "Validate the demand" %}</h4>
                         </div>
                         <p class="text-muted small mb-0">{% trans "Review accepted copy requests and confirm doctrines or market targets before planning materials." %}</p>
                     </div>
@@ -59,7 +59,7 @@
                     <div class="card-body">
                         <div class="d-flex align-items-center gap-3 mb-2">
                             <span class="badge bg-primary text-white rounded-circle px-2 py-1">2</span>
-                            <h3 class="h6 mb-0">{% trans "Simulate the build" %}</h3>
+                            <h4 class="h6 mb-0">{% trans "Simulate the build" %}</h4>
                         </div>
                         <p class="text-muted small mb-0">{% trans "Leverage saved scenarios to model costs, required inputs, and expected profit before committing." %}</p>
                     </div>
@@ -70,7 +70,7 @@
                     <div class="card-body">
                         <div class="d-flex align-items-center gap-3 mb-2">
                             <span class="badge bg-primary text-white rounded-circle px-2 py-1">3</span>
-                            <h3 class="h6 mb-0">{% trans "Kick off production" %}</h3>
+                            <h4 class="h6 mb-0">{% trans "Kick off production" %}</h4>
                         </div>
                         <p class="text-muted small mb-0">{% trans "Turn approved plans into jobs, then circle back to fulfilment to keep requesters informed." %}</p>
                     </div>
@@ -92,7 +92,7 @@
         <div class="col-12 col-sm-6 col-xl-3">
             <div class="stats-card h-100">
                 <div class="card-body text-center">
-                    <div class="h3 text-primary mb-1">{{ total_simulations|intcomma }}</div>
+                    <div class="h4 text-primary mb-1">{{ total_simulations|intcomma }}</div>
                     <small class="text-muted fw-bold">{% trans "Total simulations" %}</small>
                 </div>
             </div>
@@ -100,7 +100,7 @@
         <div class="col-12 col-sm-6 col-xl-3">
             <div class="stats-card h-100">
                 <div class="card-body text-center">
-                    <div class="h3 text-success mb-1">{{ stats.total_runs|default:0|intcomma }}</div>
+                    <div class="h4 text-success mb-1">{{ stats.total_runs|default:0|intcomma }}</div>
                     <small class="text-muted fw-bold">{% trans "Total runs" %}</small>
                 </div>
             </div>
@@ -108,7 +108,7 @@
         <div class="col-12 col-sm-6 col-xl-3">
             <div class="stats-card h-100">
                 <div class="card-body text-center">
-                    <div class="h3 text-warning mb-1">{{ stats.total_cost|floatformat:0|intcomma }} ISK</div>
+                    <div class="h4 text-warning mb-1">{{ stats.total_cost|floatformat:0|intcomma }} ISK</div>
                     <small class="text-muted fw-bold">{% trans "Estimated cost" %}</small>
                 </div>
             </div>
@@ -116,7 +116,7 @@
         <div class="col-12 col-sm-6 col-xl-3">
             <div class="stats-card h-100">
                 <div class="card-body text-center">
-                    <div class="h3 text-info mb-1">{{ stats.total_revenue|floatformat:0|intcomma }} ISK</div>
+                    <div class="h4 text-info mb-1">{{ stats.total_revenue|floatformat:0|intcomma }} ISK</div>
                     <small class="text-muted fw-bold">{% trans "Estimated revenue" %}</small>
                 </div>
             </div>
@@ -190,7 +190,7 @@
                     {% endif %}
                     </div>
                     <div class="simulation-title">
-                        <h2 class="h5 mb-1">{{ simulation.display_name }}</h2>
+                        <h3 class="h6 mb-1">{{ simulation.display_name }}</h3>
                         <p class="mb-0 text-muted">
                             {% if simulation.blueprint_name %}
                                 {{ simulation.blueprint_name }}
@@ -257,7 +257,7 @@
         <div class="empty-icon">
             <i class="fas fa-flask"></i>
         </div>
-        <h4 class="mb-2">{% trans "No Simulations Yet" %}</h4>
+        <h5 class="mb-2">{% trans "No Simulations Yet" %}</h5>
         <p class="mb-4">{% trans "Explore your blueprints and save a scenario to keep track of your production planning." %}</p>
         <a href="{% url 'indy_hub:all_bp_list' %}" class="btn btn-primary btn-lg">
             <i class="fas fa-plus me-2"></i>{% trans "Create Your First Simulation" %}

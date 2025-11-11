@@ -2,7 +2,6 @@
 {% load i18n %}
 {% load static %}
 {% load humanize %}
-{% load theme_tags %}
 
 {% block page_title %}{% trans "Fulfill Copy Requests" %}{% endblock %}
 
@@ -13,7 +12,7 @@
 {% endblock %}
 
 {% block content %}
-<main class="bp-request-surface bg-body" style="--aa-nav-gap: {% header_padding_size %};" data-auto-open-chat="{{ auto_open_chat_id|default_if_none:'' }}">
+<main class="bp-request-surface bg-body" data-auto-open-chat="{{ auto_open_chat_id|default_if_none:'' }}">
     <div class="container-fluid my-4">
         <section class="page-header bp-request-hero mb-4 position-relative overflow-hidden">
             <i class="fas fa-handshake header-bg"></i>
@@ -49,11 +48,11 @@
                                 <i class="fas fa-arrow-left me-1"></i>{% trans "Back to dashboard" %}
                             </a>
                         </div>
+                        </div>
                     </div>
                 </div>
             </div>
         </section>
-
         <section class="glass-panel mb-4 p-4">
             <div class="d-flex flex-column flex-lg-row align-items-start align-items-lg-center justify-content-between gap-3 mb-3">
                 <div>
@@ -100,6 +99,7 @@
             </div>
         </section>
 
+        {% if requests %}
         <section class="row g-3 mb-4 bp-metrics-row">
             <div class="col-md-3">
                 <div class="glass-panel h-100 p-3">
@@ -145,18 +145,16 @@
                     </div>
                 </div>
             </div>
-        </section>
+            </section>
 
-        {% if requests %}
-    <section class="bp-request-feed">
-        <ul class="list-unstyled m-0">
+        <section class="bp-request-grid">
             {% for req in requests %}
-            <li class="bp-request-feed__item border-bottom border-body-tertiary py-4{% if forloop.first %} pt-0{% endif %}{% if forloop.last %} border-0 pb-0{% endif %}">
-                <article class="d-flex flex-column gap-2">
-                    <header class="bp-request-feed__header d-flex flex-column gap-2">
-                        <div class="d-flex flex-column flex-xl-row align-items-xl-center gap-2">
-                            <div class="d-flex align-items-start gap-2 flex-grow-1">
-                                <span class="bp-request-card__avatar bp-request-card__avatar--sm flex-shrink-0">
+            <article class="card h-100 shadow-sm request-card" data-request-id="{{ req.id }}">
+                <div class="card-body bp-request-card__layout">
+                    <div class="bp-request-card__primary">
+                        <div class="bp-request-card__top">
+                            <div class="bp-request-card__identity">
+                                <span class="bp-request-card__avatar">
                                     <img
                                         src="{{ req.icon_url }}"
                                         alt="{{ req.type_name }}"
@@ -164,115 +162,175 @@
                                         onerror="this.onerror=null;this.src='https://images.evetech.net/types/{{ req.type_id }}/icon?size=64'"
                                     >
                                 </span>
-                                <div class="d-flex flex-column gap-1">
-                                    <span class="small text-uppercase text-muted">{% trans "Blueprint" %}</span>
-                                    <h2 class="h6 mb-0 text-break" title="{{ req.type_name }}">{{ req.type_name }}</h2>
-                                    <div class="small text-muted d-flex flex-wrap gap-2">
-                                        <span>{% blocktrans with timestamp=req.created_at|naturaltime %}Opened {{ timestamp }}{% endblocktrans %}</span>
+                                <div class="bp-request-card__identity-body">
+                                    <h2 class="h5 mb-1 bp-request-card__title text-break" title="{{ req.type_name }}">{{ req.type_name }}</h2>
+                                    <div class="bp-request-card__identity-meta text-muted small">
+                                        <i class="fas fa-clock me-1"></i>
+                                        <time datetime="{{ req.created_at|date:'c' }}" title="{{ req.created_at|date:'Y-m-d H:i' }}">{{ req.created_at|naturaltime }}</time>
                                     </div>
-                                    {% if req.is_corporate and req.corporation_names %}
-                                    <div class="d-flex flex-wrap gap-2">
-                                        {% for corp_name in req.corporation_names %}
-                                        <span class="badge bg-light text-body border fw-semibold">{{ corp_name }}</span>
-                                        {% endfor %}
-                                    </div>
+                                </div>
+                            </div>
+                            <span class="badge bp-request-card__status {{ req.status_class }} fw-semibold text-uppercase px-3 py-2">
+                                {{ req.status_label }}
+                            </span>
+                        </div>
+
+                        <div class="bp-request-card__meta-grid">
+                            <div class="bp-request-card__meta-entry">
+                                <span class="bp-request-card__meta-label text-uppercase small fw-semibold text-secondary">
+                                    <i class="fas fa-user-astronaut me-1"></i>{% trans "Requester" %}
+                                </span>
+                                <div class="bp-request-card__meta-value">
+                                    <span class="bp-request-card__requester-name">{{ req.requester_character|default:req.requester }}</span>
+                                    {% with corp_label=req.requester_corporation_ticker|default:req.requester_corporation %}
+                                    {% if corp_label %}
+                                    <span class="bp-request-card__requester-corp text-muted">({{ corp_label }})</span>
+                                    {% endif %}
+                                    {% endwith %}
+                                    {% if req.requester_character %}
+                                    <button
+                                        type="button"
+                                        class="bp-request-card__copy-button"
+                                        data-copy-value="{{ req.requester_character }}"
+                                        data-copy-success-label="{% trans "Copied" %}!"
+                                        data-copy-error-label="{% trans "Copy failed" %}"
+                                        aria-label="{% blocktrans trimmed with name=req.requester_character %}Copy {{ name }}{% endblocktrans %}"
+                                    >
+                                        <i class="fas fa-copy"></i>
+                                    </button>
                                     {% endif %}
                                 </div>
                             </div>
-                            <div class="bp-request-feed__stats-wrapper">
-                                <div class="bp-request-feed__stats row g-2 small justify-content-center">
-                                    <div class="col-12 col-sm-6">
-                                        <div class="border rounded-3 bg-body-tertiary p-2 h-100 text-center">
-                                            <span class="text-uppercase small text-muted fw-semibold d-block">{% trans "Request" %}</span>
-                                            <div class="d-flex flex-wrap justify-content-center gap-2 mt-2">
-                                                <span class="badge rounded-pill bg-primary-subtle text-primary d-inline-flex align-items-center justify-content-center gap-2 px-3 py-2">
-                                                    <i class="fas fa-copy"></i>
-                                                    {{ req.copies_requested }} {% trans "copies" %}
-                                                </span>
-                                                <span class="badge rounded-pill bg-primary-subtle text-primary d-inline-flex align-items-center justify-content-center gap-2 px-3 py-2">
-                                                    <i class="fas fa-repeat"></i>
-                                                    {{ req.runs_requested }} {% trans "runs" %}
-                                                </span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div class="col-12 col-sm-6">
-                                        <div class="border rounded-3 bg-info-subtle text-info-emphasis p-2 h-100 text-center">
-                                            <span class="text-uppercase small fw-semibold d-block">{% trans "Blueprint research" %}</span>
-                                            <div class="d-flex flex-wrap justify-content-center gap-2 mt-2">
-                                                <span class="badge rounded-pill bg-info text-white d-inline-flex align-items-center justify-content-center gap-2 px-3 py-2">
-                                                    <i class="fas fa-flask"></i>
-                                                    ME {{ req.material_efficiency }}
-                                                </span>
-                                                <span class="badge rounded-pill bg-info text-white d-inline-flex align-items-center justify-content-center gap-2 px-3 py-2">
-                                                    <i class="fas fa-bolt"></i>
-                                                    TE {{ req.time_efficiency }}
-                                                </span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="d-flex flex-column align-items-xl-end gap-2 flex-xl-shrink-0 ms-xl-3">
-                                <span class="badge {{ req.status_class }} text-uppercase fw-semibold px-3 py-2">{{ req.status_label }}</span>
-                            </div>
                         </div>
-                    </header>
 
-                    <div class="d-flex flex-column flex-lg-row gap-2 small">
-                        <div class="flex-lg-grow-1">
-                            <span class="text-uppercase small text-muted fw-semibold">{% trans "Buyer" %}</span>
-                            <div class="d-flex flex-wrap align-items-center gap-2 mt-1">
-                                {% if req.requester_character_name %}
-                                <button
-                                    type="button"
-                                    class="btn btn-outline-secondary btn-sm bp-copy-character"
-                                    data-copy-text="{{ req.requester_character_name }}"
-                                    data-label-copy="{% trans "Copy name" %}"
-                                    data-label-copied="{% trans "Copied!" %}"
-                                    data-label-error="{% trans "Unable to copy" %}"
-                                    aria-label="{% trans "Copy name" %}"
-                                    title="{% trans "Copy name" %}"
-                                >
-                                    <i class="fas fa-copy"></i>
-                                    <span class="bp-copy-character__label visually-hidden">{% trans "Copy name" %}</span>
-                                </button>
-                                {% endif %}
-                                <span class="fw-semibold text-body">{{ req.requester_character_name|default:req.requester_username }}</span>
-                                {% if req.requester_corporation_name %}
-                                <span class="badge rounded-pill bg-light text-body border">{{ req.requester_corporation_name }}</span>
-                                {% endif %}
-                            </div>
-                        </div>
-                        <div class="flex-lg-shrink-0 border-top pt-3 pt-lg-0 ps-lg-3 d-flex flex-column gap-2">
-                            {% if req.status_hint %}
-                            <div>
-                                <span class="text-uppercase small text-muted fw-semibold d-block">{% trans "Progress" %}</span>
-                                <p class="mb-0 text-muted">{{ req.status_hint }}</p>
-                            </div>
-                            {% endif %}
-                            {% if req.eligible_holders %}
-                            <div>
-                                <span class="text-uppercase small text-muted fw-semibold d-block">{% trans "Eligible builders" %}</span>
-                                <div class="d-flex flex-wrap gap-1">
-                                    {% for holder in req.eligible_holders %}
-                                    <span class="badge bg-secondary-subtle text-secondary fw-semibold d-inline-flex align-items-center gap-1">
-                                        {% if holder.kind == "corporation" %}
-                                        <i class="fas fa-building"></i>
-                                        {% else %}
-                                        <i class="fas fa-user-astronaut"></i>
-                                        {% endif %}
-                                        {{ holder.name }}
+                        <div class="bp-request-card__metrics-panel" role="group" aria-label="{% trans 'Blueprint copy request details' %}">
+                            <ul class="bp-request-card__metrics">
+                                <li class="bp-request-card__metric bp-request-card__metric--copies">
+                                    <span class="bp-request-card__metric-label">
+                                        <i class="fas fa-clone"></i>{% trans "Copies" %}
                                     </span>
-                                    {% endfor %}
-                                </div>
-                            </div>
-                            {% endif %}
-                            {% if not req.status_hint and not req.is_corporate and not req.is_self_request and not req.eligible_holders %}
-                            <span class="text-muted">{% trans "No additional notes" %}</span>
-                            {% endif %}
+                                    <span class="bp-request-card__metric-value">{{ req.copies_requested|default_if_none:"—" }}</span>
+                                </li>
+                                <li class="bp-request-card__metric bp-request-card__metric--runs">
+                                    <span class="bp-request-card__metric-label">
+                                        <i class="fas fa-cogs"></i>{% trans "Runs" %}
+                                    </span>
+                                    <span class="bp-request-card__metric-value">{{ req.runs_requested|default_if_none:"—" }}</span>
+                                </li>
+                                <li class="bp-request-card__metric bp-request-card__metric--me">
+                                    <span class="bp-request-card__metric-label">
+                                        <i class="fas fa-industry"></i>{% trans "Material efficiency" %}
+                                    </span>
+                                    <span class="bp-request-card__metric-value">{{ req.material_efficiency }}</span>
+                                </li>
+                                <li class="bp-request-card__metric bp-request-card__metric--te">
+                                    <span class="bp-request-card__metric-label">
+                                        <i class="fas fa-stopwatch"></i>{% trans "Time efficiency" %}
+                                    </span>
+                                    <span class="bp-request-card__metric-value">{{ req.time_efficiency }}</span>
+                                </li>
+                                {% if req.personal_source_names or req.corporation_names %}
+                                <li class="bp-request-card__metric bp-request-card__metric--corp">
+                                    <span class="bp-request-card__metric-label">
+                                        <i class="fas fa-warehouse"></i>{% trans "BP Owner" %}
+                                    </span>
+                                    <div class="bp-request-card__metric-value bp-request-card__metric-value--list">
+                                        <ul class="bp-request-card__access-list">
+                                            {% if req.personal_source_names %}
+                                            <li class="bp-request-card__access-item">
+                                                <i class="fas fa-user-astronaut text-primary"></i>
+                                                <div class="bp-request-card__access-body">
+                                                    <span class="bp-request-card__access-label">
+                                                        {% blocktrans trimmed count count=req.personal_source_names|length %}
+                                                            Your char
+                                                        {% plural %}
+                                                            Your characters
+                                                        {% endblocktrans %}
+                                                    </span>
+                                                    <span class="bp-request-card__access-names">{{ req.personal_source_names|join:", " }}</span>
+                                                </div>
+                                            </li>
+                                            {% endif %}
+                                            {% if req.corporation_names %}
+                                            <li class="bp-request-card__access-item">
+                                                <i class="fas fa-building text-info"></i>
+                                                <div class="bp-request-card__access-body">
+                                                    <span class="bp-request-card__access-label">
+                                                        {% blocktrans trimmed count count=req.corporation_names|length %}
+                                                            Corp
+                                                        {% plural %}
+                                                            Corps
+                                                        {% endblocktrans %}
+                                                    </span>
+                                                    <span class="bp-request-card__access-names">
+                                                        {% if req.corporation_tickers %}
+                                                            {{ req.corporation_tickers|join:", " }}
+                                                        {% else %}
+                                                            {{ req.corporation_names|join:", " }}
+                                                        {% endif %}
+                                                    </span>
+                                                </div>
+                                            </li>
+                                            {% endif %}
+                                        </ul>
+                                    </div>
+                                </li>
+                                {% endif %}
+                            </ul>
                         </div>
                     </div>
+
+                    <div class="bp-request-card__secondary">
+                        <p class="bp-request-card__status-hint text-muted small mb-0">{{ req.status_hint }}</p>
+
+                        {% if req.eligible_builders.total|default:0 %}
+                        <div class="bp-request-card__eligible">
+                            <div class="bp-request-card__eligible-header">
+                                <span class="bp-request-card__eligible-title text-uppercase small fw-semibold text-secondary">{% trans "Eligible builders" %}</span>
+                                <span class="badge bg-body-secondary text-muted">{{ req.eligible_builders.total }}</span>
+                            </div>
+                            {% if req.eligible_builders.characters %}
+                            <div class="bp-request-card__eligible-section">
+                                <span class="bp-request-card__eligible-section-label text-muted small">{% trans "Characters" %}</span>
+                                <ul class="bp-request-card__eligible-list list-unstyled mb-0">
+                                    {% for builder in req.eligible_builders.characters %}
+                                    <li class="bp-request-card__eligible-item">
+                                        <i class="fas fa-user-astronaut text-primary"></i>
+                                        <span class="bp-request-card__eligible-name">
+                                            {% if builder.is_self %}
+                                            <span class="badge bg-primary-subtle text-primary fw-semibold me-1">{% trans "You" %}</span>
+                                            {% endif %}
+                                            {{ builder.name }}
+                                        </span>
+                                        {% if builder.corporation %}
+                                        <span class="bp-request-card__eligible-affiliation text-muted">({{ builder.corporation }})</span>
+                                        {% endif %}
+                                    </li>
+                                    {% endfor %}
+                                </ul>
+                            </div>
+                            {% endif %}
+                            {% if req.eligible_builders.corporations %}
+                            <div class="bp-request-card__eligible-section">
+                                <span class="bp-request-card__eligible-section-label text-muted small">{% trans "Corporations" %}</span>
+                                <ul class="bp-request-card__eligible-list list-unstyled mb-0">
+                                    {% for corp in req.eligible_builders.corporations %}
+                                    <li class="bp-request-card__eligible-item">
+                                        <i class="fas fa-building text-info"></i>
+                                        <span class="bp-request-card__eligible-name">{{ corp.name }}</span>
+                                        {% if corp.member_count %}
+                                        <span class="bp-request-card__eligible-members text-muted small">×{{ corp.member_count }}</span>
+                                        {% endif %}
+                                        {% if corp.includes_self %}
+                                        <span class="badge bg-info-subtle text-info fw-semibold ms-1">{% trans "Your access" %}</span>
+                                        {% endif %}
+                                    </li>
+                                    {% endfor %}
+                                </ul>
+                            </div>
+                            {% endif %}
+                        </div>
+                        {% endif %}
 
                         {% if req.all_copies_busy %}
                         <div class="alert bg-danger border-danger text-white py-2 px-3 small mb-0">
@@ -291,13 +349,6 @@
                             {% else %}
                                 {% trans "All matching originals are currently running copy jobs." %}
                             {% endif %}
-                        </div>
-                        {% endif %}
-
-                        {% if req.is_self_request %}
-                        <div class="alert bg-info border-info text-white py-2 px-3 small mb-0">
-                            <i class="fas fa-info-circle me-1"></i>
-                            {% trans "This request is yours. You can follow its progress here, but responses are disabled." %}
                         </div>
                         {% endif %}
 
@@ -394,83 +445,59 @@
                                 <div class="bp-card-toolbar">
                                     {% if req.show_offer_actions %}
                                         {% if req.has_dual_sources %}
-                                            <div class="row g-3">
-                                                <div class="col-12 col-lg-6">
-                                                    <div class="border rounded-3 p-3 h-100">
-                                                        <p class="text-uppercase small text-muted fw-semibold mb-1">{% trans "Personal originals" %}</p>
-                                                        <p class="text-muted small mb-3">
-                                                            {% blocktrans trimmed count personal=req.personal_blueprints %}
-                                                                {{ personal }} personal original available
-                                                            {% plural %}
-                                                                {{ personal }} personal originals available
-                                                            {% endblocktrans %}
-                                                        </p>
-                                                        <div class="bp-card-toolbar__group" role="group" aria-label="{% trans 'Personal decision actions' %}">
-                                                            <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}" class="bp-card-toolbar__form">
-                                                                {% csrf_token %}
-                                                                <input type="hidden" name="action" value="accept">
-                                                                <input type="hidden" name="scope" value="personal">
-                                                                <button type="submit" class="bp-btn bp-btn-soft-success btn-sm">
-                                                                    <i class="fas fa-hand-holding-heart"></i>
-                                                                    <span>{% trans "Accept for free" %}</span>
-                                                                </button>
-                                                            </form>
-                                                        </div>
-                                                        <div class="bp-card-toolbar__group" role="group" aria-label="{% trans 'Personal conditional actions' %}">
-                                                            <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}" class="bp-card-toolbar__form">
-                                                                {% csrf_token %}
-                                                                <input type="hidden" name="action" value="conditional">
-                                                                <input type="hidden" name="scope" value="personal">
-                                                                <button type="submit" class="bp-btn bp-btn-soft-info btn-sm">
-                                                                    <i class="fas fa-comment-dots"></i>
-                                                                    <span>{% trans "Send conditions" %}</span>
-                                                                </button>
-                                                            </form>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                                <div class="col-12 col-lg-6">
-                                                    <div class="border rounded-3 p-3 h-100">
-                                                        <p class="text-uppercase small text-muted fw-semibold mb-1">{% trans "For corporation" %}</p>
-                                                        <p class="text-muted small mb-3">
-                                                            {% blocktrans trimmed count corp=req.corporate_blueprints %}
-                                                                {{ corp }} corporate original available
-                                                            {% plural %}
-                                                                {{ corp }} corporate originals available
-                                                            {% endblocktrans %}
-                                                        </p>
-                                                        <div class="bp-card-toolbar__group" role="group" aria-label="{% trans 'Corporation decision actions' %}">
-                                                            <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}" class="bp-card-toolbar__form">
-                                                                {% csrf_token %}
-                                                                <input type="hidden" name="action" value="accept">
-                                                                <input type="hidden" name="scope" value="corporation">
-                                                                <button type="submit" class="bp-btn bp-btn-soft-success btn-sm">
-                                                                    <i class="fas fa-hand-holding-heart"></i>
-                                                                    <span>{% trans "Accept for free" %}</span>
-                                                                </button>
-                                                            </form>
-                                                        </div>
-                                                        <div class="bp-card-toolbar__group" role="group" aria-label="{% trans 'Corporation conditional actions' %}">
-                                                            <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}" class="bp-card-toolbar__form">
-                                                                {% csrf_token %}
-                                                                <input type="hidden" name="action" value="conditional">
-                                                                <input type="hidden" name="scope" value="corporation">
-                                                                <button type="submit" class="bp-btn bp-btn-soft-info btn-sm">
-                                                                    <i class="fas fa-comment-dots"></i>
-                                                                    <span>{% trans "Send conditions" %}</span>
-                                                                </button>
-                                                            </form>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <div class="bp-card-toolbar__group mt-3" role="group" aria-label="{% trans 'Decline request' %}">
+                                            {% with req_id=req.id|stringformat:"s" %}
+                                                {% with scope_script_id="bp-scope-options-"|add:req_id %}
+                                                    {{ req.scope_modal_payload|json_script:scope_script_id }}
+                                                {% endwith %}
+                                            {% endwith %}
+                                            <div class="bp-card-toolbar__group mt-3" role="group" aria-label="{% trans 'Primary decision actions' %}">
+                                                <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}" class="bp-card-toolbar__form" data-scope-form data-request-id="{{ req.id }}">
+                                                    {% csrf_token %}
+                                                    <input type="hidden" name="action" value="accept">
+                                                    <input type="hidden" name="scope" value="{{ req.default_scope }}" data-scope-input data-scope-default="{{ req.default_scope }}" data-request-id="{{ req.id }}">
+                                                    <button
+                                                        type="submit"
+                                                        class="bp-btn bp-btn-soft-success btn-sm"
+                                                        data-scope-trigger
+                                                        data-request-id="{{ req.id }}"
+                                                        data-scope-required="true"
+                                                        data-scope-script-id="bp-scope-options-{{ req.id }}"
+                                                        data-scope-action="accept"
+                                                        data-scope-action-label="{% trans 'Accept for free' %}"
+                                                    >
+                                                        <i class="fas fa-hand-holding-heart"></i>
+                                                        <span>{% trans "Accept for free" %}</span>
+                                                        <span class="badge bg-light text-dark ms-2 d-none" data-scope-display data-request-id="{{ req.id }}"></span>
+                                                    </button>
+                                                </form>
                                                 <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}" class="bp-card-toolbar__form">
                                                     {% csrf_token %}
                                                     <input type="hidden" name="action" value="reject">
                                                     <button type="submit" class="bp-btn bp-btn-soft-danger btn-sm" onclick="return confirm('{% trans "Decline this request?" %}')">
                                                         <i class="fas fa-ban"></i>
                                                         <span>{% trans "Decline" %}</span>
+                                                    </button>
+                                                </form>
+                                            </div>
+                                            <div class="bp-card-toolbar__group" role="group" aria-label="{% trans 'Conditional decision actions' %}">
+                                                <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}" class="bp-card-toolbar__form" data-scope-form data-request-id="{{ req.id }}">
+                                                    {% csrf_token %}
+                                                    <input type="hidden" name="action" value="conditional">
+                                                    <input type="hidden" name="scope" value="{{ req.default_scope }}" data-scope-input data-scope-default="{{ req.default_scope }}" data-request-id="{{ req.id }}">
+                                                    <button
+                                                        type="submit"
+                                                        class="bp-btn bp-btn-soft-info btn-sm"
+                                                        data-scope-trigger
+                                                        data-request-id="{{ req.id }}"
+                                                        data-scope-required="true"
+                                                        data-scope-script-id="bp-scope-options-{{ req.id }}"
+                                                        data-scope-action="conditional"
+                                                        data-scope-action-label="{% trans 'Send conditions' %}"
+                                                        data-scope-open-collapse="{{ req.conditional_collapse_id }}"
+                                                    >
+                                                        <i class="fas fa-comment-dots"></i>
+                                                        <span>{% trans "Send conditions" %}</span>
+                                                        <span class="badge bg-light text-dark ms-2 d-none" data-scope-display data-request-id="{{ req.id }}"></span>
                                                     </button>
                                                 </form>
                                             </div>
@@ -538,7 +565,6 @@
                                             data-chat-type-name="{{ req.type_name }}"
                                             data-chat-type-id="{{ req.type_id }}"
                                             data-chat-has-unread="{{ req.chat.has_unread|yesno:'true,false' }}"
-                                            data-chat-id="{{ req.chat.id }}"
                                             aria-haspopup="dialog"
                                         >
                                             <i class="fas fa-comments"></i>
@@ -558,14 +584,36 @@
                                     {% endif %}
                                 </div>
 
+                                {% if req.show_offer_actions %}
+                                <div class="collapse bp-card-toolbar__collapse" id="{{ req.conditional_collapse_id }}">
+                                    <form method="post" class="bp-card-toolbar__form" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="action" value="conditional">
+                                        <input type="hidden" name="scope" value="{{ req.default_scope }}" data-scope-input data-scope-default="{{ req.default_scope }}" data-request-id="{{ req.id }}">
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text"><i class="fas fa-pen"></i></span>
+                                            <textarea
+                                                name="message"
+                                                class="form-control"
+                                                rows="2"
+                                                placeholder="{% trans 'Describe your terms (amount, price, location...)' %}"
+                                                required
+                                            ></textarea>
+                                            <button type="submit" class="btn btn-primary btn-sm">{% trans "Send" %}</button>
+                                        </div>
+                                    </form>
+                                </div>
+                                {% endif %}
+
                                 {% include "indy_hub/includes/chat_preview.html" with preview=req.chat_preview %}
                             {% endif %}
                         </div>
-                </article>
-            </li>
+                    </div>
+                </div>
+            </article>
             {% endfor %}
-        </ul>
-    </section>
+        </section>
+
         {% else %}
         <section class="bp-request-empty card border-0 shadow-sm">
             <div class="card-body text-center py-5">
@@ -582,6 +630,34 @@
 </main>
 {% block indy_hub_global_modals %}
     {{ block.super }}
+    <div class="modal fade" id="bpScopeSelectModal" tabindex="-1" aria-hidden="true" data-scope-modal>
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h6 class="modal-title mb-0" data-scope-title data-default-title="{% trans 'Select a fulfilment source' %}">{% trans "Select a fulfilment source" %}</h6>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small mb-3" data-scope-helper data-default-helper="{% trans 'Pick the character or corporation that will handle this request.' %}">{% trans "Pick the character or corporation that will handle this request." %}</p>
+                    <div
+                        data-scope-options
+                        data-heading-characters="{% trans 'Characters' %}"
+                        data-heading-corporations="{% trans 'Corporations' %}"
+                        data-label-character="{% trans 'Character' %}"
+                        data-label-corporation="{% trans 'Corporation' %}"
+                        data-badge-you="{% trans 'You' %}"
+                        data-badge-access="{% trans 'Your access' %}"
+                        data-warning-message="{% trans 'Please select an option before continuing.' %}"
+                    ></div>
+                    <div class="alert alert-warning d-none mt-3" role="status" data-scope-warning></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal" data-scope-cancel>{% trans "Cancel" %}</button>
+                    <button type="button" class="btn btn-primary btn-sm" data-scope-confirm disabled>{% trans "Continue" %}</button>
+                </div>
+            </div>
+        </div>
+    </div>
     {% include "indy_hub/includes/bp_chat_modal.html" %}
 {% endblock %}
 {% endblock %}
@@ -599,95 +675,6 @@
         }
     });
 </script>
-<script>
-(function () {
-    const RESET_DELAY = 2000;
-
-    function updateButtonState(button, state) {
-        const labelEl = button.querySelector('.bp-copy-character__label');
-        const originalLabel = button.dataset.labelCopy || (labelEl ? (labelEl.dataset.originalLabel || labelEl.textContent) : '');
-        if (labelEl && !labelEl.dataset.originalLabel) {
-            labelEl.dataset.originalLabel = originalLabel;
-        }
-
-        const defaultLabel = originalLabel;
-        const copiedLabel = button.dataset.labelCopied || defaultLabel;
-        const errorLabel = button.dataset.labelError || defaultLabel;
-
-        let appliedLabel = defaultLabel;
-
-        button.classList.remove('is-copy-success', 'is-copy-error');
-
-        if (state === 'copied') {
-            appliedLabel = copiedLabel;
-            button.classList.add('is-copy-success');
-        } else if (state === 'error') {
-            appliedLabel = errorLabel;
-            button.classList.add('is-copy-error');
-        }
-
-        if (labelEl) {
-            labelEl.textContent = appliedLabel;
-        }
-
-        if (appliedLabel) {
-            button.setAttribute('aria-label', appliedLabel);
-            button.setAttribute('title', appliedLabel);
-        }
-    }
-
-    function fallbackCopy(text) {
-        try {
-            const textarea = document.createElement('textarea');
-            textarea.value = text;
-            textarea.setAttribute('readonly', '');
-            textarea.style.position = 'absolute';
-            textarea.style.left = '-9999px';
-            document.body.appendChild(textarea);
-            textarea.select();
-            const succeeded = document.execCommand('copy');
-            document.body.removeChild(textarea);
-            return succeeded;
-        } catch (error) {
-            return false;
-        }
-    }
-
-    document.querySelectorAll('.bp-copy-character').forEach(function (button) {
-        updateButtonState(button, 'default');
-    });
-
-    document.addEventListener('click', function (event) {
-        const button = event.target.closest('.bp-copy-character');
-        if (!button) {
-            return;
-        }
-
-        const text = button.dataset.copyText;
-        if (!text) {
-            return;
-        }
-
-        const finish = function (state) {
-            updateButtonState(button, state);
-            window.setTimeout(function () {
-                updateButtonState(button, 'default');
-            }, RESET_DELAY);
-        };
-
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(text)
-                .then(function () {
-                    finish('copied');
-                })
-                .catch(function () {
-                    finish(fallbackCopy(text) ? 'copied' : 'error');
-                });
-        } else {
-            finish(fallbackCopy(text) ? 'copied' : 'error');
-        }
-    });
-})();
-</script>
 <script src="{% static 'indy_hub/js/bp_copy_chat.js' %}?v=20251021"></script>
+<script src="{% static 'indy_hub/js/bp_copy_fulfill.js' %}?v=20251021"></script>
 {% endblock %}

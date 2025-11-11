@@ -14,14 +14,14 @@
 {% endblock extra_css %}
 
 {% block content %}
-<div class="container-fluid my-4">
+<div class="container-fluid my-4 indy-blueprints">
     <div class="page-header mb-4">
         <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
             <div>
-                <h1 class="h2 mb-1">
+                <h2 class="h3 mb-1">
                     <i class="fas fa-scroll me-2"></i>
                     {{ scope_title }}
-                </h1>
+                </h2>
                 <p class="description">{{ scope_description }}</p>
             </div>
             <div class="d-flex gap-2">
@@ -109,7 +109,7 @@
         <div class="col-md-4">
             <div class="stats-card">
                 <div class="card-body text-center">
-                    <div class="h3 text-primary mb-1">{{ statistics.total_count|default:0 }}</div>
+                    <div class="h4 text-primary mb-1">{{ statistics.total_count|default:0 }}</div>
                     <small class="text-muted fw-bold">{% trans "Total Quantity" %}</small>
                 </div>
             </div>
@@ -117,7 +117,7 @@
         <div class="col-md-4">
             <div class="stats-card">
                 <div class="card-body text-center">
-                    <div class="h3 text-success mb-1">{{ statistics.original_count|default:0 }}</div>
+                    <div class="h4 text-success mb-1">{{ statistics.original_count|default:0 }}</div>
                     <small class="text-muted fw-bold">{% trans "Original BPOs" %}</small>
                 </div>
             </div>
@@ -125,7 +125,7 @@
         <div class="col-md-4">
             <div class="stats-card">
                 <div class="card-body text-center">
-                    <div class="h3 text-info mb-1">{{ statistics.copy_count|default:0 }}</div>
+                    <div class="h4 text-info mb-1">{{ statistics.copy_count|default:0 }}</div>
                     <small class="text-muted fw-bold">{% trans "Blueprint Copies" %}</small>
                 </div>
             </div>
@@ -164,7 +164,7 @@
 
                 <div class="flex-grow-1 min-width-0 blueprint-list-content">
                     <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
-                        <h4 class="blueprint-title mb-0">{{ bp.type_name|default:"Unknown Blueprint" }}</h4>
+                        <h5 class="blueprint-title mb-0">{{ bp.type_name|default:"Unknown Blueprint" }}</h5>
                         <div class="blueprint-badges mb-0 ms-auto">
                             {% if bp.is_reaction %}
                                 <span class="type-badge reaction"><i class="fas fa-flask"></i> {% trans 'Reaction' %}</span>
@@ -289,7 +289,7 @@
             <div class="stats-card">
                 <div class="card-body text-center py-5">
                     <i class="fas fa-scroll fa-4x text-muted mb-4"></i>
-                    <h4 class="text-muted mb-3">{% trans "No Blueprints Found" %}</h4>
+                    <h5 class="text-muted mb-3">{% trans "No Blueprints Found" %}</h5>
                     <p class="text-muted mb-4">{% trans "You don't have any blueprints yet, or your ESI data hasn't been synchronized." %}</p>
                     <div class="d-grid gap-2 d-md-block">
                         <a href="{% url 'indy_hub:token_management' %}" class="btn btn-primary">
@@ -308,7 +308,7 @@
 
     <!-- Legend -->
     <div class="legend mt-4">
-        <h5>{% trans "Legend" %}</h5>
+        <h6>{% trans "Legend" %}</h6>
         <ul class="list-inline">
             <li class="list-inline-item"><span class="type-badge original"><i class="fas fa-certificate"></i></span> {% trans "Original blueprint" %}</li>
             <li class="list-inline-item"><span class="type-badge copy"><i class="fas fa-clone"></i></span> {% trans "Blueprint copy" %}</li>

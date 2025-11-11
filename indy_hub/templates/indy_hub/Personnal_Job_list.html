@@ -16,10 +16,10 @@
     <div class="page-header mb-4">
         <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
             <div>
-                <h1 class="h2 mb-1">
+                <h2 class="h3 mb-1">
                     <i class="fas fa-industry me-2"></i>
                     {{ scope_title }}
-                </h1>
+                </h2>
                 <p class="description">{{ scope_description }}</p>
             </div>
             <div class="d-flex gap-2">
@@ -84,7 +84,7 @@
         <div class="col-md-3">
             <div class="stats-card">
                 <div class="card-body text-center">
-                    <div class="h3 text-info mb-1">{{ statistics.total|default:0 }}</div>
+                    <div class="h4 text-info mb-1">{{ statistics.total|default:0 }}</div>
                     <small class="text-muted fw-bold">{% trans 'Total Jobs' %}</small>
                 </div>
             </div>
@@ -92,7 +92,7 @@
         <div class="col-md-3">
             <div class="stats-card">
                 <div class="card-body text-center">
-                    <div class="h3 text-warning mb-1">{{ statistics.active|default:0 }}</div>
+                    <div class="h4 text-warning mb-1">{{ statistics.active|default:0 }}</div>
                     <small class="text-muted fw-bold">{% trans 'Active Jobs' %}</small>
                 </div>
             </div>
@@ -100,7 +100,7 @@
         <div class="col-md-3">
             <div class="stats-card">
                 <div class="card-body text-center">
-                    <div class="h3 text-success mb-1">{{ statistics.completed|default:0 }}</div>
+                    <div class="h4 text-success mb-1">{{ statistics.completed|default:0 }}</div>
                     <small class="text-muted fw-bold">{% trans 'Completed' %}</small>
                 </div>
             </div>
@@ -108,7 +108,7 @@
         <div class="col-md-3">
             <div class="stats-card">
                 <div class="card-body text-center">
-                    <div class="h3 text-secondary mb-1">{{ owner_count|default:0 }}</div>
+                    <div class="h4 text-secondary mb-1">{{ owner_count|default:0 }}</div>
                     <small class="text-muted fw-bold">{{ owner_label }}</small>
                 </div>
             </div>
@@ -126,7 +126,7 @@
                             <i class="{{ group.icon }}"></i>
                         </span>
                         <div>
-                            <h2 class="h4 mb-1">{{ group.title }}</h2>
+                            <h3 class="h5 mb-1">{{ group.title }}</h3>
                             <p class="text-muted small mb-0">{{ group.subtitle }}</p>
                         </div>
                     </div>
@@ -146,7 +146,7 @@
                                         {% endif %}
                                         <span class="fallback fs-3 text-secondary" style="display:none;"><i class="fas fa-industry"></i></span>
                                         <div>
-                                            <h3 class="h6 mb-1 text-truncate">{{ job.blueprint_type_name|default:job.blueprint_type_id }}</h3>
+                                            <h4 class="h6 mb-1 text-truncate">{{ job.blueprint_type_name|default:job.blueprint_type_id }}</h4>
                                             <p class="text-muted small mb-0"><i class="{{ owner_icon }} me-1"></i>{{ job.display_owner_name }}</p>
                                         </div>
                                     </div>
@@ -249,7 +249,7 @@
         <div class="card border-0 shadow-sm">
             <div class="card-body text-center py-5">
                 <i class="fas fa-clipboard-list-check fa-2x text-muted mb-3"></i>
-                <h2 class="h5">{% trans 'No industry jobs found.' %}</h2>
+                <h3 class="h6">{% trans 'No industry jobs found.' %}</h3>
                 <p class="text-muted small mb-0">{% trans 'Start a new job in-game and refresh to see it here.' %}</p>
             </div>
         </div>

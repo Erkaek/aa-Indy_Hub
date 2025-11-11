@@ -48,6 +48,7 @@ logger = logging.getLogger(__name__)
 _TYPE_NAME_CACHE: dict[int, str] = {}
 _CHAR_NAME_CACHE: dict[int, str] = {}
 _CORP_NAME_CACHE: dict[int, str] = {}
+_CORP_TICKER_CACHE: dict[int, str] = {}
 _BP_PRODUCT_CACHE: dict[int, int | None] = {}
 _REACTION_CACHE: dict[int, bool] = {}
 _LOCATION_NAME_CACHE: dict[int, str] = {}
@@ -246,6 +247,48 @@ def get_corporation_name(corporation_id: int | None) -> str:
 
     _CORP_NAME_CACHE[corp_id] = name
     return name
+
+
+def get_corporation_ticker(corporation_id: int | None) -> str:
+    """Return the ticker for a corporation, falling back to an empty string."""
+
+    if not corporation_id:
+        return ""
+
+    try:
+        corp_id = int(corporation_id)
+    except (TypeError, ValueError):
+        logger.debug(
+            "Unable to coerce corporation id %s for ticker lookup", corporation_id
+        )
+        return ""
+
+    if corp_id in _CORP_TICKER_CACHE:
+        return _CORP_TICKER_CACHE[corp_id]
+
+    ticker = ""
+
+    try:
+        corp = EveCorporationInfo.objects.only("corporation_ticker").get(
+            corporation_id=corp_id
+        )
+        ticker = getattr(corp, "corporation_ticker", "") or ""
+    except AppRegistryNotReady:
+        logger.debug(
+            "Corporation %s ticker not available (app registry not ready)", corp_id
+        )
+    except EveCorporationInfo.DoesNotExist:
+        record = (
+            EveCharacter.objects.filter(corporation_id=corp_id)
+            .values("corporation_ticker")
+            .order_by("corporation_ticker")
+            .first()
+        )
+        if record:
+            ticker = record.get("corporation_ticker", "") or ""
+
+    _CORP_TICKER_CACHE[corp_id] = ticker
+    return ticker
 
 
 def get_character_name(character_id: int | None) -> str:

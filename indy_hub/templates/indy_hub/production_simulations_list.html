@@ -16,7 +16,7 @@
     <div class="dev-alert alert alert-warning d-flex align-items-center gap-3 mb-4" role="alert">
         <i class="fas fa-exclamation-triangle fa-lg"></i>
         <div>
-            <h2 class="h6 fw-semibold mb-1 text-uppercase">{% trans "Active development" %}</h2>
+            <h3 class="h6 fw-semibold mb-1 text-uppercase">{% trans "Active development" %}</h3>
             <p class="mb-0 small">{% trans "This simulations dashboard is under active development. Please don't rely on the displayed data for decision making yet." %}</p>
         </div>
     </div>
@@ -27,7 +27,7 @@
                 <i class="fas fa-flask"></i>
             </div>
             <div>
-                <h1 class="h2 mb-1">{% trans "Production Simulations" %}</h1>
+                <h2 class="h3 mb-1">{% trans "Production Simulations" %}</h2>
                 <p class="description mb-0">{% trans "Stay ahead of your industrial queue with curated simulation dashboards." %}</p>
             </div>
         </div>
@@ -45,7 +45,7 @@
     <div class="simulations-callout alert alert-info shadow-sm d-flex align-items-center gap-3 mb-4" role="alert">
         <i class="fas fa-lightbulb-on fa-lg"></i>
         <div>
-            <h2 class="h6 fw-semibold mb-1 text-uppercase">{% trans "Production insights" %}</h2>
+            <h3 class="h6 fw-semibold mb-1 text-uppercase">{% trans "Production insights" %}</h3>
             <p class="mb-0 small">{% trans "Simulations pull live blueprint metrics. Refresh the craft tool to update inventory, then return here to review profitability." %}</p>
         </div>
     </div>
@@ -59,7 +59,7 @@
                 </div>
                 <div>
                     <p class="summary-card__label mb-1">{% trans "Total simulations" %}</p>
-                    <h4 class="summary-card__value mb-0">{{ total_simulations|intcomma }}</h4>
+                    <h5 class="summary-card__value mb-0">{{ total_simulations|intcomma }}</h5>
                     <small class="text-muted">{% trans "Saved scenarios ready to launch" %}</small>
                 </div>
             </div>
@@ -71,7 +71,7 @@
                 </div>
                 <div>
                     <p class="summary-card__label mb-1">{% trans "Total runs" %}</p>
-                    <h4 class="summary-card__value mb-0">{{ stats.total_runs|default:0|intcomma }}</h4>
+                    <h5 class="summary-card__value mb-0">{{ stats.total_runs|default:0|intcomma }}</h5>
                     <small class="text-muted">{% trans "Across every simulation" %}</small>
                 </div>
             </div>
@@ -83,7 +83,7 @@
                 </div>
                 <div>
                     <p class="summary-card__label mb-1">{% trans "Estimated revenue" %}</p>
-                    <h4 class="summary-card__value mb-0">{{ stats.total_revenue|floatformat:0|intcomma }} ISK</h4>
+                    <h5 class="summary-card__value mb-0">{{ stats.total_revenue|floatformat:0|intcomma }} ISK</h5>
                     <small class="text-muted">{% trans "Projected sales value" %}</small>
                 </div>
             </div>
@@ -95,13 +95,13 @@
                 </div>
                 <div>
                     <p class="summary-card__label mb-1">{% trans "Last refreshed" %}</p>
-                    <h4 class="summary-card__value mb-0">
+                    <h5 class="summary-card__value mb-0">
                         {% if stats.latest_update %}
                             {{ stats.latest_update|timesince }} {% trans "ago" %}
                         {% else %}
                             {% trans "Never" %}
                         {% endif %}
-                    </h4>
+                    </h5>
                     <small class="text-muted">{% trans "Update simulations from the craft tool" %}</small>
                 </div>
             </div>
@@ -146,7 +146,7 @@
                     {% endif %}
                     </div>
                     <div class="simulation-title">
-                        <h2 class="h5 mb-1">{{ simulation.display_name }}</h2>
+                        <h3 class="h6 mb-1">{{ simulation.display_name }}</h3>
                         <p class="mb-0 text-muted">
                             {% if simulation.blueprint_name %}
                                 {{ simulation.blueprint_name }}
@@ -266,7 +266,7 @@
         <div class="empty-icon">
             <i class="fas fa-flask"></i>
         </div>
-        <h4 class="mb-2">{% trans "No Simulations Yet" %}</h4>
+        <h5 class="mb-2">{% trans "No Simulations Yet" %}</h5>
         <p class="mb-4">{% trans "Explore your blueprints and save a scenario to keep track of your production planning." %}</p>
         <a href="{% url 'indy_hub:all_bp_list' %}" class="btn btn-primary btn-lg">
             <i class="fas fa-plus me-2"></i>{% trans "Create Your First Simulation" %}

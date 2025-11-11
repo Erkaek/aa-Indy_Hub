@@ -16,7 +16,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
-from django.core.exceptions import ValidationError
+from django.core.exceptions import FieldDoesNotExist, ValidationError
 from django.core.paginator import Paginator
 from django.db import connection
 from django.db.models import Q
@@ -59,7 +59,12 @@ from ..utils.discord_actions import (
     build_action_link,
     decode_action_token,
 )
-from ..utils.eve import get_character_name, get_corporation_name, get_type_name
+from ..utils.eve import (
+    get_character_name,
+    get_corporation_name,
+    get_corporation_ticker,
+    get_type_name,
+)
 from ..utils.job_notifications import (
     build_digest_notification_body,
     build_job_notification_payload,
@@ -87,9 +92,102 @@ class EligibleOwnerDetails:
     user_to_corporation: dict[int, int]
 
 
+@dataclass
+class UserIdentity:
+    user_id: int
+    username: str
+    character_id: int | None
+    character_name: str
+    corporation_id: int | None
+    corporation_name: str
+    corporation_ticker: str
+
+
+def _resolve_user_identity(user: User | None) -> UserIdentity:
+    """Best-effort resolution of a user's primary character and corporation."""
+
+    if not user:
+        return UserIdentity(
+            user_id=0,
+            username="",
+            character_id=None,
+            character_name="",
+            corporation_id=None,
+            corporation_name="",
+            corporation_ticker="",
+        )
+
+    username = user.username
+    character_name = username
+    corporation_name = ""
+    corporation_ticker = ""
+    character_id: int | None = None
+    corporation_id: int | None = None
+
+    # Attempt to use the user's main character via the profile linkage first.
+    main_character = None
+    profile = getattr(user, "profile", None)
+    if profile and getattr(profile, "main_character_id", None):
+        main_character = getattr(profile, "main_character", None)
+
+    if not main_character:
+        try:
+            profile = UserProfile.objects.select_related("main_character").get(
+                user=user
+            )
+        except UserProfile.DoesNotExist:
+            profile = None
+        else:
+            main_character = getattr(profile, "main_character", None)
+
+    if not main_character:
+        ownership_qs = CharacterOwnership.objects.filter(user=user).select_related(
+            "character"
+        )
+        try:
+            CharacterOwnership._meta.get_field("is_main")
+        except FieldDoesNotExist:
+            ownership = ownership_qs.first()
+        else:
+            ownership = ownership_qs.order_by("-is_main").first()
+        if ownership:
+            main_character = getattr(ownership, "character", None)
+
+    if main_character:
+        character_id = getattr(main_character, "character_id", None)
+        corporation_id = getattr(main_character, "corporation_id", None)
+        character_name = (
+            get_character_name(character_id)
+            or getattr(main_character, "character_name", None)
+            or username
+        )
+        corporation_name = (
+            get_corporation_name(corporation_id)
+            or getattr(main_character, "corporation_name", None)
+            or ""
+        )
+        if corporation_id:
+            corp_attr_ticker = getattr(main_character, "corporation_ticker", "")
+            corporation_ticker = corp_attr_ticker or get_corporation_ticker(
+                corporation_id
+            )
+        else:
+            corporation_ticker = ""
+
+    return UserIdentity(
+        user_id=user.id,
+        username=username,
+        character_id=character_id,
+        character_name=character_name,
+        corporation_id=corporation_id,
+        corporation_name=corporation_name,
+        corporation_ticker=corporation_ticker,
+    )
+
+
 def _eligible_owner_details_for_request(
     req: BlueprintCopyRequest,
-) -> EligibleOwnerDetails:
+):
     """Return detailed information about users who can fulfil a request."""
 
     matching_blueprints = Blueprint.objects.filter(
@@ -99,13 +197,43 @@ def _eligible_owner_details_for_request(
         time_efficiency=req.time_efficiency,
     )
 
-    character_owner_ids = set(
-        matching_blueprints.filter(
-            owner_kind=Blueprint.OwnerKind.CHARACTER,
-            owner_user__charactersettings__character_id=0,
-            owner_user__charactersettings__allow_copy_requests=True,
-        ).values_list("owner_user_id", flat=True)
+    character_owned_blueprints = list(
+        matching_blueprints.filter(owner_kind=Blueprint.OwnerKind.CHARACTER).values(
+            "owner_user_id", "character_id"
+        )
     )
+
+    character_owner_ids: set[int] = set()
+    if character_owned_blueprints:
+        owner_user_ids = {bp["owner_user_id"] for bp in character_owned_blueprints}
+        allowed_settings = CharacterSettings.objects.filter(
+            user_id__in=owner_user_ids,
+            allow_copy_requests=True,
+        ).values("user_id", "character_id")
+
+        allowed_map: dict[int, set[int]] = defaultdict(set)
+        for setting in allowed_settings:
+            allowed_map[setting["user_id"]].add(setting["character_id"])
+
+        for bp in character_owned_blueprints:
+            user_id = bp["owner_user_id"]
+            if not user_id:
+                continue
+            char_id = bp["character_id"]
+            allowed_chars = allowed_map.get(user_id)
+            if not allowed_chars:
+                continue
+            if 0 in allowed_chars:
+                character_owner_ids.add(user_id)
+                continue
+            if char_id is None:
+                if allowed_chars:
+                    character_owner_ids.add(user_id)
+                continue
+            if char_id in allowed_chars:
+                character_owner_ids.add(user_id)
+    else:
+        character_owner_ids = set()
 
     corporation_ids = list(
         matching_blueprints.filter(owner_kind=Blueprint.OwnerKind.CORPORATION)
@@ -2790,57 +2918,75 @@ def bp_copy_fulfill_requests(request):
         "rejected": _("Rejected"),
     }
 
+    user_cache: dict[int, User | None] = {}
+    identity_cache: dict[int, UserIdentity] = {}
+    corp_name_cache: dict[int, str] = {}
+
+    def _get_user(user_id: int) -> User | None:
+        if user_id in user_cache:
+            return user_cache[user_id]
+        user_obj = User.objects.filter(id=user_id).first()
+        user_cache[user_id] = user_obj
+        return user_obj
+
+    def _identity_for(
+        user_obj: User | None = None,
+        *,
+        user_id: int | None = None,
+    ) -> UserIdentity:
+        if user_obj is not None:
+            user_id = user_obj.id
+        if user_id is None:
+            return UserIdentity(
+                user_id=0,
+                username="",
+                character_id=None,
+                character_name="",
+                corporation_id=None,
+                corporation_name="",
+                corporation_ticker="",
+            )
+        cached = identity_cache.get(user_id)
+        if cached:
+            return cached
+        if user_obj is None:
+            user_obj = _get_user(user_id)
+        identity = _resolve_user_identity(user_obj)
+        identity_cache[user_id] = identity
+        return identity
+
+    def _corporation_display(corp_id: int | None) -> str:
+        if not corp_id:
+            return ""
+        if corp_id in corp_name_cache:
+            return corp_name_cache[corp_id]
+        corp_name = get_corporation_name(corp_id) or (
+            CorporationSharingSetting.objects.filter(corporation_id=corp_id)
+            .exclude(corporation_name="")
+            .values_list("corporation_name", flat=True)
+            .first()
+        )
+        if not corp_name:
+            corp_name = (
+                Blueprint.objects.filter(corporation_id=corp_id)
+                .exclude(corporation_name="")
+                .values_list("corporation_name", flat=True)
+                .first()
+            )
+        corp_name_cache[corp_id] = corp_name or str(corp_id)
+        return corp_name_cache[corp_id]
+
     qset = (
         BlueprintCopyRequest.objects.filter(q)
         .filter(
             Q(fulfilled=False)
             | Q(fulfilled=True, delivered=False, offers__owner=request.user)
         )
-        .select_related(
-            "requested_by",
-            "requested_by__profile__main_character",
-        )
+        .select_related("requested_by")
         .prefetch_related("offers__owner", "offers__chat")
         .order_by("-created_at")
         .distinct()
     )
-
-    identity_cache: dict[int, dict[str, Any]] = {}
-
-    def _resolve_requester_identity(user: User) -> dict[str, Any]:
-        cached = identity_cache.get(user.id)
-        if cached is not None:
-            return cached
-
-        character_name = ""
-        character_id = None
-        corporation_name = ""
-        corporation_id = None
-        try:
-            profile = user.profile
-        except UserProfile.DoesNotExist:  # pragma: no cover - legacy edge
-            profile = None
-
-        character = getattr(profile, "main_character", None) if profile else None
-        if character:
-            character_name = character.character_name or ""
-            character_id = getattr(character, "character_id", None)
-            corporation_name = character.corporation_name or ""
-            corporation_id = getattr(character, "corporation_id", None)
-            if not corporation_name and corporation_id:
-                lookup_name = get_corporation_name(corporation_id)
-                if lookup_name:
-                    corporation_name = lookup_name
-
-        identity = {
-            "username": user.username,
-            "character_name": character_name,
-            "character_id": character_id,
-            "corporation_name": corporation_name,
-            "corporation_id": corporation_id,
-        }
-        identity_cache[user.id] = identity
-        return identity
 
     requests_to_fulfill = []
     for req in qset:
@@ -2850,6 +2996,36 @@ def bp_copy_fulfill_requests(request):
         )
         offers_by_owner = {offer.owner_id: offer.status for offer in offers}
         eligible_details = _eligible_owner_details_for_request(req)
+        requester_identity = _identity_for(req.requested_by)
+
+        eligible_character_entries: list[dict[str, Any]] = []
+        for owner_id in sorted(eligible_details.character_owner_ids):
+            identity = _identity_for(user_id=owner_id)
+            display_name = identity.character_name or identity.username
+            eligible_character_entries.append(
+                {
+                    "name": display_name,
+                    "corporation": identity.corporation_name,
+                    "is_self": owner_id == request.user.id,
+                }
+            )
+        eligible_character_entries.sort(key=lambda item: item["name"].lower())
+
+        eligible_corporation_entries: list[dict[str, Any]] = []
+        for corp_id, members in eligible_details.corporate_members_by_corp.items():
+            corp_name = _corporation_display(corp_id)
+            eligible_corporation_entries.append(
+                {
+                    "id": corp_id,
+                    "name": corp_name,
+                    "member_count": len(members),
+                    "includes_self": request.user.id in members,
+                }
+            )
+        eligible_corporation_entries.sort(key=lambda item: item["name"].lower())
+        eligible_total = len(eligible_character_entries) + len(
+            eligible_corporation_entries
+        )
 
         is_self_request = req.requested_by_id == request.user.id
 
@@ -2879,6 +3055,7 @@ def bp_copy_fulfill_requests(request):
         )
 
         corporate_names: list[str] = []
+        corporate_tickers: list[str] = []
         personal_sources: list[Blueprint] = []
         corporate_sources: list[Blueprint] = []
         if matching_blueprints:
@@ -2908,7 +3085,39 @@ def bp_copy_fulfill_requests(request):
                 if display_name:
                     corporate_names.append(display_name)
 
-        corporate_names = sorted(set(corporate_names), key=lambda name: name.lower())
+                ticker_value = ""
+                if corp_id:
+                    ticker_value = getattr(blueprint, "corporation_ticker", "")
+                    if not ticker_value:
+                        ticker_value = get_corporation_ticker(corp_id)
+                if ticker_value:
+                    corporate_tickers.append(ticker_value)
+
+        personal_source_names = sorted(
+            {
+                blueprint.character_name.strip()
+                for blueprint in personal_sources
+                if getattr(blueprint, "character_name", "").strip()
+            },
+            key=lambda name: name.lower(),
+        )
+
+        if not personal_source_names and personal_sources:
+            personal_source_names = [_("Your character")]
+
+        def _sort_unique(values: list[str]) -> list[str]:
+            seen_lower: set[str] = set()
+            unique_values: list[str] = []
+            for value in values:
+                lowered = value.lower()
+                if lowered in seen_lower:
+                    continue
+                seen_lower.add(lowered)
+                unique_values.append(value)
+            return sorted(unique_values, key=lambda entry: entry.lower())
+
+        corporate_names = _sort_unique(corporate_names)
+        corporate_tickers = _sort_unique(corporate_tickers)
         is_corporate_source = bool(corporate_names)
         personal_count = len(personal_sources)
         corporate_count = len(corporate_sources)
@@ -2918,48 +3127,6 @@ def bp_copy_fulfill_requests(request):
             default_scope = "corporation"
         elif not personal_count and not corporate_count:
             default_scope = ""
-
-        eligible_holders: list[dict[str, str]] = []
-        seen_holders: set[tuple[str, int | str]] = set()
-
-        def _add_holder(kind: str, ident: int | str | None, display_name: str) -> None:
-            if not display_name:
-                return
-            key = (kind, ident if ident is not None else display_name.lower())
-            if key in seen_holders:
-                return
-            seen_holders.add(key)
-            eligible_holders.append({"name": display_name, "kind": kind})
-
-        for blueprint in personal_sources:
-            name = blueprint.character_name or ""
-            if not name and blueprint.character_id:
-                lookup_name = get_character_name(blueprint.character_id)
-                if lookup_name:
-                    name = lookup_name
-            if not name:
-                try:
-                    profile = blueprint.owner_user.profile
-                except UserProfile.DoesNotExist:  # pragma: no cover - legacy edge
-                    profile = None
-                if profile and getattr(profile, "main_character", None):
-                    main_char = profile.main_character
-                    name = getattr(main_char, "character_name", "") or name
-            if not name:
-                name = blueprint.owner_user.username
-            holder_identifier = blueprint.character_id or blueprint.owner_user_id
-            _add_holder("character", holder_identifier, name)
-
-        for blueprint in corporate_sources:
-            name = blueprint.corporation_name or ""
-            if not name and blueprint.corporation_id:
-                lookup_name = get_corporation_name(blueprint.corporation_id)
-                if lookup_name:
-                    name = lookup_name
-            if not name:
-                name = str(_("Corporation"))
-            holder_identifier = blueprint.corporation_id or name
-            _add_holder("corporation", holder_identifier, name)
 
         user_corp_id = eligible_details.user_to_corporation.get(request.user.id)
         if user_corp_id is not None and personal_count == 0 and not is_self_request:
@@ -3041,13 +3208,22 @@ def bp_copy_fulfill_requests(request):
         if is_self_request:
             offer_chat_payload = None
 
-        requester_identity = _resolve_requester_identity(req.requested_by)
+        type_name = get_type_name(req.type_id)
+        scope_modal_payload = {
+            "requestId": req.id,
+            "typeName": type_name,
+            "characters": eligible_character_entries,
+            "corporations": eligible_corporation_entries,
+            "personalCount": personal_count,
+            "corporateCount": corporate_count,
+            "defaultScope": default_scope,
+        }
 
         requests_to_fulfill.append(
             {
                 "id": req.id,
                 "type_id": req.type_id,
-                "type_name": get_type_name(req.type_id),
+                "type_name": type_name,
                 "icon_url": f"https://images.evetech.net/types/{req.type_id}/bp?size=64",
                 "material_efficiency": req.material_efficiency,
                 "time_efficiency": req.time_efficiency,
@@ -3055,11 +3231,11 @@ def bp_copy_fulfill_requests(request):
                 "copies_requested": getattr(req, "copies_requested", 1),
                 "created_at": req.created_at,
                 "requester": req.requested_by.username,
-                "requester_username": requester_identity["username"],
-                "requester_character_name": requester_identity["character_name"],
-                "requester_character_id": requester_identity["character_id"],
-                "requester_corporation_name": requester_identity["corporation_name"],
-                "requester_corporation_id": requester_identity["corporation_id"],
+                "requester_character": requester_identity.character_name,
+                "requester_character_id": requester_identity.character_id,
+                "requester_corporation": requester_identity.corporation_name,
+                "requester_corporation_id": requester_identity.corporation_id,
+                "requester_corporation_ticker": requester_identity.corporation_ticker,
                 "is_self_request": is_self_request,
                 "status_key": status_key,
                 "status_label": status_info["label"],
@@ -3076,10 +3252,12 @@ def bp_copy_fulfill_requests(request):
                 "my_offer_accepted_by_seller": getattr(
                     my_offer, "accepted_by_seller", False
                 ),
-                "show_offer_actions": (
-                    status_key in {"awaiting_response", "offer_rejected"}
-                    and not is_self_request
-                ),
+                "show_offer_actions": status_key
+                in {
+                    "awaiting_response",
+                    "offer_rejected",
+                    "self_request",
+                },
                 "conditional_collapse_id": f"cond-{req.id}",
                 "can_mark_delivered": can_mark_delivered
                 and req.requested_by_id != request.user.id,
@@ -3096,11 +3274,18 @@ def bp_copy_fulfill_requests(request):
                 "handshake": handshake_state,
                 "is_corporate": is_corporate_source,
                 "corporation_names": corporate_names,
+                "corporation_tickers": corporate_tickers,
+                "personal_source_names": personal_source_names,
                 "personal_blueprints": personal_count,
                 "corporate_blueprints": corporate_count,
                 "has_dual_sources": has_dual_sources,
                 "default_scope": default_scope,
-                "eligible_holders": eligible_holders,
+                "eligible_builders": {
+                    "characters": eligible_character_entries,
+                    "corporations": eligible_corporation_entries,
+                    "total": eligible_total,
+                },
+                "scope_modal_payload": scope_modal_payload,
             }
         )
 
