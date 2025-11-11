@@ -693,6 +693,8 @@
 
 /* Blueprint list container */
 .blueprint-list-group {
+    --bp-list-font-scale: 0.75;
+
     background: var(--bp-surface-bg);
     border-radius: var(--bp-card-radius);
     box-shadow: var(--bp-surface-shadow-sm);
@@ -702,6 +704,67 @@
     width: 100%;
     max-width: 100%;
     padding: 1.25rem;
+}
+
+.blueprint-list-group .blueprint-list-content {
+    font-size: calc(0.72rem * var(--bp-list-font-scale, 1));
+}
+
+.blueprint-list-group .blueprint-title {
+    font-size: calc(1.15rem * var(--bp-list-font-scale, 1));
+}
+
+.blueprint-list-group .blueprint-meta {
+    font-size: calc(1rem * var(--bp-list-font-scale, 1));
+}
+
+.blueprint-list-group .blueprint-meta .btn-outline-info.btn-sm {
+    font-size: calc(0.9rem * var(--bp-list-font-scale, 1));
+}
+
+.blueprint-list-group .blueprint-meta .btn-outline-info.btn-sm .fa-tools {
+    font-size: calc(1rem * var(--bp-list-font-scale, 1));
+}
+
+.blueprint-list-group .character-tag,
+.blueprint-list-group .location-tag {
+    font-size: calc(0.9rem * var(--bp-list-font-scale, 1));
+}
+
+.blueprint-list-group .type-badge,
+.blueprint-list-group .runs-badge {
+    font-size: calc(0.9rem * var(--bp-list-font-scale, 1));
+}
+
+.blueprint-list-group .efficiency-value {
+    font-size: calc(1rem * var(--bp-list-font-scale, 1));
+}
+
+.blueprint-list-group .efficiency-label,
+.blueprint-list-group .update-time {
+    font-size: calc(0.92rem * var(--bp-list-font-scale, 1));
+}
+
+.blueprint-icon {
+    width: 48px;
+    height: 48px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.blueprint-icon img {
+    width: 48px;
+    height: 48px;
+}
+
+.blueprint-icon .fallback {
+    display: none;
+    width: 48px;
+    height: 48px;
+    align-items: center;
+    justify-content: center;
+    font-size: calc(1.1rem * var(--bp-list-font-scale, 1));
 }
 
 /* Filter section enhancement */

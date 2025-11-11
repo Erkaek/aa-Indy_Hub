@@ -61,8 +61,27 @@
                     </h2>
                     <p class="text-muted small mb-0">{% trans "Stay on top of requests, respond clearly, and close the loop with delivery confirmations." %}</p>
                 </div>
+                <div class="ms-lg-auto d-flex align-items-center">
+                    <button
+                        type="button"
+                        class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-2 collapse-toggle"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#fulfil-playbook-body"
+                        aria-expanded="true"
+                        aria-controls="fulfil-playbook-body"
+                        data-collapse-label-expanded="{% trans 'Hide playbook' %}"
+                        data-collapse-label-collapsed="{% trans 'Show playbook' %}"
+                        data-collapse-icon-expanded="fa-eye-slash"
+                        data-collapse-icon-collapsed="fa-eye"
+                        data-collapse-storage-key="indyHub.fulfill.playbook"
+                    >
+                        <i class="fas fa-eye-slash"></i>
+                        <span class="collapse-toggle__label">{% trans "Hide playbook" %}</span>
+                    </button>
+                </div>
             </div>
-            <div class="row g-3">
+            <div id="fulfil-playbook-body" class="collapse show">
+                <div class="row g-3">
                 <div class="col-md-4">
                     <div class="card h-100 shadow-sm border-0">
                         <div class="card-body">
@@ -95,6 +114,7 @@
                             <p class="text-muted small mb-0">{% trans "Finish the contract in game, then mark it delivered here so the request closes automatically." %}</p>
                         </div>
                     </div>
+                </div>
                 </div>
             </div>
         </section>
@@ -624,6 +644,87 @@
             system: '{% trans "System" %}',
             you: '{% trans "You" %}'
         }
+    });
+</script>
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        if (typeof bootstrap === 'undefined') {
+            return;
+        }
+
+        var toggles = document.querySelectorAll('.collapse-toggle[data-bs-target]');
+
+        toggles.forEach(function (toggle) {
+            var targetSelector = toggle.getAttribute('data-bs-target');
+            if (!targetSelector) {
+                return;
+            }
+
+            var target = document.querySelector(targetSelector);
+            if (!target) {
+                return;
+            }
+
+            var collapse = bootstrap.Collapse.getOrCreateInstance(target, { toggle: false });
+            var storageKey = toggle.getAttribute('data-collapse-storage-key');
+            var labelEl = toggle.querySelector('.collapse-toggle__label') || toggle;
+            var iconEl = toggle.querySelector('i');
+            var expandedLabel = toggle.getAttribute('data-collapse-label-expanded') || '';
+            var collapsedLabel = toggle.getAttribute('data-collapse-label-collapsed') || expandedLabel;
+            var expandedIcon = toggle.getAttribute('data-collapse-icon-expanded');
+            var collapsedIcon = toggle.getAttribute('data-collapse-icon-collapsed');
+
+            if (storageKey) {
+                try {
+                    var storedState = localStorage.getItem(storageKey);
+                    if (storedState === 'collapsed') {
+                        collapse.hide();
+                    } else if (storedState === 'expanded') {
+                        collapse.show();
+                    }
+                } catch (error) {
+                    console.warn('Unable to access localStorage for collapse toggle.', error);
+                }
+            }
+
+            var syncState = function () {
+                var isShown = target.classList.contains('show');
+                if (labelEl && expandedLabel) {
+                    labelEl.textContent = isShown ? expandedLabel : collapsedLabel;
+                }
+
+                if (iconEl && expandedIcon && collapsedIcon) {
+                    iconEl.classList.remove(expandedIcon, collapsedIcon);
+                    iconEl.classList.add(isShown ? expandedIcon : collapsedIcon);
+                }
+
+                toggle.setAttribute('aria-expanded', isShown ? 'true' : 'false');
+            };
+
+            target.addEventListener('shown.bs.collapse', function () {
+                if (storageKey) {
+                    try {
+                        localStorage.setItem(storageKey, 'expanded');
+                    } catch (error) {
+                        console.warn('Unable to persist collapse state.', error);
+                    }
+                }
+                syncState();
+            });
+
+            target.addEventListener('hidden.bs.collapse', function () {
+                if (storageKey) {
+                    try {
+                        localStorage.setItem(storageKey, 'collapsed');
+                    } catch (error) {
+                        console.warn('Unable to persist collapse state.', error);
+                    }
+                }
+                syncState();
+            });
+
+            syncState();
+        });
     });
 </script>
 <script src="{% static 'indy_hub/js/bp_copy_chat.js' %}?v=20251021"></script>

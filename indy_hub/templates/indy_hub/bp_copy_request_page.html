@@ -5,6 +5,23 @@
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
 <link rel="stylesheet" href="{% static 'indy_hub/css/blueprints.css' %}">
+<style>
+    .bp-request-grid__cell {
+        flex: 0 0 auto;
+        width: 270px;
+    }
+
+    .bp-request-grid__cell .bp-request-card {
+        width: 100%;
+    }
+
+    @media (max-width: 575.98px) {
+        .bp-request-grid__cell {
+            width: 100%;
+            max-width: 270px;
+        }
+    }
+</style>
 {% endblock extra_css %}
 {% block content %}
 <main class="bp-request-surface bg-body">
@@ -56,38 +73,58 @@
                     </h2>
                     <p class="text-muted small mb-0">{% trans "Follow these three quick steps to secure the copies you need." %}</p>
                 </div>
+                <div class="ms-lg-auto d-flex align-items-center">
+                    <button
+                        type="button"
+                        class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-2 collapse-toggle"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#request-journey-body"
+                        aria-expanded="true"
+                        aria-controls="request-journey-body"
+                        data-collapse-label-expanded="{% trans 'Hide journey' %}"
+                        data-collapse-label-collapsed="{% trans 'Show journey' %}"
+                        data-collapse-icon-expanded="fa-eye-slash"
+                        data-collapse-icon-collapsed="fa-eye"
+                        data-collapse-storage-key="indyHub.request.journey"
+                    >
+                        <i class="fas fa-eye-slash"></i>
+                        <span class="collapse-toggle__label">{% trans "Hide journey" %}</span>
+                    </button>
+                </div>
             </div>
-            <div class="row g-3">
-                <div class="col-md-4">
-                    <div class="card h-100 shadow-sm border-0">
-                        <div class="card-body">
-                            <div class="d-flex align-items-center gap-3 mb-2">
-                                <span class="badge bg-primary text-white rounded-circle px-2 py-1">1</span>
-                                <h3 class="h6 mb-0">{% trans "Choose an original" %}</h3>
+            <div id="request-journey-body" class="collapse show">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <div class="card h-100 shadow-sm border-0">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center gap-3 mb-2">
+                                    <span class="badge bg-primary text-white rounded-circle px-2 py-1">1</span>
+                                    <h3 class="h6 mb-0">{% trans "Choose an original" %}</h3>
+                                </div>
+                                <p class="text-muted small mb-0">{% trans "Filter the community library to find the blueprint that matches your doctrine or project." %}</p>
                             </div>
-                            <p class="text-muted small mb-0">{% trans "Filter the community library to find the blueprint that matches your doctrine or project." %}</p>
                         </div>
                     </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="card h-100 shadow-sm border-0">
-                        <div class="card-body">
-                            <div class="d-flex align-items-center gap-3 mb-2">
-                                <span class="badge bg-primary text-white rounded-circle px-2 py-1">2</span>
-                                <h3 class="h6 mb-0">{% trans "Define copies & runs" %}</h3>
+                    <div class="col-md-4">
+                        <div class="card h-100 shadow-sm border-0">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center gap-3 mb-2">
+                                    <span class="badge bg-primary text-white rounded-circle px-2 py-1">2</span>
+                                    <h3 class="h6 mb-0">{% trans "Define copies & runs" %}</h3>
+                                </div>
+                                <p class="text-muted small mb-0">{% trans "Set the exact number of copies and licensed runs you expect so builders can respond accurately." %}</p>
                             </div>
-                            <p class="text-muted small mb-0">{% trans "Set the exact number of copies and licensed runs you expect so builders can respond accurately." %}</p>
                         </div>
                     </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="card h-100 shadow-sm border-0">
-                        <div class="card-body">
-                            <div class="d-flex align-items-center gap-3 mb-2">
-                                <span class="badge bg-primary text-white rounded-circle px-2 py-1">3</span>
-                                <h3 class="h6 mb-0">{% trans "Submit & monitor" %}</h3>
+                    <div class="col-md-4">
+                        <div class="card h-100 shadow-sm border-0">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center gap-3 mb-2">
+                                    <span class="badge bg-primary text-white rounded-circle px-2 py-1">3</span>
+                                    <h3 class="h6 mb-0">{% trans "Submit & monitor" %}</h3>
+                                </div>
+                                <p class="text-muted small mb-0">{% trans "Send your request, then follow builder offers in the fulfilment view or jump straight into simulations." %}</p>
                             </div>
-                            <p class="text-muted small mb-0">{% trans "Send your request, then follow builder offers in the fulfilment view or jump straight into simulations." %}</p>
                         </div>
                     </div>
                 </div>
@@ -155,9 +192,9 @@
         </section>
 
         <section>
-            <div class="bp-request-grid row row-cols-1 row-cols-md-2 row-cols-xl-3 g-3" id="requestBlueprintsContainer">
+            <div class="bp-request-grid d-flex flex-wrap gap-3" id="requestBlueprintsContainer">
                 {% for bp in page_obj.object_list %}
-                <div class="col" data-name="{{ bp.type_name|lower }}">
+                <div class="bp-request-grid__cell" data-name="{{ bp.type_name|lower }}">
                     <form method="post" class="bp-request-card card h-100 shadow-sm">
                         {% csrf_token %}
                         <input type="hidden" name="type_id" value="{{ bp.type_id }}">
@@ -196,8 +233,9 @@
                             </div>
                         </div>
                         <div class="card-footer bg-transparent border-0 pt-0">
-                            <button class="btn btn-primary w-100" type="submit">
-                                <i class="fas fa-paper-plane me-1"></i>{% trans 'Request copy' %}
+                            <button class="bp-btn bp-btn-soft-success w-100" type="submit">
+                                <i class="fas fa-paper-plane"></i>
+                                <span>{% trans "Request copy" %}</span>
                             </button>
                         </div>
                     </form>
@@ -266,3 +304,88 @@
     </div>
 </main>
 {% endblock content %}
+
+{% block extra_javascript %}
+{{ block.super }}
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        if (typeof bootstrap === 'undefined') {
+            return;
+        }
+
+        var toggles = document.querySelectorAll('.collapse-toggle[data-bs-target]');
+
+        toggles.forEach(function (toggle) {
+            var targetSelector = toggle.getAttribute('data-bs-target');
+            if (!targetSelector) {
+                return;
+            }
+
+            var target = document.querySelector(targetSelector);
+            if (!target) {
+                return;
+            }
+
+            var collapse = bootstrap.Collapse.getOrCreateInstance(target, { toggle: false });
+            var storageKey = toggle.getAttribute('data-collapse-storage-key');
+            var labelEl = toggle.querySelector('.collapse-toggle__label') || toggle;
+            var iconEl = toggle.querySelector('i');
+            var expandedLabel = toggle.getAttribute('data-collapse-label-expanded') || '';
+            var collapsedLabel = toggle.getAttribute('data-collapse-label-collapsed') || expandedLabel;
+            var expandedIcon = toggle.getAttribute('data-collapse-icon-expanded');
+            var collapsedIcon = toggle.getAttribute('data-collapse-icon-collapsed');
+
+            if (storageKey) {
+                try {
+                    var storedState = localStorage.getItem(storageKey);
+                    if (storedState === 'collapsed') {
+                        collapse.hide();
+                    } else if (storedState === 'expanded') {
+                        collapse.show();
+                    }
+                } catch (error) {
+                    console.warn('Unable to access localStorage for collapse toggle.', error);
+                }
+            }
+
+            var syncState = function () {
+                var isShown = target.classList.contains('show');
+                if (labelEl && expandedLabel) {
+                    labelEl.textContent = isShown ? expandedLabel : collapsedLabel;
+                }
+
+                if (iconEl && expandedIcon && collapsedIcon) {
+                    iconEl.classList.remove(expandedIcon, collapsedIcon);
+                    iconEl.classList.add(isShown ? expandedIcon : collapsedIcon);
+                }
+
+                toggle.setAttribute('aria-expanded', isShown ? 'true' : 'false');
+            };
+
+            target.addEventListener('shown.bs.collapse', function () {
+                if (storageKey) {
+                    try {
+                        localStorage.setItem(storageKey, 'expanded');
+                    } catch (error) {
+                        console.warn('Unable to persist collapse state.', error);
+                    }
+                }
+                syncState();
+            });
+
+            target.addEventListener('hidden.bs.collapse', function () {
+                if (storageKey) {
+                    try {
+                        localStorage.setItem(storageKey, 'collapsed');
+                    } catch (error) {
+                        console.warn('Unable to persist collapse state.', error);
+                    }
+                }
+                syncState();
+            });
+
+            syncState();
+        });
+    });
+</script>
+{% endblock %}
