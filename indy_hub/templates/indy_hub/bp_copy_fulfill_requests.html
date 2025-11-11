@@ -237,7 +237,54 @@
                                     <div class="bp-request-card__metric-value bp-request-card__metric-value--list">
                                         <ul class="bp-request-card__access-list">
                                             {% if req.personal_source_names %}
+                                            <li class="bp-request-card__access-item">
+                                                <i class="fas fa-user-astronaut text-primary"></i>
+                                                <div class="bp-request-card__access-body">
+                                                    <span class="bp-request-card__access-label">
+                                                        {% blocktrans trimmed count count=req.personal_source_names|length %}
+                                                            Your char
+                                                        {% plural %}
+                                                            Your characters
+                                                        {% endblocktrans %}
+                                                    </span>
+                                                    <span class="bp-request-card__access-names">{{ req.personal_source_names|join:", " }}</span>
+                                                </div>
+                                            </li>
+                                            {% endif %}
+                                            {% if req.corporation_names %}
+                                            <li class="bp-request-card__access-item">
+                                                <i class="fas fa-building text-info"></i>
+                                                <div class="bp-request-card__access-body">
+                                                    <span class="bp-request-card__access-label">
+                                                        {% blocktrans trimmed count count=req.corporation_names|length %}
+                                                            Corp
+                                                        {% plural %}
+                                                            Corps
+                                                        {% endblocktrans %}
+                                                    </span>
+                                                    <span class="bp-request-card__access-names">
+                                                        {% if req.corporation_tickers %}
+                                                            {{ req.corporation_tickers|join:", " }}
+                                                        {% else %}
+                                                            {{ req.corporation_names|join:", " }}
+                                                        {% endif %}
+                                                    </span>
+                                                </div>
+                                            </li>
+                                            {% endif %}
+                                        </ul>
+                                    </div>
+                                </li>
+                                {% endif %}
+                            </ul>
+                        </div>
+                    </div>
 
+                    <div class="bp-request-card__secondary">
+                        <p class="bp-request-card__status-hint text-muted small mb-0">{{ req.status_hint }}</p>
+
+                        {% if req.all_copies_busy %}
+                        <div class="alert bg-danger border-danger text-white py-2 px-3 small mb-0">
                             <i class="fas fa-stopwatch me-1"></i>
                             {% if req.busy_until %}
                                 {% if req.busy_overdue %}
