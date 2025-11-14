@@ -3686,9 +3686,12 @@ def bp_reject_copy_request(request, request_id):
 @indy_hub_permission_required("can_manage_copy_requests")
 @login_required
 def bp_cancel_copy_request(request, request_id):
-    """Allow user to cancel their own unfulfilled copy request."""
+    """Allow user to cancel their own copy request before delivery."""
     req = get_object_or_404(
-        BlueprintCopyRequest, id=request_id, requested_by=request.user, fulfilled=False
+        BlueprintCopyRequest,
+        id=request_id,
+        requested_by=request.user,
+        delivered=False,
     )
     offers = req.offers.all()
     fulfill_queue_url = request.build_absolute_uri(
@@ -4038,7 +4041,7 @@ def bp_copy_my_requests(request):
                 "status_class": status_info["badge"],
                 "status_hint": status_info["hint"],
                 "created_at": req.created_at,
-                "can_cancel": not req.fulfilled,
+                "can_cancel": not req.delivered,
             }
         )
 
@@ -4392,6 +4395,19 @@ def bp_chat_decide(request, chat_id: int):
     if viewer_role == "seller":
         if _finalize_request_if_all_rejected(req):
             return JsonResponse({"status": "rejected", "request_closed": True})
+
+    if not req.offers.exclude(id=offer.id).filter(status="accepted").exists():
+        reset_fields: list[str] = []
+        if req.delivered:
+            req.delivered = False
+            req.delivered_at = None
+            reset_fields.extend(["delivered", "delivered_at"])
+        if req.fulfilled:
+            req.fulfilled = False
+            req.fulfilled_at = None
+            reset_fields.extend(["fulfilled", "fulfilled_at"])
+        if reset_fields:
+            req.save(update_fields=list(dict.fromkeys(reset_fields)))
 
     return JsonResponse({"status": "rejected"})
 

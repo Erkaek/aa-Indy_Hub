@@ -806,6 +806,32 @@
 {% block indy_hub_global_modals %}
     {{ block.super }}
     {% include "indy_hub/includes/bp_chat_modal.html" %}
+    <div class="modal fade" id="copy-sharing-confirm-modal" tabindex="-1" aria-labelledby="copy-sharing-confirm-title" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="copy-sharing-confirm-title">{% trans 'Confirm sharing change' %}</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-3" id="copy-sharing-confirm-message">{% trans 'Changing blueprint sharing scope may decline accepted requests.' %}</p>
+                    <ul class="list-group list-group-flush small" id="copy-sharing-confirm-list"></ul>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{% trans 'Cancel' %}</button>
+                    <button
+                        type="button"
+                        class="btn btn-danger"
+                        id="copy-sharing-confirm-accept"
+                        data-confirm-label="{% trans 'Confirm change' %}"
+                        data-loading-label="{% trans 'Updating...' %}"
+                    >
+                        {% trans 'Confirm change' %}
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
 {% endblock %}
 
 {% block extra_javascript %}

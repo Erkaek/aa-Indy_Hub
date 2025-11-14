@@ -13,17 +13,19 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
+from django.db import transaction
 from django.db.models import Count, F, Max, Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
-from django.utils.translation import gettext as _
+from django.utils.translation import gettext as _, ngettext
 from django.views.decorators.http import require_POST
 
 # Alliance Auth
 from allianceauth.authentication.models import CharacterOwnership
+from allianceauth.eveonline.models import EveCharacter
 from esi.models import CallbackRedirect, Token
 
 # AA Example App
@@ -33,12 +35,14 @@ from ..decorators import indy_hub_access_required
 from ..models import (
     Blueprint,
     BlueprintCopyChat,
+    BlueprintCopyOffer,
     BlueprintCopyRequest,
     IndustryJob,
     ProductionConfig,
     ProductionSimulation,
     UserOnboardingProgress,
 )
+from ..notifications import build_site_url, notify_user
 from ..services.esi_client import ESIClientError, ESITokenError
 from ..services.simulations import summarize_simulations
 from ..tasks.industry import (
@@ -730,6 +734,219 @@ def get_copy_sharing_states() -> dict[str, dict[str, object]]:
             ),
         },
     }
+
+
+# --- Copy sharing helpers ---
+_COPY_SCOPE_ORDER = [
+    CharacterSettings.SCOPE_NONE,
+    CharacterSettings.SCOPE_CORPORATION,
+    CharacterSettings.SCOPE_ALLIANCE,
+    CharacterSettings.SCOPE_EVERYONE,
+]
+
+
+def _scope_rank(scope: str) -> int:
+    try:
+        return _COPY_SCOPE_ORDER.index(scope)
+    except ValueError:
+        return -1
+
+
+def _collect_user_affiliations(user_ids: Iterable[int]) -> dict[int, dict[str, set[int]]]:
+    user_ids = [uid for uid in set(user_ids) if uid]
+    affiliations: dict[int, dict[str, set[int]]] = {
+        uid: {"corp_ids": set(), "alliance_ids": set()} for uid in user_ids
+    }
+    if not user_ids:
+        return affiliations
+
+    character_rows = EveCharacter.objects.filter(
+        character_ownership__user_id__in=user_ids
+    ).values(
+        "character_ownership__user_id",
+        "corporation_id",
+        "alliance_id",
+    )
+
+    for row in character_rows:
+        user_id = row.get("character_ownership__user_id")
+        if not user_id:
+            continue
+        entry = affiliations.setdefault(
+            user_id, {"corp_ids": set(), "alliance_ids": set()}
+        )
+        corp_id = row.get("corporation_id")
+        alliance_id = row.get("alliance_id")
+        if corp_id:
+            entry["corp_ids"].add(corp_id)
+        if alliance_id:
+            entry["alliance_ids"].add(alliance_id)
+
+    return affiliations
+
+
+def _viewer_has_scope_access(
+    *,
+    owner_user,
+    owner_affiliations: dict[str, set[int]],
+    viewer_user,
+    viewer_affiliations: dict[str, set[int]],
+    scope: str,
+) -> bool:
+    if not viewer_user:
+        return False
+    if viewer_user.id == getattr(owner_user, "id", None):
+        return True
+    if scope == CharacterSettings.SCOPE_NONE:
+        return False
+    if scope == CharacterSettings.SCOPE_CORPORATION:
+        return bool(
+            owner_affiliations.get("corp_ids", set())
+            & viewer_affiliations.get("corp_ids", set())
+        )
+    if scope == CharacterSettings.SCOPE_ALLIANCE:
+        owner_corps = owner_affiliations.get("corp_ids", set())
+        viewer_corps = viewer_affiliations.get("corp_ids", set())
+        if owner_corps & viewer_corps:
+            return True
+        owner_alliances = owner_affiliations.get("alliance_ids", set())
+        viewer_alliances = viewer_affiliations.get("alliance_ids", set())
+        return bool(owner_alliances & viewer_alliances)
+    if scope == CharacterSettings.SCOPE_EVERYONE:
+        return viewer_user.has_perm("indy_hub.can_manage_copy_requests")
+    return False
+
+
+def _find_impacted_offers_for_scope_change(
+    *,
+    owner,
+    next_scope: str,
+    current_scope: str,
+) -> list[BlueprintCopyOffer]:
+    if _scope_rank(next_scope) >= _scope_rank(current_scope):
+        return []
+
+    offers = list(
+        BlueprintCopyOffer.objects.filter(owner=owner, status="accepted")
+        .select_related("request__requested_by")
+        .exclude(request__delivered=True)
+    )
+    if not offers:
+        return []
+
+    if next_scope == CharacterSettings.SCOPE_NONE:
+        return offers
+
+    buyer_ids = {
+        offer.request.requested_by_id
+        for offer in offers
+        if offer.request.requested_by_id
+    }
+    owner_aff = _collect_user_affiliations([owner.id]).get(
+        owner.id, {"corp_ids": set(), "alliance_ids": set()}
+    )
+    viewer_aff_map = _collect_user_affiliations(buyer_ids)
+
+    impacted: list[BlueprintCopyOffer] = []
+    for offer in offers:
+        req = offer.request
+        viewer = req.requested_by
+        viewer_aff = viewer_aff_map.get(
+            getattr(viewer, "id", 0), {"corp_ids": set(), "alliance_ids": set()}
+        )
+        if _viewer_has_scope_access(
+            owner_user=owner,
+            owner_affiliations=owner_aff,
+            viewer_user=viewer,
+            viewer_affiliations=viewer_aff,
+            scope=next_scope,
+        ):
+            continue
+        impacted.append(offer)
+
+    return impacted
+
+
+def _close_offer_chat_if_exists(offer: BlueprintCopyOffer, *, reason: str) -> None:
+    try:
+        chat = offer.chat
+    except BlueprintCopyChat.DoesNotExist:
+        return
+    chat.close(reason=reason)
+
+
+def _auto_reject_offers_due_to_scope_change(
+    offers: Iterable[BlueprintCopyOffer],
+    *,
+    owner,
+    scope_label: str,
+) -> list[dict[str, object]]:
+    rejected_details: list[dict[str, object]] = []
+    offers = list(offers)
+    if not offers:
+        return rejected_details
+
+    buyer_requests_url = build_site_url(reverse("indy_hub:bp_copy_my_requests"))
+
+    for offer in offers:
+        req = offer.request
+        buyer = req.requested_by
+        offer.status = "rejected"
+        offer.message = ""
+        offer.accepted_by_buyer = False
+        offer.accepted_by_seller = False
+        offer.accepted_at = None
+        offer.save(
+            update_fields=[
+                "status",
+                "message",
+                "accepted_by_buyer",
+                "accepted_by_seller",
+                "accepted_at",
+            ]
+        )
+        _close_offer_chat_if_exists(
+            offer, reason=BlueprintCopyChat.CloseReason.OFFER_REJECTED
+        )
+
+        req.fulfilled = False
+        req.fulfilled_at = None
+        update_fields = ["fulfilled", "fulfilled_at"]
+        if req.delivered:
+            req.delivered = False
+            req.delivered_at = None
+            update_fields.extend(["delivered", "delivered_at"])
+        req.save(update_fields=update_fields)
+
+        type_name = get_type_name(req.type_id)
+        if buyer:
+            notify_user(
+                buyer,
+                _("Blueprint copy request declined"),
+                _(
+                    "%(builder)s changed blueprint sharing to %(scope)s, so your accepted request for %(type)s (ME%(me)s, TE%(te)s) was declined."
+                )
+                % {
+                    "builder": owner.username,
+                    "scope": scope_label,
+                    "type": type_name,
+                    "me": req.material_efficiency,
+                    "te": req.time_efficiency,
+                },
+                "warning",
+                link=buyer_requests_url,
+                link_label=_("Review your requests"),
+            )
+
+        rejected_details.append(
+            {
+                "request_id": req.id,
+                "type_name": type_name,
+                "buyer": getattr(buyer, "username", ""),
+            }
+        )
+
+    return rejected_details
 
 
 # --- User views (token management, sync, etc.) ---
@@ -1875,12 +2092,7 @@ def toggle_copy_sharing(request):
     settings, _created = CharacterSettings.objects.get_or_create(
         user=request.user, character_id=0
     )
-    scope_order = [
-        CharacterSettings.SCOPE_NONE,
-        CharacterSettings.SCOPE_CORPORATION,
-        CharacterSettings.SCOPE_ALLIANCE,
-        CharacterSettings.SCOPE_EVERYONE,
-    ]
+    scope_order = _COPY_SCOPE_ORDER
     payload = {}
     if request.body:
         try:
@@ -1889,36 +2101,111 @@ def toggle_copy_sharing(request):
             payload = {}
 
     requested_scope = payload.get("scope") if isinstance(payload, dict) else None
+    confirmed = bool(payload.get("confirmed")) if isinstance(payload, dict) else False
+    current_scope = settings.copy_sharing_scope
     if requested_scope in scope_order:
         next_scope = requested_scope
     else:
         try:
-            current_index = scope_order.index(settings.copy_sharing_scope)
+            current_index = scope_order.index(current_scope)
         except ValueError:
             current_index = 0
         next_scope = scope_order[(current_index + 1) % len(scope_order)]
 
-    settings.set_copy_sharing_scope(next_scope)
-    settings.save(
-        update_fields=["allow_copy_requests", "copy_sharing_scope", "updated_at"]
+    if next_scope not in scope_order:
+        next_scope = CharacterSettings.SCOPE_NONE
+
+    impacted_offers = _find_impacted_offers_for_scope_change(
+        owner=request.user,
+        next_scope=next_scope,
+        current_scope=current_scope,
     )
 
-    sharing_state = get_copy_sharing_states()[next_scope]
+    if impacted_offers and not confirmed:
+        next_state = get_copy_sharing_states().get(
+            next_scope, get_copy_sharing_states()[CharacterSettings.SCOPE_NONE]
+        )
+        scope_label = next_state.get("button_label") or next_scope
+        confirmation_message = ngettext(
+            "Changing to %(scope)s will decline %(count)s accepted request.",
+            "Changing to %(scope)s will decline %(count)s accepted requests.",
+            len(impacted_offers),
+        ) % {"scope": scope_label, "count": len(impacted_offers)}
+        examples = [
+            {
+                "request_id": offer.request_id,
+                "type_name": get_type_name(offer.request.type_id),
+                "buyer": getattr(offer.request.requested_by, "username", ""),
+            }
+            for offer in impacted_offers[:3]
+        ]
+        return JsonResponse(
+            {
+                "requires_confirmation": True,
+                "impacted_count": len(impacted_offers),
+                "impacted_examples": examples,
+                "next_scope": next_scope,
+                "current_scope": current_scope,
+                "scope_label": scope_label,
+                "confirmation_message": confirmation_message,
+            },
+            status=409,
+        )
 
-    return JsonResponse(
-        {
-            "scope": next_scope,
-            "enabled": sharing_state["enabled"],
-            "button_label": sharing_state["button_label"],
-            "button_hint": sharing_state["button_hint"],
-            "status_label": sharing_state["status_label"],
-            "status_hint": sharing_state["status_hint"],
-            "badge_class": sharing_state["badge_class"],
-            "popup_message": sharing_state["popup_message"],
-            "fulfill_hint": sharing_state["fulfill_hint"],
-            "subtitle": sharing_state["subtitle"],
-        }
-    )
+    rejected_details: list[dict[str, object]] = []
+
+    with transaction.atomic():
+        scope_changed = current_scope != next_scope
+        if scope_changed:
+            settings.set_copy_sharing_scope(next_scope)
+            settings.save(
+                update_fields=["allow_copy_requests", "copy_sharing_scope", "updated_at"]
+            )
+        else:
+            settings.updated_at = timezone.now()
+            settings.save(update_fields=["updated_at"])
+
+        sharing_state = get_copy_sharing_states()[next_scope]
+        scope_label = sharing_state.get("status_label") or sharing_state.get(
+            "button_label", next_scope
+        )
+
+        if scope_changed and impacted_offers:
+            rejected_details = _auto_reject_offers_due_to_scope_change(
+                impacted_offers,
+                owner=request.user,
+                scope_label=scope_label,
+            )
+
+    if not sharing_state:
+        sharing_state = get_copy_sharing_states()[CharacterSettings.SCOPE_NONE]
+
+    declined_message = ""
+    if rejected_details:
+        declined_message = ngettext(
+            "%(count)s accepted request was declined because of the new sharing scope.",
+            "%(count)s accepted requests were declined because of the new sharing scope.",
+            len(rejected_details),
+        ) % {"count": len(rejected_details)}
+
+    response_payload = {
+        "scope": next_scope,
+        "enabled": sharing_state["enabled"],
+        "button_label": sharing_state["button_label"],
+        "button_hint": sharing_state["button_hint"],
+        "status_label": sharing_state["status_label"],
+        "status_hint": sharing_state["status_hint"],
+        "badge_class": sharing_state["badge_class"],
+        "popup_message": sharing_state["popup_message"],
+        "fulfill_hint": sharing_state["fulfill_hint"],
+        "subtitle": sharing_state["subtitle"],
+        "requires_confirmation": False,
+        "declined_count": len(rejected_details),
+        "declined_requests": rejected_details[:10],
+        "declined_message": declined_message,
+    }
+
+    return JsonResponse(response_payload)
 
 
 @indy_hub_access_required

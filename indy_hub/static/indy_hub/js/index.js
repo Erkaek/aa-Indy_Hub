@@ -348,6 +348,28 @@ document.addEventListener('DOMContentLoaded', function() {
 
     if (shareGroup) {
         var shareButtons = Array.from(shareGroup.querySelectorAll('[data-share-scope]'));
+        var shareConfirmModalElement = document.getElementById('copy-sharing-confirm-modal');
+        var shareConfirmModal = null;
+        var shareConfirmAcceptBtn = document.getElementById('copy-sharing-confirm-accept');
+        var shareConfirmMessage = document.getElementById('copy-sharing-confirm-message');
+        var shareConfirmList = document.getElementById('copy-sharing-confirm-list');
+        var pendingShareChange = null;
+
+        if (shareConfirmModalElement && window.bootstrap && typeof window.bootstrap.Modal === 'function') {
+            shareConfirmModal = new window.bootstrap.Modal(shareConfirmModalElement);
+            shareConfirmModalElement.addEventListener('hidden.bs.modal', function() {
+                pendingShareChange = null;
+                if (shareConfirmAcceptBtn) {
+                    shareConfirmAcceptBtn.disabled = false;
+                }
+            });
+        }
+
+        function setShareButtonsDisabled(disabled) {
+            shareButtons.forEach(function(btn) {
+                btn.disabled = !!disabled;
+            });
+        }
 
         function setActiveScope(scope) {
             shareGroup.dataset.currentScope = scope || '';
@@ -369,11 +391,10 @@ document.addEventListener('DOMContentLoaded', function() {
             var fulfillHint = document.getElementById('share-fulfill-hint');
             var shareSubtitle = document.getElementById('share-subtitle');
             var shareExplanation = document.getElementById('copy-sharing-explanation');
-            var shareExplanation = document.getElementById('copy-sharing-explanation');
 
             if (shareState) {
-                var stateClass = 'badge rounded-pill share-mode-badge ' + (data && data.badge_class ? data.badge_class : 'bg-secondary-subtle text-secondary');
-                shareState.className = stateClass;
+                var badgeClassRoot = (data && data.badge_class) ? data.badge_class : 'bg-secondary-subtle text-secondary';
+                shareState.className = 'badge rounded-pill share-mode-badge ' + badgeClassRoot;
                 if (data && Object.prototype.hasOwnProperty.call(data, 'button_label')) {
                     shareState.textContent = data.button_label || '';
                 }
@@ -406,10 +427,146 @@ document.addEventListener('DOMContentLoaded', function() {
             if (shareExplanation && data && Object.prototype.hasOwnProperty.call(data, 'explanation')) {
                 shareExplanation.textContent = data.explanation || '';
             }
+        }
 
-            if (shareExplanation && data && Object.prototype.hasOwnProperty.call(data, 'explanation')) {
-                shareExplanation.textContent = data.explanation || '';
+        function handleShareSuccess(desiredScope, data) {
+            shareStates[desiredScope] = Object.assign({}, shareStates[desiredScope] || {}, data);
+            applyShareState(data, desiredScope);
+            var popupTone = data.enabled ? 'success' : 'secondary';
+            if (data.declined_count) {
+                popupTone = 'warning';
             }
+            var popupMessage = data.popup_message || (data.enabled ? 'Blueprint sharing enabled.' : 'Blueprint sharing disabled.');
+            if (data.declined_message) {
+                popupMessage += ' ' + data.declined_message;
+            }
+            showIndyHubPopup(popupMessage, popupTone);
+        }
+
+        function handleShareFailure() {
+            showIndyHubPopup('Error updating blueprint sharing.', 'danger');
+        }
+
+        function requestShareChange(desiredScope, options) {
+            options = options || {};
+            if (!window.toggleCopySharingUrl) {
+                return Promise.reject(new Error('missing_url'));
+            }
+            var payload = { scope: desiredScope };
+            if (options.confirmed) {
+                payload.confirmed = true;
+            }
+            setShareButtonsDisabled(true);
+            return fetch(window.toggleCopySharingUrl, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': window.csrfToken,
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            })
+                .then(function(response) {
+                    return response
+                        .json()
+                        .catch(function() { return {}; })
+                        .then(function(data) {
+                            return { response: response, data: data };
+                        });
+                })
+                .finally(function() {
+                    setShareButtonsDisabled(false);
+                });
+        }
+
+        function finalizeConfirmedShare(scope) {
+            return requestShareChange(scope, { confirmed: true })
+                .then(function(result) {
+                    if (!result || !result.response) {
+                        handleShareFailure();
+                        return;
+                    }
+                    if (result.response.ok) {
+                        if (shareConfirmModal) {
+                            shareConfirmModal.hide();
+                        }
+                        handleShareSuccess(scope, result.data || {});
+                    } else if (result.data && result.data.requires_confirmation) {
+                        renderShareConfirmation(result.data, scope);
+                    } else {
+                        handleShareFailure();
+                    }
+                })
+                .catch(handleShareFailure);
+        }
+
+        function renderShareConfirmation(payload, desiredScope) {
+            if (!shareConfirmModal) {
+                var fallbackMessage = payload.confirmation_message || 'Changing sharing scope will decline accepted requests. Continue?';
+                if (window.confirm(fallbackMessage)) {
+                    finalizeConfirmedShare(desiredScope);
+                }
+                return;
+            }
+            pendingShareChange = {
+                scope: desiredScope,
+                payload: payload
+            };
+            if (shareConfirmMessage) {
+                shareConfirmMessage.textContent = payload.confirmation_message || '';
+            }
+            if (shareConfirmList) {
+                shareConfirmList.innerHTML = '';
+                if (Array.isArray(payload.impacted_examples) && payload.impacted_examples.length) {
+                    payload.impacted_examples.forEach(function(example) {
+                        var item = document.createElement('li');
+                        item.className = 'list-group-item py-2 px-3 d-flex justify-content-between align-items-start';
+                        var label = document.createElement('div');
+                        label.className = 'me-2';
+                        label.textContent = example.type_name || ('Request #' + example.request_id);
+                        item.appendChild(label);
+                        if (example.buyer) {
+                            var buyer = document.createElement('span');
+                            buyer.className = 'badge bg-secondary-subtle text-secondary-emphasis rounded-pill';
+                            buyer.textContent = example.buyer;
+                            item.appendChild(buyer);
+                        }
+                        shareConfirmList.appendChild(item);
+                    });
+                    if (payload.impacted_count > payload.impacted_examples.length) {
+                        var remaining = payload.impacted_count - payload.impacted_examples.length;
+                        var moreItem = document.createElement('li');
+                        moreItem.className = 'list-group-item py-2 px-3 text-muted fst-italic';
+                        moreItem.textContent = '...' + remaining + ' more request' + (remaining === 1 ? '' : 's');
+                        shareConfirmList.appendChild(moreItem);
+                    }
+                } else {
+                    var emptyItem = document.createElement('li');
+                    emptyItem.className = 'list-group-item py-2 px-3 text-muted';
+                    emptyItem.textContent = 'Accepted requests will be declined.';
+                    shareConfirmList.appendChild(emptyItem);
+                }
+            }
+            if (shareConfirmAcceptBtn) {
+                shareConfirmAcceptBtn.disabled = false;
+                shareConfirmAcceptBtn.textContent = shareConfirmAcceptBtn.dataset.confirmLabel || 'Confirm';
+            }
+            shareConfirmModal.show();
+        }
+
+        if (shareConfirmAcceptBtn && shareConfirmModal) {
+            shareConfirmAcceptBtn.addEventListener('click', function() {
+                if (!pendingShareChange) {
+                    shareConfirmModal.hide();
+                    return;
+                }
+                shareConfirmAcceptBtn.disabled = true;
+                shareConfirmAcceptBtn.textContent = shareConfirmAcceptBtn.dataset.loadingLabel || 'Updating...';
+                finalizeConfirmedShare(pendingShareChange.scope).finally(function() {
+                    shareConfirmAcceptBtn.disabled = false;
+                    shareConfirmAcceptBtn.textContent = shareConfirmAcceptBtn.dataset.confirmLabel || 'Confirm';
+                });
+            });
         }
 
         var initialScope = shareGroup.dataset.currentScope || 'none';
@@ -420,45 +577,35 @@ document.addEventListener('DOMContentLoaded', function() {
             setActiveScope(initialScope);
         }
 
-        function bindShareButton(btn) {
+        shareButtons.forEach(function(btn) {
             btn.addEventListener('click', function() {
                 var desiredScope = btn.dataset.shareScope;
-                if (!desiredScope) {
-                    return;
-                }
-
-                if (shareGroup.dataset.currentScope === desiredScope) {
-                    if (shareStates[desiredScope]) {
+                if (!desiredScope || shareGroup.dataset.currentScope === desiredScope) {
+                    if (desiredScope && shareStates[desiredScope]) {
                         applyShareState(shareStates[desiredScope], desiredScope);
                     }
                     return;
                 }
 
-                fetch(window.toggleCopySharingUrl, {
-                    method: 'POST',
-                    headers: {
-                        'X-CSRFToken': window.csrfToken,
-                        'Accept': 'application/json',
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ scope: desiredScope })
-                })
-                .then(r => r.json())
-                .then(data => {
-                    shareStates[desiredScope] = Object.assign({}, shareStates[desiredScope] || {}, data);
-                    applyShareState(data, desiredScope);
-                    showIndyHubPopup(
-                        data.popup_message || (data.enabled ? 'Blueprint sharing enabled.' : 'Blueprint sharing disabled.'),
-                        data.enabled ? 'success' : 'secondary'
-                    );
-                })
-                .catch(function() {
-                    showIndyHubPopup('Error updating blueprint sharing.', 'danger');
-                });
+                requestShareChange(desiredScope, { confirmed: false })
+                    .then(function(result) {
+                        if (!result || !result.response) {
+                            handleShareFailure();
+                            return;
+                        }
+                        if (result.response.ok) {
+                            handleShareSuccess(desiredScope, result.data || {});
+                            return;
+                        }
+                        if (result.data && result.data.requires_confirmation) {
+                            renderShareConfirmation(result.data, desiredScope);
+                            return;
+                        }
+                        handleShareFailure();
+                    })
+                    .catch(handleShareFailure);
             });
-        }
-
-        shareButtons.forEach(bindShareButton);
+        });
     }
 
     // Corporation-level sharing controls
