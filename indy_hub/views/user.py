@@ -20,7 +20,8 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
-from django.utils.translation import gettext as _, ngettext
+from django.utils.translation import gettext as _
+from django.utils.translation import ngettext
 from django.views.decorators.http import require_POST
 
 # Alliance Auth
@@ -752,7 +753,9 @@ def _scope_rank(scope: str) -> int:
         return -1
 
 
-def _collect_user_affiliations(user_ids: Iterable[int]) -> dict[int, dict[str, set[int]]]:
+def _collect_user_affiliations(
+    user_ids: Iterable[int],
+) -> dict[int, dict[str, set[int]]]:
     user_ids = [uid for uid in set(user_ids) if uid]
     affiliations: dict[int, dict[str, set[int]]] = {
         uid: {"corp_ids": set(), "alliance_ids": set()} for uid in user_ids
@@ -827,7 +830,9 @@ def _find_impacted_offers_for_scope_change(
         return []
 
     offers = list(
-        BlueprintCopyOffer.objects.filter(owner=owner, status="accepted")
+        BlueprintCopyOffer.objects.filter(
+            owner=owner, status__in=["accepted", "conditional"]
+        )
         .select_related("request__requested_by")
         .exclude(request__delivered=True)
     )
@@ -880,11 +885,12 @@ def _auto_reject_offers_due_to_scope_change(
     *,
     owner,
     scope_label: str,
-) -> list[dict[str, object]]:
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
     rejected_details: list[dict[str, object]] = []
+    notification_payloads: list[dict[str, object]] = []
     offers = list(offers)
     if not offers:
-        return rejected_details
+        return rejected_details, notification_payloads
 
     buyer_requests_url = build_site_url(reverse("indy_hub:bp_copy_my_requests"))
 
@@ -920,22 +926,24 @@ def _auto_reject_offers_due_to_scope_change(
 
         type_name = get_type_name(req.type_id)
         if buyer:
-            notify_user(
-                buyer,
-                _("Blueprint copy request declined"),
-                _(
-                    "%(builder)s changed blueprint sharing to %(scope)s, so your accepted request for %(type)s (ME%(me)s, TE%(te)s) was declined."
-                )
-                % {
-                    "builder": owner.username,
-                    "scope": scope_label,
-                    "type": type_name,
-                    "me": req.material_efficiency,
-                    "te": req.time_efficiency,
-                },
-                "warning",
-                link=buyer_requests_url,
-                link_label=_("Review your requests"),
+            notification_payloads.append(
+                {
+                    "user": buyer,
+                    "title": _("Blueprint copy request declined"),
+                    "message": _(
+                        "%(builder)s changed blueprint sharing to %(scope)s, so their offer for %(type)s (ME%(me)s, TE%(te)s) was withdrawn."
+                    )
+                    % {
+                        "builder": owner.username,
+                        "scope": scope_label,
+                        "type": type_name,
+                        "me": req.material_efficiency,
+                        "te": req.time_efficiency,
+                    },
+                    "level": "warning",
+                    "link": buyer_requests_url,
+                    "link_label": _("Review your requests"),
+                }
             )
 
         rejected_details.append(
@@ -946,7 +954,7 @@ def _auto_reject_offers_due_to_scope_change(
             }
         )
 
-    return rejected_details
+    return rejected_details, notification_payloads
 
 
 # --- User views (token management, sync, etc.) ---
@@ -2153,13 +2161,19 @@ def toggle_copy_sharing(request):
         )
 
     rejected_details: list[dict[str, object]] = []
+    pending_notifications: list[dict[str, object]] = []
+    sharing_state = None
 
     with transaction.atomic():
         scope_changed = current_scope != next_scope
         if scope_changed:
             settings.set_copy_sharing_scope(next_scope)
             settings.save(
-                update_fields=["allow_copy_requests", "copy_sharing_scope", "updated_at"]
+                update_fields=[
+                    "allow_copy_requests",
+                    "copy_sharing_scope",
+                    "updated_at",
+                ]
             )
         else:
             settings.updated_at = timezone.now()
@@ -2171,11 +2185,31 @@ def toggle_copy_sharing(request):
         )
 
         if scope_changed and impacted_offers:
-            rejected_details = _auto_reject_offers_due_to_scope_change(
+            (
+                rejected_details,
+                pending_notifications,
+            ) = _auto_reject_offers_due_to_scope_change(
                 impacted_offers,
                 owner=request.user,
                 scope_label=scope_label,
             )
+            if pending_notifications:
+                notification_tasks = tuple(pending_notifications)
+
+                def _dispatch_scope_notifications(
+                    payloads: tuple[dict[str, object], ...] = notification_tasks,
+                ) -> None:
+                    for payload in payloads:
+                        notify_user(
+                            payload.get("user"),
+                            payload.get("title"),
+                            payload.get("message"),
+                            level=payload.get("level", "info"),
+                            link=payload.get("link"),
+                            link_label=payload.get("link_label"),
+                        )
+
+                transaction.on_commit(_dispatch_scope_notifications)
 
     if not sharing_state:
         sharing_state = get_copy_sharing_states()[CharacterSettings.SCOPE_NONE]
