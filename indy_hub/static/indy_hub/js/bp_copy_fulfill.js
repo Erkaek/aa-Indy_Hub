@@ -113,6 +113,49 @@
     var scopeDataCache = Object.create(null);
     var scopeSelections = Object.create(null);
 
+    function revealCollapseSection(collapseId) {
+        if (!collapseId) {
+            return;
+        }
+        var collapseEl = document.getElementById(collapseId);
+        if (!collapseEl) {
+            return;
+        }
+        var collapseCtor = null;
+        if (typeof window !== "undefined") {
+            if (window.bootstrap && window.bootstrap.Collapse) {
+                collapseCtor = window.bootstrap.Collapse;
+            } else if (window.bootstrap5 && window.bootstrap5.Collapse) {
+                collapseCtor = window.bootstrap5.Collapse;
+            }
+        }
+        var instance = null;
+        if (collapseCtor) {
+            if (typeof collapseCtor.getOrCreateInstance === "function") {
+                instance = collapseCtor.getOrCreateInstance(collapseEl, { toggle: false });
+            } else {
+                instance = new collapseCtor(collapseEl, { toggle: false });
+            }
+            if (instance && typeof instance.show === "function") {
+                instance.show();
+            }
+        } else {
+            collapseEl.classList.add("show");
+            collapseEl.style.height = "auto";
+        }
+        window.setTimeout(function () {
+            var focusTarget = collapseEl.querySelector("textarea, input, select, button");
+            if (!focusTarget) {
+                return;
+            }
+            try {
+                focusTarget.focus({ preventScroll: true });
+            } catch (err) {
+                focusTarget.focus();
+            }
+        }, 75);
+    }
+
     function parseScopeData(scriptId) {
         if (!scriptId) {
             return null;
@@ -186,18 +229,11 @@
         }
 
         var bootstrapModalCtor = null;
-        var bootstrapCollapseCtor = null;
         if (typeof window !== "undefined") {
             if (window.bootstrap && window.bootstrap.Modal) {
                 bootstrapModalCtor = window.bootstrap.Modal;
             } else if (window.bootstrap5 && window.bootstrap5.Modal) {
                 bootstrapModalCtor = window.bootstrap5.Modal;
-            }
-
-            if (window.bootstrap && window.bootstrap.Collapse) {
-                bootstrapCollapseCtor = window.bootstrap.Collapse;
-            } else if (window.bootstrap5 && window.bootstrap5.Collapse) {
-                bootstrapCollapseCtor = window.bootstrap5.Collapse;
             }
         }
 
@@ -286,41 +322,6 @@
             });
         }
 
-        function showCollapseById(collapseId) {
-            if (!collapseId) {
-                return;
-            }
-            var collapseEl = document.getElementById(collapseId);
-            if (!collapseEl) {
-                return;
-            }
-            var collapseInstance = null;
-            if (bootstrapCollapseCtor) {
-                if (typeof bootstrapCollapseCtor.getOrCreateInstance === "function") {
-                    collapseInstance = bootstrapCollapseCtor.getOrCreateInstance(collapseEl, { toggle: false });
-                } else {
-                    collapseInstance = new bootstrapCollapseCtor(collapseEl, { toggle: false });
-                }
-                if (collapseInstance && typeof collapseInstance.show === "function") {
-                    collapseInstance.show();
-                }
-            } else {
-                collapseEl.classList.add("show");
-                collapseEl.style.height = "auto";
-            }
-            window.setTimeout(function () {
-                var focusTarget = collapseEl.querySelector("textarea, input, select, button");
-                if (!focusTarget) {
-                    return;
-                }
-                try {
-                    focusTarget.focus({ preventScroll: true });
-                } catch (err) {
-                    focusTarget.focus();
-                }
-            }, 75);
-        }
-
         function updateFormsForSelection(requestId, selection) {
             var inputs = document.querySelectorAll('[data-scope-input][data-request-id="' + requestId + '"]');
             inputs.forEach(function (input) {
@@ -362,7 +363,7 @@
                 if (context.trigger) {
                     context.trigger.setAttribute("aria-expanded", "true");
                 }
-                showCollapseById(collapseId);
+                revealCollapseSection(collapseId);
                 return;
             }
             var form = context.form;
@@ -648,8 +649,27 @@
         });
     }
 
+    function initConditionalToggles() {
+        var buttons = document.querySelectorAll("[data-conditional-toggle]");
+        if (!buttons.length) {
+            return;
+        }
+        Array.prototype.forEach.call(buttons, function (button) {
+            button.addEventListener("click", function (event) {
+                event.preventDefault();
+                var targetId = button.getAttribute("data-conditional-target");
+                if (!targetId) {
+                    return;
+                }
+                revealCollapseSection(targetId);
+                button.setAttribute("aria-expanded", "true");
+            });
+        });
+    }
+
     document.addEventListener("DOMContentLoaded", function () {
         initCopyButtons();
         initScopeSelector();
+        initConditionalToggles();
     });
 })();

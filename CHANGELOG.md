@@ -9,18 +9,29 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 _Nothing yet._
 
-## [1.13.0] - 2025-11-02
+## [1.13.0] - 2025-11-15
+
+### Added
+
+- Live and digest preview endpoints for industry job notifications, including reusable serializers and sample scenarios so administrators can validate payloads before enabling production delivery.
+- Interactive blueprint copy fulfilment layout with collapsible sections, responsive card grids, and a dedicated `bp_copy_fulfill.js` controller that drives quick chats, notes, and status updates.
+- Inline access list summaries for personal characters and corporations on fulfilment cards to surface who can action each blueprint request.
+- A confirmation modal for sharing scope changes that warns about the impact of restricting visibility and lets managers opt into automatic clean-up of impacted offers and requests.
 
 ### Changed
 
-- Character notification preferences now retain the "immediate" delivery cadence whenever completion pings stay enabled, matching legacy behaviour after users toggle digest mode.
-- Blueprint copy request notifications now append the corporation name(s) when the matching originals are corporate-owned so Discord previews clearly indicate the source.
-- Alliance Auth navigation badges now mirror the dashboard metrics by combining outstanding fulfil requests with unread copy chats while avoiding double counting shared items.
+- Blueprint copy dashboards, fulfilment pages, and request detail views were refactored for clarity, with cached requester identity lookups, richer metadata, and consistent styling across personal, corporate, and alliance sources.
+- Navigation badges and dashboard counters now treat unread copy chats and outstanding fulfilment items consistently while excluding rejected offers from the metrics businesses rely on.
+- Blueprint copy notifications and chat payloads now embed corporation names and tickers wherever relevant so builders immediately know which organisation owns a request or offer.
+- Job notification preferences support immediate or digest cadences with custom weekdays, improved validation feedback, and digest body generation that reuses the live notification builder.
+- Sharing scope toggles defer notifications until transactions commit, automatically reject conditional offers that no longer qualify, and reset pending requests to keep dashboards accurate.
+- Production simulation, token management, and other blueprint request templates received accessibility-minded heading hierarchy and typography improvements.
 
 ### Fixed
 
-- Restored `/indy_hub/personnal-jobs/notification_test/` in the URLconf so the job notification preview works again and reuses the shared preview builders, resolving the `NoReverseMatch` regression surfaced by the smoke tests.
-- Job notification preview actions now return to the originating dashboard via the shared redirect helper instead of dropping users on the job list unexpectedly.
+- Alliance Auth navigation menu no longer double counts blueprint copy chats when highlighting unread conversations, and job quick actions return users to their previous dashboard.
+- Fulfilment counters and alerts ignore rejected blueprint copy offers, preventing ghost badges after negotiations conclude.
+- Restricting blueprint sharing scopes now automatically closes conditional offers and cancels pending deliveries that fall outside the new visibility rules, eliminating stale records.
 
 ## [1.12.2] - 2025-11-01
 

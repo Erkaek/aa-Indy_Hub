@@ -28,7 +28,10 @@ from .tasks.industry import (  # noqa: F401
     update_type_names,
 )
 from .tasks.location import refresh_structure_location  # noqa: F401
-from .tasks.notifications import dispatch_job_notification_digests  # noqa: F401
+from .tasks.notifications import (  # noqa: F401
+    dispatch_job_notification_digests,
+    notify_recently_completed_jobs,
+)
 from .tasks.user import *  # noqa: F401, F403
 
 logger = logging.getLogger(__name__)

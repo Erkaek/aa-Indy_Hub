@@ -3,14 +3,27 @@
 from __future__ import annotations
 
 # Standard Library
+import logging
 from dataclasses import dataclass
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 # Django
+from django.urls import reverse
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from django.utils.translation import gettext_lazy as _
 
+# Indy Hub
+from ..models import (
+    CharacterSettings,
+    IndustryJob,
+    JobNotificationDigestEntry,
+)
+from ..notifications import build_site_url, notify_user
 from .eve import get_character_name
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     # AA Example App
@@ -321,3 +334,138 @@ def build_digest_notification_body(
     )
 
     return title, body, thumbnail_url
+
+
+def _enqueue_job_notification_digest(
+    *,
+    user,
+    job: IndustryJob,
+    payload: JobNotificationPayload,
+    settings: CharacterSettings,
+) -> None:
+    job_id = getattr(job, "job_id", None)
+    if job_id is None:
+        logger.debug("Skipping digest queue; job has no job_id")
+        return
+
+    snapshot = serialize_job_notification_for_digest(job, payload)
+    entry, created = JobNotificationDigestEntry.objects.update_or_create(
+        user=user,
+        job_id=job_id,
+        defaults={
+            "payload": snapshot,
+            "sent_at": None,
+        },
+    )
+
+    if created:
+        logger.debug(
+            "Queued job %s for digest notifications (user=%s)",
+            job_id,
+            getattr(user, "username", user),
+        )
+    else:
+        logger.debug(
+            "Updated digest entry for job %s (user=%s)",
+            job_id,
+            getattr(user, "username", user),
+        )
+
+    now = timezone.now()
+    if (
+        not settings.jobs_next_digest_at
+        or settings.jobs_next_digest_at <= now
+        or settings.jobs_notify_frequency == CharacterSettings.NOTIFY_CUSTOM
+    ):
+        settings.schedule_next_digest(reference=now)
+        settings.save(update_fields=["jobs_next_digest_at", "updated_at"])
+
+
+def _mark_job_notified(job: IndustryJob) -> None:
+    IndustryJob.objects.filter(pk=job.pk).update(job_completed_notified=True)
+    job.job_completed_notified = True
+
+
+def process_job_completion_notification(job: IndustryJob) -> bool:
+    """Send the appropriate notification for a finished job if needed.
+
+    Returns True when the job required processing (and is now marked notified).
+    """
+
+    if not job or job.job_completed_notified:
+        return False
+
+    end_date = getattr(job, "end_date", None)
+    if isinstance(end_date, str):
+        parsed = parse_datetime(end_date)
+        if parsed is None:
+            logger.debug(
+                "Unable to parse end_date for job %s: %r",
+                getattr(job, "job_id", None),
+                end_date,
+            )
+            end_date = None
+        else:
+            end_date = parsed
+
+    if isinstance(end_date, datetime) and timezone.is_naive(end_date):
+        end_date = timezone.make_aware(end_date, timezone.utc)
+
+    if not end_date or end_date > timezone.now():
+        return False
+
+    user = getattr(job, "owner_user", None)
+    if not user:
+        _mark_job_notified(job)
+        return True
+
+    settings = CharacterSettings.objects.filter(user=user, character_id=0).first()
+    if not settings:
+        _mark_job_notified(job)
+        return True
+
+    frequency = settings.jobs_notify_frequency or (
+        CharacterSettings.NOTIFY_IMMEDIATE
+        if settings.jobs_notify_completed
+        else CharacterSettings.NOTIFY_DISABLED
+    )
+
+    if frequency == CharacterSettings.NOTIFY_DISABLED:
+        _mark_job_notified(job)
+        return True
+
+    payload = build_job_notification_payload(job)
+    if frequency == CharacterSettings.NOTIFY_IMMEDIATE:
+        jobs_url = build_site_url(reverse("indy_hub:personnal_job_list"))
+        try:
+            notify_user(
+                user,
+                payload.title,
+                payload.message,
+                level="success",
+                link=jobs_url,
+                link_label=_("View job dashboard"),
+                thumbnail_url=payload.thumbnail_url,
+            )
+            logger.info(
+                "Notified user %s about completed job %s",
+                getattr(user, "username", user),
+                job.job_id,
+            )
+        except Exception:  # pragma: no cover - defensive fallback
+            logger.error(
+                "Failed to notify user %s about job %s",
+                getattr(user, "username", user),
+                job.job_id,
+                exc_info=True,
+            )
+    else:
+        _enqueue_job_notification_digest(
+            user=user,
+            job=job,
+            payload=payload,
+            settings=settings,
+        )
+
+    _mark_job_notified(job)
+    return True

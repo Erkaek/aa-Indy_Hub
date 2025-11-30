@@ -62,7 +62,7 @@
                         </span>
                         <div class="small text-muted">
                             <strong>{% trans "Waiting for builders" %}</strong><br>
-                            {% trans "Requests with no accepted offers yet." %}
+                                        {% trans "Requests still awaiting a new offer or builder confirmation." %}
                         </div>
                     </div>
                 </div>
@@ -75,7 +75,7 @@
                         </span>
                         <div class="small text-muted">
                             <strong>{% trans "Your action" %}</strong><br>
-                            {% trans "Review conditional offers waiting for approval." %}
+                                        {% trans "Review offers awaiting your approval or confirmation." %}
                         </div>
                     </div>
                 </div>
@@ -239,6 +239,18 @@
                             {% include "indy_hub/includes/chat_preview.html" with preview=req.cond_waiting_builder.chat.preview %}
                             {% endif %}
 
+                            {% if req.cond_waiting_buyer %}
+                            <div class="alert alert-info mb-0">
+                                <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2">
+                                    <div>
+                                        <i class="fas fa-handshake me-2"></i>
+                                        {% blocktrans with builder=req.cond_waiting_buyer.builder_label %}{{ builder }} confirmed your terms. Finalise the agreement when ready.{% endblocktrans %}
+                                    </div>
+                                </div>
+                            </div>
+                            {% include "indy_hub/includes/chat_preview.html" with preview=req.cond_waiting_buyer.chat.preview %}
+                            {% endif %}
+
                             {% if req.cond_offers %}
                             {% with cond_count=req.cond_offers|length %}
                             <div class="card bg-warning-subtle border-0">
@@ -307,6 +319,7 @@
                                                 data-chat-type-name="{{ req.type_name }}"
                                                 data-chat-type-id="{{ req.type_id }}"
                                                 data-chat-has-unread="{{ action.chat.has_unread|yesno:'true,false' }}"
+                                                data-chat-id="{{ action.chat.id }}"
                                                 aria-haspopup="dialog"
                                             >
                                                 <i class="fas fa-comments"></i>

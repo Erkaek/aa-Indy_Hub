@@ -504,7 +504,13 @@
                                                     {% if req.default_scope %}
                                                     <input type="hidden" name="scope" value="{{ req.default_scope }}">
                                                     {% endif %}
-                                                    <button type="submit" class="bp-btn bp-btn-soft-info btn-sm">
+                                                    <button
+                                                        type="button"
+                                                        class="bp-btn bp-btn-soft-info btn-sm"
+                                                        data-conditional-toggle
+                                                        data-conditional-target="{{ req.conditional_collapse_id }}"
+                                                        data-request-id="{{ req.id }}"
+                                                    >
                                                         <i class="fas fa-comment-dots"></i>
                                                         <span>{% trans "Send conditions" %}</span>
                                                     </button>
@@ -536,6 +542,7 @@
                                             data-chat-type-name="{{ req.type_name }}"
                                             data-chat-type-id="{{ req.type_id }}"
                                             data-chat-has-unread="{{ req.chat.has_unread|yesno:'true,false' }}"
+                                            data-chat-id="{{ req.chat.id }}"
                                             aria-haspopup="dialog"
                                         >
                                             <i class="fas fa-comments"></i>

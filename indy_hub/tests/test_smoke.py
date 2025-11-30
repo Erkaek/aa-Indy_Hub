@@ -595,7 +595,7 @@ class BlueprintCopyFulfillViewTests(TestCase):
         )
         self.client.force_login(self.user)
 
-    def test_request_visible_for_own_blueprint(self) -> None:
+    def test_personal_only_request_hidden(self) -> None:
         blueprint = Blueprint.objects.create(
             owner_user=self.user,
             character_id=42,
@@ -612,7 +612,7 @@ class BlueprintCopyFulfillViewTests(TestCase):
             type_name="Test Blueprint",
         )
         buyer = User.objects.create_user("requester", password="test12345")
-        request_obj = BlueprintCopyRequest.objects.create(
+        BlueprintCopyRequest.objects.create(
             type_id=blueprint.type_id,
             material_efficiency=blueprint.material_efficiency,
             time_efficiency=blueprint.time_efficiency,
@@ -625,23 +625,10 @@ class BlueprintCopyFulfillViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("metrics", response.context)
-        self.assertEqual(response.context["metrics"]["total"], 1)
-        requests = response.context["requests"]
-        self.assertEqual(len(requests), 1)
-        self.assertEqual(requests[0]["id"], request_obj.id)
-        self.assertEqual(requests[0]["status_key"], "awaiting_response")
-        self.assertTrue(requests[0]["show_offer_actions"])
-        self.assertFalse(requests[0]["is_self_request"])
-        self.assertFalse(requests[0]["is_corporate"])
-        self.assertEqual(requests[0]["corporation_names"], [])
-        self.assertEqual(requests[0].get("requester_corporation_ticker", ""), "")
-        self.assertEqual(requests[0]["corporation_tickers"], [])
-        self.assertEqual(requests[0]["personal_blueprints"], 1)
-        self.assertEqual(requests[0]["corporate_blueprints"], 0)
-        self.assertFalse(requests[0]["has_dual_sources"])
-        self.assertEqual(requests[0]["default_scope"], "personal")
+        self.assertEqual(response.context["metrics"]["total"], 0)
+        self.assertEqual(response.context["requests"], [])
 
-    def test_self_request_visible_with_actions(self) -> None:
+    def test_self_request_hidden_without_corporate_source(self) -> None:
         blueprint = Blueprint.objects.create(
             owner_user=self.user,
             character_id=42,
@@ -657,7 +644,7 @@ class BlueprintCopyFulfillViewTests(TestCase):
             character_name="Capsuleer",
             type_name="Another Blueprint",
         )
-        request_obj = BlueprintCopyRequest.objects.create(
+        BlueprintCopyRequest.objects.create(
             type_id=blueprint.type_id,
             material_efficiency=blueprint.material_efficiency,
             time_efficiency=blueprint.time_efficiency,
@@ -669,20 +656,9 @@ class BlueprintCopyFulfillViewTests(TestCase):
         response = self.client.get(reverse("indy_hub:bp_copy_fulfill_requests"))
 
         self.assertEqual(response.status_code, 200)
-        requests = response.context["requests"]
-        self.assertEqual(len(requests), 1)
-        self.assertEqual(requests[0]["id"], request_obj.id)
-        self.assertEqual(response.context["metrics"]["total"], 1)
+        self.assertEqual(response.context["requests"], [])
+        self.assertEqual(response.context["metrics"]["total"], 0)
         self.assertEqual(response.context["metrics"]["awaiting_response"], 0)
-        self.assertTrue(requests[0]["is_self_request"])
-        self.assertEqual(requests[0]["status_key"], "self_request")
-        self.assertTrue(requests[0]["show_offer_actions"])
-        self.assertFalse(requests[0]["can_mark_delivered"])
-        self.assertFalse(requests[0]["is_corporate"])
-        self.assertEqual(requests[0]["personal_blueprints"], 1)
-        self.assertEqual(requests[0]["corporate_blueprints"], 0)
-        self.assertFalse(requests[0]["has_dual_sources"])
-        self.assertEqual(requests[0]["default_scope"], "personal")
 
     def test_corporate_manager_without_personal_share_sees_requests(self) -> None:
         settings = CharacterSettings.objects.get(user=self.user, character_id=0)
@@ -788,7 +764,7 @@ class BlueprintCopyFulfillViewTests(TestCase):
         self.assertFalse(entry["has_dual_sources"])
         self.assertEqual(entry["default_scope"], "corporation")
 
-    def test_dual_source_requests_present_split_actions(self) -> None:
+    def test_dual_source_requests_show_corporate_only(self) -> None:
         corp_id = 4_200_123
         main_character = EveCharacter.objects.get(character_id=101001)
         main_character.corporation_id = corp_id
@@ -864,19 +840,17 @@ class BlueprintCopyFulfillViewTests(TestCase):
         requests = response.context["requests"]
         self.assertEqual(len(requests), 1)
         entry = requests[0]
-        self.assertTrue(entry["has_dual_sources"])
-        self.assertEqual(entry["personal_blueprints"], 1)
+        self.assertFalse(entry["has_dual_sources"])
+        self.assertEqual(entry["personal_blueprints"], 0)
         self.assertEqual(entry["corporate_blueprints"], 1)
-        self.assertEqual(entry["default_scope"], "personal")
+        self.assertEqual(entry["default_scope"], "corporation")
         self.assertIn("Dual Source Corp", entry["corporation_names"])
         self.assertIn("DUAL", entry["corporation_tickers"])
 
         html = response.content.decode()
         scope_script_id = f"bp-scope-options-{entry['id']}"
-        self.assertIn(scope_script_id, html)
-        self.assertIn("data-scope-trigger", html)
-        self.assertIn('data-scope-action="accept"', html)
-        self.assertIn('data-scope-action="conditional"', html)
+        self.assertNotIn(scope_script_id, html)
+        self.assertNotIn("data-scope-trigger", html)
 
     def test_corporate_rejection_hides_request_for_all_managers(self) -> None:
         settings = CharacterSettings.objects.get(user=self.user, character_id=0)

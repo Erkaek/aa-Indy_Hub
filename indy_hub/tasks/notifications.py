@@ -12,9 +12,12 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 # Indy Hub
-from ..models import CharacterSettings, JobNotificationDigestEntry
+from ..models import CharacterSettings, IndustryJob, JobNotificationDigestEntry
 from ..notifications import build_site_url, notify_user
-from ..utils.job_notifications import build_digest_notification_body
+from ..utils.job_notifications import (
+    build_digest_notification_body,
+    process_job_completion_notification,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -115,3 +118,35 @@ def dispatch_job_notification_digests() -> dict[str, int]:
         processed += 1
 
     return {"processed": processed, "skipped": skipped}
+
+
+@shared_task
+def notify_recently_completed_jobs(max_jobs: int = 500) -> dict[str, int]:
+    """Scan overdue jobs and trigger notifications within five minutes."""
+
+    now = timezone.now()
+    try:
+        limit = int(max_jobs)
+    except (TypeError, ValueError):
+        limit = 500
+    limit = max(1, limit)
+    pending_jobs = list(
+        IndustryJob.objects.filter(
+            job_completed_notified=False,
+            end_date__lte=now,
+        )
+        .select_related("owner_user")
+        .order_by("end_date")[:limit]
+    )
+
+    processed = 0
+    skipped = 0
+
+    for job in pending_jobs:
+        handled = process_job_completion_notification(job)
+        if handled:
+            processed += 1
+        else:
+            skipped += 1
+
+    return {"processed": processed, "skipped": skipped, "scanned": len(pending_jobs)}

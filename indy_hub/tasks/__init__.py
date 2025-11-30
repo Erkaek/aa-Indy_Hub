@@ -49,5 +49,14 @@ def setup_periodic_tasks():
             )
     logging.getLogger(__name__).info("IndyHub cron tasks registered.")
 
+    # Clean up any legacy task entries that are no longer defined
+    removed, _ = PeriodicTask.objects.filter(
+        name="indy-hub-notify-completed-jobs"
+    ).delete()
+    if removed:
+        logging.getLogger(__name__).info(
+            "Removed legacy periodic task indy-hub-notify-completed-jobs"
+        )
+
 
 # ...importez ici d'autres tâches si besoin...

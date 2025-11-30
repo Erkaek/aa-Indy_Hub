@@ -8,13 +8,13 @@ ______________________________________________________________________
 
 - **Blueprint Library**: View, filter, and search all your EVE Online blueprints by character, corporation, type, and efficiency.
 - **Industry Job Tracking**: Monitor and filter your manufacturing, research, and invention jobs in real time.
-- **Blueprint Copy Sharing**: Request, offer, and deliver blueprint copies (BPCs) within your alliance, complete with signed Discord quick-action links, auto-launching chats for conditional offers, and notifications for each step.
-- **Flexible Sharing Scopes**: Expose blueprint libraries per character, per corporation, or to everyone at once, all controlled from the sharing dashboard and allow-list toggles.
+- **Blueprint Copy Sharing**: Request, offer, and deliver blueprint copies (BPCs) with collapsible fulfilment cards, inline access list summaries, signed Discord quick-action links, auto-launching chats for conditional offers, and notifications for each step.
+- **Flexible Sharing Scopes**: Expose blueprint libraries per character, per corporation, or to everyone at once, with confirmation modals that preview the impact of scope changes and automated clean-up of requests that fall outside the new visibility rules.
 - **Conditional Offer Chat**: Negotiate blueprint copy terms directly in Indy Hub with persistent history, status indicators, and decision tracking.
 - **Corporate Command Center**: Track corporation blueprints and jobs, configure sharing scopes, and review director token coverage from a dedicated dashboard.
 - **ESI Integration**: Secure OAuth2-based sync for blueprints and jobs (Celery required), including director-level corporation scopes and staggered background refreshes.
-- **Notifications**: In-app alerts for job completions, copy offers, chat messages, and deliveries, featuring rich job completion digests with activity-aware thumbnails, optional Discord embeds (via aa-discordnotify), dedicated preview endpoints for both live and digest payloads, and an Alliance Auth sidebar badge that stays in sync with outstanding fulfil requests and unread chats.
-- **Modern UI**: Responsive Bootstrap 5 interface, theme-compatible, with accessibility and i18n support.
+- **Notifications**: In-app alerts for job completions, copy offers, chat messages, and deliveries, featuring configurable immediate or digest cadences, activity-aware thumbnails, optional Discord embeds (via aa-discordnotify), dedicated preview endpoints for both live and digest payloads, and an Alliance Auth sidebar badge that stays in sync without double counting chats.
+- **Modern UI**: Responsive Bootstrap 5 interface with accessible heading structure across dashboards, blueprint request pages tuned for mobile, theme compatibility, and full i18n support.
 
 ______________________________________________________________________
 

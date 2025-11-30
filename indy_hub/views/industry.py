@@ -460,6 +460,30 @@ def _chat_preview_messages(chat: BlueprintCopyChat, *, limit: int = 3) -> list[d
     return preview
 
 
+def _resolve_chat_viewer_role(
+    chat: BlueprintCopyChat,
+    user: User,
+    *,
+    base_role: str | None,
+    override: str | None = None,
+) -> str | None:
+    viewer_role = base_role
+    if not override or not base_role:
+        return viewer_role
+
+    candidate = str(override).strip().lower()
+    if candidate not in {"buyer", "seller"}:
+        return viewer_role
+
+    if candidate == base_role:
+        return viewer_role
+
+    if chat.buyer_id and chat.seller_id and chat.buyer_id == chat.seller_id == user.id:
+        return candidate
+
+    return viewer_role
+
+
 def _close_offer_chat_if_exists(offer: BlueprintCopyOffer, reason: str) -> None:
     try:
         chat = offer.chat
@@ -2876,27 +2900,13 @@ def bp_copy_fulfill_requests(request):
     def _init_occupancy():
         return {"count": 0, "soonest_end": None}
 
-    occupancy_map = defaultdict(_init_occupancy)
+    corporate_occupancy_map = defaultdict(_init_occupancy)
 
     def _update_soonest(info, end_date):
         if end_date and (info["soonest_end"] is None or end_date < info["soonest_end"]):
             info["soonest_end"] = end_date
 
     blocking_activities = [1, 3, 4, 5, 8, 9]
-    active_jobs = IndustryJob.objects.filter(
-        owner_user=request.user,
-        owner_kind=Blueprint.OwnerKind.CHARACTER,
-        status="active",
-        activity_id__in=blocking_activities,
-    ).only("blueprint_id", "blueprint_type_id", "end_date")
-
-    for job in active_jobs:
-        matched_key = bp_item_map.get(job.blueprint_id)
-        if matched_key is not None:
-            info = occupancy_map[matched_key]
-            info["count"] += 1
-            _update_soonest(info, job.end_date)
-
     if accessible_corporation_ids:
         corp_jobs = IndustryJob.objects.filter(
             owner_kind=Blueprint.OwnerKind.CORPORATION,
@@ -2908,7 +2918,7 @@ def bp_copy_fulfill_requests(request):
         for job in corp_jobs:
             matched_key = bp_item_map.get(job.blueprint_id)
             if matched_key is not None:
-                info = occupancy_map[matched_key]
+                info = corporate_occupancy_map[matched_key]
                 info["count"] += 1
                 _update_soonest(info, job.end_date)
 
@@ -3043,16 +3053,6 @@ def bp_copy_fulfill_requests(request):
 
         key = (req.type_id, req.material_efficiency, req.time_efficiency)
         matching_blueprints = bp_index.get(key, [])
-        owned_blueprints = len(matching_blueprints)
-        direct_info = occupancy_map.get(key)
-        direct_count = direct_info["count"] if direct_info else 0
-        total_active_jobs = min(owned_blueprints, direct_count)
-        available_blueprints = max(owned_blueprints - total_active_jobs, 0)
-        busy_until = direct_info["soonest_end"] if direct_info else None
-        busy_overdue = bool(busy_until and busy_until < timezone.now())
-        all_copies_busy = (
-            owned_blueprints > 0 and available_blueprints == 0 and total_active_jobs > 0
-        )
 
         corporate_names: list[str] = []
         corporate_tickers: list[str] = []
@@ -3118,15 +3118,32 @@ def bp_copy_fulfill_requests(request):
 
         corporate_names = _sort_unique(corporate_names)
         corporate_tickers = _sort_unique(corporate_tickers)
-        is_corporate_source = bool(corporate_names)
-        personal_count = len(personal_sources)
         corporate_count = len(corporate_sources)
-        has_dual_sources = bool(personal_count and corporate_count)
-        default_scope = "personal"
-        if not personal_count and corporate_count:
-            default_scope = "corporation"
-        elif not personal_count and not corporate_count:
-            default_scope = ""
+        if corporate_count == 0:
+            continue
+
+        if personal_sources:
+            eligible_character_entries = [
+                entry
+                for entry in eligible_character_entries
+                if not entry.get("is_self")
+            ]
+        personal_source_names = []
+        personal_count = 0
+        has_dual_sources = False
+        default_scope = "corporation"
+        is_corporate_source = bool(corporate_names)
+
+        corp_info = corporate_occupancy_map.get(key)
+        corp_active_jobs = corp_info["count"] if corp_info else 0
+        owned_blueprints = corporate_count
+        total_active_jobs = min(owned_blueprints, corp_active_jobs)
+        available_blueprints = max(owned_blueprints - corp_active_jobs, 0)
+        busy_until = corp_info["soonest_end"] if corp_info else None
+        busy_overdue = bool(busy_until and busy_until < timezone.now())
+        all_copies_busy = (
+            owned_blueprints > 0 and available_blueprints == 0 and total_active_jobs > 0
+        )
 
         user_corp_id = eligible_details.user_to_corporation.get(request.user.id)
         if user_corp_id is not None and personal_count == 0 and not is_self_request:
@@ -3179,6 +3196,13 @@ def bp_copy_fulfill_requests(request):
             metrics[metrics_key] += 1
 
         status_info = status_meta[status_key]
+        status_hint = status_info["hint"]
+
+        show_offer_actions = status_key in {
+            "awaiting_response",
+            "offer_rejected",
+            "self_request",
+        }
 
         offer_chat_payload = None
         if my_offer and my_offer.status == "conditional":
@@ -3205,8 +3229,10 @@ def bp_copy_fulfill_requests(request):
                     ),
                     "preview": _chat_preview_messages(chat),
                 }
-        if is_self_request:
-            offer_chat_payload = None
+        if offer_chat_payload:
+            show_offer_actions = False
+        elif my_offer and my_offer.status in {"conditional", "accepted"}:
+            show_offer_actions = False
 
         type_name = get_type_name(req.type_id)
         scope_modal_payload = {
@@ -3240,7 +3266,7 @@ def bp_copy_fulfill_requests(request):
                 "status_key": status_key,
                 "status_label": status_info["label"],
                 "status_class": status_info["badge"],
-                "status_hint": status_info["hint"],
+                "status_hint": status_hint,
                 "my_offer_status": getattr(my_offer, "status", None),
                 "my_offer_status_label": offer_status_labels.get(
                     getattr(my_offer, "status", None), ""
@@ -3252,12 +3278,7 @@ def bp_copy_fulfill_requests(request):
                 "my_offer_accepted_by_seller": getattr(
                     my_offer, "accepted_by_seller", False
                 ),
-                "show_offer_actions": status_key
-                in {
-                    "awaiting_response",
-                    "offer_rejected",
-                    "self_request",
-                },
+                "show_offer_actions": show_offer_actions,
                 "conditional_collapse_id": f"cond-{req.id}",
                 "can_mark_delivered": can_mark_delivered
                 and req.requested_by_id != request.user.id,
@@ -3862,7 +3883,7 @@ def bp_copy_my_requests(request):
             "label": _("Confirm agreement"),
             "badge": "bg-warning text-dark",
             "hint": _(
-                "The buyer accepted your terms. Confirm in chat to finalise the agreement."
+                "The builder accepted your terms. Confirm in chat to finalise the agreement."
             ),
         },
         "delivered": {
@@ -3894,6 +3915,7 @@ def bp_copy_my_requests(request):
         cond_offer_data = []
         cond_accepted = None
         cond_waiting_builder = None
+        cond_waiting_buyer = None
 
         for idx, offer in enumerate(conditional_offers, start=1):
             label = _("Builder #%d") % idx
@@ -3934,6 +3956,12 @@ def bp_copy_my_requests(request):
                     "chat": chat_payload,
                 }
                 continue
+            if offer.accepted_by_seller and not offer.accepted_by_buyer:
+                cond_waiting_buyer = {
+                    "builder_label": label,
+                    "chat": chat_payload,
+                }
+                continue
 
             cond_offer_data.append(
                 {
@@ -3950,13 +3978,17 @@ def bp_copy_my_requests(request):
             status_key = "awaiting_delivery"
         elif cond_offer_data:
             status_key = "action_required"
+        elif cond_waiting_buyer:
+            status_key = "waiting_on_you"
         elif cond_waiting_builder:
             status_key = "waiting_on_builder"
 
         metrics["total"] += 1
         metrics_key = {
             "open": "open",
+            "waiting_on_builder": "open",
             "action_required": "action_required",
+            "waiting_on_you": "action_required",
             "awaiting_delivery": "awaiting_delivery",
             "delivered": "delivered",
         }.get(status_key)
@@ -3966,6 +3998,14 @@ def bp_copy_my_requests(request):
         status_info = status_meta[status_key]
 
         chat_actions = []
+        if cond_waiting_buyer and cond_waiting_buyer.get("chat"):
+            chat_actions.append(
+                {
+                    "builder_label": cond_waiting_buyer["builder_label"],
+                    "chat": cond_waiting_buyer["chat"],
+                }
+            )
+
         if cond_waiting_builder and cond_waiting_builder.get("chat"):
             chat_actions.append(
                 {
@@ -4032,6 +4072,7 @@ def bp_copy_my_requests(request):
                 "accepted_offer": accepted_offer,
                 "cond_accepted": cond_accepted,
                 "cond_waiting_builder": cond_waiting_builder,
+                "cond_waiting_buyer": cond_waiting_buyer,
                 "cond_offers": cond_offer_data,
                 "chat_actions": chat_actions,
                 "delivered": req.delivered,
@@ -4070,7 +4111,14 @@ def bp_chat_history(request, chat_id: int):
 
     logger.debug("bp_chat_history chat=%s user=%s", chat.id, request.user.id)
 
-    viewer_role = chat.role_for(request.user)
+    base_role = chat.role_for(request.user)
+    requested_role = request.GET.get("viewer_role")
+    viewer_role = _resolve_chat_viewer_role(
+        chat,
+        request.user,
+        base_role=base_role,
+        override=requested_role,
+    )
     if viewer_role not in {"buyer", "seller"}:
         return JsonResponse({"error": _("Unauthorized")}, status=403)
 
@@ -4178,8 +4226,8 @@ def bp_chat_send(request, chat_id: int):
         BlueprintCopyChat.objects.select_related("request", "offer", "buyer", "seller"),
         id=chat_id,
     )
-    viewer_role = chat.role_for(request.user)
-    if viewer_role not in {"buyer", "seller"}:
+    base_role = chat.role_for(request.user)
+    if base_role not in {"buyer", "seller"}:
         return JsonResponse({"error": _("Unauthorized")}, status=403)
     if not chat.is_open:
         return JsonResponse(
@@ -4194,6 +4242,16 @@ def bp_chat_send(request, chat_id: int):
             payload = {}
     if not payload:
         payload = request.POST
+
+    requested_role = payload.get("viewer_role") or payload.get("role")
+    viewer_role = _resolve_chat_viewer_role(
+        chat,
+        request.user,
+        base_role=base_role,
+        override=requested_role,
+    )
+    if viewer_role not in {"buyer", "seller"}:
+        return JsonResponse({"error": _("Unauthorized")}, status=403)
 
     message_content = (payload.get("message") or payload.get("content") or "").strip()
     if not message_content:
@@ -4268,8 +4326,8 @@ def bp_chat_decide(request, chat_id: int):
         id=chat_id,
     )
 
-    viewer_role = chat.role_for(request.user)
-    if viewer_role not in {"buyer", "seller"}:
+    base_role = chat.role_for(request.user)
+    if base_role not in {"buyer", "seller"}:
         return JsonResponse({"error": _("Unauthorized")}, status=403)
 
     if not chat.is_open or chat.offer.status != "conditional":
@@ -4281,6 +4339,16 @@ def bp_chat_decide(request, chat_id: int):
         payload = json.loads(request.body.decode("utf-8"))
     except (json.JSONDecodeError, UnicodeDecodeError):
         payload = {}
+
+    requested_role = payload.get("viewer_role") or payload.get("role")
+    viewer_role = _resolve_chat_viewer_role(
+        chat,
+        request.user,
+        base_role=base_role,
+        override=requested_role,
+    )
+    if viewer_role not in {"buyer", "seller"}:
+        return JsonResponse({"error": _("Unauthorized")}, status=403)
 
     decision = (payload.get("decision") or "").strip().lower()
     if decision not in {"accept", "reject"}:

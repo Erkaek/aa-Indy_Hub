@@ -99,6 +99,24 @@
         container.scrollTop = container.scrollHeight;
     }
 
+    function withViewerRole(url, viewerRole) {
+        if (!url || !viewerRole) {
+            return url;
+        }
+        try {
+            var origin = (typeof window !== 'undefined' && window.location && window.location.origin) ? window.location.origin : undefined;
+            var resolved = new URL(url, origin);
+            resolved.searchParams.set('viewer_role', viewerRole);
+            if (typeof window !== 'undefined' && window.location && resolved.origin === window.location.origin) {
+                return resolved.pathname + resolved.search + resolved.hash;
+            }
+            return resolved.toString();
+        } catch (err) {
+            var separator = url.indexOf('?') === -1 ? '?' : '&';
+            return url + separator + 'viewer_role=' + encodeURIComponent(viewerRole);
+        }
+    }
+
     function labelFor(role, viewerRole, labels) {
         if (role === viewerRole) {
             return labels.you || 'You';
@@ -515,7 +533,13 @@
                 actionStatusEl.classList.add('text-muted');
             }
 
-            fetch(state.decisionUrl, {
+            var decisionUrl = withViewerRole(state.decisionUrl, state.viewerRole);
+            var decisionPayload = { decision: decisionValue };
+            if (state.viewerRole) {
+                decisionPayload.viewer_role = state.viewerRole;
+            }
+
+            fetch(decisionUrl, {
                 method: 'POST',
                 headers: {
                     'Accept': 'application/json',
@@ -524,7 +548,7 @@
                     'X-Requested-With': 'XMLHttpRequest'
                 },
                 credentials: 'same-origin',
-                body: JSON.stringify({ decision: decisionValue })
+                body: JSON.stringify(decisionPayload)
             })
                 .then(function (res) {
                     if (!res.ok) {
@@ -571,6 +595,9 @@
 
         function applyChatState(payload) {
             state.isOpen = Boolean(payload.chat.is_open);
+            if (payload.chat && payload.chat.viewer_role) {
+                state.viewerRole = payload.chat.viewer_role;
+            }
             updateSummary(payload);
             renderMessages(payload);
             updateActions(payload.chat && payload.chat.decision ? payload.chat.decision : null);
@@ -600,7 +627,8 @@
             if (!state.fetchUrl) {
                 return Promise.reject(new Error('Missing chat URL'));
             }
-            return fetch(state.fetchUrl, {
+            var historyUrl = withViewerRole(state.fetchUrl, state.viewerRole);
+            return fetch(historyUrl, {
                 method: 'GET',
                 headers: {
                     'Accept': 'application/json'
@@ -714,6 +742,11 @@
             }
             toggleForm(false);
 
+            var sendPayload = { message: message };
+            if (state.viewerRole) {
+                sendPayload.viewer_role = state.viewerRole;
+            }
+
             fetch(state.sendUrl, {
                 method: 'POST',
                 headers: {
@@ -723,7 +756,7 @@
                     'X-Requested-With': 'XMLHttpRequest'
                 },
                 credentials: 'same-origin',
-                body: JSON.stringify({ message: message })
+                body: JSON.stringify(sendPayload)
             })
                 .then(function (res) {
                     if (!res.ok) {

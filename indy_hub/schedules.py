@@ -22,6 +22,11 @@ INDY_HUB_BEAT_SCHEDULE = {
         "schedule": crontab(minute=5, hour="*"),  # Every hour at HH:05
         "options": {"priority": 6},
     },
+    "indy-hub-notify-recently-completed-jobs": {
+        "task": "indy_hub.tasks.notifications.notify_recently_completed_jobs",
+        "schedule": crontab(minute="*/5"),  # Every 5 minutes
+        "options": {"priority": 5},
+    },
     "indy-hub-cleanup-old-jobs": {
         "task": "indy_hub.tasks.industry.cleanup_old_jobs",
         "schedule": crontab(hour=2, minute=0),  # Daily at 02:00
