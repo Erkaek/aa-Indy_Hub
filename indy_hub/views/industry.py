@@ -2901,6 +2901,7 @@ def bp_copy_fulfill_requests(request):
         return {"count": 0, "soonest_end": None}
 
     corporate_occupancy_map = defaultdict(_init_occupancy)
+    personal_occupancy_map = defaultdict(_init_occupancy)
 
     def _update_soonest(info, end_date):
         if end_date and (info["soonest_end"] is None or end_date < info["soonest_end"]):
@@ -2921,6 +2922,24 @@ def bp_copy_fulfill_requests(request):
                 info = corporate_occupancy_map[matched_key]
                 info["count"] += 1
                 _update_soonest(info, job.end_date)
+
+    personal_active_type_ids: set[int] = set()
+
+    personal_jobs = IndustryJob.objects.filter(
+        owner_user=request.user,
+        owner_kind=Blueprint.OwnerKind.CHARACTER,
+        status="active",
+        activity_id__in=blocking_activities,
+    ).only("blueprint_id", "blueprint_type_id", "end_date")
+
+    for job in personal_jobs:
+        if job.blueprint_type_id:
+            personal_active_type_ids.add(job.blueprint_type_id)
+        matched_key = bp_item_map.get(job.blueprint_id)
+        if matched_key is not None:
+            info = personal_occupancy_map[matched_key]
+            info["count"] += 1
+            _update_soonest(info, job.end_date)
 
     offer_status_labels = {
         "accepted": _("Accepted"),
@@ -3119,7 +3138,14 @@ def bp_copy_fulfill_requests(request):
         corporate_names = _sort_unique(corporate_names)
         corporate_tickers = _sort_unique(corporate_tickers)
         corporate_count = len(corporate_sources)
-        if corporate_count == 0:
+        personal_count = len(personal_sources)
+
+        personal_info = personal_occupancy_map.get(key)
+        has_active_personal_jobs = bool(personal_info and personal_info["count"] > 0)
+        if not has_active_personal_jobs and req.type_id in personal_active_type_ids:
+            has_active_personal_jobs = True
+
+        if corporate_count == 0 and personal_count == 0:
             continue
 
         if personal_sources:
@@ -3128,18 +3154,48 @@ def bp_copy_fulfill_requests(request):
                 for entry in eligible_character_entries
                 if not entry.get("is_self")
             ]
-        personal_source_names = []
-        personal_count = 0
-        has_dual_sources = False
-        default_scope = "corporation"
-        is_corporate_source = bool(corporate_names)
+
+        if corporate_count == 0:
+            if can_manage_corporate and not has_active_personal_jobs:
+                continue
+            show_personal_sources = True
+        else:
+            show_personal_sources = not can_manage_corporate
+
+        if not show_personal_sources and corporate_count == 0:
+            continue
+
+        displayed_personal_count = personal_count if show_personal_sources else 0
+        displayed_personal_names = (
+            personal_source_names if show_personal_sources else []
+        )
+
+        total_sources = corporate_count + displayed_personal_count
+        if total_sources == 0:
+            continue
+
+        has_dual_sources = displayed_personal_count > 0 and corporate_count > 0
+        default_scope = "corporation" if corporate_count else "personal"
+        is_corporate_source = corporate_count > 0
 
         corp_info = corporate_occupancy_map.get(key)
-        corp_active_jobs = corp_info["count"] if corp_info else 0
-        owned_blueprints = corporate_count
-        total_active_jobs = min(owned_blueprints, corp_active_jobs)
-        available_blueprints = max(owned_blueprints - corp_active_jobs, 0)
-        busy_until = corp_info["soonest_end"] if corp_info else None
+
+        corp_active_jobs = min(corporate_count, corp_info["count"]) if corp_info else 0
+        personal_active_jobs = (
+            min(displayed_personal_count, personal_info["count"])
+            if personal_info and displayed_personal_count
+            else 0
+        )
+        owned_blueprints = total_sources
+        total_active_jobs = corp_active_jobs + personal_active_jobs
+        available_blueprints = max(owned_blueprints - total_active_jobs, 0)
+
+        busy_candidates = []
+        if personal_info and displayed_personal_count and personal_info["soonest_end"]:
+            busy_candidates.append(personal_info["soonest_end"])
+        if corp_info and corp_info["soonest_end"]:
+            busy_candidates.append(corp_info["soonest_end"])
+        busy_until = min(busy_candidates) if busy_candidates else None
         busy_overdue = bool(busy_until and busy_until < timezone.now())
         all_copies_busy = (
             owned_blueprints > 0 and available_blueprints == 0 and total_active_jobs > 0
@@ -3296,8 +3352,8 @@ def bp_copy_fulfill_requests(request):
                 "is_corporate": is_corporate_source,
                 "corporation_names": corporate_names,
                 "corporation_tickers": corporate_tickers,
-                "personal_source_names": personal_source_names,
-                "personal_blueprints": personal_count,
+                "personal_source_names": displayed_personal_names,
+                "personal_blueprints": displayed_personal_count,
                 "corporate_blueprints": corporate_count,
                 "has_dual_sources": has_dual_sources,
                 "default_scope": default_scope,

@@ -37,6 +37,7 @@ from indy_hub.tasks.industry import (
     reset_manual_refresh_cooldown,
 )
 from indy_hub.utils import eve as eve_utils
+from indy_hub.utils import job_notifications as job_notifications_utils
 from indy_hub.utils.eve import get_type_name, reset_forbidden_structure_lookup_cache
 
 
@@ -397,7 +398,7 @@ class JobNotificationSignalTests(TestCase):
             jobs_notify_completed=True,
         )
 
-    @patch("indy_hub.signals.notify_user")
+    @patch("indy_hub.utils.job_notifications.notify_user")
     def test_notification_sent_for_completed_job(self, mock_notify):
         start = timezone.now() - timedelta(hours=2)
         end = timezone.now() - timedelta(minutes=5)
@@ -443,7 +444,7 @@ class JobNotificationSignalTests(TestCase):
             "https://images.evetech.net/types/7002/icon",
         )
 
-    @patch("indy_hub.signals.notify_user")
+    @patch("indy_hub.utils.job_notifications.notify_user")
     def test_notification_skipped_when_preference_disabled(self, mock_notify):
         other_user = User.objects.create_user("silent", password="secret123")
         CharacterSettings.objects.create(
@@ -481,7 +482,7 @@ class JobNotificationSignalTests(TestCase):
         mock_notify.assert_not_called()
         self.assertTrue(job.job_completed_notified)
 
-    @patch("indy_hub.signals.notify_user")
+    @patch("indy_hub.utils.job_notifications.notify_user")
     def test_notification_handles_string_end_date(self, mock_notify):
         start = timezone.now() - timedelta(hours=2)
         future_end = timezone.now() + timedelta(hours=1)
@@ -516,10 +517,7 @@ class JobNotificationSignalTests(TestCase):
 
         mock_notify.reset_mock()
 
-        # AA Example App
-        from indy_hub import signals as indy_signals
-
-        indy_signals._handle_job_completion_notification(job)
+        job_notifications_utils.process_job_completion_notification(job)
 
         job.refresh_from_db()
 
