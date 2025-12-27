@@ -37,27 +37,50 @@ def _get_token_for_corp(user, corp_id, scope):
     from esi.models import Token
 
     tokens = Token.objects.filter(user=user).require_scopes(scope).require_valid()
-
-    # Prefer corporation tokens first, then character tokens that belong to corp
     tokens = list(tokens)
-    corp_tokens = [
-        t
-        for t in tokens
-        if getattr(t, "token_type", "") == Token.TOKEN_TYPE_CORPORATION
-    ]
-    if corp_tokens:
-        return corp_tokens[0]
 
-    for token in tokens:
+    # Cache character corp lookups to avoid extra ESI calls
+    char_corp_cache: dict[int, int] = {}
+
+    def _character_matches(token) -> bool:
+        char_id = getattr(token, "character_id", None)
+        if not char_id:
+            return False
+        # Prefer cached character relation if available to avoid ESI calls
+        try:
+            char_obj = getattr(token, "character", None)
+            if char_obj and getattr(char_obj, "corporation_id", None) is not None:
+                return int(char_obj.corporation_id) == int(corp_id)
+        except Exception:
+            pass
+        if char_id in char_corp_cache:
+            return char_corp_cache[char_id] == int(corp_id)
         try:
             char_info = esi.client.Character.get_characters_character_id(
-                character_id=token.character_id
+                character_id=char_id
             ).results()
-            if int(char_info.get("corporation_id", 0)) == int(corp_id):
-                return token
+            char_corp_cache[char_id] = int(char_info.get("corporation_id", 0))
+            return char_corp_cache[char_id] == int(corp_id)
         except Exception:
+            return False
+
+    # Prefer corporation tokens that belong to the selected corp
+    for token in tokens:
+        if getattr(token, "token_type", "") != Token.TOKEN_TYPE_CORPORATION:
             continue
-    # Do not fall back to a token from another corporation; return None
+        corp_attr = getattr(token, "corporation_id", None)
+        if corp_attr is not None and int(corp_attr) == int(corp_id):
+            return token
+        # Fallback: if the backing character belongs to the corp, accept it
+        if _character_matches(token):
+            return token
+
+    # Then prefer character tokens that belong to the corp
+    for token in tokens:
+        if _character_matches(token):
+            return token
+
+    # No suitable token for this corporation
     return None
 
 
@@ -250,11 +273,25 @@ def _get_corp_structures(user, corp_id):
                     corporation_id=corp_id, token=token_for_assets.valid_access_token()
                 ).results()
             except Exception as e:
+                assets_scope_missing = True
+                error_name = f"⚠ Error fetching corp assets: {str(e)}"
+                try:
+                    # Third Party
+                    from bravado.exception import HTTPError
+
+                    status_code = getattr(getattr(e, "response", None), "status_code", None)
+                    if isinstance(e, HTTPError) and status_code == 403:
+                        error_name = _(
+                            "⚠ Token lacks required corporation roles for assets. Reauthorize with a character that has the needed corp roles (e.g., Director or Asset Manager)."
+                        )
+                except Exception:
+                    pass
+
                 return (
                     [
                         {
                             "id": 0,
-                            "name": f"⚠ Error fetching corp assets: {str(e)}",
+                            "name": error_name,
                         }
                     ],
                     assets_scope_missing,

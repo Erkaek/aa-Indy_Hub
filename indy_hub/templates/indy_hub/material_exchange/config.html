@@ -84,6 +84,9 @@
                                 <button type="button" class="btn btn-sm btn-outline-primary" id="assetsScopeButton" onclick="requestAssetsToken()">
                                     {% trans "Add token" %}
                                 </button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" id="assetsScopeRefreshButton" onclick="requestTokensSync()">
+                                    {% trans "Refresh tokens" %}
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -102,6 +105,9 @@
                                 <small class="text-warning mb-0">{% trans "Division names need esi-corporations.read_divisions.v1 for this corporation." %}</small>
                                 <button type="button" class="btn btn-sm btn-outline-primary" id="divisionScopeButton" onclick="requestDivisionsToken()">
                                     {% trans "Add token" %}
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" id="divisionScopeRefreshButton" onclick="requestTokensSync()">
+                                    {% trans "Refresh tokens" %}
                                 </button>
                             </div>
                         </div>
@@ -444,6 +450,22 @@ function requestAssetsToken() {
     const form = document.createElement('form');
     form.method = 'POST';
     form.action = '{% url "indy_hub:material_exchange_request_assets_token" %}';
+
+    const csrf = document.createElement('input');
+    csrf.type = 'hidden';
+    csrf.name = 'csrfmiddlewaretoken';
+    csrf.value = document.querySelector('[name=csrfmiddlewaretoken]').value;
+
+    form.appendChild(csrf);
+    document.body.appendChild(form);
+    form.submit();
+}
+
+function requestTokensSync() {
+    // Trigger token sync to refresh validity and scopes, then return
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = '{% url "indy_hub:sync_all_tokens" %}';
 
     const csrf = document.createElement('input');
     csrf.type = 'hidden';
