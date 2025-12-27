@@ -1,8 +1,8 @@
 """Material Exchange Configuration views."""
 
 # Standard Library
-from decimal import Decimal
 import logging
+from decimal import Decimal
 
 # Django
 from django.contrib import messages
@@ -86,7 +86,9 @@ def _get_token_for_corp(user, corp_id, scope, require_corporation_token: bool = 
             f"type={getattr(token, 'token_type', '')}, char_id={token.character_id}"
         )
         if corp_attr is not None and int(corp_attr) == int(corp_id):
-            logger.info(f"Found matching corp token id={token.id} for corp_id={corp_id}")
+            logger.info(
+                f"Found matching corp token id={token.id} for corp_id={corp_id}"
+            )
             return token
         # For corp tokens missing corp_attr, accept if backing character belongs to corp
         if corp_attr is None and _character_matches(token):
