@@ -1,33 +1,28 @@
 """
 Tests for Material Exchange contract validation system
 """
+
 # Standard Library
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 # Django
-from django.contrib.auth.models import User, Permission
-from django.contrib.contenttypes.models import ContentType
+from django.contrib.auth.models import User
 from django.test import TestCase
-from django.utils import timezone
 
+# AA Example App
 # Local
 from indy_hub.models import (
+    MaterialExchangeBuyOrder,
+    MaterialExchangeBuyOrderItem,
     MaterialExchangeConfig,
     MaterialExchangeSellOrder,
     MaterialExchangeSellOrderItem,
-    MaterialExchangeBuyOrder,
-    MaterialExchangeBuyOrderItem,
 )
 from indy_hub.tasks.material_exchange_contracts import (
-    validate_material_exchange_sell_orders,
-    check_completed_material_exchange_contracts,
-    handle_material_exchange_buy_order_created,
-    _matches_sell_order_criteria,
     _contract_items_match_order,
     _extract_contract_id,
-    _get_character_for_scope,
-    _get_user_character_ids,
-    _get_admins_for_config,
+    _matches_sell_order_criteria,
+    validate_material_exchange_sell_orders,
 )
 
 
@@ -148,39 +143,27 @@ class ContractValidationTestCase(TestCase):
 
     def test_contract_items_matching(self):
         """Test contract items matching"""
-        correct_items = [
-            {"type_id": 34, "quantity": 1000, "is_included": True}
-        ]
+        correct_items = [{"type_id": 34, "quantity": 1000, "is_included": True}]
         self.assertTrue(_contract_items_match_order(correct_items, self.sell_order))
 
         # Wrong quantity
-        wrong_qty = [
-            {"type_id": 34, "quantity": 500, "is_included": True}
-        ]
+        wrong_qty = [{"type_id": 34, "quantity": 500, "is_included": True}]
         self.assertFalse(_contract_items_match_order(wrong_qty, self.sell_order))
 
         # Wrong type
-        wrong_type = [
-            {"type_id": 35, "quantity": 1000, "is_included": True}
-        ]
+        wrong_type = [{"type_id": 35, "quantity": 1000, "is_included": True}]
         self.assertFalse(_contract_items_match_order(wrong_type, self.sell_order))
 
         # Not included (requested items)
-        not_included = [
-            {"type_id": 34, "quantity": 1000, "is_included": False}
-        ]
-        self.assertFalse(
-            _contract_items_match_order(not_included, self.sell_order)
-        )
+        not_included = [{"type_id": 34, "quantity": 1000, "is_included": False}]
+        self.assertFalse(_contract_items_match_order(not_included, self.sell_order))
 
         # Multiple items (should fail for single-item order)
         multiple_items = [
             {"type_id": 34, "quantity": 500, "is_included": True},
             {"type_id": 35, "quantity": 500, "is_included": True},
         ]
-        self.assertFalse(
-            _contract_items_match_order(multiple_items, self.sell_order)
-        )
+        self.assertFalse(_contract_items_match_order(multiple_items, self.sell_order))
 
     def test_extract_contract_id(self):
         """Test contract ID extraction from notes"""
@@ -254,16 +237,12 @@ class ContractValidationTaskTest(TestCase):
             total_price=5500,
         )
 
-    @patch(
-        "indy_hub.tasks.material_exchange_contracts.shared_client"
-    )
-    @patch(
-        "indy_hub.tasks.material_exchange_contracts.notify_user"
-    )
-    @patch(
-        "indy_hub.tasks.material_exchange_contracts.notify_multi"
-    )
-    def test_validate_sell_orders_no_pending(self, mock_notify_multi, mock_notify_user, mock_client):
+    @patch("indy_hub.tasks.material_exchange_contracts.shared_client")
+    @patch("indy_hub.tasks.material_exchange_contracts.notify_user")
+    @patch("indy_hub.tasks.material_exchange_contracts.notify_multi")
+    def test_validate_sell_orders_no_pending(
+        self, mock_notify_multi, mock_notify_user, mock_client
+    ):
         """Test task when no pending orders exist"""
         self.sell_order.status = MaterialExchangeSellOrder.Status.APPROVED
         self.sell_order.save()
@@ -275,15 +254,9 @@ class ContractValidationTaskTest(TestCase):
         mock_notify_user.assert_not_called()
         mock_notify_multi.assert_not_called()
 
-    @patch(
-        "indy_hub.tasks.material_exchange_contracts._get_character_for_scope"
-    )
-    @patch(
-        "indy_hub.tasks.material_exchange_contracts.shared_client"
-    )
-    @patch(
-        "indy_hub.tasks.material_exchange_contracts.notify_multi"
-    )
+    @patch("indy_hub.tasks.material_exchange_contracts._get_character_for_scope")
+    @patch("indy_hub.tasks.material_exchange_contracts.shared_client")
+    @patch("indy_hub.tasks.material_exchange_contracts.notify_multi")
     def test_validate_sell_orders_contract_found(
         self, mock_notify_multi, mock_client, mock_get_char
     ):
@@ -326,15 +299,9 @@ class ContractValidationTaskTest(TestCase):
         # Check admins were notified
         mock_notify_multi.assert_called()
 
-    @patch(
-        "indy_hub.tasks.material_exchange_contracts._get_character_for_scope"
-    )
-    @patch(
-        "indy_hub.tasks.material_exchange_contracts.shared_client"
-    )
-    @patch(
-        "indy_hub.tasks.material_exchange_contracts.notify_user"
-    )
+    @patch("indy_hub.tasks.material_exchange_contracts._get_character_for_scope")
+    @patch("indy_hub.tasks.material_exchange_contracts.shared_client")
+    @patch("indy_hub.tasks.material_exchange_contracts.notify_user")
     def test_validate_sell_orders_no_contract(
         self, mock_notify_user, mock_client, mock_get_char
     ):
@@ -390,7 +357,7 @@ class BuyOrderSignalTest(TestCase):
             config=self.config,
             buyer=self.buyer,
         )
-        buy_item = MaterialExchangeBuyOrderItem.objects.create(
+        MaterialExchangeBuyOrderItem.objects.create(
             order=buy_order,
             type_id=34,
             type_name="Tritanium",
@@ -407,5 +374,7 @@ class BuyOrderSignalTest(TestCase):
 
 
 if __name__ == "__main__":
+    # Standard Library
     import unittest
+
     unittest.main()

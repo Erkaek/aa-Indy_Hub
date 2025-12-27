@@ -43,7 +43,7 @@
         <div class="glass-panel p-4">
             <form method="post" id="configForm" onsubmit="return validateForm()">
                 {% csrf_token %}
-                
+
                 <!-- Corporation Selection -->
                 <div class="row g-3 mb-4">
                     <div class="col-md-6">
@@ -67,7 +67,7 @@
                         <select name="structure_id" class="form-select" required id="structureSelect">
                             <option value="">{% trans "Select corporation first..." %}</option>
                             {% for structure in available_structures %}
-                            <option value="{{ structure.id }}" 
+                            <option value="{{ structure.id }}"
                                     data-name="{{ structure.name }}"
                                     data-flags="{{ structure.flags|join:',' }}"
                                     {% if config and config.structure_id == structure.id %}selected{% endif %}>
@@ -105,18 +105,19 @@
                     <i class="fas fa-info-circle me-2"></i>
                     {% trans "Prices are based on Jita prices from Fuzzwork API. You can choose whether to apply markup on Buy or Sell prices." %}
                 </div>
-                
+
                 <div class="row g-3 mb-4">
                     <div class="col-md-6">
                         <label class="form-label">{% trans "Sell Markup %" %}</label>
                         <div class="input-group mb-2">
-                            <input type="number" 
-                                   name="sell_markup_percent" 
-                                   class="form-control" 
-                                   step="0.01" 
-                                   min="-100" 
-                                   max="100" 
-                                   value="{{ config.sell_markup_percent|default:'0' }}">
+                            <input
+                                type="number"
+                                name="sell_markup_percent"
+                                class="form-control"
+                                step="0.01"
+                                min="-100"
+                                max="100"
+                                value="{{ config.sell_markup_percent|default:'0' }}">
                             <span class="input-group-text">%</span>
                         </div>
                         <label class="form-label">{% trans "Apply on" %}</label>
@@ -135,13 +136,14 @@
                     <div class="col-md-6">
                         <label class="form-label">{% trans "Buy Markup %" %}</label>
                         <div class="input-group mb-2">
-                            <input type="number" 
-                                   name="buy_markup_percent" 
-                                   class="form-control" 
-                                   step="0.01" 
-                                   min="-100" 
-                                   max="1000" 
-                                   value="{{ config.buy_markup_percent|default:'5' }}">
+                            <input
+                                type="number"
+                                name="buy_markup_percent"
+                                class="form-control"
+                                step="0.01"
+                                min="-100"
+                                max="1000"
+                                value="{{ config.buy_markup_percent|default:'5' }}">
                             <span class="input-group-text">%</span>
                         </div>
                         <label class="form-label">{% trans "Apply on" %}</label>
@@ -161,11 +163,12 @@
 
                 <!-- Active Status -->
                 <div class="form-check mb-4">
-                    <input type="checkbox" 
-                           name="is_active" 
-                           class="form-check-input" 
-                           id="isActive"
-                           {% if not config or config.is_active %}checked{% endif %}>
+                    <input
+                        type="checkbox"
+                        name="is_active"
+                        class="form-check-input"
+                        id="isActive"
+                        {% if not config or config.is_active %}checked{% endif %}>
                     <label class="form-check-label" for="isActive">
                         {% trans "Enable Material Exchange" %}
                     </label>
@@ -284,14 +287,14 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         updateSubmitButton();
     };
-    
+
     // Update structure name when structure is selected
     structureSelect.addEventListener('change', function() {
         const selectedOption = structureSelect.options[structureSelect.selectedIndex];
         structureName.value = selectedOption.getAttribute('data-name') || '';
         rebuildHangarOptions(selectedOption.getAttribute('data-flags'));
     });
-    
+
     const fetchStructures = (corpId, preserveSelection = false) => {
         const prevStructure = preserveSelection ? structureSelect.value : '';
         const prevHangar = preserveSelection ? hangarSelect.value : '';
@@ -376,14 +379,14 @@ document.addEventListener('DOMContentLoaded', function() {
         const selectedOption = structureSelect.options[structureSelect.selectedIndex];
         rebuildHangarOptions(selectedOption.getAttribute('data-flags'));
     }
-    
+
     updateSubmitButton();
 });
 
 function validateForm() {
     const hangarSelect = document.getElementById('hangarSelect');
     const submitBtn = document.getElementById('submitBtn');
-    
+
     if (hangarSelect.disabled || !hangarSelect.value) {
         alert('{% trans "Please add a divisions token and select a hangar division before saving." %}');
         return false;
@@ -396,12 +399,12 @@ function requestDivisionsToken() {
     const form = document.createElement('form');
     form.method = 'POST';
     form.action = '{% url "indy_hub:material_exchange_request_divisions_token" %}';
-    
+
     const csrf = document.createElement('input');
     csrf.type = 'hidden';
     csrf.name = 'csrfmiddlewaretoken';
     csrf.value = document.querySelector('[name=csrfmiddlewaretoken]').value;
-    
+
     form.appendChild(csrf);
     document.body.appendChild(form);
     form.submit();

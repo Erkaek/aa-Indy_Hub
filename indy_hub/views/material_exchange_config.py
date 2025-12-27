@@ -1,14 +1,17 @@
 """Material Exchange Configuration views."""
 
+# Standard Library
 from decimal import Decimal
 
+# Django
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.shortcuts import redirect, render
 from django.utils.translation import gettext_lazy as _
+
+# Alliance Auth
 from esi.clients import EsiClientProvider
-from esi.decorators import token_required
 from esi.views import sso_redirect
 
 from ..decorators import indy_hub_permission_required
@@ -24,23 +27,24 @@ def material_exchange_request_divisions_token(request):
     return sso_redirect(
         request,
         scopes="esi-corporations.read_divisions.v1",
-        return_to="indy_hub:material_exchange_config"
+        return_to="indy_hub:material_exchange_config",
     )
 
 
 def _get_token_for_corp(user, corp_id, scope):
     """Return the first valid token for the given corp that has the scope."""
+    # Alliance Auth
     from esi.models import Token
 
-    tokens = (
-        Token.objects.filter(user=user)
-        .require_scopes(scope)
-        .require_valid()
-    )
+    tokens = Token.objects.filter(user=user).require_scopes(scope).require_valid()
 
     # Prefer corporation tokens first, then character tokens that belong to corp
     tokens = list(tokens)
-    corp_tokens = [t for t in tokens if getattr(t, "token_type", "") == Token.TOKEN_TYPE_CORPORATION]
+    corp_tokens = [
+        t
+        for t in tokens
+        if getattr(t, "token_type", "") == Token.TOKEN_TYPE_CORPORATION
+    ]
     if corp_tokens:
         return corp_tokens[0]
 
@@ -65,29 +69,35 @@ def material_exchange_config(request):
     Allows admins to configure corp, structure, and pricing.
     """
     config = MaterialExchangeConfig.objects.first()
-    
+
     # Get available corporations from user's ESI tokens
     available_corps = _get_user_corporations(request.user)
-    
+
     # Get structures if corp is selected
     available_structures = []
     hangar_divisions = {}
     division_scope_missing = False
     if config and config.corporation_id:
         available_structures = _get_corp_structures(request.user, config.corporation_id)
-        hangar_divisions, division_scope_missing = _get_corp_hangar_divisions(request.user, config.corporation_id)
-    
+        hangar_divisions, division_scope_missing = _get_corp_hangar_divisions(
+            request.user, config.corporation_id
+        )
+
     if request.method == "POST":
         return _handle_config_save(request, config)
-    
+
     context = {
         "config": config,
         "available_corps": available_corps,
         "available_structures": available_structures,
-        "hangar_divisions": hangar_divisions if (hangar_divisions or division_scope_missing) else {i: f"Hangar Division {i}" for i in range(1, 8)},
+        "hangar_divisions": (
+            hangar_divisions
+            if (hangar_divisions or division_scope_missing)
+            else {i: f"Hangar Division {i}" for i in range(1, 8)}
+        ),
         "division_scope_missing": division_scope_missing,
     }
-    
+
     return render(request, "indy_hub/material_exchange/config.html", context)
 
 
@@ -98,19 +108,24 @@ def material_exchange_get_structures(request, corp_id):
     AJAX endpoint to get structures for a given corporation.
     Returns JSON list of structures.
     """
+    # Django
     from django.http import JsonResponse
-    
+
     structures = _get_corp_structures(request.user, corp_id)
-    hangar_divisions, division_scope_missing = _get_corp_hangar_divisions(request.user, corp_id)
-    
-    return JsonResponse({
-        "structures": [
-            {"id": s["id"], "name": s["name"], "flags": s.get("flags", [])}
-            for s in structures
-        ],
-        "hangar_divisions": hangar_divisions,
-        "division_scope_missing": division_scope_missing,
-    })
+    hangar_divisions, division_scope_missing = _get_corp_hangar_divisions(
+        request.user, corp_id
+    )
+
+    return JsonResponse(
+        {
+            "structures": [
+                {"id": s["id"], "name": s["name"], "flags": s.get("flags", [])}
+                for s in structures
+            ],
+            "hangar_divisions": hangar_divisions,
+            "division_scope_missing": division_scope_missing,
+        }
+    )
 
 
 def _get_user_corporations(user):
@@ -118,46 +133,46 @@ def _get_user_corporations(user):
     Get list of corporations the user has ESI access to.
     Returns list of dicts with corp_id and corp_name.
     """
+    # Alliance Auth
     from esi.models import Token
-    
+
     corporations = []
     seen_corps = set()
-    
+
     try:
         # Get all user tokens
         tokens = Token.objects.filter(user=user)
-        
+
         for token in tokens:
             # Get character info
             try:
                 char_info = esi.client.Character.get_characters_character_id(
                     character_id=token.character_id
                 ).results()
-                
+
                 corp_id = char_info.get("corporation_id")
                 if corp_id and corp_id not in seen_corps:
                     # Get corp name
                     corp_info = esi.client.Corporation.get_corporations_corporation_id(
                         corporation_id=corp_id
                     ).results()
-                    
-                    corporations.append({
-                        "id": corp_id,
-                        "name": corp_info.get("name", f"Corp {corp_id}"),
-                        "ticker": corp_info.get("ticker", ""),
-                    })
+
+                    corporations.append(
+                        {
+                            "id": corp_id,
+                            "name": corp_info.get("name", f"Corp {corp_id}"),
+                            "ticker": corp_info.get("ticker", ""),
+                        }
+                    )
                     seen_corps.add(corp_id)
-                    
-            except Exception as e:
+
+            except Exception:
                 # Skip tokens with errors
                 continue
-                
+
     except Exception as e:
-        messages.warning(
-            None,
-            f"Error fetching corporations from ESI: {e}"
-        )
-    
+        messages.warning(None, f"Error fetching corporations from ESI: {e}")
+
     return corporations
 
 
@@ -166,13 +181,17 @@ def _get_corp_structures(user, corp_id):
     Get list of structures where the corporation has assets.
     This includes structures owned by the corp AND structures where corp has assets.
     """
+    # Alliance Auth
     from esi.models import Token
-    from ..utils.eve import resolve_location_name, is_station_id
+
+    from ..utils.eve import is_station_id, resolve_location_name
+
     try:
+        # Third Party
         from corptools.models import CorpAsset
     except Exception:
         CorpAsset = None
-    
+
     structures = []
     location_ids = set()
     location_flags_by_id: dict[int, set[str]] = {}
@@ -203,7 +222,7 @@ def _get_corp_structures(user, corp_id):
                     location_flags_by_id.setdefault(int_id, set()).add(str(loc_flag))
         except Exception:
             pass
-    
+
     try:
         token_for_assets = None
 
@@ -218,21 +237,26 @@ def _get_corp_structures(user, corp_id):
             )
 
             if not token_for_assets:
-                return [{
-                    "id": 0,
-                    "name": _("⚠ Missing ESI scope: esi-assets.read_corporation_assets.v1"),
-                }]
+                return [
+                    {
+                        "id": 0,
+                        "name": _(
+                            "⚠ Missing ESI scope: esi-assets.read_corporation_assets.v1"
+                        ),
+                    }
+                ]
 
             try:
                 assets_data = esi.client.Assets.get_corporations_corporation_id_assets(
-                    corporation_id=corp_id,
-                    token=token_for_assets.valid_access_token()
+                    corporation_id=corp_id, token=token_for_assets.valid_access_token()
                 ).results()
             except Exception as e:
-                return [{
-                    "id": 0,
-                    "name": f"⚠ Error fetching corp assets: {str(e)}",
-                }]
+                return [
+                    {
+                        "id": 0,
+                        "name": f"⚠ Error fetching corp assets: {str(e)}",
+                    }
+                ]
 
             for asset in assets_data:
                 location_id = asset.get("location_id")
@@ -250,10 +274,12 @@ def _get_corp_structures(user, corp_id):
                     location_flags_by_id.setdefault(int_id, set()).add(str(loc_flag))
 
         if not location_ids:
-            return [{
-                "id": 0,
-                "name": _("⚠ No corporation assets found"),
-            }]
+            return [
+                {
+                    "id": 0,
+                    "name": _("⚠ No corporation assets found"),
+                }
+            ]
 
         for location_id in location_ids:
             if not token_for_names and not is_station_id(location_id):
@@ -262,31 +288,37 @@ def _get_corp_structures(user, corp_id):
             else:
                 location_name = resolve_location_name(
                     location_id,
-                    character_id=token_for_names.character_id if token_for_names else None,
+                    character_id=(
+                        token_for_names.character_id if token_for_names else None
+                    ),
                     owner_user_id=user.pk,
                     allow_public=is_station_id(location_id),
                 )
 
-            structures.append({
-                "id": location_id,
-                "name": location_name or f"Structure {location_id}",
-                "flags": sorted(location_flags_by_id.get(location_id, set())),
-            })
+            structures.append(
+                {
+                    "id": location_id,
+                    "name": location_name or f"Structure {location_id}",
+                    "flags": sorted(location_flags_by_id.get(location_id, set())),
+                }
+            )
 
         structures.sort(key=lambda x: x["name"])
 
     except Exception as e:
-        return [{
-            "id": 0,
-            "name": f"⚠ Error: {str(e)}",
-        }]
+        return [
+            {
+                "id": 0,
+                "name": f"⚠ Error: {str(e)}",
+            }
+        ]
 
     return structures
 
 
 def _get_corp_hangar_divisions(user, corp_id):
     """Get hangar division names and whether scope was missing."""
-    from esi.models import Token
+    # Standard Library
     import logging
 
     logger = logging.getLogger(__name__)
@@ -315,10 +347,11 @@ def _get_corp_hangar_divisions(user, corp_id):
 
         # Get corp divisions
         try:
-            divisions_data = esi.client.Corporation.get_corporations_corporation_id_divisions(
-                corporation_id=corp_id,
-                token=token.valid_access_token()
-            ).results()
+            divisions_data = (
+                esi.client.Corporation.get_corporations_corporation_id_divisions(
+                    corporation_id=corp_id, token=token.valid_access_token()
+                ).results()
+            )
 
             # Parse hangar division names
             hangar_divisions = divisions_data.get("hangar", [])
@@ -339,7 +372,7 @@ def _get_corp_hangar_divisions(user, corp_id):
 
 def _handle_config_save(request, existing_config):
     """Handle POST request to save Material Exchange configuration."""
-    
+
     corporation_id = request.POST.get("corporation_id")
     structure_id = request.POST.get("structure_id")
     structure_name = request.POST.get("structure_name", "")
@@ -349,7 +382,7 @@ def _handle_config_save(request, existing_config):
     buy_markup_percent = request.POST.get("buy_markup_percent", "5")
     buy_markup_base = request.POST.get("buy_markup_base", "buy")
     is_active = request.POST.get("is_active") == "on"
-    
+
     # Validation
     try:
         if not corporation_id:
@@ -357,21 +390,23 @@ def _handle_config_save(request, existing_config):
         if not structure_id:
             raise ValueError("Structure ID is required")
         if not hangar_division:
-            raise ValueError("Hangar division is required. Please ensure the divisions scope token is added and a division is selected.")
-        
+            raise ValueError(
+                "Hangar division is required. Please ensure the divisions scope token is added and a division is selected."
+            )
+
         corporation_id = int(corporation_id)
         structure_id = int(structure_id)
         hangar_division = int(hangar_division)
         sell_markup_percent = Decimal(sell_markup_percent)
         buy_markup_percent = Decimal(buy_markup_percent)
-        
+
         if not (1 <= hangar_division <= 7):
             raise ValueError("Hangar division must be between 1 and 7")
-            
+
     except (ValueError, TypeError) as e:
         messages.error(request, _("Invalid configuration values: {}").format(e))
         return redirect("indy_hub:material_exchange_config")
-    
+
     # Save or update config
     with transaction.atomic():
         if existing_config:
@@ -385,7 +420,9 @@ def _handle_config_save(request, existing_config):
             existing_config.buy_markup_base = buy_markup_base
             existing_config.is_active = is_active
             existing_config.save()
-            messages.success(request, _("Material Exchange configuration updated successfully."))
+            messages.success(
+                request, _("Material Exchange configuration updated successfully.")
+            )
         else:
             MaterialExchangeConfig.objects.create(
                 corporation_id=corporation_id,
@@ -398,6 +435,8 @@ def _handle_config_save(request, existing_config):
                 buy_markup_base=buy_markup_base,
                 is_active=is_active,
             )
-            messages.success(request, _("Material Exchange configuration created successfully."))
-    
+            messages.success(
+                request, _("Material Exchange configuration created successfully.")
+            )
+
     return redirect("indy_hub:material_exchange_index")

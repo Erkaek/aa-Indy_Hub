@@ -2,29 +2,30 @@
 Material Exchange contract validation and processing tasks.
 Handles ESI contract checking, validation, and PM notifications for sell/buy orders.
 """
+
 # Standard Library
 import logging
-from datetime import datetime, timedelta
+
+# Third Party
+from celery import shared_task
 
 # Django
 from django.contrib.auth.models import User
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
-# Third Party
-from celery import shared_task
-
+# AA Example App
 # Local
 from indy_hub.models import (
+    MaterialExchangeBuyOrder,
     MaterialExchangeConfig,
     MaterialExchangeSellOrder,
-    MaterialExchangeBuyOrder,
 )
-from indy_hub.notifications import notify_user, notify_multi
+from indy_hub.notifications import notify_multi, notify_user
 from indy_hub.services.esi_client import (
     ESIClientError,
-    ESITokenError,
     ESIForbiddenError,
+    ESITokenError,
     shared_client,
 )
 
@@ -35,15 +36,15 @@ logger = logging.getLogger(__name__)
 def validate_material_exchange_sell_orders():
     """
     Check ESI for corporation contracts matching pending sell orders.
-    
+
     Workflow:
     1. Find all pending sell orders
     2. Fetch corp contracts via ESI
     3. Match contracts to orders by:
-       - Contract type = item_exchange
-       - Contract issuer = member
-       - Contract acceptor = corporation
-       - Items match (type_id, quantity)
+        - Contract type = item_exchange
+        - Contract issuer = member
+        - Contract acceptor = corporation
+        - Items match (type_id, quantity)
     4. Update order status & notify users
     """
     config = MaterialExchangeConfig.objects.filter(is_active=True).first()
@@ -93,7 +94,7 @@ def validate_material_exchange_sell_orders():
 def _validate_sell_order(config, order, contracts):
     """
     Validate a single sell order against ESI contracts.
-    
+
     Contract matching criteria:
     - type = item_exchange
     - issuer_id = seller's main character
@@ -235,7 +236,7 @@ def _contract_items_match_order(contract_items, order):
     included = [item for item in contract_items if item.get("is_included", False)]
 
     order_items = list(order.items.all())
-    
+
     if len(included) != len(order_items):
         # Number of contract items must match order items
         return False
@@ -244,13 +245,15 @@ def _contract_items_match_order(contract_items, order):
     for order_item in order_items:
         found = False
         for contract_item in included:
-            if (contract_item.get("type_id") == order_item.type_id 
-                and contract_item.get("quantity") == order_item.quantity):
+            if (
+                contract_item.get("type_id") == order_item.type_id
+                and contract_item.get("quantity") == order_item.quantity
+            ):
                 found = True
                 break
         if not found:
             return False
-    
+
     return True
 
 
@@ -258,7 +261,7 @@ def _contract_items_match_order(contract_items, order):
 def handle_material_exchange_buy_order_created(order_id):
     """
     Send immediate notification to admins when a buy order is created.
-    
+
     Buy orders don't require contract validation - they're approved by admins
     who then deliver the items via contract or direct trade.
     """
@@ -333,11 +336,13 @@ def check_completed_material_exchange_contracts():
         if contract.get("status") == "completed":
             order.status = MaterialExchangeSellOrder.Status.PAID
             order.payment_verified_at = timezone.now()
-            order.save(update_fields=[
-                "status",
-                "payment_verified_at",
-                "updated_at",
-            ])
+            order.save(
+                update_fields=[
+                    "status",
+                    "payment_verified_at",
+                    "updated_at",
+                ]
+            )
 
             notify_user(
                 order.seller,
@@ -375,12 +380,11 @@ def _get_character_for_scope(corporation_id: int, scope: str) -> int:
     Used for authenticated ESI calls.
     """
     # Try to find any user with a character in the corp who has this scope
+    # Alliance Auth
     from esi.models import Token
 
     try:
-        token = Token.objects.filter(
-            character__corporation_id=corporation_id
-        ).first()
+        token = Token.objects.filter(character__corporation_id=corporation_id).first()
         if token:
             return token.character_id
     except Exception:
@@ -392,6 +396,7 @@ def _get_character_for_scope(corporation_id: int, scope: str) -> int:
 def _get_user_character_ids(user: User) -> list[int]:
     """Get all character IDs for a user."""
     try:
+        # Alliance Auth
         from esi.models import Token
 
         return list(
@@ -405,6 +410,7 @@ def _get_user_character_ids(user: User) -> list[int]:
 
 def _get_admins_for_config(config: MaterialExchangeConfig) -> list[User]:
     """Get users with can_manage_material_exchange permission."""
+    # Django
     from django.contrib.auth.models import Permission
 
     try:
@@ -421,11 +427,10 @@ def _get_admins_for_config(config: MaterialExchangeConfig) -> list[User]:
 def _get_corp_name(corporation_id: int) -> str:
     """Get corporation name, fallback to ID if not available."""
     try:
+        # Alliance Auth
         from allianceauth.eveonline.models import EveCharacter
 
-        char = EveCharacter.objects.filter(
-            corporation_id=corporation_id
-        ).first()
+        char = EveCharacter.objects.filter(corporation_id=corporation_id).first()
         if char:
             return char.corporation_name
     except Exception:

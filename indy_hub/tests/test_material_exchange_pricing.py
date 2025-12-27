@@ -1,8 +1,14 @@
 """
 Tests for Material Exchange pricing with configurable base prices.
 """
+
+# Standard Library
 from decimal import Decimal
+
+# Django
 from django.test import TestCase
+
+# AA Example App
 from indy_hub.models import MaterialExchangeConfig, MaterialExchangeStock
 
 
@@ -43,7 +49,7 @@ class MaterialExchangePricingTests(TestCase):
         """Test sell_price_to_member when using Jita Sell as base."""
         self.config.buy_markup_base = "sell"
         self.config.save()
-        
+
         # Expected: 6.00 * 1.10 = 6.60
         expected = Decimal("6.60")
         actual = self.stock.sell_price_to_member
@@ -61,7 +67,7 @@ class MaterialExchangePricingTests(TestCase):
         """Test buy_price_from_member when using Jita Sell as base."""
         self.config.sell_markup_base = "sell"
         self.config.save()
-        
+
         # Expected: 6.00 * 1.05 = 6.30
         expected = Decimal("6.30")
         actual = self.stock.buy_price_from_member
@@ -72,7 +78,7 @@ class MaterialExchangePricingTests(TestCase):
         self.config.buy_markup_percent = Decimal("0.00")
         self.config.buy_markup_base = "buy"
         self.config.save()
-        
+
         # Expected: 5.00 * 1.00 = 5.00
         expected = Decimal("5.00")
         actual = self.stock.sell_price_to_member
@@ -83,7 +89,7 @@ class MaterialExchangePricingTests(TestCase):
         self.config.sell_markup_percent = Decimal("0.00")
         self.config.sell_markup_base = "sell"
         self.config.save()
-        
+
         # Expected: 6.00 * 1.00 = 6.00
         expected = Decimal("6.00")
         actual = self.stock.buy_price_from_member
@@ -94,7 +100,7 @@ class MaterialExchangePricingTests(TestCase):
         self.config.buy_markup_percent = Decimal("25.00")
         self.config.buy_markup_base = "sell"
         self.config.save()
-        
+
         # Expected: 6.00 * 1.25 = 7.50
         expected = Decimal("7.50")
         actual = self.stock.sell_price_to_member
@@ -108,6 +114,6 @@ class MaterialExchangePricingTests(TestCase):
             structure_name="New Test Structure",
             hangar_division=2,
         )
-        
+
         self.assertEqual(new_config.sell_markup_base, "buy")
         self.assertEqual(new_config.buy_markup_base, "buy")

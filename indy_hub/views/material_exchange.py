@@ -1,15 +1,11 @@
 """Material Exchange views for Indy Hub."""
 
-# Standard Library
-from decimal import Decimal
-
 # Django
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Count, Q, Sum
-from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -27,8 +23,8 @@ from ..models import (
     MaterialExchangeTransaction,
 )
 from ..tasks.material_exchange import (
-    sync_material_exchange_stock,
     sync_material_exchange_prices,
+    sync_material_exchange_stock,
 )
 from ..utils.eve import get_type_name
 
@@ -55,22 +51,19 @@ def material_exchange_index(request):
     # Stats
     stock_count = config.stock_items.count()
     total_stock_value = (
-        config.stock_items.aggregate(
-            total=Sum("jita_buy_price")
-        )["total"]
-        or 0
+        config.stock_items.aggregate(total=Sum("jita_buy_price"))["total"] or 0
     )
 
     pending_sell_orders = config.sell_orders.filter(status="pending").count()
     pending_buy_orders = config.buy_orders.filter(status="pending").count()
 
     # User's recent orders
-    user_sell_orders = request.user.material_sell_orders.filter(
-        config=config
-    ).order_by("-created_at")[:5]
-    user_buy_orders = request.user.material_buy_orders.filter(
-        config=config
-    ).order_by("-created_at")[:5]
+    user_sell_orders = request.user.material_sell_orders.filter(config=config).order_by(
+        "-created_at"
+    )[:5]
+    user_buy_orders = request.user.material_buy_orders.filter(config=config).order_by(
+        "-created_at"
+    )[:5]
 
     # Recent transactions (last 10)
     recent_transactions = config.transactions.select_related("user").order_by(
@@ -105,28 +98,41 @@ def material_exchange_sell(request):
 
     if request.method == "POST":
         # Get user's character assets at the config location
+        # Django
         from django.db import connection
+
         cursor = connection.cursor()
-        
+
         # Get user's main character ID
         character_id = None
-        if hasattr(request.user, 'profile') and hasattr(request.user.profile, 'main_character'):
-            character_id = request.user.profile.main_character.character_id if request.user.profile.main_character else None
-        
+        if hasattr(request.user, "profile") and hasattr(
+            request.user.profile, "main_character"
+        ):
+            character_id = (
+                request.user.profile.main_character.character_id
+                if request.user.profile.main_character
+                else None
+            )
+
         if not character_id:
-            messages.error(request, _("No main character found. Please set your main character."))
+            messages.error(
+                request, _("No main character found. Please set your main character.")
+            )
             return redirect("indy_hub:material_exchange_sell")
-        
+
         # Get user's assets at config location
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT type_id, SUM(quantity) as total_qty
             FROM corptools_characterasset
             WHERE character_id = %s AND location_id = %s
             GROUP BY type_id
-        """, [character_id, config.structure_id])
-        
+        """,
+            [character_id, config.structure_id],
+        )
+
         user_assets = {row[0]: row[1] for row in cursor.fetchall()}
-        
+
         if not user_assets:
             messages.error(request, _("You have no items to sell at this location."))
             return redirect("indy_hub:material_exchange_sell")
@@ -152,16 +158,17 @@ def material_exchange_sell(request):
             if qty > user_qty:
                 type_name = get_type_name(type_id)
                 errors.append(
-                    _(f"Insufficient {type_name} in {config.structure_name}. You have: {user_qty:,}, requested: {qty:,}")
+                    _(
+                        f"Insufficient {type_name} in {config.structure_name}. You have: {user_qty:,}, requested: {qty:,}"
+                    )
                 )
                 continue
 
             # Get pricing from hub for this item
             stock_item = MaterialExchangeStock.objects.filter(
-                config=config,
-                type_id=type_id
+                config=config, type_id=type_id
             ).first()
-            
+
             if not stock_item or not stock_item.jita_buy_price:
                 type_name = get_type_name(type_id)
                 errors.append(_(f"{type_name} is not accepted by the hub for selling."))
@@ -172,16 +179,21 @@ def material_exchange_sell(request):
             total_price = unit_price * qty
             total_payout += total_price
 
-            items_to_create.append({
-                'type_id': type_id,
-                'type_name': type_name,
-                'quantity': qty,
-                'unit_price': unit_price,
-                'total_price': total_price,
-            })
+            items_to_create.append(
+                {
+                    "type_id": type_id,
+                    "type_name": type_name,
+                    "quantity": qty,
+                    "unit_price": unit_price,
+                    "total_price": total_price,
+                }
+            )
 
         if not items_to_create and not errors:
-            messages.error(request, _("Please enter a quantity greater than 0 for at least one item."))
+            messages.error(
+                request,
+                _("Please enter a quantity greater than 0 for at least one item."),
+            )
             return redirect("indy_hub:material_exchange_sell")
 
         if errors:
@@ -195,54 +207,63 @@ def material_exchange_sell(request):
                 seller=request.user,
                 status="pending",
             )
-            
+
             # Create items for this order
             for item_data in items_to_create:
-                MaterialExchangeSellOrderItem.objects.create(
-                    order=order,
-                    **item_data
-                )
-            
+                MaterialExchangeSellOrderItem.objects.create(order=order, **item_data)
+
             messages.success(
                 request,
-                _(f"Created sell order #{order.id} with {len(items_to_create)} item(s). Total payout: {total_payout:,.2f} ISK. Awaiting admin approval."),
+                _(
+                    f"Created sell order #{order.id} with {len(items_to_create)} item(s). Total payout: {total_payout:,.2f} ISK. Awaiting admin approval."
+                ),
             )
             return redirect("indy_hub:material_exchange_index")
 
         return redirect("indy_hub:material_exchange_sell")
 
     # GET: Get user's assets at this location and match with hub pricing
+    # Django
     from django.db import connection
+
     cursor = connection.cursor()
-    
+
     # Get user's main character ID
     character_id = None
-    if hasattr(request.user, 'profile') and hasattr(request.user.profile, 'main_character'):
-        character_id = request.user.profile.main_character.character_id if request.user.profile.main_character else None
-    
+    if hasattr(request.user, "profile") and hasattr(
+        request.user.profile, "main_character"
+    ):
+        character_id = (
+            request.user.profile.main_character.character_id
+            if request.user.profile.main_character
+            else None
+        )
+
     materials_with_qty = []
-    
+
     if character_id:
         # Get ALL user's assets at this location (not just ones in the hub)
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT type_id, SUM(quantity) as total_qty
             FROM corptools_characterasset
             WHERE character_id = %s AND location_id = %s
             GROUP BY type_id
-        """, [character_id, config.structure_id])
-        
+        """,
+            [character_id, config.structure_id],
+        )
+
         user_assets = {row[0]: row[1] for row in cursor.fetchall()}
-        
+
         # For each user asset, try to get pricing from the hub
         # If not in hub, still show it (user can sell to corp even if not pre-priced)
         for type_id, user_qty in user_assets.items():
             # Try to get pricing from MaterialExchangeStock
             try:
                 stock_item = MaterialExchangeStock.objects.filter(
-                    config=config,
-                    type_id=type_id
+                    config=config, type_id=type_id
                 ).first()
-                
+
                 if stock_item and stock_item.jita_buy_price:
                     # Get type name from stock item or fetch it
                     type_name = stock_item.type_name or get_type_name(type_id)
@@ -252,19 +273,21 @@ def material_exchange_sell(request):
                     # Fetch type name and skip (no price available)
                     type_name = get_type_name(type_id)
                     continue  # Skip items without pricing
-                
-                materials_with_qty.append({
-                    'type_id': type_id,
-                    'type_name': type_name,
-                    'buy_price_from_member': buy_price,
-                    'user_quantity': user_qty,
-                })
+
+                materials_with_qty.append(
+                    {
+                        "type_id": type_id,
+                        "type_name": type_name,
+                        "buy_price_from_member": buy_price,
+                        "user_quantity": user_qty,
+                    }
+                )
             except Exception:
                 # Skip items we can't get pricing for
                 continue
-        
+
         # Sort by type name
-        materials_with_qty.sort(key=lambda x: x['type_name'])
+        materials_with_qty.sort(key=lambda x: x["type_name"])
 
     context = {
         "config": config,
@@ -322,17 +345,22 @@ def material_exchange_buy(request):
             total_price = unit_price * qty
             total_cost += total_price
 
-            items_to_create.append({
-                'type_id': type_id,
-                'type_name': stock_item.type_name,
-                'quantity': qty,
-                'unit_price': unit_price,
-                'total_price': total_price,
-                'stock_available_at_creation': stock_item.quantity,
-            })
+            items_to_create.append(
+                {
+                    "type_id": type_id,
+                    "type_name": stock_item.type_name,
+                    "quantity": qty,
+                    "unit_price": unit_price,
+                    "total_price": total_price,
+                    "stock_available_at_creation": stock_item.quantity,
+                }
+            )
 
         if not items_to_create and not errors:
-            messages.error(request, _("Please enter a quantity greater than 0 for at least one item."))
+            messages.error(
+                request,
+                _("Please enter a quantity greater than 0 for at least one item."),
+            )
             return redirect("indy_hub:material_exchange_buy")
 
         if errors:
@@ -346,17 +374,16 @@ def material_exchange_buy(request):
                 buyer=request.user,
                 status="pending",
             )
-            
+
             # Create items for this order
             for item_data in items_to_create:
-                MaterialExchangeBuyOrderItem.objects.create(
-                    order=order,
-                    **item_data
-                )
-            
+                MaterialExchangeBuyOrderItem.objects.create(order=order, **item_data)
+
             messages.success(
                 request,
-                _(f"Created buy order #{order.id} with {len(items_to_create)} item(s). Total cost: {total_cost:,.2f} ISK. Awaiting admin approval."),
+                _(
+                    f"Created buy order #{order.id} with {len(items_to_create)} item(s). Total cost: {total_cost:,.2f} ISK. Awaiting admin approval."
+                ),
             )
             return redirect("indy_hub:material_exchange_index")
 
@@ -364,7 +391,9 @@ def material_exchange_buy(request):
 
     # GET: ensure stock is current if config was just changed or never synced
     try:
-        if not config.last_stock_sync or (config.updated_at and config.last_stock_sync < config.updated_at):
+        if not config.last_stock_sync or (
+            config.updated_at and config.last_stock_sync < config.updated_at
+        ):
             sync_material_exchange_stock()
             config.refresh_from_db()
     except Exception:
@@ -373,7 +402,10 @@ def material_exchange_buy(request):
 
     # GET: ensure prices are populated if stock exists without prices
     base_stock_qs = config.stock_items.filter(quantity__gt=0)
-    if base_stock_qs.exists() and not base_stock_qs.filter(jita_buy_price__gt=0).exists():
+    if (
+        base_stock_qs.exists()
+        and not base_stock_qs.filter(jita_buy_price__gt=0).exists()
+    ):
         try:
             sync_material_exchange_prices()
             config.refresh_from_db()
@@ -384,9 +416,9 @@ def material_exchange_buy(request):
             )
 
     # Show available stock (quantity > 0 and price available)
-    stock = config.stock_items.filter(
-        quantity__gt=0, jita_buy_price__gt=0
-    ).order_by("type_name")
+    stock = config.stock_items.filter(quantity__gt=0, jita_buy_price__gt=0).order_by(
+        "type_name"
+    )
 
     context = {
         "config": config,
@@ -410,16 +442,18 @@ def material_exchange_sync_stock(request):
         config = MaterialExchangeConfig.objects.first()
         messages.success(
             request,
-            _(f"Stock synced successfully. Last sync: {config.last_stock_sync.strftime('%Y-%m-%d %H:%M:%S') if config.last_stock_sync else 'just now'}"),
+            _(
+                f"Stock synced successfully. Last sync: {config.last_stock_sync.strftime('%Y-%m-%d %H:%M:%S') if config.last_stock_sync else 'just now'}"
+            ),
         )
     except Exception as e:
         messages.error(request, _(f"Stock sync failed: {str(e)}"))
-    
+
     # Redirect back to buy page or referrer
-    referrer = request.META.get('HTTP_REFERER', '')
-    if 'material-exchange/buy' in referrer:
+    referrer = request.headers.get("referer", "")
+    if "material-exchange/buy" in referrer:
         return redirect("indy_hub:material_exchange_buy")
-    elif 'material-exchange/sell' in referrer:
+    elif "material-exchange/sell" in referrer:
         return redirect("indy_hub:material_exchange_sell")
     else:
         return redirect("indy_hub:material_exchange_index")
@@ -438,16 +472,18 @@ def material_exchange_sync_prices(request):
         config = MaterialExchangeConfig.objects.first()
         messages.success(
             request,
-            _(f"Prices synced successfully. Last sync: {config.last_price_sync.strftime('%Y-%m-%d %H:%M:%S') if getattr(config, 'last_price_sync', None) else 'just now'}"),
+            _(
+                f"Prices synced successfully. Last sync: {config.last_price_sync.strftime('%Y-%m-%d %H:%M:%S') if getattr(config, 'last_price_sync', None) else 'just now'}"
+            ),
         )
     except Exception as e:
         messages.error(request, _(f"Price sync failed: {str(e)}"))
-    
+
     # Redirect back to buy page or referrer
-    referrer = request.META.get('HTTP_REFERER', '')
-    if 'material-exchange/buy' in referrer:
+    referrer = request.headers.get("referer", "")
+    if "material-exchange/buy" in referrer:
         return redirect("indy_hub:material_exchange_buy")
-    elif 'material-exchange/sell' in referrer:
+    elif "material-exchange/sell" in referrer:
         return redirect("indy_hub:material_exchange_sell")
     else:
         return redirect("indy_hub:material_exchange_index")
@@ -470,7 +506,7 @@ def material_exchange_admin(request):
     sell_orders = config.sell_orders.all().order_by("-created_at")
     if status_filter:
         sell_orders = sell_orders.filter(status=status_filter)
-    
+
     # Get buy orders with status filter
     buy_orders = config.buy_orders.all().order_by("-created_at")
     if status_filter:
@@ -579,7 +615,7 @@ def material_exchange_complete_sell(request, order_id):
             )
 
             # Update stock (add quantity)
-            stock_item, _ = MaterialExchangeStock.objects.get_or_create(
+            stock_item, _created = MaterialExchangeStock.objects.get_or_create(
                 config=order.config,
                 type_id=item.type_id,
                 defaults={"type_name": item.type_name},
@@ -745,9 +781,7 @@ def material_exchange_transactions(request):
     now = timezone.now()
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
-    month_stats = config.transactions.filter(
-        completed_at__gte=month_start
-    ).aggregate(
+    month_stats = config.transactions.filter(completed_at__gte=month_start).aggregate(
         total_sell_volume=Sum(
             "total_price", filter=Q(transaction_type="sell"), default=0
         ),
