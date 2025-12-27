@@ -279,7 +279,9 @@ def _get_corp_structures(user, corp_id):
                     # Third Party
                     from bravado.exception import HTTPError
 
-                    status_code = getattr(getattr(e, "response", None), "status_code", None)
+                    status_code = getattr(
+                        getattr(e, "response", None), "status_code", None
+                    )
                     if isinstance(e, HTTPError) and status_code == 403:
                         error_name = _(
                             "⚠ Token lacks required corporation roles for assets. Reauthorize with a character that has the needed corp roles (e.g., Director or Asset Manager)."
