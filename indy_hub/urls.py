@@ -56,6 +56,7 @@ from .views.material_exchange import (
 )
 from .views.material_exchange_config import (
     material_exchange_config,
+    material_exchange_debug_tokens,
     material_exchange_get_structures,
     material_exchange_request_assets_token,
     material_exchange_request_divisions_token,
@@ -282,6 +283,11 @@ urlpatterns = [
         "material-exchange/api/structures/<int:corp_id>/",
         material_exchange_get_structures,
         name="material_exchange_get_structures",
+    ),
+    path(
+        "material-exchange/api/debug-tokens/<int:corp_id>/",
+        material_exchange_debug_tokens,
+        name="material_exchange_debug_tokens",
     ),
     path(
         "material-exchange/sell/",

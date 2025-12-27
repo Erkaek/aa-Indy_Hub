@@ -43,13 +43,19 @@ def _get_token_for_corp(user, corp_id, scope, require_corporation_token: bool = 
     # Alliance Auth
     from esi.models import Token
 
-    tokens = Token.objects.filter(user=user).require_scopes(scope).require_valid()
+    # Important: require_scopes expects an iterable of scopes
+    tokens = Token.objects.filter(user=user).require_scopes([scope]).require_valid()
     tokens = list(tokens)
-    logger.debug(
-        f"_get_token_for_corp: user={user.username}, corp_id={corp_id}, "
-        f"scope={scope}, require_corp={require_corporation_token}, "
-        f"found {len(tokens)} valid tokens with scope"
-    )
+    if not tokens:
+        logger.debug(
+            f"_get_token_for_corp: user={user.username}, corp_id={corp_id}, scope={scope} -> no valid tokens with scope"
+        )
+    else:
+        logger.debug(
+            f"_get_token_for_corp: user={user.username}, corp_id={corp_id}, "
+            f"scope={scope}, require_corp={require_corporation_token}, "
+            f"found {len(tokens)} valid tokens with scope"
+        )
 
     # Cache character corp lookups to avoid extra ESI calls
     char_corp_cache: dict[int, int] = {}
@@ -532,3 +538,71 @@ def _handle_config_save(request, existing_config):
             )
 
     return redirect("indy_hub:material_exchange_index")
+
+
+@login_required
+@indy_hub_permission_required("can_manage_material_exchange")
+def material_exchange_debug_tokens(request, corp_id):
+    """Debug endpoint: list user's tokens and scopes relevant to a corporation.
+
+    Query params:
+    - scope: optional scope name to filter tokens (e.g., "esi-assets.read_corporation_assets.v1")
+    """
+    # Django
+    from django.http import JsonResponse
+
+    # Alliance Auth
+    from esi.models import Token
+
+    scope = request.GET.get("scope")
+    qs = Token.objects.filter(user=request.user)
+    if scope:
+        qs = qs.require_scopes([scope])
+    qs = qs.require_valid()
+
+    results = []
+
+    # Reuse character corp check
+    def _character_matches(token) -> bool:
+        char_id = getattr(token, "character_id", None)
+        if not char_id:
+            return False
+        try:
+            char_obj = getattr(token, "character", None)
+            if char_obj and getattr(char_obj, "corporation_id", None) is not None:
+                return int(char_obj.corporation_id) == int(corp_id)
+        except Exception:
+            pass
+        try:
+            char_info = esi.client.Character.get_characters_character_id(
+                character_id=char_id
+            ).results()
+            return int(char_info.get("corporation_id", 0)) == int(corp_id)
+        except Exception:
+            return False
+
+    for t in qs:
+        try:
+            scope_names = list(t.scopes.values_list("name", flat=True))
+        except Exception:
+            scope_names = []
+        results.append(
+            {
+                "id": t.id,
+                "type": getattr(t, "token_type", ""),
+                "corporation_id": getattr(t, "corporation_id", None),
+                "character_id": getattr(t, "character_id", None),
+                "belongs_to_corp": (
+                    (
+                        getattr(t, "corporation_id", None) is not None
+                        and int(getattr(t, "corporation_id")) == int(corp_id)
+                    )
+                    or _character_matches(t)
+                ),
+                "scopes": scope_names,
+            }
+        )
+
+    return JsonResponse(
+        {"corp_id": int(corp_id), "scope_filter": scope or None, "tokens": results}
+    )
