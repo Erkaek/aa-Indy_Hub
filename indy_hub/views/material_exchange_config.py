@@ -321,23 +321,22 @@ def _get_corp_structures(user, corp_id):
             # Alliance Auth
             from allianceauth.eveonline.models import EveCharacter
 
+            # Get cached characters in bulk to avoid repeated queries
+            character_ids = [t.character_id for t in potential_tokens]
+            cached_chars = {
+                char.character_id: char
+                for char in EveCharacter.objects.filter(character_id__in=character_ids)
+            }
+
             corp_tokens = []
             for token in potential_tokens:
-                try:
-                    # Use cached character data to avoid ESI calls
-                    char = EveCharacter.objects.get(character_id=token.character_id)
-                    if char.corporation_id == int(corp_id):
+                char_id = token.character_id
+                # Check if in cache first
+                if char_id in cached_chars:
+                    if cached_chars[char_id].corporation_id == int(corp_id):
                         corp_tokens.append(token)
-                except EveCharacter.DoesNotExist:
-                    # Fallback to ESI if character not in cache
-                    try:
-                        char_info = esi.client.Character.get_characters_character_id(
-                            character_id=token.character_id
-                        ).results()
-                        if int(char_info.get("corporation_id", 0)) == int(corp_id):
-                            corp_tokens.append(token)
-                    except Exception:
-                        continue
+                # If not in cache, skip it (don't fall back to slow ESI call)
+                # The EveCharacter data should be up-to-date from Alliance Auth
 
             # Try each corp token until one works (has the required corp roles)
             assets_data = None
@@ -519,23 +518,22 @@ def _get_corp_hangar_divisions(user, corp_id):
         # Alliance Auth
         from allianceauth.eveonline.models import EveCharacter
 
+        # Get cached characters in bulk to avoid repeated queries
+        character_ids = [t.character_id for t in potential_tokens]
+        cached_chars = {
+            char.character_id: char
+            for char in EveCharacter.objects.filter(character_id__in=character_ids)
+        }
+
         corp_tokens = []
         for token in potential_tokens:
-            try:
-                # Use cached character data to avoid ESI calls
-                char = EveCharacter.objects.get(character_id=token.character_id)
-                if char.corporation_id == int(corp_id):
+            char_id = token.character_id
+            # Check if in cache first
+            if char_id in cached_chars:
+                if cached_chars[char_id].corporation_id == int(corp_id):
                     corp_tokens.append(token)
-            except EveCharacter.DoesNotExist:
-                # Fallback to ESI if character not in cache
-                try:
-                    char_info = esi.client.Character.get_characters_character_id(
-                        character_id=token.character_id
-                    ).results()
-                    if int(char_info.get("corporation_id", 0)) == int(corp_id):
-                        corp_tokens.append(token)
-                except Exception:
-                    continue
+            # If not in cache, skip it (don't fall back to slow ESI call)
+            # The EveCharacter data should be up-to-date from Alliance Auth
 
         # Try each corp token until one works (has the required corp roles)
         divisions_data = None
