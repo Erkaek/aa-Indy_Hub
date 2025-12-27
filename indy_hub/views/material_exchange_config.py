@@ -318,8 +318,8 @@ def _get_corp_structures(user, corp_id):
                 )
 
             # Filter tokens to only those from the target corporation using cached data
-            # Third Party
-            from eveonline.models import EveCharacter
+            # Alliance Auth
+            from allianceauth.eveonline.models import EveCharacter
 
             corp_tokens = []
             for token in potential_tokens:
@@ -516,8 +516,8 @@ def _get_corp_hangar_divisions(user, corp_id):
             return {}, scope_missing
 
         # Filter tokens to only those from the target corporation using cached data
-        # Third Party
-        from eveonline.models import EveCharacter
+        # Alliance Auth
+        from allianceauth.eveonline.models import EveCharacter
 
         corp_tokens = []
         for token in potential_tokens:
