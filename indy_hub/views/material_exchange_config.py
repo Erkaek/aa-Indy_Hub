@@ -31,8 +31,13 @@ def material_exchange_request_divisions_token(request):
     )
 
 
-def _get_token_for_corp(user, corp_id, scope):
-    """Return the first valid token for the given corp that has the scope."""
+def _get_token_for_corp(user, corp_id, scope, require_corporation_token: bool = False):
+    """Return a valid token for the given corp that has the scope.
+
+    If require_corporation_token is True, only return corporation-type tokens
+    that belong to the selected corporation. Otherwise, prefer those and
+    fall back to a character token that belongs to the corp.
+    """
     # Alliance Auth
     from esi.models import Token
 
@@ -71,9 +76,13 @@ def _get_token_for_corp(user, corp_id, scope):
         corp_attr = getattr(token, "corporation_id", None)
         if corp_attr is not None and int(corp_attr) == int(corp_id):
             return token
-        # Fallback: if the backing character belongs to the corp, accept it
-        if _character_matches(token):
+        # For corp tokens missing corp_attr, accept if backing character belongs to corp
+        if corp_attr is None and _character_matches(token):
             return token
+
+    # If a corporation token is required, do not fall back to character token
+    if require_corporation_token:
+        return None
 
     # Then prefer character tokens that belong to the corp
     for token in tokens:
@@ -224,7 +233,10 @@ def _get_corp_structures(user, corp_id):
 
     # Only use a token that actually belongs to the corporation and has structure scope for name lookups
     token_for_names = _get_token_for_corp(
-        user, corp_id, "esi-universe.read_structures.v1"
+        user,
+        corp_id,
+        "esi-universe.read_structures.v1",
+        require_corporation_token=False,
     )
 
     # Use cached corp assets from corptools when available to avoid ESI rate limits
@@ -252,7 +264,9 @@ def _get_corp_structures(user, corp_id):
         # Fallback to live ESI if nothing is cached locally
         if not location_ids:
             required_scope = "esi-assets.read_corporation_assets.v1"
-            token_for_assets = _get_token_for_corp(user, corp_id, required_scope)
+            token_for_assets = _get_token_for_corp(
+                user, corp_id, required_scope, require_corporation_token=True
+            )
 
             if not token_for_assets:
                 assets_scope_missing = True
@@ -397,7 +411,9 @@ def _get_corp_hangar_divisions(user, corp_id):
     try:
         # ESI divisions endpoint requires corp divisions scope
         required_scope = "esi-corporations.read_divisions.v1"
-        token = _get_token_for_corp(user, corp_id, required_scope)
+        token = _get_token_for_corp(
+            user, corp_id, required_scope, require_corporation_token=True
+        )
 
         if not token:
             scope_missing = True

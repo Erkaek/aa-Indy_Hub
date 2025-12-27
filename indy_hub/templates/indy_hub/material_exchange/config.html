@@ -430,35 +430,13 @@ function validateForm() {
 }
 
 function requestDivisionsToken() {
-    // POST to token request endpoint which will redirect to SSO
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = '{% url "indy_hub:material_exchange_request_divisions_token" %}';
-
-    const csrf = document.createElement('input');
-    csrf.type = 'hidden';
-    csrf.name = 'csrfmiddlewaretoken';
-    csrf.value = document.querySelector('[name=csrfmiddlewaretoken]').value;
-
-    form.appendChild(csrf);
-    document.body.appendChild(form);
-    form.submit();
+    // Redirect to corporation authorization (includes divisions/roles)
+    window.location.href = '{% url "indy_hub:authorize_corp_all" %}';
 }
 
 function requestAssetsToken() {
-    // POST to token request endpoint which will redirect to SSO
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = '{% url "indy_hub:material_exchange_request_assets_token" %}';
-
-    const csrf = document.createElement('input');
-    csrf.type = 'hidden';
-    csrf.name = 'csrfmiddlewaretoken';
-    csrf.value = document.querySelector('[name=csrfmiddlewaretoken]').value;
-
-    form.appendChild(csrf);
-    document.body.appendChild(form);
-    form.submit();
+    // Redirect to Material Exchange authorization (corp scopes incl. assets)
+    window.location.href = '{% url "indy_hub:authorize_material_exchange" %}';
 }
 
 function requestTokensSync() {
