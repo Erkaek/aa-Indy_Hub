@@ -286,20 +286,20 @@ def _get_corp_structures(user, corp_id):
             pass
 
     try:
-        token_for_assets = None
-
         # Fallback to live ESI if nothing is cached locally
         if not location_ids:
             required_scope = "esi-assets.read_corporation_assets.v1"
-            
+
             # Get all tokens with the required scope
+            # Alliance Auth
             from esi.models import Token
+
             potential_tokens = list(
                 Token.objects.filter(user=user)
                 .require_scopes([required_scope])
                 .require_valid()
             )
-            
+
             if not potential_tokens:
                 assets_scope_missing = True
                 logger.info(
@@ -317,23 +317,39 @@ def _get_corp_structures(user, corp_id):
                     assets_scope_missing,
                 )
 
-            # Try each token until one works (has the required corp roles)
-            assets_data = None
-            last_error = None
+            # Filter tokens to only those from the target corporation using cached data
+            # Third Party
+            from eveonline.models import EveCharacter
+
+            corp_tokens = []
             for token in potential_tokens:
                 try:
-                    # Check if token's character is in the corp
-                    char_info = esi.client.Character.get_characters_character_id(
-                        character_id=token.character_id
-                    ).results()
-                    if int(char_info.get("corporation_id", 0)) != int(corp_id):
+                    # Use cached character data to avoid ESI calls
+                    char = EveCharacter.objects.get(character_id=token.character_id)
+                    if char.corporation_id == int(corp_id):
+                        corp_tokens.append(token)
+                except EveCharacter.DoesNotExist:
+                    # Fallback to ESI if character not in cache
+                    try:
+                        char_info = esi.client.Character.get_characters_character_id(
+                            character_id=token.character_id
+                        ).results()
+                        if int(char_info.get("corporation_id", 0)) == int(corp_id):
+                            corp_tokens.append(token)
+                    except Exception:
                         continue
-                    
+
+            # Try each corp token until one works (has the required corp roles)
+            assets_data = None
+            last_error = None
+            for token in corp_tokens:
+                try:
                     # Try to fetch assets with this token
-                    assets_data = esi.client.Assets.get_corporations_corporation_id_assets(
-                        corporation_id=corp_id, token=token.valid_access_token()
-                    ).results()
-                    token_for_assets = token
+                    assets_data = (
+                        esi.client.Assets.get_corporations_corporation_id_assets(
+                            corporation_id=corp_id, token=token.valid_access_token()
+                        ).results()
+                    )
                     logger.info(
                         f"material_exchange_config: fetched corp assets via ESI for corp_id={corp_id}, "
                         f"token_id={token.id}, character_id={token.character_id}"
@@ -342,7 +358,10 @@ def _get_corp_structures(user, corp_id):
                 except Exception as e:
                     # Third Party
                     from bravado.exception import HTTPError
-                    status_code = getattr(getattr(e, "response", None), "status_code", None)
+
+                    status_code = getattr(
+                        getattr(e, "response", None), "status_code", None
+                    )
                     if isinstance(e, HTTPError) and status_code == 403:
                         # This character doesn't have the required roles, try next token
                         logger.debug(
@@ -478,10 +497,11 @@ def _get_corp_hangar_divisions(user, corp_id):
     try:
         # ESI divisions endpoint requires corp divisions scope
         required_scope = "esi-corporations.read_divisions.v1"
-        
+
         # Get all tokens with the required scope
         # Alliance Auth
         from esi.models import Token
+
         potential_tokens = list(
             Token.objects.filter(user=user)
             .require_scopes([required_scope])
@@ -495,17 +515,32 @@ def _get_corp_hangar_divisions(user, corp_id):
             )
             return {}, scope_missing
 
-        # Try each token until one works (has the required corp roles)
-        divisions_data = None
+        # Filter tokens to only those from the target corporation using cached data
+        # Third Party
+        from eveonline.models import EveCharacter
+
+        corp_tokens = []
         for token in potential_tokens:
             try:
-                # Check if token's character is in the corp
-                char_info = esi.client.Character.get_characters_character_id(
-                    character_id=token.character_id
-                ).results()
-                if int(char_info.get("corporation_id", 0)) != int(corp_id):
+                # Use cached character data to avoid ESI calls
+                char = EveCharacter.objects.get(character_id=token.character_id)
+                if char.corporation_id == int(corp_id):
+                    corp_tokens.append(token)
+            except EveCharacter.DoesNotExist:
+                # Fallback to ESI if character not in cache
+                try:
+                    char_info = esi.client.Character.get_characters_character_id(
+                        character_id=token.character_id
+                    ).results()
+                    if int(char_info.get("corporation_id", 0)) == int(corp_id):
+                        corp_tokens.append(token)
+                except Exception:
                     continue
-                
+
+        # Try each corp token until one works (has the required corp roles)
+        divisions_data = None
+        for token in corp_tokens:
+            try:
                 # Get corp divisions
                 divisions_data = (
                     esi.client.Corporation.get_corporations_corporation_id_divisions(
@@ -524,12 +559,13 @@ def _get_corp_hangar_divisions(user, corp_id):
                     division_name = division_info.get("name")
                     if division_num and division_name:
                         default_divisions[division_num] = division_name
-                
+
                 break  # Success! Stop trying other tokens
-                
+
             except Exception as e:
                 # Third Party
                 from bravado.exception import HTTPError
+
                 status_code = getattr(getattr(e, "response", None), "status_code", None)
                 if isinstance(e, HTTPError) and status_code == 403:
                     # This character doesn't have the required roles, try next token
@@ -538,7 +574,9 @@ def _get_corp_hangar_divisions(user, corp_id):
                     )
                     continue
                 else:
-                    logger.warning(f"Could not fetch corp division names with token {token.id}: {e}")
+                    logger.warning(
+                        f"Could not fetch corp division names with token {token.id}: {e}"
+                    )
                     continue
 
     except Exception as e:
