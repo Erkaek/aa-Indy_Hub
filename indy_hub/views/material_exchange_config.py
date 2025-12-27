@@ -250,12 +250,15 @@ def _get_corp_structures(user, corp_id):
                     corporation_id=corp_id, token=token_for_assets.valid_access_token()
                 ).results()
             except Exception as e:
-                return [
-                    {
-                        "id": 0,
-                        "name": f"⚠ Error fetching corp assets: {str(e)}",
-                    }
-                ]
+                return (
+                    [
+                        {
+                            "id": 0,
+                            "name": f"⚠ Error fetching corp assets: {str(e)}",
+                        }
+                    ],
+                    assets_scope_missing,
+                )
 
             for asset in assets_data:
                 location_id = asset.get("location_id")
@@ -273,12 +276,15 @@ def _get_corp_structures(user, corp_id):
                     location_flags_by_id.setdefault(int_id, set()).add(str(loc_flag))
 
         if not location_ids:
-            return [
-                {
-                    "id": 0,
-                    "name": _("⚠ No corporation assets found"),
-                }
-            ]
+            return (
+                [
+                    {
+                        "id": 0,
+                        "name": _("⚠ No corporation assets found"),
+                    }
+                ],
+                assets_scope_missing,
+            )
 
         for location_id in location_ids:
             if not token_for_names and not is_station_id(location_id):
@@ -305,12 +311,15 @@ def _get_corp_structures(user, corp_id):
         structures.sort(key=lambda x: x["name"])
 
     except Exception as e:
-        return [
-            {
-                "id": 0,
-                "name": f"⚠ Error: {str(e)}",
-            }
-        ]
+        return (
+            [
+                {
+                    "id": 0,
+                    "name": f"⚠ Error: {str(e)}",
+                }
+            ],
+            assets_scope_missing,
+        )
 
     return structures, assets_scope_missing
 
