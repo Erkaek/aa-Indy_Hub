@@ -262,6 +262,9 @@ def _get_corp_structures(user, corp_id):
         "esi-universe.read_structures.v1",
         require_corporation_token=False,
     )
+    logger.info(
+        f"material_exchange_config: names token corp_id={corp_id}, token_id={(getattr(token_for_names, 'id', None))}, token_type={(getattr(token_for_names, 'token_type', None))}"
+    )
 
     # Use cached corp assets from corptools when available to avoid ESI rate limits
     if CorpAsset:
@@ -294,6 +297,9 @@ def _get_corp_structures(user, corp_id):
 
             if not token_for_assets:
                 assets_scope_missing = True
+                logger.info(
+                    f"material_exchange_config: missing corp assets token for corp_id={corp_id} (scope={required_scope})"
+                )
                 return (
                     [
                         {
@@ -310,6 +316,9 @@ def _get_corp_structures(user, corp_id):
                 assets_data = esi.client.Assets.get_corporations_corporation_id_assets(
                     corporation_id=corp_id, token=token_for_assets.valid_access_token()
                 ).results()
+                logger.info(
+                    f"material_exchange_config: fetched corp assets via ESI for corp_id={corp_id}, token_id={getattr(token_for_assets, 'id', None)}"
+                )
             except Exception as e:
                 assets_scope_missing = True
                 error_name = f"⚠ Error fetching corp assets: {str(e)}"
@@ -324,6 +333,9 @@ def _get_corp_structures(user, corp_id):
                         error_name = _(
                             "⚠ Token lacks required corporation roles for assets. Reauthorize with a character that has the needed corp roles (e.g., Director or Asset Manager)."
                         )
+                    logger.warning(
+                        f"material_exchange_config: ESI corp assets failed for corp_id={corp_id}, status={status_code}, error={e}"
+                    )
                 except Exception:
                     pass
 
@@ -351,6 +363,10 @@ def _get_corp_structures(user, corp_id):
                 loc_flag = asset.get("location_flag")
                 if loc_flag:
                     location_flags_by_id.setdefault(int_id, set()).add(str(loc_flag))
+
+        logger.info(
+            f"material_exchange_config: collected {len(location_ids)} location_ids for corp_id={corp_id}"
+        )
 
         if not location_ids:
             return (
@@ -441,6 +457,9 @@ def _get_corp_hangar_divisions(user, corp_id):
 
         if not token:
             scope_missing = True
+            logger.info(
+                f"material_exchange_config: missing corp divisions token for corp_id={corp_id} (scope={required_scope})"
+            )
             return {}, scope_missing
 
         # Get corp divisions
@@ -449,6 +468,9 @@ def _get_corp_hangar_divisions(user, corp_id):
                 esi.client.Corporation.get_corporations_corporation_id_divisions(
                     corporation_id=corp_id, token=token.valid_access_token()
                 ).results()
+            )
+            logger.info(
+                f"material_exchange_config: fetched corp divisions via ESI for corp_id={corp_id}, token_id={getattr(token, 'id', None)}"
             )
 
             # Parse hangar division names
