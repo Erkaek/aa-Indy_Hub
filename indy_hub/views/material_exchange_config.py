@@ -291,11 +291,16 @@ def _get_corp_structures(user, corp_id):
         # Fallback to live ESI if nothing is cached locally
         if not location_ids:
             required_scope = "esi-assets.read_corporation_assets.v1"
-            token_for_assets = _get_token_for_corp(
-                user, corp_id, required_scope, require_corporation_token=True
+            
+            # Get all tokens with the required scope
+            from esi.models import Token
+            potential_tokens = list(
+                Token.objects.filter(user=user)
+                .require_scopes([required_scope])
+                .require_valid()
             )
-
-            if not token_for_assets:
+            
+            if not potential_tokens:
                 assets_scope_missing = True
                 logger.info(
                     f"material_exchange_config: missing corp assets token for corp_id={corp_id} (scope={required_scope})"
@@ -312,33 +317,55 @@ def _get_corp_structures(user, corp_id):
                     assets_scope_missing,
                 )
 
-            try:
-                assets_data = esi.client.Assets.get_corporations_corporation_id_assets(
-                    corporation_id=corp_id, token=token_for_assets.valid_access_token()
-                ).results()
-                logger.info(
-                    f"material_exchange_config: fetched corp assets via ESI for corp_id={corp_id}, token_id={getattr(token_for_assets, 'id', None)}"
-                )
-            except Exception as e:
-                assets_scope_missing = True
-                error_name = f"⚠ Error fetching corp assets: {str(e)}"
+            # Try each token until one works (has the required corp roles)
+            assets_data = None
+            last_error = None
+            for token in potential_tokens:
                 try:
+                    # Check if token's character is in the corp
+                    char_info = esi.client.Character.get_characters_character_id(
+                        character_id=token.character_id
+                    ).results()
+                    if int(char_info.get("corporation_id", 0)) != int(corp_id):
+                        continue
+                    
+                    # Try to fetch assets with this token
+                    assets_data = esi.client.Assets.get_corporations_corporation_id_assets(
+                        corporation_id=corp_id, token=token.valid_access_token()
+                    ).results()
+                    token_for_assets = token
+                    logger.info(
+                        f"material_exchange_config: fetched corp assets via ESI for corp_id={corp_id}, "
+                        f"token_id={token.id}, character_id={token.character_id}"
+                    )
+                    break  # Success! Use this token
+                except Exception as e:
                     # Third Party
                     from bravado.exception import HTTPError
-
-                    status_code = getattr(
-                        getattr(e, "response", None), "status_code", None
-                    )
+                    status_code = getattr(getattr(e, "response", None), "status_code", None)
                     if isinstance(e, HTTPError) and status_code == 403:
-                        error_name = _(
-                            "⚠ Token lacks required corporation roles for assets. Reauthorize with a character that has the needed corp roles (e.g., Director or Asset Manager)."
+                        # This character doesn't have the required roles, try next token
+                        logger.debug(
+                            f"Token {token.id} (char_id={token.character_id}) lacks corp roles for assets, trying next..."
                         )
-                    logger.warning(
-                        f"material_exchange_config: ESI corp assets failed for corp_id={corp_id}, status={status_code}, error={e}"
-                    )
-                except Exception:
-                    pass
+                        last_error = e
+                        continue
+                    else:
+                        # Other error, save and try next
+                        last_error = e
+                        continue
 
+            if assets_data is None:
+                # All tokens failed
+                assets_scope_missing = True
+                error_name = _(
+                    "⚠ None of your characters have the required corporation roles for assets. "
+                    "Please authorize with a character that has Director or Junior Accountant role."
+                )
+                if last_error:
+                    logger.warning(
+                        f"material_exchange_config: All tokens failed for corp_id={corp_id}, last_error={last_error}"
+                    )
                 return (
                     [
                         {
@@ -451,38 +478,68 @@ def _get_corp_hangar_divisions(user, corp_id):
     try:
         # ESI divisions endpoint requires corp divisions scope
         required_scope = "esi-corporations.read_divisions.v1"
-        token = _get_token_for_corp(
-            user, corp_id, required_scope, require_corporation_token=True
+        
+        # Get all tokens with the required scope
+        # Alliance Auth
+        from esi.models import Token
+        potential_tokens = list(
+            Token.objects.filter(user=user)
+            .require_scopes([required_scope])
+            .require_valid()
         )
 
-        if not token:
+        if not potential_tokens:
             scope_missing = True
             logger.info(
                 f"material_exchange_config: missing corp divisions token for corp_id={corp_id} (scope={required_scope})"
             )
             return {}, scope_missing
 
-        # Get corp divisions
-        try:
-            divisions_data = (
-                esi.client.Corporation.get_corporations_corporation_id_divisions(
-                    corporation_id=corp_id, token=token.valid_access_token()
+        # Try each token until one works (has the required corp roles)
+        divisions_data = None
+        for token in potential_tokens:
+            try:
+                # Check if token's character is in the corp
+                char_info = esi.client.Character.get_characters_character_id(
+                    character_id=token.character_id
                 ).results()
-            )
-            logger.info(
-                f"material_exchange_config: fetched corp divisions via ESI for corp_id={corp_id}, token_id={getattr(token, 'id', None)}"
-            )
+                if int(char_info.get("corporation_id", 0)) != int(corp_id):
+                    continue
+                
+                # Get corp divisions
+                divisions_data = (
+                    esi.client.Corporation.get_corporations_corporation_id_divisions(
+                        corporation_id=corp_id, token=token.valid_access_token()
+                    ).results()
+                )
+                logger.info(
+                    f"material_exchange_config: fetched corp divisions via ESI for corp_id={corp_id}, "
+                    f"token_id={token.id}, character_id={token.character_id}"
+                )
 
-            # Parse hangar division names
-            hangar_divisions = divisions_data.get("hangar", [])
-            for division_info in hangar_divisions:
-                division_num = division_info.get("division")
-                division_name = division_info.get("name")
-                if division_num and division_name:
-                    default_divisions[division_num] = division_name
-
-        except Exception as e:
-            logger.warning(f"Could not fetch corp division names: {e}")
+                # Parse hangar division names
+                hangar_divisions = divisions_data.get("hangar", [])
+                for division_info in hangar_divisions:
+                    division_num = division_info.get("division")
+                    division_name = division_info.get("name")
+                    if division_num and division_name:
+                        default_divisions[division_num] = division_name
+                
+                break  # Success! Stop trying other tokens
+                
+            except Exception as e:
+                # Third Party
+                from bravado.exception import HTTPError
+                status_code = getattr(getattr(e, "response", None), "status_code", None)
+                if isinstance(e, HTTPError) and status_code == 403:
+                    # This character doesn't have the required roles, try next token
+                    logger.debug(
+                        f"Token {token.id} (char_id={token.character_id}) lacks corp roles for divisions, trying next..."
+                    )
+                    continue
+                else:
+                    logger.warning(f"Could not fetch corp division names with token {token.id}: {e}")
+                    continue
 
     except Exception as e:
         logger.warning(f"Error getting corp hangar divisions: {e}")
