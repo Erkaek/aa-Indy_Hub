@@ -94,20 +94,20 @@ def _get_token_for_corp(user, corp_id, scope, require_corporation_token: bool = 
         if corp_attr is None and _character_matches(token):
             return token
 
-    # If a corporation token is required, do not fall back to character token
-    if require_corporation_token:
-        logger.warning(
-            f"No corp token found: user={user.username}, corp_id={corp_id}, "
-            f"scope={scope}, checked {len(tokens)} tokens"
-        )
-        return None
-
-    # Then prefer character tokens that belong to the corp
+    # If a corporation token is required, still try character tokens as fallback
+    # (character tokens from the corp can still access corp endpoints if the character has roles)
     for token in tokens:
         if _character_matches(token):
+            logger.info(
+                f"Using character token id={token.id} (char_id={token.character_id}) for corp_id={corp_id}"
+            )
             return token
 
     # No suitable token for this corporation
+    logger.warning(
+        f"No token found (corp or character): user={user.username}, corp_id={corp_id}, "
+        f"scope={scope}, checked {len(tokens)} tokens"
+    )
     return None
 
 
