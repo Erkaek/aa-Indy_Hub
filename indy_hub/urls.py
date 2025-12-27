@@ -57,6 +57,7 @@ from .views.material_exchange import (
 from .views.material_exchange_config import (
     material_exchange_config,
     material_exchange_get_structures,
+    material_exchange_request_assets_token,
     material_exchange_request_divisions_token,
 )
 from .views.user import (
@@ -266,6 +267,11 @@ urlpatterns = [
         "material-exchange/config/",
         material_exchange_config,
         name="material_exchange_config",
+    ),
+    path(
+        "material-exchange/config/request-assets-token/",
+        material_exchange_request_assets_token,
+        name="material_exchange_request_assets_token",
     ),
     path(
         "material-exchange/config/request-divisions-token/",

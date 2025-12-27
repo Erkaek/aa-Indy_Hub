@@ -77,6 +77,15 @@
                         </select>
                         <input type="hidden" name="structure_name" id="structureName" value="{{ config.structure_name|default:'' }}">
                         <small class="text-muted">{% trans "Structure or station where the hub is located" %}</small>
+                        <div id="assetsScopeInfo" class="mt-1">
+                            <small class="text-muted d-block">{% trans "Structures are listed from corporation assets" %}</small>
+                            <div class="d-flex align-items-center gap-2 mt-1 {% if not assets_scope_missing %}d-none{% endif %}" id="assetsScopeMissingNotice">
+                                <small class="text-warning mb-0">{% trans "Structures need esi-assets.read_corporation_assets.v1 for this corporation." %}</small>
+                                <button type="button" class="btn btn-sm btn-outline-primary" id="assetsScopeButton" onclick="requestAssetsToken()">
+                                    {% trans "Add token" %}
+                                </button>
+                            </div>
+                        </div>
                     </div>
                     <div class="col-md-6">
                         <label class="form-label">{% trans "Hangar Division" %} <span class="text-danger">*</span></label>
@@ -236,7 +245,17 @@ document.addEventListener('DOMContentLoaded', function() {
     const submitBtn = document.getElementById('submitBtn');
     let hangarDivisions = JSON.parse(document.getElementById('hangarDivisionsData').textContent);
     let divisionScopeMissing = {{ division_scope_missing|yesno:"true,false" }};
+    let assetsScopeMissing = {{ assets_scope_missing|yesno:"true,false" }};
     const divisionScopeMissingNotice = document.getElementById('divisionScopeMissingNotice');
+    const assetsScopeMissingNotice = document.getElementById('assetsScopeMissingNotice');
+
+    // Initialize scope notices based on server-rendered flags
+    if (divisionScopeMissing && divisionScopeMissingNotice) {
+        divisionScopeMissingNotice.classList.remove('d-none');
+    }
+    if (assetsScopeMissing && assetsScopeMissingNotice) {
+        assetsScopeMissingNotice.classList.remove('d-none');
+    }
 
     const updateSubmitButton = () => {
         if (hangarSelect.disabled || divisionScopeMissing) {
@@ -327,6 +346,16 @@ document.addEventListener('DOMContentLoaded', function() {
                     divisionScopeMissingNotice.classList.add('d-none');
                 }
 
+                assetsScopeMissing = !!data.assets_scope_missing;
+                if (assetsScopeMissing) {
+                    console.warn('Structures list may be incomplete: missing esi-assets.read_corporation_assets.v1 for this corp.');
+                    if (assetsScopeMissingNotice) {
+                        assetsScopeMissingNotice.classList.remove('d-none');
+                    }
+                } else if (assetsScopeMissingNotice) {
+                    assetsScopeMissingNotice.classList.add('d-none');
+                }
+
                 data.structures.forEach(structure => {
                     const option = document.createElement('option');
                     option.value = structure.id;
@@ -399,6 +428,22 @@ function requestDivisionsToken() {
     const form = document.createElement('form');
     form.method = 'POST';
     form.action = '{% url "indy_hub:material_exchange_request_divisions_token" %}';
+
+    const csrf = document.createElement('input');
+    csrf.type = 'hidden';
+    csrf.name = 'csrfmiddlewaretoken';
+    csrf.value = document.querySelector('[name=csrfmiddlewaretoken]').value;
+
+    form.appendChild(csrf);
+    document.body.appendChild(form);
+    form.submit();
+}
+
+function requestAssetsToken() {
+    // POST to token request endpoint which will redirect to SSO
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = '{% url "indy_hub:material_exchange_request_assets_token" %}';
 
     const csrf = document.createElement('input');
     csrf.type = 'hidden';

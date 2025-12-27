@@ -57,8 +57,8 @@ def _get_token_for_corp(user, corp_id, scope):
                 return token
         except Exception:
             continue
-
-    return tokens[0] if tokens else None
+    # Do not fall back to a token from another corporation; return None
+    return None
 
 
 @login_required
@@ -77,8 +77,11 @@ def material_exchange_config(request):
     available_structures = []
     hangar_divisions = {}
     division_scope_missing = False
+    assets_scope_missing = False
     if config and config.corporation_id:
-        available_structures = _get_corp_structures(request.user, config.corporation_id)
+        available_structures, assets_scope_missing = _get_corp_structures(
+            request.user, config.corporation_id
+        )
         hangar_divisions, division_scope_missing = _get_corp_hangar_divisions(
             request.user, config.corporation_id
         )
@@ -90,6 +93,7 @@ def material_exchange_config(request):
         "config": config,
         "available_corps": available_corps,
         "available_structures": available_structures,
+        "assets_scope_missing": assets_scope_missing,
         "hangar_divisions": (
             hangar_divisions
             if (hangar_divisions or division_scope_missing)
@@ -111,7 +115,7 @@ def material_exchange_get_structures(request, corp_id):
     # Django
     from django.http import JsonResponse
 
-    structures = _get_corp_structures(request.user, corp_id)
+    structures, assets_scope_missing = _get_corp_structures(request.user, corp_id)
     hangar_divisions, division_scope_missing = _get_corp_hangar_divisions(
         request.user, corp_id
     )
@@ -124,6 +128,7 @@ def material_exchange_get_structures(request, corp_id):
             ],
             "hangar_divisions": hangar_divisions,
             "division_scope_missing": division_scope_missing,
+            "assets_scope_missing": assets_scope_missing,
         }
     )
 
@@ -181,9 +186,6 @@ def _get_corp_structures(user, corp_id):
     Get list of structures where the corporation has assets.
     This includes structures owned by the corp AND structures where corp has assets.
     """
-    # Alliance Auth
-    from esi.models import Token
-
     from ..utils.eve import is_station_id, resolve_location_name
 
     try:
@@ -193,15 +195,13 @@ def _get_corp_structures(user, corp_id):
         CorpAsset = None
 
     structures = []
+    assets_scope_missing = False
     location_ids = set()
     location_flags_by_id: dict[int, set[str]] = {}
 
-    # Only use a token that actually has structure scope for name lookups
-    token_for_names = (
-        Token.objects.filter(user=user)
-        .require_scopes("esi-universe.read_structures.v1")
-        .require_valid()
-        .first()
+    # Only use a token that actually belongs to the corporation and has structure scope for name lookups
+    token_for_names = _get_token_for_corp(
+        user, corp_id, "esi-universe.read_structures.v1"
     )
 
     # Use cached corp assets from corptools when available to avoid ESI rate limits
@@ -229,22 +229,21 @@ def _get_corp_structures(user, corp_id):
         # Fallback to live ESI if nothing is cached locally
         if not location_ids:
             required_scope = "esi-assets.read_corporation_assets.v1"
-            token_for_assets = (
-                Token.objects.filter(user=user)
-                .require_scopes(required_scope)
-                .require_valid()
-                .first()
-            )
+            token_for_assets = _get_token_for_corp(user, corp_id, required_scope)
 
             if not token_for_assets:
-                return [
-                    {
-                        "id": 0,
-                        "name": _(
-                            "⚠ Missing ESI scope: esi-assets.read_corporation_assets.v1"
-                        ),
-                    }
-                ]
+                assets_scope_missing = True
+                return (
+                    [
+                        {
+                            "id": 0,
+                            "name": _(
+                                "⚠ Missing valid corporation token with scope: esi-assets.read_corporation_assets.v1"
+                            ),
+                        }
+                    ],
+                    assets_scope_missing,
+                )
 
             try:
                 assets_data = esi.client.Assets.get_corporations_corporation_id_assets(
@@ -313,7 +312,18 @@ def _get_corp_structures(user, corp_id):
             }
         ]
 
-    return structures
+    return structures, assets_scope_missing
+
+
+@login_required
+@indy_hub_permission_required("can_manage_material_exchange")
+def material_exchange_request_assets_token(request):
+    """Request ESI token with corp assets scope, then redirect back to config."""
+    return sso_redirect(
+        request,
+        scopes="esi-assets.read_corporation_assets.v1",
+        return_to="indy_hub:material_exchange_config",
+    )
 
 
 def _get_corp_hangar_divisions(user, corp_id):
