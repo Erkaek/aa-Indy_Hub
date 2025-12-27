@@ -1,0 +1,146 @@
+{% extends "indy_hub/base.html" %}
+{% load i18n %}
+{% load static %}
+{% load humanize %}
+
+{% block page_title %}{% trans "Transaction History" %}{% endblock page_title %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
+<link rel="stylesheet" href="{% static 'indy_hub/css/blueprints.css' %}">
+{% endblock extra_css %}
+
+{% block content %}
+<main class="bg-body p-4">
+    <div class="container-fluid my-0 bg-body">
+        <div class="page-header mb-4">
+            <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+                <div>
+                    <h2 class="h3 mb-1">
+                        <i class="fas fa-file-invoice-dollar me-2"></i>
+                        {% trans "Transaction History" %}
+                    </h2>
+                    <p class="description">{% trans "Complete transaction log and financial reports" %}</p>
+                </div>
+                <div class="d-flex gap-2">
+                    <a href="{% url 'indy_hub:material_exchange_index' %}" class="btn btn-outline-light">
+                        <i class="fas fa-arrow-left me-1"></i>{% trans "Back to Hub" %}
+                    </a>
+                </div>
+            </div>
+            <i class="fas fa-file-invoice-dollar header-bg"></i>
+        </div>
+
+        <!-- Monthly Aggregates -->
+        <div class="glass-panel p-4 mb-4">
+            <h5 class="mb-3">{% trans "Monthly Financial Summary" %}</h5>
+            <div class="row g-3">
+                {% for month in monthly_stats %}
+                <div class="col-md-4">
+                    <div class="card bg-dark border-secondary">
+                        <div class="card-body">
+                            <h6 class="card-title">{{ month.month|date:"F Y" }}</h6>
+                            <div class="mt-2">
+                                <div class="d-flex justify-content-between">
+                                    <span class="text-success">{% trans "Materials Bought:" %}</span>
+                                    <strong>{{ month.total_buy_volume|floatformat:0|intcomma }} ISK</strong>
+                                </div>
+                                <div class="d-flex justify-content-between mt-1">
+                                    <span class="text-info">{% trans "Materials Sold:" %}</span>
+                                    <strong>{{ month.total_sell_volume|floatformat:0|intcomma }} ISK</strong>
+                                </div>
+                                <div class="d-flex justify-content-between mt-2 pt-2 border-top">
+                                    <span>{% trans "Total Transactions:" %}</span>
+                                    <strong>{{ month.sell_count|add:month.buy_count }}</strong>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Transaction List -->
+        <div class="glass-panel p-4">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="mb-0">{% trans "All Transactions" %}</h5>
+            </div>
+            {% if transactions %}
+            <div class="table-responsive">
+                <table class="table table-dark table-striped">
+                    <thead>
+                        <tr>
+                            <th>{% trans "ID" %}</th>
+                            <th>{% trans "Date" %}</th>
+                            <th>{% trans "Type" %}</th>
+                            <th>{% trans "User" %}</th>
+                            <th>{% trans "Material" %}</th>
+                            <th>{% trans "Quantity" %}</th>
+                            <th>{% trans "Unit Price" %}</th>
+                            <th>{% trans "Total Amount" %}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for tx in transactions %}
+                        <tr>
+                            <td>#{{ tx.id }}</td>
+                            <td>{{ tx.completed_at|date:"Y-m-d H:i" }}</td>
+                            <td>
+                                {% if tx.transaction_type == 'sell' %}
+                                <span class="badge bg-info">{% trans "Member Sold" %}</span>
+                                {% else %}
+                                <span class="badge bg-success">{% trans "Member Bought" %}</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ tx.user.username }}</td>
+                            <td>{{ tx.type_name }}</td>
+                            <td>{{ tx.quantity|intcomma }}</td>
+                            <td>{{ tx.unit_price|floatformat:2|intcomma }} ISK</td>
+                            <td>{{ tx.total_amount|floatformat:0|intcomma }} ISK</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Pagination -->
+            {% if is_paginated %}
+            <nav class="mt-4">
+                <ul class="pagination justify-content-center">
+                    {% if page_obj.has_previous %}
+                    <li class="page-item">
+                        <a class="page-link" href="?page=1">{% trans "First" %}</a>
+                    </li>
+                    <li class="page-item">
+                        <a class="page-link" href="?page={{ page_obj.previous_page_number }}">{% trans "Previous" %}</a>
+                    </li>
+                    {% endif %}
+
+                    <li class="page-item active">
+                        <span class="page-link">
+                            {% trans "Page" %} {{ page_obj.number }} {% trans "of" %} {{ page_obj.paginator.num_pages }}
+                        </span>
+                    </li>
+
+                    {% if page_obj.has_next %}
+                    <li class="page-item">
+                        <a class="page-link" href="?page={{ page_obj.next_page_number }}">{% trans "Next" %}</a>
+                    </li>
+                    <li class="page-item">
+                        <a class="page-link" href="?page={{ page_obj.paginator.num_pages }}">{% trans "Last" %}</a>
+                    </li>
+                    {% endif %}
+                </ul>
+            </nav>
+            {% endif %}
+            {% else %}
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle me-2"></i>
+                {% trans "No transactions yet." %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</main>
+{% endblock content %}

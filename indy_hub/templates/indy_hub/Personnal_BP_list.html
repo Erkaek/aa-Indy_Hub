@@ -14,6 +14,10 @@
 {% endblock extra_css %}
 
 {% block content %}
+{% trans "Blueprint Reaction" as blueprint_reaction_label %}
+{% trans "Blueprint Original" as blueprint_original_label %}
+{% trans "Blueprint Copy" as blueprint_copy_label %}
+{% trans "Unknown Blueprint" as unknown_blueprint_label %}
 <div class="container-fluid my-4 indy-blueprints">
     <div class="page-header mb-4">
         <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
@@ -147,16 +151,16 @@
                         {% comment %} Reaction BPs always show original icon {% endcomment %}
                         {% if bp.is_reaction %}
                         <img src="https://images.evetech.net/types/{{ bp.type_id }}/bp?size=64"
-                            alt="{{ bp.type_name|default:'Blueprint Reaction' }}" loading="lazy"
+                            alt="{{ bp.type_name|default:blueprint_reaction_label }}" loading="lazy"
                             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
                         {% else %}
                             {% if bp.is_original %}
                             <img src="https://images.evetech.net/types/{{ bp.type_id }}/bp?size=64"
-                                alt="{{ bp.type_name|default:'Blueprint Original' }}" loading="lazy"
+                                alt="{{ bp.type_name|default:blueprint_original_label }}" loading="lazy"
                                 onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
                             {% else %}
                             <img src="https://images.evetech.net/types/{{ bp.type_id }}/bpc?size=64"
-                                alt="{{ bp.type_name|default:'Blueprint Copy' }}" loading="lazy"
+                                alt="{{ bp.type_name|default:blueprint_copy_label }}" loading="lazy"
                                 onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
                             {% endif %}
                         {% endif %}
@@ -164,7 +168,7 @@
 
                 <div class="flex-grow-1 min-width-0 blueprint-list-content">
                     <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
-                        <h5 class="blueprint-title mb-0">{{ bp.type_name|default:"Unknown Blueprint" }}</h5>
+                        <h5 class="blueprint-title mb-0">{{ bp.type_name|default:unknown_blueprint_label }}</h5>
                         <div class="blueprint-badges mb-0 ms-auto">
                             {% if bp.is_reaction %}
                                 <span class="type-badge reaction"><i class="fas fa-flask"></i> {% trans 'Reaction' %}</span>
@@ -242,13 +246,13 @@
             <input type="hidden" name="activity_id" value="{{ current_filters.activity_id }}">
         </form>
         {% if blueprints.has_other_pages %}
-        <nav aria-label="Blueprint pagination">
+        <nav aria-label="{% trans 'Blueprint pagination' %}">
             <ul class="pagination pagination-sm justify-content-center mb-0 flex-wrap">
                 {% if blueprints.has_previous %}
                 <li class="page-item">
                     <a class="page-link"
                         href="?page={{ blueprints.previous_page_number }}&per_page={{ blueprints.paginator.per_page }}&search={{ current_filters.search }}&efficiency={{ current_filters.efficiency }}&type={{ current_filters.type }}&owner={{ current_filters.owner }}&activity_id={{ current_filters.activity_id }}&scope={{ scope }}&applied=1"
-                        aria-label="Previous">
+                        aria-label="{% trans 'Previous' %}">
                         <span aria-hidden="true">&laquo;</span>
                     </a>
                 </li>
@@ -273,7 +277,7 @@
                 <li class="page-item">
                     <a class="page-link"
                         href="?page={{ blueprints.next_page_number }}&per_page={{ blueprints.paginator.per_page }}&search={{ current_filters.search }}&efficiency={{ current_filters.efficiency }}&type={{ current_filters.type }}&owner={{ current_filters.owner }}&activity_id={{ current_filters.activity_id }}&scope={{ scope }}&applied=1"
-                        aria-label="Next">
+                        aria-label="{% trans 'Next' %}">
                         <span aria-hidden="true">&raquo;</span>
                     </a>
                 </li>

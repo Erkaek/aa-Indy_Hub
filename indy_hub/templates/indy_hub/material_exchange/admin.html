@@ -1,0 +1,310 @@
+{% extends "indy_hub/base.html" %}
+{% load i18n %}
+{% load static %}
+{% load humanize %}
+
+{% block page_title %}{% trans "Material Exchange Admin" %}{% endblock page_title %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
+<link rel="stylesheet" href="{% static 'indy_hub/css/blueprints.css' %}">
+<style>
+    .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.4rem 0.8rem;
+        border-radius: 0.25rem;
+        font-weight: 500;
+        font-size: 0.85rem;
+    }
+    
+    .status-pending {
+        background-color: #ffc107;
+        color: #000;
+    }
+    
+    .status-approved {
+        background-color: #17a2b8;
+        color: #fff;
+    }
+    
+    .status-paid {
+        background-color: #0d6efd;
+        color: #fff;
+    }
+    
+    .status-completed {
+        background-color: #198754;
+        color: #fff;
+    }
+    
+    .status-rejected {
+        background-color: #dc3545;
+        color: #fff;
+    }
+    
+    .status-cancelled {
+        background-color: #6c757d;
+        color: #fff;
+    }
+    
+    .status-icon {
+        font-size: 0.9rem;
+    }
+    
+    .validation-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        padding: 0.3rem 0.6rem;
+        border-radius: 0.25rem;
+        font-weight: 500;
+        font-size: 0.80rem;
+    }
+    
+    .validation-ok {
+        background-color: rgba(25, 135, 84, 0.2);
+        color: #198754;
+        border: 1px solid #198754;
+    }
+    
+    .validation-pending {
+        background-color: rgba(255, 193, 7, 0.2);
+        color: #997404;
+        border: 1px solid #ffecb5;
+    }
+</style>
+{% endblock extra_css %}
+
+{% block content %}
+<main class="bg-body p-4">
+    <div class="container-fluid my-0 bg-body">
+        <div class="page-header mb-4">
+            <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+                <div>
+                    <h2 class="h3 mb-1">
+                        <i class="fas fa-cogs me-2"></i>
+                        {% trans "Material Exchange Admin" %}
+                    </h2>
+                    <p class="description">{% trans "Manage sell and buy orders" %}</p>
+                </div>
+                <div class="d-flex gap-2">
+                    <a href="{% url 'indy_hub:material_exchange_index' %}" class="btn btn-outline-light">
+                        <i class="fas fa-arrow-left me-1"></i>{% trans "Back to Hub" %}
+                    </a>
+                </div>
+            </div>
+            <i class="fas fa-cogs header-bg"></i>
+        </div>
+
+        <!-- Filter Form -->
+        <div class="glass-panel p-4 mb-4">
+            <form method="get" class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label">{% trans "Order Type" %}</label>
+                    <select name="type" class="form-select">
+                        <option value="">{% trans "All Types" %}</option>
+                        <option value="sell" {% if request.GET.type == 'sell' %}selected{% endif %}>{% trans "Sell Orders" %}</option>
+                        <option value="buy" {% if request.GET.type == 'buy' %}selected{% endif %}>{% trans "Buy Orders" %}</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">{% trans "Status" %}</label>
+                    <select name="status" class="form-select">
+                        <option value="">{% trans "All Statuses" %}</option>
+                        <option value="pending" {% if request.GET.status|default:"pending" == 'pending' %}selected{% endif %}>{% trans "Pending" %}</option>
+                        <option value="approved" {% if request.GET.status == 'approved' %}selected{% endif %}>{% trans "Approved" %}</option>
+                        <option value="paid" {% if request.GET.status == 'paid' %}selected{% endif %}>{% trans "Paid" %}</option>
+                        <option value="delivered" {% if request.GET.status == 'delivered' %}selected{% endif %}>{% trans "Delivered" %}</option>
+                        <option value="completed" {% if request.GET.status == 'completed' %}selected{% endif %}>{% trans "Completed" %}</option>
+                        <option value="rejected" {% if request.GET.status == 'rejected' %}selected{% endif %}>{% trans "Rejected" %}</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">&nbsp;</label>
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="fas fa-filter me-1"></i>{% trans "Filter" %}
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Sell Orders -->
+        <div class="glass-panel p-4 mb-4">
+            <h5 class="mb-3">{% trans "Sell Orders" %}</h5>
+            {% if sell_orders %}
+            <div class="table-responsive">
+                <table class="table table-dark table-striped">
+                    <thead>
+                        <tr>
+                            <th>{% trans "ID" %}</th>
+                            <th>{% trans "Seller" %}</th>
+                            <th>{% trans "Items" %}</th>
+                            <th>{% trans "Total Quantity" %}</th>
+                            <th>{% trans "Total Price" %}</th>
+                            <th>{% trans "Status" %}</th>
+                            <th>{% trans "Created" %}</th>
+                            <th>{% trans "Actions" %}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for order in sell_orders %}
+                        <tr>
+                            <td><strong>#{{ order.id }}</strong></td>
+                            <td>{{ order.seller.username }}</td>
+                            <td>
+                                <ul style="margin: 0; padding-left: 20px;">
+                                    {% for item in order.items.all %}
+                                    <li>{{ item.type_name }} x{{ item.quantity|intcomma }} @ {{ item.unit_price|floatformat:2|intcomma }} ISK</li>
+                                    {% endfor %}
+                                </ul>
+                            </td>
+                            <td>{{ order.total_quantity|intcomma }}</td>
+                            <td>{{ order.total_price|floatformat:0|intcomma }} ISK</td>
+                            <td>
+                                <div class="status-badge status-{{ order.status }}">
+                                    {% if order.status == 'pending' %}
+                                    <i class="fas fa-hourglass-half status-icon"></i>
+                                    {% elif order.status == 'approved' %}
+                                    <i class="fas fa-check-circle status-icon"></i>
+                                    {% elif order.status == 'paid' %}
+                                    <i class="fas fa-money-bill status-icon"></i>
+                                    {% elif order.status == 'completed' %}
+                                    <i class="fas fa-check status-icon"></i>
+                                    {% elif order.status == 'rejected' %}
+                                    <i class="fas fa-times-circle status-icon"></i>
+                                    {% elif order.status == 'cancelled' %}
+                                    <i class="fas fa-ban status-icon"></i>
+                                    {% endif %}
+                                    <span>{{ order.get_status_display }}</span>
+                                </div>
+                            </td>
+                            <td>{{ order.created_at|date:"Y-m-d H:i" }}</td>
+                            <td>
+                                {% if order.status == 'pending' %}
+                                <form method="post" style="display: inline;">
+                                    {% csrf_token %}
+                                    <button formaction="{% url 'indy_hub:material_exchange_approve_sell' order.id %}" type="submit" class="btn btn-sm btn-success">
+                                        <i class="fas fa-check"></i> {% trans "Approve" %}
+                                    </button>
+                                    <button formaction="{% url 'indy_hub:material_exchange_reject_sell' order.id %}" type="submit" class="btn btn-sm btn-danger">
+                                        <i class="fas fa-times"></i> {% trans "Reject" %}
+                                    </button>
+                                </form>
+                                {% elif order.status == 'approved' %}
+                                <form method="post" style="display: inline;">
+                                    {% csrf_token %}
+                                    <button formaction="{% url 'indy_hub:material_exchange_verify_payment_sell' order.id %}" type="submit" class="btn btn-sm btn-info">
+                                        <i class="fas fa-check-circle"></i> {% trans "Verify Payment" %}
+                                    </button>
+                                </form>
+                                {% elif order.status == 'paid' %}
+                                <form method="post" style="display: inline;">
+                                    {% csrf_token %}
+                                    <button formaction="{% url 'indy_hub:material_exchange_complete_sell' order.id %}" type="submit" class="btn btn-sm btn-primary">
+                                        <i class="fas fa-flag-checkered"></i> {% trans "Complete" %}
+                                    </button>
+                                </form>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="alert alert-info">{% trans "No sell orders found matching criteria." %}</div>
+            {% endif %}
+        </div>
+
+        <!-- Buy Orders -->
+        <div class="glass-panel p-4">
+            <h5 class="mb-3">{% trans "Buy Orders" %}</h5>
+            {% if buy_orders %}
+            <div class="table-responsive">
+                <table class="table table-dark table-striped">
+                    <thead>
+                        <tr>
+                            <th>{% trans "ID" %}</th>
+                            <th>{% trans "Buyer" %}</th>
+                            <th>{% trans "Items" %}</th>
+                            <th>{% trans "Total Quantity" %}</th>
+                            <th>{% trans "Total Price" %}</th>
+                            <th>{% trans "Status" %}</th>
+                            <th>{% trans "Created" %}</th>
+                            <th>{% trans "Actions" %}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for order in buy_orders %}
+                        <tr>
+                            <td><strong>#{{ order.id }}</strong></td>
+                            <td>{{ order.buyer.username }}</td>
+                            <td>
+                                <ul style="margin: 0; padding-left: 20px;">
+                                    {% for item in order.items.all %}
+                                    <li>{{ item.type_name }} x{{ item.quantity|intcomma }} @ {{ item.unit_price|floatformat:2|intcomma }} ISK</li>
+                                    {% endfor %}
+                                </ul>
+                            </td>
+                            <td>{{ order.total_quantity|intcomma }}</td>
+                            <td>{{ order.total_price|floatformat:0|intcomma }} ISK</td>
+                            <td>
+                                <div class="status-badge status-{{ order.status }}">
+                                    {% if order.status == 'pending' %}
+                                    <i class="fas fa-hourglass-half status-icon"></i>
+                                    {% elif order.status == 'approved' %}
+                                    <i class="fas fa-check-circle status-icon"></i>
+                                    {% elif order.status == 'delivered' %}
+                                    <i class="fas fa-shipping-fast status-icon"></i>
+                                    {% elif order.status == 'completed' %}
+                                    <i class="fas fa-check status-icon"></i>
+                                    {% elif order.status == 'rejected' %}
+                                    <i class="fas fa-times-circle status-icon"></i>
+                                    {% elif order.status == 'cancelled' %}
+                                    <i class="fas fa-ban status-icon"></i>
+                                    {% endif %}
+                                    <span>{{ order.get_status_display }}</span>
+                                </div>
+                            </td>
+                            <td>{{ order.created_at|date:"Y-m-d H:i" }}</td>
+                            <td>
+                                {% if order.status == 'pending' %}
+                                <form method="post" style="display: inline;">
+                                    {% csrf_token %}
+                                    <button formaction="{% url 'indy_hub:material_exchange_approve_buy' order.id %}" type="submit" class="btn btn-sm btn-success">
+                                        <i class="fas fa-check"></i> {% trans "Approve" %}
+                                    </button>
+                                    <button formaction="{% url 'indy_hub:material_exchange_reject_buy' order.id %}" type="submit" class="btn btn-sm btn-danger">
+                                        <i class="fas fa-times"></i> {% trans "Reject" %}
+                                    </button>
+                                </form>
+                                {% elif order.status == 'approved' %}
+                                <form method="post" style="display: inline;">
+                                    {% csrf_token %}
+                                    <button formaction="{% url 'indy_hub:material_exchange_mark_delivered_buy' order.id %}" type="submit" class="btn btn-sm btn-info">
+                                        <i class="fas fa-shipping-fast"></i> {% trans "Mark Delivered" %}
+                                    </button>
+                                </form>
+                                {% elif order.status == 'delivered' %}
+                                <form method="post" style="display: inline;">
+                                    {% csrf_token %}
+                                    <button formaction="{% url 'indy_hub:material_exchange_complete_buy' order.id %}" type="submit" class="btn btn-sm btn-primary">
+                                        <i class="fas fa-flag-checkered"></i> {% trans "Complete" %}
+                                    </button>
+                                </form>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="alert alert-info">{% trans "No buy orders found matching criteria." %}</div>
+            {% endif %}
+        </div>
+    </div>
+</main>
+{% endblock content %}

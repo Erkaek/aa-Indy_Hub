@@ -5,7 +5,19 @@ import logging
 from django.db.models.signals import post_migrate, post_save, pre_save
 from django.dispatch import receiver
 
-from .models import Blueprint, IndustryJob
+from .models import (
+    Blueprint,
+    IndustryJob,
+    MaterialExchangeBuyOrder,
+    MaterialExchangeConfig,
+)
+from .tasks.material_exchange import (
+    sync_material_exchange_prices,
+    sync_material_exchange_stock,
+)
+from .tasks.material_exchange_contracts import (
+    handle_material_exchange_buy_order_created,
+)
 from .utils.eve import PLACEHOLDER_PREFIX, resolve_location_name
 from .utils.job_notifications import process_job_completion_notification
 
@@ -129,6 +141,125 @@ def cache_industry_job_data(sender, instance, created, **kwargs):
     process_job_completion_notification(instance)
 
 
+# --- Auto stock/price sync when MaterialExchangeConfig changes ---
+
+
+@receiver(pre_save, sender=MaterialExchangeConfig)
+def detect_config_change(sender, instance, **kwargs):
+    """Flag the instance when key fields change so we can act post-commit."""
+    pk = getattr(instance, "pk", None)
+    logger.info(
+        "MaterialExchangeConfig pre_save: pk=%s, structure_id=%s, corporation_id=%s, hangar_division=%s",
+        pk,
+        instance.structure_id,
+        instance.corporation_id,
+        instance.hangar_division,
+    )
+
+    try:
+        if not pk:
+            # New instance, treat as changed
+            logger.info("MaterialExchangeConfig is new, flagging for stock sync")
+            setattr(instance, "_needs_exchange_sync", True)
+            return
+
+        prev_structure = _get_previous_field_value(sender, pk, "structure_id")
+        prev_corporation = _get_previous_field_value(sender, pk, "corporation_id")
+        prev_division = _get_previous_field_value(sender, pk, "hangar_division")
+
+        logger.debug(
+            "Previous values: structure=%s, corporation=%s, division=%s",
+            prev_structure,
+            prev_corporation,
+            prev_division,
+        )
+
+        changed = False
+        try:
+            if prev_structure is not None and int(prev_structure) != int(
+                instance.structure_id
+            ):
+                logger.info(
+                    "MaterialExchangeConfig structure_id changed: %s → %s",
+                    prev_structure,
+                    instance.structure_id,
+                )
+                changed = True
+        except Exception as e:
+            logger.debug("Exception comparing structure_id: %s", e)
+            changed = True
+        try:
+            if prev_corporation is not None and int(prev_corporation) != int(
+                instance.corporation_id
+            ):
+                logger.info(
+                    "MaterialExchangeConfig corporation_id changed: %s → %s",
+                    prev_corporation,
+                    instance.corporation_id,
+                )
+                changed = True
+        except Exception as e:
+            logger.debug("Exception comparing corporation_id: %s", e)
+            changed = True
+        try:
+            if prev_division is not None and int(prev_division) != int(
+                instance.hangar_division
+            ):
+                logger.info(
+                    "MaterialExchangeConfig hangar_division changed: %s → %s",
+                    prev_division,
+                    instance.hangar_division,
+                )
+                changed = True
+        except Exception as e:
+            logger.debug("Exception comparing hangar_division: %s", e)
+            changed = True
+
+        if changed:
+            logger.info("Setting _needs_exchange_sync flag on MaterialExchangeConfig")
+            setattr(instance, "_needs_exchange_sync", True)
+        else:
+            logger.debug("No key field changes detected in MaterialExchangeConfig")
+    except Exception:
+        # Be defensive; if detection fails, don't crash saves
+        logger.exception("Exception in detect_config_change, flagging sync anyway")
+        setattr(instance, "_needs_exchange_sync", True)
+
+
+@receiver(post_save, sender=MaterialExchangeConfig)
+def auto_sync_stock_on_config_change(sender, instance, created, **kwargs):
+    """
+    When Material Exchange configuration is created or key fields change,
+    immediately refresh stock (and prices) so pages reflect the new structure.
+    """
+    needs_sync = created or getattr(instance, "_needs_exchange_sync", False)
+
+    logger.info(
+        "MaterialExchangeConfig post_save: created=%s, needs_sync=%s, pk=%s",
+        created,
+        needs_sync,
+        instance.pk,
+    )
+
+    if not needs_sync:
+        logger.debug("No sync needed for MaterialExchangeConfig pk=%s", instance.pk)
+        return
+
+    logger.info("SYNCING MATERIAL EXCHANGE STOCK/PRICES for config pk=%s", instance.pk)
+
+    try:
+        sync_material_exchange_stock()
+        logger.info("Stock sync completed for config pk=%s", instance.pk)
+    except Exception:
+        logger.exception("Stock sync failed for config pk=%s", instance.pk)
+
+    try:
+        sync_material_exchange_prices()
+        logger.info("Price sync completed for config pk=%s", instance.pk)
+    except Exception:
+        logger.exception("Price sync failed for config pk=%s", instance.pk)
+
+
 @receiver(post_migrate)
 def setup_indyhub_periodic_tasks(sender, **kwargs):
     # Only run for the indy_hub app
@@ -236,3 +367,23 @@ def remove_duplicate_tokens(sender, instance, created, **kwargs):
     for token in tokens:
         if set(token.scopes.values_list("id", flat=True)) == instance_scope_ids:
             token.delete()
+
+
+@receiver(post_save, sender=MaterialExchangeBuyOrder)
+def notify_admins_on_buy_order_created(sender, instance, created, **kwargs):
+    """
+    When a buy order is created, notify admins immediately.
+    They will then approve and arrange delivery.
+    """
+    if not created:
+        return
+
+    try:
+        handle_material_exchange_buy_order_created.delay(instance.id)
+    except Exception as exc:
+        logger.error(
+            "Failed to queue buy order notification for order %s: %s",
+            instance.id,
+            exc,
+            exc_info=True,
+        )

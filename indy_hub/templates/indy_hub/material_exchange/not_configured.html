@@ -1,0 +1,51 @@
+{% extends "indy_hub/base.html" %}
+{% load i18n %}
+{% load static %}
+
+{% block page_title %}{% trans "Material Exchange Not Configured" %}{% endblock page_title %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
+{% endblock extra_css %}
+
+{% block content %}
+<main class="bg-body p-4">
+    <div class="container-fluid my-0 bg-body">
+        <div class="page-header mb-4">
+            <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+                <div>
+                    <h2 class="h3 mb-1">
+                        <i class="fas fa-store me-2"></i>
+                        {% trans "Material Exchange" %}
+                    </h2>
+                </div>
+                <div class="d-flex gap-2">
+                    <a href="{% url 'indy_hub:index' %}" class="btn btn-outline-light">
+                        <i class="fas fa-arrow-left me-1"></i>{% trans "Back to Dashboard" %}
+                    </a>
+                </div>
+            </div>
+            <i class="fas fa-store header-bg"></i>
+        </div>
+
+        <div class="row justify-content-center">
+            <div class="col-md-8">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-body text-center py-5">
+                        <i class="fas fa-wrench fa-4x text-muted mb-4"></i>
+                        <h3 class="h4">{% trans "Material Exchange Not Configured" %}</h3>
+                        <p class="text-muted mb-4">
+                            {% trans "The Material Exchange hub is not yet configured. Please contact an administrator to set up the corp hangar, structure location, and pricing rules." %}
+                        </p>
+                        {% if perms.indy_hub.can_manage_material_exchange %}
+                        <a href="{% url 'indy_hub:material_exchange_config' %}" class="btn btn-primary">
+                            <i class="fas fa-cog me-2"></i>{% trans "Configure Material Exchange" %}
+                        </a>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</main>
+{% endblock content %}

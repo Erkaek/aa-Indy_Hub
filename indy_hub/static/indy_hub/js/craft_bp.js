@@ -11,6 +11,16 @@ const CRAFT_BP = {
 
 const __ = (typeof window !== 'undefined' && typeof window.gettext === 'function') ? window.gettext.bind(window) : (msg => msg);
 
+const craftBPDebugEnabled = (typeof window !== 'undefined' && window.INDY_HUB_DEBUG === true);
+function craftBPDebugLog() {
+    if (!craftBPDebugEnabled || typeof console === 'undefined') {
+        return;
+    }
+    if (typeof console.debug === 'function') {
+        console.debug.apply(console, arguments);
+    }
+}
+
 function updatePriceInputManualState(input, isManual) {
     if (!input) {
         return;
@@ -442,7 +452,7 @@ function updateBuyCraftDecisions() {
     // DISABLED - This function used to reload the page on every switch change
     // Now the template handles switch changes with immediate visual updates
     // and deferred URL/database updates when changing tabs
-    console.log('updateBuyCraftDecisions: Disabled - handled by template logic');
+    craftBPDebugLog('updateBuyCraftDecisions: Disabled - handled by template logic');
 }
 
 /**
@@ -454,7 +464,7 @@ function restoreBuyCraftStateFromURL() {
 
     if (buyList) {
         const buyDecisions = buyList.split(',').map(id => id.trim()).filter(id => id);
-        console.log('Restoring buy decisions from URL:', buyDecisions);
+        craftBPDebugLog('Restoring buy decisions from URL:', buyDecisions);
 
         // Set all switches to default (checked = craft)
         document.querySelectorAll('.mat-switch').forEach(function(switchEl) {
@@ -503,24 +513,24 @@ function updateSwitchLabel(switchEl) {
     const isLockedByParent = switchEl.dataset.lockedByParent === 'true' && switchEl.disabled;
 
     if (switchEl.dataset.fixedMode === 'useless' || switchEl.dataset.userState === 'useless') {
-        label.textContent = 'Useless';
+        label.textContent = __('Useless');
         label.classList.add('bg-secondary', 'text-white');
         label.removeAttribute('title');
         return;
     }
 
     if (isLockedByParent) {
-        label.textContent = 'Parent Buy';
+        label.textContent = __('Parent Buy');
         label.classList.add('bg-secondary', 'text-white');
-        label.setAttribute('title', 'Mode hérité : un parent est en Buy');
+        label.setAttribute('title', __('Inherited mode: a parent is set to Buy'));
         return;
     }
 
     if (switchEl.checked) {
-        label.textContent = 'Prod';
+        label.textContent = __('Prod');
         label.classList.add('bg-success', 'text-white');
     } else {
-        label.textContent = 'Buy';
+        label.textContent = __('Buy');
         label.classList.add('bg-danger', 'text-white');
     }
 
@@ -692,7 +702,7 @@ function initializeMETEHandlers() {
     function markMETEChanges() {
         if (!window.craftBPFlags.hasPendingMETEChanges) {
             window.craftBPFlags.hasPendingMETEChanges = true;
-            console.log('ME/TE changes detected - will apply on next tab change');
+            craftBPDebugLog('ME/TE changes detected - will apply on next tab change');
 
             // Visual feedback: add a subtle indicator that changes are pending
             const configTab = document.querySelector('#config-tab');
@@ -700,7 +710,7 @@ function initializeMETEHandlers() {
                 const indicator = document.createElement('span');
                 indicator.className = 'pending-changes-indicator badge bg-warning text-dark ms-2';
                 indicator.textContent = '*';
-                indicator.title = 'Changes pending - will apply when switching tabs';
+                indicator.title = __('Changes pending - will apply when switching tabs');
                 configTab.appendChild(indicator);
             }
         }
@@ -708,12 +718,12 @@ function initializeMETEHandlers() {
 
     // Listen to ME/TE input changes in Config tab - just mark as changed, don't reload
     const meTeInputs = document.querySelectorAll('#tab-config input[name^="me_"], #tab-config input[name^="te_"]');
-    console.log(`Found ${meTeInputs.length} ME/TE inputs to monitor for changes`);
+    craftBPDebugLog(`Found ${meTeInputs.length} ME/TE inputs to monitor for changes`);
 
     meTeInputs.forEach(input => {
         input.addEventListener('input', markMETEChanges);
         input.addEventListener('change', markMETEChanges);
-        console.log(`Added listeners to ${input.name} input`);
+        craftBPDebugLog(`Added listeners to ${input.name} input`);
     });
 
     // Also listen to main runs input change - just mark as changed
@@ -721,7 +731,7 @@ function initializeMETEHandlers() {
     if (runsInput) {
         runsInput.addEventListener('input', markMETEChanges);
         runsInput.addEventListener('change', markMETEChanges);
-        console.log('Added listeners to runs input');
+        craftBPDebugLog('Added listeners to runs input');
     }
 }
 
@@ -734,7 +744,7 @@ function applyPendingMETEChanges() {
         return false; // No changes to apply
     }
 
-    console.log('Applying pending ME/TE changes...');
+    craftBPDebugLog('Applying pending ME/TE changes...');
 
     try {
         // Get current configuration values
@@ -852,9 +862,9 @@ function showLoadingIndicator() {
             style="background: rgba(0,0,0,0.7); z-index: 9999;">
             <div class="bg-white rounded p-4 text-center">
                 <div class="spinner-border text-primary mb-3" role="status">
-                    <span class="visually-hidden">Loading...</span>
+                    <span class="visually-hidden">${__('Loading...')}</span>
                 </div>
-                <p class="mb-0">Recalculating with new ME/TE values...</p>
+                <p class="mb-0">${__('Recalculating with new ME/TE values...')}</p>
             </div>
         </div>
     `;
@@ -1060,7 +1070,7 @@ async function fetchAllPrices(typeIds) {
     const requestUrl = `${baseUrl}${separator}type_id=${uniqueTypeIds.join(',')}`;
 
     try {
-        console.debug('[CraftBP] Loading Fuzzwork prices from', requestUrl);
+        craftBPDebugLog('[CraftBP] Loading Fuzzwork prices from', requestUrl);
         const resp = await fetch(requestUrl, { credentials: 'same-origin' });
         if (!resp.ok) {
             console.error('Fuzzwork price request failed:', resp.status, resp.statusText);
@@ -1073,7 +1083,7 @@ async function fetchAllPrices(typeIds) {
             return {};
         }
         const data = await resp.json();
-        console.debug('[CraftBP] Fuzzwork prices received', data);
+        craftBPDebugLog('[CraftBP] Fuzzwork prices received', data);
         return data;
     } catch (e) {
         console.error('Error fetching prices from Fuzzwork, URL:', requestUrl, e);
@@ -1111,7 +1121,7 @@ function populatePrices(allInputs, prices) {
 
         if (price <= 0) {
             inp.classList.add('bg-warning', 'border-warning');
-            inp.setAttribute('title', 'Price not available (Fuzzwork)');
+            inp.setAttribute('title', __('Price not available (Fuzzwork)'));
         } else {
             inp.classList.remove('bg-warning', 'border-warning');
             inp.removeAttribute('title');
@@ -1134,7 +1144,7 @@ function populatePrices(allInputs, prices) {
             }
             if (finalPrice <= 0) {
                 saleInput.classList.add('bg-warning', 'border-warning');
-                saleInput.setAttribute('title', 'Price not available (Fuzzwork)');
+                saleInput.setAttribute('title', __('Price not available (Fuzzwork)'));
             } else {
                 saleInput.classList.remove('bg-warning', 'border-warning');
                 saleInput.removeAttribute('title');
@@ -1180,7 +1190,7 @@ function buildFinancialRow(item, pricesMap) {
     fuzzInput.value = fuzzPrice.toFixed(2);
     if (fuzzPrice <= 0) {
         fuzzInput.classList.add('bg-warning', 'border-warning');
-        fuzzInput.setAttribute('title', 'Price not available (Fuzzwork)');
+        fuzzInput.setAttribute('title', __('Price not available (Fuzzwork)'));
     } else {
         fuzzInput.classList.remove('bg-warning', 'border-warning');
         fuzzInput.removeAttribute('title');
@@ -1295,7 +1305,7 @@ function updateFinancialTabFromState() {
                 fuzzInput.value = priceValue.toFixed(2);
                 if (priceValue <= 0) {
                     fuzzInput.classList.add('bg-warning', 'border-warning');
-                    fuzzInput.setAttribute('title', 'Price not available (Fuzzwork)');
+                    fuzzInput.setAttribute('title', __('Price not available (Fuzzwork)'));
                 } else {
                     fuzzInput.classList.remove('bg-warning', 'border-warning');
                     fuzzInput.removeAttribute('title');

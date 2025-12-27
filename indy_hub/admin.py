@@ -10,6 +10,13 @@ from .models import (
     CharacterSettings,
     CorporationSharingSetting,
     IndustryJob,
+    MaterialExchangeBuyOrder,
+    MaterialExchangeBuyOrderItem,
+    MaterialExchangeConfig,
+    MaterialExchangeSellOrder,
+    MaterialExchangeSellOrderItem,
+    MaterialExchangeStock,
+    MaterialExchangeTransaction,
     UserOnboardingProgress,
 )
 
@@ -225,3 +232,288 @@ class CorporationSharingSettingAdmin(admin.ModelAdmin):
     @admin.display(boolean=True, description="Whitelisted")
     def has_manual_whitelist(self, obj: CorporationSharingSetting) -> bool:
         return obj.restricts_characters
+
+
+@admin.register(MaterialExchangeConfig)
+class MaterialExchangeConfigAdmin(admin.ModelAdmin):
+    list_display = [
+        "corporation_id",
+        "structure_name",
+        "hangar_division",
+        "sell_markup_percent",
+        "sell_markup_base",
+        "buy_markup_percent",
+        "buy_markup_base",
+        "is_active",
+        "last_stock_sync",
+        "last_price_sync",
+    ]
+    list_filter = ["is_active", "last_stock_sync"]
+    readonly_fields = ["last_stock_sync", "last_price_sync", "created_at", "updated_at"]
+    fieldsets = (
+        (
+            "Corporation Settings",
+            {
+                "fields": (
+                    "corporation_id",
+                    "structure_id",
+                    "structure_name",
+                    "hangar_division",
+                    "is_active",
+                )
+            },
+        ),
+        (
+            "Pricing Configuration",
+            {
+                "fields": (
+                    ("sell_markup_percent", "sell_markup_base"),
+                    ("buy_markup_percent", "buy_markup_base"),
+                )
+            },
+        ),
+        (
+            "Sync Status",
+            {
+                "fields": (
+                    "last_stock_sync",
+                    "last_price_sync",
+                    "created_at",
+                    "updated_at",
+                ),
+                "classes": ("collapse",),
+            },
+        ),
+    )
+
+
+@admin.register(MaterialExchangeStock)
+class MaterialExchangeStockAdmin(admin.ModelAdmin):
+    list_display = [
+        "type_name",
+        "quantity",
+        "jita_buy_price",
+        "jita_sell_price",
+        "sell_price_to_member",
+        "buy_price_from_member",
+    ]
+    list_filter = ["quantity"]
+    search_fields = ["type_name", "type_id"]
+    readonly_fields = ["sell_price_to_member", "buy_price_from_member"]
+
+
+@admin.register(MaterialExchangeSellOrder)
+class MaterialExchangeSellOrderAdmin(admin.ModelAdmin):
+    list_display = [
+        "id",
+        "seller",
+        "item_count",
+        "total_price_display",
+        "status",
+        "created_at",
+        "approved_by",
+    ]
+    list_filter = ["status", "created_at", "seller"]
+    search_fields = ["seller__username", "id"]
+    readonly_fields = ["created_at", "updated_at"]
+    fieldsets = (
+        (
+            "Order Information",
+            {"fields": ("seller", "status")},
+        ),
+        (
+            "Status & Approval",
+            {
+                "fields": (
+                    "approved_by",
+                    "payment_verified_by",
+                    "payment_journal_ref",
+                )
+            },
+        ),
+        (
+            "Notes",
+            {"fields": ("notes",)},
+        ),
+        (
+            "Timestamps",
+            {"fields": ("created_at", "updated_at"), "classes": ("collapse",)},
+        ),
+    )
+
+    @admin.display(description="Items")
+    def item_count(self, obj):
+        return obj.items.count()
+
+    @admin.display(description="Total Price")
+    def total_price_display(self, obj):
+        return f"{obj.total_price:,.2f} ISK"
+
+
+@admin.register(MaterialExchangeBuyOrder)
+class MaterialExchangeBuyOrderAdmin(admin.ModelAdmin):
+    list_display = [
+        "id",
+        "buyer",
+        "item_count",
+        "total_price_display",
+        "status",
+        "created_at",
+        "approved_by",
+    ]
+    list_filter = ["status", "created_at", "buyer"]
+    search_fields = ["buyer__username", "id"]
+    readonly_fields = ["created_at", "updated_at"]
+    fieldsets = (
+        (
+            "Order Information",
+            {"fields": ("buyer", "status")},
+        ),
+        (
+            "Status & Fulfillment",
+            {"fields": ("approved_by", "delivered_by", "delivery_method")},
+        ),
+        (
+            "Notes",
+            {"fields": ("notes",)},
+        ),
+        (
+            "Timestamps",
+            {"fields": ("created_at", "updated_at"), "classes": ("collapse",)},
+        ),
+    )
+
+    @admin.display(description="Items")
+    def item_count(self, obj):
+        return obj.items.count()
+
+    @admin.display(description="Total Price")
+    def total_price_display(self, obj):
+        return f"{obj.total_price:,.2f} ISK"
+
+
+@admin.register(MaterialExchangeTransaction)
+class MaterialExchangeTransactionAdmin(admin.ModelAdmin):
+    list_display = [
+        "id",
+        "transaction_type",
+        "user",
+        "type_name",
+        "quantity",
+        "total_price",
+        "completed_at",
+    ]
+    list_filter = ["transaction_type", "completed_at", "user"]
+    search_fields = ["user__username", "type_name", "id"]
+    readonly_fields = ["completed_at"]
+    fieldsets = (
+        (
+            "Transaction Details",
+            {
+                "fields": (
+                    "transaction_type",
+                    "user",
+                    "type_id",
+                    "type_name",
+                    "quantity",
+                )
+            },
+        ),
+        (
+            "Financial Information",
+            {"fields": ("unit_price", "total_price")},
+        ),
+        (
+            "Related Orders",
+            {"fields": ("sell_order", "buy_order")},
+        ),
+        ("Timestamp", {"fields": ("completed_at",)}),
+    )
+
+
+@admin.register(MaterialExchangeSellOrderItem)
+class MaterialExchangeSellOrderItemAdmin(admin.ModelAdmin):
+    list_display = [
+        "id",
+        "order_id",
+        "type_name",
+        "quantity",
+        "unit_price",
+        "total_price",
+        "esi_contract_validated",
+    ]
+    list_filter = ["esi_contract_validated", "created_at"]
+    search_fields = ["type_name", "order__id"]
+    readonly_fields = ["created_at", "updated_at"]
+    fieldsets = (
+        (
+            "Item Information",
+            {"fields": ("order", "type_id", "type_name", "quantity")},
+        ),
+        (
+            "Pricing",
+            {"fields": ("unit_price", "total_price")},
+        ),
+        (
+            "ESI Validation",
+            {
+                "fields": (
+                    "esi_contract_id",
+                    "esi_contract_validated",
+                    "esi_validation_checked_at",
+                )
+            },
+        ),
+        (
+            "Timestamps",
+            {"fields": ("created_at", "updated_at"), "classes": ("collapse",)},
+        ),
+    )
+
+    @admin.display(description="Order")
+    def order_id(self, obj):
+        return f"Sell #{obj.order.id}"
+
+
+@admin.register(MaterialExchangeBuyOrderItem)
+class MaterialExchangeBuyOrderItemAdmin(admin.ModelAdmin):
+    list_display = [
+        "id",
+        "order_id",
+        "type_name",
+        "quantity",
+        "unit_price",
+        "total_price",
+        "esi_contract_validated",
+    ]
+    list_filter = ["esi_contract_validated", "created_at"]
+    search_fields = ["type_name", "order__id"]
+    readonly_fields = ["created_at", "updated_at"]
+    fieldsets = (
+        (
+            "Item Information",
+            {"fields": ("order", "type_id", "type_name", "quantity")},
+        ),
+        (
+            "Pricing",
+            {"fields": ("unit_price", "total_price", "stock_available_at_creation")},
+        ),
+        (
+            "ESI Validation",
+            {
+                "fields": (
+                    "esi_contract_id",
+                    "esi_contract_validated",
+                    "esi_validation_checked_at",
+                )
+            },
+        ),
+        (
+            "Timestamps",
+            {"fields": ("created_at", "updated_at"), "classes": ("collapse",)},
+        ),
+    )
+
+    @admin.display(description="Order")
+    def order_id(self, obj):
+        return f"Buy #{obj.order.id}"

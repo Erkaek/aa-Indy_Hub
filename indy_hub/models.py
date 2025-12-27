@@ -95,6 +95,10 @@ class Blueprint(models.Model):
                 "can_manage_corporate_assets",
                 "Can manage corporation blueprints and jobs",
             ),
+            (
+                "can_manage_material_exchange",
+                "Can manage Material Exchange (approve orders, configure settings)",
+            ),
         ]
         default_permissions = ()  # Disable Django's add/change/delete/view permissions
 
@@ -1198,3 +1202,513 @@ class ProductionSimulation(models.Model):
         if self.estimated_revenue > 0:
             return float((self.estimated_profit / self.estimated_revenue) * 100)
         return 0.0
+
+
+# ============================================================================
+# Material Exchange (Corp Supply Hub) Models
+# ============================================================================
+
+
+class MaterialExchangeConfig(models.Model):
+    """
+    Global configuration for the Material Exchange hub.
+    Stores structure location, hangar division, and pricing rules.
+    """
+
+    # ESI targeting
+    corporation_id = models.BigIntegerField(
+        help_text=_("Corporation ID owning the hub hangar")
+    )
+    structure_id = models.BigIntegerField(
+        help_text=_("Structure or station ID where the hub is located")
+    )
+    structure_name = models.CharField(max_length=255, blank=True)
+    hangar_division = models.IntegerField(
+        default=1,
+        validators=[MinValueValidator(1), MaxValueValidator(7)],
+        help_text=_("Corp hangar division (1-7)"),
+    )
+
+    # Pricing rules
+    PRICE_BASE_CHOICES = [
+        ("buy", _("Jita Buy Price")),
+        ("sell", _("Jita Sell Price")),
+    ]
+
+    sell_markup_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0,
+        help_text=_("Markup % applied when members sell to hub"),
+    )
+    sell_markup_base = models.CharField(
+        max_length=10,
+        choices=PRICE_BASE_CHOICES,
+        default="buy",
+        help_text=_("Base price to apply sell markup on (Jita Buy or Jita Sell)"),
+    )
+
+    buy_markup_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=5,
+        help_text=_("Markup % applied when members buy from hub"),
+    )
+    buy_markup_base = models.CharField(
+        max_length=10,
+        choices=PRICE_BASE_CHOICES,
+        default="buy",
+        help_text=_("Base price to apply buy markup on (Jita Buy or Jita Sell)"),
+    )
+
+    # Stock sync
+    last_stock_sync = models.DateTimeField(blank=True, null=True)
+    last_price_sync = models.DateTimeField(blank=True, null=True)
+
+    # Status
+    is_active = models.BooleanField(
+        default=True, help_text=_("Enable/disable the Material Exchange")
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = _("Material Exchange Configuration")
+        verbose_name_plural = _("Material Exchange Configurations")
+
+    def __str__(self):
+        return f"Material Exchange Config (Corp {self.corporation_id})"
+
+
+class MaterialExchangeStock(models.Model):
+    """
+    Cached stock levels from corptools corp assets.
+    Refreshed periodically via Celery task.
+    Single source of truth for Material Exchange inventory.
+    """
+
+    config = models.ForeignKey(
+        MaterialExchangeConfig, on_delete=models.CASCADE, related_name="stock_items"
+    )
+    type_id = models.IntegerField(help_text=_("EVE item type ID"))
+    type_name = models.CharField(max_length=255, blank=True, db_index=True)
+    quantity = models.BigIntegerField(default=0)
+
+    # Pricing cache (from Jita via Fuzzwork)
+    jita_buy_price = models.DecimalField(
+        max_digits=20, decimal_places=2, default=0, blank=True
+    )
+    jita_sell_price = models.DecimalField(
+        max_digits=20, decimal_places=2, default=0, blank=True
+    )
+    last_price_update = models.DateTimeField(blank=True, null=True)
+
+    # Audit trail
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+    updated_at = models.DateTimeField(auto_now=True)
+    last_stock_sync = models.DateTimeField(
+        blank=True, null=True, help_text=_("When this item's quantity was last synced")
+    )
+
+    class Meta:
+        verbose_name = _("Material Exchange Stock")
+        verbose_name_plural = _("Material Exchange Stock")
+        unique_together = ("config", "type_id")
+        indexes = [
+            models.Index(fields=["type_id"]),
+            models.Index(fields=["config", "type_id"]),
+            models.Index(fields=["config", "quantity"], name="mes_config_qty_idx"),
+            models.Index(fields=["config", "updated_at"], name="mes_config_upd_idx"),
+            models.Index(fields=["type_name"], name="mes_typename_idx"),
+        ]
+
+    def __str__(self):
+        return f"{self.type_name or self.type_id} x{self.quantity}"
+
+    @property
+    def sell_price_to_member(self):
+        """Price when member buys FROM hub (base price + buy_markup)."""
+        if not self.config:
+            return 0
+        # Choose base price according to config
+        if self.config.buy_markup_base == "sell":
+            base = self.jita_sell_price or 0
+        else:
+            base = self.jita_buy_price or 0
+        markup = self.config.buy_markup_percent / 100
+        return base * (1 + markup)
+
+    @property
+    def buy_price_from_member(self):
+        """Price when member sells TO hub (base price + sell_markup)."""
+        if not self.config:
+            return 0
+        # Choose base price according to config
+        if self.config.sell_markup_base == "sell":
+            base = self.jita_sell_price or 0
+        else:
+            base = self.jita_buy_price or 0
+        markup = self.config.sell_markup_percent / 100
+        return base * (1 + markup)
+
+
+class MaterialExchangeSellOrder(models.Model):
+    """
+    A member wants to sell materials TO the corp hub.
+    One order can contain multiple items (materials).
+    Flow: request → admin approval → payment verification → complete.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", _("Pending Approval")
+        APPROVED = "approved", _("Approved - Awaiting Payment")
+        PAID = "paid", _("Payment Verified")
+        COMPLETED = "completed", _("Completed")
+        REJECTED = "rejected", _("Rejected")
+        CANCELLED = "cancelled", _("Cancelled")
+
+    config = models.ForeignKey(
+        MaterialExchangeConfig,
+        on_delete=models.CASCADE,
+        related_name="sell_orders",
+    )
+    seller = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="material_sell_orders"
+    )
+
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.PENDING
+    )
+
+    # Approval/processing
+    approved_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="approved_sell_orders",
+    )
+    approved_at = models.DateTimeField(null=True, blank=True)
+
+    payment_verified_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="verified_sell_payments",
+    )
+    payment_verified_at = models.DateTimeField(null=True, blank=True)
+    payment_journal_ref = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text=_("ESI wallet journal ref ID if verified"),
+    )
+
+    notes = models.TextField(blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = _("Material Exchange Sell Order")
+        verbose_name_plural = _("Material Exchange Sell Orders")
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["status", "-created_at"]),
+            models.Index(fields=["seller", "-created_at"]),
+        ]
+
+    def __str__(self):
+        return f"Sell #{self.id}: {self.seller.username} ({self.items.count()} items)"
+
+    @property
+    def total_price(self):
+        """Sum of all item prices"""
+        return sum(item.total_price for item in self.items.all())
+
+    @property
+    def total_quantity(self):
+        """Total quantity across all items"""
+        return sum(item.quantity for item in self.items.all())
+
+    @property
+    def esi_contract_validated(self):
+        """All items in order are validated"""
+        items = self.items.all()
+        if not items.exists():
+            return False
+        return all(item.esi_contract_validated for item in items)
+
+    @property
+    def esi_validation_checked_at(self):
+        """Most recent validation check time"""
+        latest = self.items.all().order_by("-esi_validation_checked_at").first()
+        return latest.esi_validation_checked_at if latest else None
+
+
+class MaterialExchangeSellOrderItem(models.Model):
+    """
+    Individual item in a sell order.
+    """
+
+    order = models.ForeignKey(
+        MaterialExchangeSellOrder,
+        on_delete=models.CASCADE,
+        related_name="items",
+    )
+    type_id = models.IntegerField(help_text=_("Material type ID"))
+    type_name = models.CharField(max_length=255, blank=True)
+    quantity = models.BigIntegerField(validators=[MinValueValidator(1)])
+
+    # Pricing snapshot at order creation
+    unit_price = models.DecimalField(
+        max_digits=20,
+        decimal_places=2,
+        help_text=_("Price per unit corp pays to member (Jita Buy + markup)"),
+    )
+    total_price = models.DecimalField(max_digits=20, decimal_places=2)
+
+    # ESI contract validation
+    esi_contract_id = models.BigIntegerField(
+        null=True,
+        blank=True,
+        help_text=_("ESI contract ID for this item"),
+    )
+    esi_contract_validated = models.BooleanField(
+        default=False,
+        help_text=_("Whether ESI validation confirmed this item in contract"),
+    )
+    esi_validation_checked_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=_("Last time ESI contract was validated for this item"),
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = _("Material Exchange Sell Order Item")
+        verbose_name_plural = _("Material Exchange Sell Order Items")
+        ordering = ["created_at"]
+        indexes = [
+            models.Index(fields=["type_id"]),
+            models.Index(fields=["order"]),
+        ]
+
+    def __str__(self):
+        return f"SellItem #{self.id}: {self.type_name} x{self.quantity}"
+
+
+class MaterialExchangeBuyOrder(models.Model):
+    """
+    A member wants to buy materials FROM the corp hub.
+    One order can contain multiple items (materials).
+    Flow: request → stock check → admin approval → contract/delivery → complete.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", _("Pending Approval")
+        APPROVED = "approved", _("Approved - Awaiting Delivery")
+        DELIVERED = "delivered", _("Delivered")
+        COMPLETED = "completed", _("Completed")
+        REJECTED = "rejected", _("Rejected")
+        CANCELLED = "cancelled", _("Cancelled")
+
+    config = models.ForeignKey(
+        MaterialExchangeConfig,
+        on_delete=models.CASCADE,
+        related_name="buy_orders",
+    )
+    buyer = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="material_buy_orders"
+    )
+
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.PENDING
+    )
+
+    # Approval/processing
+    approved_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="approved_buy_orders",
+    )
+    approved_at = models.DateTimeField(null=True, blank=True)
+
+    delivered_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="delivered_buy_orders",
+    )
+    delivered_at = models.DateTimeField(null=True, blank=True)
+    delivery_method = models.CharField(
+        max_length=50,
+        blank=True,
+        choices=[
+            ("contract", _("Contract")),
+            ("trade", _("Direct Trade")),
+            ("hangar", _("Corp Hangar Access")),
+        ],
+    )
+
+    notes = models.TextField(blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = _("Material Exchange Buy Order")
+        verbose_name_plural = _("Material Exchange Buy Orders")
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["status", "-created_at"]),
+            models.Index(fields=["buyer", "-created_at"]),
+        ]
+
+    def __str__(self):
+        return f"Buy #{self.id}: {self.buyer.username} ({self.items.count()} items)"
+
+    @property
+    def total_price(self):
+        """Sum of all item prices"""
+        return sum(item.total_price for item in self.items.all())
+
+    @property
+    def total_quantity(self):
+        """Total quantity across all items"""
+        return sum(item.quantity for item in self.items.all())
+
+    @property
+    def esi_contract_validated(self):
+        """All items in order are validated"""
+        items = self.items.all()
+        if not items.exists():
+            return False
+        return all(item.esi_contract_validated for item in items)
+
+    @property
+    def esi_validation_checked_at(self):
+        """Most recent validation check time"""
+        latest = self.items.all().order_by("-esi_validation_checked_at").first()
+        return latest.esi_validation_checked_at if latest else None
+
+
+class MaterialExchangeBuyOrderItem(models.Model):
+    """
+    Individual item in a buy order.
+    """
+
+    order = models.ForeignKey(
+        MaterialExchangeBuyOrder,
+        on_delete=models.CASCADE,
+        related_name="items",
+    )
+    type_id = models.IntegerField(help_text=_("Material type ID"))
+    type_name = models.CharField(max_length=255, blank=True)
+    quantity = models.BigIntegerField(validators=[MinValueValidator(1)])
+
+    # Pricing snapshot at order creation
+    unit_price = models.DecimalField(
+        max_digits=20,
+        decimal_places=2,
+        help_text=_("Price per unit member pays to corp (Jita Sell + markup)"),
+    )
+    total_price = models.DecimalField(max_digits=20, decimal_places=2)
+
+    # Stock check at creation
+    stock_available_at_creation = models.BigIntegerField(default=0)
+
+    # ESI contract validation
+    esi_contract_id = models.BigIntegerField(
+        null=True,
+        blank=True,
+        help_text=_("ESI contract ID for this item"),
+    )
+    esi_contract_validated = models.BooleanField(
+        default=False,
+        help_text=_("Whether ESI validation confirmed this item in contract"),
+    )
+    esi_validation_checked_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=_("Last time ESI contract was validated for this item"),
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = _("Material Exchange Buy Order Item")
+        verbose_name_plural = _("Material Exchange Buy Order Items")
+        ordering = ["created_at"]
+        indexes = [
+            models.Index(fields=["type_id"]),
+            models.Index(fields=["order"]),
+        ]
+
+    def __str__(self):
+        return f"BuyItem #{self.id}: {self.type_name} x{self.quantity}"
+
+
+class MaterialExchangeTransaction(models.Model):
+    """
+    Complete transaction log for finance reporting.
+    Created when sell or buy order is completed.
+    """
+
+    class TransactionType(models.TextChoices):
+        SELL = "sell", _("Member Sold to Hub")
+        BUY = "buy", _("Member Bought from Hub")
+
+    config = models.ForeignKey(
+        MaterialExchangeConfig,
+        on_delete=models.CASCADE,
+        related_name="transactions",
+    )
+    transaction_type = models.CharField(max_length=10, choices=TransactionType.choices)
+
+    # Link to original order
+    sell_order = models.OneToOneField(
+        MaterialExchangeSellOrder,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="transaction",
+    )
+    buy_order = models.OneToOneField(
+        MaterialExchangeBuyOrder,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="transaction",
+    )
+
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="material_transactions"
+    )
+    type_id = models.IntegerField()
+    type_name = models.CharField(max_length=255)
+    quantity = models.BigIntegerField()
+    unit_price = models.DecimalField(max_digits=20, decimal_places=2)
+    total_price = models.DecimalField(max_digits=20, decimal_places=2)
+
+    completed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = _("Material Exchange Transaction")
+        verbose_name_plural = _("Material Exchange Transactions")
+        ordering = ["-completed_at"]
+        indexes = [
+            models.Index(fields=["transaction_type", "-completed_at"]),
+            models.Index(fields=["user", "-completed_at"]),
+            models.Index(fields=["type_id", "-completed_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.get_transaction_type_display()} #{self.id}: {self.user.username} - {self.type_name} x{self.quantity}"

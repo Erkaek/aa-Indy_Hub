@@ -8,6 +8,21 @@
         return;
     }
 
+    var debugEnabled = (typeof window !== 'undefined' && window.INDY_HUB_DEBUG === true);
+    function debugLog() {
+        if (!debugEnabled || typeof console === 'undefined' || typeof console.debug !== 'function') {
+            return;
+        }
+        console.debug.apply(console, arguments);
+    }
+
+    function debugWarn() {
+        if (!debugEnabled || typeof console === 'undefined' || typeof console.warn !== 'function') {
+            return;
+        }
+        console.warn.apply(console, arguments);
+    }
+
     function resolveBlueprintPayload() {
         if (window.BLUEPRINT_DATA && typeof window.BLUEPRINT_DATA === 'object' && Object.keys(window.BLUEPRINT_DATA).length > 0) {
             return window.BLUEPRINT_DATA;
@@ -401,7 +416,7 @@
         buyAncestorCache.clear();
         const items = new Map();
 
-        console.debug('[SimulationAPI] treeMap size:', treeMap.size, 'switches size:', switchesMap.size);
+        debugLog('[SimulationAPI] treeMap size:', treeMap.size, 'switches size:', switchesMap.size);
 
         treeMap.forEach((treeEntry, typeId) => {
             const switchData = switchesMap.get(typeId);
@@ -412,7 +427,7 @@
             }
 
             if (hasBuyingAncestor(typeId)) {
-                console.debug('[SimulationAPI] Skipping', typeId, treeEntry?.typeName, 'because ancestor is BUY');
+                debugLog('[SimulationAPI] Skipping', typeId, treeEntry?.typeName, 'because ancestor is BUY');
                 return;
             }
 
@@ -423,7 +438,7 @@
                 return;
             }
 
-            console.debug('[SimulationAPI] Including from treeMap:', typeId, treeEntry.typeName, 'isLeaf?', isLeaf, 'state', state);
+            debugLog('[SimulationAPI] Including from treeMap:', typeId, treeEntry.typeName, 'isLeaf?', isLeaf, 'state', state);
 
             const materialEntry = materialsMap.get(typeId) || {
                 typeId,
@@ -445,7 +460,7 @@
                 const state = switchData ? switchData.state : 'prod';
                 const craftable = treeEntry ? treeEntry.craftable : false;
                 if (!hasBuyingAncestor(typeId) && state !== 'useless' && (!craftable || state === 'buy')) {
-                    console.debug('[SimulationAPI] Adding from materialsMap fallback:', typeId, entry.typeName, 'craftable?', craftable, 'state', state);
+                    debugLog('[SimulationAPI] Adding from materialsMap fallback:', typeId, entry.typeName, 'craftable?', craftable, 'state', state);
                     items.set(typeId, materialToDto(entry));
                 }
             }
@@ -458,7 +473,7 @@
                     ? payload.materials
                     : [];
 
-            console.warn('[SimulationAPI] No financial items derived from tree/materials map - falling back to direct materials. Count:', fallbackMaterials.length);
+            debugWarn('[SimulationAPI] No financial items derived from tree/materials map - falling back to direct materials. Count:', fallbackMaterials.length);
 
             fallbackMaterials.forEach((material) => {
                 const typeId = Number(readValue(material, 'type_id', 'typeId'));
@@ -473,12 +488,12 @@
                     groupId: null
                 });
                 dto.quantity = dto.quantity || 0;
-                console.debug('[SimulationAPI] Adding from direct materials fallback:', typeId, dto.typeName, 'quantity', dto.quantity);
+                debugLog('[SimulationAPI] Adding from direct materials fallback:', typeId, dto.typeName, 'quantity', dto.quantity);
                 items.set(typeId, dto);
             });
 
             if (items.size === 0 && payload.materials_by_group) {
-                console.warn('[SimulationAPI] Direct materials fallback empty, using materials_by_group');
+                debugWarn('[SimulationAPI] Direct materials fallback empty, using materials_by_group');
                 Object.values(payload.materials_by_group).forEach((group) => {
                     if (!group || !Array.isArray(group.items)) {
                         return;
@@ -496,7 +511,7 @@
                             groupId: group.group_id || group.groupId || null
                         });
                         dto.quantity = dto.quantity || 0;
-                        console.debug('[SimulationAPI] Adding from materials_by_group fallback:', typeId, dto.typeName, 'quantity', dto.quantity);
+                        debugLog('[SimulationAPI] Adding from materials_by_group fallback:', typeId, dto.typeName, 'quantity', dto.quantity);
                         items.set(typeId, dto);
                     });
                 });
@@ -504,7 +519,7 @@
         }
 
         const result = Array.from(items.values());
-        console.debug('[SimulationAPI] Financial items result count:', result.length);
+        debugLog('[SimulationAPI] Financial items result count:', result.length);
         return result;
     }
 

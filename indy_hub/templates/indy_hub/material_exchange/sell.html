@@ -1,0 +1,369 @@
+{% extends "indy_hub/base.html" %}
+{% load i18n %}
+{% load static %}
+{% load humanize %}
+
+{% block page_title %}{% trans "Sell Materials to Hub" %}{% endblock page_title %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
+<link rel="stylesheet" href="{% static 'indy_hub/css/blueprints.css' %}">
+<style>
+    .stock-table th {
+        background: rgba(var(--bs-success-rgb), 0.1);
+        font-weight: 600;
+        font-size: 0.9rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    
+    .stock-table tbody tr {
+        transition: all 0.2s ease;
+    }
+    
+    .stock-table tbody tr:hover {
+        background: rgba(var(--bs-success-rgb), 0.03);
+    }
+    
+    .stock-table tbody tr.selected {
+        background: rgba(var(--bs-success-rgb), 0.08);
+        border-left: 3px solid var(--bs-success);
+    }
+    
+    .item-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 6px;
+        background: rgba(var(--bs-success-rgb), 0.05);
+        padding: 4px;
+    }
+    
+    .qty-input {
+        max-width: 120px;
+    }
+    
+    .qty-error {
+        color: var(--bs-danger);
+        font-size: 0.85rem;
+        margin-top: 0.25rem;
+        display: none;
+    }
+    
+    .qty-input.is-invalid {
+        border-color: var(--bs-danger);
+    }
+    
+    .invoice-panel {
+        position: sticky;
+        top: 20px;
+    }
+    
+    .invoice-item {
+        padding: 0.75rem 0;
+        border-bottom: 1px solid rgba(var(--bs-border-color-rgb), 0.5);
+    }
+    
+    .invoice-item:last-child {
+        border-bottom: none;
+    }
+    
+    .invoice-total {
+        background: linear-gradient(135deg, rgba(var(--bs-success-rgb), 0.1), rgba(var(--bs-info-rgb), 0.1));
+        padding: 1rem;
+        border-radius: 8px;
+        margin-top: 1rem;
+    }
+    
+    .empty-invoice {
+        text-align: center;
+        padding: 2rem;
+        color: var(--bs-secondary);
+    }
+</style>
+{% endblock extra_css %}
+
+{% block content %}
+<main class="bg-body p-4">
+    <div class="container-fluid my-0 bg-body">
+        <div class="page-header mb-4">
+            <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+                <div>
+                    <h2 class="h3 mb-1">
+                        <i class="fas fa-hand-holding-usd me-2"></i>
+                        {% trans "Sell Materials to Hub" %}
+                    </h2>
+                    <p class="description">{% trans "Sell your materials to the corp" %}</p>
+                </div>
+                <div class="d-flex gap-2">
+                    <a href="{% url 'indy_hub:material_exchange_index' %}" class="btn btn-outline-light">
+                        <i class="fas fa-arrow-left me-1"></i>{% trans "Back to Hub" %}
+                    </a>
+                </div>
+            </div>
+            <i class="fas fa-hand-holding-usd header-bg"></i>
+        </div>
+
+        <div class="glass-panel p-4 mb-4">
+            <div class="d-flex align-items-center gap-2">
+                <i class="fas fa-info-circle text-info"></i>
+                <div>
+                    <strong>{% trans "Pricing" %}:</strong> 
+                    <span class="text-muted">{% trans "Jita Buy" %}</span>
+                    {% if config.sell_markup_percent > 0 %}
+                    <span class="text-muted"> + </span>
+                    <span class="text-success fw-bold">{{ config.sell_markup_percent }}%</span>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="alert alert-info mt-3 mb-0">
+                <i class="fas fa-exclamation-circle me-2"></i>
+                <small>{% trans "Enter the quantities you want to sell. Make sure you have the items in your hangar." %}</small>
+            </div>
+        </div>
+
+        {% if materials %}
+        <div class="row g-4">
+            <div class="col-lg-8">
+                <div class="glass-panel p-4">
+                    <h5 class="mb-4">
+                        <i class="fas fa-warehouse me-2"></i>
+                        {% trans "Your Materials at" %} {{ config.structure_name }}
+                    </h5>
+                    <form method="post" id="sellForm">
+                        {% csrf_token %}
+                        <div class="table-responsive">
+                            <table class="table table-hover stock-table align-middle">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 60px;"></th>
+                                        <th>{% trans "Item" %}</th>
+                                        <th class="text-end">{% trans "You Own" %}</th>
+                                        <th class="text-end">{% trans "Unit Price" %}</th>
+                                        <th class="text-center" style="width: 140px;">{% trans "Quantity" %}</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for item in materials %}
+                                    <tr class="stock-row" 
+                                        data-type-id="{{ item.type_id }}"
+                                        data-type-name="{{ item.type_name }}"
+                                        data-unit-price="{{ item.buy_price_from_member }}"
+                                        data-max-qty="{{ item.user_quantity }}">
+                                        <td>
+                                            <img src="https://images.evetech.net/types/{{ item.type_id }}/icon?size=64" 
+                                                 alt="{{ item.type_name }}" 
+                                                 class="item-icon">
+                                        </td>
+                                        <td>
+                                            <strong>{{ item.type_name }}</strong>
+                                        </td>
+                                        <td class="text-end">
+                                            <span class="badge bg-success">{{ item.user_quantity|intcomma }}</span>
+                                        </td>
+                                        <td class="text-end text-success fw-semibold">
+                                            {{ item.buy_price_from_member|floatformat:2|intcomma }} ISK
+                                        </td>
+                                        <td class="text-center">
+                                            <div>
+                                                <input type="number" 
+                                                       name="qty_{{ item.type_id }}" 
+                                                       id="qty-{{ item.type_id }}" 
+                                                       class="form-control qty-input" 
+                                                       min="0" 
+                                                       max="{{ item.user_quantity }}"
+                                                       value="0"
+                                                       data-type-id="{{ item.type_id }}"
+                                                       data-max="{{ item.user_quantity }}">
+                                                <div class="qty-error" id="error-{{ item.type_id }}">
+                                                    {% trans "Max:" %} {{ item.user_quantity|intcomma }}
+                                                </div>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            
+            <div class="col-lg-4">
+                <div class="invoice-panel">
+                    <div class="glass-panel p-4">
+                        <h5 class="mb-3">
+                            <i class="fas fa-receipt me-2"></i>{% trans "Sell Summary" %}
+                        </h5>
+                        <div id="invoiceContent">
+                            <div class="empty-invoice">
+                                <i class="fas fa-hand-holding-usd fa-3x mb-3 opacity-25"></i>
+                                <p class="mb-0">{% trans "Enter quantities to see your payout" %}</p>
+                            </div>
+                        </div>
+                        <div id="invoiceItems" class="d-none">
+                            <div id="itemsList"></div>
+                            <div class="invoice-total">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <span class="fw-bold">{% trans "Total Payout" %}</span>
+                                    <span class="h4 mb-0 text-success" id="totalAmount">0 ISK</span>
+                                </div>
+                                <button type="submit" form="sellForm" class="btn btn-success w-100 mt-3">
+                                    <i class="fas fa-paper-plane me-2"></i>{% trans "Submit Sell Order" %}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <div class="glass-panel p-4">
+            <div class="alert alert-warning mb-0">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                {% trans "No materials available for selling. Please contact an admin." %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const qtyInputs = document.querySelectorAll('.qty-input');
+    
+    function formatNumber(num) {
+        return new Intl.NumberFormat('en-US', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+        }).format(num);
+    }
+    
+    function checkQuantityLimit(input) {
+        const qty = parseInt(input.value) || 0;
+        const max = parseInt(input.dataset.max);
+        const typeId = input.dataset.typeId;
+        const errorDiv = document.getElementById('error-' + typeId);
+        
+        if (qty > max) {
+            input.classList.add('is-invalid');
+            if (errorDiv) {
+                errorDiv.style.display = 'block';
+            }
+            return false;
+        } else {
+            input.classList.remove('is-invalid');
+            if (errorDiv) {
+                errorDiv.style.display = 'none';
+            }
+            return true;
+        }
+    }
+    
+    function updateInvoice() {
+        const selectedItems = [];
+        let total = 0;
+        
+        qtyInputs.forEach(input => {
+            const qty = parseInt(input.value) || 0;
+            const row = input.closest('tr');
+            
+            // Check limit but don't auto-correct during typing
+            checkQuantityLimit(input);
+            
+            if (qty > 0) {
+                const typeId = input.dataset.typeId;
+                const typeName = row.dataset.typeName;
+                const unitPrice = parseFloat(row.dataset.unitPrice);
+                const max = parseInt(input.dataset.max);
+                
+                // Use actual qty or max, whichever is lower for calculation
+                const effectiveQty = Math.min(qty, max);
+                const subtotal = unitPrice * effectiveQty;
+                
+                selectedItems.push({
+                    name: typeName,
+                    qty: effectiveQty,
+                    unitPrice: unitPrice,
+                    subtotal: subtotal
+                });
+                
+                total += subtotal;
+                row.classList.add('selected');
+            } else {
+                row.classList.remove('selected');
+            }
+        });
+        
+        const emptyInvoice = document.getElementById('invoiceContent');
+        const invoiceItems = document.getElementById('invoiceItems');
+        const itemsList = document.getElementById('itemsList');
+        const totalAmount = document.getElementById('totalAmount');
+        
+        if (selectedItems.length === 0) {
+            emptyInvoice.classList.remove('d-none');
+            invoiceItems.classList.add('d-none');
+        } else {
+            emptyInvoice.classList.add('d-none');
+            invoiceItems.classList.remove('d-none');
+            
+            let itemsHTML = '';
+            selectedItems.forEach(item => {
+                itemsHTML += `
+                    <div class="invoice-item">
+                        <div class="d-flex justify-content-between mb-1">
+                            <strong>${item.name}</strong>
+                            <span class="text-success fw-semibold">${formatNumber(item.subtotal)} ISK</span>
+                        </div>
+                        <div class="d-flex justify-content-between small text-muted">
+                            <span>${item.qty.toLocaleString()} × ${formatNumber(item.unitPrice)} ISK</span>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            itemsList.innerHTML = itemsHTML;
+            totalAmount.textContent = formatNumber(total) + ' ISK';
+        }
+    }
+    
+    qtyInputs.forEach(input => {
+        input.addEventListener('input', function() {
+            updateInvoice();
+        });
+        
+        input.addEventListener('blur', function() {
+            // Auto-correct on blur
+            const qty = parseInt(this.value) || 0;
+            const max = parseInt(this.dataset.max);
+            if (qty > max) {
+                this.value = max;
+                updateInvoice();
+            }
+        });
+    });
+    
+    // Prevent form submission if any quantity exceeds stock
+    document.getElementById('sellForm').addEventListener('submit', function(e) {
+        let hasError = false;
+        qtyInputs.forEach(input => {
+            const qty = parseInt(input.value) || 0;
+            const max = parseInt(input.dataset.max);
+            if (qty > max) {
+                hasError = true;
+                input.value = max; // Auto-correct
+            }
+        });
+        
+        if (hasError) {
+            e.preventDefault();
+            alert('{% trans "Some quantities exceeded what you own and have been adjusted." %}');
+            updateInvoice();
+            return false;
+        }
+    });
+    
+    // Initial update
+    updateInvoice();
+});
+</script>
+{% endblock content %}

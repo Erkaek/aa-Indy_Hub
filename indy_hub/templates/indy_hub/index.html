@@ -331,6 +331,42 @@
     </section>
     {% endif %}
 
+    <!-- Material Exchange Section -->
+    <section class="dashboard-section mb-5">
+        <header class="section-heading">
+            <div>
+                <h3>{% trans "Material Exchange" %}</h3>
+                <p class="text-muted small mb-0">{% trans "Buy and sell materials from corp stock - no need to go to Jita." %}</p>
+            </div>
+        </header>
+        <div class="row g-4 align-items-stretch">
+            <div class="col-lg-12">
+                <div class="card focus-card">
+                    <div class="card-body p-4">
+                        <div class="d-flex flex-column flex-lg-row gap-4 align-items-lg-start justify-content-between">
+                            <div class="d-flex gap-3 align-items-start flex-grow-1">
+                                <div class="focus-icon bg-info bg-opacity-10 text-info">
+                                    <i class="fas fa-exchange-alt"></i>
+                                </div>
+                                <div>
+                                    <h6 class="card-title mb-2">{% trans "Corp Material Hub" %}</h6>
+                                    <p class="text-muted small mb-0">
+                                        {% trans "Trade materials directly from corp inventory. Sell your minerals to the corp or buy what you need for production - all at Jita prices with transparent pricing." %}
+                                    </p>
+                                </div>
+                            </div>
+                            <div class="d-flex gap-2 flex-wrap flex-lg-nowrap">
+                                <a href="{% url 'indy_hub:material_exchange_index' %}" class="btn btn-primary btn-slim">
+                                    <i class="fas fa-store me-2"></i>{% trans "Open Material Exchange" %}
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
     <section class="dashboard-section mb-5">
         <header class="section-heading">
             <div>

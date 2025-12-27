@@ -2,6 +2,10 @@
  * Industry Jobs JavaScript - Optimized for large datasets and real-time progress
  */
 
+const __ = (typeof window !== 'undefined' && typeof window.gettext === 'function')
+    ? window.gettext.bind(window)
+    : (msg => msg);
+
 class JobManager {
     constructor() {
         this.jobs = [];
@@ -305,7 +309,7 @@ class JobManager {
                         const remaining = job.endDate - now;
                         if (remaining > 0) {
                             const timeRemaining = this.formatDuration(remaining);
-                            progressBar.title = `Time remaining: ${timeRemaining}`;
+                            progressBar.title = `${__('Time remaining')}: ${timeRemaining}`;
                         }
                     }
                 }

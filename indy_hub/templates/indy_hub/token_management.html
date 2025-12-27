@@ -185,6 +185,10 @@
                                 <a href="{{ corp_all_auth_url }}" class="btn btn-accent btn-slim">
                                     <i class="fas fa-building me-1"></i>{% trans "Authorize all corp scopes" %}</a>
                                 {% endif %}
+                                {% if material_exchange_auth_url %}
+                                <a href="{{ material_exchange_auth_url }}" class="btn btn-primary btn-slim">
+                                    <i class="fas fa-exchange-alt me-1"></i>{% trans "Authorize Material Exchange" %}</a>
+                                {% endif %}
                             </div>
                         </div>
                     </div>
@@ -499,7 +503,9 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         }
     } catch (err) {
-        console.error('Unable to display corporation role warnings:', err);
+        if (window.INDY_HUB_DEBUG) {
+            console.error('Unable to display corporation role warnings:', err);
+        }
     }
 });
 {% endif %}

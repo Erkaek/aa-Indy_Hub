@@ -353,6 +353,19 @@ def _eligible_owner_ids_for_request(req: BlueprintCopyRequest) -> set[int]:
     return set(details.owner_ids)
 
 
+def _user_can_fulfill_request(req: BlueprintCopyRequest, user: User) -> bool:
+    """Check whether a user is allowed to act as provider for a request."""
+
+    if not user or req.requested_by_id == user.id:
+        return False
+
+    if _eligible_owner_ids_for_request(req).__contains__(user.id):
+        return True
+
+    # Allow if an existing offer from this user is already recorded (legacy cases)
+    return req.offers.filter(owner=user).exists()
+
+
 def _finalize_request_if_all_rejected(req: BlueprintCopyRequest) -> bool:
     """Notify requester and delete request if all eligible providers rejected."""
 
@@ -2742,6 +2755,12 @@ def bp_copy_fulfill_requests(request):
         character_id=0,  # Global settings only
         allow_copy_requests=True,
     ).first()
+    include_self_requests = request.GET.get("include_self") in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
     can_manage_corporate = request.user.has_perm("indy_hub.can_manage_corporate_assets")
 
     accessible_corporation_ids: set[int] = set()
@@ -2796,11 +2815,12 @@ def bp_copy_fulfill_requests(request):
             if exists:
                 auto_open_chat_id = str(requested_chat_id)
     nav_context = build_nav_context(request.user, active_tab="personal")
-    if not setting and not accessible_corporation_ids:
+    if not include_self_requests and not setting and not accessible_corporation_ids:
         context = {"requests": []}
         context.update(nav_context)
         if auto_open_chat_id:
             context["auto_open_chat_id"] = auto_open_chat_id
+        context["include_self_requests"] = include_self_requests
         return render(request, "indy_hub/bp_copy_fulfill_requests.html", context)
 
     my_bps_qs = Blueprint.objects.filter(
@@ -2864,7 +2884,7 @@ def bp_copy_fulfill_requests(request):
         "self_request": {
             "label": _("Your tracked request"),
             "badge": "bg-secondary text-white",
-            "hint": "",
+            "hint": _("Simulation view: actions are disabled for your own requests."),
         },
     }
 
@@ -2877,8 +2897,12 @@ def bp_copy_fulfill_requests(request):
         "offer_rejected": 0,
     }
 
-    if not accessible_blueprints:
-        context = {"requests": [], "metrics": metrics}
+    if not accessible_blueprints and not include_self_requests:
+        context = {
+            "requests": [],
+            "metrics": metrics,
+            "include_self_requests": include_self_requests,
+        }
         context.update(nav_context)
         return render(request, "indy_hub/bp_copy_fulfill_requests.html", context)
 
@@ -2892,8 +2916,12 @@ def bp_copy_fulfill_requests(request):
             time_efficiency=bp.time_efficiency,
         )
 
-    if not has_filters:
-        context = {"requests": [], "metrics": metrics}
+    if not has_filters and not include_self_requests:
+        context = {
+            "requests": [],
+            "metrics": metrics,
+            "include_self_requests": include_self_requests,
+        }
         context.update(nav_context)
         return render(request, "indy_hub/bp_copy_fulfill_requests.html", context)
 
@@ -3005,12 +3033,25 @@ def bp_copy_fulfill_requests(request):
         corp_name_cache[corp_id] = corp_name or str(corp_id)
         return corp_name_cache[corp_id]
 
+    if has_filters:
+        base_qs = BlueprintCopyRequest.objects.filter(q)
+        if include_self_requests:
+            # Also include user's own requests even if they don't match blueprints
+            base_qs = BlueprintCopyRequest.objects.filter(
+                q | Q(requested_by=request.user)
+            )
+    else:
+        base_qs = BlueprintCopyRequest.objects.filter(requested_by=request.user)
+
+    state_filter = Q(fulfilled=False) | Q(
+        fulfilled=True, delivered=False, offers__owner=request.user
+    )
+
+    if include_self_requests:
+        state_filter = state_filter | Q(requested_by=request.user, delivered=False)
+
     qset = (
-        BlueprintCopyRequest.objects.filter(q)
-        .filter(
-            Q(fulfilled=False)
-            | Q(fulfilled=True, delivered=False, offers__owner=request.user)
-        )
+        base_qs.filter(state_filter)
         .select_related("requested_by")
         .prefetch_related("offers__owner", "offers__chat")
         .order_by("-created_at")
@@ -3056,14 +3097,17 @@ def bp_copy_fulfill_requests(request):
             eligible_corporation_entries
         )
 
-        is_self_request = req.requested_by_id == request.user.id
+        # Temporarily set, will be refined after determining source types
+        is_self_request_preliminary = req.requested_by_id == request.user.id
 
         if req.fulfilled and (req.delivered or not my_offer):
             # Already delivered or fulfilled by someone else
-            continue
+            # But allow viewing own requests if include_self is enabled
+            if not (is_self_request_preliminary and include_self_requests):
+                continue
 
         if my_offer and my_offer.status == "rejected":
-            # Player already declined this request; hide from their fulfill queue
+            # Never show rejected offers in the fulfill queue.
             continue
 
         status_key = "awaiting_response"
@@ -3145,8 +3189,10 @@ def bp_copy_fulfill_requests(request):
         if not has_active_personal_jobs and req.type_id in personal_active_type_ids:
             has_active_personal_jobs = True
 
+        # Skip if no matching blueprints, unless it's a self-request in include mode
         if corporate_count == 0 and personal_count == 0:
-            continue
+            if not (is_self_request_preliminary and include_self_requests):
+                continue
 
         if personal_sources:
             eligible_character_entries = [
@@ -3156,7 +3202,11 @@ def bp_copy_fulfill_requests(request):
             ]
 
         if corporate_count == 0:
-            if can_manage_corporate and not has_active_personal_jobs:
+            if (
+                can_manage_corporate
+                and not has_active_personal_jobs
+                and not (is_self_request_preliminary and include_self_requests)
+            ):
                 continue
             show_personal_sources = True
         else:
@@ -3172,11 +3222,17 @@ def bp_copy_fulfill_requests(request):
 
         total_sources = corporate_count + displayed_personal_count
         if total_sources == 0:
-            continue
+            if not (is_self_request_preliminary and include_self_requests):
+                continue
 
         has_dual_sources = displayed_personal_count > 0 and corporate_count > 0
         default_scope = "corporation" if corporate_count else "personal"
         is_corporate_source = corporate_count > 0
+
+        # Determine if this is truly a self-request (can auto-accept via personal BPs)
+        # Only disable actions if user requested AND has personal BPs to fulfill it
+        # If fulfillment is only via corporate BPs, allow actions even if it's user's request
+        is_self_request = is_self_request_preliminary and displayed_personal_count > 0
 
         corp_info = corporate_occupancy_map.get(key)
 
@@ -3211,7 +3267,8 @@ def bp_copy_fulfill_requests(request):
                 for member_id in corp_members
             ):
                 # Another authorised manager already declined on behalf of the corporation
-                continue
+                if not (is_self_request_preliminary and include_self_requests):
+                    continue
 
         if is_self_request:
             status_key = "self_request"
@@ -3257,8 +3314,9 @@ def bp_copy_fulfill_requests(request):
         show_offer_actions = status_key in {
             "awaiting_response",
             "offer_rejected",
-            "self_request",
         }
+        if is_self_request:
+            show_offer_actions = False
 
         offer_chat_payload = None
         if my_offer and my_offer.status == "conditional":
@@ -3366,7 +3424,11 @@ def bp_copy_fulfill_requests(request):
             }
         )
 
-    context = {"requests": requests_to_fulfill, "metrics": metrics}
+    context = {
+        "requests": requests_to_fulfill,
+        "metrics": metrics,
+        "include_self_requests": include_self_requests,
+    }
     if auto_open_chat_id:
         context["auto_open_chat_id"] = auto_open_chat_id
     context.update(nav_context)
@@ -3505,6 +3567,13 @@ def _process_offer_action(
 def bp_offer_copy_request(request, request_id):
     """Handle offering to fulfill a blueprint copy request."""
     req = get_object_or_404(BlueprintCopyRequest, id=request_id, fulfilled=False)
+    if req.requested_by_id == request.user.id:
+        messages.error(request, _("You cannot make an offer on your own request."))
+        return redirect("indy_hub:bp_copy_fulfill_requests")
+
+    if not _user_can_fulfill_request(req, request.user):
+        messages.error(request, _("You are not allowed to fulfill this request."))
+        return redirect("indy_hub:bp_copy_fulfill_requests")
     action = request.POST.get("action")
     message = request.POST.get("message", "").strip()
     handled = _process_offer_action(
@@ -3642,6 +3711,10 @@ def bp_buyer_accept_offer(request, offer_id):
     """Allow buyer to accept a conditional offer."""
     offer = get_object_or_404(BlueprintCopyOffer, id=offer_id, status="conditional")
 
+    if offer.request.requested_by_id != request.user.id:
+        messages.error(request, _("Only the requester can accept this offer."))
+        return redirect("indy_hub:bp_copy_request_page")
+
     if (
         offer.accepted_by_buyer
         and offer.accepted_by_seller
@@ -3691,6 +3764,14 @@ def bp_buyer_accept_offer(request, offer_id):
 def bp_accept_copy_request(request, request_id):
     """Accept a blueprint copy request and notify requester."""
     req = get_object_or_404(BlueprintCopyRequest, id=request_id, fulfilled=False)
+
+    if req.requested_by_id == request.user.id:
+        messages.error(request, _("You cannot accept your own request."))
+        return redirect("indy_hub:bp_copy_fulfill_requests")
+
+    if not _user_can_fulfill_request(req, request.user):
+        messages.error(request, _("You are not allowed to accept this request."))
+        return redirect("indy_hub:bp_copy_fulfill_requests")
     req.fulfilled = True
     req.fulfilled_at = timezone.now()
     req.save()
@@ -3717,6 +3798,14 @@ def bp_accept_copy_request(request, request_id):
 def bp_cond_copy_request(request, request_id):
     """Send conditional acceptance message for a blueprint copy request."""
     req = get_object_or_404(BlueprintCopyRequest, id=request_id, fulfilled=False)
+
+    if req.requested_by_id == request.user.id:
+        messages.error(request, _("You cannot respond to your own request."))
+        return redirect("indy_hub:bp_copy_fulfill_requests")
+
+    if not _user_can_fulfill_request(req, request.user):
+        messages.error(request, _("You are not allowed to respond to this request."))
+        return redirect("indy_hub:bp_copy_fulfill_requests")
     message = request.POST.get("message", "").strip()
     if message:
         my_requests_url = request.build_absolute_uri(
@@ -3742,6 +3831,14 @@ def bp_cond_copy_request(request, request_id):
 def bp_reject_copy_request(request, request_id):
     """Reject a blueprint copy request and notify requester."""
     req = get_object_or_404(BlueprintCopyRequest, id=request_id, fulfilled=False)
+
+    if req.requested_by_id == request.user.id:
+        messages.error(request, _("You cannot reject your own request here."))
+        return redirect("indy_hub:bp_copy_fulfill_requests")
+
+    if not _user_can_fulfill_request(req, request.user):
+        messages.error(request, _("You are not allowed to reject this request."))
+        return redirect("indy_hub:bp_copy_fulfill_requests")
     my_requests_url = request.build_absolute_uri(
         reverse("indy_hub:bp_copy_my_requests")
     )
@@ -3805,6 +3902,27 @@ def bp_mark_copy_delivered(request, request_id):
     req = get_object_or_404(
         BlueprintCopyRequest, id=request_id, fulfilled=True, delivered=False
     )
+
+    offer = (
+        req.offers.filter(owner=request.user, status__in=["accepted", "conditional"])
+        .select_related("request")
+        .first()
+    )
+    if not offer:
+        messages.error(
+            request, _("You do not have an accepted offer for this request.")
+        )
+        return redirect("indy_hub:bp_copy_fulfill_requests")
+
+    if offer.status == "conditional" and not (
+        offer.accepted_by_buyer and offer.accepted_by_seller
+    ):
+        messages.error(
+            request,
+            _("You must finalize the conditional offer before marking delivered."),
+        )
+        return redirect("indy_hub:bp_copy_fulfill_requests")
+
     req.delivered = True
     req.delivered_at = timezone.now()
     req.save()

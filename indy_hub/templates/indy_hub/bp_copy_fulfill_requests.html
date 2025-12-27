@@ -53,15 +53,33 @@
                 </div>
             </div>
         </section>
+
         <section class="glass-panel mb-4 p-4">
             <div class="d-flex flex-column flex-lg-row align-items-start align-items-lg-center justify-content-between gap-3 mb-3">
                 <div>
                     <h2 class="h5 mb-1 d-flex align-items-center gap-2">
-                        <i class="fas fa-route text-primary"></i>{% trans "Fulfilment playbook" %}
+                        <i class="fas fa-route text-primary"></i>{% trans "Fulfillment playbook" %}
                     </h2>
                     <p class="text-muted small mb-0">{% trans "Stay on top of requests, respond clearly, and close the loop with delivery confirmations." %}</p>
                 </div>
-                <div class="ms-lg-auto d-flex align-items-center">
+                <div class="ms-lg-auto d-flex align-items-center gap-3">
+                    <form method="get" class="d-inline-flex align-items-center gap-2">
+                        <div class="form-check form-switch m-0">
+                            <input
+                                class="form-check-input"
+                                type="checkbox"
+                                role="switch"
+                                id="includeSelfToggle"
+                                name="include_self"
+                                value="1"
+                                {% if include_self_requests %}checked{% endif %}
+                                onchange="this.form.submit()"
+                            >
+                            <label class="form-check-label small text-nowrap" for="includeSelfToggle">
+                                <i class="fas fa-eye me-1"></i>{% trans "Show my requests" %}
+                            </label>
+                        </div>
+                    </form>
                     <button
                         type="button"
                         class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-2 collapse-toggle"
@@ -302,6 +320,12 @@
 
                     <div class="bp-request-card__secondary">
                         <p class="bp-request-card__status-hint text-muted small mb-0">{{ req.status_hint }}</p>
+                        {% if req.is_self_request %}
+                        <div class="alert alert-secondary d-flex align-items-center gap-2 py-2 px-3 mb-3">
+                            <i class="fas fa-eye"></i>
+                            <span class="small">{% trans "Simulation mode: you can view your own request here, but actions are disabled." %}</span>
+                        </div>
+                        {% endif %}
 
                         {% if req.all_copies_busy %}
                         <div class="alert bg-danger border-danger text-white py-2 px-3 small mb-0">
@@ -413,6 +437,7 @@
                                 </div>
                                 {% include "indy_hub/includes/chat_preview.html" with preview=req.chat_preview %}
                             {% else %}
+                                {% if req.show_offer_actions or req.can_mark_delivered or req.chat %}
                                 <div class="bp-card-toolbar">
                                     {% if req.show_offer_actions %}
                                         {% if req.has_dual_sources %}
@@ -558,9 +583,11 @@
                                             {% blocktrans with timestamp=req.chat.last_message_display %}Last message {{ timestamp }}{% endblocktrans %}
                                         </span>
                                         {% endif %}
+                                        {% include "indy_hub/includes/chat_preview.html" with preview=req.chat_preview %}
                                     </div>
                                     {% endif %}
                                 </div>
+                                {% endif %}
 
                                 {% if req.show_offer_actions %}
                                 <div class="collapse bp-card-toolbar__collapse" id="{{ req.conditional_collapse_id }}">
@@ -582,8 +609,6 @@
                                     </form>
                                 </div>
                                 {% endif %}
-
-                                {% include "indy_hub/includes/chat_preview.html" with preview=req.chat_preview %}
                             {% endif %}
                         </div>
                     </div>
@@ -597,10 +622,23 @@
             <div class="card-body text-center py-5">
                 <span class="bp-request-empty__icon"><i class="fas fa-smile"></i></span>
                 <h2 class="h4 mt-3">{% trans "You're all caught up" %}</h2>
-                <p class="text-muted small mb-4">{% trans "There are no copy requests matching your shared originals right now." %}</p>
-                <a href="{% url 'indy_hub:bp_copy_request_page' %}" class="btn btn-outline-primary btn-sm">
-                    <i class="fas fa-copy me-1"></i>{% trans "Browse community requests" %}
-                </a>
+                <p class="text-muted small mb-4">
+                    {% if include_self_requests %}
+                        {% trans "There are no copy requests matching your shared originals or your own asks right now." %}
+                    {% else %}
+                        {% trans "There are no copy requests matching your shared originals right now." %}
+                    {% endif %}
+                </p>
+                <div class="d-flex justify-content-center gap-2">
+                    <a href="{% url 'indy_hub:bp_copy_request_page' %}" class="btn btn-outline-primary btn-sm">
+                        <i class="fas fa-copy me-1"></i>{% trans "Browse community requests" %}
+                    </a>
+                    {% if not include_self_requests %}
+                    <a href="{% url 'indy_hub:bp_copy_fulfill_requests' %}?include_self=1" class="btn btn-primary btn-sm">
+                        <i class="fas fa-eye me-1"></i>{% trans "Show my requests too" %}
+                    </a>
+                    {% endif %}
+                </div>
             </div>
         </section>
         {% endif %}
@@ -612,7 +650,7 @@
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h6 class="modal-title mb-0" data-scope-title data-default-title="{% trans 'Select a fulfilment source' %}">{% trans "Select a fulfilment source" %}</h6>
+                    <h6 class="modal-title mb-0" data-scope-title data-default-title="{% trans 'Select a fulfillment source' %}">{% trans "Select a fulfillment source" %}</h6>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
                 </div>
                 <div class="modal-body">
@@ -690,7 +728,9 @@
                         collapse.show();
                     }
                 } catch (error) {
-                    console.warn('Unable to access localStorage for collapse toggle.', error);
+                    if (window.INDY_HUB_DEBUG) {
+                        console.warn('Unable to access localStorage for collapse toggle.', error);
+                    }
                 }
             }
 
@@ -713,7 +753,9 @@
                     try {
                         localStorage.setItem(storageKey, 'expanded');
                     } catch (error) {
-                        console.warn('Unable to persist collapse state.', error);
+                        if (window.INDY_HUB_DEBUG) {
+                            console.warn('Unable to persist collapse state.', error);
+                        }
                     }
                 }
                 syncState();
@@ -724,7 +766,9 @@
                     try {
                         localStorage.setItem(storageKey, 'collapsed');
                     } catch (error) {
-                        console.warn('Unable to persist collapse state.', error);
+                        if (window.INDY_HUB_DEBUG) {
+                            console.warn('Unable to persist collapse state.', error);
+                        }
                     }
                 }
                 syncState();

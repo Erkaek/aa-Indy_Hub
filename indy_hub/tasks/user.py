@@ -92,6 +92,7 @@ def sync_user_character_names():
     Useful when character names change in EVE Online.
     """
     from ..utils import batch_cache_character_names
+    from ..utils.eve import get_character_name
 
     # Get all unique character IDs from blueprints and jobs
     bp_char_ids = set(
@@ -112,20 +113,46 @@ def sync_user_character_names():
         # Batch update character names
         batch_cache_character_names(all_char_ids)
 
-        # Update blueprints with empty character names
-        for bp in Blueprint.objects.filter(
-            character_name="", character_id__in=all_char_ids
-        ):
-            bp.refresh_from_db()
+        updated_blueprints = 0
+        bp_qs = Blueprint.objects.filter(character_id__in=all_char_ids).only(
+            "id", "character_id", "character_name"
+        )
+        for bp in bp_qs.iterator():
+            if not bp.character_id:
+                continue
+            new_name = get_character_name(bp.character_id)
+            if new_name and new_name != bp.character_name:
+                bp.character_name = new_name
+                bp.save(update_fields=["character_name"])
+                updated_blueprints += 1
 
-        # Update jobs with empty character names
-        for job in IndustryJob.objects.filter(
-            character_name="", character_id__in=all_char_ids
-        ):
-            job.refresh_from_db()
+        updated_jobs = 0
+        job_qs = IndustryJob.objects.filter(character_id__in=all_char_ids).only(
+            "id", "character_id", "character_name"
+        )
+        for job in job_qs.iterator():
+            if not job.character_id:
+                continue
+            new_name = get_character_name(job.character_id)
+            if new_name and new_name != job.character_name:
+                job.character_name = new_name
+                job.save(update_fields=["character_name"])
+                updated_jobs += 1
 
-    logger.info(f"Updated character names for {len(all_char_ids)} characters")
-    return {"characters_updated": len(all_char_ids)}
+        logger.info(
+            "Updated character names for %s characters (%s blueprints, %s jobs)",
+            len(all_char_ids),
+            updated_blueprints,
+            updated_jobs,
+        )
+        return {
+            "characters_considered": len(all_char_ids),
+            "blueprints_updated": updated_blueprints,
+            "jobs_updated": updated_jobs,
+        }
+
+    logger.info("Updated character names for 0 characters")
+    return {"characters_considered": 0, "blueprints_updated": 0, "jobs_updated": 0}
 
 
 @shared_task

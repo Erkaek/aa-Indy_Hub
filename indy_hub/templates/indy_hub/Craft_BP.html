@@ -100,6 +100,7 @@
                                 </button>
                             </div>
                             <form id="blueprint-control-form" class="hero-form d-flex flex-column gap-3" method="get" action="">
+                                {% csrf_token %}
                                 <div class="input-group input-group-sm">
                                     <span class="input-group-text fw-semibold"><i class="fas fa-sync-alt me-1"></i>{% trans "Runs" %}</span>
                                     <input type="number" min="1" name="runs" id="runsInput" value="{{ num_runs|default:1 }}" class="form-control">

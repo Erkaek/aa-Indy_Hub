@@ -54,8 +54,8 @@ from ..tasks.industry import (
     CORP_ROLES_SCOPE,
     MANUAL_REFRESH_KIND_BLUEPRINTS,
     MANUAL_REFRESH_KIND_JOBS,
+    MATERIAL_EXCHANGE_SCOPE_SET,
     REQUIRED_CORPORATION_ROLES,
-    get_character_corporation_roles,
     request_manual_refresh,
 )
 from ..utils.eve import get_character_name, get_corporation_name, get_type_name
@@ -124,6 +124,51 @@ JOBS_SCOPE = "esi-industry.read_character_jobs.v1"
 STRUCTURE_SCOPE = "esi-universe.read_structures.v1"
 BLUEPRINT_SCOPE_SET = [BLUEPRINT_SCOPE, STRUCTURE_SCOPE]
 JOBS_SCOPE_SET = [JOBS_SCOPE, STRUCTURE_SCOPE]
+
+
+def _fetch_character_corporation_roles_with_token(token_obj: Token) -> set[str]:
+    """Fetch corporation roles using a specific token instead of Token.get_token()."""
+    # Third Party
+    import requests
+
+    try:
+        access_token = token_obj.valid_access_token()
+    except Exception as exc:
+        raise ESITokenError(
+            f"No valid access token for character {token_obj.character_id}"
+        ) from exc
+
+    url = f"https://esi.evetech.net/latest/characters/{token_obj.character_id}/roles/"
+    headers = {"Authorization": f"Bearer {access_token}"}
+    params = {"datasource": "tranquility"}
+
+    response = None
+    try:
+        response = requests.get(url, headers=headers, params=params, timeout=30)
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        if response and response.status_code in (401, 403):
+            raise ESITokenError(
+                f"Token validation failed for character {token_obj.character_id}"
+            ) from exc
+        raise ESIClientError(
+            f"ESI request failed for character {token_obj.character_id} roles"
+        ) from exc
+
+    payload = response.json()
+    if not isinstance(payload, dict):
+        raise ESIClientError(
+            f"ESI roles endpoint returned unexpected payload type: {type(payload)}"
+        )
+
+    collected: set[str] = set()
+    for key in ("roles", "roles_at_hq", "roles_at_base", "roles_at_other"):
+        role_list = payload.get(key) or []
+        for role in role_list:
+            if role:
+                collected.add(str(role).upper())
+
+    return collected
 
 
 def _build_corporation_authorization_summary(
@@ -276,8 +321,10 @@ def _collect_corporation_scope_status(
         if not blueprint_token and not jobs_token:
             continue
 
+        # Use the selected token directly to avoid Token.get_token() finding wrong token
+        token_to_use = blueprint_token or jobs_token
         try:
-            roles = get_character_corporation_roles(character_id)
+            roles = _fetch_character_corporation_roles_with_token(token_to_use)
         except ESITokenError:
             logger.info(
                 "Character %s lacks corporation roles scope for corporation %s",
@@ -1431,6 +1478,14 @@ def token_management(request):
         if can_manage_corp and CallbackRedirect
         else None
     )
+    can_manage_material_exchange = request.user.has_perm(
+        "indy_hub.can_manage_material_exchange"
+    )
+    material_exchange_auth_url = (
+        reverse("indy_hub:authorize_material_exchange")
+        if can_manage_material_exchange and CallbackRedirect
+        else None
+    )
     user_chars = []
     ownerships = CharacterOwnership.objects.filter(user=request.user)
     for ownership in ownerships:
@@ -1517,6 +1572,8 @@ def token_management(request):
         "corp_blueprint_auth_url": corp_blueprint_auth_url,
         "corp_jobs_auth_url": corp_jobs_auth_url,
         "corp_all_auth_url": corp_all_auth_url,
+        "material_exchange_auth_url": material_exchange_auth_url,
+        "can_manage_material_exchange": can_manage_material_exchange,
         "corp_count": len(corp_scope_status),
         "corp_blueprint_scope_count": sum(
             1 for status in corp_scope_status if status["blueprint"]["has_scope"]
@@ -1772,6 +1829,53 @@ def authorize_corp_all(request):
     except Exception as e:
         logger.error(f"Error creating corporation authorization: {e}")
         messages.error(request, f"Error setting up corporation authorization: {e}")
+        return redirect("indy_hub:token_management")
+
+
+@indy_hub_access_required
+@login_required
+def authorize_material_exchange(request):
+    if not request.user.has_perm("indy_hub.can_manage_material_exchange"):
+        messages.error(
+            request, "You do not have permission to manage Material Exchange."
+        )
+        return redirect("indy_hub:token_management")
+    if not CallbackRedirect:
+        messages.error(request, "ESI module not available")
+        return redirect("indy_hub:token_management")
+    try:
+        if not request.session.session_key:
+            request.session.create()
+        CallbackRedirect.objects.filter(
+            session_key=request.session.session_key
+        ).delete()
+        state = f"indy_hub_material_exchange_{secrets.token_urlsafe(8)}"
+        CallbackRedirect.objects.create(
+            session_key=request.session.session_key,
+            url=reverse("indy_hub:token_management"),
+            state=state,
+        )
+        callback_url = getattr(
+            settings, "ESI_SSO_CALLBACK_URL", "http://localhost:8000/sso/callback/"
+        )
+        client_id = getattr(settings, "ESI_SSO_CLIENT_ID", "")
+        scope_set = sorted(MATERIAL_EXCHANGE_SCOPE_SET)
+        params = {
+            "response_type": "code",
+            "redirect_uri": callback_url,
+            "client_id": client_id,
+            "scope": " ".join(scope_set),
+            "state": state,
+        }
+        auth_url = (
+            f"https://login.eveonline.com/v2/oauth/authorize/?{urlencode(params)}"
+        )
+        return redirect(auth_url)
+    except Exception as e:
+        logger.error(f"Error creating Material Exchange authorization: {e}")
+        messages.error(
+            request, f"Error setting up Material Exchange authorization: {e}"
+        )
         return redirect("indy_hub:token_management")
 
 

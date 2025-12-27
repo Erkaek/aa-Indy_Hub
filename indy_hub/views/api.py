@@ -13,8 +13,9 @@ import requests
 
 # Django
 from django.contrib.auth.decorators import login_required
+from django.core.cache import cache
 from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
+from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
 # Local
@@ -89,14 +90,24 @@ def health_check(request):
     from ..models import Blueprint, IndustryJob
 
     try:
-        # Basic database connectivity check
-        blueprint_count = Blueprint.objects.count()
-        job_count = IndustryJob.objects.count()
+        # Basic database connectivity check.
+        # Avoid heavy table counts on every probe: cache briefly.
+        cache_ttl_seconds = 60
+        blueprint_count = cache.get("indy_hub.health.blueprint_count")
+        job_count = cache.get("indy_hub.health.job_count")
+        if blueprint_count is None:
+            blueprint_count = Blueprint.objects.count()
+            cache.set(
+                "indy_hub.health.blueprint_count", blueprint_count, cache_ttl_seconds
+            )
+        if job_count is None:
+            job_count = IndustryJob.objects.count()
+            cache.set("indy_hub.health.job_count", job_count, cache_ttl_seconds)
 
         return JsonResponse(
             {
                 "status": "healthy",
-                "timestamp": "2024-01-01T00:00:00Z",  # Would use timezone.now() in real implementation
+                "timestamp": timezone.now().isoformat(),
                 "data": {"blueprints": blueprint_count, "jobs": job_count},
             }
         )
@@ -107,7 +118,6 @@ def health_check(request):
 
 
 @login_required
-@csrf_exempt
 @require_http_methods(["POST"])
 def save_production_config(request):
     """
@@ -302,7 +312,19 @@ def load_production_config(request):
     }
     """
     blueprint_type_id = request.GET.get("blueprint_type_id")
-    runs = int(request.GET.get("runs", 1))
+    runs_param = request.GET.get("runs", 1)
+    try:
+        runs = int(runs_param)
+    except (TypeError, ValueError):
+        return JsonResponse(
+            {"error": "runs must be an integer"},
+            status=400,
+        )
+    if runs < 1:
+        return JsonResponse(
+            {"error": "runs must be >= 1"},
+            status=400,
+        )
 
     if not blueprint_type_id:
         return JsonResponse(

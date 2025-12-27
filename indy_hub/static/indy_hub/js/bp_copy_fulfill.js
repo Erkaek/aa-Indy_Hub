@@ -1,6 +1,24 @@
 (function () {
     "use strict";
 
+    var debugEnabled = Boolean(window.INDY_HUB_DEBUG === true);
+
+    function debugWarn() {
+        if (!debugEnabled) {
+            return;
+        }
+        if (window.console && typeof window.console.warn === "function") {
+            window.console.warn.apply(window.console, arguments);
+        }
+    }
+
+    function __(text) {
+        if (typeof window.gettext === "function") {
+            return window.gettext(text);
+        }
+        return text;
+    }
+
     function fallbackCopy(value) {
         return new Promise(function (resolve, reject) {
             var textarea = document.createElement("textarea");
@@ -59,8 +77,8 @@
             );
         }
 
-        var successLabel = button.getAttribute("data-copy-success-label") || "Copied!";
-        var errorLabel = button.getAttribute("data-copy-error-label") || "Unable to copy";
+        var successLabel = button.getAttribute("data-copy-success-label") || __("Copied!");
+        var errorLabel = button.getAttribute("data-copy-error-label") || __("Unable to copy");
         var newLabel = isError ? errorLabel : successLabel;
 
         if (icon) {
@@ -176,7 +194,7 @@
             scopeDataCache[scriptId] = data;
             return data;
         } catch (err) {
-            console.warn("[IndyHub] Failed to parse scope options", err);
+            debugWarn("[IndyHub] Failed to parse scope options", err);
             return null;
         }
     }

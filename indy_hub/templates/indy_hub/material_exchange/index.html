@@ -1,0 +1,362 @@
+{% extends "indy_hub/base.html" %}
+{% load i18n %}
+{% load static %}
+{% load humanize %}
+
+{% block page_title %}{% trans "Material Exchange" %}{% endblock page_title %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
+<link rel="stylesheet" href="{% static 'indy_hub/css/blueprints.css' %}">
+<style>
+    .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.4rem 0.8rem;
+        border-radius: 0.25rem;
+        font-weight: 500;
+        font-size: 0.85rem;
+    }
+    
+    .status-pending {
+        background-color: #ffc107;
+        color: #000;
+    }
+    
+    .status-approved {
+        background-color: #17a2b8;
+        color: #fff;
+    }
+    
+    .status-paid {
+        background-color: #0d6efd;
+        color: #fff;
+    }
+    
+    .status-completed {
+        background-color: #198754;
+        color: #fff;
+    }
+    
+    .status-rejected {
+        background-color: #dc3545;
+        color: #fff;
+    }
+    
+    .status-cancelled {
+        background-color: #6c757d;
+        color: #fff;
+    }
+    
+    .status-icon {
+        font-size: 0.9rem;
+    }
+</style>
+{% endblock extra_css %}
+
+{% block content %}
+<main class="bg-body p-4">
+    <div class="container-fluid my-0 bg-body">
+        <div class="page-header mb-4">
+            <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+                <div>
+                    <h2 class="h3 mb-1">
+                        <i class="fas fa-store me-2"></i>
+                        {% trans "Material Exchange" %}
+                    </h2>
+                    <p class="description">{% trans "Corp supply hub for buying and selling materials" %}</p>
+                </div>
+                <div class="d-flex gap-2">
+                    {% if perms.indy_hub.can_manage_material_exchange %}
+                    <a href="{% url 'indy_hub:material_exchange_config' %}" class="btn btn-outline-secondary">
+                        <i class="fas fa-cog me-1"></i>{% trans "Configuration" %}
+                    </a>
+                    {% endif %}
+                    <a href="{% url 'indy_hub:index' %}" class="btn btn-outline-light">
+                        <i class="fas fa-arrow-left me-1"></i>{% trans "Back to Dashboard" %}
+                    </a>
+                </div>
+            </div>
+            <i class="fas fa-store header-bg"></i>
+        </div>
+
+        <!-- Quick Stats -->
+        <div class="row g-3 mb-4">
+            <div class="col-md-3">
+                <div class="glass-panel p-3">
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="flex-shrink-0">
+                            <div class="stat-icon bg-primary text-white">
+                                <i class="fas fa-cubes"></i>
+                            </div>
+                        </div>
+                        <div class="flex-grow-1">
+                            <p class="text-muted small mb-1">{% trans "Items in Stock" %}</p>
+                            <h3 class="h4 mb-0">{{ stock_count|intcomma }}</h3>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="glass-panel p-3">
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="flex-shrink-0">
+                            <div class="stat-icon bg-success text-white">
+                                <i class="fas fa-coins"></i>
+                            </div>
+                        </div>
+                        <div class="flex-grow-1">
+                            <p class="text-muted small mb-1">{% trans "Stock Value" %}</p>
+                            <h3 class="h5 mb-0">{{ total_stock_value|floatformat:0|intcomma }} ISK</h3>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="glass-panel p-3">
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="flex-shrink-0">
+                            <div class="stat-icon bg-warning text-white">
+                                <i class="fas fa-hand-holding-usd"></i>
+                            </div>
+                        </div>
+                        <div class="flex-grow-1">
+                            <p class="text-muted small mb-1">{% trans "Pending Sell Orders" %}</p>
+                            <h3 class="h4 mb-0">{{ pending_sell_orders|intcomma }}</h3>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="glass-panel p-3">
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="flex-shrink-0">
+                            <div class="stat-icon bg-info text-white">
+                                <i class="fas fa-shopping-cart"></i>
+                            </div>
+                        </div>
+                        <div class="flex-grow-1">
+                            <p class="text-muted small mb-1">{% trans "Pending Buy Orders" %}</p>
+                            <h3 class="h4 mb-0">{{ pending_buy_orders|intcomma }}</h3>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Actions -->
+        <div class="row g-3 mb-4">
+            <div class="col-md-4">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body text-center">
+                        <i class="fas fa-hand-holding-usd fa-3x text-success mb-3"></i>
+                        <h5 class="card-title">{% trans "Sell to Hub" %}</h5>
+                        <p class="card-text text-muted">{% trans "Sell your materials to the corp at fair prices based on Jita Buy." %}</p>
+                        <a href="{% url 'indy_hub:material_exchange_sell' %}" class="btn btn-success">
+                            <i class="fas fa-coins me-1"></i>{% trans "Start Selling" %}
+                        </a>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body text-center">
+                        <i class="fas fa-shopping-cart fa-3x text-primary mb-3"></i>
+                        <h5 class="card-title">{% trans "Buy from Hub" %}</h5>
+                        <p class="card-text text-muted">{% trans "Purchase materials from the corp stock without going to Jita." %}</p>
+                        <a href="{% url 'indy_hub:material_exchange_buy' %}" class="btn btn-primary">
+                            <i class="fas fa-shopping-bag me-1"></i>{% trans "Browse Stock" %}
+                        </a>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body text-center">
+                        <i class="fas fa-history fa-3x text-secondary mb-3"></i>
+                        <h5 class="card-title">{% trans "Transaction History" %}</h5>
+                        <p class="card-text text-muted">{% trans "View all completed transactions and monthly reports." %}</p>
+                        <a href="{% url 'indy_hub:material_exchange_transactions' %}" class="btn btn-secondary">
+                            <i class="fas fa-list me-1"></i>{% trans "View History" %}
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {% if perms.indy_hub.can_manage_material_exchange %}
+        <div class="alert alert-info d-flex align-items-center gap-2 mb-4">
+            <i class="fas fa-user-shield fa-lg"></i>
+            <div class="flex-grow-1">
+                {% trans "You have admin permissions for the Material Exchange." %}
+                <a href="{% url 'indy_hub:material_exchange_admin' %}" class="alert-link">{% trans "Go to Admin Dashboard" %}</a>
+            </div>
+        </div>
+        {% else %}
+        <!-- Hidden div for non-admin users - shows they don't have permission -->
+        {% endif %}
+
+        <!-- Your Recent Orders -->
+        <div class="row g-3">
+            <div class="col-md-6">
+                <div class="glass-panel p-4">
+                    <h5 class="mb-3">
+                        <i class="fas fa-hand-holding-usd me-2 text-success"></i>
+                        {% trans "Your Recent Sell Orders" %}
+                    </h5>
+                    {% if user_sell_orders %}
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>{% trans "Items" %}</th>
+                                    <th class="text-end">{% trans "Total Quantity" %}</th>
+                                    <th class="text-end">{% trans "Total" %}</th>
+                                    <th>{% trans "Status" %}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for order in user_sell_orders %}
+                                <tr>
+                                    <td>
+                                        <small>
+                                            {% for item in order.items.all %}
+                                                {{ item.type_name }} ({{ item.quantity|intcomma }}){% if not forloop.last %}, {% endif %}
+                                            {% endfor %}
+                                        </small>
+                                    </td>
+                                    <td class="text-end">{{ order.total_quantity|intcomma }}</td>
+                                    <td class="text-end">{{ order.total_price|floatformat:0|intcomma }} ISK</td>
+                                    <td>
+                                        <div class="status-badge status-{{ order.status }}">
+                                            {% if order.status == 'pending' %}
+                                            <i class="fas fa-hourglass-half status-icon"></i>
+                                            {% elif order.status == 'approved' %}
+                                            <i class="fas fa-check-circle status-icon"></i>
+                                            {% elif order.status == 'paid' %}
+                                            <i class="fas fa-money-bill status-icon"></i>
+                                            {% elif order.status == 'completed' %}
+                                            <i class="fas fa-check status-icon"></i>
+                                            {% elif order.status == 'rejected' %}
+                                            <i class="fas fa-times-circle status-icon"></i>
+                                            {% elif order.status == 'cancelled' %}
+                                            <i class="fas fa-ban status-icon"></i>
+                                            {% endif %}
+                                            <span>{{ order.get_status_display }}</span>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <p class="text-muted text-center py-3">{% trans "No sell orders yet." %}</p>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="glass-panel p-4">
+                    <h5 class="mb-3">
+                        <i class="fas fa-shopping-cart me-2 text-primary"></i>
+                        {% trans "Your Recent Buy Orders" %}
+                    </h5>
+                    {% if user_buy_orders %}
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>{% trans "Items" %}</th>
+                                    <th class="text-end">{% trans "Total Quantity" %}</th>
+                                    <th class="text-end">{% trans "Total" %}</th>
+                                    <th>{% trans "Status" %}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for order in user_buy_orders %}
+                                <tr>
+                                    <td>
+                                        <small>
+                                            {% for item in order.items.all %}
+                                                {{ item.type_name }} ({{ item.quantity|intcomma }}){% if not forloop.last %}, {% endif %}
+                                            {% endfor %}
+                                        </small>
+                                    </td>
+                                    <td class="text-end">{{ order.total_quantity|intcomma }}</td>
+                                    <td class="text-end">{{ order.total_price|floatformat:0|intcomma }} ISK</td>
+                                    <td>
+                                        <div class="status-badge status-{{ order.status }}">
+                                            {% if order.status == 'pending' %}
+                                            <i class="fas fa-hourglass-half status-icon"></i>
+                                            {% elif order.status == 'approved' %}
+                                            <i class="fas fa-check-circle status-icon"></i>
+                                            {% elif order.status == 'delivered' %}
+                                            <i class="fas fa-shipping-fast status-icon"></i>
+                                            {% elif order.status == 'completed' %}
+                                            <i class="fas fa-check status-icon"></i>
+                                            {% elif order.status == 'rejected' %}
+                                            <i class="fas fa-times-circle status-icon"></i>
+                                            {% elif order.status == 'cancelled' %}
+                                            <i class="fas fa-ban status-icon"></i>
+                                            {% endif %}
+                                            <span>{{ order.get_status_display }}</span>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <p class="text-muted text-center py-3">{% trans "No buy orders yet." %}</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Recent Hub Transactions -->
+        {% if recent_transactions %}
+        <div class="glass-panel p-4 mt-4">
+            <h5 class="mb-3">
+                <i class="fas fa-exchange-alt me-2"></i>
+                {% trans "Recent Hub Activity" %}
+            </h5>
+            <div class="table-responsive">
+                <table class="table table-sm table-hover">
+                    <thead class="table-light">
+                        <tr>
+                            <th>{% trans "Type" %}</th>
+                            <th>{% trans "User" %}</th>
+                            <th>{% trans "Material" %}</th>
+                            <th class="text-end">{% trans "Quantity" %}</th>
+                            <th class="text-end">{% trans "Value" %}</th>
+                            <th>{% trans "Date" %}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for tx in recent_transactions %}
+                        <tr>
+                            <td>
+                                {% if tx.transaction_type == 'sell' %}
+                                <span class="badge bg-success">{% trans "Sell" %}</span>
+                                {% else %}
+                                <span class="badge bg-primary">{% trans "Buy" %}</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ tx.user.username }}</td>
+                            <td>{{ tx.type_name }}</td>
+                            <td class="text-end">{{ tx.quantity|intcomma }}</td>
+                            <td class="text-end">{{ tx.total_price|floatformat:0|intcomma }} ISK</td>
+                            <td>{{ tx.completed_at|date:"Y-m-d H:i" }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+
+    </div>
+</main>
+{% endblock content %}

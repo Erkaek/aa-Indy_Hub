@@ -1,5 +1,20 @@
 (function () {
-    console.log('[IndyHub] bp_copy_chat.js loaded');
+    var debugEnabled = (typeof window !== 'undefined' && window.INDY_HUB_DEBUG === true);
+    function debugLog() {
+        if (!debugEnabled || typeof console === 'undefined' || typeof console.debug !== 'function') {
+            return;
+        }
+        console.debug.apply(console, arguments);
+    }
+
+    function __(message) {
+        if (typeof window !== 'undefined' && typeof window.gettext === 'function') {
+            return window.gettext(message);
+        }
+        return message;
+    }
+
+    debugLog('[IndyHub] bp_copy_chat.js loaded');
     function $(arg1, arg2) {
         if (typeof arg1 === 'string') {
             return (arg2 || document).querySelector(arg1);
@@ -11,77 +26,7 @@
     }
 
     function ensureModalElement() {
-        var existing = document.querySelector('[data-chat-modal]');
-        if (existing) {
-            return existing;
-        }
-
-        var fallback = document.createElement('div');
-        fallback.className = 'modal fade';
-        fallback.id = 'bpChatModal';
-        fallback.tabIndex = -1;
-        fallback.setAttribute('aria-hidden', 'true');
-        fallback.setAttribute('data-chat-modal', '');
-        fallback.setAttribute('data-chat-fallback', 'true');
-        fallback.innerHTML = [
-            '<div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">',
-            '  <div class="modal-content">',
-            '    <div class="modal-header">',
-            '      <h5 class="modal-title mb-0">',
-            '        <i class="fas fa-comments me-2"></i>Conditional offer chat',
-            '      </h5>',
-            '      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>',
-            '    </div>',
-            '    <div class="modal-body">',
-            '      <div class="bp-chat-summary small text-muted mb-3" data-chat-summary></div>',
-            '      <div class="alert alert-warning d-none" role="status" data-chat-status></div>',
-            '      <div class="bp-chat-message-list" data-chat-messages></div>',
-            '      <div class="bp-chat-actions alert alert-secondary d-none mt-3" data-chat-actions>',
-            '        <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2">',
-            '          <div class="small" data-chat-action-status></div>',
-            '          <div class="d-flex flex-wrap gap-2">',
-            '            <button type="button" class="btn btn-success btn-sm" data-chat-accept>',
-            '              <i class="fas fa-check me-1"></i>Accept',
-            '            </button>',
-            '            <button type="button" class="btn btn-outline-danger btn-sm" data-chat-reject>',
-            '              <i class="fas fa-times me-1"></i>Reject',
-            '            </button>',
-            '          </div>',
-            '        </div>',
-            '      </div>',
-            '    </div>',
-            '    <div class="modal-footer">',
-            '      <form class="bp-chat-form d-flex w-100 gap-2" data-chat-form>',
-            '        <input type="hidden" name="csrfmiddlewaretoken" value="">',
-            '        <div class="flex-grow-1">',
-            '          <label for="bpChatInput" class="visually-hidden">Message</label>',
-            '          <textarea',
-            '            id="bpChatInput"',
-            '            class="form-control"',
-            '            rows="2"',
-            '            maxlength="2000"',
-            '            data-chat-input',
-            '            placeholder="Type your message..."',
-            '            required',
-            '          ></textarea>',
-            '        </div>',
-            '        <button type="submit" class="btn btn-primary">',
-            '          <i class="fas fa-paper-plane me-1"></i>Send',
-            '        </button>',
-            '      </form>',
-            '    </div>',
-            '  </div>',
-            '</div>'
-        ].join('');
-        document.body.appendChild(fallback);
-
-        var fallbackCsrf = fallback.querySelector('input[name="csrfmiddlewaretoken"]');
-        if (fallbackCsrf && typeof window !== 'undefined' && window.csrfToken) {
-            fallbackCsrf.value = window.csrfToken;
-        }
-
-        console.warn('[IndyHub] Injected fallback chat modal markup');
-        return fallback;
+        return document.querySelector('[data-chat-modal]');
     }
 
     function createEl(tag, className, text) {
@@ -127,7 +72,7 @@
     function init() {
         var modalEl = ensureModalElement();
         if (!modalEl) {
-            console.log('[IndyHub] No chat modal found on page');
+            debugLog('[IndyHub] No chat modal found on page');
         }
         if (!modalEl) {
             return;
@@ -283,10 +228,10 @@
             sendUrl: null,
             viewerRole: 'buyer',
             labels: {
-                buyer: 'Buyer',
-                seller: 'Builder',
-                system: 'System',
-                you: 'You'
+                buyer: __('Buyer'),
+                seller: __('Builder'),
+                system: __('System'),
+                you: __('You')
             },
             typeName: '',
             typeId: null,
@@ -382,7 +327,7 @@
                 return;
             }
 
-            var typeName = payload.chat.type_name || state.typeName || 'Blueprint';
+            var typeName = payload.chat.type_name || state.typeName || __('Blueprint');
             var typeId = payload.chat.type_id || state.typeId || null;
             var viewerLabel = state.labels[payload.chat.viewer_role] || payload.chat.viewer_role;
             var otherLabel = state.labels[payload.chat.other_role] || payload.chat.other_role;
@@ -397,12 +342,12 @@
 
             if (!payload.chat.is_open && payload.chat.closed_reason) {
                 var reasonLabels = {
-                    request_closed: window.gettext ? window.gettext('Request closed') : 'Request closed',
-                    offer_accepted: window.gettext ? window.gettext('Offer accepted') : 'Offer accepted',
-                    offer_rejected: window.gettext ? window.gettext('Offer rejected') : 'Offer rejected',
-                    expired: window.gettext ? window.gettext('Expired') : 'Expired',
-                    manual: window.gettext ? window.gettext('Closed') : 'Closed',
-                    reopened: window.gettext ? window.gettext('Reopened') : 'Reopened'
+                    request_closed: __('Request closed'),
+                    offer_accepted: __('Offer accepted'),
+                    offer_rejected: __('Offer rejected'),
+                    expired: __('Expired'),
+                    manual: __('Closed'),
+                    reopened: __('Reopened')
                 };
                 var reasonKey = payload.chat.closed_reason;
                 var closeLabel = reasonLabels[reasonKey] || reasonKey.replace(/_/g, ' ');
@@ -555,10 +500,10 @@
                         return res
                             .json()
                             .catch(function () {
-                                throw new Error('Unable to update decision.');
+                                throw new Error(__('Unable to update decision.'));
                             })
                             .then(function (data) {
-                                var errMsg = data && data.error ? data.error : 'Unable to update decision.';
+                                var errMsg = data && data.error ? data.error : __('Unable to update decision.');
                                 throw new Error(errMsg);
                             });
                     }
@@ -568,7 +513,7 @@
                 })
                 .then(function (result) {
                     if (result && result.request_closed) {
-                        showStatus(window.gettext ? window.gettext('This request has been closed.') : 'This request has been closed.', 'warning');
+                        showStatus(__('This request has been closed.'), 'warning');
                         state.isOpen = false;
                         stopPolling();
                         toggleForm(false);
@@ -576,12 +521,12 @@
                         return null;
                     }
                     return fetchChat().catch(function (err) {
-                        showStatus(err.message || 'Unable to refresh conversation.', 'error');
+                        showStatus(err.message || __('Unable to refresh conversation.'), 'error');
                         return null;
                     });
                 })
                 .catch(function (err) {
-                    showStatus(err.message || 'Unable to update decision.', 'error');
+                    showStatus(err.message || __('Unable to update decision.'), 'error');
                 })
                 .finally(function () {
                     setActionSubmitting(false);
@@ -604,7 +549,7 @@
             if (!payload.chat.can_send) {
                 toggleForm(false);
                 if (!payload.chat.is_open) {
-                    showStatus(window.gettext ? window.gettext('This chat has been closed.') : 'This chat has been closed.', 'warning');
+                    showStatus(__('This chat has been closed.'), 'warning');
                 }
             } else {
                 toggleForm(true);
@@ -625,7 +570,7 @@
 
         function fetchChat() {
             if (!state.fetchUrl) {
-                return Promise.reject(new Error('Missing chat URL'));
+                return Promise.reject(new Error(__('Missing chat URL')));
             }
             var historyUrl = withViewerRole(state.fetchUrl, state.viewerRole);
             return fetch(historyUrl, {
@@ -637,7 +582,7 @@
             })
                 .then(function (res) {
                     if (!res.ok) {
-                        throw new Error('Unable to load chat');
+                        throw new Error(__('Unable to load chat'));
                     }
                     return res.json();
                 })
@@ -646,7 +591,7 @@
                     return data;
                 })
                 .catch(function (err) {
-                    showStatus(err.message || 'Unable to load chat history.', 'error');
+                    showStatus(err.message || __('Unable to load chat history.'), 'error');
                     throw err;
                 });
         }
@@ -687,7 +632,7 @@
                 }
             }
 
-            showStatus(window.gettext ? window.gettext('Loading conversation...') : 'Loading conversation...', 'info');
+            showStatus(__('Loading conversation...'), 'info');
             toggleForm(false);
             clearMessages();
             updateActions(null);
@@ -761,10 +706,10 @@
                 .then(function (res) {
                     if (!res.ok) {
                         return res.json().then(function (data) {
-                            var errMsg = data && data.error ? data.error : 'Message failed to send.';
+                            var errMsg = data && data.error ? data.error : __('Message failed to send.');
                             throw new Error(errMsg);
                         }).catch(function () {
-                            throw new Error('Message failed to send.');
+                            throw new Error(__('Message failed to send.'));
                         });
                     }
                     return res.json();
@@ -778,7 +723,7 @@
                 })
                 .catch(function (err) {
                     toggleForm(true);
-                    showStatus(err.message || 'Message failed to send.', 'error');
+                    showStatus(err.message || __('Message failed to send.'), 'error');
                 });
         });
 
@@ -806,7 +751,7 @@
                 return;
             }
             event.preventDefault();
-            console.log('[IndyHub] Opening chat', trigger.dataset.chatFetchUrl, trigger.dataset.chatSendUrl);
+            debugLog('[IndyHub] Opening chat', trigger.dataset.chatFetchUrl, trigger.dataset.chatSendUrl);
             openChat(trigger);
             if (!useBootstrap) {
                 showModal();
@@ -846,7 +791,7 @@
             }
         }
         state.boundClickListener = true;
-    console.log('[IndyHub] Chat listeners bound');
+        debugLog('[IndyHub] Chat listeners bound');
     }
 
     if (document.readyState === 'loading') {

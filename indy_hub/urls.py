@@ -37,6 +37,28 @@ from .views.industry import (
     preview_job_notification_live,
     production_simulations_list,
 )
+from .views.material_exchange import (
+    material_exchange_admin,
+    material_exchange_approve_buy,
+    material_exchange_approve_sell,
+    material_exchange_buy,
+    material_exchange_complete_buy,
+    material_exchange_complete_sell,
+    material_exchange_index,
+    material_exchange_mark_delivered_buy,
+    material_exchange_reject_buy,
+    material_exchange_reject_sell,
+    material_exchange_sell,
+    material_exchange_sync_prices,
+    material_exchange_sync_stock,
+    material_exchange_transactions,
+    material_exchange_verify_payment_sell,
+)
+from .views.material_exchange_config import (
+    material_exchange_config,
+    material_exchange_get_structures,
+    material_exchange_request_divisions_token,
+)
 from .views.user import (
     authorize_all,
     authorize_blueprints,
@@ -44,6 +66,7 @@ from .views.user import (
     authorize_corp_blueprints,
     authorize_corp_jobs,
     authorize_jobs,
+    authorize_material_exchange,
     corporation_dashboard,
     index,
     onboarding_set_visibility,
@@ -111,6 +134,11 @@ urlpatterns = [
         name="authorize_corp_jobs",
     ),
     path("authorize/corporation/all/", authorize_corp_all, name="authorize_corp_all"),
+    path(
+        "authorize/material-exchange/",
+        authorize_material_exchange,
+        name="authorize_material_exchange",
+    ),
     path("craft/<int:type_id>/", craft_bp, name="craft_bp"),
     path("api/fuzzwork-price/", fuzzwork_price, name="fuzzwork_price"),
     path(
@@ -227,5 +255,96 @@ urlpatterns = [
         "onboarding/visibility/",
         onboarding_set_visibility,
         name="onboarding_set_visibility",
+    ),
+    # Material Exchange
+    path(
+        "material-exchange/",
+        material_exchange_index,
+        name="material_exchange_index",
+    ),
+    path(
+        "material-exchange/config/",
+        material_exchange_config,
+        name="material_exchange_config",
+    ),
+    path(
+        "material-exchange/config/request-divisions-token/",
+        material_exchange_request_divisions_token,
+        name="material_exchange_request_divisions_token",
+    ),
+    path(
+        "material-exchange/api/structures/<int:corp_id>/",
+        material_exchange_get_structures,
+        name="material_exchange_get_structures",
+    ),
+    path(
+        "material-exchange/sell/",
+        material_exchange_sell,
+        name="material_exchange_sell",
+    ),
+    path(
+        "material-exchange/buy/",
+        material_exchange_buy,
+        name="material_exchange_buy",
+    ),
+    path(
+        "material-exchange/sync-stock/",
+        material_exchange_sync_stock,
+        name="material_exchange_sync_stock",
+    ),
+    path(
+        "material-exchange/sync-prices/",
+        material_exchange_sync_prices,
+        name="material_exchange_sync_prices",
+    ),
+    path(
+        "material-exchange/admin/",
+        material_exchange_admin,
+        name="material_exchange_admin",
+    ),
+    path(
+        "material-exchange/transactions/",
+        material_exchange_transactions,
+        name="material_exchange_transactions",
+    ),
+    path(
+        "material-exchange/sell/<int:order_id>/approve/",
+        material_exchange_approve_sell,
+        name="material_exchange_approve_sell",
+    ),
+    path(
+        "material-exchange/sell/<int:order_id>/reject/",
+        material_exchange_reject_sell,
+        name="material_exchange_reject_sell",
+    ),
+    path(
+        "material-exchange/sell/<int:order_id>/verify-payment/",
+        material_exchange_verify_payment_sell,
+        name="material_exchange_verify_payment_sell",
+    ),
+    path(
+        "material-exchange/sell/<int:order_id>/complete/",
+        material_exchange_complete_sell,
+        name="material_exchange_complete_sell",
+    ),
+    path(
+        "material-exchange/buy/<int:order_id>/approve/",
+        material_exchange_approve_buy,
+        name="material_exchange_approve_buy",
+    ),
+    path(
+        "material-exchange/buy/<int:order_id>/reject/",
+        material_exchange_reject_buy,
+        name="material_exchange_reject_buy",
+    ),
+    path(
+        "material-exchange/buy/<int:order_id>/delivered/",
+        material_exchange_mark_delivered_buy,
+        name="material_exchange_mark_delivered_buy",
+    ),
+    path(
+        "material-exchange/buy/<int:order_id>/complete/",
+        material_exchange_complete_buy,
+        name="material_exchange_complete_buy",
     ),
 ]

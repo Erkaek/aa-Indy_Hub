@@ -10,6 +10,8 @@
 {% endblock extra_css %}
 
 {% block content %}
+{% trans "Blueprint" as blueprint_label %}
+{% trans "Unknown Blueprint" as unknown_blueprint_label %}
 <main class="bg-body p-4">
     <div class="container-fluid my-0 bg-body">
         <div class="page-header mb-4">
@@ -77,13 +79,13 @@
                 <div class="blueprint-list-item d-flex flex-wrap align-items-center gap-3">
                     <div class="blueprint-icon flex-shrink-0 me-3">
                         <img src="https://images.evetech.net/types/{{ bp.type_id }}/bp?size=64"
-                            alt="{{ bp.type_name|default:'Blueprint' }}" loading="lazy"
+                            alt="{{ bp.type_name|default:blueprint_label }}" loading="lazy"
                             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
                         <span class="fallback"><i class="fas fa-industry"></i></span>
                     </div>
                     <div class="flex-grow-1 min-width-0 blueprint-list-content">
                         <div class="blueprint-meta mb-0">
-                            <h5 class="blueprint-title mb-0">{{ bp.type_name|default:"Unknown Blueprint" }}</h5>
+                            <h5 class="blueprint-title mb-0">{{ bp.type_name|default:unknown_blueprint_label }}</h5>
                             <a href="{% url 'indy_hub:craft_bp' bp.type_id %}?next={{ request.get_full_path|urlencode }}" class="btn btn-outline-info btn-sm">
                                 <i class="fas fa-tools me-1"></i>{% trans "View Craft" %}
                             </a>
@@ -107,13 +109,13 @@
                 <input type="hidden" name="market_group_id" value="{{ filters.market_group_id }}">
             </form>
             {% if blueprints.has_other_pages %}
-            <nav aria-label="Blueprint pagination">
+            <nav aria-label="{% trans 'Blueprint pagination' %}">
                 <ul class="pagination pagination-sm justify-content-center mb-0 flex-wrap">
                     {% if blueprints.has_previous %}
                     <li class="page-item">
                         <a class="page-link"
                             href="?page={{ blueprints.previous_page_number }}&per_page={{ blueprints.paginator.per_page }}&search={{ filters.search }}&activity_id={{ filters.activity_id }}&market_group_id={{ filters.market_group_id }}&applied=1"
-                            aria-label="Previous">
+                            aria-label="{% trans 'Previous' %}">
                             <span aria-hidden="true">&laquo;</span>
                         </a>
                     </li>
@@ -138,7 +140,7 @@
                     <li class="page-item">
                         <a class="page-link"
                             href="?page={{ blueprints.next_page_number }}&per_page={{ blueprints.paginator.per_page }}&search={{ filters.search }}&activity_id={{ filters.activity_id }}&market_group_id={{ filters.market_group_id }}&applied=1"
-                            aria-label="Next">
+                            aria-label="{% trans 'Next' %}">
                             <span aria-hidden="true">&raquo;</span>
                         </a>
                     </li>

@@ -504,6 +504,7 @@ def resolve_location_name(
     character_id: int | None = None,
     owner_user_id: int | None = None,
     force_refresh: bool = False,
+    allow_public: bool = True,
 ) -> str:
     """Resolve a structure or station name using ESI lookups with caching.
 
@@ -635,31 +636,32 @@ def resolve_location_name(
 
     params = {"datasource": "tranquility"}
 
-    if not name and not is_station:
-        response = _rate_limited_public_get(
-            f"{ESI_BASE_URL}/universe/structures/{structure_id}/",
-            params=params,
-        )
-        if response is not None and response.status_code == 200:
-            try:
-                payload = response.json()
-            except ValueError:
-                payload = {}
-            name = payload.get("name")
-        elif response is not None and response.status_code == 404:
-            logger.debug("Structure %s not found via public ESI", structure_id)
+    if allow_public:
+        if not name and not is_station:
+            response = _rate_limited_public_get(
+                f"{ESI_BASE_URL}/universe/structures/{structure_id}/",
+                params=params,
+            )
+            if response is not None and response.status_code == 200:
+                try:
+                    payload = response.json()
+                except ValueError:
+                    payload = {}
+                name = payload.get("name")
+            elif response is not None and response.status_code == 404:
+                logger.debug("Structure %s not found via public ESI", structure_id)
 
-    if not name:
-        response = _rate_limited_public_get(
-            f"{ESI_BASE_URL}/universe/stations/{structure_id}/",
-            params=params,
-        )
-        if response is not None and response.status_code == 200:
-            try:
-                payload = response.json()
-            except ValueError:
-                payload = {}
-            name = payload.get("name")
+        if not name:
+            response = _rate_limited_public_get(
+                f"{ESI_BASE_URL}/universe/stations/{structure_id}/",
+                params=params,
+            )
+            if response is not None and response.status_code == 200:
+                try:
+                    payload = response.json()
+                except ValueError:
+                    payload = {}
+                name = payload.get("name")
 
     if not name:
         name = placeholder_value

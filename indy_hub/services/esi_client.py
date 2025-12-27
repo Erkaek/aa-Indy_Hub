@@ -439,6 +439,31 @@ class ESIClient:
 
             return response
 
+    def fetch_corporation_contracts(
+        self,
+        corporation_id: int,
+        character_id: int,
+    ) -> list[dict]:
+        """Fetch all contracts for a corporation using character's token."""
+        return self._fetch_paginated(
+            character_id=character_id,
+            scope="esi-contracts.read_corporation_contracts.v1",
+            endpoint=f"/corporations/{corporation_id}/contracts/",
+        )
+
+    def fetch_corporation_contract_items(
+        self,
+        corporation_id: int,
+        contract_id: int,
+        character_id: int,
+    ) -> list[dict]:
+        """Fetch items for a specific corporation contract."""
+        return self._fetch_paginated(
+            character_id=character_id,
+            scope="esi-contracts.read_corporation_contracts.v1",
+            endpoint=f"/corporations/{corporation_id}/contracts/{contract_id}/items/",
+        )
+
     def _handle_forbidden_token(
         self, token: Token, *, scope: str, endpoint: str
     ) -> None:

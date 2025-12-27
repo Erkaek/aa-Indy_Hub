@@ -275,11 +275,11 @@
         </form>
 
         {% if jobs.has_other_pages %}
-        <nav aria-label="Jobs pagination">
+        <nav aria-label="{% trans 'Jobs pagination' %}">
             <ul class="pagination pagination-sm justify-content-center mb-0 flex-wrap">
                 {% if jobs.has_previous %}
                 <li class="page-item">
-                    <a class="page-link" href="?page={{ jobs.previous_page_number }}&per_page={{ jobs.paginator.per_page }}&search={{ current_filters.search }}&status={{ current_filters.status }}&activity={{ current_filters.activity }}&owner={{ current_filters.owner }}&order={{ current_filters.order }}&sort={{ current_filters.sort }}&scope={{ scope }}" aria-label="Previous">
+                    <a class="page-link" href="?page={{ jobs.previous_page_number }}&per_page={{ jobs.paginator.per_page }}&search={{ current_filters.search }}&status={{ current_filters.status }}&activity={{ current_filters.activity }}&owner={{ current_filters.owner }}&order={{ current_filters.order }}&sort={{ current_filters.sort }}&scope={{ scope }}" aria-label="{% trans 'Previous' %}">
                         <span aria-hidden="true">&laquo;</span>
                     </a>
                 </li>
@@ -298,7 +298,7 @@
                 {% endfor %}
                 {% if jobs.has_next %}
                 <li class="page-item">
-                    <a class="page-link" href="?page={{ jobs.next_page_number }}&per_page={{ jobs.paginator.per_page }}&search={{ current_filters.search }}&status={{ current_filters.status }}&activity={{ current_filters.activity }}&owner={{ current_filters.owner }}&order={{ current_filters.order }}&sort={{ current_filters.sort }}&scope={{ scope }}" aria-label="Next">
+                    <a class="page-link" href="?page={{ jobs.next_page_number }}&per_page={{ jobs.paginator.per_page }}&search={{ current_filters.search }}&status={{ current_filters.status }}&activity={{ current_filters.activity }}&owner={{ current_filters.owner }}&order={{ current_filters.order }}&sort={{ current_filters.sort }}&scope={{ scope }}" aria-label="{% trans 'Next' %}">
                         <span aria-hidden="true">&raquo;</span>
                     </a>
                 </li>

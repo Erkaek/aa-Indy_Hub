@@ -46,15 +46,31 @@ STRUCTURE_SCOPE = "esi-universe.read_structures.v1"
 CORP_BLUEPRINT_SCOPE = "esi-corporations.read_blueprints.v1"
 CORP_JOBS_SCOPE = "esi-industry.read_corporation_jobs.v1"
 CORP_ROLES_SCOPE = "esi-characters.read_corporation_roles.v1"
+CORP_STRUCTURES_SCOPE = "esi-corporations.read_structures.v1"
+CORP_ASSETS_SCOPE = "esi-assets.read_corporation_assets.v1"
+CORP_WALLET_SCOPE = "esi-wallet.read_corporation_wallets.v1"
 CORP_BLUEPRINT_SCOPE_SET = [
     CORP_BLUEPRINT_SCOPE,
     STRUCTURE_SCOPE,
     CORP_ROLES_SCOPE,
+    CORP_STRUCTURES_SCOPE,
+    CORP_ASSETS_SCOPE,
+    CORP_WALLET_SCOPE,
 ]
 CORP_JOBS_SCOPE_SET = [
     CORP_JOBS_SCOPE,
     STRUCTURE_SCOPE,
     CORP_ROLES_SCOPE,
+    CORP_STRUCTURES_SCOPE,
+    CORP_ASSETS_SCOPE,
+    CORP_WALLET_SCOPE,
+]
+MATERIAL_EXCHANGE_SCOPE_SET = [
+    STRUCTURE_SCOPE,
+    CORP_ROLES_SCOPE,
+    CORP_STRUCTURES_SCOPE,
+    CORP_ASSETS_SCOPE,
+    CORP_WALLET_SCOPE,
 ]
 
 MANUAL_REFRESH_KIND_BLUEPRINTS = "blueprints"

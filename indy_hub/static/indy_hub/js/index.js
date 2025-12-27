@@ -1,5 +1,19 @@
 /* Indy Hub Index Page JavaScript */
 
+function __(message) {
+    if (typeof window !== 'undefined' && typeof window.gettext === 'function') {
+        return window.gettext(message);
+    }
+    return message;
+}
+
+function n__(singular, plural, count) {
+    if (typeof window !== 'undefined' && typeof window.ngettext === 'function') {
+        return window.ngettext(singular, plural, count);
+    }
+    return Number(count) === 1 ? singular : plural;
+}
+
 var indyHubPopupTimer = null;
 
 function hideIndyHubPopup() {
@@ -238,7 +252,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 previewFrequencyHint(jobNotificationState.frequency);
 
-                var popupMessage = data.message || 'Job notification preferences updated.';
+                var popupMessage = data.message || __('Job notification preferences updated.');
                 showIndyHubPopup(popupMessage, 'success');
             })
             .catch(function() {
@@ -251,7 +265,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     customDaysInput.value = previousCustomDays;
                 }
                 previewFrequencyHint(previousFrequency);
-                showIndyHubPopup('Error updating job notification preferences.', 'danger');
+                showIndyHubPopup(__('Error updating job notification preferences.'), 'danger');
             })
             .finally(function() {
                 if (applyBtn) {
@@ -314,7 +328,7 @@ document.addEventListener('DOMContentLoaded', function() {
             var customValue = customDaysInput ? parseCustomDays(customDaysInput.value) : null;
 
             if (selected === 'custom' && !customValue) {
-                showIndyHubPopup('Please enter a valid number of days for the custom cadence.', 'warning');
+                showIndyHubPopup(__('Please enter a valid number of days for the custom cadence.'), 'warning');
                 if (customDaysInput) {
                     customDaysInput.focus();
                 }
@@ -436,7 +450,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (data.declined_count) {
                 popupTone = 'warning';
             }
-            var popupMessage = data.popup_message || (data.enabled ? 'Blueprint sharing enabled.' : 'Blueprint sharing disabled.');
+            var popupMessage = data.popup_message || (data.enabled ? __('Blueprint sharing enabled.') : __('Blueprint sharing disabled.'));
             if (data.declined_message) {
                 popupMessage += ' ' + data.declined_message;
             }
@@ -444,7 +458,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         function handleShareFailure() {
-            showIndyHubPopup('Error updating blueprint sharing.', 'danger');
+            showIndyHubPopup(__('Error updating blueprint sharing.'), 'danger');
         }
 
         function requestShareChange(desiredScope, options) {
@@ -502,7 +516,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         function renderShareConfirmation(payload, desiredScope) {
             if (!shareConfirmModal) {
-                var fallbackMessage = payload.confirmation_message || 'Changing sharing scope will decline accepted requests. Continue?';
+                var fallbackMessage = payload.confirmation_message || __('Changing sharing scope will decline accepted requests. Continue?');
                 if (window.confirm(fallbackMessage)) {
                     finalizeConfirmedShare(desiredScope);
                 }
@@ -537,19 +551,20 @@ document.addEventListener('DOMContentLoaded', function() {
                         var remaining = payload.impacted_count - payload.impacted_examples.length;
                         var moreItem = document.createElement('li');
                         moreItem.className = 'list-group-item py-2 px-3 text-muted fst-italic';
-                        moreItem.textContent = '...' + remaining + ' more request' + (remaining === 1 ? '' : 's');
+                        var template = n__('%(count)s more request', '%(count)s more requests', remaining);
+                        moreItem.textContent = '...' + template.replace('%(count)s', remaining);
                         shareConfirmList.appendChild(moreItem);
                     }
                 } else {
                     var emptyItem = document.createElement('li');
                     emptyItem.className = 'list-group-item py-2 px-3 text-muted';
-                    emptyItem.textContent = 'Accepted requests will be declined.';
+                    emptyItem.textContent = __('Accepted requests will be declined.');
                     shareConfirmList.appendChild(emptyItem);
                 }
             }
             if (shareConfirmAcceptBtn) {
                 shareConfirmAcceptBtn.disabled = false;
-                shareConfirmAcceptBtn.textContent = shareConfirmAcceptBtn.dataset.confirmLabel || 'Confirm';
+                shareConfirmAcceptBtn.textContent = shareConfirmAcceptBtn.dataset.confirmLabel || __('Confirm');
             }
             shareConfirmModal.show();
         }
@@ -561,10 +576,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     return;
                 }
                 shareConfirmAcceptBtn.disabled = true;
-                shareConfirmAcceptBtn.textContent = shareConfirmAcceptBtn.dataset.loadingLabel || 'Updating...';
+                shareConfirmAcceptBtn.textContent = shareConfirmAcceptBtn.dataset.loadingLabel || __('Updating...');
                 finalizeConfirmedShare(pendingShareChange.scope).finally(function() {
                     shareConfirmAcceptBtn.disabled = false;
-                    shareConfirmAcceptBtn.textContent = shareConfirmAcceptBtn.dataset.confirmLabel || 'Confirm';
+                    shareConfirmAcceptBtn.textContent = shareConfirmAcceptBtn.dataset.confirmLabel || __('Confirm');
                 });
             });
         }
@@ -655,7 +670,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         return;
                     }
                     if (!group.dataset.hasBlueprintScope || group.dataset.hasBlueprintScope !== 'true') {
-                        showIndyHubPopup('Authorize a director blueprint token before enabling sharing.', 'warning');
+                        showIndyHubPopup(__('Authorize a director blueprint token before enabling sharing.'), 'warning');
                         return;
                     }
                     fetch(window.toggleCorporationCopySharingUrl, {
@@ -673,15 +688,15 @@ document.addEventListener('DOMContentLoaded', function() {
                         .then(function(r) { return r.json(); })
                         .then(function(data) {
                             if (data.error) {
-                                showIndyHubPopup('Error updating corporate sharing.', 'danger');
+                                showIndyHubPopup(__('Error updating corporate sharing.'), 'danger');
                                 return;
                             }
                             updateCorpUI(data);
-                            var popupMessage = data.popup_message || 'Corporate blueprint sharing updated.';
+                            var popupMessage = data.popup_message || __('Corporate blueprint sharing updated.');
                             showIndyHubPopup(popupMessage, data.enabled ? 'success' : 'secondary');
                         })
                         .catch(function() {
-                            showIndyHubPopup('Error updating corporate sharing.', 'danger');
+                            showIndyHubPopup(__('Error updating corporate sharing.'), 'danger');
                         });
                 });
             });

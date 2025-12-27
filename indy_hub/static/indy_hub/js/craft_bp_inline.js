@@ -4,6 +4,10 @@
  */
 (function () {
     const blueprintData = window.BLUEPRINT_DATA || {};
+    const __ = (typeof window !== 'undefined' && typeof window.gettext === 'function') ? window.gettext.bind(window) : (msg => msg);
+    const n__ = (typeof window !== 'undefined' && typeof window.ngettext === 'function')
+        ? window.ngettext.bind(window)
+        : ((singular, plural, count) => (Number(count) === 1 ? singular : plural));
     let cachedSimulations = null;
     let isFetchingSimulations = false;
 
@@ -202,7 +206,7 @@
         }
 
         if (!blueprintData.save_url) {
-            showSimulationStatus('Saving is not configured for this blueprint.', 'warning');
+            showSimulationStatus(__('Saving is not configured for this blueprint.'), 'warning');
             return;
         }
 
@@ -211,7 +215,7 @@
 
         const payload = {
             blueprint_type_id: blueprintData.bp_type_id || blueprintData.type_id,
-            blueprint_name: blueprintData.name || document.querySelector('.blueprint-hero .hero-title')?.textContent?.trim() || document.querySelector('.blueprint-header h1')?.textContent?.trim() || 'Blueprint',
+            blueprint_name: blueprintData.name || document.querySelector('.blueprint-hero .hero-title')?.textContent?.trim() || document.querySelector('.blueprint-header h1')?.textContent?.trim() || __('Blueprint'),
             runs: runsInput ? Number(runsInput.value) || 1 : 1,
             simulation_name: simulationNameInput ? simulationNameInput.value.trim() : '',
             active_tab: getActiveTabId(),
@@ -240,14 +244,14 @@
 
             const data = await response.json();
             if (data && data.success) {
-                showSimulationStatus('Simulation saved successfully.', 'success');
+                showSimulationStatus(__('Simulation saved successfully.'), 'success');
                 cachedSimulations = null; // force refresh next time
             } else {
-                throw new Error(data?.error || 'Unable to save simulation.');
+                throw new Error(data?.error || __('Unable to save simulation.'));
             }
         } catch (error) {
             console.error('[CraftBP] Failed to save simulation', error);
-            showSimulationStatus('Failed to save simulation.', 'danger');
+            showSimulationStatus(__('Failed to save simulation.'), 'danger');
         }
     }
 
@@ -284,7 +288,7 @@
             return cachedSimulations;
         } catch (error) {
             console.error('[CraftBP] Failed to load simulation list', error);
-            showSimulationStatus('Unable to load saved simulations.', 'danger');
+            showSimulationStatus(__('Unable to load saved simulations.'), 'danger');
             return [];
         } finally {
             isFetchingSimulations = false;
@@ -298,20 +302,27 @@
         }
 
         if (!simulations.length) {
-            container.innerHTML = '<div class="text-muted text-center py-4">No saved simulations for this blueprint yet.</div>';
+            container.innerHTML = '<div class="text-muted text-center py-4">' + __('No saved simulations for this blueprint yet.') + '</div>';
             return;
         }
 
         const list = document.createElement('div');
         list.className = 'list-group';
 
+        const formatRunsLabel = (count) => {
+            const safeCount = Number(count) || 0;
+            const suffix = n__('run', 'runs', safeCount);
+            return `${safeCount} ${suffix}`;
+        };
+
         simulations.forEach((simulation) => {
             const button = document.createElement('button');
             button.type = 'button';
             button.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-start';
 
-            const title = simulation.simulation_name || simulation.display_name || `Runs x${simulation.runs}`;
-            const subtitle = simulation.blueprint_name ? `${simulation.blueprint_name} · ${simulation.runs} runs` : `${simulation.runs} runs`;
+            const title = simulation.simulation_name || simulation.display_name || `${__('Runs')} x${simulation.runs}`;
+            const runsLabel = formatRunsLabel(simulation.runs);
+            const subtitle = simulation.blueprint_name ? `${simulation.blueprint_name} · ${runsLabel}` : runsLabel;
             const profit = Number(simulation.estimated_profit || 0).toLocaleString();
             const updated = simulation.updated_at ? simulation.updated_at : '—';
 
@@ -322,7 +333,7 @@
                 </div>
                 <div class="text-end">
                     <div class="badge bg-success-subtle text-success">+${profit} ISK</div>
-                    <div class="text-muted small">Updated ${updated}</div>
+                    <div class="text-muted small">${__('Updated')} ${updated}</div>
                 </div>
             `;
 
@@ -447,7 +458,7 @@
         refreshSaveSummary();
 
         const statusLabel = simulationMeta.simulation_name || simulationMeta.display_name || 'Simulation';
-        showSimulationStatus(`Loaded ${statusLabel}`, 'info');
+        showSimulationStatus(`${__('Loaded')} ${statusLabel}`, 'info');
     }
 
     async function loadSimulation(simulation) {
@@ -485,7 +496,7 @@
             }
         } catch (error) {
             console.error('[CraftBP] Failed to load simulation config', error);
-            showSimulationStatus('Failed to load simulation.', 'danger');
+            showSimulationStatus(__('Failed to load simulation.'), 'danger');
         }
     }
 
@@ -505,7 +516,7 @@
             loadModal.addEventListener('show.bs.modal', async () => {
                 const container = document.getElementById('simulationsList');
                 if (container) {
-                    container.innerHTML = '<div class="text-center py-4 text-muted"><i class="fas fa-spinner fa-spin fa-2x mb-3"></i><p class="mb-0">Loading saved simulations…</p></div>';
+                    container.innerHTML = '<div class="text-center py-4 text-muted"><i class="fas fa-spinner fa-spin fa-2x mb-3"></i><p class="mb-0">' + __('Loading saved simulations…') + '</p></div>';
                 }
                 const simulations = await fetchSimulationsList();
                 renderSimulationsList(simulations);

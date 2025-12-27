@@ -1,4 +1,14 @@
-# Package marker for indy_hub.tasks
+"""Celery tasks package for indy_hub.
+
+Ensure submodules are imported so Celery registers all tasks.
+"""
+
+# Import task submodules so their @shared_task are registered
+from . import industry  # noqa: F401
+from . import location  # noqa: F401
+from . import material_exchange  # noqa: F401
+from . import notifications  # noqa: F401
+from . import user  # noqa: F401
 
 
 # Import the setup function from the main tasks module
