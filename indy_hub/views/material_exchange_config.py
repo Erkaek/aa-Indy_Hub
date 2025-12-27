@@ -2,6 +2,7 @@
 
 # Standard Library
 from decimal import Decimal
+import logging
 
 # Django
 from django.contrib import messages
@@ -18,6 +19,7 @@ from ..decorators import indy_hub_permission_required
 from ..models import MaterialExchangeConfig
 
 esi = EsiClientProvider()
+logger = logging.getLogger(__name__)
 
 
 @login_required
@@ -43,6 +45,11 @@ def _get_token_for_corp(user, corp_id, scope, require_corporation_token: bool = 
 
     tokens = Token.objects.filter(user=user).require_scopes(scope).require_valid()
     tokens = list(tokens)
+    logger.debug(
+        f"_get_token_for_corp: user={user.username}, corp_id={corp_id}, "
+        f"scope={scope}, require_corp={require_corporation_token}, "
+        f"found {len(tokens)} valid tokens with scope"
+    )
 
     # Cache character corp lookups to avoid extra ESI calls
     char_corp_cache: dict[int, int] = {}
@@ -74,7 +81,12 @@ def _get_token_for_corp(user, corp_id, scope, require_corporation_token: bool = 
         if getattr(token, "token_type", "") != Token.TOKEN_TYPE_CORPORATION:
             continue
         corp_attr = getattr(token, "corporation_id", None)
+        logger.debug(
+            f"  Checking corp token id={token.id}: corp_attr={corp_attr}, "
+            f"type={getattr(token, 'token_type', '')}, char_id={token.character_id}"
+        )
         if corp_attr is not None and int(corp_attr) == int(corp_id):
+            logger.info(f"Found matching corp token id={token.id} for corp_id={corp_id}")
             return token
         # For corp tokens missing corp_attr, accept if backing character belongs to corp
         if corp_attr is None and _character_matches(token):
@@ -82,6 +94,10 @@ def _get_token_for_corp(user, corp_id, scope, require_corporation_token: bool = 
 
     # If a corporation token is required, do not fall back to character token
     if require_corporation_token:
+        logger.warning(
+            f"No corp token found: user={user.username}, corp_id={corp_id}, "
+            f"scope={scope}, checked {len(tokens)} tokens"
+        )
         return None
 
     # Then prefer character tokens that belong to the corp
