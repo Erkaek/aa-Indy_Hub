@@ -274,6 +274,10 @@ def _get_corp_structures(user, corp_id):
                 .exclude(location_type__iexact="item")
                 .values_list("location_id", "location_flag")
             )
+            asset_count = qs.count()
+            logger.info(
+                f"material_exchange_config: found {asset_count} assets in corptools cache for corp_id={corp_id}"
+            )
             for loc_id, loc_flag in qs:
                 try:
                     int_id = int(loc_id)
@@ -282,7 +286,10 @@ def _get_corp_structures(user, corp_id):
                 location_ids.add(int_id)
                 if loc_flag:
                     location_flags_by_id.setdefault(int_id, set()).add(str(loc_flag))
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                f"material_exchange_config: error loading corptools assets for corp_id={corp_id}: {e}"
+            )
             pass
 
     try:
@@ -341,6 +348,16 @@ def _get_corp_structures(user, corp_id):
             # Try each corp token until one works (has the required corp roles)
             assets_data = None
             last_error = None
+
+            logger.info(
+                f"material_exchange_config: filtered {len(corp_tokens)} tokens for corp_id={corp_id} from {len(potential_tokens)} potential tokens"
+            )
+
+            if not corp_tokens:
+                logger.warning(
+                    f"material_exchange_config: no corp tokens available for corp_id={corp_id}, will rely on corptools cache"
+                )
+
             for token in corp_tokens:
                 try:
                     # Try to fetch assets with this token
@@ -369,30 +386,40 @@ def _get_corp_structures(user, corp_id):
                         last_error = e
                         continue
                     else:
-                        # Other error, save and try next
+                        # Other error (timeout, network, etc.), save and try next
+                        logger.debug(
+                            f"Token {token.id} (char_id={token.character_id}) failed for assets: {type(e).__name__}: {e}"
+                        )
                         last_error = e
                         continue
 
             if assets_data is None:
-                # All tokens failed
-                assets_scope_missing = True
-                error_name = _(
-                    "⚠ None of your characters have the required corporation roles for assets. "
-                    "Please authorize with a character that has Director or Junior Accountant role."
-                )
-                if last_error:
-                    logger.warning(
-                        f"material_exchange_config: All tokens failed for corp_id={corp_id}, last_error={last_error}"
+                # All tokens failed - check if we at least have corptools data
+                if location_ids:
+                    # We have corptools cache, use it without ESI
+                    logger.info(
+                        f"material_exchange_config: ESI failed but using {len(location_ids)} cached corptools locations for corp_id={corp_id}"
                     )
-                return (
-                    [
-                        {
-                            "id": 0,
-                            "name": error_name,
-                        }
-                    ],
-                    assets_scope_missing,
-                )
+                else:
+                    # No cache and ESI failed
+                    assets_scope_missing = True
+                    error_name = _(
+                        "⚠ None of your characters have the required corporation roles for assets. "
+                        "Please authorize with a character that has Director or Junior Accountant role."
+                    )
+                    if last_error:
+                        logger.warning(
+                            f"material_exchange_config: All tokens failed for corp_id={corp_id}, last_error={last_error}"
+                        )
+                    return (
+                        [
+                            {
+                                "id": 0,
+                                "name": error_name,
+                            }
+                        ],
+                        assets_scope_missing,
+                    )
 
             for asset in assets_data:
                 location_id = asset.get("location_id")
