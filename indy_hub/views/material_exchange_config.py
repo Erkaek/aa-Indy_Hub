@@ -92,7 +92,9 @@ def _get_token_for_corp(user, corp_id, scope, require_corporation_token: bool = 
             f"type={getattr(token, 'token_type', '')}, char_id={token.character_id}"
         )
         if corp_attr is not None and int(corp_attr) == int(corp_id):
-            logger.info(f"Found matching corp token id={token.id} for corp_id={corp_id}")
+            logger.info(
+                f"Found matching corp token id={token.id} for corp_id={corp_id}"
+            )
             return token
         # For corp tokens missing corp_attr, accept if backing character belongs to corp
         if corp_attr is None and _character_matches(token):
@@ -237,22 +239,25 @@ def _get_user_corporations(user):
 
 def _get_corp_structures(user, corp_id):
     """
-    Get list of structures where the corporation has assets using corptools cache only.
+    Get list of structures using corptools EveLocation only.
+
+    Requirement change: only return entries from corptools_evelocation where
+    location_id starts with "-" (player structures). Names are trimmed before the
+    first ">" when present.
     """
     try:
         # Third Party
-        from corptools.models import CorpAsset, EveLocation
+        from corptools.models import EveLocation
     except Exception:
-        CorpAsset = None
         EveLocation = None
 
-    structures = []
+    structures: list[dict] = []
     assets_scope_missing = False
-    location_ids = set()
-    location_flags_by_id: dict[int, set[str]] = {}
 
-    if not CorpAsset:
-        logger.warning("material_exchange_config: corptools.models.CorpAsset not available")
+    if not EveLocation:
+        logger.warning(
+            "material_exchange_config: corptools.models.EveLocation not available"
+        )
         return (
             [
                 {
@@ -264,54 +269,15 @@ def _get_corp_structures(user, corp_id):
         )
 
     try:
-        qs = (
-            CorpAsset.objects.filter(corporation_id=corp_id)
-            .exclude(location_type__iexact="item")
-            .values_list("location_id", "location_flag", "location_name_id")
+        qs = EveLocation.objects.filter(location_id__lt=0).values_list(
+            "location_id", "location_name"
         )
-        asset_count = qs.count()
+        count = qs.count()
         logger.info(
-            f"material_exchange_config: found {asset_count} assets in corptools cache for corp_id={corp_id}"
+            f"material_exchange_config: fetched {count} negative location_ids from EveLocation"
         )
 
-        loc_ids_with_name: dict[int, int] = {}
-        for loc_id, loc_flag, loc_name_id in qs:
-            try:
-                int_id = int(loc_id)
-            except (TypeError, ValueError):
-                continue
-            location_ids.add(int_id)
-            if loc_flag:
-                location_flags_by_id.setdefault(int_id, set()).add(str(loc_flag))
-            if loc_name_id:
-                try:
-                    loc_ids_with_name[int_id] = int(loc_name_id)
-                except (TypeError, ValueError):
-                    pass
-
-        # Fetch names from corptools EveLocation when available
-        location_names: dict[int, str] = {}
-        if EveLocation and loc_ids_with_name:
-            try:
-                name_map = {
-                    int(loc.id): loc.name
-                    for loc in EveLocation.objects.filter(
-                        id__in=set(loc_ids_with_name.values())
-                    )
-                }
-                for lid, name_id in loc_ids_with_name.items():
-                    if name_id in name_map:
-                        location_names[lid] = name_map[name_id]
-            except Exception as e:  # pragma: no cover - defensive
-                logger.warning(
-                    f"material_exchange_config: failed loading EveLocation names for corp_id={corp_id}: {e}"
-                )
-
-        logger.info(
-            f"material_exchange_config: collected {len(location_ids)} location_ids for corp_id={corp_id} from corptools"
-        )
-
-        if not location_ids:
+        if not count:
             return (
                 [
                     {
@@ -322,21 +288,30 @@ def _get_corp_structures(user, corp_id):
                 assets_scope_missing,
             )
 
-        for location_id in location_ids:
-            location_name = location_names.get(location_id, f"Structure {location_id}")
-            structures.append(
-                {
-                    "id": location_id,
-                    "name": location_name,
-                    "flags": sorted(location_flags_by_id.get(location_id, set())),
-                }
-            )
+        seen_base_ids: set[int] = set()
+        for loc_id, raw_name in qs:
+            try:
+                int_id = int(loc_id)
+            except (TypeError, ValueError):
+                continue
+
+            # corptools encodes corpSAGX as the last digit; strip it by dividing by 10
+            base_id = abs(int_id) // 10
+            if not base_id or base_id in seen_base_ids:
+                continue
+            seen_base_ids.add(base_id)
+
+            name = raw_name or f"Structure {base_id}"
+            if isinstance(name, str) and ">" in name:
+                name = name.split(">", 1)[0].strip()
+
+            structures.append({"id": base_id, "name": name, "flags": []})
 
         structures.sort(key=lambda x: x["name"])
 
     except Exception as e:  # pragma: no cover - defensive
         logger.warning(
-            f"material_exchange_config: error loading corptools assets for corp_id={corp_id}: {e}"
+            f"material_exchange_config: error loading EveLocation structures: {e}"
         )
         return (
             [
@@ -363,13 +338,13 @@ def material_exchange_request_assets_token(request):
 
 
 def _get_corp_hangar_divisions(user, corp_id):
-    """Get hangar division names and whether scope was missing."""
+    """Get hangar division names without ESI when corptools cache is available."""
     # Standard Library
     import logging
 
     logger = logging.getLogger(__name__)
 
-    # Default names if ESI fails or no custom names set
+    # Default names if corptools cache/ESI is unavailable
     default_divisions = {
         1: _("Hangar Division 1"),
         2: _("Hangar Division 2"),
@@ -382,12 +357,43 @@ def _get_corp_hangar_divisions(user, corp_id):
 
     scope_missing = False
 
+    # Try to derive division names directly from corptools EveLocation entries
     try:
-        # ESI divisions endpoint requires corp divisions scope
-        required_scope = "esi-corporations.read_divisions.v1"
+        from corptools.models import EveLocation
 
-        # Get all tokens with the required scope
-        # Alliance Auth
+        qs = EveLocation.objects.filter(location_id__lt=0).values_list(
+            "location_id", "location_name"
+        )
+        derived: dict[int, str] = {}
+
+        for loc_id, raw_name in qs:
+            try:
+                int_id = int(loc_id)
+            except (TypeError, ValueError):
+                continue
+
+            division_num = abs(int_id) % 10  # corptools encodes division in last digit
+            if division_num < 1 or division_num > 7:
+                continue
+            if division_num in derived:
+                continue
+
+            division_name = None
+            if isinstance(raw_name, str) and ">" in raw_name:
+                division_name = raw_name.split(">", 1)[1].strip()
+            if division_name:
+                derived[division_num] = division_name
+
+        if derived:
+            default_divisions.update(derived)
+            return default_divisions, scope_missing
+
+    except Exception as e:  # pragma: no cover - defensive
+        logger.debug(f"material_exchange_config: EveLocation hangar derivation failed: {e}")
+
+    # Fallback to ESI (legacy path) if corptools data is unavailable
+    try:
+        required_scope = "esi-corporations.read_divisions.v1"
         from esi.models import Token
 
         potential_tokens = list(
@@ -403,14 +409,12 @@ def _get_corp_hangar_divisions(user, corp_id):
             )
             return {}, scope_missing
 
-        # Filter tokens using base AA relations; prefer corp tokens then character tokens
         corp_tokens: list = []
         unmatched_tokens: list = []
         potential_tokens.sort(
             key=lambda t: getattr(t, "created", None) or 0, reverse=True
         )
         for token in potential_tokens:
-            # Corp tokens first when corporation_id matches
             if getattr(token, "token_type", "") == getattr(
                 token, "TOKEN_TYPE_CORPORATION", "corporation"
             ):
@@ -418,24 +422,19 @@ def _get_corp_hangar_divisions(user, corp_id):
                 if corp_attr is not None and int(corp_attr) == int(corp_id):
                     corp_tokens.append(token)
                     continue
-            # Then character tokens whose related character belongs to the corp
             char_obj = getattr(token, "character", None)
             if char_obj and getattr(char_obj, "corporation_id", None) is not None:
                 if int(char_obj.corporation_id) == int(corp_id):
                     corp_tokens.append(token)
                     continue
-            # Otherwise keep a few newest unmatched tokens as fallback
             unmatched_tokens.append(token)
 
         if not corp_tokens:
             corp_tokens.extend(unmatched_tokens[:3])
 
-        # Try each corp token until one works (has the required corp roles)
         divisions_data = None
-        # Limit attempts to at most 3 tokens
         for token in corp_tokens[:3]:
             try:
-                # Get corp divisions
                 divisions_data = (
                     esi.client.Corporation.get_corporations_corporation_id_divisions(
                         corporation_id=corp_id, token=token.valid_access_token()
@@ -446,7 +445,6 @@ def _get_corp_hangar_divisions(user, corp_id):
                     f"token_id={token.id}, character_id={token.character_id}"
                 )
 
-                # Parse hangar division names
                 hangar_divisions = divisions_data.get("hangar", [])
                 for division_info in hangar_divisions:
                     division_num = division_info.get("division")
@@ -454,21 +452,21 @@ def _get_corp_hangar_divisions(user, corp_id):
                     if division_num and division_name:
                         default_divisions[division_num] = division_name
 
-                break  # Success! Stop trying other tokens
+                break
 
             except Exception as e:
-                # Third Party
                 from bravado.exception import HTTPError
 
                 status_code = getattr(getattr(e, "response", None), "status_code", None)
                 if isinstance(e, HTTPError) and status_code == 403:
-                    # This character doesn't have the required roles, try next token
                     logger.debug(
                         f"Token {token.id} (char_id={token.character_id}) lacks corp roles for divisions, trying next..."
                     )
                     continue
                 else:
-                    logger.warning(f"Could not fetch corp division names with token {token.id}: {e}")
+                    logger.warning(
+                        f"Could not fetch corp division names with token {token.id}: {e}"
+                    )
                     continue
 
     except Exception as e:
