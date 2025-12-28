@@ -1,5 +1,8 @@
 """Material Exchange views for Indy Hub."""
 
+# Standard Library
+from decimal import Decimal
+
 # Django
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -27,6 +30,38 @@ from ..tasks.material_exchange import (
     sync_material_exchange_stock,
 )
 from ..utils.eve import get_type_name
+
+
+def _fetch_fuzzwork_prices(type_ids: list[int]) -> dict[int, dict[str, Decimal]]:
+    """Batch fetch Jita buy/sell prices from Fuzzwork for given type IDs."""
+
+    if not type_ids:
+        return {}
+
+    try:
+        # Third Party
+        import requests
+
+        jita_station_id = 60003760  # Jita 4-4
+        unique_ids = list({int(t) for t in type_ids if t})
+        type_ids_str = ",".join(map(str, unique_ids))
+        url = f"https://market.fuzzwork.co.uk/aggregates/?station={jita_station_id}&types={type_ids_str}"
+
+        response = requests.get(url, timeout=15)
+        response.raise_for_status()
+        data = response.json()
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning(f"material_exchange: failed to fetch fuzzwork prices: {exc}")
+        return {}
+
+    prices: dict[int, dict[str, Decimal]] = {}
+    for tid in unique_ids:
+        info = data.get(str(tid), {})
+        buy_price = Decimal(str(info.get("buy", {}).get("max", 0) or 0))
+        sell_price = Decimal(str(info.get("sell", {}).get("min", 0) or 0))
+        prices[tid] = {"buy": buy_price, "sell": sell_price}
+
+    return prices
 
 
 @login_required
@@ -97,38 +132,44 @@ def material_exchange_sell(request):
     config = get_object_or_404(MaterialExchangeConfig, is_active=True)
 
     if request.method == "POST":
-        # Get user's character assets at the config location
+        # Get user's character assets at the config location (all characters, AA IDs)
         # Django
         from django.db import connection
 
         cursor = connection.cursor()
 
-        # Get user's main character ID
-        character_id = None
-        if hasattr(request.user, "profile") and hasattr(
-            request.user.profile, "main_character"
-        ):
-            character_id = (
-                request.user.profile.main_character.character_id
-                if request.user.profile.main_character
-                else None
-            )
+        # Alliance Auth - use CharacterOwnership IDs (not EVE character_ids)
+        try:
+            from allianceauth.authentication.models import CharacterOwnership
 
-        if not character_id:
+            ownership_ids = list(
+                CharacterOwnership.objects.filter(user=request.user).values_list(
+                    "id", flat=True
+                )
+            )
+        except Exception:
+            ownership_ids = []
+
+        if not ownership_ids:
             messages.error(
-                request, _("No main character found. Please set your main character.")
+                request,
+                _(
+                    "Aucun personnage associé trouvé. Liez vos personnages dans Alliance Auth."
+                ),
             )
             return redirect("indy_hub:material_exchange_sell")
 
-        # Get user's assets at config location
+        placeholders = ",".join(["%s"] * len(ownership_ids))
+        # location_id in corptools has form -<structure><sag_digit>; match on base structure
         cursor.execute(
-            """
+            f"""
             SELECT type_id, SUM(quantity) as total_qty
             FROM corptools_characterasset
-            WHERE character_id = %s AND location_id = %s
+            WHERE character_id IN ({placeholders})
+              AND CAST(ABS(location_id) / 10 AS BIGINT) = %s
             GROUP BY type_id
         """,
-            [character_id, config.structure_id],
+            ownership_ids + [config.structure_id],
         )
 
         user_assets = {row[0]: row[1] for row in cursor.fetchall()}
@@ -140,6 +181,9 @@ def material_exchange_sell(request):
         items_to_create = []
         errors = []
         total_payout = 0
+
+        # Load pricing for all user-held items using fresh Fuzzwork data
+        price_data = _fetch_fuzzwork_prices(list(user_assets.keys()))
 
         # Process each item user wants to sell
         for type_id, user_qty in user_assets.items():
@@ -164,21 +208,21 @@ def material_exchange_sell(request):
                 )
                 continue
 
-            # Get pricing from hub for this item
-            stock_item = MaterialExchangeStock.objects.filter(
-                config=config, type_id=type_id
-            ).first()
-
-            if not stock_item or not stock_item.jita_buy_price:
+            # Compute unit price using fresh Fuzzwork prices + markup
+            fuzz_prices = price_data.get(type_id, {})
+            jita_buy = fuzz_prices.get("buy") or Decimal(0)
+            jita_sell = fuzz_prices.get("sell") or Decimal(0)
+            base = jita_sell if config.sell_markup_base == "sell" else jita_buy
+            if base <= 0:
                 type_name = get_type_name(type_id)
-                errors.append(_(f"{type_name} is not accepted by the hub for selling."))
+                errors.append(_(f"{type_name} has no valid market price."))
                 continue
 
-            type_name = stock_item.type_name or get_type_name(type_id)
-            unit_price = stock_item.buy_price_from_member
+            unit_price = base * (1 + (config.sell_markup_percent / Decimal(100)))
             total_price = unit_price * qty
             total_payout += total_price
 
+            type_name = get_type_name(type_id)
             items_to_create.append(
                 {
                     "type_id": type_id,
@@ -228,63 +272,58 @@ def material_exchange_sell(request):
 
     cursor = connection.cursor()
 
-    # Get user's main character ID
-    character_id = None
-    if hasattr(request.user, "profile") and hasattr(
-        request.user.profile, "main_character"
-    ):
-        character_id = (
-            request.user.profile.main_character.character_id
-            if request.user.profile.main_character
-            else None
+    # Alliance Auth - use CharacterOwnership IDs (not EVE character_ids)
+    try:
+        from allianceauth.authentication.models import CharacterOwnership
+
+        ownership_ids = list(
+            CharacterOwnership.objects.filter(user=request.user).values_list(
+                "id", flat=True
+            )
         )
+    except Exception:
+        ownership_ids = []
 
     materials_with_qty = []
 
-    if character_id:
-        # Get ALL user's assets at this location (not just ones in the hub)
+    if ownership_ids:
+        placeholders = ",".join(["%s"] * len(ownership_ids))
         cursor.execute(
-            """
+            f"""
             SELECT type_id, SUM(quantity) as total_qty
             FROM corptools_characterasset
-            WHERE character_id = %s AND location_id = %s
+            WHERE character_id IN ({placeholders})
+              AND CAST(ABS(location_id) / 10 AS BIGINT) = %s
             GROUP BY type_id
         """,
-            [character_id, config.structure_id],
+            ownership_ids + [config.structure_id],
         )
 
         user_assets = {row[0]: row[1] for row in cursor.fetchall()}
 
-        # For each user asset, try to get pricing from the hub
-        # If not in hub, still show it (user can sell to corp even if not pre-priced)
+        price_data = _fetch_fuzzwork_prices(list(user_assets.keys()))
+
+        # For each user asset, try to get pricing from the hub (fresh fuzzwork)
         for type_id, user_qty in user_assets.items():
-            # Try to get pricing from MaterialExchangeStock
-            try:
-                stock_item = MaterialExchangeStock.objects.filter(
-                    config=config, type_id=type_id
-                ).first()
-
-                if stock_item and stock_item.jita_buy_price:
-                    # Get type name from stock item or fetch it
-                    type_name = stock_item.type_name or get_type_name(type_id)
-                    buy_price = stock_item.buy_price_from_member
-                else:
-                    # Item not in hub inventory, but user still might want to sell it
-                    # Fetch type name and skip (no price available)
-                    type_name = get_type_name(type_id)
-                    continue  # Skip items without pricing
-
-                materials_with_qty.append(
-                    {
-                        "type_id": type_id,
-                        "type_name": type_name,
-                        "buy_price_from_member": buy_price,
-                        "user_quantity": user_qty,
-                    }
-                )
-            except Exception:
-                # Skip items we can't get pricing for
+            fuzz_prices = price_data.get(type_id, {})
+            jita_buy = fuzz_prices.get("buy") or Decimal(0)
+            jita_sell = fuzz_prices.get("sell") or Decimal(0)
+            base = jita_sell if config.sell_markup_base == "sell" else jita_buy
+            if base <= 0:
                 continue
+
+            buy_price = base * (1 + (config.sell_markup_percent / Decimal(100)))
+
+            type_name = get_type_name(type_id)
+
+            materials_with_qty.append(
+                {
+                    "type_id": type_id,
+                    "type_name": type_name,
+                    "buy_price_from_member": buy_price,
+                    "user_quantity": user_qty,
+                }
+            )
 
         # Sort by type name
         materials_with_qty.sort(key=lambda x: x["type_name"])
