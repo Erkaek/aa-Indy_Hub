@@ -324,26 +324,36 @@ def _get_corp_structures(user, corp_id):
                     assets_scope_missing,
                 )
 
-            # Filter tokens to only those from the target corporation using cached data
-            # Alliance Auth
-            from allianceauth.eveonline.models import EveCharacter
-
-            # Get cached characters in bulk to avoid repeated queries
-            character_ids = [t.character_id for t in potential_tokens]
-            cached_chars = {
-                char.character_id: char
-                for char in EveCharacter.objects.filter(character_id__in=character_ids)
-            }
-
-            corp_tokens = []
+            # Filter tokens to only those from the target corporation using base AA relations
+            # Prefer corporation tokens with matching corporation_id, then character tokens whose related character matches
+            # Do not call ESI here; rely on Token relations and reduce attempts to avoid timeouts
+            corp_tokens: list = []
+            unmatched_tokens: list = []
+            # newest tokens first
+            potential_tokens.sort(
+                key=lambda t: getattr(t, "created", None) or 0, reverse=True
+            )
             for token in potential_tokens:
-                char_id = token.character_id
-                # Check if in cache first
-                if char_id in cached_chars:
-                    if cached_chars[char_id].corporation_id == int(corp_id):
+                # Corp tokens: use token.corporation_id when available
+                if getattr(token, "token_type", "") == getattr(
+                    token, "TOKEN_TYPE_CORPORATION", "corporation"
+                ):
+                    corp_attr = getattr(token, "corporation_id", None)
+                    if corp_attr is not None and int(corp_attr) == int(corp_id):
                         corp_tokens.append(token)
-                # If not in cache, skip it (don't fall back to slow ESI call)
-                # The EveCharacter data should be up-to-date from Alliance Auth
+                        continue
+                # Character tokens: use related character when available
+                char_obj = getattr(token, "character", None)
+                if char_obj and getattr(char_obj, "corporation_id", None) is not None:
+                    if int(char_obj.corporation_id) == int(corp_id):
+                        corp_tokens.append(token)
+                        continue
+                # Keep a small pool of unmatched tokens as last resort
+                unmatched_tokens.append(token)
+
+            # If no obvious matches, try a few newest unmatched tokens (limit to avoid 504)
+            if not corp_tokens:
+                corp_tokens.extend(unmatched_tokens[:3])
 
             # Try each corp token until one works (has the required corp roles)
             assets_data = None
@@ -358,7 +368,8 @@ def _get_corp_structures(user, corp_id):
                     f"material_exchange_config: no corp tokens available for corp_id={corp_id}, will rely on corptools cache"
                 )
 
-            for token in corp_tokens:
+            # Limit attempts to at most 3 tokens to avoid long blocking calls
+            for token in corp_tokens[:3]:
                 try:
                     # Try to fetch assets with this token
                     assets_data = (
@@ -541,30 +552,37 @@ def _get_corp_hangar_divisions(user, corp_id):
             )
             return {}, scope_missing
 
-        # Filter tokens to only those from the target corporation using cached data
-        # Alliance Auth
-        from allianceauth.eveonline.models import EveCharacter
-
-        # Get cached characters in bulk to avoid repeated queries
-        character_ids = [t.character_id for t in potential_tokens]
-        cached_chars = {
-            char.character_id: char
-            for char in EveCharacter.objects.filter(character_id__in=character_ids)
-        }
-
-        corp_tokens = []
+        # Filter tokens using base AA relations; prefer corp tokens then character tokens
+        corp_tokens: list = []
+        unmatched_tokens: list = []
+        potential_tokens.sort(
+            key=lambda t: getattr(t, "created", None) or 0, reverse=True
+        )
         for token in potential_tokens:
-            char_id = token.character_id
-            # Check if in cache first
-            if char_id in cached_chars:
-                if cached_chars[char_id].corporation_id == int(corp_id):
+            # Corp tokens first when corporation_id matches
+            if getattr(token, "token_type", "") == getattr(
+                token, "TOKEN_TYPE_CORPORATION", "corporation"
+            ):
+                corp_attr = getattr(token, "corporation_id", None)
+                if corp_attr is not None and int(corp_attr) == int(corp_id):
                     corp_tokens.append(token)
-            # If not in cache, skip it (don't fall back to slow ESI call)
-            # The EveCharacter data should be up-to-date from Alliance Auth
+                    continue
+            # Then character tokens whose related character belongs to the corp
+            char_obj = getattr(token, "character", None)
+            if char_obj and getattr(char_obj, "corporation_id", None) is not None:
+                if int(char_obj.corporation_id) == int(corp_id):
+                    corp_tokens.append(token)
+                    continue
+            # Otherwise keep a few newest unmatched tokens as fallback
+            unmatched_tokens.append(token)
+
+        if not corp_tokens:
+            corp_tokens.extend(unmatched_tokens[:3])
 
         # Try each corp token until one works (has the required corp roles)
         divisions_data = None
-        for token in corp_tokens:
+        # Limit attempts to at most 3 tokens
+        for token in corp_tokens[:3]:
             try:
                 # Get corp divisions
                 divisions_data = (
