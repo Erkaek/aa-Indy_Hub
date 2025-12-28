@@ -92,9 +92,7 @@ def _get_token_for_corp(user, corp_id, scope, require_corporation_token: bool = 
             f"type={getattr(token, 'token_type', '')}, char_id={token.character_id}"
         )
         if corp_attr is not None and int(corp_attr) == int(corp_id):
-            logger.info(
-                f"Found matching corp token id={token.id} for corp_id={corp_id}"
-            )
+            logger.info(f"Found matching corp token id={token.id} for corp_id={corp_id}")
             return token
         # For corp tokens missing corp_attr, accept if backing character belongs to corp
         if corp_attr is None and _character_matches(token):
@@ -239,216 +237,78 @@ def _get_user_corporations(user):
 
 def _get_corp_structures(user, corp_id):
     """
-    Get list of structures where the corporation has assets.
-    This includes structures owned by the corp AND structures where corp has assets.
+    Get list of structures where the corporation has assets using corptools cache only.
     """
-    from ..utils.eve import is_station_id, resolve_location_name
-
     try:
         # Third Party
-        from corptools.models import CorpAsset
+        from corptools.models import CorpAsset, EveLocation
     except Exception:
         CorpAsset = None
+        EveLocation = None
 
     structures = []
     assets_scope_missing = False
     location_ids = set()
     location_flags_by_id: dict[int, set[str]] = {}
 
-    # Only use a token that actually belongs to the corporation and has structure scope for name lookups
-    token_for_names = _get_token_for_corp(
-        user,
-        corp_id,
-        "esi-universe.read_structures.v1",
-        require_corporation_token=False,
-    )
-    logger.info(
-        f"material_exchange_config: names token corp_id={corp_id}, token_id={(getattr(token_for_names, 'id', None))}, token_type={(getattr(token_for_names, 'token_type', None))}"
-    )
-
-    # Use cached corp assets from corptools when available to avoid ESI rate limits
-    if CorpAsset:
-        try:
-            qs = (
-                CorpAsset.objects.filter(corporation_id=corp_id)
-                .exclude(location_type__iexact="item")
-                .values_list("location_id", "location_flag")
-            )
-            asset_count = qs.count()
-            logger.info(
-                f"material_exchange_config: found {asset_count} assets in corptools cache for corp_id={corp_id}"
-            )
-            for loc_id, loc_flag in qs:
-                try:
-                    int_id = int(loc_id)
-                except (TypeError, ValueError):
-                    continue
-                location_ids.add(int_id)
-                if loc_flag:
-                    location_flags_by_id.setdefault(int_id, set()).add(str(loc_flag))
-        except Exception as e:
-            logger.warning(
-                f"material_exchange_config: error loading corptools assets for corp_id={corp_id}: {e}"
-            )
-            pass
+    if not CorpAsset:
+        logger.warning("material_exchange_config: corptools.models.CorpAsset not available")
+        return (
+            [
+                {
+                    "id": 0,
+                    "name": _("⚠ No corporation assets found in corptools cache"),
+                }
+            ],
+            assets_scope_missing,
+        )
 
     try:
-        # Fallback to live ESI if nothing is cached locally
-        if not location_ids:
-            required_scope = "esi-assets.read_corporation_assets.v1"
+        qs = (
+            CorpAsset.objects.filter(corporation_id=corp_id)
+            .exclude(location_type__iexact="item")
+            .values_list("location_id", "location_flag", "location_name_id")
+        )
+        asset_count = qs.count()
+        logger.info(
+            f"material_exchange_config: found {asset_count} assets in corptools cache for corp_id={corp_id}"
+        )
 
-            # Get all tokens with the required scope
-            # Alliance Auth
-            from esi.models import Token
-
-            potential_tokens = list(
-                Token.objects.filter(user=user)
-                .require_scopes([required_scope])
-                .require_valid()
-            )
-
-            if not potential_tokens:
-                assets_scope_missing = True
-                logger.info(
-                    f"material_exchange_config: missing corp assets token for corp_id={corp_id} (scope={required_scope})"
-                )
-                return (
-                    [
-                        {
-                            "id": 0,
-                            "name": _(
-                                "⚠ Missing valid corporation token with scope: esi-assets.read_corporation_assets.v1"
-                            ),
-                        }
-                    ],
-                    assets_scope_missing,
-                )
-
-            # Filter tokens to only those from the target corporation using base AA relations
-            # Prefer corporation tokens with matching corporation_id, then character tokens whose related character matches
-            # Do not call ESI here; rely on Token relations and reduce attempts to avoid timeouts
-            corp_tokens: list = []
-            unmatched_tokens: list = []
-            # newest tokens first
-            potential_tokens.sort(
-                key=lambda t: getattr(t, "created", None) or 0, reverse=True
-            )
-            for token in potential_tokens:
-                # Corp tokens: use token.corporation_id when available
-                if getattr(token, "token_type", "") == getattr(
-                    token, "TOKEN_TYPE_CORPORATION", "corporation"
-                ):
-                    corp_attr = getattr(token, "corporation_id", None)
-                    if corp_attr is not None and int(corp_attr) == int(corp_id):
-                        corp_tokens.append(token)
-                        continue
-                # Character tokens: use related character when available
-                char_obj = getattr(token, "character", None)
-                if char_obj and getattr(char_obj, "corporation_id", None) is not None:
-                    if int(char_obj.corporation_id) == int(corp_id):
-                        corp_tokens.append(token)
-                        continue
-                # Keep a small pool of unmatched tokens as last resort
-                unmatched_tokens.append(token)
-
-            # If no obvious matches, try a few newest unmatched tokens (limit to avoid 504)
-            if not corp_tokens:
-                corp_tokens.extend(unmatched_tokens[:3])
-
-            # Try each corp token until one works (has the required corp roles)
-            assets_data = None
-            last_error = None
-
-            logger.info(
-                f"material_exchange_config: filtered {len(corp_tokens)} tokens for corp_id={corp_id} from {len(potential_tokens)} potential tokens"
-            )
-
-            if not corp_tokens:
-                logger.warning(
-                    f"material_exchange_config: no corp tokens available for corp_id={corp_id}, will rely on corptools cache"
-                )
-
-            # Limit attempts to at most 3 tokens to avoid long blocking calls
-            for token in corp_tokens[:3]:
+        loc_ids_with_name: dict[int, int] = {}
+        for loc_id, loc_flag, loc_name_id in qs:
+            try:
+                int_id = int(loc_id)
+            except (TypeError, ValueError):
+                continue
+            location_ids.add(int_id)
+            if loc_flag:
+                location_flags_by_id.setdefault(int_id, set()).add(str(loc_flag))
+            if loc_name_id:
                 try:
-                    # Try to fetch assets with this token
-                    assets_data = (
-                        esi.client.Assets.get_corporations_corporation_id_assets(
-                            corporation_id=corp_id, token=token.valid_access_token()
-                        ).results()
-                    )
-                    logger.info(
-                        f"material_exchange_config: fetched corp assets via ESI for corp_id={corp_id}, "
-                        f"token_id={token.id}, character_id={token.character_id}"
-                    )
-                    break  # Success! Use this token
-                except Exception as e:
-                    # Third Party
-                    from bravado.exception import HTTPError
-
-                    status_code = getattr(
-                        getattr(e, "response", None), "status_code", None
-                    )
-                    if isinstance(e, HTTPError) and status_code == 403:
-                        # This character doesn't have the required roles, try next token
-                        logger.debug(
-                            f"Token {token.id} (char_id={token.character_id}) lacks corp roles for assets, trying next..."
-                        )
-                        last_error = e
-                        continue
-                    else:
-                        # Other error (timeout, network, etc.), save and try next
-                        logger.debug(
-                            f"Token {token.id} (char_id={token.character_id}) failed for assets: {type(e).__name__}: {e}"
-                        )
-                        last_error = e
-                        continue
-
-            if assets_data is None:
-                # All tokens failed - check if we at least have corptools data
-                if location_ids:
-                    # We have corptools cache, use it without ESI
-                    logger.info(
-                        f"material_exchange_config: ESI failed but using {len(location_ids)} cached corptools locations for corp_id={corp_id}"
-                    )
-                else:
-                    # No cache and ESI failed
-                    assets_scope_missing = True
-                    error_name = _(
-                        "⚠ None of your characters have the required corporation roles for assets. "
-                        "Please authorize with a character that has Director or Junior Accountant role."
-                    )
-                    if last_error:
-                        logger.warning(
-                            f"material_exchange_config: All tokens failed for corp_id={corp_id}, last_error={last_error}"
-                        )
-                    return (
-                        [
-                            {
-                                "id": 0,
-                                "name": error_name,
-                            }
-                        ],
-                        assets_scope_missing,
-                    )
-
-            for asset in assets_data:
-                location_id = asset.get("location_id")
-                if not location_id:
-                    continue
-                if asset.get("item_id") == location_id:
-                    continue  # nested container
-                try:
-                    int_id = int(location_id)
+                    loc_ids_with_name[int_id] = int(loc_name_id)
                 except (TypeError, ValueError):
-                    continue
-                location_ids.add(int_id)
-                loc_flag = asset.get("location_flag")
-                if loc_flag:
-                    location_flags_by_id.setdefault(int_id, set()).add(str(loc_flag))
+                    pass
+
+        # Fetch names from corptools EveLocation when available
+        location_names: dict[int, str] = {}
+        if EveLocation and loc_ids_with_name:
+            try:
+                name_map = {
+                    int(loc.id): loc.name
+                    for loc in EveLocation.objects.filter(
+                        id__in=set(loc_ids_with_name.values())
+                    )
+                }
+                for lid, name_id in loc_ids_with_name.items():
+                    if name_id in name_map:
+                        location_names[lid] = name_map[name_id]
+            except Exception as e:  # pragma: no cover - defensive
+                logger.warning(
+                    f"material_exchange_config: failed loading EveLocation names for corp_id={corp_id}: {e}"
+                )
 
         logger.info(
-            f"material_exchange_config: collected {len(location_ids)} location_ids for corp_id={corp_id}"
+            f"material_exchange_config: collected {len(location_ids)} location_ids for corp_id={corp_id} from corptools"
         )
 
         if not location_ids:
@@ -456,42 +316,33 @@ def _get_corp_structures(user, corp_id):
                 [
                     {
                         "id": 0,
-                        "name": _("⚠ No corporation assets found"),
+                        "name": _("⚠ No corporation assets found in corptools cache"),
                     }
                 ],
                 assets_scope_missing,
             )
 
         for location_id in location_ids:
-            if not token_for_names and not is_station_id(location_id):
-                # Avoid public structure lookups when we lack structure scope
-                location_name = f"Structure {location_id}"
-            else:
-                location_name = resolve_location_name(
-                    location_id,
-                    character_id=(
-                        token_for_names.character_id if token_for_names else None
-                    ),
-                    owner_user_id=user.pk,
-                    allow_public=is_station_id(location_id),
-                )
-
+            location_name = location_names.get(location_id, f"Structure {location_id}")
             structures.append(
                 {
                     "id": location_id,
-                    "name": location_name or f"Structure {location_id}",
+                    "name": location_name,
                     "flags": sorted(location_flags_by_id.get(location_id, set())),
                 }
             )
 
         structures.sort(key=lambda x: x["name"])
 
-    except Exception as e:
+    except Exception as e:  # pragma: no cover - defensive
+        logger.warning(
+            f"material_exchange_config: error loading corptools assets for corp_id={corp_id}: {e}"
+        )
         return (
             [
                 {
                     "id": 0,
-                    "name": f"⚠ Error: {str(e)}",
+                    "name": _("⚠ No corporation assets found in corptools cache"),
                 }
             ],
             assets_scope_missing,
@@ -617,9 +468,7 @@ def _get_corp_hangar_divisions(user, corp_id):
                     )
                     continue
                 else:
-                    logger.warning(
-                        f"Could not fetch corp division names with token {token.id}: {e}"
-                    )
+                    logger.warning(f"Could not fetch corp division names with token {token.id}: {e}")
                     continue
 
     except Exception as e:
