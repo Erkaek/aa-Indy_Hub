@@ -48,9 +48,5 @@ INDY_HUB_BEAT_SCHEDULE = {
         "schedule": crontab(minute="*/10"),  # Every 10 minutes
         "options": {"priority": 4},
     },
-    "indy-hub-refresh-production-items": {
-        "task": "indy_hub.tasks.material_exchange.refresh_production_items",
-        "schedule": crontab(hour=15, minute=0),  # Daily at 15:00
-        "options": {"priority": 8},
-    },
+    # Removed: indy-hub-refresh-production-items - now using EveUniverse.EveIndustryActivityMaterial
 }

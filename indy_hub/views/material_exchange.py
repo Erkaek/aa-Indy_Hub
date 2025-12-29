@@ -1,10 +1,8 @@
 """Material Exchange views for Indy Hub."""
 
 # Standard Library
-import json
 import logging
 from decimal import Decimal
-from pathlib import Path
 
 # Django
 from django.contrib import messages
@@ -37,38 +35,37 @@ from ..utils.eve import get_type_name
 logger = logging.getLogger(__name__)
 
 _PRODUCTION_IDS_CACHE: set[int] | None = None
-_PRODUCTION_IDS_MTIME: float | None = None
 
 
 def _load_production_ids() -> set[int]:
-    """Return the cached set of production item type IDs, reloading on file change."""
+    """Return the cached set of production item type IDs from EveUniverse."""
 
-    global _PRODUCTION_IDS_CACHE, _PRODUCTION_IDS_MTIME
+    global _PRODUCTION_IDS_CACHE
 
-    prod_path = (
-        Path(__file__).resolve().parent.parent
-        / "static"
-        / "data"
-        / "production_items.json"
-    )
+    # Return cached value if already loaded
+    if _PRODUCTION_IDS_CACHE is not None:
+        return _PRODUCTION_IDS_CACHE
 
     try:
-        mtime = prod_path.stat().st_mtime
-        if _PRODUCTION_IDS_CACHE is not None and _PRODUCTION_IDS_MTIME == mtime:
-            return _PRODUCTION_IDS_CACHE
+        # Alliance Auth (External Libs)
+        from eveuniverse.models import EveIndustryActivityMaterial
 
-        data = json.loads(prod_path.read_text(encoding="utf-8"))
-        ids = {int(x) for x in data.get("item_type_ids", []) if x is not None}
-        _PRODUCTION_IDS_CACHE = ids
-        _PRODUCTION_IDS_MTIME = mtime
-        return ids
-    except FileNotFoundError:
-        logger.warning("production_items.json missing; skipping production filter")
-        _PRODUCTION_IDS_CACHE = set()
-        _PRODUCTION_IDS_MTIME = None
-        return set()
+        # Get all unique material_eve_type_id values
+        material_ids = (
+            EveIndustryActivityMaterial.objects.values_list(
+                "material_eve_type_id", flat=True
+            )
+            .distinct()
+            .order_by()
+        )
+        _PRODUCTION_IDS_CACHE = set(material_ids)
+        logger.info(
+            f"Loaded {len(_PRODUCTION_IDS_CACHE)} production IDs from EveUniverse"
+        )
+        return _PRODUCTION_IDS_CACHE
     except Exception as exc:  # pragma: no cover - defensive
-        logger.warning("Failed to load production_items.json: %s", exc)
+        logger.warning("Failed to load production IDs from EveUniverse: %s", exc)
+        _PRODUCTION_IDS_CACHE = set()
         return set()
 
 
@@ -449,14 +446,20 @@ LIMIT 1
         cursor.execute(query, params)
 
         user_assets = {row[0]: row[1] for row in cursor.fetchall()}
+        logger.info(
+            f"SELL DEBUG: Found {len(user_assets)} unique items in assets before production filter"
+        )
 
         prod_ids = _load_production_ids()
+        logger.info(f"SELL DEBUG: Loaded {len(prod_ids)} production IDs")
         if prod_ids:
             user_assets = {
                 tid: qty for tid, qty in user_assets.items() if tid in prod_ids
             }
+        logger.info(f"SELL DEBUG: {len(user_assets)} items after production filter")
 
         price_data = _fetch_fuzzwork_prices(list(user_assets.keys()))
+        logger.info(f"SELL DEBUG: Got prices for {len(price_data)} items from Fuzzwork")
 
         for type_id, user_qty in user_assets.items():
             fuzz_prices = price_data.get(type_id, {})
@@ -464,6 +467,9 @@ LIMIT 1
             jita_sell = fuzz_prices.get("sell") or Decimal(0)
             base = jita_sell if config.sell_markup_base == "sell" else jita_buy
             if base <= 0:
+                logger.debug(
+                    f"SELL DEBUG: Skipping type_id {type_id} - no valid price (buy={jita_buy}, sell={jita_sell}, base={base})"
+                )
                 continue
 
             buy_price = base * (1 + (config.sell_markup_percent / Decimal(100)))
@@ -477,6 +483,9 @@ LIMIT 1
                 }
             )
 
+        logger.info(
+            f"SELL DEBUG: Final materials_with_qty count: {len(materials_with_qty)}"
+        )
         materials_with_qty.sort(key=lambda x: x["type_name"])
 
     context = {
