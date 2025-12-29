@@ -5,6 +5,7 @@ Handles ESI contract checking, validation, and PM notifications for sell/buy ord
 
 # Standard Library
 import logging
+from decimal import Decimal, InvalidOperation
 
 # Third Party
 from celery import shared_task
@@ -101,6 +102,8 @@ def _validate_sell_order(config, order, contracts):
     - acceptor_id = config.corporation_id
     - start_location_id or end_location_id = structure_id
     """
+    order_ref = f"INDY-{order.id}"
+
     # Find seller's main character (assumed to be their user)
     seller_character_ids = _get_user_character_ids(order.seller)
     if not seller_character_ids:
@@ -122,6 +125,8 @@ def _validate_sell_order(config, order, contracts):
 
     # Search for matching contract
     matching_contract = None
+    last_price_issue: str | None = None
+    ref_missing = False
     for contract in contracts:
         if not _matches_sell_order_criteria(
             contract,
@@ -151,6 +156,14 @@ def _validate_sell_order(config, order, contracts):
 
         # Check if items match
         if _contract_items_match_order(contract_items, order):
+            price_ok, price_details = _contract_price_matches(contract, order)
+            if not price_ok:
+                last_price_issue = (
+                    f"Contract {contract['contract_id']}: {price_details}"
+                )
+                continue
+
+            ref_missing = order_ref.lower() not in (contract.get("title") or "").lower()
             matching_contract = contract
             break
 
@@ -163,7 +176,12 @@ def _validate_sell_order(config, order, contracts):
     if matching_contract:
         # Contract found and items verified
         order.status = MaterialExchangeSellOrder.Status.APPROVED
-        order.notes = f"Contract validated: {matching_contract['contract_id']}"
+        order.notes = (
+            f"Contract validated: {matching_contract['contract_id']} @ "
+            f"{Decimal(str(matching_contract.get('price', 0) or 0)).quantize(Decimal('0.01')):,.2f} ISK"
+        )
+        if ref_missing:
+            order.notes += f" (title missing {order_ref})"
         order.save(update_fields=["status", "notes", "updated_at"])
 
         # Notify admins
@@ -174,7 +192,12 @@ def _validate_sell_order(config, order, contracts):
             _(
                 f"{order.seller.username} wants to sell:\n{items_list}\n\n"
                 f"Total: {order.total_price:,.2f} ISK\n"
-                f"Contract verified via ESI. Ready for payment processing."
+                f"Contract #{matching_contract['contract_id']} at {matching_contract.get('price', 0):,.2f} ISK verified via ESI."
+                + (
+                    f"\nContract title missing reference {order_ref}."
+                    if ref_missing
+                    else ""
+                )
             ),
             level="success",
             link=f"/indy_hub/material-exchange/sell-orders/{order.id}/",
@@ -198,8 +221,11 @@ def _validate_sell_order(config, order, contracts):
                 f"We could not verify your sell order:\n{items_list}\n\n"
                 f"Please create an item exchange contract with the following details:\n"
                 f"- Recipient: {_get_corp_name(config.corporation_id)}\n"
+                f"- Price: {order.total_price:,.2f} ISK (contract price)\n"
+                f"- Title: include {order_ref}\n"
                 f"- Items: {', '.join(item.type_name for item in order.items.all())}\n"
                 f"- Location: {config.structure_name or f'Structure {config.structure_id}'}"
+                + (f"\n\nLast checked: {last_price_issue}" if last_price_issue else "")
             ),
             level="warning",
         )
@@ -255,6 +281,24 @@ def _contract_items_match_order(contract_items, order):
             return False
 
     return True
+
+
+def _contract_price_matches(contract: dict, order) -> tuple[bool, str]:
+    """Validate contract price against order total."""
+    try:
+        contract_price = Decimal(str(contract.get("price") or 0)).quantize(
+            Decimal("0.01")
+        )
+        expected_price = Decimal(str(order.total_price)).quantize(Decimal("0.01"))
+    except (InvalidOperation, TypeError):
+        return False, "invalid contract price"
+
+    if contract_price != expected_price:
+        return False, (
+            f"price {contract_price:,.2f} ISK vs expected {expected_price:,.2f} ISK"
+        )
+
+    return True, f"price {contract_price:,.2f} ISK OK"
 
 
 @shared_task

@@ -1314,6 +1314,59 @@ def material_exchange_transactions(request):
     return render(request, "indy_hub/material_exchange/transactions.html", context)
 
 
+@login_required
+@require_http_methods(["POST"])
+def material_exchange_assign_contract(request, order_id):
+    """Assign ESI contract ID to a sell or buy order."""
+    if not request.user.has_perm("indy_hub.can_manage_material_exchange"):
+        messages.error(request, _("Permission denied."))
+        return redirect("indy_hub:material_exchange_admin")
+
+    order_type = request.POST.get("order_type")  # 'sell' or 'buy'
+    contract_id = request.POST.get("contract_id", "").strip()
+
+    if not contract_id or not contract_id.isdigit():
+        messages.error(request, _("Invalid contract ID. Must be a number."))
+        return redirect("indy_hub:material_exchange_admin")
+
+    contract_id_int = int(contract_id)
+
+    try:
+        if order_type == "sell":
+            order = get_object_or_404(MaterialExchangeSellOrder, id=order_id)
+            # Assign contract ID to all items in this order
+            order.items.update(
+                esi_contract_id=contract_id_int,
+                esi_validation_checked_at=None,  # Reset to trigger re-validation
+            )
+            messages.success(
+                request,
+                _(
+                    f"Contract ID {contract_id_int} assigned to sell order #{order.id}. Validation will run automatically."
+                ),
+            )
+        elif order_type == "buy":
+            order = get_object_or_404(MaterialExchangeBuyOrder, id=order_id)
+            order.items.update(
+                esi_contract_id=contract_id_int,
+                esi_validation_checked_at=None,
+            )
+            messages.success(
+                request,
+                _(
+                    f"Contract ID {contract_id_int} assigned to buy order #{order.id}. Validation will run automatically."
+                ),
+            )
+        else:
+            messages.error(request, _("Invalid order type."))
+
+    except Exception as exc:
+        logger.error(f"Error assigning contract ID: {exc}", exc_info=True)
+        messages.error(request, _(f"Error assigning contract ID: {exc}"))
+
+    return redirect("indy_hub:material_exchange_admin")
+
+
 def _build_nav_context(user):
     """Helper to build navigation context for Material Exchange."""
     return {

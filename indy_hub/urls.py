@@ -41,6 +41,7 @@ from .views.material_exchange import (
     material_exchange_admin,
     material_exchange_approve_buy,
     material_exchange_approve_sell,
+    material_exchange_assign_contract,
     material_exchange_buy,
     material_exchange_complete_buy,
     material_exchange_complete_sell,
@@ -358,5 +359,10 @@ urlpatterns = [
         "material-exchange/buy/<int:order_id>/complete/",
         material_exchange_complete_buy,
         name="material_exchange_complete_buy",
+    ),
+    path(
+        "material-exchange/order/<int:order_id>/assign-contract/",
+        material_exchange_assign_contract,
+        name="material_exchange_assign_contract",
     ),
 ]
