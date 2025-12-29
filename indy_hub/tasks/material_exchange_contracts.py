@@ -448,13 +448,25 @@ def _get_character_for_scope(corporation_id: int, scope: str) -> int:
         ESITokenError: If no character with the scope is found
     """
     # Alliance Auth
+    from allianceauth.eveonline.models import EveCharacter
     from esi.models import Token
 
     try:
-        # Get all tokens for characters in this corporation
-        tokens = Token.objects.filter(
-            character__corporation_id=corporation_id
-        ).select_related("character")
+        # Step 1: Get character IDs from the corporation
+        character_ids = EveCharacter.objects.filter(
+            corporation_id=corporation_id
+        ).values_list("character_id", flat=True)
+
+        if not character_ids:
+            raise ESITokenError(
+                f"No characters found for corporation {corporation_id}. "
+                f"At least one corporation member must login to grant ESI scopes."
+            )
+
+        # Step 2: Get all tokens for these characters
+        tokens = Token.objects.filter(character_id__in=character_ids).select_related(
+            "character"
+        )
 
         if not tokens.exists():
             raise ESITokenError(
