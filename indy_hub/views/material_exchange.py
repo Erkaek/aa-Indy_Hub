@@ -206,29 +206,165 @@ def material_exchange_index(request):
             {"nav_context": _build_nav_context(request.user)},
         )
 
-    # Stats (respect allowed market group parents)
-    stock_qs = config.stock_items.all()
+    # Stats (based on the user's visible sell items)
+    stock_count = 0
+    total_stock_value = 0
+
     try:
+        # Django
+        from django.db import connection
+
+        # Alliance Auth
+        from allianceauth.authentication.models import CharacterOwnership
+
         # Alliance Auth (External Libs)
         from eveuniverse.models import EveType
 
-        allowed_type_ids = set(
-            EveType.objects.filter(
-                eve_market_group__parent_market_group_id__in=[
-                    533,
-                    1031,
-                    1034,
-                    2395,
-                ]
-            ).values_list("id", flat=True)
+        character_ids = list(
+            CharacterOwnership.objects.filter(user=request.user).values_list(
+                "character_id", flat=True
+            )
         )
-        if allowed_type_ids:
-            stock_qs = stock_qs.filter(type_id__in=allowed_type_ids)
-    except Exception:
-        pass
 
-    stock_count = stock_qs.count()
-    total_stock_value = stock_qs.aggregate(total=Sum("jita_buy_price"))["total"] or 0
+        if character_ids:
+            placeholders = ",".join(["%s"] * len(character_ids))
+            base_id = int(config.structure_id)
+            low = base_id * 10
+            high = base_id * 10 + 9
+
+            personal_loc_ids: list[int] = []
+            with connection.cursor() as cursor:
+                try:
+                    cursor.execute(
+                        """
+SELECT DISTINCT e.location_id
+FROM corptools_evelocation e
+WHERE e.location_id > 0
+AND e.system_id = (
+    SELECT system_id FROM corptools_evelocation
+    WHERE location_id < 0 AND ABS(location_id) DIV 10 = %s
+    LIMIT 1
+)
+AND (
+    e.location_name = (
+        SELECT SUBSTRING_INDEX(location_name, '>', 1)
+        FROM corptools_evelocation
+        WHERE location_id < 0 AND ABS(location_id) DIV 10 = %s
+        LIMIT 1
+    )
+    OR e.location_name LIKE CONCAT(
+        (
+            SELECT SUBSTRING_INDEX(location_name, '>', 1)
+            FROM corptools_evelocation
+            WHERE location_id < 0 AND ABS(location_id) DIV 10 = %s
+            LIMIT 1
+        ), %s
+    )
+)
+""",
+                        [base_id, base_id, base_id, "%"],
+                    )
+                    personal_loc_ids = [
+                        int(r[0]) for r in cursor.fetchall() if r and r[0]
+                    ]
+                except Exception:
+                    personal_loc_ids = []
+
+                extra_clause = ""
+                params = list(character_ids)
+                # First bind base/range placeholders, then optional personal location IDs
+                base_params = [base_id, low, high]
+                if personal_loc_ids:
+                    plh = ",".join(["%s"] * len(personal_loc_ids))
+                    extra_clause = f" OR location_id IN ({plh})"
+                    params.extend(base_params + personal_loc_ids)
+                else:
+                    params.extend(base_params)
+
+                query = (
+                    f"""
+SELECT type_id, SUM(quantity) as total_qty
+FROM corptools_characterasset
+WHERE character_id IN ({placeholders})
+AND ((ABS(location_id) = %s OR (ABS(location_id) BETWEEN %s AND %s))"""
+                    + extra_clause
+                    + """
+)
+GROUP BY type_id
+"""
+                )
+
+                cursor.execute(query, params)
+                user_assets = {row[0]: row[1] for row in cursor.fetchall()}
+
+            # NOTE: Removed production filter to align with Sell page (allow all items)
+            logger.info(
+                f"INDEX DEBUG: Found {len(user_assets)} unique items in assets before production filter (filter disabled)"
+            )
+            logger.info(
+                f"INDEX DEBUG: {len(user_assets)} items after production filter (filter disabled)"
+            )
+
+            allowed_type_ids = set(
+                EveType.objects.filter(
+                    eve_market_group__parent_market_group_id__in=[
+                        533,
+                        1031,
+                        1034,
+                        2395,
+                    ]
+                ).values_list("id", flat=True)
+            )
+            user_assets = {
+                tid: qty for tid, qty in user_assets.items() if tid in allowed_type_ids
+            }
+            logger.info(
+                f"INDEX DEBUG: {len(user_assets)} items after market group filter"
+            )
+
+            if user_assets:
+                logger.info(
+                    f"INDEX DEBUG: user_assets keys: {list(user_assets.keys())}"
+                )
+                price_data = _fetch_fuzzwork_prices(list(user_assets.keys()))
+                logger.info(
+                    f"INDEX DEBUG: Got prices for {len(price_data)} items from Fuzzwork"
+                )
+                logger.info(f"INDEX DEBUG: price_data keys: {list(price_data.keys())}")
+                visible_items = 0
+                total_value = Decimal(0)
+
+                for type_id, user_qty in user_assets.items():
+                    fuzz_prices = price_data.get(type_id, {})
+                    jita_buy = fuzz_prices.get("buy") or Decimal(0)
+                    jita_sell = fuzz_prices.get("sell") or Decimal(0)
+                    base = jita_sell if config.sell_markup_base == "sell" else jita_buy
+                    logger.info(
+                        f"INDEX DEBUG: type_id={type_id} qty={user_qty} jita_buy={jita_buy} jita_sell={jita_sell} base={base} sell_markup_base={config.sell_markup_base}"
+                    )
+                    if base <= 0:
+                        logger.info(
+                            f"INDEX DEBUG: SKIPPING type_id {type_id} - no valid price (base={base})"
+                        )
+                        continue
+                    unit_price = base * (
+                        1 + (config.sell_markup_percent / Decimal(100))
+                    )
+                    item_value = unit_price * user_qty
+                    logger.info(
+                        f"INDEX DEBUG: COUNTING type_id {type_id} qty={user_qty} unit_price={unit_price} item_value={item_value}"
+                    )
+                    total_value += item_value
+                    visible_items += 1
+
+                logger.info(
+                    f"INDEX DEBUG: Final visible items count: {visible_items}, total_value: {total_value}"
+                )
+                stock_count = visible_items
+                total_stock_value = total_value
+    except Exception:
+        # Fall back silently if user assets cannot be loaded
+        pass
 
     pending_sell_orders = config.sell_orders.filter(status="pending").count()
     pending_buy_orders = config.buy_orders.filter(status="pending").count()
@@ -342,11 +478,14 @@ LIMIT 1
 
         extra_clause = ""
         params = list(character_ids)
+        # First bind base/range placeholders, then optional personal location IDs
+        base_params = [base_id, low, high]
         if personal_loc_ids:
             plh = ",".join(["%s"] * len(personal_loc_ids))
             extra_clause = f" OR location_id IN ({plh})"
-            params.extend(personal_loc_ids)
-        params.extend([base_id, low, high])
+            params.extend(base_params + personal_loc_ids)
+        else:
+            params.extend(base_params)
 
         query = (
             f"""
@@ -363,12 +502,6 @@ GROUP BY type_id
 
         cursor.execute(query, params)
         user_assets = {row[0]: row[1] for row in cursor.fetchall()}
-
-        prod_ids = _load_production_ids()
-        if prod_ids:
-            user_assets = {
-                tid: qty for tid, qty in user_assets.items() if tid in prod_ids
-            }
 
         # Apply market group filter if configured
         # Always apply parent market group filter (Materials hierarchy)
@@ -555,19 +688,10 @@ LIMIT 1
 
         user_assets = {row[0]: row[1] for row in cursor.fetchall()}
         logger.info(
-            f"SELL DEBUG: Found {len(user_assets)} unique items in assets before production filter"
+            f"SELL DEBUG: Found {len(user_assets)} unique items in assets before production filter (filter disabled)"
         )
 
-        prod_ids = _load_production_ids()
-        logger.info(f"SELL DEBUG: Loaded {len(prod_ids)} production IDs")
-        if prod_ids:
-            user_assets = {
-                tid: qty for tid, qty in user_assets.items() if tid in prod_ids
-            }
-        logger.info(f"SELL DEBUG: {len(user_assets)} items after production filter")
-
-        # Apply market group filter if configured
-        # Always apply parent market group filter (Materials hierarchy)
+        # Apply market group filter (same as POST + Index) to keep views consistent
         try:
             # Alliance Auth (External Libs)
             from eveuniverse.models import EveType
@@ -589,7 +713,7 @@ LIMIT 1
                 f"SELL DEBUG: {len(user_assets)} items after market group filter"
             )
         except Exception as exc:
-            logger.warning("Failed to apply market group filter: %s", exc)
+            logger.warning("Failed to apply market group filter (GET): %s", exc)
 
         price_data = _fetch_fuzzwork_prices(list(user_assets.keys()))
         logger.info(f"SELL DEBUG: Got prices for {len(price_data)} items from Fuzzwork")
