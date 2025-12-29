@@ -3,7 +3,7 @@
 # Standard Library
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
 # Local
@@ -272,9 +272,7 @@ class ESIContractValidator:
                 return result
 
             # Fetch contract details
-            contracts = self.fetch_character_contracts(
-                character_id, include_items=True
-            )
+            contracts = self.fetch_character_contracts(character_id, include_items=True)
             contract = next(
                 (c for c in contracts if c.get("contract_id") == contract_id), None
             )
@@ -310,13 +308,15 @@ class ESIContractValidator:
             result["price_match"] = contract_price == expected_price_dec
 
             if order_ref:
-                result["title_ref_match"] = order_ref.lower() in (details.title or "").lower()
+                result["title_ref_match"] = (
+                    order_ref.lower() in (details.title or "").lower()
+                )
 
             # Validate contract type (should be item_exchange for sell orders)
             if details.type not in ["item_exchange", "courier"]:
-                result[
-                    "message"
-                ] = f"Invalid contract type: {details.type} (expected item_exchange)"
+                result["message"] = (
+                    f"Invalid contract type: {details.type} (expected item_exchange)"
+                )
                 return result
 
             # Validate items
@@ -324,7 +324,9 @@ class ESIContractValidator:
             contract_items = self.parse_contract_items(contract_items_raw)
 
             # Build expected items map
-            expected_map = {item["type_id"]: item["quantity"] for item in expected_items}
+            expected_map = {
+                item["type_id"]: item["quantity"] for item in expected_items
+            }
 
             # Build contract included items map (what member is giving)
             contract_map = {
@@ -361,13 +363,9 @@ class ESIContractValidator:
 
             if not result["items_match"]:
                 if result["missing_items"]:
-                    reasons.append(
-                        f"Missing items: {result['missing_items']}"
-                    )
+                    reasons.append(f"Missing items: {result['missing_items']}")
                 if result["extra_items"]:
-                    reasons.append(
-                        f"Unexpected items: {result['extra_items']}"
-                    )
+                    reasons.append(f"Unexpected items: {result['extra_items']}")
 
             if not result["price_match"]:
                 reasons.append(
@@ -378,7 +376,9 @@ class ESIContractValidator:
                 reasons.append(f"Contract title missing reference {order_ref}")
 
             if not reasons:
-                result["message"] = f"Contract validated successfully (status: {result['status']})"
+                result["message"] = (
+                    f"Contract validated successfully (status: {result['status']})"
+                )
             else:
                 result["message"] = "; ".join(reasons)
 
@@ -476,13 +476,17 @@ class ESIContractValidator:
             result["price_match"] = contract_price == expected_price_dec
 
             if order_ref:
-                result["title_ref_match"] = order_ref.lower() in (details.title or "").lower()
+                result["title_ref_match"] = (
+                    order_ref.lower() in (details.title or "").lower()
+                )
 
             # Validate items
             contract_items_raw = contract.get("items", [])
             contract_items = self.parse_contract_items(contract_items_raw)
 
-            expected_map = {item["type_id"]: item["quantity"] for item in expected_items}
+            expected_map = {
+                item["type_id"]: item["quantity"] for item in expected_items
+            }
             contract_map = {
                 item.type_id: item.quantity
                 for item in contract_items
@@ -528,7 +532,9 @@ class ESIContractValidator:
                 reasons.append(f"Contract title missing reference {order_ref}")
 
             if not reasons:
-                result["message"] = f"Contract validated successfully (status: {result['status']})"
+                result["message"] = (
+                    f"Contract validated successfully (status: {result['status']})"
+                )
             else:
                 result["message"] = "; ".join(reasons)
 
