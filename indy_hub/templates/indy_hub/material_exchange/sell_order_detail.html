@@ -1,0 +1,346 @@
+{% extends "indy_hub/base.html" %}
+{% load i18n %}
+{% load static %}
+{% load humanize %}
+
+{% block page_title %}{% trans "Sell Order Details" %} - {{ order.order_reference }}{% endblock page_title %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
+<style>
+    .order-reference-display {
+        background: linear-gradient(135deg, rgba(var(--bs-warning-rgb), 0.2), rgba(var(--bs-success-rgb), 0.2));
+        border: 2px solid var(--bs-warning);
+        border-radius: 0.5rem;
+        padding: 1.5rem;
+        margin-bottom: 2rem;
+        text-align: center;
+    }
+    
+    .order-reference-display h1 {
+        font-family: 'Courier New', monospace;
+        font-size: 2.5rem;
+        color: var(--bs-warning);
+        margin: 0.5rem 0;
+        user-select: all;
+    }
+    
+    .copy-button {
+        font-size: 1.1rem;
+    }
+    
+    .timeline {
+        position: relative;
+        padding-left: 40px;
+    }
+    
+    .timeline-item {
+        position: relative;
+        padding-bottom: 2rem;
+    }
+    
+    .timeline-item::before {
+        content: '';
+        position: absolute;
+        left: -29px;
+        top: 0;
+        bottom: -2rem;
+        width: 2px;
+        background: var(--bs-secondary);
+    }
+    
+    .timeline-item:last-child::before {
+        display: none;
+    }
+    
+    .timeline-icon {
+        position: absolute;
+        left: -40px;
+        top: 0;
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.8rem;
+    }
+    
+    .timeline-icon.completed {
+        background: var(--bs-success);
+        color: white;
+    }
+    
+    .timeline-icon.pending {
+        background: var(--bs-secondary);
+        color: white;
+    }
+    
+    .contract-instructions {
+        background: rgba(var(--bs-info-rgb), 0.1);
+        border-left: 4px solid var(--bs-info);
+        padding: 1.5rem;
+        border-radius: 0.375rem;
+    }
+    
+    .contract-instructions ol {
+        margin-bottom: 0;
+    }
+    
+    .contract-instructions li {
+        margin-bottom: 0.75rem;
+    }
+</style>
+{% endblock extra_css %}
+
+{% block content %}
+<main class="bg-body p-4">
+    <div class="container-fluid my-0 bg-body">
+        <!-- Header -->
+        <div class="page-header mb-4">
+            <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+                <div>
+                    <h2 class="h3 mb-1">
+                        <i class="fas fa-file-invoice-dollar me-2"></i>
+                        {% trans "Sell Order Details" %}
+                    </h2>
+                    <p class="description">{% trans "Order" %} #{{ order.id }}</p>
+                </div>
+                <div class="d-flex gap-2">
+                    <a href="{% url 'indy_hub:my_orders' %}" class="btn btn-outline-light">
+                        <i class="fas fa-arrow-left me-1"></i>{% trans "My Orders" %}
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Order Reference Display -->
+        <div class="order-reference-display">
+            <div class="mb-2">
+                <i class="fas fa-qrcode fa-2x text-warning"></i>
+            </div>
+            <h5 class="text-muted mb-2">{% trans "Your Order Reference" %}</h5>
+            <h1 id="orderReference">{{ order.order_reference }}</h1>
+            <p class="text-muted mb-3">{% trans "Include this in your contract title/description" %}</p>
+            <button class="btn btn-warning btn-lg copy-button" onclick="copyOrderReference()">
+                <i class="fas fa-copy me-2"></i>{% trans "Copy to Clipboard" %}
+            </button>
+        </div>
+
+        <div class="row">
+            <!-- Left Column: Order Info -->
+            <div class="col-lg-8">
+                <!-- Status Card -->
+                <div class="card mb-4">
+                    <div class="card-header bg-success bg-opacity-10">
+                        <h5 class="mb-0">
+                            <i class="fas fa-info-circle me-2"></i>{% trans "Order Status" %}
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <h3>
+                                    <span class="badge bg-{{ timeline.0.color }} fs-5">
+                                        {{ order.get_status_display }}
+                                    </span>
+                                </h3>
+                            </div>
+                            <div class="text-end">
+                                <small class="text-muted">
+                                    {% trans "Created:" %} {{ order.created_at|date:"Y-m-d H:i" }}
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Contract Instructions (only show if pending/approved) -->
+                {% if order.status in 'pending,approved' %}
+                    <div class="card mb-4">
+                        <div class="card-header bg-info bg-opacity-10">
+                            <h5 class="mb-0">
+                                <i class="fas fa-clipboard-list me-2"></i>{% trans "Contract Instructions" %}
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="contract-instructions">
+                                <h6 class="text-info mb-3">
+                                    <i class="fas fa-rocket me-2"></i>{% trans "Create your contract in-game:" %}
+                                </h6>
+                                <ol>
+                                    <li>
+                                        <strong>{% trans "Type:" %}</strong> Item Exchange
+                                    </li>
+                                    <li>
+                                        <strong>{% trans "Assign to:" %}</strong> 
+                                        {{ config.corporation_name|default:"Corporation" }}
+                                        <small class="text-muted">(ID: {{ config.corporation_id }})</small>
+                                    </li>
+                                    <li>
+                                        <strong>{% trans "Location:" %}</strong> 
+                                        {{ config.structure_name }}
+                                        <small class="text-muted">(ID: {{ config.structure_id }})</small>
+                                    </li>
+                                    <li>
+                                        <strong>{% trans "Price:" %}</strong> 
+                                        <span class="text-warning fw-bold">{{ order.total_price|floatformat:2|intcomma }} ISK</span>
+                                    </li>
+                                    <li>
+                                        <strong class="text-danger">{% trans "Title/Description:" %}</strong> 
+                                        <span class="text-warning fw-bold">{{ order.order_reference }}</span>
+                                        <span class="text-danger">({% trans "REQUIRED!" %})</span>
+                                    </li>
+                                    <li>
+                                        <strong>{% trans "Duration:" %}</strong> 4 weeks
+                                    </li>
+                                </ol>
+                                <div class="alert alert-warning mt-3 mb-0">
+                                    <i class="fas fa-exclamation-triangle me-2"></i>
+                                    <strong>{% trans "Important:" %}</strong> 
+                                    {% trans "The system will automatically verify your contract within 5 minutes. Make sure to include the exact reference in your contract title!" %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                {% endif %}
+
+                <!-- Items List -->
+                <div class="card mb-4">
+                    <div class="card-header bg-success bg-opacity-10">
+                        <h5 class="mb-0">
+                            <i class="fas fa-boxes me-2"></i>{% trans "Items" %} ({{ items.count }})
+                        </h5>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>{% trans "Item" %}</th>
+                                        <th class="text-end">{% trans "Quantity" %}</th>
+                                        <th class="text-end">{% trans "Unit Price" %}</th>
+                                        <th class="text-end">{% trans "Total" %}</th>
+                                        {% if order.status != 'pending' %}
+                                            <th class="text-center">{% trans "Validated" %}</th>
+                                        {% endif %}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for item in items %}
+                                        <tr>
+                                            <td>
+                                                <strong>{{ item.type_name }}</strong>
+                                                <br>
+                                                <small class="text-muted">ID: {{ item.type_id }}</small>
+                                            </td>
+                                            <td class="text-end">{{ item.quantity|intcomma }}</td>
+                                            <td class="text-end">{{ item.unit_price|floatformat:2|intcomma }} ISK</td>
+                                            <td class="text-end fw-bold text-warning">
+                                                {{ item.total_price|floatformat:2|intcomma }} ISK
+                                            </td>
+                                            {% if order.status != 'pending' %}
+                                                <td class="text-center">
+                                                    {% if item.esi_contract_validated %}
+                                                        <i class="fas fa-check-circle text-success"></i>
+                                                    {% else %}
+                                                        <i class="fas fa-hourglass-half text-warning"></i>
+                                                    {% endif %}
+                                                </td>
+                                            {% endif %}
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                                <tfoot>
+                                    <tr class="table-active fw-bold">
+                                        <td colspan="3" class="text-end">{% trans "TOTAL PAYOUT:" %}</td>
+                                        <td class="text-end text-success fs-5">
+                                            {{ order.total_price|floatformat:2|intcomma }} ISK
+                                        </td>
+                                        {% if order.status != 'pending' %}
+                                            <td></td>
+                                        {% endif %}
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Notes (if any) -->
+                {% if order.notes %}
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h5 class="mb-0">
+                                <i class="fas fa-sticky-note me-2"></i>{% trans "Notes" %}
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <p class="mb-0">{{ order.notes }}</p>
+                        </div>
+                    </div>
+                {% endif %}
+            </div>
+
+            <!-- Right Column: Timeline -->
+            <div class="col-lg-4">
+                <div class="card">
+                    <div class="card-header bg-primary bg-opacity-10">
+                        <h5 class="mb-0">
+                            <i class="fas fa-history me-2"></i>{% trans "Timeline" %}
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="timeline">
+                            {% for step in timeline %}
+                                <div class="timeline-item">
+                                    <div class="timeline-icon {% if step.completed %}completed{% else %}pending{% endif %}">
+                                        <i class="{{ step.icon }}"></i>
+                                    </div>
+                                    <div>
+                                        <h6 class="mb-1">{{ step.status }}</h6>
+                                        {% if step.timestamp %}
+                                            <small class="text-muted">
+                                                <i class="far fa-clock me-1"></i>
+                                                {{ step.timestamp|date:"Y-m-d H:i" }}
+                                            </small>
+                                        {% endif %}
+                                        {% if step.user %}
+                                            <div>
+                                                <small class="text-muted">
+                                                    <i class="far fa-user me-1"></i>
+                                                    {{ step.user }}
+                                                </small>
+                                            </div>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</main>
+
+<script>
+function copyOrderReference() {
+    const reference = document.getElementById('orderReference').textContent;
+    navigator.clipboard.writeText(reference).then(() => {
+        const btn = event.target;
+        const originalHTML = btn.innerHTML;
+        btn.innerHTML = '<i class="fas fa-check me-2"></i>{% trans "Copied!" %}';
+        btn.className = 'btn btn-success btn-lg copy-button';
+        
+        setTimeout(() => {
+            btn.innerHTML = originalHTML;
+            btn.className = 'btn btn-warning btn-lg copy-button';
+        }, 2000);
+    }).catch(err => {
+        console.error('Failed to copy:', err);
+        alert('Failed to copy to clipboard');
+    });
+}
+</script>
+{% endblock content %}

@@ -62,6 +62,11 @@ from .views.material_exchange_config import (
     material_exchange_request_assets_token,
     material_exchange_request_divisions_token,
 )
+from .views.material_exchange_orders import (
+    buy_order_detail,
+    my_orders,
+    sell_order_detail,
+)
 from .views.user import (
     authorize_all,
     authorize_blueprints,
@@ -300,6 +305,23 @@ urlpatterns = [
         material_exchange_buy,
         name="material_exchange_buy",
     ),
+    # User Order Management
+    path(
+        "material-exchange/my-orders/",
+        my_orders,
+        name="my_orders",
+    ),
+    path(
+        "material-exchange/my-orders/sell/<int:order_id>/",
+        sell_order_detail,
+        name="sell_order_detail",
+    ),
+    path(
+        "material-exchange/my-orders/buy/<int:order_id>/",
+        buy_order_detail,
+        name="buy_order_detail",
+    ),
+    # Stock & Prices
     path(
         "material-exchange/sync-stock/",
         material_exchange_sync_stock,

@@ -1,0 +1,248 @@
+{% extends "indy_hub/base.html" %}
+{% load i18n %}
+{% load static %}
+{% load humanize %}
+
+{% block page_title %}{% trans "My Orders" %}{% endblock page_title %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
+<style>
+    .order-card {
+        border-left: 4px solid var(--bs-primary);
+        transition: all 0.2s ease;
+    }
+    
+    .order-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    
+    .order-card.sell {
+        border-left-color: var(--bs-success);
+    }
+    
+    .order-card.buy {
+        border-left-color: var(--bs-info);
+    }
+    
+    .order-reference {
+        font-family: 'Courier New', monospace;
+        font-size: 1.1rem;
+        font-weight: bold;
+        color: var(--bs-warning);
+        background: rgba(var(--bs-warning-rgb), 0.1);
+        padding: 0.5rem 1rem;
+        border-radius: 0.375rem;
+        display: inline-block;
+    }
+    
+    .copy-btn {
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    
+    .copy-btn:hover {
+        transform: scale(1.1);
+    }
+    
+    .status-badge {
+        font-size: 0.9rem;
+        padding: 0.4rem 0.8rem;
+    }
+</style>
+{% endblock extra_css %}
+
+{% block content %}
+<main class="bg-body p-4">
+    <div class="container-fluid my-0 bg-body">
+        <div class="page-header mb-4">
+            <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+                <div>
+                    <h2 class="h3 mb-1">
+                        <i class="fas fa-list-alt me-2"></i>
+                        {% trans "My Orders" %}
+                    </h2>
+                    <p class="description">
+                        {% trans "Track all your buy and sell orders" %}
+                    </p>
+                </div>
+                <div class="d-flex gap-2">
+                    <a href="{% url 'indy_hub:material_exchange_sell' %}" class="btn btn-success">
+                        <i class="fas fa-hand-holding-usd me-1"></i>{% trans "Sell Materials" %}
+                    </a>
+                    <a href="{% url 'indy_hub:material_exchange_buy' %}" class="btn btn-info">
+                        <i class="fas fa-shopping-cart me-1"></i>{% trans "Buy Materials" %}
+                    </a>
+                    <a href="{% url 'indy_hub:material_exchange_index' %}" class="btn btn-outline-light">
+                        <i class="fas fa-arrow-left me-1"></i>{% trans "Back to Hub" %}
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Summary Cards -->
+        <div class="row g-3 mb-4">
+            <div class="col-md-6">
+                <div class="card bg-success bg-opacity-10 border-success">
+                    <div class="card-body">
+                        <h5 class="card-title text-success">
+                            <i class="fas fa-hand-holding-usd me-2"></i>{% trans "Sell Orders" %}
+                        </h5>
+                        <p class="h3 text-success mb-0">{{ total_sell }}</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card bg-info bg-opacity-10 border-info">
+                    <div class="card-body">
+                        <h5 class="card-title text-info">
+                            <i class="fas fa-shopping-cart me-2"></i>{% trans "Buy Orders" %}
+                        </h5>
+                        <p class="h3 text-info mb-0">{{ total_buy }}</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {% if page_obj.object_list %}
+            <!-- Orders List -->
+            <div class="row g-3">
+                {% for item in page_obj %}
+                    <div class="col-12">
+                        <div class="card order-card {{ item.type }}">
+                            <div class="card-body">
+                                <div class="row align-items-center">
+                                    <div class="col-md-3">
+                                        <div class="mb-2">
+                                            <span class="badge bg-{{ item.type|lower }} me-2">
+                                                {% if item.type == 'sell' %}
+                                                    <i class="fas fa-arrow-up"></i> {% trans "SELL" %}
+                                                {% else %}
+                                                    <i class="fas fa-arrow-down"></i> {% trans "BUY" %}
+                                                {% endif %}
+                                            </span>
+                                            <span class="badge bg-{{ item.status_class }} status-badge">
+                                                {{ item.status }}
+                                            </span>
+                                        </div>
+                                        <div class="order-reference">
+                                            {{ item.reference }}
+                                            <i class="fas fa-copy ms-2 copy-btn" 
+                                               onclick="copyReference('{{ item.reference }}')" 
+                                               title="{% trans 'Copy to clipboard' %}"></i>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="col-md-4">
+                                        <div class="mb-2">
+                                            <strong>{% trans "Items:" %}</strong>
+                                            <span class="badge bg-secondary">{{ item.items_count }}</span>
+                                        </div>
+                                        <div>
+                                            <strong>{% trans "Total:" %}</strong>
+                                            <span class="text-warning fw-bold">
+                                                {{ item.total_price|floatformat:2|intcomma }} ISK
+                                            </span>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="col-md-3">
+                                        <small class="text-muted">
+                                            <i class="far fa-clock me-1"></i>
+                                            {{ item.created_at|date:"Y-m-d H:i" }}
+                                        </small>
+                                    </div>
+                                    
+                                    <div class="col-md-2 text-end">
+                                        {% if item.type == 'sell' %}
+                                            <a href="{% url 'indy_hub:sell_order_detail' item.id %}" 
+                                               class="btn btn-sm btn-outline-success">
+                                                <i class="fas fa-eye me-1"></i>{% trans "View" %}
+                                            </a>
+                                        {% else %}
+                                            <a href="{% url 'indy_hub:buy_order_detail' item.id %}" 
+                                               class="btn btn-sm btn-outline-info">
+                                                <i class="fas fa-eye me-1"></i>{% trans "View" %}
+                                            </a>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+
+            <!-- Pagination -->
+            {% if page_obj.has_other_pages %}
+                <div class="d-flex justify-content-center mt-4">
+                    <nav>
+                        <ul class="pagination">
+                            {% if page_obj.has_previous %}
+                                <li class="page-item">
+                                    <a class="page-link" href="?page=1">{% trans "First" %}</a>
+                                </li>
+                                <li class="page-item">
+                                    <a class="page-link" href="?page={{ page_obj.previous_page_number }}">{% trans "Previous" %}</a>
+                                </li>
+                            {% endif %}
+
+                            <li class="page-item active">
+                                <span class="page-link">
+                                    {% trans "Page" %} {{ page_obj.number }} {% trans "of" %} {{ page_obj.paginator.num_pages }}
+                                </span>
+                            </li>
+
+                            {% if page_obj.has_next %}
+                                <li class="page-item">
+                                    <a class="page-link" href="?page={{ page_obj.next_page_number }}">{% trans "Next" %}</a>
+                                </li>
+                                <li class="page-item">
+                                    <a class="page-link" href="?page={{ page_obj.paginator.num_pages }}">{% trans "Last" %}</a>
+                                </li>
+                            {% endif %}
+                        </ul>
+                    </nav>
+                </div>
+            {% endif %}
+        {% else %}
+            <div class="card">
+                <div class="card-body text-center py-5">
+                    <i class="fas fa-inbox fa-4x text-muted mb-3"></i>
+                    <h4 class="text-muted">{% trans "No orders yet" %}</h4>
+                    <p class="text-muted mb-4">
+                        {% trans "Start by creating a sell or buy order" %}
+                    </p>
+                    <div class="d-flex gap-2 justify-content-center">
+                        <a href="{% url 'indy_hub:material_exchange_sell' %}" class="btn btn-success">
+                            <i class="fas fa-hand-holding-usd me-1"></i>{% trans "Sell Materials" %}
+                        </a>
+                        <a href="{% url 'indy_hub:material_exchange_buy' %}" class="btn btn-info">
+                            <i class="fas fa-shopping-cart me-1"></i>{% trans "Buy Materials" %}
+                        </a>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+    </div>
+</main>
+
+<script>
+function copyReference(reference) {
+    navigator.clipboard.writeText(reference).then(() => {
+        // Show success feedback
+        const btn = event.target;
+        const originalClass = btn.className;
+        btn.className = 'fas fa-check ms-2 copy-btn text-success';
+        
+        setTimeout(() => {
+            btn.className = originalClass;
+        }, 2000);
+    }).catch(err => {
+        console.error('Failed to copy:', err);
+        alert('Failed to copy to clipboard');
+    });
+}
+</script>
+{% endblock content %}

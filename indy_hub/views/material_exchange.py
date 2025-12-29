@@ -599,15 +599,54 @@ GROUP BY type_id
             )
             for item_data in items_to_create:
                 MaterialExchangeSellOrderItem.objects.create(order=order, **item_data)
+
+            # Send PM notification with order reference and instructions
+            # Alliance Auth
+            from allianceauth.authentication.models import CharacterOwnership
+
+            from ..notifications import notify_user
+
+            # Get corporation name
+            corp_name = _get_corp_name_for_hub(config.corporation_id)
+
+            # Build items list for notification
+            items_list = "\n".join(
+                f"• {item.type_name}: {item.quantity:,}x @ {item.unit_price:,.2f} ISK"
+                for item in order.items.all()
+            )
+
+            notify_user(
+                request.user,
+                _("✅ Sell Order Created"),
+                _(
+                    f"Your sell order has been created!\n\n"
+                    f"📋 Order Reference: **{order.order_reference}**\n"
+                    f"💰 Total Payout: {total_payout:,.2f} ISK\n"
+                    f"📦 Items ({len(items_to_create)}):\n{items_list}\n\n"
+                    f"**Next Steps:**\n"
+                    f"1. Create an Item Exchange contract in-game\n"
+                    f"2. Set 'Assigné à': {corp_name}\n"
+                    f"3. Add all items listed above\n"
+                    f"4. **IMPORTANT: Include '{order.order_reference}' in the contract title/description**\n"
+                    f"5. Set location: {config.structure_name} (ID: {config.structure_id})\n"
+                    f"6. Set price: {total_payout:,.2f} ISK\n"
+                    f"7. Set duration: 4 weeks\n\n"
+                    f"The system will automatically verify your contract within 5 minutes.\n"
+                    f"View your order status: /indy-hub/material-exchange/my-orders/{order.id}/"
+                ),
+                level="success",
+            )
+
             messages.success(
                 request,
                 _(
-                    f"Created sell order #{order.id}. Order reference: {order.order_reference}. "
-                    f"{len(items_to_create)} item(s). Total payout: {total_payout:,.2f} ISK. "
-                    f"Awaiting admin approval."
+                    f"Sell order created! Order reference: {order.order_reference}. "
+                    f"Check your notifications for contract instructions."
                 ),
             )
-            return redirect("indy_hub:material_exchange_index")
+
+            # Redirect to order detail page instead of index
+            return redirect("indy_hub:sell_order_detail", order_id=order.id)
 
         return redirect("indy_hub:material_exchange_sell")
 

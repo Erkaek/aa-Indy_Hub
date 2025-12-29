@@ -147,7 +147,19 @@
 
         <!-- Main Actions -->
         <div class="row g-3 mb-4">
-            <div class="col-md-4">
+            <div class="col-lg-3 col-md-6">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body text-center">
+                        <i class="fas fa-list-alt fa-3x text-warning mb-3"></i>
+                        <h5 class="card-title">{% trans "My Orders" %}</h5>
+                        <p class="card-text text-muted">{% trans "Track your sell and buy orders with status updates." %}</p>
+                        <a href="{% url 'indy_hub:my_orders' %}" class="btn btn-warning">
+                            <i class="fas fa-eye me-1"></i>{% trans "View Orders" %}
+                        </a>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-3 col-md-6">
                 <div class="card border-0 shadow-sm h-100">
                     <div class="card-body text-center">
                         <i class="fas fa-hand-holding-usd fa-3x text-success mb-3"></i>
@@ -159,7 +171,7 @@
                     </div>
                 </div>
             </div>
-            <div class="col-md-4">
+            <div class="col-lg-3 col-md-6">
                 <div class="card border-0 shadow-sm h-100">
                     <div class="card-body text-center">
                         <i class="fas fa-shopping-cart fa-3x text-primary mb-3"></i>
@@ -171,7 +183,7 @@
                     </div>
                 </div>
             </div>
-            <div class="col-md-4">
+            <div class="col-lg-3 col-md-6">
                 <div class="card border-0 shadow-sm h-100">
                     <div class="card-body text-center">
                         <i class="fas fa-history fa-3x text-secondary mb-3"></i>

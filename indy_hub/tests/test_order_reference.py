@@ -9,6 +9,7 @@ import unittest
 from django.contrib.auth.models import User
 from django.test import TestCase
 
+# AA Example App
 # Local
 from indy_hub.models import MaterialExchangeConfig, MaterialExchangeSellOrder
 
@@ -40,10 +41,10 @@ class OrderReferenceTestCase(TestCase):
             seller=self.user,
             status="pending",
         )
-        
+
         # Refresh from DB to ensure save completed
         order.refresh_from_db()
-        
+
         # Check that order_reference was generated
         self.assertIsNotNone(order.order_reference)
         self.assertEqual(order.order_reference, f"INDY-{order.id}")
@@ -61,10 +62,10 @@ class OrderReferenceTestCase(TestCase):
             seller=self.user,
             status="pending",
         )
-        
+
         order1.refresh_from_db()
         order2.refresh_from_db()
-        
+
         # Each should have a different reference
         self.assertNotEqual(order1.order_reference, order2.order_reference)
         self.assertEqual(order1.order_reference, f"INDY-{order1.id}")
@@ -79,12 +80,12 @@ class OrderReferenceTestCase(TestCase):
         )
         order.refresh_from_db()
         original_ref = order.order_reference
-        
+
         # Save again
         order.status = "approved"
         order.save()
         order.refresh_from_db()
-        
+
         # Reference should remain the same
         self.assertEqual(order.order_reference, original_ref)
 
