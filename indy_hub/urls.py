@@ -38,7 +38,6 @@ from .views.industry import (
     production_simulations_list,
 )
 from .views.material_exchange import (
-    material_exchange_admin,
     material_exchange_approve_buy,
     material_exchange_approve_sell,
     material_exchange_assign_contract,
@@ -59,6 +58,7 @@ from .views.material_exchange_config import (
     material_exchange_config,
     material_exchange_debug_tokens,
     material_exchange_get_structures,
+    material_exchange_request_all_scopes,
     material_exchange_request_assets_token,
     material_exchange_request_divisions_token,
 )
@@ -286,6 +286,11 @@ urlpatterns = [
         name="material_exchange_request_divisions_token",
     ),
     path(
+        "material-exchange/config/request-all-scopes/",
+        material_exchange_request_all_scopes,
+        name="material_exchange_request_all_scopes",
+    ),
+    path(
         "material-exchange/api/structures/<int:corp_id>/",
         material_exchange_get_structures,
         name="material_exchange_get_structures",
@@ -331,11 +336,6 @@ urlpatterns = [
         "material-exchange/sync-prices/",
         material_exchange_sync_prices,
         name="material_exchange_sync_prices",
-    ),
-    path(
-        "material-exchange/admin/",
-        material_exchange_admin,
-        name="material_exchange_admin",
     ),
     path(
         "material-exchange/transactions/",

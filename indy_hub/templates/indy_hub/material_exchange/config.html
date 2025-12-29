@@ -7,6 +7,11 @@
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
 <link rel="stylesheet" href="{% static 'indy_hub/css/blueprints.css' %}">
+<style>
+    .border-info {
+        border-left: 4px solid #0d6efd !important;
+    }
+</style>
 {% endblock extra_css %}
 
 {% block content %}
@@ -30,13 +35,39 @@
             <i class="fas fa-cog header-bg"></i>
         </div>
 
+        <!-- ESI Scopes Setup -->
+        <div class="glass-panel p-4 mb-4 border-info">
+            <div class="d-flex align-items-center justify-content-between gap-3">
+                <div>
+                    <h5 class="mb-2">
+                        <i class="fas fa-key me-2 text-info"></i>
+                        {% trans "ESI Scopes Setup" %}
+                    </h5>
+                    <p class="text-muted small mb-0">
+                        {% trans "Material Exchange requires ESI authentication with specific scopes:" %}
+                    </p>
+                    <ul class="small text-muted mb-0 mt-2">
+                        <li>📦 esi-assets.read_corporation_assets.v1 (structures)</li>
+                        <li>🗂️ esi-corporations.read_divisions.v1 (hangar divisions)</li>
+                        <li>📋 esi-contracts.read_corporation_contracts.v1 (contract validation)</li>
+                    </ul>
+                </div>
+                <div>
+                    <a href="{% url 'indy_hub:material_exchange_request_all_scopes' %}" class="btn btn-lg btn-success">
+                        <i class="fas fa-plus-circle me-2"></i>
+                        {% trans "Add All Scopes" %}
+                    </a>
+                </div>
+            </div>
+        </div>
+
         {% if not available_corps %}
         <div class="alert alert-warning">
             <i class="fas fa-exclamation-triangle me-2"></i>
             {% trans "No corporations found. Make sure you have ESI tokens authorized." %}
             <a href="{% url 'indy_hub:token_management' %}" class="alert-link">{% trans "Manage Tokens" %}</a>
             {% trans "or" %}
-            <a href="{% url 'indy_hub:authorize_material_exchange' %}" class="alert-link">{% trans "Authorize Material Exchange Scopes" %}</a>
+            <a href="{% url 'indy_hub:material_exchange_request_all_scopes' %}" class="alert-link">{% trans "Add All Scopes" %}</a>
         </div>
         {% endif %}
 

@@ -382,6 +382,20 @@ GROUP BY type_id
         "-completed_at"
     )[:10]
 
+    # Admin section data (if user has permission)
+    can_admin = request.user.has_perm("indy_hub.can_manage_material_exchange")
+    admin_sell_orders = None
+    admin_buy_orders = None
+    status_filter = None
+
+    if can_admin:
+        status_filter = request.GET.get("status", "pending")
+        admin_sell_orders = config.sell_orders.all().order_by("-created_at")
+        admin_buy_orders = config.buy_orders.all().order_by("-created_at")
+        if status_filter:
+            admin_sell_orders = admin_sell_orders.filter(status=status_filter)
+            admin_buy_orders = admin_buy_orders.filter(status=status_filter)
+
     context = {
         "config": config,
         "stock_count": stock_count,
@@ -391,6 +405,10 @@ GROUP BY type_id
         "user_sell_orders": user_sell_orders,
         "user_buy_orders": user_buy_orders,
         "recent_transactions": recent_transactions,
+        "can_admin": can_admin,
+        "admin_sell_orders": admin_sell_orders,
+        "admin_buy_orders": admin_buy_orders,
+        "status_filter": status_filter,
         "nav_context": _build_nav_context(request.user),
     }
 
@@ -1048,35 +1066,13 @@ def material_exchange_sync_prices(request):
 @indy_hub_permission_required("can_manage_material_exchange")
 def material_exchange_admin(request):
     """
-    Admin dashboard for managing orders.
-    Approve/reject sell and buy orders, verify payments, mark delivered.
+    [DEPRECATED] Admin dashboard for managing orders.
+    Functionality moved to material_exchange_index() with can_admin context.
+
+    This view is kept for backwards compatibility but is no longer used.
+    Admins see the admin panel directly on the main Material Exchange page.
     """
-    config = get_object_or_404(MaterialExchangeConfig, is_active=True)
-
-    # Filters
-    order_type = request.GET.get("type", "")  # '' = show all, 'sell' or 'buy'
-    status_filter = request.GET.get("status", "pending")
-
-    # Get sell orders with status filter
-    sell_orders = config.sell_orders.all().order_by("-created_at")
-    if status_filter:
-        sell_orders = sell_orders.filter(status=status_filter)
-
-    # Get buy orders with status filter
-    buy_orders = config.buy_orders.all().order_by("-created_at")
-    if status_filter:
-        buy_orders = buy_orders.filter(status=status_filter)
-
-    context = {
-        "config": config,
-        "order_type": order_type,
-        "status_filter": status_filter,
-        "sell_orders": sell_orders,
-        "buy_orders": buy_orders,
-        "nav_context": _build_nav_context(request.user),
-    }
-
-    return render(request, "indy_hub/material_exchange/admin.html", context)
+    return redirect("indy_hub:material_exchange_index")
 
 
 @login_required
@@ -1087,7 +1083,7 @@ def material_exchange_approve_sell(request, order_id):
     """Approve a sell order (member → hub)."""
     if not request.user.has_perm("indy_hub.can_manage_material_exchange"):
         messages.error(request, _("Permission denied."))
-        return redirect("indy_hub:material_exchange_admin")
+        return redirect("indy_hub:material_exchange_index")
 
     order = get_object_or_404(MaterialExchangeSellOrder, id=order_id, status="pending")
     order.status = "approved"
@@ -1099,7 +1095,7 @@ def material_exchange_approve_sell(request, order_id):
         request,
         _(f"Sell order #{order.id} approved. Awaiting payment verification."),
     )
-    return redirect("indy_hub:material_exchange_admin")
+    return redirect("indy_hub:material_exchange_index")
 
 
 @login_required
@@ -1108,14 +1104,14 @@ def material_exchange_reject_sell(request, order_id):
     """Reject a sell order."""
     if not request.user.has_perm("indy_hub.can_manage_material_exchange"):
         messages.error(request, _("Permission denied."))
-        return redirect("indy_hub:material_exchange_admin")
+        return redirect("indy_hub:material_exchange_index")
 
     order = get_object_or_404(MaterialExchangeSellOrder, id=order_id, status="pending")
     order.status = "rejected"
     order.save()
 
     messages.warning(request, _(f"Sell order #{order.id} rejected."))
-    return redirect("indy_hub:material_exchange_admin")
+    return redirect("indy_hub:material_exchange_index")
 
 
 @login_required
@@ -1124,7 +1120,7 @@ def material_exchange_verify_payment_sell(request, order_id):
     """Mark sell order payment as verified (via ESI wallet check or manual)."""
     if not request.user.has_perm("indy_hub.can_manage_material_exchange"):
         messages.error(request, _("Permission denied."))
-        return redirect("indy_hub:material_exchange_admin")
+        return redirect("indy_hub:material_exchange_index")
 
     order = get_object_or_404(MaterialExchangeSellOrder, id=order_id, status="approved")
     journal_ref = request.POST.get("journal_ref", "").strip()
@@ -1137,7 +1133,7 @@ def material_exchange_verify_payment_sell(request, order_id):
     order.save()
 
     messages.success(request, _(f"Payment for sell order #{order.id} verified."))
-    return redirect("indy_hub:material_exchange_admin")
+    return redirect("indy_hub:material_exchange_index")
 
 
 @login_required
@@ -1146,7 +1142,7 @@ def material_exchange_complete_sell(request, order_id):
     """Mark sell order as completed and create transaction logs for each item."""
     if not request.user.has_perm("indy_hub.can_manage_material_exchange"):
         messages.error(request, _("Permission denied."))
-        return redirect("indy_hub:material_exchange_admin")
+        return redirect("indy_hub:material_exchange_index")
 
     order = get_object_or_404(MaterialExchangeSellOrder, id=order_id, status="paid")
 
@@ -1181,7 +1177,7 @@ def material_exchange_complete_sell(request, order_id):
     messages.success(
         request, _(f"Sell order #{order.id} completed and transaction logged.")
     )
-    return redirect("indy_hub:material_exchange_admin")
+    return redirect("indy_hub:material_exchange_index")
 
 
 @login_required
@@ -1190,7 +1186,7 @@ def material_exchange_approve_buy(request, order_id):
     """Approve a buy order (hub → member)."""
     if not request.user.has_perm("indy_hub.can_manage_material_exchange"):
         messages.error(request, _("Permission denied."))
-        return redirect("indy_hub:material_exchange_admin")
+        return redirect("indy_hub:material_exchange_index")
 
     order = get_object_or_404(MaterialExchangeBuyOrder, id=order_id, status="pending")
 
@@ -1210,7 +1206,7 @@ def material_exchange_approve_buy(request, order_id):
 
     if errors:
         messages.error(request, _("Cannot approve: ") + "; ".join(errors))
-        return redirect("indy_hub:material_exchange_admin")
+        return redirect("indy_hub:material_exchange_index")
 
     order.status = "approved"
     order.approved_by = request.user
@@ -1220,7 +1216,7 @@ def material_exchange_approve_buy(request, order_id):
     messages.success(
         request, _(f"Buy order #{order.id} approved. Awaiting delivery confirmation.")
     )
-    return redirect("indy_hub:material_exchange_admin")
+    return redirect("indy_hub:material_exchange_index")
 
 
 @login_required
@@ -1229,14 +1225,14 @@ def material_exchange_reject_buy(request, order_id):
     """Reject a buy order."""
     if not request.user.has_perm("indy_hub.can_manage_material_exchange"):
         messages.error(request, _("Permission denied."))
-        return redirect("indy_hub:material_exchange_admin")
+        return redirect("indy_hub:material_exchange_index")
 
     order = get_object_or_404(MaterialExchangeBuyOrder, id=order_id, status="pending")
     order.status = "rejected"
     order.save()
 
     messages.warning(request, _(f"Buy order #{order.id} rejected."))
-    return redirect("indy_hub:material_exchange_admin")
+    return redirect("indy_hub:material_exchange_index")
 
 
 @login_required
@@ -1245,7 +1241,7 @@ def material_exchange_mark_delivered_buy(request, order_id):
     """Mark buy order as delivered."""
     if not request.user.has_perm("indy_hub.can_manage_material_exchange"):
         messages.error(request, _("Permission denied."))
-        return redirect("indy_hub:material_exchange_admin")
+        return redirect("indy_hub:material_exchange_index")
 
     order = get_object_or_404(MaterialExchangeBuyOrder, id=order_id, status="approved")
     delivery_method = request.POST.get("delivery_method", "contract")
@@ -1257,7 +1253,7 @@ def material_exchange_mark_delivered_buy(request, order_id):
     order.save()
 
     messages.success(request, _(f"Buy order #{order.id} marked as delivered."))
-    return redirect("indy_hub:material_exchange_admin")
+    return redirect("indy_hub:material_exchange_index")
 
 
 @login_required
@@ -1266,7 +1262,7 @@ def material_exchange_complete_buy(request, order_id):
     """Mark buy order as completed and create transaction logs for each item."""
     if not request.user.has_perm("indy_hub.can_manage_material_exchange"):
         messages.error(request, _("Permission denied."))
-        return redirect("indy_hub:material_exchange_admin")
+        return redirect("indy_hub:material_exchange_index")
 
     order = get_object_or_404(MaterialExchangeBuyOrder, id=order_id, status="delivered")
 
@@ -1302,7 +1298,7 @@ def material_exchange_complete_buy(request, order_id):
     messages.success(
         request, _(f"Buy order #{order.id} completed and transaction logged.")
     )
-    return redirect("indy_hub:material_exchange_admin")
+    return redirect("indy_hub:material_exchange_index")
 
 
 @login_required
@@ -1365,14 +1361,14 @@ def material_exchange_assign_contract(request, order_id):
     """Assign ESI contract ID to a sell or buy order."""
     if not request.user.has_perm("indy_hub.can_manage_material_exchange"):
         messages.error(request, _("Permission denied."))
-        return redirect("indy_hub:material_exchange_admin")
+        return redirect("indy_hub:material_exchange_index")
 
     order_type = request.POST.get("order_type")  # 'sell' or 'buy'
     contract_id = request.POST.get("contract_id", "").strip()
 
     if not contract_id or not contract_id.isdigit():
         messages.error(request, _("Invalid contract ID. Must be a number."))
-        return redirect("indy_hub:material_exchange_admin")
+        return redirect("indy_hub:material_exchange_index")
 
     contract_id_int = int(contract_id)
 
@@ -1409,7 +1405,7 @@ def material_exchange_assign_contract(request, order_id):
         logger.error(f"Error assigning contract ID: {exc}", exc_info=True)
         messages.error(request, _(f"Error assigning contract ID: {exc}"))
 
-    return redirect("indy_hub:material_exchange_admin")
+    return redirect("indy_hub:material_exchange_index")
 
 
 def _build_nav_context(user):

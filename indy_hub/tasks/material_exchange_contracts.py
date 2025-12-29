@@ -71,7 +71,28 @@ def validate_material_exchange_sell_orders():
                 "esi-contracts.read_corporation_contracts.v1",
             ),
         )
-    except (ESITokenError, ESIClientError, ESIForbiddenError) as exc:
+    except ESITokenError as exc:
+        logger.error(
+            "Failed to validate contracts - missing ESI scope: %s",
+            exc,
+            exc_info=False,
+        )
+        # Notify admins about the missing scope
+        admins = _get_admins_for_config(config)
+        for admin in admins:
+            notify_user(
+                admin,
+                _("⚠️ Material Exchange - Missing ESI Scope"),
+                _(
+                    "Contract validation cannot run because no corporation member "
+                    "has granted the 'read_corporation_contracts' ESI scope.\n\n"
+                    f"Error: {exc}\n\n"
+                    "Please have a corporation administrator login and grant this scope."
+                ),
+                level="warning",
+            )
+        return
+    except (ESIClientError, ESIForbiddenError) as exc:
         logger.error(
             "Failed to fetch corp contracts for validation: %s",
             exc,
@@ -422,19 +443,53 @@ def _get_character_for_scope(corporation_id: int, scope: str) -> int:
     """
     Find a character with the required scope in the corporation.
     Used for authenticated ESI calls.
+
+    Raises:
+        ESITokenError: If no character with the scope is found
     """
-    # Try to find any user with a character in the corp who has this scope
     # Alliance Auth
     from esi.models import Token
 
     try:
-        token = Token.objects.filter(character__corporation_id=corporation_id).first()
-        if token:
-            return token.character_id
-    except Exception:
-        pass
+        # Get all tokens for characters in this corporation
+        tokens = Token.objects.filter(
+            character__corporation_id=corporation_id
+        ).select_related("character")
 
-    raise ESITokenError(f"No character with {scope} found for corp {corporation_id}")
+        if not tokens.exists():
+            raise ESITokenError(
+                f"No tokens found for corporation {corporation_id}. "
+                f"At least one corporation member must login to grant ESI scopes."
+            )
+
+        # Try to find a token with the required scope
+        for token in tokens:
+            if token.has_scopes([scope]):
+                logger.debug(
+                    f"Found token for {scope} via character {token.character_id}"
+                )
+                return token.character_id
+
+        # No token with required scope found
+        available_scopes_list = [
+            f"{token.character.name} (char {token.character_id}): {token.get_scopes()}"
+            for token in tokens
+        ]
+        raise ESITokenError(
+            f"No character in corporation {corporation_id} has scope '{scope}'. "
+            f"Available characters and scopes:\n" + "\n".join(available_scopes_list)
+        )
+
+    except ESITokenError:
+        raise
+    except Exception as exc:
+        logger.error(
+            f"Error checking tokens for corporation {corporation_id}: {exc}",
+            exc_info=True,
+        )
+        raise ESITokenError(
+            f"Error checking tokens for corporation {corporation_id}: {exc}"
+        )
 
 
 def _get_user_character_ids(user: User) -> list[int]:

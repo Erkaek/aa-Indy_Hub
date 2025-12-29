@@ -33,6 +33,31 @@ def material_exchange_request_divisions_token(request):
     )
 
 
+@login_required
+@indy_hub_permission_required("can_manage_material_exchange")
+def material_exchange_request_all_scopes(request):
+    """
+    Request all Material Exchange required ESI scopes at once.
+
+    Required scopes:
+    - esi-assets.read_corporation_assets.v1 (for structures)
+    - esi-corporations.read_divisions.v1 (for hangar divisions)
+    - esi-contracts.read_corporation_contracts.v1 (for contract validation)
+    """
+    scopes = " ".join(
+        [
+            "esi-assets.read_corporation_assets.v1",
+            "esi-corporations.read_divisions.v1",
+            "esi-contracts.read_corporation_contracts.v1",
+        ]
+    )
+    return sso_redirect(
+        request,
+        scopes=scopes,
+        return_to="indy_hub:material_exchange_config",
+    )
+
+
 def _get_token_for_corp(user, corp_id, scope, require_corporation_token: bool = False):
     """Return a valid token for the given corp that has the scope.
 
