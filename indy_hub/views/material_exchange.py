@@ -72,6 +72,24 @@ def _load_production_ids() -> set[int]:
         return set()
 
 
+def _get_group_map(type_ids: list[int]) -> dict[int, str]:
+    """Return mapping type_id -> group name using EveUniverse if available."""
+
+    if not type_ids:
+        return {}
+
+    try:
+        # Alliance Auth (External Libs)
+        from eveuniverse.models import EveType
+
+        eve_types = EveType.objects.filter(id__in=type_ids).select_related("eve_group")
+        return {
+            et.id: (et.eve_group.name if et.eve_group else "Other") for et in eve_types
+        }
+    except Exception:
+        return {}
+
+
 def _fetch_fuzzwork_prices(type_ids: list[int]) -> dict[int, dict[str, Decimal]]:
     """Batch fetch Jita buy/sell prices from Fuzzwork for given type IDs."""
 
@@ -484,6 +502,13 @@ def material_exchange_buy(request):
         stock_items = list(
             config.stock_items.filter(quantity__gt=0, jita_buy_price__gt=0)
         )
+        group_map = _get_group_map([item.type_id for item in stock_items])
+        stock_items.sort(
+            key=lambda i: (
+                group_map.get(i.type_id, "Other").lower(),
+                (i.type_name or "").lower(),
+            )
+        )
         if not stock_items:
             messages.error(request, _("No stock available."))
             return redirect("indy_hub:material_exchange_buy")
@@ -567,10 +592,8 @@ def material_exchange_buy(request):
             config.updated_at and config.last_stock_sync < config.updated_at
         ):
             sync_material_exchange_stock()
-            config.refresh_from_db()
-    except Exception:
-        # Non-blocking: continue rendering even if auto sync fails
-        pass
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("Stock auto-sync failed: %s", exc)
 
     # GET: ensure prices are populated if stock exists without prices
     base_stock_qs = config.stock_items.filter(quantity__gt=0)
@@ -588,13 +611,18 @@ def material_exchange_buy(request):
             )
 
     # Show available stock (quantity > 0 and price available)
-    stock = config.stock_items.filter(quantity__gt=0, jita_buy_price__gt=0).order_by(
-        "type_name"
+    stock_items = list(config.stock_items.filter(quantity__gt=0, jita_buy_price__gt=0))
+    group_map = _get_group_map([item.type_id for item in stock_items])
+    stock_items.sort(
+        key=lambda i: (
+            group_map.get(i.type_id, "Other").lower(),
+            (i.type_name or "").lower(),
+        )
     )
 
     context = {
         "config": config,
-        "stock": stock,
+        "stock": stock_items,
         "nav_context": _build_nav_context(request.user),
     }
 
