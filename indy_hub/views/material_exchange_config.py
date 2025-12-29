@@ -359,6 +359,7 @@ def _get_corp_hangar_divisions(user, corp_id):
 
     # Try to derive division names directly from corptools EveLocation entries
     try:
+        # Third Party
         from corptools.models import EveLocation
 
         qs = EveLocation.objects.filter(location_id__lt=0).values_list(
@@ -389,11 +390,14 @@ def _get_corp_hangar_divisions(user, corp_id):
             return default_divisions, scope_missing
 
     except Exception as e:  # pragma: no cover - defensive
-        logger.debug(f"material_exchange_config: EveLocation hangar derivation failed: {e}")
+        logger.debug(
+            f"material_exchange_config: EveLocation hangar derivation failed: {e}"
+        )
 
     # Fallback to ESI (legacy path) if corptools data is unavailable
     try:
         required_scope = "esi-corporations.read_divisions.v1"
+        # Alliance Auth
         from esi.models import Token
 
         potential_tokens = list(
@@ -455,6 +459,7 @@ def _get_corp_hangar_divisions(user, corp_id):
                 break
 
             except Exception as e:
+                # Third Party
                 from bravado.exception import HTTPError
 
                 status_code = getattr(getattr(e, "response", None), "status_code", None)

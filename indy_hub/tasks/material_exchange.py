@@ -3,8 +3,12 @@ Material Exchange Celery tasks for stock sync, pricing, and payment verification
 """
 
 # Standard Library
+import csv
+import json
 import logging
 from decimal import Decimal
+from io import StringIO
+from pathlib import Path
 
 # Third Party
 from celery import shared_task
@@ -369,3 +373,75 @@ def verify_pending_sell_payments():
 
     except Exception as e:
         logger.exception(f"Error verifying material exchange payments: {e}")
+
+
+@shared_task
+def refresh_production_items():
+    """Refresh production and reaction item lists from the latest Fuzzwork SDE."""
+
+    url = "https://www.fuzzwork.co.uk/dump/latest/industryActivityProducts.csv"
+
+    try:
+        # Third Party
+        import requests
+
+        response = requests.get(url, timeout=30)
+        response.raise_for_status()
+
+        reader = csv.DictReader(StringIO(response.text))
+        prod_ids: set[int] = set()
+        react_ids: set[int] = set()
+
+        for row in reader:
+            try:
+                activity_id = int(row.get("activityID", 0))
+                product_id = int(row.get("productTypeID", 0))
+            except Exception:
+                continue
+
+            if activity_id == 1:
+                prod_ids.add(product_id)
+            elif activity_id in (9, 11):
+                react_ids.add(product_id)
+
+        out_dir = Path(__file__).resolve().parent.parent / "static" / "data"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        prod_payload = {
+            "count": len(prod_ids),
+            "activity": "manufacturing",
+            "item_type_ids": sorted(prod_ids),
+            "metadata": {
+                "source": "Fuzzwork SDE industryActivityProducts.csv",
+                "url": url,
+                "generated": True,
+            },
+        }
+
+        (out_dir / "production_items.json").write_text(
+            json.dumps(prod_payload), encoding="utf-8"
+        )
+
+        react_payload = {
+            "count": len(react_ids),
+            "activity": "reactions",
+            "item_type_ids": sorted(react_ids),
+            "metadata": {
+                "source": "Fuzzwork SDE industryActivityProducts.csv",
+                "url": url,
+                "generated": True,
+            },
+        }
+
+        (out_dir / "reaction_items.json").write_text(
+            json.dumps(react_payload), encoding="utf-8"
+        )
+
+        logger.info(
+            "Refreshed production items: %d manufacturing, %d reactions",
+            len(prod_ids),
+            len(react_ids),
+        )
+
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("Failed to refresh production items list: %s", exc)

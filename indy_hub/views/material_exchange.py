@@ -1,7 +1,10 @@
 """Material Exchange views for Indy Hub."""
 
 # Standard Library
+import json
+import logging
 from decimal import Decimal
+from pathlib import Path
 
 # Django
 from django.contrib import messages
@@ -30,6 +33,43 @@ from ..tasks.material_exchange import (
     sync_material_exchange_stock,
 )
 from ..utils.eve import get_type_name
+
+logger = logging.getLogger(__name__)
+
+_PRODUCTION_IDS_CACHE: set[int] | None = None
+_PRODUCTION_IDS_MTIME: float | None = None
+
+
+def _load_production_ids() -> set[int]:
+    """Return the cached set of production item type IDs, reloading on file change."""
+
+    global _PRODUCTION_IDS_CACHE, _PRODUCTION_IDS_MTIME
+
+    prod_path = (
+        Path(__file__).resolve().parent.parent
+        / "static"
+        / "data"
+        / "production_items.json"
+    )
+
+    try:
+        mtime = prod_path.stat().st_mtime
+        if _PRODUCTION_IDS_CACHE is not None and _PRODUCTION_IDS_MTIME == mtime:
+            return _PRODUCTION_IDS_CACHE
+
+        data = json.loads(prod_path.read_text(encoding="utf-8"))
+        ids = {int(x) for x in data.get("item_type_ids", []) if x is not None}
+        _PRODUCTION_IDS_CACHE = ids
+        _PRODUCTION_IDS_MTIME = mtime
+        return ids
+    except FileNotFoundError:
+        logger.warning("production_items.json missing; skipping production filter")
+        _PRODUCTION_IDS_CACHE = set()
+        _PRODUCTION_IDS_MTIME = None
+        return set()
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("Failed to load production_items.json: %s", exc)
+        return set()
 
 
 def _fetch_fuzzwork_prices(type_ids: list[int]) -> dict[int, dict[str, Decimal]]:
@@ -130,27 +170,27 @@ def material_exchange_sell(request):
     Member chooses materials + quantities, creates ONE order with multiple items.
     """
     config = get_object_or_404(MaterialExchangeConfig, is_active=True)
+    materials_with_qty: list[dict] = []
 
     if request.method == "POST":
-        # Get user's character assets at the config location (all characters, AA IDs)
         # Django
         from django.db import connection
 
         cursor = connection.cursor()
 
-        # Alliance Auth - use CharacterOwnership IDs (not EVE character_ids)
         try:
+            # Alliance Auth
             from allianceauth.authentication.models import CharacterOwnership
 
-            ownership_ids = list(
+            character_ids = list(
                 CharacterOwnership.objects.filter(user=request.user).values_list(
-                    "id", flat=True
+                    "character_id", flat=True
                 )
             )
         except Exception:
-            ownership_ids = []
+            character_ids = []
 
-        if not ownership_ids:
+        if not character_ids:
             messages.error(
                 request,
                 _(
@@ -159,33 +199,86 @@ def material_exchange_sell(request):
             )
             return redirect("indy_hub:material_exchange_sell")
 
-        placeholders = ",".join(["%s"] * len(ownership_ids))
-        # location_id in corptools has form -<structure><sag_digit>; match on base structure
-        cursor.execute(
+        placeholders = ",".join(["%s"] * len(character_ids))
+        base_id = int(config.structure_id)
+        low = base_id * 10
+        high = base_id * 10 + 9
+
+        personal_loc_ids: list[int] = []
+        try:
+            cursor.execute(
+                """
+SELECT DISTINCT e.location_id
+FROM corptools_evelocation e
+WHERE e.location_id > 0
+AND e.system_id = (
+SELECT system_id FROM corptools_evelocation
+WHERE location_id < 0 AND ABS(location_id) DIV 10 = %s
+LIMIT 1
+)
+AND (
+e.location_name = (
+SELECT SUBSTRING_INDEX(location_name, '>', 1)
+FROM corptools_evelocation
+WHERE location_id < 0 AND ABS(location_id) DIV 10 = %s
+LIMIT 1
+)
+OR e.location_name LIKE CONCAT(
+(
+SELECT SUBSTRING_INDEX(location_name, '>', 1)
+FROM corptools_evelocation
+WHERE location_id < 0 AND ABS(location_id) DIV 10 = %s
+LIMIT 1
+), %s
+)
+)
+                """,
+                [base_id, base_id, base_id, "%"],
+            )
+            personal_loc_ids = [int(r[0]) for r in cursor.fetchall() if r and r[0]]
+        except Exception:
+            personal_loc_ids = []
+
+        extra_clause = ""
+        params = list(character_ids)
+        if personal_loc_ids:
+            plh = ",".join(["%s"] * len(personal_loc_ids))
+            extra_clause = f" OR location_id IN ({plh})"
+            params.extend(personal_loc_ids)
+        params.extend([base_id, low, high])
+
+        query = (
             f"""
-            SELECT type_id, SUM(quantity) as total_qty
-            FROM corptools_characterasset
-            WHERE character_id IN ({placeholders})
-              AND CAST(ABS(location_id) / 10 AS BIGINT) = %s
-            GROUP BY type_id
-        """,
-            ownership_ids + [config.structure_id],
+SELECT type_id, SUM(quantity) as total_qty
+FROM corptools_characterasset
+WHERE character_id IN ({placeholders})
+AND ((ABS(location_id) = %s OR (ABS(location_id) BETWEEN %s AND %s))"""
+            + extra_clause
+            + """
+)
+GROUP BY type_id
+"""
         )
 
+        cursor.execute(query, params)
         user_assets = {row[0]: row[1] for row in cursor.fetchall()}
+
+        prod_ids = _load_production_ids()
+        if prod_ids:
+            user_assets = {
+                tid: qty for tid, qty in user_assets.items() if tid in prod_ids
+            }
 
         if not user_assets:
             messages.error(request, _("You have no items to sell at this location."))
             return redirect("indy_hub:material_exchange_sell")
 
-        items_to_create = []
-        errors = []
+        items_to_create: list[dict] = []
+        errors: list[str] = []
         total_payout = 0
 
-        # Load pricing for all user-held items using fresh Fuzzwork data
         price_data = _fetch_fuzzwork_prices(list(user_assets.keys()))
 
-        # Process each item user wants to sell
         for type_id, user_qty in user_assets.items():
             qty_raw = request.POST.get(f"qty_{type_id}")
             if not qty_raw:
@@ -198,7 +291,6 @@ def material_exchange_sell(request):
                 errors.append(_(f"Invalid quantity for type {type_id}"))
                 continue
 
-            # Check user has enough
             if qty > user_qty:
                 type_name = get_type_name(type_id)
                 errors.append(
@@ -208,7 +300,6 @@ def material_exchange_sell(request):
                 )
                 continue
 
-            # Compute unit price using fresh Fuzzwork prices + markup
             fuzz_prices = price_data.get(type_id, {})
             jita_buy = fuzz_prices.get("buy") or Decimal(0)
             jita_sell = fuzz_prices.get("sell") or Decimal(0)
@@ -245,17 +336,13 @@ def material_exchange_sell(request):
                 messages.error(request, err)
 
         if items_to_create:
-            # Create ONE order with ALL items
             order = MaterialExchangeSellOrder.objects.create(
                 config=config,
                 seller=request.user,
                 status="pending",
             )
-
-            # Create items for this order
             for item_data in items_to_create:
                 MaterialExchangeSellOrderItem.objects.create(order=order, **item_data)
-
             messages.success(
                 request,
                 _(
@@ -266,44 +353,93 @@ def material_exchange_sell(request):
 
         return redirect("indy_hub:material_exchange_sell")
 
-    # GET: Get user's assets at this location and match with hub pricing
+    # GET branch
     # Django
     from django.db import connection
 
     cursor = connection.cursor()
 
-    # Alliance Auth - use CharacterOwnership IDs (not EVE character_ids)
     try:
+        # Alliance Auth
         from allianceauth.authentication.models import CharacterOwnership
 
-        ownership_ids = list(
+        character_ids = list(
             CharacterOwnership.objects.filter(user=request.user).values_list(
-                "id", flat=True
+                "character_id", flat=True
             )
         )
     except Exception:
-        ownership_ids = []
+        character_ids = []
 
-    materials_with_qty = []
+    if character_ids:
+        placeholders = ",".join(["%s"] * len(character_ids))
+        base_id = int(config.structure_id)
+        low = base_id * 10
+        high = base_id * 10 + 9
 
-    if ownership_ids:
-        placeholders = ",".join(["%s"] * len(ownership_ids))
-        cursor.execute(
-            f"""
-            SELECT type_id, SUM(quantity) as total_qty
-            FROM corptools_characterasset
-            WHERE character_id IN ({placeholders})
-              AND CAST(ABS(location_id) / 10 AS BIGINT) = %s
-            GROUP BY type_id
-        """,
-            ownership_ids + [config.structure_id],
-        )
+        personal_loc_ids: list[int] = []
+        try:
+            cursor.execute(
+                """
+SELECT DISTINCT e.location_id
+FROM corptools_evelocation e
+WHERE e.location_id > 0
+AND e.system_id = (
+SELECT system_id FROM corptools_evelocation
+WHERE location_id < 0 AND ABS(location_id) DIV 10 = %s
+LIMIT 1
+)
+AND (
+e.location_name = (
+SELECT SUBSTRING_INDEX(location_name, '>', 1)
+FROM corptools_evelocation
+WHERE location_id < 0 AND ABS(location_id) DIV 10 = %s
+LIMIT 1
+)
+OR e.location_name LIKE CONCAT(
+(
+SELECT SUBSTRING_INDEX(location_name, '>', 1)
+FROM corptools_evelocation
+WHERE location_id < 0 AND ABS(location_id) DIV 10 = %s
+LIMIT 1
+), %s
+)
+)
+                """,
+                [base_id, base_id, base_id, "%"],
+            )
+            personal_loc_ids = [int(r[0]) for r in cursor.fetchall() if r and r[0]]
+        except Exception:
+            personal_loc_ids = []
+
+        extra_clause = ""
+        if personal_loc_ids:
+            plh = ",".join(["%s"] * len(personal_loc_ids))
+            extra_clause = f" OR location_id IN ({plh})"
+
+        query = f"""
+    SELECT type_id, SUM(quantity) as total_qty
+    FROM corptools_characterasset
+    WHERE character_id IN ({placeholders})
+    AND (
+    (ABS(location_id) = %s OR (ABS(location_id) BETWEEN %s AND %s)){extra_clause}
+    )
+    GROUP BY type_id
+    """
+
+        params = list(character_ids) + [base_id, low, high] + (personal_loc_ids or [])
+        cursor.execute(query, params)
 
         user_assets = {row[0]: row[1] for row in cursor.fetchall()}
 
+        prod_ids = _load_production_ids()
+        if prod_ids:
+            user_assets = {
+                tid: qty for tid, qty in user_assets.items() if tid in prod_ids
+            }
+
         price_data = _fetch_fuzzwork_prices(list(user_assets.keys()))
 
-        # For each user asset, try to get pricing from the hub (fresh fuzzwork)
         for type_id, user_qty in user_assets.items():
             fuzz_prices = price_data.get(type_id, {})
             jita_buy = fuzz_prices.get("buy") or Decimal(0)
@@ -313,9 +449,7 @@ def material_exchange_sell(request):
                 continue
 
             buy_price = base * (1 + (config.sell_markup_percent / Decimal(100)))
-
             type_name = get_type_name(type_id)
-
             materials_with_qty.append(
                 {
                     "type_id": type_id,
@@ -325,7 +459,6 @@ def material_exchange_sell(request):
                 }
             )
 
-        # Sort by type name
         materials_with_qty.sort(key=lambda x: x["type_name"])
 
     context = {

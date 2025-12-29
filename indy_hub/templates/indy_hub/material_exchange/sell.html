@@ -345,27 +345,33 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     // Prevent form submission if any quantity exceeds stock
-    document.getElementById('sellForm').addEventListener('submit', function(e) {
-        let hasError = false;
-        qtyInputs.forEach(input => {
-            const qty = parseInt(input.value) || 0;
-            const max = parseInt(input.dataset.max);
-            if (qty > max) {
-                hasError = true;
-                input.value = max; // Auto-correct
+    const sellForm = document.getElementById('sellForm');
+    if (sellForm) {
+        sellForm.addEventListener('submit', function(e) {
+            let hasError = false;
+            qtyInputs.forEach(input => {
+                const qty = parseInt(input.value) || 0;
+                const max = parseInt(input.dataset.max);
+                if (qty > max) {
+                    hasError = true;
+                    input.value = max; // Auto-correct
+                }
+            });
+
+            if (hasError) {
+                e.preventDefault();
+                alert('{% trans "Some quantities exceeded what you own and have been adjusted." %}');
+                updateInvoice();
+                return false;
             }
         });
+    }
 
-        if (hasError) {
-            e.preventDefault();
-            alert('{% trans "Some quantities exceeded what you own and have been adjusted." %}');
-            updateInvoice();
-            return false;
-        }
-    });
-
-    // Initial update
-    updateInvoice();
+    // Initial update (only if invoice elements exist)
+    const hasInvoice = document.getElementById('invoiceContent') && document.getElementById('invoiceItems');
+    if (hasInvoice) {
+        updateInvoice();
+    }
 });
 </script>
 {% endblock content %}
