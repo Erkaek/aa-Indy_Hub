@@ -96,12 +96,12 @@ def _get_available_market_groups() -> list[dict]:
 
         logger.info(f"Found {len(material_type_ids)} production material type IDs")
 
-        # Limit to child groups of the desired parent market group (e.g. Materials)
-        TARGET_PARENT_ID = 533
+        # Limit to child groups of the desired parent market groups (e.g. Materials + others)
+        TARGET_PARENT_IDS = [533, 1031, 1034, 2395]
         raw_groups = (
             EveMarketGroup.objects.filter(
                 eve_types__id__in=material_type_ids,
-                parent_market_group_id=TARGET_PARENT_ID,
+                parent_market_group_id__in=TARGET_PARENT_IDS,
             )
             .select_related("parent_market_group")
             .exclude(name="")  # Exclude empty names
@@ -206,11 +206,29 @@ def material_exchange_index(request):
             {"nav_context": _build_nav_context(request.user)},
         )
 
-    # Stats
-    stock_count = config.stock_items.count()
-    total_stock_value = (
-        config.stock_items.aggregate(total=Sum("jita_buy_price"))["total"] or 0
-    )
+    # Stats (respect allowed market group parents)
+    stock_qs = config.stock_items.all()
+    try:
+        # Alliance Auth (External Libs)
+        from eveuniverse.models import EveType
+
+        allowed_type_ids = set(
+            EveType.objects.filter(
+                eve_market_group__parent_market_group_id__in=[
+                    533,
+                    1031,
+                    1034,
+                    2395,
+                ]
+            ).values_list("id", flat=True)
+        )
+        if allowed_type_ids:
+            stock_qs = stock_qs.filter(type_id__in=allowed_type_ids)
+    except Exception:
+        pass
+
+    stock_count = stock_qs.count()
+    total_stock_value = stock_qs.aggregate(total=Sum("jita_buy_price"))["total"] or 0
 
     pending_sell_orders = config.sell_orders.filter(status="pending").count()
     pending_buy_orders = config.buy_orders.filter(status="pending").count()
@@ -355,13 +373,17 @@ GROUP BY type_id
         # Apply market group filter if configured
         # Always apply parent market group filter (Materials hierarchy)
         try:
-            TARGET_PARENT_ID = 533
             # Alliance Auth (External Libs)
             from eveuniverse.models import EveType
 
             allowed_type_ids = set(
                 EveType.objects.filter(
-                    eve_market_group__parent_market_group_id=TARGET_PARENT_ID
+                    eve_market_group__parent_market_group_id__in=[
+                        533,
+                        1031,
+                        1034,
+                        2395,
+                    ]
                 ).values_list("id", flat=True)
             )
             user_assets = {
@@ -547,13 +569,17 @@ LIMIT 1
         # Apply market group filter if configured
         # Always apply parent market group filter (Materials hierarchy)
         try:
-            TARGET_PARENT_ID = 533
             # Alliance Auth (External Libs)
             from eveuniverse.models import EveType
 
             allowed_type_ids = set(
                 EveType.objects.filter(
-                    eve_market_group__parent_market_group_id=TARGET_PARENT_ID
+                    eve_market_group__parent_market_group_id__in=[
+                        533,
+                        1031,
+                        1034,
+                        2395,
+                    ]
                 ).values_list("id", flat=True)
             )
             user_assets = {
@@ -622,13 +648,17 @@ def material_exchange_buy(request):
         # Apply market group filter if configured
         # Always apply parent market group filter (Materials hierarchy)
         try:
-            TARGET_PARENT_ID = 533
             # Alliance Auth (External Libs)
             from eveuniverse.models import EveType
 
             allowed_type_ids = set(
                 EveType.objects.filter(
-                    eve_market_group__parent_market_group_id=TARGET_PARENT_ID
+                    eve_market_group__parent_market_group_id__in=[
+                        533,
+                        1031,
+                        1034,
+                        2395,
+                    ]
                 ).values_list("id", flat=True)
             )
             stock_items = [
@@ -751,13 +781,17 @@ def material_exchange_buy(request):
     # Apply market group filter if configured
     # Always apply parent market group filter (Materials hierarchy)
     try:
-        TARGET_PARENT_ID = 533
         # Alliance Auth (External Libs)
         from eveuniverse.models import EveType
 
         allowed_type_ids = set(
             EveType.objects.filter(
-                eve_market_group__parent_market_group_id=TARGET_PARENT_ID
+                eve_market_group__parent_market_group_id__in=[
+                    533,
+                    1031,
+                    1034,
+                    2395,
+                ]
             ).values_list("id", flat=True)
         )
         stock_items = [item for item in stock_items if item.type_id in allowed_type_ids]
