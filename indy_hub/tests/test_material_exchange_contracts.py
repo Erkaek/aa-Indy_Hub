@@ -273,6 +273,7 @@ class ContractValidationTaskTest(TestCase):
                 "acceptor_id": self.config.corporation_id,
                 "start_location_id": self.config.structure_id,
                 "status": "active",
+                "price": self.sell_item.total_price,
             }
         ]
 
