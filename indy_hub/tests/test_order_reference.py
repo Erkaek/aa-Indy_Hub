@@ -25,7 +25,6 @@ class OrderReferenceTestCase(TestCase):
             password="testpass123",
         )
         cls.config = MaterialExchangeConfig.objects.create(
-            name="Test Hub",
             is_active=True,
             corporation_id=98765432,
             structure_id=60000001,
