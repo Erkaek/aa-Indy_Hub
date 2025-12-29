@@ -1408,6 +1408,7 @@ class MaterialExchangeSellOrder(models.Model):
     order_reference = models.CharField(
         max_length=50,
         unique=True,
+        blank=True,
         db_index=True,
         help_text=_("Unique order reference (INDY-{id}) for contract matching"),
     )
@@ -1578,6 +1579,7 @@ class MaterialExchangeBuyOrder(models.Model):
     order_reference = models.CharField(
         max_length=50,
         unique=True,
+        blank=True,
         db_index=True,
         help_text=_("Unique order reference (INDY-{id}) for contract matching"),
     )
