@@ -395,14 +395,15 @@ def refresh_production_items():
         for row in reader:
             try:
                 activity_id = int(row.get("activityID", 0))
-                product_id = int(row.get("productTypeID", 0))
+                type_id = int(row.get("typeID", 0))
             except Exception:
                 continue
 
+            # Use typeID (not productTypeID) as requested
             if activity_id == 1:
-                prod_ids.add(product_id)
+                prod_ids.add(type_id)
             elif activity_id in (9, 11):
-                react_ids.add(product_id)
+                react_ids.add(type_id)
 
         out_dir = Path(__file__).resolve().parent.parent / "static" / "data"
         out_dir.mkdir(parents=True, exist_ok=True)
