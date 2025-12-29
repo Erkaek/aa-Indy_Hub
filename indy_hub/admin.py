@@ -306,6 +306,7 @@ class MaterialExchangeStockAdmin(admin.ModelAdmin):
 class MaterialExchangeSellOrderAdmin(admin.ModelAdmin):
     list_display = [
         "id",
+        "order_reference",
         "seller",
         "item_count",
         "total_price_display",
@@ -314,12 +315,12 @@ class MaterialExchangeSellOrderAdmin(admin.ModelAdmin):
         "approved_by",
     ]
     list_filter = ["status", "created_at", "seller"]
-    search_fields = ["seller__username", "id"]
-    readonly_fields = ["created_at", "updated_at"]
+    search_fields = ["seller__username", "id", "order_reference"]
+    readonly_fields = ["created_at", "updated_at", "order_reference"]
     fieldsets = (
         (
             "Order Information",
-            {"fields": ("seller", "status")},
+            {"fields": ("order_reference", "seller", "status")},
         ),
         (
             "Status & Approval",
@@ -354,6 +355,7 @@ class MaterialExchangeSellOrderAdmin(admin.ModelAdmin):
 class MaterialExchangeBuyOrderAdmin(admin.ModelAdmin):
     list_display = [
         "id",
+        "order_reference",
         "buyer",
         "item_count",
         "total_price_display",
@@ -362,12 +364,12 @@ class MaterialExchangeBuyOrderAdmin(admin.ModelAdmin):
         "approved_by",
     ]
     list_filter = ["status", "created_at", "buyer"]
-    search_fields = ["buyer__username", "id"]
-    readonly_fields = ["created_at", "updated_at"]
+    search_fields = ["buyer__username", "id", "order_reference"]
+    readonly_fields = ["created_at", "updated_at", "order_reference"]
     fieldsets = (
         (
             "Order Information",
-            {"fields": ("buyer", "status")},
+            {"fields": ("order_reference", "buyer", "status")},
         ),
         (
             "Status & Fulfillment",

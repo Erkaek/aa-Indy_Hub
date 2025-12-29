@@ -236,6 +236,11 @@
                             <strong>{% trans "Important:" %}</strong> {% trans "Create an in-game contract with the following details to match your sell order. Copy the Reference ID into the contract title." %}
                         </div>
 
+                        <div class="alert alert-warning mb-4">
+                            <i class="fas fa-map-marker-alt me-2"></i>
+                            <strong>{% trans "Location:" %}</strong> {{ config.structure_name }} <small class="text-muted">(ID: {{ config.structure_id }})</small>
+                        </div>
+
                         <div class="contract-details">
                             <div class="row g-3">
                                 <div class="col-md-6">
@@ -247,7 +252,7 @@
                                 <div class="col-md-6">
                                     <div class="detail-card">
                                         <label class="fw-bold text-muted small">{% trans "Availability" %}</label>
-                                        <div class="detail-value">{% trans "Private - Corporation" %}</div>
+                                        <div class="detail-value">{% trans "Private" %} - {{ corporation_name }}</div>
                                     </div>
                                 </div>
                                 <div class="col-12">
@@ -272,10 +277,15 @@
                                 <div class="col-12">
                                     <div class="detail-card">
                                         <label class="fw-bold text-muted small">{% trans "Description / Title" %}</label>
-                                        <div class="detail-value text-warning fw-monospace" id="modalRefId" style="word-break: break-all; background: rgba(var(--bs-warning-rgb), 0.1); padding: 0.75rem; border-radius: 0.375rem;">
-                                            INDY-[loading...]
+                                        <div class="alert alert-info" role="alert">
+                                            <small>
+                                                {% trans "You will receive your order reference ID after submission. Please note it down and include it in the contract title." %}
+                                            </small>
                                         </div>
-                                        <small class="text-muted mt-2">{% trans "Copy and paste this into the contract title/description field" %}</small>
+                                        <div class="detail-value text-warning fw-monospace" id="modalRefId" style="word-break: break-all; background: rgba(var(--bs-warning-rgb), 0.1); padding: 0.75rem; border-radius: 0.375rem;">
+                                            INDY-[will be generated after submission]
+                                        </div>
+                                        <small class="text-muted mt-2">{% trans "Copy and paste this into the contract title/description field in-game" %}</small>
                                     </div>
                                 </div>
                             </div>
@@ -469,14 +479,13 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    // Handle modal display to generate contract reference ID
+    // Handle modal display
     const contractModal = document.getElementById('contractDetailsModal');
     if (contractModal) {
         contractModal.addEventListener('show.bs.modal', function() {
-            // Generate a unique reference ID based on current timestamp
-            // In production, this would be set by the server when the order is created
-            const refId = 'INDY-' + new Date().getTime();
-            document.getElementById('modalRefId').textContent = refId;
+            // Note: Order reference will be generated server-side when order is created
+            // The user will see it in the success message
+            document.getElementById('modalRefId').textContent = 'INDY-[will be generated after submission]';
         });
     }
 

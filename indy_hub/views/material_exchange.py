@@ -602,7 +602,9 @@ GROUP BY type_id
             messages.success(
                 request,
                 _(
-                    f"Created sell order #{order.id} with {len(items_to_create)} item(s). Total payout: {total_payout:,.2f} ISK. Awaiting admin approval."
+                    f"Created sell order #{order.id}. Order reference: {order.order_reference}. "
+                    f"{len(items_to_create)} item(s). Total payout: {total_payout:,.2f} ISK. "
+                    f"Awaiting admin approval."
                 ),
             )
             return redirect("indy_hub:material_exchange_index")
@@ -745,9 +747,13 @@ LIMIT 1
         )
         materials_with_qty.sort(key=lambda x: x["type_name"])
 
+    # Get corporation name
+    corporation_name = _get_corp_name_for_hub(config.corporation_id)
+
     context = {
         "config": config,
         "materials": materials_with_qty,
+        "corporation_name": corporation_name,
         "nav_context": _build_nav_context(request.user),
     }
 
@@ -1372,3 +1378,17 @@ def _build_nav_context(user):
     return {
         "can_manage": user.has_perm("indy_hub.can_manage_material_exchange"),
     }
+
+
+def _get_corp_name_for_hub(corporation_id: int) -> str:
+    """Get corporation name, fallback to ID if not available."""
+    try:
+        # Alliance Auth
+        from allianceauth.eveonline.models import EveCharacter
+
+        char = EveCharacter.objects.filter(corporation_id=corporation_id).first()
+        if char:
+            return char.corporation_name
+    except Exception:
+        pass
+    return f"Corp {corporation_id}"

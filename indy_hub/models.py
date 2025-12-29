@@ -1405,6 +1405,13 @@ class MaterialExchangeSellOrder(models.Model):
         help_text=_("ESI wallet journal ref ID if verified"),
     )
 
+    order_reference = models.CharField(
+        max_length=50,
+        unique=True,
+        db_index=True,
+        help_text=_("Unique order reference (INDY-{id}) for contract matching"),
+    )
+
     notes = models.TextField(blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -1421,6 +1428,17 @@ class MaterialExchangeSellOrder(models.Model):
 
     def __str__(self):
         return f"Sell #{self.id}: {self.seller.username} ({self.items.count()} items)"
+
+    def save(self, *args, **kwargs):
+        """Auto-generate order reference if not set."""
+        if not self.order_reference:
+            # Save first to get the ID
+            super().save(*args, **kwargs)
+            # Then set the reference and save again
+            self.order_reference = f"INDY-{self.id}"
+            super().save(update_fields=["order_reference"])
+        else:
+            super().save(*args, **kwargs)
 
     @property
     def total_price(self):
@@ -1557,6 +1575,13 @@ class MaterialExchangeBuyOrder(models.Model):
         ],
     )
 
+    order_reference = models.CharField(
+        max_length=50,
+        unique=True,
+        db_index=True,
+        help_text=_("Unique order reference (INDY-{id}) for contract matching"),
+    )
+
     notes = models.TextField(blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -1573,6 +1598,17 @@ class MaterialExchangeBuyOrder(models.Model):
 
     def __str__(self):
         return f"Buy #{self.id}: {self.buyer.username} ({self.items.count()} items)"
+
+    def save(self, *args, **kwargs):
+        """Auto-generate order reference if not set."""
+        if not self.order_reference:
+            # Save first to get the ID
+            super().save(*args, **kwargs)
+            # Then set the reference and save again
+            self.order_reference = f"INDY-{self.id}"
+            super().save(update_fields=["order_reference"])
+        else:
+            super().save(*args, **kwargs)
 
     @property
     def total_price(self):
