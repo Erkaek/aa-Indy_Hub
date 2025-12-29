@@ -69,6 +69,74 @@ def _load_production_ids() -> set[int]:
         return set()
 
 
+def _get_available_market_groups() -> list[dict]:
+    """
+    Return list of market groups available for production materials.
+
+    - Filters to EveIndustryActivityMaterial -> EveType -> EveMarketGroup
+    - Uses parent market group name when parent exists
+    - Groups identical names and merges their IDs
+    - Returns list of dicts: {"name": str, "ids": list[int]}
+    """
+    try:
+        # Alliance Auth (External Libs)
+        from eveuniverse.models import (
+            EveIndustryActivityMaterial,
+            EveMarketGroup,
+        )
+
+        # Get all material type IDs used in production
+        material_type_ids = list(
+            EveIndustryActivityMaterial.objects.values_list(
+                "material_eve_type_id", flat=True
+            )
+            .distinct()
+            .order_by()
+        )
+
+        logger.info(f"Found {len(material_type_ids)} production material type IDs")
+
+        # Limit to child groups of the desired parent market group (e.g. Materials)
+        TARGET_PARENT_ID = 533
+        raw_groups = (
+            EveMarketGroup.objects.filter(
+                eve_types__id__in=material_type_ids,
+                parent_market_group_id=TARGET_PARENT_ID,
+            )
+            .select_related("parent_market_group")
+            .exclude(name="")  # Exclude empty names
+            .distinct()
+            .values(
+                "id",
+                "name",
+                "parent_market_group_id",
+                "parent_market_group__name",
+            )
+        )
+
+        grouped: dict[str, set[int]] = {}
+        for mg in raw_groups:
+            parent_name = (mg.get("parent_market_group__name") or "").strip()
+            base_name = (mg.get("name") or "").strip()
+            display_name = parent_name or base_name
+            if not display_name:
+                continue
+            grouped.setdefault(display_name, set()).add(mg["id"])
+
+        result = [
+            {"name": name, "ids": sorted(ids)} for name, ids in sorted(grouped.items())
+        ]
+        logger.info(
+            "Returning %s market group display rows from %s raw groups",
+            len(result),
+            len(raw_groups),
+        )
+        return result
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("Failed to load market groups from EveUniverse: %s", exc)
+        return []
+
+
 def _get_group_map(type_ids: list[int]) -> dict[int, str]:
     """Return mapping type_id -> group name using EveUniverse if available."""
 
@@ -284,6 +352,23 @@ GROUP BY type_id
                 tid: qty for tid, qty in user_assets.items() if tid in prod_ids
             }
 
+        # Apply market group filter if configured
+        # Always apply parent market group filter (Materials hierarchy)
+        try:
+            TARGET_PARENT_ID = 533
+            from eveuniverse.models import EveType
+
+            allowed_type_ids = set(
+                EveType.objects.filter(
+                    eve_market_group__parent_market_group_id=TARGET_PARENT_ID
+                ).values_list("id", flat=True)
+            )
+            user_assets = {
+                tid: qty for tid, qty in user_assets.items() if tid in allowed_type_ids
+            }
+        except Exception as exc:
+            logger.warning("Failed to apply market group filter: %s", exc)
+
         if not user_assets:
             messages.error(request, _("You have no items to sell at this location."))
             return redirect("indy_hub:material_exchange_sell")
@@ -458,6 +543,26 @@ LIMIT 1
             }
         logger.info(f"SELL DEBUG: {len(user_assets)} items after production filter")
 
+        # Apply market group filter if configured
+        # Always apply parent market group filter (Materials hierarchy)
+        try:
+            TARGET_PARENT_ID = 533
+            from eveuniverse.models import EveType
+
+            allowed_type_ids = set(
+                EveType.objects.filter(
+                    eve_market_group__parent_market_group_id=TARGET_PARENT_ID
+                ).values_list("id", flat=True)
+            )
+            user_assets = {
+                tid: qty for tid, qty in user_assets.items() if tid in allowed_type_ids
+            }
+            logger.info(
+                f"SELL DEBUG: {len(user_assets)} items after market group filter"
+            )
+        except Exception as exc:
+            logger.warning("Failed to apply market group filter: %s", exc)
+
         price_data = _fetch_fuzzwork_prices(list(user_assets.keys()))
         logger.info(f"SELL DEBUG: Got prices for {len(price_data)} items from Fuzzwork")
 
@@ -511,6 +616,22 @@ def material_exchange_buy(request):
         stock_items = list(
             config.stock_items.filter(quantity__gt=0, jita_buy_price__gt=0)
         )
+
+        # Apply market group filter if configured
+        # Always apply parent market group filter (Materials hierarchy)
+        try:
+            TARGET_PARENT_ID = 533
+            from eveuniverse.models import EveType
+
+            allowed_type_ids = set(
+                EveType.objects.filter(
+                    eve_market_group__parent_market_group_id=TARGET_PARENT_ID
+                ).values_list("id", flat=True)
+            )
+            stock_items = [item for item in stock_items if item.type_id in allowed_type_ids]
+        except Exception as exc:
+            logger.warning("Failed to apply market group filter: %s", exc)
+
         group_map = _get_group_map([item.type_id for item in stock_items])
         stock_items.sort(
             key=lambda i: (
@@ -621,6 +742,22 @@ def material_exchange_buy(request):
 
     # Show available stock (quantity > 0 and price available)
     stock_items = list(config.stock_items.filter(quantity__gt=0, jita_buy_price__gt=0))
+
+    # Apply market group filter if configured
+    # Always apply parent market group filter (Materials hierarchy)
+    try:
+        TARGET_PARENT_ID = 533
+        from eveuniverse.models import EveType
+
+        allowed_type_ids = set(
+            EveType.objects.filter(
+                eve_market_group__parent_market_group_id=TARGET_PARENT_ID
+            ).values_list("id", flat=True)
+        )
+        stock_items = [item for item in stock_items if item.type_id in allowed_type_ids]
+    except Exception as exc:
+        logger.warning("Failed to apply market group filter: %s", exc)
+
     group_map = _get_group_map([item.type_id for item in stock_items])
     stock_items.sort(
         key=lambda i: (

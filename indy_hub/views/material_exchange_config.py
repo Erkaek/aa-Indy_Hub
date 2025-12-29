@@ -142,6 +142,8 @@ def material_exchange_config(request):
             request.user, config.corporation_id
         )
 
+    # Removed market group selection UI: filtering is now hardcoded to parent market group 533
+
     if request.method == "POST":
         return _handle_config_save(request, config)
 
@@ -156,6 +158,7 @@ def material_exchange_config(request):
             else {i: f"Hangar Division {i}" for i in range(1, 8)}
         ),
         "division_scope_missing": division_scope_missing,
+        # Market groups selection removed
     }
 
     return render(request, "indy_hub/material_exchange/config.html", context)
@@ -491,6 +494,7 @@ def _handle_config_save(request, existing_config):
     sell_markup_base = request.POST.get("sell_markup_base", "buy")
     buy_markup_percent = request.POST.get("buy_markup_percent", "5")
     buy_markup_base = request.POST.get("buy_markup_base", "buy")
+    # Market group selections removed; filtering is hardcoded
     is_active = request.POST.get("is_active") == "on"
 
     # Validation
@@ -509,6 +513,7 @@ def _handle_config_save(request, existing_config):
         hangar_division = int(hangar_division)
         sell_markup_percent = Decimal(sell_markup_percent)
         buy_markup_percent = Decimal(buy_markup_percent)
+        # No market group parsing required
 
         if not (1 <= hangar_division <= 7):
             raise ValueError("Hangar division must be between 1 and 7")
@@ -528,6 +533,7 @@ def _handle_config_save(request, existing_config):
             existing_config.sell_markup_base = sell_markup_base
             existing_config.buy_markup_percent = buy_markup_percent
             existing_config.buy_markup_base = buy_markup_base
+            # Market group filters removed
             existing_config.is_active = is_active
             existing_config.save()
             messages.success(
@@ -543,6 +549,7 @@ def _handle_config_save(request, existing_config):
                 sell_markup_base=sell_markup_base,
                 buy_markup_percent=buy_markup_percent,
                 buy_markup_base=buy_markup_base,
+                # Market group filters removed
                 is_active=is_active,
             )
             messages.success(

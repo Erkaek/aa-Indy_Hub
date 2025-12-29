@@ -2282,22 +2282,45 @@ def craft_bp(request, type_id):
         eve_types_query = []
         if EveType is not None:
             eve_types_query = list(
-                EveType.objects.filter(id__in=all_type_ids).select_related("eve_group")
+                EveType.objects.filter(id__in=all_type_ids).select_related(
+                    "eve_group",
+                    "eve_market_group__parent_market_group",
+                )
             )
         eve_types = eve_types_query
         # On ne garde que les groupes ayant au moins un item dans materials_list
+        def _market_group_label(et):
+            mg = getattr(et, "eve_market_group", None)
+            if mg:
+                parent = getattr(mg, "parent_market_group", None)
+                parent_name = (parent.name or "").strip() if parent else ""
+                name = (mg.name or "").strip()
+                if parent_name and name:
+                    return f"{parent_name} - {name}"
+                return name or parent_name or "Other"
+            if et.eve_group and et.eve_group.name:
+                return et.eve_group.name
+            return "Other"
+
         group_ids_used = set()
         for mat in materials_list:
             eve_type = next((et for et in eve_types if et.id == mat["type_id"]), None)
-            if eve_type and eve_type.eve_group:
+            if eve_type and getattr(eve_type, "eve_market_group", None):
+                group_ids_used.add(eve_type.eve_market_group.id)
+            elif eve_type and eve_type.eve_group:
                 group_ids_used.add(eve_type.eve_group.id)
             elif eve_type:
                 group_ids_used.add(None)
+
         market_group_map = {}
         if EveType is not None:
             for eve_type in eve_types:
-                group_id = eve_type.eve_group.id if eve_type.eve_group else None
-                group_name = eve_type.eve_group.name if eve_type.eve_group else "Other"
+                group_id = (
+                    eve_type.eve_market_group.id
+                    if getattr(eve_type, "eve_market_group", None)
+                    else (eve_type.eve_group.id if eve_type.eve_group else None)
+                )
+                group_name = _market_group_label(eve_type)
                 if group_id in group_ids_used:
                     market_group_map[eve_type.id] = {
                         "group_id": group_id,
@@ -2308,12 +2331,9 @@ def craft_bp(request, type_id):
         materials_by_group = {}
         for mat in materials_list:
             eve_type = next((et for et in eve_types if et.id == mat["type_id"]), None)
-            group_id = (
-                eve_type.eve_group.id if eve_type and eve_type.eve_group else None
-            )
-            group_name = (
-                eve_type.eve_group.name if eve_type and eve_type.eve_group else "Other"
-            )
+            mg = getattr(eve_type, "eve_market_group", None) if eve_type else None
+            group_id = mg.id if mg else (eve_type.eve_group.id if eve_type and eve_type.eve_group else None)
+            group_name = _market_group_label(eve_type) if eve_type else "Other"
             if group_id not in materials_by_group:
                 materials_by_group[group_id] = {"group_name": group_name, "items": []}
             materials_by_group[group_id]["items"].append(mat)
