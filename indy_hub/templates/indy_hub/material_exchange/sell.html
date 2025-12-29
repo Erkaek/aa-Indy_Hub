@@ -209,7 +209,7 @@
                                     <span class="fw-bold">{% trans "Total Payout" %}</span>
                                     <span class="h4 mb-0 text-success" id="totalAmount">0 ISK</span>
                                 </div>
-                                <button type="submit" form="sellForm" class="btn btn-success w-100 mt-3">
+                                <button type="button" class="btn btn-success w-100 mt-3" data-bs-toggle="modal" data-bs-target="#contractDetailsModal">
                                     <i class="fas fa-paper-plane me-2"></i>{% trans "Submit Sell Order" %}
                                 </button>
                             </div>
@@ -218,6 +218,116 @@
                 </div>
             </div>
         </div>
+
+        <!-- Contract Details Modal -->
+        <div class="modal fade" id="contractDetailsModal" tabindex="-1" aria-labelledby="contractDetailsModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="contractDetailsModalLabel">
+                            <i class="fas fa-file-contract me-2 text-info"></i>
+                            {% trans "Create In-Game Contract" %}
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="alert alert-info mb-4">
+                            <i class="fas fa-exclamation-circle me-2"></i>
+                            <strong>{% trans "Important:" %}</strong> {% trans "Create an in-game contract with the following details to match your sell order. Copy the Reference ID into the contract title." %}
+                        </div>
+
+                        <div class="contract-details">
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <div class="detail-card">
+                                        <label class="fw-bold text-muted small">{% trans "Contract Type" %}</label>
+                                        <div class="detail-value">Item Exchange</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="detail-card">
+                                        <label class="fw-bold text-muted small">{% trans "Availability" %}</label>
+                                        <div class="detail-value">{% trans "Private - Corporation" %}</div>
+                                    </div>
+                                </div>
+                                <div class="col-12">
+                                    <div class="detail-card">
+                                        <label class="fw-bold text-muted small">{% trans "Items to Sell" %}</label>
+                                        <div class="items-list" id="modalItemsList" style="max-height: 200px; overflow-y: auto;">
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="detail-card">
+                                        <label class="fw-bold text-muted small">{% trans "You Will Receive" %}</label>
+                                        <div class="detail-value text-success fw-bold" id="modalTotalAmount">0 ISK</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="detail-card">
+                                        <label class="fw-bold text-muted small">{% trans "Contract Duration" %}</label>
+                                        <div class="detail-value">4 Weeks</div>
+                                    </div>
+                                </div>
+                                <div class="col-12">
+                                    <div class="detail-card">
+                                        <label class="fw-bold text-muted small">{% trans "Description / Title" %}</label>
+                                        <div class="detail-value text-warning fw-monospace" id="modalRefId" style="word-break: break-all; background: rgba(var(--bs-warning-rgb), 0.1); padding: 0.75rem; border-radius: 0.375rem;">
+                                            INDY-[loading...]
+                                        </div>
+                                        <small class="text-muted mt-2">{% trans "Copy and paste this into the contract title/description field" %}</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                            {% trans "Cancel" %}
+                        </button>
+                        <button type="submit" form="sellForm" class="btn btn-success">
+                            <i class="fas fa-check me-1"></i>{% trans "I Understand, Create Sell Order" %}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <style>
+            .detail-card {
+                padding: 1rem;
+                background: rgba(var(--bs-info-rgb), 0.05);
+                border-radius: 0.375rem;
+                border-left: 3px solid var(--bs-info);
+            }
+
+            .detail-value {
+                font-size: 1.1rem;
+                margin-top: 0.5rem;
+                color: var(--bs-body-color);
+            }
+
+            .items-list .item-row {
+                padding: 0.75rem;
+                border-bottom: 1px solid rgba(var(--bs-border-color-rgb), 0.2);
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+
+            .items-list .item-row:last-child {
+                border-bottom: none;
+            }
+
+            .items-list .item-name {
+                font-weight: 500;
+            }
+
+            .items-list .item-qty {
+                color: var(--bs-info);
+                font-weight: 500;
+            }
+        </style>
         {% else %}
         <div class="glass-panel p-4">
             <div class="alert alert-warning mb-0">
@@ -300,6 +410,8 @@ document.addEventListener('DOMContentLoaded', function() {
         const invoiceItems = document.getElementById('invoiceItems');
         const itemsList = document.getElementById('itemsList');
         const totalAmount = document.getElementById('totalAmount');
+        const modalItemsList = document.getElementById('modalItemsList');
+        const modalTotalAmount = document.getElementById('modalTotalAmount');
 
         if (selectedItems.length === 0) {
             emptyInvoice.classList.remove('d-none');
@@ -325,6 +437,19 @@ document.addEventListener('DOMContentLoaded', function() {
 
             itemsList.innerHTML = itemsHTML;
             totalAmount.textContent = formatNumber(total) + ' ISK';
+
+            // Update modal with same items
+            let modalItemsHTML = '';
+            selectedItems.forEach(item => {
+                modalItemsHTML += `
+                    <div class="item-row">
+                        <span class="item-name">${item.name}</span>
+                        <span class="item-qty">${item.qty.toLocaleString()}x</span>
+                    </div>
+                `;
+            });
+            modalItemsList.innerHTML = modalItemsHTML;
+            modalTotalAmount.textContent = formatNumber(total) + ' ISK';
         }
     }
 
@@ -343,6 +468,17 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     });
+
+    // Handle modal display to generate contract reference ID
+    const contractModal = document.getElementById('contractDetailsModal');
+    if (contractModal) {
+        contractModal.addEventListener('show.bs.modal', function() {
+            // Generate a unique reference ID based on current timestamp
+            // In production, this would be set by the server when the order is created
+            const refId = 'INDY-' + new Date().getTime();
+            document.getElementById('modalRefId').textContent = refId;
+        });
+    }
 
     // Prevent form submission if any quantity exceeds stock
     const sellForm = document.getElementById('sellForm');
