@@ -2288,7 +2288,9 @@ def craft_bp(request, type_id):
                 )
             )
         eve_types = eve_types_query
+
         # On ne garde que les groupes ayant au moins un item dans materials_list
+
         def _market_group_label(et):
             mg = getattr(et, "eve_market_group", None)
             if mg:
@@ -2332,7 +2334,13 @@ def craft_bp(request, type_id):
         for mat in materials_list:
             eve_type = next((et for et in eve_types if et.id == mat["type_id"]), None)
             mg = getattr(eve_type, "eve_market_group", None) if eve_type else None
-            group_id = mg.id if mg else (eve_type.eve_group.id if eve_type and eve_type.eve_group else None)
+            group_id = (
+                mg.id
+                if mg
+                else (
+                    eve_type.eve_group.id if eve_type and eve_type.eve_group else None
+                )
+            )
             group_name = _market_group_label(eve_type) if eve_type else "Other"
             if group_id not in materials_by_group:
                 materials_by_group[group_id] = {"group_name": group_name, "items": []}

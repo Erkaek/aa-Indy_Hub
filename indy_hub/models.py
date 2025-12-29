@@ -1261,7 +1261,6 @@ class MaterialExchangeConfig(models.Model):
         help_text=_("Base price to apply buy markup on (Jita Buy or Jita Sell)"),
     )
 
-
     # Stock sync
     last_stock_sync = models.DateTimeField(blank=True, null=True)
     last_price_sync = models.DateTimeField(blank=True, null=True)

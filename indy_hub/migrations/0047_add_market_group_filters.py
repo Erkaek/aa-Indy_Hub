@@ -1,5 +1,6 @@
 # Generated manually
 
+# Django
 from django.db import migrations, models
 
 

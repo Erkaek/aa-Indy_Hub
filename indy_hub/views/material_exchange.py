@@ -356,6 +356,7 @@ GROUP BY type_id
         # Always apply parent market group filter (Materials hierarchy)
         try:
             TARGET_PARENT_ID = 533
+            # Alliance Auth (External Libs)
             from eveuniverse.models import EveType
 
             allowed_type_ids = set(
@@ -547,6 +548,7 @@ LIMIT 1
         # Always apply parent market group filter (Materials hierarchy)
         try:
             TARGET_PARENT_ID = 533
+            # Alliance Auth (External Libs)
             from eveuniverse.models import EveType
 
             allowed_type_ids = set(
@@ -621,6 +623,7 @@ def material_exchange_buy(request):
         # Always apply parent market group filter (Materials hierarchy)
         try:
             TARGET_PARENT_ID = 533
+            # Alliance Auth (External Libs)
             from eveuniverse.models import EveType
 
             allowed_type_ids = set(
@@ -628,7 +631,9 @@ def material_exchange_buy(request):
                     eve_market_group__parent_market_group_id=TARGET_PARENT_ID
                 ).values_list("id", flat=True)
             )
-            stock_items = [item for item in stock_items if item.type_id in allowed_type_ids]
+            stock_items = [
+                item for item in stock_items if item.type_id in allowed_type_ids
+            ]
         except Exception as exc:
             logger.warning("Failed to apply market group filter: %s", exc)
 
@@ -747,6 +752,7 @@ def material_exchange_buy(request):
     # Always apply parent market group filter (Materials hierarchy)
     try:
         TARGET_PARENT_ID = 533
+        # Alliance Auth (External Libs)
         from eveuniverse.models import EveType
 
         allowed_type_ids = set(
