@@ -476,7 +476,23 @@ def _get_character_for_scope(corporation_id: int, scope: str) -> int:
 
         # Try to find a token with the required scope
         for token in tokens:
-            if token.has_scopes([scope]):
+            scopes_value = None
+            try:
+                getter = getattr(token, "get_scopes", None)
+                if callable(getter):
+                    scopes_value = getter()
+                else:
+                    scopes_value = getattr(token, "scopes", [])
+
+                if isinstance(scopes_value, (list, tuple, set)):
+                    has = scope in scopes_value
+                else:
+                    text = str(scopes_value or "")
+                    parts = text.replace(",", " ").split()
+                    has = scope in parts
+            except Exception:
+                has = False
+            if has:
                 logger.debug(
                     f"Found token for {scope} via character {token.character_id}"
                 )
