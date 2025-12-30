@@ -207,7 +207,7 @@
                 </div>
 
                 <!-- Contract Instructions (show until contract validated/accepted) -->
-                {% if order.status in ['draft','awaiting_validation'] %}
+                {% if order.status == 'draft' or order.status == 'awaiting_validation' %}
                     <div class="card mb-4">
                         <div class="card-header bg-info bg-opacity-10">
                             <h5 class="mb-0">
@@ -272,7 +272,7 @@
                                         <th class="text-end">{% trans "Quantity" %}</th>
                                         <th class="text-end">{% trans "Unit Price" %}</th>
                                         <th class="text-end">{% trans "Total" %}</th>
-                                        {% if order.status not in ['draft','awaiting_validation'] %}
+                                        {% if order.status != 'draft' and order.status != 'awaiting_validation' %}
                                             <th class="text-center">{% trans "Validated" %}</th>
                                         {% endif %}
                                     </tr>
@@ -290,7 +290,7 @@
                                             <td class="text-end fw-bold text-warning">
                                                 {{ item.total_price|floatformat:2|intcomma }} ISK
                                             </td>
-                                            {% if order.status not in ['draft','awaiting_validation'] %}
+                                            {% if order.status != 'draft' and order.status != 'awaiting_validation' %}
                                                 <td class="text-center">
                                                     {% if item.esi_contract_validated %}
                                                         <i class="fas fa-check-circle text-success"></i>
