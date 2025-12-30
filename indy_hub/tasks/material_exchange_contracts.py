@@ -13,6 +13,7 @@ from celery import shared_task
 # Django
 from django.contrib.auth.models import User
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
@@ -428,6 +429,23 @@ def validate_material_exchange_buy_orders():
         logger.debug("No pending buy orders to validate")
         return
 
+    # Notify buyers of awaiting validation orders on first processing
+    for order in pending_orders:
+        if not order.notes or "Pending contract" not in order.notes:
+            items_str = ", ".join(item.type_name for item in order.items.all())
+            notify_user(
+                order.buyer,
+                _("⏳ Buy Order Awaiting Validation"),
+                _(
+                    f"Your buy order {order.order_reference} is awaiting validation.\n"
+                    f"Items: {items_str}\n"
+                    f"Total cost: {order.total_price:,.2f} ISK\n\n"
+                    f"The corporation is preparing your contract. Stand by."
+                ),
+                level="info",
+                link=f"/indy_hub/material-exchange/buy-orders/{order.id}/",
+            )
+
     contracts = ESIContract.objects.filter(
         corporation_id=config.corporation_id,
         contract_type="item_exchange",
@@ -563,6 +581,24 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
                 "notes",
                 "updated_at",
             ]
+        )
+
+        notify_user(
+            order.seller,
+            _("✅ Sell Order Validated"),
+            _(
+                f"Your sell order {order.order_reference} has been validated!\n"
+                f"Contract #{matching_contract.contract_id} for {order.total_price:,.2f} ISK verified.\n\n"
+                f"Status: Awaiting corporation to accept the contract.\n"
+                f"Once accepted, you will receive payment."
+                + (
+                    f"\n\nNote: Your contract title is missing the reference {order_ref}."
+                    if ref_missing
+                    else ""
+                )
+            ),
+            level="success",
+            link=f"/indy_hub/material-exchange/sell-orders/{order.id}/",
         )
 
         admins = _get_admins_for_config(config)
@@ -1169,19 +1205,41 @@ def _get_user_character_ids(user: User) -> list[int]:
 
 
 def _get_admins_for_config(config: MaterialExchangeConfig) -> list[User]:
-    """Get users with can_manage_material_exchange permission."""
+    """
+    Get users to notify about material exchange orders.
+    Includes: staff (admin panel access), superusers, and users with explicit permission.
+    """
     # Django
     from django.contrib.auth.models import Permission
 
+    # Start with staff members and superusers (all have admin panel access)
+    admins = list(User.objects.filter(is_staff=True, is_active=True).distinct())
+
+    # Add users with explicit can_manage_material_exchange permission (via groups or user)
     try:
         perm = Permission.objects.get(
             codename="can_manage_material_exchange",
             content_type__app_label="indy_hub",
         )
-        return list(User.objects.filter(groups__permissions=perm).distinct())
+        perm_users = list(
+            User.objects.filter(
+                Q(groups__permissions=perm) | Q(user_permissions=perm),
+                is_active=True,
+            ).distinct()
+        )
+        admins.extend(perm_users)
     except Permission.DoesNotExist:
-        # Fallback: get superusers
-        return list(User.objects.filter(is_superuser=True))
+        pass
+
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_admins = []
+    for user in admins:
+        if user.id not in seen:
+            seen.add(user.id)
+            unique_admins.append(user)
+
+    return unique_admins
 
 
 def _get_corp_name(corporation_id: int) -> str:
