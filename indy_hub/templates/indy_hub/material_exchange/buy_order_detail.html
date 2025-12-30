@@ -118,7 +118,7 @@
                 <button class="btn btn-info btn-lg copy-button" onclick="copyOrderReference()">
                     <i class="fas fa-copy me-2"></i>{% trans "Copy to Clipboard" %}
                 </button>
-                {% if order.status not in 'completed,rejected,cancelled'|split:',' %}
+                {% if order.status != 'completed' and order.status != 'rejected' and order.status != 'cancelled' %}
                     <a href="{% url 'indy_hub:buy_order_delete' order.id %}" class="btn btn-outline-danger btn-lg">
                         <i class="fas fa-trash me-2"></i>{% trans "Delete Order" %}
                     </a>
