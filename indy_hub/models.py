@@ -1,4 +1,5 @@
 # Standard Library
+import random
 from datetime import timedelta
 
 # Django
@@ -11,6 +12,11 @@ from django.utils.translation import gettext_lazy as _
 from django.utils.translation import ngettext
 
 from .utils.eve import get_blueprint_product_type_id, is_reaction_blueprint
+
+
+def generate_order_reference():
+    """Generate a random order reference like INDY-1234567890"""
+    return f"INDY-{random.randint(1000000000, 9999999999)}"
 
 
 class BlueprintManager(models.Manager):
@@ -1450,15 +1456,25 @@ class MaterialExchangeSellOrder(models.Model):
         return f"Sell #{self.id}: {self.seller.username} ({self.items.count()} items)"
 
     def save(self, *args, **kwargs):
-        """Auto-generate order reference if not set."""
+        """Auto-generate unique order reference if not set."""
         if not self.order_reference:
-            # Save first to get the ID
-            super().save(*args, **kwargs)
-            # Then set the reference and save again
-            self.order_reference = f"INDY-{self.id}"
-            super().save(update_fields=["order_reference"])
-        else:
-            super().save(*args, **kwargs)
+            # Generate a unique reference
+            max_attempts = 100
+            for attempt in range(max_attempts):
+                reference = generate_order_reference()
+                if not MaterialExchangeSellOrder.objects.filter(
+                    order_reference=reference
+                ).exists():
+                    self.order_reference = reference
+                    break
+            else:
+                # Fallback: use ID if we can't generate unique after max_attempts
+                super().save(*args, **kwargs)
+                self.order_reference = f"INDY-{self.id:010d}"
+                super().save(update_fields=["order_reference"])
+                return
+
+        super().save(*args, **kwargs)
 
     @property
     def total_price(self):
@@ -1640,15 +1656,25 @@ class MaterialExchangeBuyOrder(models.Model):
         return f"Buy #{self.id}: {self.buyer.username} ({self.items.count()} items)"
 
     def save(self, *args, **kwargs):
-        """Auto-generate order reference if not set."""
+        """Auto-generate unique order reference if not set."""
         if not self.order_reference:
-            # Save first to get the ID
-            super().save(*args, **kwargs)
-            # Then set the reference and save again
-            self.order_reference = f"INDY-{self.id}"
-            super().save(update_fields=["order_reference"])
-        else:
-            super().save(*args, **kwargs)
+            # Generate a unique reference
+            max_attempts = 100
+            for attempt in range(max_attempts):
+                reference = generate_order_reference()
+                if not MaterialExchangeBuyOrder.objects.filter(
+                    order_reference=reference
+                ).exists():
+                    self.order_reference = reference
+                    break
+            else:
+                # Fallback: use ID if we can't generate unique after max_attempts
+                super().save(*args, **kwargs)
+                self.order_reference = f"INDY-{self.id:010d}"
+                super().save(update_fields=["order_reference"])
+                return
+
+        super().save(*args, **kwargs)
 
     @property
     def total_price(self):

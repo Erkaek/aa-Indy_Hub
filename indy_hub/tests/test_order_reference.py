@@ -46,8 +46,12 @@ class OrderReferenceTestCase(TestCase):
 
         # Check that order_reference was generated
         self.assertIsNotNone(order.order_reference)
-        self.assertEqual(order.order_reference, f"INDY-{order.id}")
         self.assertTrue(order.order_reference.startswith("INDY-"))
+        # Check format: INDY-XXXXXXXXXX (10 random digits)
+        parts = order.order_reference.split("-")
+        self.assertEqual(len(parts), 2)
+        self.assertEqual(len(parts[1]), 10)
+        self.assertTrue(parts[1].isdigit())
 
     def test_order_reference_unique(self):
         """Order references should be unique per order."""
@@ -67,8 +71,11 @@ class OrderReferenceTestCase(TestCase):
 
         # Each should have a different reference
         self.assertNotEqual(order1.order_reference, order2.order_reference)
-        self.assertEqual(order1.order_reference, f"INDY-{order1.id}")
-        self.assertEqual(order2.order_reference, f"INDY-{order2.id}")
+        # Both should start with INDY- and have 10 random digits
+        self.assertTrue(order1.order_reference.startswith("INDY-"))
+        self.assertTrue(order2.order_reference.startswith("INDY-"))
+        self.assertEqual(len(order1.order_reference.split("-")[1]), 10)
+        self.assertEqual(len(order2.order_reference.split("-")[1]), 10)
 
     def test_order_reference_not_overwritten(self):
         """Existing order_reference should not be overwritten on save."""

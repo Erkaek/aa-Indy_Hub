@@ -8,7 +8,10 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("indy_hub", "0054_rename_indy_hub_es_corpora_c8d8a5_idx_indy_hub_es_corpora_e83e14_idx_and_more"),
+        (
+            "indy_hub",
+            "0054_rename_indy_hub_es_corpora_c8d8a5_idx_indy_hub_es_corpora_e83e14_idx_and_more",
+        ),
     ]
 
     operations = [
