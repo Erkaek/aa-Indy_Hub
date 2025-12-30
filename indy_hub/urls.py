@@ -64,8 +64,10 @@ from .views.material_exchange_config import (
     material_exchange_request_divisions_token,
 )
 from .views.material_exchange_orders import (
+    buy_order_delete,
     buy_order_detail,
     my_orders,
+    sell_order_delete,
     sell_order_detail,
 )
 from .views.user import (
@@ -328,9 +330,19 @@ urlpatterns = [
         name="sell_order_detail",
     ),
     path(
+        "material-exchange/my-orders/sell/<int:order_id>/delete/",
+        sell_order_delete,
+        name="sell_order_delete",
+    ),
+    path(
         "material-exchange/my-orders/buy/<int:order_id>/",
         buy_order_detail,
         name="buy_order_detail",
+    ),
+    path(
+        "material-exchange/my-orders/buy/<int:order_id>/delete/",
+        buy_order_delete,
+        name="buy_order_delete",
     ),
     # Stock & Prices
     path(

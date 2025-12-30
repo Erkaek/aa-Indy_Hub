@@ -114,9 +114,16 @@
             <h5 class="text-muted mb-2">{% trans "Order Reference" %}</h5>
             <h1 id="orderReference">{{ order.order_reference }}</h1>
             <p class="text-muted mb-3">{% trans "Your unique order identifier" %}</p>
-            <button class="btn btn-info btn-lg copy-button" onclick="copyOrderReference()">
-                <i class="fas fa-copy me-2"></i>{% trans "Copy to Clipboard" %}
-            </button>
+            <div class="d-flex gap-2 justify-content-center">
+                <button class="btn btn-info btn-lg copy-button" onclick="copyOrderReference()">
+                    <i class="fas fa-copy me-2"></i>{% trans "Copy to Clipboard" %}
+                </button>
+                {% if order.status not in 'completed,rejected,cancelled'|split:',' %}
+                    <a href="{% url 'indy_hub:buy_order_delete' order.id %}" class="btn btn-outline-danger btn-lg">
+                        <i class="fas fa-trash me-2"></i>{% trans "Delete Order" %}
+                    </a>
+                {% endif %}
+            </div>
         </div>
 
         <div class="row">
@@ -159,10 +166,10 @@
                             <div class="info-box">
                                 <p class="mb-3">
                                     <i class="fas fa-building me-2" style="color: var(--bs-info);"></i>
-                                    <strong>{% trans "The corporation" %}</strong> will create an <strong>Item Exchange contract</strong> with the items listed below.
+                                    <strong>{% trans "The corporation" %}</strong> {% trans "will create an" %} <strong>{% trans "Item Exchange contract" %}</strong> {% trans "with the items listed below." %}
                                 </p>
                                 <p class="mb-3">
-                                    You will receive a notification when the contract is created. Review the items and accept the contract to complete the transaction.
+                                    {% trans "You will receive a notification when the contract is created. Review the items and accept the contract to complete the transaction." %}
                                 </p>
                                 <div class="alert alert-info mb-0">
                                     <i class="fas fa-lightbulb me-2"></i>

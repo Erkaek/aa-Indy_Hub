@@ -1,0 +1,60 @@
+{% extends "indy_hub/base.html" %}
+{% load i18n %}
+
+{% block page_title %}{% trans "Delete Order" %}{% endblock page_title %}
+
+{% block content %}
+<main class="bg-body p-4">
+    <div class="container my-4">
+        <div class="row justify-content-center">
+            <div class="col-md-6">
+                <div class="card border-danger">
+                    <div class="card-header bg-danger bg-opacity-10">
+                        <h4 class="mb-0 text-danger">
+                            <i class="fas fa-exclamation-triangle me-2"></i>
+                            {% trans "Confirm Delete" %}
+                        </h4>
+                    </div>
+                    <div class="card-body">
+                        <p class="mb-3">
+                            {% if order_type == 'sell' %}
+                                {% trans "Are you sure you want to delete this sell order?" %}
+                            {% else %}
+                                {% trans "Are you sure you want to delete this buy order?" %}
+                            {% endif %}
+                        </p>
+
+                        <div class="alert alert-warning">
+                            <strong>{% trans "Order Reference:" %}</strong> {{ order.order_reference }}<br>
+                            {% if order_type == 'sell' %}
+                                <strong>{% trans "Items to sell:" %}</strong> {{ order.items.count }}<br>
+                                <strong>{% trans "Total:" %}</strong> {{ order.total_price|floatformat:2|intcomma }} ISK
+                            {% else %}
+                                <strong>{% trans "Items to buy:" %}</strong> {{ order.items.count }}<br>
+                                <strong>{% trans "Total:" %}</strong> {{ order.total_price|floatformat:2|intcomma }} ISK
+                            {% endif %}
+                        </div>
+
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle me-2"></i>
+                            {% trans "This action cannot be undone. All associated items will be deleted." %}
+                        </div>
+
+                        <div class="d-flex gap-2 justify-content-end">
+                            <a href="{% if order_type == 'sell' %}{% url 'indy_hub:sell_order_detail' order.id %}{% else %}{% url 'indy_hub:buy_order_detail' order.id %}{% endif %}" class="btn btn-outline-secondary">
+                                <i class="fas fa-times me-1"></i>{% trans "Cancel" %}
+                            </a>
+                            <form method="post" class="d-inline">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-danger">
+                                    <i class="fas fa-trash me-1"></i>{% trans "Delete Order" %}
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</main>
+{% endblock content %}

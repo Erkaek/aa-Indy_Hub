@@ -10,6 +10,7 @@ import logging
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.shortcuts import get_object_or_404, render
+from django.utils.translation import gettext as _
 
 # Local
 from ..models import (
@@ -176,15 +177,15 @@ def _build_timeline_breadcrumb(order, order_type):
     """
     Build a simplified timeline breadcrumb for list views.
     Returns list of dicts with just: status, completed, icon, color.
-    Used for the "fil d'ariane" on my_orders page.
+    Used for the breadcrumb on my_orders page.
     """
     breadcrumb = []
 
     if order_type == "sell":
-        # Sell order breadcrumb: Brouillon -> En validation -> Validée -> Terminée
+        # Sell order breadcrumb: Draft -> Validation -> Validated -> Completed
         breadcrumb.append(
             {
-                "status": "Brouillon",
+                "status": _("Draft"),
                 "completed": True,
                 "icon": "fa-file",
                 "color": "secondary",
@@ -193,7 +194,7 @@ def _build_timeline_breadcrumb(order, order_type):
 
         breadcrumb.append(
             {
-                "status": "En validation",
+                "status": _("Validation"),
                 "completed": order.status in ["validated", "completed"],
                 "icon": "fa-hourglass-half",
                 "color": "warning",
@@ -202,7 +203,7 @@ def _build_timeline_breadcrumb(order, order_type):
 
         breadcrumb.append(
             {
-                "status": "Validée",
+                "status": _("Validated"),
                 "completed": order.status in ["validated", "completed"],
                 "icon": "fa-check-circle",
                 "color": "info",
@@ -211,7 +212,7 @@ def _build_timeline_breadcrumb(order, order_type):
 
         breadcrumb.append(
             {
-                "status": "Terminée",
+                "status": _("Completed"),
                 "completed": order.status == "completed",
                 "icon": "fa-flag-checkered",
                 "color": "success",
@@ -219,10 +220,10 @@ def _build_timeline_breadcrumb(order, order_type):
         )
 
     else:  # buy order
-        # Buy order breadcrumb: Brouillon -> En validation -> Validée -> Terminée
+        # Buy order breadcrumb: Draft -> Validation -> Validated -> Completed
         breadcrumb.append(
             {
-                "status": "Brouillon",
+                "status": _("Draft"),
                 "completed": True,
                 "icon": "fa-file",
                 "color": "secondary",
@@ -231,7 +232,7 @@ def _build_timeline_breadcrumb(order, order_type):
 
         breadcrumb.append(
             {
-                "status": "En validation",
+                "status": _("Validation"),
                 "completed": order.status in ["validated", "completed"],
                 "icon": "fa-hourglass-half",
                 "color": "warning",
@@ -240,7 +241,7 @@ def _build_timeline_breadcrumb(order, order_type):
 
         breadcrumb.append(
             {
-                "status": "Validée",
+                "status": _("Validated"),
                 "completed": order.status in ["validated", "completed"],
                 "icon": "fa-check-circle",
                 "color": "info",
@@ -249,7 +250,7 @@ def _build_timeline_breadcrumb(order, order_type):
 
         breadcrumb.append(
             {
-                "status": "Terminée",
+                "status": _("Completed"),
                 "completed": order.status == "completed",
                 "icon": "fa-flag-checkered",
                 "color": "success",
@@ -270,7 +271,7 @@ def _build_status_timeline(order, order_type):
         # Sell order timeline
         timeline.append(
             {
-                "status": "Créée",
+                "status": _("Created"),
                 "timestamp": order.created_at,
                 "user": order.seller.username,
                 "completed": True,
@@ -282,7 +283,7 @@ def _build_status_timeline(order, order_type):
         if order.approved_at:
             timeline.append(
                 {
-                    "status": "Approuvée",
+                    "status": _("Approved"),
                     "timestamp": order.approved_at,
                     "user": (
                         order.approved_by.username if order.approved_by else "System"
@@ -295,7 +296,7 @@ def _build_status_timeline(order, order_type):
         else:
             timeline.append(
                 {
-                    "status": "En attente d'approbation",
+                    "status": _("Awaiting Approval"),
                     "timestamp": None,
                     "user": None,
                     "completed": False,
@@ -307,7 +308,7 @@ def _build_status_timeline(order, order_type):
         if order.contract_validated_at:
             timeline.append(
                 {
-                    "status": "Contrat validé",
+                    "status": _("Contract Validated"),
                     "timestamp": order.contract_validated_at,
                     "user": "System",
                     "completed": True,
@@ -318,7 +319,7 @@ def _build_status_timeline(order, order_type):
         elif order.status in ["awaiting_validation", "validated", "completed"]:
             timeline.append(
                 {
-                    "status": "En attente de validation du contrat",
+                    "status": _("Awaiting Contract Validation"),
                     "timestamp": None,
                     "user": None,
                     "completed": False,
@@ -330,7 +331,7 @@ def _build_status_timeline(order, order_type):
         if order.payment_verified_at:
             timeline.append(
                 {
-                    "status": "Paiement vérifié",
+                    "status": _("Payment Verified"),
                     "timestamp": order.payment_verified_at,
                     "user": (
                         order.payment_verified_by.username
@@ -345,7 +346,7 @@ def _build_status_timeline(order, order_type):
         elif order.status == "completed":
             timeline.append(
                 {
-                    "status": "En attente de vérification paiement",
+                    "status": _("Awaiting Payment Verification"),
                     "timestamp": None,
                     "user": None,
                     "completed": False,
@@ -357,7 +358,7 @@ def _build_status_timeline(order, order_type):
         if order.status == "completed":
             timeline.append(
                 {
-                    "status": "Terminée",
+                    "status": _("Completed"),
                     "timestamp": order.updated_at,
                     "user": None,
                     "completed": True,
@@ -369,7 +370,7 @@ def _build_status_timeline(order, order_type):
         if order.status == "rejected":
             timeline.append(
                 {
-                    "status": "Rejetée",
+                    "status": _("Rejected"),
                     "timestamp": order.updated_at,
                     "user": (
                         order.approved_by.username if order.approved_by else "System"
@@ -383,7 +384,7 @@ def _build_status_timeline(order, order_type):
     else:  # buy order
         timeline.append(
             {
-                "status": "Créée",
+                "status": _("Created"),
                 "timestamp": order.created_at,
                 "user": order.buyer.username,
                 "completed": True,
@@ -397,7 +398,7 @@ def _build_status_timeline(order, order_type):
         if order.status == "draft":
             timeline.append(
                 {
-                    "status": "En attente de création du contrat",
+                    "status": _("Awaiting Contract Creation"),
                     "timestamp": None,
                     "user": None,
                     "completed": False,
@@ -410,7 +411,7 @@ def _build_status_timeline(order, order_type):
         if order.status in ["awaiting_validation", "validated", "completed"]:
             timeline.append(
                 {
-                    "status": "Contrat créé par la corporation",
+                    "status": _("Contract Created by Corporation"),
                     "timestamp": None,  # We don't track when contract was created
                     "user": None,
                     "completed": True,
@@ -422,7 +423,7 @@ def _build_status_timeline(order, order_type):
         if order.contract_validated_at:
             timeline.append(
                 {
-                    "status": "Contrat validé",
+                    "status": _("Contract Validated"),
                     "timestamp": order.contract_validated_at,
                     "user": "System",
                     "completed": True,
@@ -433,7 +434,7 @@ def _build_status_timeline(order, order_type):
         elif order.status in ["awaiting_validation"]:
             timeline.append(
                 {
-                    "status": "En attente de validation du contrat",
+                    "status": _("Awaiting Contract Validation"),
                     "timestamp": None,
                     "user": None,
                     "completed": False,
@@ -446,7 +447,7 @@ def _build_status_timeline(order, order_type):
         if order.status == "validated":
             timeline.append(
                 {
-                    "status": "En attente de votre acceptation",
+                    "status": _("Awaiting Your Acceptance"),
                     "timestamp": None,
                     "user": None,
                     "completed": False,
@@ -458,7 +459,7 @@ def _build_status_timeline(order, order_type):
         if order.status == "completed":
             timeline.append(
                 {
-                    "status": "Terminée",
+                    "status": _("Completed"),
                     "timestamp": order.updated_at,
                     "user": None,
                     "completed": True,
@@ -482,3 +483,93 @@ def _build_status_timeline(order, order_type):
             )
 
     return timeline
+
+
+@login_required
+def sell_order_delete(request, order_id):
+    """
+    Delete a sell order.
+    Only owner can delete, only if not completed/rejected/cancelled.
+    """
+    # Django
+    from django.contrib import messages
+    from django.shortcuts import redirect
+
+    order = get_object_or_404(
+        MaterialExchangeSellOrder,
+        id=order_id,
+        seller=request.user,
+    )
+
+    # Can only delete non-terminal orders
+    if order.status in ["completed", "rejected", "cancelled"]:
+        messages.error(
+            request,
+            _("Cannot delete completed or rejected orders."),
+        )
+        return redirect("indy_hub:sell_order_detail", order_id=order_id)
+
+    if request.method == "POST":
+        order_ref = order.order_reference
+        order.delete()
+        messages.success(
+            request,
+            _("Sell order %(ref)s has been deleted.") % {"ref": order_ref},
+        )
+        return redirect("indy_hub:my_orders")
+
+    # GET request - show confirmation
+    context = {
+        "order": order,
+        "order_type": "sell",
+    }
+    return render(
+        request,
+        "indy_hub/material_exchange/order_delete_confirm.html",
+        context,
+    )
+
+
+@login_required
+def buy_order_delete(request, order_id):
+    """
+    Delete a buy order.
+    Only owner can delete, only if not completed/rejected/cancelled.
+    """
+    # Django
+    from django.contrib import messages
+    from django.shortcuts import redirect
+
+    order = get_object_or_404(
+        MaterialExchangeBuyOrder,
+        id=order_id,
+        buyer=request.user,
+    )
+
+    # Can only delete non-terminal orders
+    if order.status in ["completed", "rejected", "cancelled"]:
+        messages.error(
+            request,
+            _("Cannot delete completed or rejected orders."),
+        )
+        return redirect("indy_hub:buy_order_detail", order_id=order_id)
+
+    if request.method == "POST":
+        order_ref = order.order_reference
+        order.delete()
+        messages.success(
+            request,
+            _("Buy order %(ref)s has been deleted.") % {"ref": order_ref},
+        )
+        return redirect("indy_hub:my_orders")
+
+    # GET request - show confirmation
+    context = {
+        "order": order,
+        "order_type": "buy",
+    }
+    return render(
+        request,
+        "indy_hub/material_exchange/order_delete_confirm.html",
+        context,
+    )

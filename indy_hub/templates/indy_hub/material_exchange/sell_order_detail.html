@@ -122,9 +122,16 @@
             <h5 class="text-muted mb-2">{% trans "Your Order Reference" %}</h5>
             <h1 id="orderReference">{{ order.order_reference }}</h1>
             <p class="text-muted mb-3">{% trans "Include this in your contract title/description" %}</p>
-            <button class="btn btn-warning btn-lg copy-button" onclick="copyOrderReference()">
-                <i class="fas fa-copy me-2"></i>{% trans "Copy to Clipboard" %}
-            </button>
+            <div class="d-flex gap-2">
+                <button class="btn btn-warning btn-lg copy-button" onclick="copyOrderReference()">
+                    <i class="fas fa-copy me-2"></i>{% trans "Copy to Clipboard" %}
+                </button>
+                {% if order.status not in 'completed,rejected,cancelled'|split:',' %}
+                    <a href="{% url 'indy_hub:sell_order_delete' order.id %}" class="btn btn-outline-danger btn-lg">
+                        <i class="fas fa-trash me-2"></i>{% trans "Delete Order" %}
+                    </a>
+                {% endif %}
+            </div>
         </div>
 
         <div class="row">
@@ -170,7 +177,7 @@
                                 </h6>
                                 <ol>
                                     <li>
-                                        <strong>{% trans "Type:" %}</strong> Item Exchange
+                                        <strong>{% trans "Type:" %}</strong> {% trans "Item Exchange" %}
                                     </li>
                                     <li>
                                         <strong>{% trans "Assign to:" %}</strong>
@@ -192,7 +199,7 @@
                                         <span class="text-danger">({% trans "REQUIRED!" %})</span>
                                     </li>
                                     <li>
-                                        <strong>{% trans "Duration:" %}</strong> 4 weeks
+                                        <strong>{% trans "Duration:" %}</strong> {% trans "4 weeks" %}
                                     </li>
                                 </ol>
                                 <div class="alert alert-warning mt-3 mb-0">
