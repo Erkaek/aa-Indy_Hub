@@ -35,6 +35,38 @@ from indy_hub.services.esi_client import (
 
 logger = logging.getLogger(__name__)
 
+# Cache for structure names to avoid repeated ESI lookups
+_structure_name_cache: dict[int, str] = {}
+
+
+def _get_structure_name(location_id: int, esi_client) -> str | None:
+    """
+    Get the name of a structure from ESI, with caching.
+
+    Returns the structure name or None if lookup fails.
+    Uses cache to avoid repeated ESI calls for the same structure.
+    """
+    if location_id in _structure_name_cache:
+        return _structure_name_cache[location_id]
+
+    if not esi_client:
+        return None
+
+    try:
+        structure_info = esi_client.get_structure_info(location_id)
+        structure_name = structure_info.get("name")
+        if structure_name:
+            _structure_name_cache[location_id] = structure_name
+            return structure_name
+    except Exception as exc:
+        logger.debug(
+            "Failed to fetch structure name for location %s: %s",
+            location_id,
+            exc,
+        )
+
+    return None
+
 
 @shared_task
 def sync_esi_contracts():
@@ -297,10 +329,17 @@ def validate_material_exchange_sell_orders():
         contracts.count(),
     )
 
+    # Create ESI client for structure name lookups
+    try:
+        esi_client = shared_client
+    except Exception:
+        esi_client = None
+        logger.warning("ESI client not available for structure name lookups")
+
     # Process each pending order
     for order in pending_orders:
         try:
-            _validate_sell_order_from_db(config, order, contracts)
+            _validate_sell_order_from_db(config, order, contracts, esi_client)
         except Exception as exc:
             logger.error(
                 "Error validating sell order %s: %s",
@@ -310,7 +349,7 @@ def validate_material_exchange_sell_orders():
             )
 
 
-def _validate_sell_order_from_db(config, order, contracts):
+def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
     """
     Validate a single sell order against cached database contracts.
 
@@ -318,7 +357,7 @@ def _validate_sell_order_from_db(config, order, contracts):
     - type = item_exchange
     - issuer_id = seller's main character
     - assignee_id = config.corporation_id (recipient)
-    - start_location_id or end_location_id = structure_id
+    - start_location_id or end_location_id = structure_id (matched by name if available)
     - items match exactly
     - price matches
     """
@@ -350,12 +389,26 @@ def _validate_sell_order_from_db(config, order, contracts):
     ref_missing = False
     last_price_issue: str | None = None
     last_reason: str | None = None
+    contract_with_correct_ref: dict | None = None  # Track contracts with correct title
 
     for contract in contracts:
+        # Track contracts with correct order reference in title (for better diagnostics)
+        title = contract.title or ""
+        has_correct_ref = order_ref in title
+
         # Basic criteria
-        if not _matches_sell_order_criteria_db(
-            contract, order, config, seller_character_ids
-        ):
+        criteria_match = _matches_sell_order_criteria_db(
+            contract, order, config, seller_character_ids, esi_client
+        )
+        if not criteria_match:
+            # Store contract info if it has correct ref but wrong structure
+            if has_correct_ref and not contract_with_correct_ref:
+                contract_with_correct_ref = {
+                    "contract_id": contract.contract_id,
+                    "issue": "structure location mismatch",
+                    "start_location_id": contract.start_location_id,
+                    "end_location_id": contract.end_location_id,
+                }
             continue
 
         # Items check
@@ -371,8 +424,7 @@ def _validate_sell_order_from_db(config, order, contracts):
             continue
 
         # Title reference check (optional)
-        title = contract.title or ""
-        ref_missing = order_ref not in title
+        ref_missing = not has_correct_ref
 
         matching_contract = contract
         break
@@ -410,9 +462,38 @@ def _validate_sell_order_from_db(config, order, contracts):
             order.id,
             matching_contract.contract_id,
         )
-    else:
-        # Stay pending, provide guidance
+    elif contract_with_correct_ref:
+        # Contract found with correct title but wrong structure
+        order.status = MaterialExchangeSellOrder.Status.REJECTED
         order.notes = (
+            f"Contract {contract_with_correct_ref['contract_id']} has the correct title ({order_ref}) "
+            f"but wrong location. Expected: {config.structure_name or f'Structure {config.structure_id}'}\n"
+            f"Contract is at location {contract_with_correct_ref.get('start_location_id') or contract_with_correct_ref.get('end_location_id')}"
+        )
+        order.save(update_fields=["status", "notes", "updated_at"])
+
+        notify_user(
+            order.seller,
+            _("Sell Order Rejected: Wrong Contract Location"),
+            _(
+                f"Your sell order {order_ref} was rejected.\n\n"
+                f"You submitted contract #{contract_with_correct_ref['contract_id']} which has the correct title, "
+                f"but it's located at the wrong structure.\n\n"
+                f"Required location: {config.structure_name or f'Structure {config.structure_id}'}\n"
+                f"Your contract is at location {contract_with_correct_ref.get('start_location_id') or contract_with_correct_ref.get('end_location_id')}\n\n"
+                f"Please create a new contract at the correct location."
+            ),
+            level="danger",
+        )
+
+        logger.warning(
+            "Sell order %s rejected: contract %s has correct title but wrong structure",
+            order.id,
+            contract_with_correct_ref["contract_id"],
+        )
+    else:
+        # No contract found - only notify if status is changing or notes have significantly changed
+        new_notes = (
             "Waiting for matching contract. Please create an item exchange contract with:\n"
             f"- Title including {order_ref}\n"
             f"- Recipient (assignee): {_get_corp_name(config.corporation_id)}\n"
@@ -421,24 +502,37 @@ def _validate_sell_order_from_db(config, order, contracts):
             f"- Items: {', '.join(item.type_name for item in order.items.all())}"
             + (f"\nLast checked issue: {last_price_issue}" if last_price_issue else "")
         )
+
+        # Only notify on first pending status (when notes change significantly)
+        notes_changed = order.notes != new_notes
+        order.notes = new_notes
         order.save(update_fields=["notes", "updated_at"])
 
-        notify_user(
-            order.seller,
-            _("Sell Order Pending: waiting for contract"),
-            _(
-                f"We didn't find a matching contract yet for your sell order {order_ref}.\n"
-                f"Please submit an item exchange contract matching the above requirements."
-                + (f"\nLatest issue seen: {last_reason}" if last_reason else "")
-            ),
-            level="warning",
-        )
+        if notes_changed or not order.updated_at:
+            notify_user(
+                order.seller,
+                _("Sell Order Pending: waiting for contract"),
+                _(
+                    f"We didn't find a matching contract yet for your sell order {order_ref}.\n"
+                    f"Please submit an item exchange contract matching the above requirements."
+                    + (f"\nLatest issue seen: {last_reason}" if last_reason else "")
+                ),
+                level="warning",
+            )
 
         logger.info("Sell order %s pending: no matching contract yet", order.id)
 
 
-def _matches_sell_order_criteria_db(contract, order, config, seller_character_ids):
-    """Check if a database contract matches sell order basic criteria."""
+def _matches_sell_order_criteria_db(
+    contract, order, config, seller_character_ids, esi_client=None
+):
+    """
+    Check if a database contract matches sell order basic criteria.
+
+    Location matching:
+    - First attempts to match by structure name via ESI if available
+    - Falls back to ID matching if name lookup fails or ESI unavailable
+    """
     # Issuer must be the seller
     if contract.issuer_id not in seller_character_ids:
         return False
@@ -447,11 +541,37 @@ def _matches_sell_order_criteria_db(contract, order, config, seller_character_id
     if contract.assignee_id != config.corporation_id:
         return False
 
-    # Must be at or relate to the structure
-    if (
-        contract.start_location_id != config.structure_id
-        and contract.end_location_id != config.structure_id
-    ):
+    # Check location: try name matching first (for same structure with multiple IDs)
+    location_matches = False
+
+    # Try structure name matching if ESI client available and config has structure_name
+    if esi_client and config.structure_name:
+        for location_id in [contract.start_location_id, contract.end_location_id]:
+            if not location_id:
+                continue
+
+            structure_name = _get_structure_name(location_id, esi_client)
+            if (
+                structure_name
+                and structure_name.strip() == config.structure_name.strip()
+            ):
+                location_matches = True
+                logger.debug(
+                    "Contract location matched by name: '%s' (ID %s)",
+                    structure_name,
+                    location_id,
+                )
+                break
+
+    # Fall back to ID matching if name matching didn't find a match
+    if not location_matches:
+        if (
+            contract.start_location_id == config.structure_id
+            or contract.end_location_id == config.structure_id
+        ):
+            location_matches = True
+
+    if not location_matches:
         return False
 
     return True

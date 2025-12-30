@@ -264,6 +264,145 @@ class ContractValidationTaskTest(TestCase):
         mock_notify_user.assert_not_called()
 
 
+class StructureNameMatchingTest(TestCase):
+    """Tests for structure name-based matching instead of ID-only"""
+
+    def setUp(self):
+        """Set up test data"""
+        self.config = MaterialExchangeConfig.objects.create(
+            corporation_id=123456789,
+            structure_id=1045667241057,
+            structure_name="C-N4OD - Fountain of Life",
+            is_active=True,
+        )
+        self.seller = User.objects.create_user(username="test_seller")
+        self.sell_order = MaterialExchangeSellOrder.objects.create(
+            config=self.config,
+            seller=self.seller,
+            status=MaterialExchangeSellOrder.Status.PENDING,
+        )
+        self.sell_item = MaterialExchangeSellOrderItem.objects.create(
+            order=self.sell_order,
+            type_id=34,
+            type_name="Tritanium",
+            quantity=1000,
+            unit_price=5.5,
+            total_price=5500,
+        )
+
+    @patch("indy_hub.tasks.material_exchange_contracts._get_user_character_ids")
+    @patch("indy_hub.tasks.material_exchange_contracts.notify_multi")
+    def test_contract_matches_by_structure_name(
+        self, mock_notify_multi, mock_get_char_ids
+    ):
+        """Test that contract with different structure ID matches by name"""
+        # Standard Library
+        from datetime import datetime, timedelta
+
+        # AA Example App
+        from indy_hub.models import ESIContract, ESIContractItem
+
+        seller_char_id = 111111111
+        mock_get_char_ids.return_value = [seller_char_id]
+
+        # Create contract with different structure ID (1045722708748 instead of 1045667241057)
+        # but same structure name "C-N4OD - Fountain of Life"
+        contract = ESIContract.objects.create(
+            contract_id=226598409,
+            corporation_id=self.config.corporation_id,
+            contract_type="item_exchange",
+            issuer_id=seller_char_id,
+            issuer_corporation_id=self.config.corporation_id,
+            assignee_id=self.config.corporation_id,
+            start_location_id=1045722708748,  # Different ID, same structure
+            end_location_id=1045722708748,
+            price=5500,
+            title="INDY-3",
+            date_issued=datetime.now(),
+            date_expired=datetime.now() + timedelta(days=30),
+        )
+        ESIContractItem.objects.create(
+            contract=contract,
+            record_id=1,
+            type_id=34,
+            quantity=1000,
+            is_included=True,
+        )
+
+        # Mock ESI client to return the structure name
+        mock_esi_client = patch(
+            "indy_hub.tasks.material_exchange_contracts.shared_client"
+        )
+        mock_client_instance = mock_esi_client.start()
+        mock_client_instance.get_structure_info.return_value = {
+            "name": "C-N4OD - Fountain of Life"
+        }
+
+        validate_material_exchange_sell_orders()
+
+        # Check order was approved (matched by structure name)
+        self.sell_order.refresh_from_db()
+        self.assertEqual(
+            self.sell_order.status, MaterialExchangeSellOrder.Status.APPROVED
+        )
+        self.assertIn("226598409", self.sell_order.notes)
+
+        # Verify admin notification was sent
+        mock_notify_multi.assert_called_once()
+
+        mock_esi_client.stop()
+
+    @patch("indy_hub.tasks.material_exchange_contracts._get_user_character_ids")
+    def test_contract_falls_back_to_id_matching(self, mock_get_char_ids):
+        """Test that ID matching still works if ESI lookup fails"""
+        # Standard Library
+        from datetime import datetime, timedelta
+
+        # AA Example App
+        from indy_hub.models import ESIContract, ESIContractItem
+
+        seller_char_id = 111111111
+        mock_get_char_ids.return_value = [seller_char_id]
+
+        # Create contract with matching structure ID
+        contract = ESIContract.objects.create(
+            contract_id=226598410,
+            corporation_id=self.config.corporation_id,
+            contract_type="item_exchange",
+            issuer_id=seller_char_id,
+            issuer_corporation_id=self.config.corporation_id,
+            assignee_id=self.config.corporation_id,
+            start_location_id=self.config.structure_id,
+            end_location_id=self.config.structure_id,
+            price=5500,
+            title="INDY-3",
+            date_issued=datetime.now(),
+            date_expired=datetime.now() + timedelta(days=30),
+        )
+        ESIContractItem.objects.create(
+            contract=contract,
+            record_id=1,
+            type_id=34,
+            quantity=1000,
+            is_included=True,
+        )
+
+        # Mock ESI client to fail (returns None)
+        with patch(
+            "indy_hub.tasks.material_exchange_contracts.shared_client"
+        ) as mock_client:
+            mock_client.get_structure_info.side_effect = Exception("ESI Error")
+
+            with patch("indy_hub.tasks.material_exchange_contracts.notify_multi"):
+                validate_material_exchange_sell_orders()
+
+        # Check order was approved (matched by ID fallback)
+        self.sell_order.refresh_from_db()
+        self.assertEqual(
+            self.sell_order.status, MaterialExchangeSellOrder.Status.APPROVED
+        )
+
+
 class BuyOrderSignalTest(TestCase):
     """Tests for buy order creation signal"""
 
