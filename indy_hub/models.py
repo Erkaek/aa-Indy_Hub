@@ -1764,29 +1764,31 @@ class ESIContract(models.Model):
     issuer_corporation_id = models.BigIntegerField()
     assignee_id = models.BigIntegerField(db_index=True)
     acceptor_id = models.BigIntegerField(default=0)
-    
+
     # Contract details
     contract_type = models.CharField(max_length=50, db_index=True)
     status = models.CharField(max_length=50, db_index=True)
     title = models.TextField(blank=True)
-    
+
     # Locations
     start_location_id = models.BigIntegerField(blank=True, null=True)
     end_location_id = models.BigIntegerField(blank=True, null=True)
-    
+
     # Pricing
     price = models.DecimalField(max_digits=20, decimal_places=2, default=0)
     reward = models.DecimalField(max_digits=20, decimal_places=2, default=0)
     collateral = models.DecimalField(max_digits=20, decimal_places=2, default=0)
-    
+
     # Timestamps from ESI
     date_issued = models.DateTimeField()
     date_expired = models.DateTimeField()
     date_accepted = models.DateTimeField(blank=True, null=True)
     date_completed = models.DateTimeField(blank=True, null=True)
-    
+
     # Tracking
-    corporation_id = models.BigIntegerField(db_index=True, help_text="Corporation this contract belongs to")
+    corporation_id = models.BigIntegerField(
+        db_index=True, help_text="Corporation this contract belongs to"
+    )
     last_synced = models.DateTimeField(auto_now=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -1819,9 +1821,11 @@ class ESIContractItem(models.Model):
     record_id = models.BigIntegerField(help_text="ESI record_id for this item")
     type_id = models.IntegerField(db_index=True)
     quantity = models.BigIntegerField()
-    is_included = models.BooleanField(default=False, help_text="Item is given by issuer")
+    is_included = models.BooleanField(
+        default=False, help_text="Item is given by issuer"
+    )
     is_singleton = models.BooleanField(default=False)
-    
+
     last_synced = models.DateTimeField(auto_now=True)
 
     class Meta:

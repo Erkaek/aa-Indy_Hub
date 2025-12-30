@@ -37,15 +37,10 @@ INDY_HUB_BEAT_SCHEDULE = {
         "schedule": crontab(hour=3, minute=0),  # Daily at 03:00
         "options": {"priority": 8},  # Low priority for caching
     },
-    # Material Exchange contract validation tasks
-    "indy-hub-validate-sell-orders": {
-        "task": "indy_hub.tasks.material_exchange_contracts.validate_material_exchange_sell_orders",
+    # Material Exchange combined cycle: sync -> validate -> check completed
+    "indy-hub-material-exchange-cycle": {
+        "task": "indy_hub.tasks.material_exchange_contracts.run_material_exchange_cycle",
         "schedule": crontab(minute="*/5"),  # Every 5 minutes
-        "options": {"priority": 4},  # Higher priority for contract validation
-    },
-    "indy-hub-check-completed-contracts": {
-        "task": "indy_hub.tasks.material_exchange_contracts.check_completed_material_exchange_contracts",
-        "schedule": crontab(minute="*/10"),  # Every 10 minutes
         "options": {"priority": 4},
     },
     # Removed: indy-hub-refresh-production-items - now using EveUniverse.EveIndustryActivityMaterial

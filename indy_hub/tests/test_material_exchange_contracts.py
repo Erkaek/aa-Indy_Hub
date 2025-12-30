@@ -20,7 +20,6 @@ from indy_hub.models import (
 )
 from indy_hub.tasks.material_exchange_contracts import (
     _extract_contract_id,
-    sync_esi_contracts,
     validate_material_exchange_sell_orders,
 )
 
@@ -75,43 +74,19 @@ class ContractValidationTestCase(TestCase):
 
     def test_matching_contract_criteria(self):
         """Test contract criteria matching"""
-        seller_char_id = 111111111  # Mock character ID
-        valid_contract = {
-            "contract_id": 1,
-            "type": "item_exchange",
-            "issuer_id": seller_char_id,
-            "acceptor_id": self.config.corporation_id,
-            "start_location_id": self.config.structure_id,
-            "status": "active",
-        }
 
         # TODO: Update these tests to use database models instead of dict contracts
         # These tests are skipped for now as the implementation has moved to _db variants
-        self.skipTest("Legacy dict-based contract matching tests - needs update for DB models")
+        self.skipTest(
+            "Legacy dict-based contract matching tests - needs update for DB models"
+        )
 
     def test_contract_items_matching(self):
         """Test contract items matching"""
         # TODO: Update to use ESIContractItem models instead of dicts
-        self.skipTest("Legacy dict-based contract item matching - needs update for DB models")
-
-        # Wrong quantity
-        wrong_qty = [{"type_id": 34, "quantity": 500, "is_included": True}]
-        self.assertFalse(_contract_items_match_order(wrong_qty, self.sell_order))
-
-        # Wrong type
-        wrong_type = [{"type_id": 35, "quantity": 1000, "is_included": True}]
-        self.assertFalse(_contract_items_match_order(wrong_type, self.sell_order))
-
-        # Not included (requested items)
-        not_included = [{"type_id": 34, "quantity": 1000, "is_included": False}]
-        self.assertFalse(_contract_items_match_order(not_included, self.sell_order))
-
-        # Multiple items (should fail for single-item order)
-        multiple_items = [
-            {"type_id": 34, "quantity": 500, "is_included": True},
-            {"type_id": 35, "quantity": 500, "is_included": True},
-        ]
-        self.assertFalse(_contract_items_match_order(multiple_items, self.sell_order))
+        self.skipTest(
+            "Legacy dict-based contract item matching - needs update for DB models"
+        )
 
     def test_extract_contract_id(self):
         """Test contract ID extraction from notes"""
@@ -209,8 +184,9 @@ class ContractValidationTaskTest(TestCase):
         self, mock_notify_multi, mock_client, mock_get_char
     ):
         """Test successful contract validation"""
+        # AA Example App
         from indy_hub.models import ESIContract, ESIContractItem
-        
+
         seller_char_id = 111111111
         mock_get_char.return_value = seller_char_id
 
@@ -222,7 +198,7 @@ class ContractValidationTaskTest(TestCase):
             issuer_id=seller_char_id,
             issuer_corporation_id=self.config.corporation_id,
             assignee_id=self.config.corporation_id,
-            acceptor_id=self.config.corporation_id,
+            acceptor_id=0,
             start_location_id=self.config.structure_id,
             status="outstanding",
             price=self.sell_item.total_price,
@@ -269,7 +245,7 @@ class ContractValidationTaskTest(TestCase):
 
         # No contracts in database (empty queryset simulates no cached contracts)
         # The validation function now queries ESIContract.objects instead of calling ESI
-        
+
         # Mock getting user's characters
         with patch(
             "indy_hub.tasks.material_exchange_contracts._get_user_character_ids",
@@ -286,7 +262,6 @@ class ContractValidationTaskTest(TestCase):
         )
         # User is not notified when no contracts are cached (just a warning log)
         mock_notify_user.assert_not_called()
-
 
 
 class BuyOrderSignalTest(TestCase):

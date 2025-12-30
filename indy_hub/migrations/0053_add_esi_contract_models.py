@@ -1,8 +1,8 @@
 # Generated manually for ESI contract caching
 
 # Django
-from django.db import migrations, models
 import django.db.models.deletion
+from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
@@ -74,7 +74,10 @@ class Migration(migrations.Migration):
                         verbose_name="ID",
                     ),
                 ),
-                ("record_id", models.BigIntegerField(help_text="ESI record_id for this item")),
+                (
+                    "record_id",
+                    models.BigIntegerField(help_text="ESI record_id for this item"),
+                ),
                 ("type_id", models.IntegerField(db_index=True)),
                 ("quantity", models.BigIntegerField()),
                 (
@@ -121,7 +124,9 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="esicontract",
-            index=models.Index(fields=["-date_issued"], name="indy_hub_es_date_is_2e1f5b_idx"),
+            index=models.Index(
+                fields=["-date_issued"], name="indy_hub_es_date_is_2e1f5b_idx"
+            ),
         ),
         migrations.AddIndex(
             model_name="esicontractitem",

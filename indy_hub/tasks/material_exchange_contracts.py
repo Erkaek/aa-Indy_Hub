@@ -40,17 +40,17 @@ logger = logging.getLogger(__name__)
 def sync_esi_contracts():
     """
     Fetch corporation contracts from ESI and store/update them in the database.
-    
+
     This task:
     1. Fetches all active Material Exchange configs
     2. For each config, fetches corporation contracts from ESI
     3. Stores/updates contracts and their items in the database
     4. Removes stale contracts (expired/deleted from ESI)
-    
+
     Should be run periodically (e.g., every 5-15 minutes).
     """
     configs = MaterialExchangeConfig.objects.filter(is_active=True)
-    
+
     for config in configs:
         try:
             _sync_contracts_for_corporation(config.corporation_id)
@@ -63,29 +63,46 @@ def sync_esi_contracts():
             )
 
 
+@shared_task
+def run_material_exchange_cycle():
+    """
+    End-to-end cycle: sync contracts, validate pending sell orders,
+    then check completion of approved orders.
+    Intended to be scheduled in Celery Beat to simplify orchestration.
+    """
+    # Step 1: sync cached contracts
+    sync_esi_contracts()
+
+    # Step 2: validate pending sell orders using cached contracts
+    validate_material_exchange_sell_orders()
+
+    # Step 3: check completion/payment for approved orders
+    check_completed_material_exchange_contracts()
+
+
 def _sync_contracts_for_corporation(corporation_id: int):
     """Sync ESI contracts for a single corporation."""
     logger.info("Syncing ESI contracts for corporation %s", corporation_id)
-    
+
     try:
         # Get character with required scope
         character_id = _get_character_for_scope(
             corporation_id,
             "esi-contracts.read_corporation_contracts.v1",
         )
-        
+
         # Fetch contracts from ESI
         contracts = shared_client.fetch_corporation_contracts(
             corporation_id=corporation_id,
             character_id=character_id,
         )
-        
+
         logger.info(
             "Fetched %s contracts from ESI for corporation %s",
             len(contracts),
             corporation_id,
         )
-        
+
     except ESITokenError as exc:
         logger.warning(
             "Cannot sync contracts for corporation %s - missing ESI scope: %s",
@@ -101,31 +118,33 @@ def _sync_contracts_for_corporation(corporation_id: int):
             exc_info=True,
         )
         return
-    
+
     # Track synced contract IDs
     synced_contract_ids = []
     indy_contracts_count = 0
-    
+
     with transaction.atomic():
         for contract_data in contracts:
             contract_id = contract_data.get("contract_id")
             if not contract_id:
                 continue
-            
+
             # Filter: only process contracts with "INDY" in title
             contract_title = contract_data.get("title", "")
             if "INDY" not in contract_title.upper():
                 continue
-            
+
             indy_contracts_count += 1
             synced_contract_ids.append(contract_id)
-            
+
             # Create or update contract
             contract, created = ESIContract.objects.update_or_create(
                 contract_id=contract_id,
                 defaults={
                     "issuer_id": contract_data.get("issuer_id", 0),
-                    "issuer_corporation_id": contract_data.get("issuer_corporation_id", 0),
+                    "issuer_corporation_id": contract_data.get(
+                        "issuer_corporation_id", 0
+                    ),
                     "assignee_id": contract_data.get("assignee_id", 0),
                     "acceptor_id": contract_data.get("acceptor_id", 0),
                     "contract_type": contract_data.get("type", "unknown"),
@@ -143,23 +162,25 @@ def _sync_contracts_for_corporation(corporation_id: int):
                     "corporation_id": corporation_id,
                 },
             )
-            
+
             # Fetch and store contract items for item_exchange contracts
             # Only fetch items for contracts where items are accessible (outstanding/in_progress)
             # Completed/expired contracts return 404 for items endpoint
             contract_status = contract_data.get("status", "")
-            if (contract_data.get("type") == "item_exchange" and 
-                contract_status in ["outstanding", "in_progress"]):
+            if contract_data.get("type") == "item_exchange" and contract_status in [
+                "outstanding",
+                "in_progress",
+            ]:
                 try:
                     contract_items = shared_client.fetch_corporation_contract_items(
                         corporation_id=corporation_id,
                         contract_id=contract_id,
                         character_id=character_id,
                     )
-                    
+
                     # Clear existing items and create new ones
                     ESIContractItem.objects.filter(contract=contract).delete()
-                    
+
                     for item_data in contract_items:
                         ESIContractItem.objects.create(
                             contract=contract,
@@ -169,13 +190,13 @@ def _sync_contracts_for_corporation(corporation_id: int):
                             is_included=item_data.get("is_included", False),
                             is_singleton=item_data.get("is_singleton", False),
                         )
-                    
+
                     logger.info(
                         "Contract %s: synced %s items",
                         contract_id,
                         len(contract_items),
                     )
-                    
+
                 except ESIClientError as exc:
                     # 404 is normal for contracts without items or expired contracts
                     if "404" in str(exc):
@@ -195,25 +216,27 @@ def _sync_contracts_for_corporation(corporation_id: int):
                         contract_id,
                         exc,
                     )
-        
+
         # Remove contracts that are no longer in ESI response
         # Keep contracts from the last 30 days to maintain history
         cutoff_date = timezone.now() - timezone.timedelta(days=30)
-        deleted_count, _ = ESIContract.objects.filter(
-            corporation_id=corporation_id,
-            last_synced__lt=timezone.now() - timezone.timedelta(minutes=20),
-            date_issued__gte=cutoff_date,
-        ).exclude(
-            contract_id__in=synced_contract_ids
-        ).delete()
-        
+        deleted_count, _ = (
+            ESIContract.objects.filter(
+                corporation_id=corporation_id,
+                last_synced__lt=timezone.now() - timezone.timedelta(minutes=20),
+                date_issued__gte=cutoff_date,
+            )
+            .exclude(contract_id__in=synced_contract_ids)
+            .delete()
+        )
+
         if deleted_count > 0:
             logger.info(
                 "Removed %s stale contracts for corporation %s",
                 deleted_count,
                 corporation_id,
             )
-    
+
     logger.info(
         "Successfully synced %s INDY contracts (filtered from %s total) for corporation %s",
         indy_contracts_count,
@@ -236,7 +259,7 @@ def validate_material_exchange_sell_orders():
         - Contract acceptor = corporation
         - Items match (type_id, quantity)
     4. Update order status & notify users
-    
+
     Note: Contracts are synced separately by sync_esi_contracts task.
     """
     config = MaterialExchangeConfig.objects.filter(is_active=True).first()
@@ -259,7 +282,7 @@ def validate_material_exchange_sell_orders():
         corporation_id=config.corporation_id,
         contract_type="item_exchange",
     ).prefetch_related("items")
-    
+
     if not contracts.exists():
         logger.warning(
             "No cached contracts found for corporation %s. "
@@ -294,20 +317,18 @@ def _validate_sell_order_from_db(config, order, contracts):
     Contract matching criteria:
     - type = item_exchange
     - issuer_id = seller's main character
-    - acceptor_id = config.corporation_id
+    - assignee_id = config.corporation_id (recipient)
     - start_location_id or end_location_id = structure_id
     - items match exactly
     - price matches
     """
     order_ref = f"INDY-{order.id}"
 
-    # Find seller's main character
+    # Find seller's characters
     seller_character_ids = _get_user_character_ids(order.seller)
     if not seller_character_ids:
         logger.warning(
-            "Sell order %s: seller %s has no character",
-            order.id,
-            order.seller,
+            "Sell order %s: seller %s has no character", order.id, order.seller
         )
         notify_user(
             order.seller,
@@ -320,43 +341,43 @@ def _validate_sell_order_from_db(config, order, contracts):
         order.save(update_fields=["status", "notes", "updated_at"])
         return
 
-    # Search for matching contract in database
-    matching_contract = None
-    last_price_issue: str | None = None
-    ref_missing = False
-    
-    for contract in contracts:
-        # Check basic criteria
-        if not _matches_sell_order_criteria_db(
-            contract,
-            order,
-            config,
-            seller_character_ids,
-        ):
-            continue
-
-        # Check if items match
-        if _contract_items_match_order_db(contract, order):
-            # Check price
-            price_ok, price_details = _contract_price_matches_db(contract, order)
-            if not price_ok:
-                last_price_issue = (
-                    f"Contract {contract.contract_id}: {price_details}"
-                )
-                continue
-
-            ref_missing = order_ref.lower() not in (contract.title or "").lower()
-            matching_contract = contract
-            break
-
-    # Format order items for notification
     items_list = "\n".join(
         f"- {item.type_name}: {item.quantity}x @ {item.unit_price:,.2f} ISK each"
         for item in order.items.all()
     )
 
+    matching_contract = None
+    ref_missing = False
+    last_price_issue: str | None = None
+    last_reason: str | None = None
+
+    for contract in contracts:
+        # Basic criteria
+        if not _matches_sell_order_criteria_db(
+            contract, order, config, seller_character_ids
+        ):
+            continue
+
+        # Items check
+        if not _contract_items_match_order_db(contract, order):
+            last_reason = "items mismatch"
+            continue
+
+        # Price check
+        price_ok, price_msg = _contract_price_matches_db(contract, order)
+        if not price_ok:
+            last_price_issue = price_msg
+            last_reason = price_msg
+            continue
+
+        # Title reference check (optional)
+        title = contract.title or ""
+        ref_missing = order_ref not in title
+
+        matching_contract = contract
+        break
+
     if matching_contract:
-        # Contract found and items verified
         order.status = MaterialExchangeSellOrder.Status.APPROVED
         order.notes = (
             f"Contract validated: {matching_contract.contract_id} @ "
@@ -366,7 +387,6 @@ def _validate_sell_order_from_db(config, order, contracts):
             order.notes += f" (title missing {order_ref})"
         order.save(update_fields=["status", "notes", "updated_at"])
 
-        # Notify admins
         admins = _get_admins_for_config(config)
         notify_multi(
             admins,
@@ -391,28 +411,30 @@ def _validate_sell_order_from_db(config, order, contracts):
             matching_contract.contract_id,
         )
     else:
-        # No matching contract found
-        order.status = MaterialExchangeSellOrder.Status.REJECTED
-        order.notes = "No valid contract found. Please submit an item exchange contract matching your sell order."
-        order.save(update_fields=["status", "notes", "updated_at"])
+        # Stay pending, provide guidance
+        order.notes = (
+            "Waiting for matching contract. Please create an item exchange contract with:\n"
+            f"- Title including {order_ref}\n"
+            f"- Recipient (assignee): {_get_corp_name(config.corporation_id)}\n"
+            f"- Location: {config.structure_name or f'Structure {config.structure_id}'}\n"
+            f"- Price: {order.total_price:,.2f} ISK\n"
+            f"- Items: {', '.join(item.type_name for item in order.items.all())}"
+            + (f"\nLast checked issue: {last_price_issue}" if last_price_issue else "")
+        )
+        order.save(update_fields=["notes", "updated_at"])
 
         notify_user(
             order.seller,
-            _("Sell Order Contract Mismatch"),
+            _("Sell Order Pending: waiting for contract"),
             _(
-                f"We could not verify your sell order:\n{items_list}\n\n"
-                f"Please create an item exchange contract with the following details:\n"
-                f"- Recipient: {_get_corp_name(config.corporation_id)}\n"
-                f"- Price: {order.total_price:,.2f} ISK (contract price)\n"
-                f"- Title: include {order_ref}\n"
-                f"- Items: {', '.join(item.type_name for item in order.items.all())}\n"
-                f"- Location: {config.structure_name or f'Structure {config.structure_id}'}"
-                + (f"\n\nLast checked: {last_price_issue}" if last_price_issue else "")
+                f"We didn't find a matching contract yet for your sell order {order_ref}.\n"
+                f"Please submit an item exchange contract matching the above requirements."
+                + (f"\nLatest issue seen: {last_reason}" if last_reason else "")
             ),
             level="warning",
         )
 
-        logger.info("Sell order %s rejected: no matching contract", order.id)
+        logger.info("Sell order %s pending: no matching contract yet", order.id)
 
 
 def _matches_sell_order_criteria_db(contract, order, config, seller_character_ids):
@@ -421,13 +443,15 @@ def _matches_sell_order_criteria_db(contract, order, config, seller_character_id
     if contract.issuer_id not in seller_character_ids:
         return False
 
-    # Acceptor must be the corporation
-    if contract.acceptor_id != config.corporation_id:
+    # Assignee must be the corporation (recipient of the contract)
+    if contract.assignee_id != config.corporation_id:
         return False
 
     # Must be at or relate to the structure
-    if (contract.start_location_id != config.structure_id and
-            contract.end_location_id != config.structure_id):
+    if (
+        contract.start_location_id != config.structure_id
+        and contract.end_location_id != config.structure_id
+    ):
         return False
 
     return True
@@ -437,7 +461,7 @@ def _contract_items_match_order_db(contract, order):
     """Check if database contract items exactly match the sell order items."""
     # Only validate included items (not requested)
     included_items = contract.items.filter(is_included=True)
-    
+
     order_items = list(order.items.all())
 
     if included_items.count() != len(order_items):
@@ -446,8 +470,7 @@ def _contract_items_match_order_db(contract, order):
     # Check each order item has a matching contract item
     for order_item in order_items:
         found = included_items.filter(
-            type_id=order_item.type_id,
-            quantity=order_item.quantity
+            type_id=order_item.type_id, quantity=order_item.quantity
         ).exists()
         if not found:
             return False
@@ -627,9 +650,7 @@ def _get_character_for_scope(corporation_id: int, scope: str) -> int:
         # Token.scopes is a ManyToMany field (Scope model)
         for token in tokens:
             try:
-                token_scope_names = list(
-                    token.scopes.values_list("name", flat=True)
-                )
+                token_scope_names = list(token.scopes.values_list("name", flat=True))
                 if scope in token_scope_names:
                     logger.debug(
                         f"Found token for {scope} via character {token.character_id}"
@@ -646,9 +667,7 @@ def _get_character_for_scope(corporation_id: int, scope: str) -> int:
 
             name_map = {
                 ec.character_id: (ec.character_name or str(ec.character_id))
-                for ec in EveCharacter.objects.filter(
-                    character_id__in=character_ids
-                )
+                for ec in EveCharacter.objects.filter(character_id__in=character_ids)
             }
         except Exception:
             name_map = {}
@@ -656,9 +675,7 @@ def _get_character_for_scope(corporation_id: int, scope: str) -> int:
         available_scopes_list = []
         for token in tokens:
             try:
-                scopes_str = ", ".join(
-                    token.scopes.values_list("name", flat=True)
-                )
+                scopes_str = ", ".join(token.scopes.values_list("name", flat=True))
             except Exception:
                 scopes_str = "unknown"
             char_name = name_map.get(token.character_id, f"char {token.character_id}")
