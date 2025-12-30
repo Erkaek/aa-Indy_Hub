@@ -464,9 +464,9 @@ def _get_character_for_scope(corporation_id: int, scope: str) -> int:
             )
 
         # Step 2: Get all tokens for these characters
-        tokens = Token.objects.filter(character_id__in=character_ids).select_related(
-            "character"
-        )
+        # Note: AllianceAuth's Token model does not have a 'character' FK.
+        # Avoid select_related("character") to prevent FieldError.
+        tokens = Token.objects.filter(character_id__in=character_ids)
 
         if not tokens.exists():
             raise ESITokenError(
@@ -483,8 +483,27 @@ def _get_character_for_scope(corporation_id: int, scope: str) -> int:
                 return token.character_id
 
         # No token with required scope found
+        # Build a readable list of available scopes and character names
+        try:
+            token_char_ids = list(
+                Token.objects.filter(character_id__in=character_ids)
+                .values_list("character_id", flat=True)
+                .distinct()
+            )
+            # AllianceAuth character names
+            # Alliance Auth
+            from allianceauth.eveonline.models import EveCharacter
+
+            name_map = {
+                ec.character_id: (ec.character_name or str(ec.character_id))
+                for ec in EveCharacter.objects.filter(character_id__in=token_char_ids)
+            }
+        except Exception:
+            name_map = {}
+
         available_scopes_list = [
-            f"{token.character.name} (char {token.character_id}): {token.get_scopes()}"
+            f"{name_map.get(token.character_id, f'char {token.character_id}')}"
+            f": {token.get_scopes()}"
             for token in tokens
         ]
         raise ESITokenError(
