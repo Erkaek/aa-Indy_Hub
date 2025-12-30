@@ -90,6 +90,43 @@
     .contract-instructions li {
         margin-bottom: 0.75rem;
     }
+
+    /* Timeline breadcrumb (fil d'ariane) */
+    .timeline-breadcrumb {
+        display: flex;
+        gap: 0.75rem;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+
+    .breadcrumb-step {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.5rem 0.75rem;
+        border-radius: 0.5rem;
+        background: var(--bs-body-bg);
+        border: 1px solid var(--bs-border-color);
+        min-width: 140px;
+        justify-content: center;
+        text-align: center;
+    }
+
+    .breadcrumb-step.completed {
+        background: rgba(25, 135, 84, 0.12);
+        border-color: rgba(25, 135, 84, 0.35);
+        color: #198754;
+    }
+
+    .breadcrumb-step.pending {
+        background: rgba(255, 193, 7, 0.12);
+        border-color: rgba(255, 193, 7, 0.35);
+        color: #d39e00;
+    }
+
+    .breadcrumb-step i {
+        font-size: 0.9rem;
+    }
 </style>
 {% endblock extra_css %}
 
@@ -110,6 +147,20 @@
                     <a href="{% url 'indy_hub:my_orders' %}" class="btn btn-outline-light">
                         <i class="fas fa-arrow-left me-1"></i>{% trans "My Orders" %}
                     </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Timeline Breadcrumb -->
+        <div class="card mb-4">
+            <div class="card-body py-3">
+                <div class="timeline-breadcrumb">
+                    {% for step in timeline_breadcrumb %}
+                        <div class="breadcrumb-step {% if step.completed %}completed{% else %}pending{% endif %}">
+                            <i class="fas {{ step.icon }}"></i>
+                            <span class="step-label">{{ step.status }}</span>
+                        </div>
+                    {% endfor %}
                 </div>
             </div>
         </div>
@@ -155,8 +206,8 @@
                     </div>
                 </div>
 
-                <!-- Contract Instructions (only show if pending/approved) -->
-                {% if order.status in 'pending,approved' %}
+                <!-- Contract Instructions (show until contract validated/accepted) -->
+                {% if order.status in ['draft','awaiting_validation'] %}
                     <div class="card mb-4">
                         <div class="card-header bg-info bg-opacity-10">
                             <h5 class="mb-0">
@@ -221,7 +272,7 @@
                                         <th class="text-end">{% trans "Quantity" %}</th>
                                         <th class="text-end">{% trans "Unit Price" %}</th>
                                         <th class="text-end">{% trans "Total" %}</th>
-                                        {% if order.status != 'pending' %}
+                                        {% if order.status not in ['draft','awaiting_validation'] %}
                                             <th class="text-center">{% trans "Validated" %}</th>
                                         {% endif %}
                                     </tr>
@@ -239,7 +290,7 @@
                                             <td class="text-end fw-bold text-warning">
                                                 {{ item.total_price|floatformat:2|intcomma }} ISK
                                             </td>
-                                            {% if order.status != 'pending' %}
+                                            {% if order.status not in ['draft','awaiting_validation'] %}
                                                 <td class="text-center">
                                                     {% if item.esi_contract_validated %}
                                                         <i class="fas fa-check-circle text-success"></i>

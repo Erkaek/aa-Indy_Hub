@@ -144,7 +144,7 @@ def sync_esi_contracts():
 def run_material_exchange_cycle():
     """
     End-to-end cycle: sync contracts, validate pending sell orders,
-    then check completion of approved orders.
+    validate pending buy orders, then check completion of approved orders.
     Intended to be scheduled in Celery Beat to simplify orchestration.
     """
     # Step 1: sync cached contracts
@@ -153,7 +153,10 @@ def run_material_exchange_cycle():
     # Step 2: validate pending sell orders using cached contracts
     validate_material_exchange_sell_orders()
 
-    # Step 3: check completion/payment for approved orders
+    # Step 3: validate pending buy orders using cached contracts
+    validate_material_exchange_buy_orders()
+
+    # Step 4: check completion/payment for approved orders
     check_completed_material_exchange_contracts()
 
 
@@ -394,6 +397,74 @@ def validate_material_exchange_sell_orders():
             )
 
 
+@shared_task
+def validate_material_exchange_buy_orders():
+    """
+    Validate pending buy orders against cached ESI contracts in the database.
+
+    Workflow:
+    1. Find all buy orders awaiting validation
+    2. Query cached contracts from database
+    3. Match contracts to orders by:
+        - Contract type = item_exchange
+        - Issuer corporation = config.corporation_id
+        - Assignee = buyer's character
+        - Items and price match
+    4. Update order status & notify users
+
+    Note: Contracts are synced separately by sync_esi_contracts task.
+    """
+    config = MaterialExchangeConfig.objects.filter(is_active=True).first()
+    if not config:
+        logger.warning("No active Material Exchange config found")
+        return
+
+    pending_orders = MaterialExchangeBuyOrder.objects.filter(
+        config=config,
+        status=MaterialExchangeBuyOrder.Status.AWAITING_VALIDATION,
+    )
+
+    if not pending_orders.exists():
+        logger.debug("No pending buy orders to validate")
+        return
+
+    contracts = ESIContract.objects.filter(
+        corporation_id=config.corporation_id,
+        contract_type="item_exchange",
+    ).prefetch_related("items")
+
+    if not contracts.exists():
+        logger.warning(
+            "No cached contracts found for corporation %s. "
+            "Run sync_esi_contracts task first.",
+            config.corporation_id,
+        )
+        return
+
+    logger.info(
+        "Validating %s pending buy orders against %s cached contracts",
+        pending_orders.count(),
+        contracts.count(),
+    )
+
+    try:
+        esi_client = shared_client
+    except Exception:
+        esi_client = None
+        logger.warning("ESI client not available for structure name lookups")
+
+    for order in pending_orders:
+        try:
+            _validate_buy_order_from_db(config, order, contracts, esi_client)
+        except Exception as exc:
+            logger.error(
+                "Error validating buy order %s: %s",
+                order.id,
+                exc,
+                exc_info=True,
+            )
+
+
 def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
     """
     Validate a single sell order against cached database contracts.
@@ -579,6 +650,152 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
         logger.info("Sell order %s pending: no matching contract yet", order.id)
 
 
+def _validate_buy_order_from_db(config, order, contracts, esi_client=None):
+    """Validate a single buy order against cached database contracts."""
+
+    order_ref = order.order_reference or f"INDY-{order.id}"
+
+    buyer_character_ids = _get_user_character_ids(order.buyer)
+    if not buyer_character_ids:
+        logger.warning("Buy order %s: buyer %s has no character", order.id, order.buyer)
+        notify_user(
+            order.buyer,
+            _("Buy Order Error"),
+            _("Your buy order cannot be validated: no linked EVE character found."),
+            level="warning",
+        )
+        order.status = MaterialExchangeBuyOrder.Status.REJECTED
+        order.notes = "Buyer has no linked EVE character"
+        order.save(update_fields=["status", "notes", "updated_at"])
+        return
+
+    items_list = "\n".join(
+        f"- {item.type_name}: {item.quantity}x @ {item.unit_price:,.2f} ISK each"
+        for item in order.items.all()
+    )
+
+    matching_contract = None
+    ref_missing = False
+    last_price_issue: str | None = None
+    last_reason: str | None = None
+
+    for contract in contracts:
+        title = contract.title or ""
+        has_correct_ref = order_ref in title
+
+        criteria_match = _matches_buy_order_criteria_db(
+            contract, order, config, buyer_character_ids, esi_client
+        )
+        if not criteria_match:
+            continue
+
+        if not _contract_items_match_order_db(contract, order):
+            last_reason = "items mismatch"
+            continue
+
+        price_ok, price_msg = _contract_price_matches_db(contract, order)
+        if not price_ok:
+            last_price_issue = price_msg
+            last_reason = price_msg
+            continue
+
+        ref_missing = not has_correct_ref
+        matching_contract = contract
+        break
+
+    now = timezone.now()
+
+    if matching_contract:
+        order.status = MaterialExchangeBuyOrder.Status.VALIDATED
+        order.contract_validated_at = now
+        order.esi_contract_id = matching_contract.contract_id
+        order.notes = (
+            f"Contract validated: {matching_contract.contract_id} @ "
+            f"{matching_contract.price:,.2f} ISK"
+            + (f" (title missing {order_ref})" if ref_missing else "")
+        )
+        order.save(
+            update_fields=[
+                "status",
+                "esi_contract_id",
+                "contract_validated_at",
+                "notes",
+                "updated_at",
+            ]
+        )
+
+        order.items.update(
+            esi_contract_id=matching_contract.contract_id,
+            esi_contract_validated=True,
+            esi_validation_checked_at=now,
+        )
+
+        notify_user(
+            order.buyer,
+            _("Buy Order Ready"),
+            _(
+                f"Your buy order {order.order_reference} is ready.\n"
+                f"Contract #{matching_contract.contract_id} for {order.total_price:,.2f} ISK has been validated.\n\n"
+                f"Please accept the in-game contract to receive your items."
+            ),
+            level="success",
+        )
+
+        admins = _get_admins_for_config(config)
+        notify_multi(
+            admins,
+            _("Buy Order Validated"),
+            _(
+                f"{order.buyer.username} will receive:\n{items_list}\n\n"
+                f"Total: {order.total_price:,.2f} ISK\n"
+                f"Contract #{matching_contract.contract_id} verified from database."
+                + (
+                    f"\nNote: Contract title missing reference {order_ref}."
+                    if ref_missing
+                    else ""
+                )
+            ),
+            level="success",
+            link=f"/indy_hub/material-exchange/buy-orders/{order.id}/",
+        )
+
+        logger.info(
+            "Buy order %s validated: contract %s verified",
+            order.id,
+            matching_contract.contract_id,
+        )
+        return
+
+    # No matching contract found yet
+    new_notes = "\n".join(
+        [
+            f"Pending contract for {order_ref}.",
+            "Ensure corp issues item exchange contract to buyer",
+            f"Price: {order.total_price:,.2f} ISK",
+            (last_price_issue or ""),
+            (last_reason or ""),
+        ]
+    ).strip()
+
+    notes_changed = order.notes != new_notes
+    order.notes = new_notes
+    order.save(update_fields=["notes", "updated_at"])
+
+    if notes_changed or not order.updated_at:
+        notify_user(
+            order.buyer,
+            _("Buy Order Pending: waiting for contract"),
+            _(
+                f"We didn't find a matching contract yet for your buy order {order_ref}.\n"
+                f"The corporation needs to issue an item exchange contract to you."
+                + (f"\nLatest issue seen: {last_reason}" if last_reason else "")
+            ),
+            level="info",
+        )
+
+    logger.info("Buy order %s pending: no matching contract yet", order.id)
+
+
 def _matches_sell_order_criteria_db(
     contract, order, config, seller_character_ids, esi_client=None
 ):
@@ -609,6 +826,36 @@ def _matches_sell_order_criteria_db(
         return True
 
     # Fall back to ID matching if name lookup failed
+    if contract.start_location_id == config.structure_id:
+        return True
+    if contract.end_location_id == config.structure_id:
+        return True
+
+    return False
+
+
+def _matches_buy_order_criteria_db(
+    contract, order, config, buyer_character_ids, esi_client=None
+):
+    """Check if a database contract matches buy order basic criteria."""
+
+    # Issuer corporation must be the hub corporation
+    if contract.issuer_corporation_id != config.corporation_id:
+        return False
+
+    # Assignee must be one of the buyer's characters
+    if contract.assignee_id not in buyer_character_ids:
+        return False
+
+    contract_start_name = _get_location_name(contract.start_location_id, esi_client)
+    contract_end_name = _get_location_name(contract.end_location_id, esi_client)
+    config_location_name = config.structure_name
+
+    if contract_start_name and contract_start_name == config_location_name:
+        return True
+    if contract_end_name and contract_end_name == config_location_name:
+        return True
+
     if contract.start_location_id == config.structure_id:
         return True
     if contract.end_location_id == config.structure_id:
@@ -658,9 +905,6 @@ def _contract_price_matches_db(contract, order) -> tuple[bool, str]:
 def handle_material_exchange_buy_order_created(order_id):
     """
     Send immediate notification to admins when a buy order is created.
-
-    Buy orders don't require contract validation - they're approved by admins
-    who then deliver the items via contract or direct trade.
     """
     try:
         order = MaterialExchangeBuyOrder.objects.get(id=order_id)
@@ -755,6 +999,55 @@ def check_completed_material_exchange_contracts():
 
             logger.info(
                 "Sell order %s completed: contract %s accepted",
+                order.id,
+                contract_id,
+            )
+
+    # Process validated buy orders (corp -> member)
+    validated_buy_orders = MaterialExchangeBuyOrder.objects.filter(
+        config=config,
+        status=MaterialExchangeBuyOrder.Status.VALIDATED,
+    )
+
+    if not validated_buy_orders.exists():
+        return
+
+    for order in validated_buy_orders:
+        contract_id = order.esi_contract_id or _extract_contract_id(order.notes)
+        if not contract_id:
+            continue
+
+        contract = next(
+            (c for c in contracts if c["contract_id"] == contract_id),
+            None,
+        )
+        if not contract:
+            continue
+
+        if contract.get("status") == "completed":
+            order.status = MaterialExchangeBuyOrder.Status.COMPLETED
+            order.delivered_at = contract.get("date_completed") or timezone.now()
+            order.save(
+                update_fields=[
+                    "status",
+                    "delivered_at",
+                    "updated_at",
+                ]
+            )
+
+            notify_user(
+                order.buyer,
+                _("Buy Order Completed"),
+                _(
+                    f"Your buy order {order.order_reference} has been completed!\n"
+                    f"Total paid: {order.total_price:,.2f} ISK\n\n"
+                    f"The corporation contract was accepted. Enjoy your items."
+                ),
+                level="success",
+            )
+
+            logger.info(
+                "Buy order %s completed: contract %s accepted",
                 order.id,
                 contract_id,
             )

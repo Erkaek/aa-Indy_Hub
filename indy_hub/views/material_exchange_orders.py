@@ -109,15 +109,17 @@ def sell_order_detail(request, order_id):
     # Get all items with their details
     items = order.items.all()
 
-    # Status timeline
+    # Status timeline + breadcrumb
     timeline = _build_status_timeline(order, "sell")
+    timeline_breadcrumb = _build_timeline_breadcrumb(order, "sell")
 
     context = {
         "order": order,
         "config": config,
         "items": items,
         "timeline": timeline,
-        "can_cancel": order.status in ["pending", "approved"],
+        "timeline_breadcrumb": timeline_breadcrumb,
+        "can_cancel": order.status not in ["completed", "rejected", "cancelled"],
     }
 
     return render(request, "indy_hub/material_exchange/sell_order_detail.html", context)
@@ -140,15 +142,17 @@ def buy_order_detail(request, order_id):
     # Get all items with their details
     items = order.items.all()
 
-    # Status timeline
+    # Status timeline + breadcrumb
     timeline = _build_status_timeline(order, "buy")
+    timeline_breadcrumb = _build_timeline_breadcrumb(order, "buy")
 
     context = {
         "order": order,
         "config": config,
         "items": items,
         "timeline": timeline,
-        "can_cancel": order.status in ["pending", "approved"],
+        "timeline_breadcrumb": timeline_breadcrumb,
+        "can_cancel": order.status not in ["completed", "rejected", "cancelled"],
     }
 
     return render(request, "indy_hub/material_exchange/buy_order_detail.html", context)
@@ -390,23 +394,23 @@ def _build_status_timeline(order, order_type):
                 }
             )
 
-        if order.delivered_at:
+        if order.contract_validated_at:
             timeline.append(
                 {
-                    "status": "Livrée",
-                    "timestamp": order.delivered_at,
+                    "status": "Contrat validé",
+                    "timestamp": order.contract_validated_at,
                     "user": (
-                        order.delivered_by.username if order.delivered_by else "System"
+                        order.approved_by.username if order.approved_by else "System"
                     ),
                     "completed": True,
-                    "icon": "fa-truck",
-                    "color": "primary",
+                    "icon": "fa-check-circle",
+                    "color": "info",
                 }
             )
-        elif order.status in ["delivered", "completed"]:
+        elif order.status in ["awaiting_validation", "validated", "completed"]:
             timeline.append(
                 {
-                    "status": "En attente de livraison",
+                    "status": "En attente de validation",
                     "timestamp": None,
                     "user": None,
                     "completed": False,
