@@ -7,9 +7,10 @@ Handles user-facing order tracking, details, and history.
 import logging
 
 # Django
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
-from django.shortcuts import get_object_or_404, render
+from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.translation import gettext as _
 
 # Local
@@ -491,10 +492,6 @@ def sell_order_delete(request, order_id):
     Delete a sell order.
     Only owner can delete, only if not completed/rejected/cancelled.
     """
-    # Django
-    from django.contrib import messages
-    from django.shortcuts import redirect
-
     order = get_object_or_404(
         MaterialExchangeSellOrder,
         id=order_id,
@@ -536,10 +533,6 @@ def buy_order_delete(request, order_id):
     Delete a buy order.
     Only owner can delete, only if not completed/rejected/cancelled.
     """
-    # Django
-    from django.contrib import messages
-    from django.shortcuts import redirect
-
     order = get_object_or_404(
         MaterialExchangeBuyOrder,
         id=order_id,
