@@ -304,6 +304,29 @@ def _build_status_timeline(order, order_type):
                 }
             )
 
+        if order.contract_validated_at:
+            timeline.append(
+                {
+                    "status": "Contrat validé",
+                    "timestamp": order.contract_validated_at,
+                    "user": "System",
+                    "completed": True,
+                    "icon": "fa-file-contract",
+                    "color": "info",
+                }
+            )
+        elif order.status in ["awaiting_validation", "validated", "completed"]:
+            timeline.append(
+                {
+                    "status": "En attente de validation du contrat",
+                    "timestamp": None,
+                    "user": None,
+                    "completed": False,
+                    "icon": "fa-hourglass-half",
+                    "color": "warning",
+                }
+            )
+
         if order.payment_verified_at:
             timeline.append(
                 {
@@ -369,23 +392,12 @@ def _build_status_timeline(order, order_type):
             }
         )
 
-        if order.approved_at:
+        # For buy orders, the corp needs to create the contract first
+        # Status: draft = waiting for corp contract
+        if order.status == "draft":
             timeline.append(
                 {
-                    "status": "Approuvée",
-                    "timestamp": order.approved_at,
-                    "user": (
-                        order.approved_by.username if order.approved_by else "System"
-                    ),
-                    "completed": True,
-                    "icon": "fa-check-circle",
-                    "color": "info",
-                }
-            )
-        else:
-            timeline.append(
-                {
-                    "status": "En attente d'approbation",
+                    "status": "En attente de création du contrat",
                     "timestamp": None,
                     "user": None,
                     "completed": False,
@@ -394,27 +406,51 @@ def _build_status_timeline(order, order_type):
                 }
             )
 
+        # Status: awaiting_validation = contract created, waiting for auth validation
+        if order.status in ["awaiting_validation", "validated", "completed"]:
+            timeline.append(
+                {
+                    "status": "Contrat créé par la corporation",
+                    "timestamp": None,  # We don't track when contract was created
+                    "user": None,
+                    "completed": True,
+                    "icon": "fa-file-contract",
+                    "color": "info",
+                }
+            )
+
         if order.contract_validated_at:
             timeline.append(
                 {
                     "status": "Contrat validé",
                     "timestamp": order.contract_validated_at,
-                    "user": (
-                        order.approved_by.username if order.approved_by else "System"
-                    ),
+                    "user": "System",
                     "completed": True,
                     "icon": "fa-check-circle",
                     "color": "info",
                 }
             )
-        elif order.status in ["awaiting_validation", "validated", "completed"]:
+        elif order.status in ["awaiting_validation"]:
             timeline.append(
                 {
-                    "status": "En attente de validation",
+                    "status": "En attente de validation du contrat",
                     "timestamp": None,
                     "user": None,
                     "completed": False,
                     "icon": "fa-hourglass-half",
+                    "color": "warning",
+                }
+            )
+
+        # Status: validated = waiting for user to accept
+        if order.status == "validated":
+            timeline.append(
+                {
+                    "status": "En attente de votre acceptation",
+                    "timestamp": None,
+                    "user": None,
+                    "completed": False,
+                    "icon": "fa-hand-pointer",
                     "color": "warning",
                 }
             )
