@@ -126,11 +126,11 @@
                 <button class="btn btn-warning btn-lg copy-button" onclick="copyOrderReference(this)">
                     <i class="fas fa-copy me-2"></i>{% trans "Copy to Clipboard" %}
                 </button>
-                {% if order.status != 'completed' %}{% if order.status != 'rejected' %}{% if order.status != 'cancelled' %}
+                {% if order.status != 'completed' and order.status != 'rejected' and order.status != 'cancelled' %}
                     <a href="{% url 'indy_hub:sell_order_delete' order.id %}" class="btn btn-outline-danger btn-lg">
                         <i class="fas fa-trash me-2"></i>{% trans "Delete Order" %}
                     </a>
-                {% endif %}{% endif %}{% endif %}
+                {% endif %}
             </div>
         </div>
 
@@ -228,9 +228,9 @@
                                         <th class="text-end">{% trans "Quantity" %}</th>
                                         <th class="text-end">{% trans "Unit Price" %}</th>
                                         <th class="text-end">{% trans "Total" %}</th>
-                                        {% if order.status != 'draft' %}{% if order.status != 'awaiting_validation' %}
+                                        {% if order.status != 'draft' and order.status != 'awaiting_validation' %}
                                             <th class="text-center">{% trans "Validated" %}</th>
-                                        {% endif %}{% endif %}
+                                        {% endif %}
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -246,7 +246,7 @@
                                             <td class="text-end fw-bold text-warning">
                                                 {{ item.total_price|floatformat:2|intcomma }} ISK
                                             </td>
-                                            {% if order.status != 'draft' %}{% if order.status != 'awaiting_validation' %}
+                                            {% if order.status != 'draft' and order.status != 'awaiting_validation' %}
                                                 <td class="text-center">
                                                     {% if item.esi_contract_validated %}
                                                         <i class="fas fa-check-circle text-success"></i>
@@ -254,7 +254,7 @@
                                                         <i class="fas fa-hourglass-half text-warning"></i>
                                                     {% endif %}
                                                 </td>
-                                            {% endif %}{% endif %}
+                                            {% endif %}
                                         </tr>
                                     {% endfor %}
                                 </tbody>
