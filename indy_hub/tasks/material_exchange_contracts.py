@@ -39,6 +39,51 @@ logger = logging.getLogger(__name__)
 _structure_name_cache: dict[int, str] = {}
 
 
+def _get_location_name(location_id: int, esi_client=None) -> str | None:
+    """
+    Resolve a location name from corptools EveLocation or ESI as fallback.
+
+    Tries:
+    1. Corptools EveLocation (handles signed/unsigned ID variants)
+    2. ESI API as fallback (with caching)
+    """
+    try:
+        # Third Party
+        from corptools.models import EveLocation
+    except Exception:
+        # Corptools not available, fall back to ESI
+        return _get_structure_name(location_id, esi_client)
+
+    def to_signed(n: int) -> int:
+        if n > 9223372036854775807:
+            return n - 18446744073709551616
+        return n
+
+    def to_unsigned(n: int) -> int:
+        if n < 0:
+            return n + 18446744073709551616
+        return n
+
+    # Try original ID first in corptools
+    try:
+        loc = EveLocation.objects.get(location_id=location_id)
+        return loc.location_name
+    except EveLocation.DoesNotExist:
+        pass
+
+    # Try variant (signed/unsigned) in corptools
+    variant = to_signed(location_id) if location_id > 0 else to_unsigned(location_id)
+    if variant != location_id:
+        try:
+            loc = EveLocation.objects.get(location_id=variant)
+            return loc.location_name
+        except EveLocation.DoesNotExist:
+            pass
+
+    # Fall back to ESI if not found in corptools
+    return _get_structure_name(location_id, esi_client)
+
+
 def _get_structure_name(location_id: int, esi_client) -> str | None:
     """
     Get the name of a structure from ESI, with caching.
@@ -301,7 +346,7 @@ def validate_material_exchange_sell_orders():
 
     pending_orders = MaterialExchangeSellOrder.objects.filter(
         config=config,
-        status=MaterialExchangeSellOrder.Status.PENDING,
+        status=MaterialExchangeSellOrder.Status.DRAFT,
     )
 
     if not pending_orders.exists():
@@ -430,25 +475,36 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
         break
 
     if matching_contract:
-        order.status = MaterialExchangeSellOrder.Status.APPROVED
+        order.status = MaterialExchangeSellOrder.Status.VALIDATED
+        order.contract_validated_at = timezone.now()
+        order.esi_contract_id = matching_contract.contract_id
         order.notes = (
             f"Contract validated: {matching_contract.contract_id} @ "
             f"{matching_contract.price:,.2f} ISK"
         )
         if ref_missing:
             order.notes += f" (title missing {order_ref})"
-        order.save(update_fields=["status", "notes", "updated_at"])
+        order.save(
+            update_fields=[
+                "status",
+                "esi_contract_id",
+                "contract_validated_at",
+                "notes",
+                "updated_at",
+            ]
+        )
 
         admins = _get_admins_for_config(config)
         notify_multi(
             admins,
-            _("Sell Order Approved"),
+            _("Sell Order Validated"),
             _(
                 f"{order.seller.username} wants to sell:\n{items_list}\n\n"
                 f"Total: {order.total_price:,.2f} ISK\n"
-                f"Contract #{matching_contract.contract_id} at {matching_contract.price:,.2f} ISK verified from database."
+                f"Contract #{matching_contract.contract_id} at {matching_contract.price:,.2f} ISK verified from database.\n\n"
+                f"Awaiting corporation to accept the contract."
                 + (
-                    f"\nContract title missing reference {order_ref}."
+                    f"\nNote: Contract title missing reference {order_ref}."
                     if ref_missing
                     else ""
                 )
@@ -458,7 +514,7 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
         )
 
         logger.info(
-            "Sell order %s approved: contract %s verified",
+            "Sell order %s validated: contract %s verified",
             order.id,
             matching_contract.contract_id,
         )
@@ -530,8 +586,8 @@ def _matches_sell_order_criteria_db(
     Check if a database contract matches sell order basic criteria.
 
     Location matching:
-    - First attempts to match by structure name via ESI if available
-    - Falls back to ID matching if name lookup fails or ESI unavailable
+    - Prefer matching by structure name (handles signed/unsigned ID variants)
+    - Fall back to ID matching only if name lookup fails
     """
     # Issuer must be the seller
     if contract.issuer_id not in seller_character_ids:
@@ -541,40 +597,24 @@ def _matches_sell_order_criteria_db(
     if contract.assignee_id != config.corporation_id:
         return False
 
-    # Check location: try name matching first (for same structure with multiple IDs)
-    location_matches = False
+    # Check location by name to handle signed/unsigned variants and service-module IDs
+    contract_start_name = _get_location_name(contract.start_location_id, esi_client)
+    contract_end_name = _get_location_name(contract.end_location_id, esi_client)
+    config_location_name = config.structure_name
 
-    # Try structure name matching if ESI client available and config has structure_name
-    if esi_client and config.structure_name:
-        for location_id in [contract.start_location_id, contract.end_location_id]:
-            if not location_id:
-                continue
+    # Try name matching first
+    if contract_start_name and contract_start_name == config_location_name:
+        return True
+    if contract_end_name and contract_end_name == config_location_name:
+        return True
 
-            structure_name = _get_structure_name(location_id, esi_client)
-            if (
-                structure_name
-                and structure_name.strip() == config.structure_name.strip()
-            ):
-                location_matches = True
-                logger.debug(
-                    "Contract location matched by name: '%s' (ID %s)",
-                    structure_name,
-                    location_id,
-                )
-                break
+    # Fall back to ID matching if name lookup failed
+    if contract.start_location_id == config.structure_id:
+        return True
+    if contract.end_location_id == config.structure_id:
+        return True
 
-    # Fall back to ID matching if name matching didn't find a match
-    if not location_matches:
-        if (
-            contract.start_location_id == config.structure_id
-            or contract.end_location_id == config.structure_id
-        ):
-            location_matches = True
-
-    if not location_matches:
-        return False
-
-    return True
+    return False
 
 
 def _contract_items_match_order_db(contract, order):
@@ -658,7 +698,7 @@ def check_completed_material_exchange_contracts():
 
     approved_orders = MaterialExchangeSellOrder.objects.filter(
         config=config,
-        status=MaterialExchangeSellOrder.Status.APPROVED,
+        status=MaterialExchangeSellOrder.Status.VALIDATED,
     )
 
     if not approved_orders.exists():
@@ -691,7 +731,7 @@ def check_completed_material_exchange_contracts():
 
         # Check if contract is completed
         if contract.get("status") == "completed":
-            order.status = MaterialExchangeSellOrder.Status.PAID
+            order.status = MaterialExchangeSellOrder.Status.COMPLETED
             order.payment_verified_at = timezone.now()
             order.save(
                 update_fields=[
@@ -705,14 +745,16 @@ def check_completed_material_exchange_contracts():
                 order.seller,
                 _("Sell Order Completed"),
                 _(
-                    f"Your sell order for {order.quantity}x {order.type_name} has been verified as completed.\n"
-                    f"Payment of {order.total_price:,.2f} ISK will be processed."
+                    f"Your sell order {order.order_reference} has been completed!\n"
+                    f"Items: {order.quantity}x {order.type_name}\n"
+                    f"Payment: {order.total_price:,.2f} ISK\n\n"
+                    f"The corporation has accepted the contract. Check your wallet for payment confirmation."
                 ),
                 level="success",
             )
 
             logger.info(
-                "Sell order %s marked as paid: contract %s completed",
+                "Sell order %s completed: contract %s accepted",
                 order.id,
                 contract_id,
             )

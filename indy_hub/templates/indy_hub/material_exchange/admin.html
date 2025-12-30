@@ -29,8 +29,8 @@
         color: #fff;
     }
 
-    .status-paid {
-        background-color: #0d6efd;
+    .status-completed {
+        background-color: #198754;
         color: #fff;
     }
 
@@ -113,10 +113,9 @@
                     <label class="form-label">{% trans "Status" %}</label>
                     <select name="status" class="form-select">
                         <option value="">{% trans "All Statuses" %}</option>
-                        <option value="pending" {% if request.GET.status|default:"pending" == 'pending' %}selected{% endif %}>{% trans "Pending" %}</option>
-                        <option value="approved" {% if request.GET.status == 'approved' %}selected{% endif %}>{% trans "Approved" %}</option>
-                        <option value="paid" {% if request.GET.status == 'paid' %}selected{% endif %}>{% trans "Paid" %}</option>
-                        <option value="delivered" {% if request.GET.status == 'delivered' %}selected{% endif %}>{% trans "Delivered" %}</option>
+                        <option value="draft" {% if request.GET.status == 'draft' %}selected{% endif %}>{% trans "Draft" %}</option>
+                        <option value="awaiting_validation" {% if request.GET.status == 'awaiting_validation' %}selected{% endif %}>{% trans "Awaiting Validation" %}</option>
+                        <option value="validated" {% if request.GET.status == 'validated' %}selected{% endif %}>{% trans "Validated" %}</option>
                         <option value="completed" {% if request.GET.status == 'completed' %}selected{% endif %}>{% trans "Completed" %}</option>
                         <option value="rejected" {% if request.GET.status == 'rejected' %}selected{% endif %}>{% trans "Rejected" %}</option>
                     </select>
@@ -164,12 +163,12 @@
                             <td>{{ order.total_price|floatformat:0|intcomma }} ISK</td>
                             <td>
                                 <div class="status-badge status-{{ order.status }}">
-                                    {% if order.status == 'pending' %}
+                                    {% if order.status == 'draft' %}
+                                    <i class="fas fa-file status-icon"></i>
+                                    {% elif order.status == 'awaiting_validation' %}
                                     <i class="fas fa-hourglass-half status-icon"></i>
-                                    {% elif order.status == 'approved' %}
+                                    {% elif order.status == 'validated' %}
                                     <i class="fas fa-check-circle status-icon"></i>
-                                    {% elif order.status == 'paid' %}
-                                    <i class="fas fa-money-bill status-icon"></i>
                                     {% elif order.status == 'completed' %}
                                     <i class="fas fa-check status-icon"></i>
                                     {% elif order.status == 'rejected' %}
@@ -196,10 +195,10 @@
                                 <form method="post" style="display: inline;">
                                     {% csrf_token %}
                                     <button formaction="{% url 'indy_hub:material_exchange_verify_payment_sell' order.id %}" type="submit" class="btn btn-sm btn-info">
-                                        <i class="fas fa-check-circle"></i> {% trans "Verify Payment" %}
+                                        <i class="fas fa-check-circle"></i> {% trans "Verify Contract" %}
                                     </button>
                                 </form>
-                                {% elif order.status == 'paid' %}
+                                {% elif order.status == 'validated' %}
                                 <form method="post" style="display: inline;">
                                     {% csrf_token %}
                                     <button formaction="{% url 'indy_hub:material_exchange_complete_sell' order.id %}" type="submit" class="btn btn-sm btn-primary">

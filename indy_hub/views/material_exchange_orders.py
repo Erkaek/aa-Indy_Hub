@@ -157,10 +157,10 @@ def buy_order_detail(request, order_id):
 def _get_status_class(status):
     """Return Bootstrap color class for status badge."""
     status_classes = {
-        "pending": "warning",
-        "approved": "info",
-        "paid": "primary",
-        "delivered": "success",
+        "draft": "secondary",
+        "awaiting_validation": "warning",
+        "validated": "info",
+        "accepted": "primary",
         "completed": "success",
         "rejected": "danger",
         "cancelled": "secondary",
@@ -177,31 +177,31 @@ def _build_timeline_breadcrumb(order, order_type):
     breadcrumb = []
 
     if order_type == "sell":
-        # Sell order breadcrumb: Créée -> Approuvée -> Paiement vérifié -> Terminée
+        # Sell order breadcrumb: Brouillon -> En validation -> Validée -> Terminée
         breadcrumb.append(
             {
-                "status": "Créée",
+                "status": "Brouillon",
                 "completed": True,
-                "icon": "fa-plus-circle",
-                "color": "success",
+                "icon": "fa-file",
+                "color": "secondary",
             }
         )
 
         breadcrumb.append(
             {
-                "status": "Approuvée",
-                "completed": bool(order.approved_at),
+                "status": "En validation",
+                "completed": order.status in ["validated", "completed"],
+                "icon": "fa-hourglass-half",
+                "color": "warning",
+            }
+        )
+
+        breadcrumb.append(
+            {
+                "status": "Validée",
+                "completed": order.status in ["validated", "completed"],
                 "icon": "fa-check-circle",
                 "color": "info",
-            }
-        )
-
-        breadcrumb.append(
-            {
-                "status": "Paiement",
-                "completed": bool(order.payment_verified_at),
-                "icon": "fa-dollar-sign",
-                "color": "primary",
             }
         )
 
@@ -215,31 +215,31 @@ def _build_timeline_breadcrumb(order, order_type):
         )
 
     else:  # buy order
-        # Buy order breadcrumb: Créée -> Approuvée -> Livrée -> Terminée
+        # Buy order breadcrumb: Brouillon -> En validation -> Validée -> Terminée
         breadcrumb.append(
             {
-                "status": "Créée",
+                "status": "Brouillon",
                 "completed": True,
-                "icon": "fa-plus-circle",
-                "color": "success",
+                "icon": "fa-file",
+                "color": "secondary",
             }
         )
 
         breadcrumb.append(
             {
-                "status": "Approuvée",
-                "completed": bool(order.approved_at),
+                "status": "En validation",
+                "completed": order.status in ["validated", "completed"],
+                "icon": "fa-hourglass-half",
+                "color": "warning",
+            }
+        )
+
+        breadcrumb.append(
+            {
+                "status": "Validée",
+                "completed": order.status in ["validated", "completed"],
                 "icon": "fa-check-circle",
                 "color": "info",
-            }
-        )
-
-        breadcrumb.append(
-            {
-                "status": "Livrée",
-                "completed": bool(order.delivered_at),
-                "icon": "fa-truck",
-                "color": "primary",
             }
         )
 
@@ -315,7 +315,7 @@ def _build_status_timeline(order, order_type):
                     "color": "primary",
                 }
             )
-        elif order.status in ["paid", "completed"]:
+        elif order.status == "completed":
             timeline.append(
                 {
                     "status": "En attente de vérification paiement",

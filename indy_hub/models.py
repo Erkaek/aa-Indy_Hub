@@ -1357,13 +1357,18 @@ class MaterialExchangeSellOrder(models.Model):
     """
     A member wants to sell materials TO the corp hub.
     One order can contain multiple items (materials).
-    Flow: request → admin approval → payment verification → complete.
+
+    Workflow:
+    1. User creates sell order in Auth
+    2. User creates contract in-game
+    3. Auth validates contract against sell order
+    4. Corporation accepts contract
     """
 
     class Status(models.TextChoices):
-        PENDING = "pending", _("Pending Approval")
-        APPROVED = "approved", _("Approved - Awaiting Payment")
-        PAID = "paid", _("Payment Verified")
+        DRAFT = "draft", _("Draft - Awaiting Contract")
+        AWAITING_VALIDATION = "awaiting_validation", _("Awaiting Auth Validation")
+        VALIDATED = "validated", _("Validated - Awaiting Contract Accept")
         COMPLETED = "completed", _("Completed")
         REJECTED = "rejected", _("Rejected")
         CANCELLED = "cancelled", _("Cancelled")
@@ -1378,7 +1383,20 @@ class MaterialExchangeSellOrder(models.Model):
     )
 
     status = models.CharField(
-        max_length=20, choices=Status.choices, default=Status.PENDING
+        max_length=30, choices=Status.choices, default=Status.DRAFT
+    )
+
+    # ESI Contract tracking
+    esi_contract_id = models.BigIntegerField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text=_("ESI contract ID for this sell order"),
+    )
+    contract_validated_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=_("When the contract was validated against this order"),
     )
 
     # Approval/processing
@@ -1425,6 +1443,7 @@ class MaterialExchangeSellOrder(models.Model):
         indexes = [
             models.Index(fields=["status", "-created_at"]),
             models.Index(fields=["seller", "-created_at"]),
+            models.Index(fields=["esi_contract_id"]),
         ]
 
     def __str__(self):
@@ -1524,13 +1543,18 @@ class MaterialExchangeBuyOrder(models.Model):
     """
     A member wants to buy materials FROM the corp hub.
     One order can contain multiple items (materials).
-    Flow: request → stock check → admin approval → contract/delivery → complete.
+
+    Workflow:
+    1. User creates buy order in Auth
+    2. Corporation creates contract in-game to user
+    3. Auth validates contract against buy order
+    4. User accepts contract
     """
 
     class Status(models.TextChoices):
-        PENDING = "pending", _("Pending Approval")
-        APPROVED = "approved", _("Approved - Awaiting Delivery")
-        DELIVERED = "delivered", _("Delivered")
+        DRAFT = "draft", _("Draft - Awaiting Contract")
+        AWAITING_VALIDATION = "awaiting_validation", _("Awaiting Auth Validation")
+        VALIDATED = "validated", _("Validated - Awaiting User Accept")
         COMPLETED = "completed", _("Completed")
         REJECTED = "rejected", _("Rejected")
         CANCELLED = "cancelled", _("Cancelled")
@@ -1545,7 +1569,20 @@ class MaterialExchangeBuyOrder(models.Model):
     )
 
     status = models.CharField(
-        max_length=20, choices=Status.choices, default=Status.PENDING
+        max_length=30, choices=Status.choices, default=Status.DRAFT
+    )
+
+    # ESI Contract tracking
+    esi_contract_id = models.BigIntegerField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text=_("ESI contract ID for this buy order"),
+    )
+    contract_validated_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=_("When the contract was validated against this order"),
     )
 
     # Approval/processing
@@ -1596,6 +1633,7 @@ class MaterialExchangeBuyOrder(models.Model):
         indexes = [
             models.Index(fields=["status", "-created_at"]),
             models.Index(fields=["buyer", "-created_at"]),
+            models.Index(fields=["esi_contract_id"]),
         ]
 
     def __str__(self):

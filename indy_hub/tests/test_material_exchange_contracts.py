@@ -45,7 +45,7 @@ class ContractValidationTestCase(TestCase):
         self.sell_order = MaterialExchangeSellOrder.objects.create(
             config=self.config,
             seller=self.seller,
-            status=MaterialExchangeSellOrder.Status.PENDING,
+            status=MaterialExchangeSellOrder.Status.DRAFT,
         )
         self.sell_item = MaterialExchangeSellOrderItem.objects.create(
             order=self.sell_order,
@@ -60,7 +60,7 @@ class ContractValidationTestCase(TestCase):
         self.buy_order = MaterialExchangeBuyOrder.objects.create(
             config=self.config,
             buyer=self.buyer,
-            status=MaterialExchangeBuyOrder.Status.PENDING,
+            status=MaterialExchangeBuyOrder.Status.DRAFT,
         )
         self.buy_item = MaterialExchangeBuyOrderItem.objects.create(
             order=self.buy_order,
@@ -107,14 +107,13 @@ class ContractValidationTestCase(TestCase):
         """Test sell order status field values"""
         self.assertEqual(
             self.sell_order.status,
-            MaterialExchangeSellOrder.Status.PENDING,
+            MaterialExchangeSellOrder.Status.DRAFT,
         )
 
         # Check all status choices exist
         status_values = [s[0] for s in MaterialExchangeSellOrder.Status.choices]
-        self.assertIn(MaterialExchangeSellOrder.Status.PENDING, status_values)
-        self.assertIn(MaterialExchangeSellOrder.Status.APPROVED, status_values)
-        self.assertIn(MaterialExchangeSellOrder.Status.PAID, status_values)
+        self.assertIn(MaterialExchangeSellOrder.Status.DRAFT, status_values)
+        self.assertIn(MaterialExchangeSellOrder.Status.VALIDATED, status_values)
         self.assertIn(MaterialExchangeSellOrder.Status.COMPLETED, status_values)
         self.assertIn(MaterialExchangeSellOrder.Status.REJECTED, status_values)
 
@@ -122,14 +121,13 @@ class ContractValidationTestCase(TestCase):
         """Test buy order status field values"""
         self.assertEqual(
             self.buy_order.status,
-            MaterialExchangeBuyOrder.Status.PENDING,
+            MaterialExchangeBuyOrder.Status.DRAFT,
         )
 
         # Check all status choices exist
         status_values = [s[0] for s in MaterialExchangeBuyOrder.Status.choices]
-        self.assertIn(MaterialExchangeBuyOrder.Status.PENDING, status_values)
-        self.assertIn(MaterialExchangeBuyOrder.Status.APPROVED, status_values)
-        self.assertIn(MaterialExchangeBuyOrder.Status.DELIVERED, status_values)
+        self.assertIn(MaterialExchangeBuyOrder.Status.DRAFT, status_values)
+        self.assertIn(MaterialExchangeBuyOrder.Status.VALIDATED, status_values)
         self.assertIn(MaterialExchangeBuyOrder.Status.COMPLETED, status_values)
         self.assertIn(MaterialExchangeBuyOrder.Status.REJECTED, status_values)
 
@@ -149,7 +147,7 @@ class ContractValidationTaskTest(TestCase):
         self.sell_order = MaterialExchangeSellOrder.objects.create(
             config=self.config,
             seller=self.seller,
-            status=MaterialExchangeSellOrder.Status.PENDING,
+            status=MaterialExchangeSellOrder.Status.DRAFT,
         )
         self.sell_item = MaterialExchangeSellOrderItem.objects.create(
             order=self.sell_order,
@@ -167,7 +165,7 @@ class ContractValidationTaskTest(TestCase):
         self, mock_notify_multi, mock_notify_user, mock_client
     ):
         """Test task when no pending orders exist"""
-        self.sell_order.status = MaterialExchangeSellOrder.Status.APPROVED
+        self.sell_order.status = MaterialExchangeSellOrder.Status.VALIDATED
         self.sell_order.save()
 
         validate_material_exchange_sell_orders()
@@ -200,6 +198,7 @@ class ContractValidationTaskTest(TestCase):
             assignee_id=self.config.corporation_id,
             acceptor_id=0,
             start_location_id=self.config.structure_id,
+            end_location_id=self.config.structure_id,
             status="outstanding",
             price=self.sell_item.total_price,
             date_issued="2024-01-01T00:00:00Z",
@@ -226,7 +225,7 @@ class ContractValidationTaskTest(TestCase):
         self.sell_order.refresh_from_db()
         self.assertEqual(
             self.sell_order.status,
-            MaterialExchangeSellOrder.Status.APPROVED,
+            MaterialExchangeSellOrder.Status.VALIDATED,
         )
         self.assertIn("Contract validated", self.sell_order.notes)
 
@@ -255,10 +254,10 @@ class ContractValidationTaskTest(TestCase):
 
         # Check order stays pending when no contracts in database (warning logged instead)
         self.sell_order.refresh_from_db()
-        # Note: Order stays PENDING when no cached contracts exist (validation can't run)
+        # Note: Order stays DRAFT when no cached contracts exist (validation can't run)
         self.assertEqual(
             self.sell_order.status,
-            MaterialExchangeSellOrder.Status.PENDING,
+            MaterialExchangeSellOrder.Status.DRAFT,
         )
         # User is not notified when no contracts are cached (just a warning log)
         mock_notify_user.assert_not_called()
@@ -279,7 +278,7 @@ class StructureNameMatchingTest(TestCase):
         self.sell_order = MaterialExchangeSellOrder.objects.create(
             config=self.config,
             seller=self.seller,
-            status=MaterialExchangeSellOrder.Status.PENDING,
+            status=MaterialExchangeSellOrder.Status.DRAFT,
         )
         self.sell_item = MaterialExchangeSellOrderItem.objects.create(
             order=self.sell_order,
@@ -343,7 +342,7 @@ class StructureNameMatchingTest(TestCase):
         # Check order was approved (matched by structure name)
         self.sell_order.refresh_from_db()
         self.assertEqual(
-            self.sell_order.status, MaterialExchangeSellOrder.Status.APPROVED
+            self.sell_order.status, MaterialExchangeSellOrder.Status.VALIDATED
         )
         self.assertIn("226598409", self.sell_order.notes)
 
@@ -399,7 +398,7 @@ class StructureNameMatchingTest(TestCase):
         # Check order was approved (matched by ID fallback)
         self.sell_order.refresh_from_db()
         self.assertEqual(
-            self.sell_order.status, MaterialExchangeSellOrder.Status.APPROVED
+            self.sell_order.status, MaterialExchangeSellOrder.Status.VALIDATED
         )
 
 
@@ -438,7 +437,7 @@ class BuyOrderSignalTest(TestCase):
         # Task should be queued (async)
         # Note: In test env, .delay() might not actually queue
         # but we're testing the signal triggers
-        self.assertEqual(buy_order.status, MaterialExchangeBuyOrder.Status.PENDING)
+        self.assertEqual(buy_order.status, MaterialExchangeBuyOrder.Status.DRAFT)
 
 
 if __name__ == "__main__":

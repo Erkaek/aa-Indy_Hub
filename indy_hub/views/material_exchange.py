@@ -366,8 +366,10 @@ GROUP BY type_id
         # Fall back silently if user assets cannot be loaded
         pass
 
-    pending_sell_orders = config.sell_orders.filter(status="pending").count()
-    pending_buy_orders = config.buy_orders.filter(status="pending").count()
+    pending_sell_orders = config.sell_orders.filter(
+        status="awaiting_validation"
+    ).count()
+    pending_buy_orders = config.buy_orders.filter(status="draft").count()
 
     # User's recent orders
     user_sell_orders = request.user.material_sell_orders.filter(config=config).order_by(
@@ -921,12 +923,32 @@ def material_exchange_buy(request):
             order = MaterialExchangeBuyOrder.objects.create(
                 config=config,
                 buyer=request.user,
-                status="pending",
+                status="draft",
             )
 
             # Create items for this order
             for item_data in items_to_create:
                 MaterialExchangeBuyOrderItem.objects.create(order=order, **item_data)
+
+            # Notify the buyer
+            from ..notifications import notify_user
+
+            notify_user(
+                request.user,
+                _("✅ Buy Order Created"),
+                _(
+                    f"Your buy order has been created!\n\n"
+                    f"📋 Order #{order.id}\n"
+                    f"💰 Total Cost: {total_cost:,.2f} ISK\n"
+                    f"📦 Items: {len(items_to_create)}\n\n"
+                    f"**Next Steps:**\n"
+                    f"1. Wait for admin approval\n"
+                    f"2. Corporation will create a contract\n"
+                    f"3. Review and accept the contract in-game\n\n"
+                    f"Once you accept the contract, your order will be completed."
+                ),
+                level="success",
+            )
 
             messages.success(
                 request,
@@ -1117,34 +1139,35 @@ def material_exchange_reject_sell(request, order_id):
 @login_required
 @require_http_methods(["POST"])
 def material_exchange_verify_payment_sell(request, order_id):
-    """Mark sell order payment as verified (via ESI wallet check or manual)."""
+    """Mark sell order as completed (contract accepted in-game)."""
     if not request.user.has_perm("indy_hub.can_manage_material_exchange"):
         messages.error(request, _("Permission denied."))
         return redirect("indy_hub:material_exchange_index")
 
-    order = get_object_or_404(MaterialExchangeSellOrder, id=order_id, status="approved")
-    journal_ref = request.POST.get("journal_ref", "").strip()
+    order = get_object_or_404(
+        MaterialExchangeSellOrder, id=order_id, status="validated"
+    )
 
-    order.status = "paid"
+    order.status = "completed"
     order.payment_verified_by = request.user
     order.payment_verified_at = timezone.now()
-    if journal_ref:
-        order.payment_journal_ref = journal_ref
     order.save()
 
-    messages.success(request, _(f"Payment for sell order #{order.id} verified."))
+    messages.success(request, _(f"Sell order #{order.id} completed."))
     return redirect("indy_hub:material_exchange_index")
 
 
 @login_required
 @require_http_methods(["POST"])
 def material_exchange_complete_sell(request, order_id):
-    """Mark sell order as completed and create transaction logs for each item."""
+    """Mark sell order as fully completed and create transaction logs for each item."""
     if not request.user.has_perm("indy_hub.can_manage_material_exchange"):
         messages.error(request, _("Permission denied."))
         return redirect("indy_hub:material_exchange_index")
 
-    order = get_object_or_404(MaterialExchangeSellOrder, id=order_id, status="paid")
+    order = get_object_or_404(
+        MaterialExchangeSellOrder, id=order_id, status="completed"
+    )
 
     with transaction.atomic():
         order.status = "completed"
@@ -1183,12 +1206,12 @@ def material_exchange_complete_sell(request, order_id):
 @login_required
 @require_http_methods(["POST"])
 def material_exchange_approve_buy(request, order_id):
-    """Approve a buy order (hub → member)."""
+    """Approve a buy order (hub → member) - Creates contract permission."""
     if not request.user.has_perm("indy_hub.can_manage_material_exchange"):
         messages.error(request, _("Permission denied."))
         return redirect("indy_hub:material_exchange_index")
 
-    order = get_object_or_404(MaterialExchangeBuyOrder, id=order_id, status="pending")
+    order = get_object_or_404(MaterialExchangeBuyOrder, id=order_id, status="draft")
 
     # Re-check stock for all items
     errors = []
@@ -1208,13 +1231,14 @@ def material_exchange_approve_buy(request, order_id):
         messages.error(request, _("Cannot approve: ") + "; ".join(errors))
         return redirect("indy_hub:material_exchange_index")
 
-    order.status = "approved"
+    order.status = "awaiting_validation"
     order.approved_by = request.user
     order.approved_at = timezone.now()
     order.save()
 
     messages.success(
-        request, _(f"Buy order #{order.id} approved. Awaiting delivery confirmation.")
+        request,
+        _(f"Buy order #{order.id} approved. Corporation will now create a contract."),
     )
     return redirect("indy_hub:material_exchange_index")
 
@@ -1227,11 +1251,25 @@ def material_exchange_reject_buy(request, order_id):
         messages.error(request, _("Permission denied."))
         return redirect("indy_hub:material_exchange_index")
 
-    order = get_object_or_404(MaterialExchangeBuyOrder, id=order_id, status="pending")
+    order = get_object_or_404(MaterialExchangeBuyOrder, id=order_id, status="draft")
+
+    from ..notifications import notify_user
+
+    notify_user(
+        order.buyer,
+        _("❌ Buy Order Rejected"),
+        _(
+            f"Your buy order #{order.id} has been rejected.\n\n"
+            f"Reason: Insufficient stock or admin decision.\n\n"
+            f"Please contact admin if you have questions."
+        ),
+        level="error",
+    )
+
     order.status = "rejected"
     order.save()
 
-    messages.warning(request, _(f"Buy order #{order.id} rejected."))
+    messages.warning(request, _(f"Buy order #{order.id} rejected and buyer notified."))
     return redirect("indy_hub:material_exchange_index")
 
 

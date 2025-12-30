@@ -19,7 +19,6 @@ from esi.clients import EsiClientProvider
 # AA Example App
 from indy_hub.models import (
     MaterialExchangeConfig,
-    MaterialExchangeSellOrder,
     MaterialExchangeStock,
 )
 from indy_hub.utils.eve import get_type_name
@@ -288,87 +287,11 @@ def sync_material_exchange_prices():
 @shared_task
 def verify_pending_sell_payments():
     """
-    Verify payments for approved sell orders by checking ESI wallet journal.
-    Auto-updates status to 'paid' when payment journal entry is found.
+    DEPRECATED: Payment verification is now done automatically when the in-game
+    contract is accepted (status goes from VALIDATED to COMPLETED directly).
+    This task is kept for backwards compatibility but does nothing.
     """
-    try:
-        config = MaterialExchangeConfig.objects.first()
-        if not config:
-            logger.warning(
-                "Material Exchange not configured - skipping payment verification"
-            )
-            return
-
-        # Get approved sell orders waiting for payment
-        pending_orders = MaterialExchangeSellOrder.objects.filter(
-            status="approved",
-            payment_journal_ref__isnull=True,
-        ).select_related("seller")
-
-        if not pending_orders.exists():
-            logger.info("No pending sell orders to verify")
-            return
-
-        # Fetch corp wallet journal from ESI
-        # Note: Requires corp wallet ESI scope
-        try:
-            # Get last 30 days of journal entries
-            journal_data = esi.client.Wallet.get_corporations_corporation_id_wallets_division_journal(
-                corporation_id=config.corporation_id,
-                division=config.hangar_division,
-            ).results()
-        except Exception as e:
-            logger.error(f"Failed to fetch wallet journal from ESI: {e}")
-            return
-
-        # Build index of journal entries by seller and amount
-        # Looking for player_donation or corp_account_withdrawal entries
-        verified_count = 0
-        for order in pending_orders:
-            expected_amount = float(order.total_price)
-            seller_id = (
-                order.seller.profile.main_character.character_id
-                if hasattr(order.seller, "profile")
-                else None
-            )
-
-            if not seller_id:
-                continue
-
-            # Search for matching journal entry
-            for entry in journal_data:
-                # Check if entry matches: correct seller, amount, and recent
-                entry_amount = abs(entry.get("amount", 0))
-                entry_first_party = entry.get("first_party_id")
-                entry_second_party = entry.get("second_party_id")
-
-                # Match if seller is involved and amount matches (within 1% tolerance for rounding)
-                amount_matches = abs(entry_amount - expected_amount) < (
-                    expected_amount * 0.01
-                )
-                seller_matches = seller_id in [entry_first_party, entry_second_party]
-
-                if amount_matches and seller_matches:
-                    # Found matching payment!
-                    with transaction.atomic():
-                        order.payment_journal_ref = str(entry.get("id"))
-                        order.status = "paid"
-                        order.save(update_fields=["payment_journal_ref", "status"])
-
-                    logger.info(
-                        f"Auto-verified payment for sell order #{order.id}: "
-                        f"{order.seller.username} {entry_amount:,.0f} ISK"
-                    )
-                    verified_count += 1
-                    break
-
-        if verified_count > 0:
-            logger.info(
-                f"Material Exchange payment verification: {verified_count} orders verified"
-            )
-
-    except Exception as e:
-        logger.exception(f"Error verifying material exchange payments: {e}")
+    logger.info("Payment verification task called (deprecated - no action taken)")
 
 
 # Task refresh_production_items removed - now using EveUniverse.EveIndustryActivityMaterial instead of JSON files
