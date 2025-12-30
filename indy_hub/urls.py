@@ -60,6 +60,7 @@ from .views.material_exchange_config import (
     material_exchange_get_structures,
     material_exchange_request_all_scopes,
     material_exchange_request_assets_token,
+    material_exchange_request_contracts_scope,
     material_exchange_request_divisions_token,
 )
 from .views.material_exchange_orders import (
@@ -284,6 +285,11 @@ urlpatterns = [
         "material-exchange/config/request-divisions-token/",
         material_exchange_request_divisions_token,
         name="material_exchange_request_divisions_token",
+    ),
+    path(
+        "material-exchange/config/request-contracts-scope/",
+        material_exchange_request_contracts_scope,
+        name="material_exchange_request_contracts_scope",
     ),
     path(
         "material-exchange/config/request-all-scopes/",

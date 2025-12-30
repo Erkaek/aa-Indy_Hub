@@ -1750,3 +1750,88 @@ class MaterialExchangeTransaction(models.Model):
 
     def __str__(self):
         return f"{self.get_transaction_type_display()} #{self.id}: {self.user.username} - {self.type_name} x{self.quantity}"
+
+
+class ESIContract(models.Model):
+    """
+    Cached ESI corporation contracts for Material Exchange validation.
+    Synced periodically to avoid excessive ESI calls.
+    """
+
+    # ESI contract data
+    contract_id = models.BigIntegerField(unique=True, primary_key=True)
+    issuer_id = models.BigIntegerField(db_index=True)
+    issuer_corporation_id = models.BigIntegerField()
+    assignee_id = models.BigIntegerField(db_index=True)
+    acceptor_id = models.BigIntegerField(default=0)
+    
+    # Contract details
+    contract_type = models.CharField(max_length=50, db_index=True)
+    status = models.CharField(max_length=50, db_index=True)
+    title = models.TextField(blank=True)
+    
+    # Locations
+    start_location_id = models.BigIntegerField(blank=True, null=True)
+    end_location_id = models.BigIntegerField(blank=True, null=True)
+    
+    # Pricing
+    price = models.DecimalField(max_digits=20, decimal_places=2, default=0)
+    reward = models.DecimalField(max_digits=20, decimal_places=2, default=0)
+    collateral = models.DecimalField(max_digits=20, decimal_places=2, default=0)
+    
+    # Timestamps from ESI
+    date_issued = models.DateTimeField()
+    date_expired = models.DateTimeField()
+    date_accepted = models.DateTimeField(blank=True, null=True)
+    date_completed = models.DateTimeField(blank=True, null=True)
+    
+    # Tracking
+    corporation_id = models.BigIntegerField(db_index=True, help_text="Corporation this contract belongs to")
+    last_synced = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = _("ESI Contract")
+        verbose_name_plural = _("ESI Contracts")
+        ordering = ["-date_issued"]
+        indexes = [
+            models.Index(fields=["corporation_id", "status", "contract_type"]),
+            models.Index(fields=["issuer_id", "status"]),
+            models.Index(fields=["acceptor_id", "contract_type"]),
+            models.Index(fields=["-date_issued"]),
+        ]
+
+    def __str__(self):
+        return f"Contract {self.contract_id}: {self.contract_type} ({self.status})"
+
+
+class ESIContractItem(models.Model):
+    """
+    Items within an ESI contract.
+    Linked to ESIContract for validation purposes.
+    """
+
+    contract = models.ForeignKey(
+        ESIContract,
+        on_delete=models.CASCADE,
+        related_name="items",
+    )
+    record_id = models.BigIntegerField(help_text="ESI record_id for this item")
+    type_id = models.IntegerField(db_index=True)
+    quantity = models.BigIntegerField()
+    is_included = models.BooleanField(default=False, help_text="Item is given by issuer")
+    is_singleton = models.BooleanField(default=False)
+    
+    last_synced = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = _("ESI Contract Item")
+        verbose_name_plural = _("ESI Contract Items")
+        unique_together = [["contract", "record_id"]]
+        indexes = [
+            models.Index(fields=["contract", "type_id"]),
+            models.Index(fields=["type_id", "is_included"]),
+        ]
+
+    def __str__(self):
+        return f"Contract {self.contract_id} - Item {self.type_id} x{self.quantity}"

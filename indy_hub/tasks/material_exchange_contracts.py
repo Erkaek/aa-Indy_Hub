@@ -12,12 +12,15 @@ from celery import shared_task
 
 # Django
 from django.contrib.auth.models import User
+from django.db import transaction
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 # AA Example App
 # Local
 from indy_hub.models import (
+    ESIContract,
+    ESIContractItem,
     MaterialExchangeBuyOrder,
     MaterialExchangeConfig,
     MaterialExchangeSellOrder,
@@ -34,19 +37,207 @@ logger = logging.getLogger(__name__)
 
 
 @shared_task
+def sync_esi_contracts():
+    """
+    Fetch corporation contracts from ESI and store/update them in the database.
+    
+    This task:
+    1. Fetches all active Material Exchange configs
+    2. For each config, fetches corporation contracts from ESI
+    3. Stores/updates contracts and their items in the database
+    4. Removes stale contracts (expired/deleted from ESI)
+    
+    Should be run periodically (e.g., every 5-15 minutes).
+    """
+    configs = MaterialExchangeConfig.objects.filter(is_active=True)
+    
+    for config in configs:
+        try:
+            _sync_contracts_for_corporation(config.corporation_id)
+        except Exception as exc:
+            logger.error(
+                "Failed to sync contracts for corporation %s: %s",
+                config.corporation_id,
+                exc,
+                exc_info=True,
+            )
+
+
+def _sync_contracts_for_corporation(corporation_id: int):
+    """Sync ESI contracts for a single corporation."""
+    logger.info("Syncing ESI contracts for corporation %s", corporation_id)
+    
+    try:
+        # Get character with required scope
+        character_id = _get_character_for_scope(
+            corporation_id,
+            "esi-contracts.read_corporation_contracts.v1",
+        )
+        
+        # Fetch contracts from ESI
+        contracts = shared_client.fetch_corporation_contracts(
+            corporation_id=corporation_id,
+            character_id=character_id,
+        )
+        
+        logger.info(
+            "Fetched %s contracts from ESI for corporation %s",
+            len(contracts),
+            corporation_id,
+        )
+        
+    except ESITokenError as exc:
+        logger.warning(
+            "Cannot sync contracts for corporation %s - missing ESI scope: %s",
+            corporation_id,
+            exc,
+        )
+        return
+    except (ESIClientError, ESIForbiddenError) as exc:
+        logger.error(
+            "Failed to fetch contracts from ESI for corporation %s: %s",
+            corporation_id,
+            exc,
+            exc_info=True,
+        )
+        return
+    
+    # Track synced contract IDs
+    synced_contract_ids = []
+    indy_contracts_count = 0
+    
+    with transaction.atomic():
+        for contract_data in contracts:
+            contract_id = contract_data.get("contract_id")
+            if not contract_id:
+                continue
+            
+            # Filter: only process contracts with "INDY" in title
+            contract_title = contract_data.get("title", "")
+            if "INDY" not in contract_title.upper():
+                continue
+            
+            indy_contracts_count += 1
+            synced_contract_ids.append(contract_id)
+            
+            # Create or update contract
+            contract, created = ESIContract.objects.update_or_create(
+                contract_id=contract_id,
+                defaults={
+                    "issuer_id": contract_data.get("issuer_id", 0),
+                    "issuer_corporation_id": contract_data.get("issuer_corporation_id", 0),
+                    "assignee_id": contract_data.get("assignee_id", 0),
+                    "acceptor_id": contract_data.get("acceptor_id", 0),
+                    "contract_type": contract_data.get("type", "unknown"),
+                    "status": contract_data.get("status", "unknown"),
+                    "title": contract_data.get("title", ""),
+                    "start_location_id": contract_data.get("start_location_id"),
+                    "end_location_id": contract_data.get("end_location_id"),
+                    "price": Decimal(str(contract_data.get("price") or 0)),
+                    "reward": Decimal(str(contract_data.get("reward") or 0)),
+                    "collateral": Decimal(str(contract_data.get("collateral") or 0)),
+                    "date_issued": contract_data.get("date_issued"),
+                    "date_expired": contract_data.get("date_expired"),
+                    "date_accepted": contract_data.get("date_accepted"),
+                    "date_completed": contract_data.get("date_completed"),
+                    "corporation_id": corporation_id,
+                },
+            )
+            
+            # Fetch and store contract items for item_exchange contracts
+            # Only fetch items for contracts where items are accessible (outstanding/in_progress)
+            # Completed/expired contracts return 404 for items endpoint
+            contract_status = contract_data.get("status", "")
+            if (contract_data.get("type") == "item_exchange" and 
+                contract_status in ["outstanding", "in_progress"]):
+                try:
+                    contract_items = shared_client.fetch_corporation_contract_items(
+                        corporation_id=corporation_id,
+                        contract_id=contract_id,
+                        character_id=character_id,
+                    )
+                    
+                    # Clear existing items and create new ones
+                    ESIContractItem.objects.filter(contract=contract).delete()
+                    
+                    for item_data in contract_items:
+                        ESIContractItem.objects.create(
+                            contract=contract,
+                            record_id=item_data.get("record_id", 0),
+                            type_id=item_data.get("type_id", 0),
+                            quantity=item_data.get("quantity", 0),
+                            is_included=item_data.get("is_included", False),
+                            is_singleton=item_data.get("is_singleton", False),
+                        )
+                    
+                    logger.info(
+                        "Contract %s: synced %s items",
+                        contract_id,
+                        len(contract_items),
+                    )
+                    
+                except ESIClientError as exc:
+                    # 404 is normal for contracts without items or expired contracts
+                    if "404" in str(exc):
+                        logger.debug(
+                            "Contract %s has no items (404) - skipping items sync",
+                            contract_id,
+                        )
+                    else:
+                        logger.warning(
+                            "Failed to fetch items for contract %s: %s",
+                            contract_id,
+                            exc,
+                        )
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to fetch items for contract %s: %s",
+                        contract_id,
+                        exc,
+                    )
+        
+        # Remove contracts that are no longer in ESI response
+        # Keep contracts from the last 30 days to maintain history
+        cutoff_date = timezone.now() - timezone.timedelta(days=30)
+        deleted_count, _ = ESIContract.objects.filter(
+            corporation_id=corporation_id,
+            last_synced__lt=timezone.now() - timezone.timedelta(minutes=20),
+            date_issued__gte=cutoff_date,
+        ).exclude(
+            contract_id__in=synced_contract_ids
+        ).delete()
+        
+        if deleted_count > 0:
+            logger.info(
+                "Removed %s stale contracts for corporation %s",
+                deleted_count,
+                corporation_id,
+            )
+    
+    logger.info(
+        "Successfully synced %s INDY contracts (filtered from %s total) for corporation %s",
+        indy_contracts_count,
+        len(contracts),
+        corporation_id,
+    )
+
+
+@shared_task
 def validate_material_exchange_sell_orders():
     """
-    Check ESI for corporation contracts matching pending sell orders.
+    Validate pending sell orders against cached ESI contracts in the database.
 
     Workflow:
     1. Find all pending sell orders
-    2. Fetch corp contracts via ESI
+    2. Query cached contracts from database
     3. Match contracts to orders by:
         - Contract type = item_exchange
         - Contract issuer = member
         - Contract acceptor = corporation
         - Items match (type_id, quantity)
     4. Update order status & notify users
+    
+    Note: Contracts are synced separately by sync_esi_contracts task.
     """
     config = MaterialExchangeConfig.objects.filter(is_active=True).first()
     if not config:
@@ -62,48 +253,31 @@ def validate_material_exchange_sell_orders():
         logger.debug("No pending sell orders to validate")
         return
 
-    # Get a character with corp contracts scope
-    try:
-        contracts = shared_client.fetch_corporation_contracts(
-            corporation_id=config.corporation_id,
-            character_id=_get_character_for_scope(
-                config.corporation_id,
-                "esi-contracts.read_corporation_contracts.v1",
-            ),
-        )
-    except ESITokenError as exc:
-        logger.error(
-            "Failed to validate contracts - missing ESI scope: %s",
-            exc,
-            exc_info=False,
-        )
-        # Notify admins about the missing scope
-        admins = _get_admins_for_config(config)
-        for admin in admins:
-            notify_user(
-                admin,
-                _("⚠️ Material Exchange - Missing ESI Scope"),
-                _(
-                    "Contract validation cannot run because no corporation member "
-                    "has granted the 'read_corporation_contracts' ESI scope.\n\n"
-                    f"Error: {exc}\n\n"
-                    "Please have a corporation administrator login and grant this scope."
-                ),
-                level="warning",
-            )
-        return
-    except (ESIClientError, ESIForbiddenError) as exc:
-        logger.error(
-            "Failed to fetch corp contracts for validation: %s",
-            exc,
-            exc_info=True,
+    # Get contracts from database instead of ESI
+    # Filter to item_exchange contracts for this corporation
+    contracts = ESIContract.objects.filter(
+        corporation_id=config.corporation_id,
+        contract_type="item_exchange",
+    ).prefetch_related("items")
+    
+    if not contracts.exists():
+        logger.warning(
+            "No cached contracts found for corporation %s. "
+            "Run sync_esi_contracts task first.",
+            config.corporation_id,
         )
         return
+
+    logger.info(
+        "Validating %s pending sell orders against %s cached contracts",
+        pending_orders.count(),
+        contracts.count(),
+    )
 
     # Process each pending order
     for order in pending_orders:
         try:
-            _validate_sell_order(config, order, contracts)
+            _validate_sell_order_from_db(config, order, contracts)
         except Exception as exc:
             logger.error(
                 "Error validating sell order %s: %s",
@@ -113,19 +287,21 @@ def validate_material_exchange_sell_orders():
             )
 
 
-def _validate_sell_order(config, order, contracts):
+def _validate_sell_order_from_db(config, order, contracts):
     """
-    Validate a single sell order against ESI contracts.
+    Validate a single sell order against cached database contracts.
 
     Contract matching criteria:
     - type = item_exchange
     - issuer_id = seller's main character
     - acceptor_id = config.corporation_id
     - start_location_id or end_location_id = structure_id
+    - items match exactly
+    - price matches
     """
     order_ref = f"INDY-{order.id}"
 
-    # Find seller's main character (assumed to be their user)
+    # Find seller's main character
     seller_character_ids = _get_user_character_ids(order.seller)
     if not seller_character_ids:
         logger.warning(
@@ -144,12 +320,14 @@ def _validate_sell_order(config, order, contracts):
         order.save(update_fields=["status", "notes", "updated_at"])
         return
 
-    # Search for matching contract
+    # Search for matching contract in database
     matching_contract = None
     last_price_issue: str | None = None
     ref_missing = False
+    
     for contract in contracts:
-        if not _matches_sell_order_criteria(
+        # Check basic criteria
+        if not _matches_sell_order_criteria_db(
             contract,
             order,
             config,
@@ -157,34 +335,17 @@ def _validate_sell_order(config, order, contracts):
         ):
             continue
 
-        # Found potential match - verify items
-        try:
-            contract_items = shared_client.fetch_corporation_contract_items(
-                corporation_id=config.corporation_id,
-                contract_id=contract["contract_id"],
-                character_id=_get_character_for_scope(
-                    config.corporation_id,
-                    "esi-contracts.read_corporation_contracts.v1",
-                ),
-            )
-        except (ESITokenError, ESIClientError) as exc:
-            logger.warning(
-                "Failed to fetch items for contract %s: %s",
-                contract["contract_id"],
-                exc,
-            )
-            continue
-
         # Check if items match
-        if _contract_items_match_order(contract_items, order):
-            price_ok, price_details = _contract_price_matches(contract, order)
+        if _contract_items_match_order_db(contract, order):
+            # Check price
+            price_ok, price_details = _contract_price_matches_db(contract, order)
             if not price_ok:
                 last_price_issue = (
-                    f"Contract {contract['contract_id']}: {price_details}"
+                    f"Contract {contract.contract_id}: {price_details}"
                 )
                 continue
 
-            ref_missing = order_ref.lower() not in (contract.get("title") or "").lower()
+            ref_missing = order_ref.lower() not in (contract.title or "").lower()
             matching_contract = contract
             break
 
@@ -198,8 +359,8 @@ def _validate_sell_order(config, order, contracts):
         # Contract found and items verified
         order.status = MaterialExchangeSellOrder.Status.APPROVED
         order.notes = (
-            f"Contract validated: {matching_contract['contract_id']} @ "
-            f"{Decimal(str(matching_contract.get('price', 0) or 0)).quantize(Decimal('0.01')):,.2f} ISK"
+            f"Contract validated: {matching_contract.contract_id} @ "
+            f"{matching_contract.price:,.2f} ISK"
         )
         if ref_missing:
             order.notes += f" (title missing {order_ref})"
@@ -213,7 +374,7 @@ def _validate_sell_order(config, order, contracts):
             _(
                 f"{order.seller.username} wants to sell:\n{items_list}\n\n"
                 f"Total: {order.total_price:,.2f} ISK\n"
-                f"Contract #{matching_contract['contract_id']} at {matching_contract.get('price', 0):,.2f} ISK verified via ESI."
+                f"Contract #{matching_contract.contract_id} at {matching_contract.price:,.2f} ISK verified from database."
                 + (
                     f"\nContract title missing reference {order_ref}."
                     if ref_missing
@@ -227,7 +388,7 @@ def _validate_sell_order(config, order, contracts):
         logger.info(
             "Sell order %s approved: contract %s verified",
             order.id,
-            matching_contract["contract_id"],
+            matching_contract.contract_id,
         )
     else:
         # No matching contract found
@@ -254,62 +415,50 @@ def _validate_sell_order(config, order, contracts):
         logger.info("Sell order %s rejected: no matching contract", order.id)
 
 
-def _matches_sell_order_criteria(contract, order, config, seller_character_ids):
-    """Check if a contract matches sell order basic criteria."""
-    # Only item exchange contracts
-    if contract.get("type") != "item_exchange":
-        return False
-
+def _matches_sell_order_criteria_db(contract, order, config, seller_character_ids):
+    """Check if a database contract matches sell order basic criteria."""
     # Issuer must be the seller
-    if contract.get("issuer_id") not in seller_character_ids:
+    if contract.issuer_id not in seller_character_ids:
         return False
 
     # Acceptor must be the corporation
-    if contract.get("acceptor_id") != config.corporation_id:
+    if contract.acceptor_id != config.corporation_id:
         return False
 
     # Must be at or relate to the structure
-    start_loc = contract.get("start_location_id")
-    end_loc = contract.get("end_location_id")
-    if start_loc != config.structure_id and end_loc != config.structure_id:
+    if (contract.start_location_id != config.structure_id and
+            contract.end_location_id != config.structure_id):
         return False
 
     return True
 
 
-def _contract_items_match_order(contract_items, order):
-    """Check if contract items exactly match the sell order items."""
+def _contract_items_match_order_db(contract, order):
+    """Check if database contract items exactly match the sell order items."""
     # Only validate included items (not requested)
-    included = [item for item in contract_items if item.get("is_included", False)]
-
+    included_items = contract.items.filter(is_included=True)
+    
     order_items = list(order.items.all())
 
-    if len(included) != len(order_items):
-        # Number of contract items must match order items
+    if included_items.count() != len(order_items):
         return False
 
     # Check each order item has a matching contract item
     for order_item in order_items:
-        found = False
-        for contract_item in included:
-            if (
-                contract_item.get("type_id") == order_item.type_id
-                and contract_item.get("quantity") == order_item.quantity
-            ):
-                found = True
-                break
+        found = included_items.filter(
+            type_id=order_item.type_id,
+            quantity=order_item.quantity
+        ).exists()
         if not found:
             return False
 
     return True
 
 
-def _contract_price_matches(contract: dict, order) -> tuple[bool, str]:
-    """Validate contract price against order total."""
+def _contract_price_matches_db(contract, order) -> tuple[bool, str]:
+    """Validate database contract price against order total."""
     try:
-        contract_price = Decimal(str(contract.get("price") or 0)).quantize(
-            Decimal("0.01")
-        )
+        contract_price = Decimal(str(contract.price)).quantize(Decimal("0.01"))
         expected_price = Decimal(str(order.total_price)).quantize(Decimal("0.01"))
     except (InvalidOperation, TypeError):
         return False, "invalid contract price"

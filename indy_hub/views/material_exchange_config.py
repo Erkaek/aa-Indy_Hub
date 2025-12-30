@@ -58,6 +58,17 @@ def material_exchange_request_all_scopes(request):
     )
 
 
+@login_required
+@indy_hub_permission_required("can_manage_material_exchange")
+def material_exchange_request_contracts_scope(request):
+    """Request ESI token with contracts scope, then redirect back to config."""
+    return sso_redirect(
+        request,
+        scopes="esi-contracts.read_corporation_contracts.v1",
+        return_to="indy_hub:material_exchange_config",
+    )
+
+
 def _get_token_for_corp(user, corp_id, scope, require_corporation_token: bool = False):
     """Return a valid token for the given corp that has the scope.
 
