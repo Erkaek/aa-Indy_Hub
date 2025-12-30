@@ -131,6 +131,7 @@
                     </h5>
                     <form method="post" id="sellForm">
                         {% csrf_token %}
+                        <input type="hidden" id="hidden_order_reference" name="order_reference" value="">
                         <div class="table-responsive">
                             <table class="table table-hover stock-table align-middle">
                                 <thead>
@@ -483,10 +484,23 @@ document.addEventListener('DOMContentLoaded', function() {
     const contractModal = document.getElementById('contractDetailsModal');
     if (contractModal) {
         contractModal.addEventListener('show.bs.modal', function() {
-            // Note: Order reference will be generated server-side when order is created
-            // The user will see it in the success message
-            document.getElementById('modalRefId').textContent = 'INDY-[will be generated after submission]';
+            // Generate order reference immediately when modal opens
+            const orderRef = generateOrderReference();
+            document.getElementById('modalRefId').textContent = orderRef;
+            // Store reference in hidden form field
+            const hiddenRefField = document.getElementById('hidden_order_reference');
+            if (hiddenRefField) {
+                hiddenRefField.value = orderRef;
+            }
         });
+    }
+
+    // Generate order reference (same format as server-side)
+    function generateOrderReference() {
+        const min = 1000000000;
+        const max = 9999999999;
+        const randomNum = Math.floor(Math.random() * (max - min + 1)) + min;
+        return `INDY-${randomNum}`;
     }
 
     // Prevent form submission if any quantity exceeds stock

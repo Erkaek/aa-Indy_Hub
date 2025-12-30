@@ -612,10 +612,14 @@ GROUP BY type_id
                 messages.error(request, err)
 
         if items_to_create:
+            # Get order reference from client (generated in JavaScript)
+            client_order_ref = request.POST.get("order_reference", "").strip()
+
             order = MaterialExchangeSellOrder.objects.create(
                 config=config,
                 seller=request.user,
                 status="pending",
+                order_reference=client_order_ref if client_order_ref else None,
             )
             for item_data in items_to_create:
                 MaterialExchangeSellOrderItem.objects.create(order=order, **item_data)
@@ -913,17 +917,20 @@ def material_exchange_buy(request):
                 _("Please enter a quantity greater than 0 for at least one item."),
             )
             return redirect("indy_hub:material_exchange_buy")
-
         if errors:
             for err in errors:
                 messages.error(request, err)
 
         if items_to_create:
+            # Get order reference from client (generated in JavaScript)
+            client_order_ref = request.POST.get("order_reference", "").strip()
+
             # Create ONE order with ALL items
             order = MaterialExchangeBuyOrder.objects.create(
                 config=config,
                 buyer=request.user,
                 status="draft",
+                order_reference=client_order_ref if client_order_ref else None,
             )
 
             # Create items for this order

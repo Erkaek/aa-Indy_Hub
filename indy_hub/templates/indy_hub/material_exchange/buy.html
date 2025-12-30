@@ -121,6 +121,7 @@
                     <h5 class="mb-4">{% trans "Available Stock" %}</h5>
                     <form method="post" id="purchaseForm">
                         {% csrf_token %}
+                        <input type="hidden" id="hidden_order_reference" name="order_reference" value="">
                         <div class="table-responsive">
                             <table class="table table-hover stock-table align-middle">
                                 <thead>
@@ -363,6 +364,10 @@ document.addEventListener('DOMContentLoaded', function() {
     const purchaseForm = document.getElementById('purchaseForm');
     if (purchaseForm) {
         purchaseForm.addEventListener('submit', function(e) {
+            // Generate order reference and add to form before submitting
+            const orderRef = generateOrderReference();
+            document.getElementById('hidden_order_reference').value = orderRef;
+
             let hasError = false;
             qtyInputs.forEach(input => {
                 const qty = parseInt(input.value) || 0;
@@ -380,6 +385,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 return false;
             }
         });
+    }
+
+    // Generate order reference (same format as server-side)
+    function generateOrderReference() {
+        const min = 1000000000;
+        const max = 9999999999;
+        const randomNum = Math.floor(Math.random() * (max - min + 1)) + min;
+        return `INDY-${randomNum}`;
     }
 
     // Initial update
