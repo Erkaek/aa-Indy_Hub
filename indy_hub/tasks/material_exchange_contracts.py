@@ -475,53 +475,46 @@ def _get_character_for_scope(corporation_id: int, scope: str) -> int:
             )
 
         # Try to find a token with the required scope
+        # Token.scopes is a ManyToMany field (Scope model)
         for token in tokens:
-            scopes_value = None
             try:
-                getter = getattr(token, "get_scopes", None)
-                if callable(getter):
-                    scopes_value = getter()
-                else:
-                    scopes_value = getattr(token, "scopes", [])
-
-                if isinstance(scopes_value, (list, tuple, set)):
-                    has = scope in scopes_value
-                else:
-                    text = str(scopes_value or "")
-                    parts = text.replace(",", " ").split()
-                    has = scope in parts
-            except Exception:
-                has = False
-            if has:
-                logger.debug(
-                    f"Found token for {scope} via character {token.character_id}"
+                token_scope_names = list(
+                    token.scopes.values_list("name", flat=True)
                 )
-                return token.character_id
+                if scope in token_scope_names:
+                    logger.debug(
+                        f"Found token for {scope} via character {token.character_id}"
+                    )
+                    return token.character_id
+            except Exception:
+                continue
 
         # No token with required scope found
         # Build a readable list of available scopes and character names
         try:
-            token_char_ids = list(
-                Token.objects.filter(character_id__in=character_ids)
-                .values_list("character_id", flat=True)
-                .distinct()
-            )
-            # AllianceAuth character names
             # Alliance Auth
             from allianceauth.eveonline.models import EveCharacter
 
             name_map = {
                 ec.character_id: (ec.character_name or str(ec.character_id))
-                for ec in EveCharacter.objects.filter(character_id__in=token_char_ids)
+                for ec in EveCharacter.objects.filter(
+                    character_id__in=character_ids
+                )
             }
         except Exception:
             name_map = {}
 
-        available_scopes_list = [
-            f"{name_map.get(token.character_id, f'char {token.character_id}')}"
-            f": {token.get_scopes()}"
-            for token in tokens
-        ]
+        available_scopes_list = []
+        for token in tokens:
+            try:
+                scopes_str = ", ".join(
+                    token.scopes.values_list("name", flat=True)
+                )
+            except Exception:
+                scopes_str = "unknown"
+            char_name = name_map.get(token.character_id, f"char {token.character_id}")
+            available_scopes_list.append(f"{char_name}: {scopes_str}")
+
         raise ESITokenError(
             f"No character in corporation {corporation_id} has scope '{scope}'. "
             f"Available characters and scopes:\n" + "\n".join(available_scopes_list)
