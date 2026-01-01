@@ -49,6 +49,7 @@ from .views.material_exchange import (
     material_exchange_reject_buy,
     material_exchange_reject_sell,
     material_exchange_sell,
+    material_exchange_sell_assets_refresh_status,
     material_exchange_sync_prices,
     material_exchange_sync_stock,
     material_exchange_transactions,
@@ -72,6 +73,7 @@ from .views.material_exchange_orders import (
 )
 from .views.user import (
     authorize_all,
+    authorize_assets,
     authorize_blueprints,
     authorize_corp_all,
     authorize_corp_blueprints,
@@ -133,6 +135,7 @@ urlpatterns = [
     path("tokens/sync-all/", sync_all_tokens, name="sync_all_tokens"),
     path("authorize/blueprints/", authorize_blueprints, name="authorize_blueprints"),
     path("authorize/jobs/", authorize_jobs, name="authorize_jobs"),
+    path("authorize/assets/", authorize_assets, name="authorize_assets"),
     path("authorize/all/", authorize_all, name="authorize_all"),
     path(
         "authorize/corporation/blueprints/",
@@ -312,6 +315,11 @@ urlpatterns = [
         "material-exchange/sell/",
         material_exchange_sell,
         name="material_exchange_sell",
+    ),
+    path(
+        "material-exchange/api/sell-assets-refresh-status/",
+        material_exchange_sell_assets_refresh_status,
+        name="material_exchange_sell_assets_refresh_status",
     ),
     path(
         "material-exchange/buy/",

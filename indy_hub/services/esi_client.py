@@ -464,6 +464,43 @@ class ESIClient:
             endpoint=f"/corporations/{corporation_id}/contracts/{contract_id}/items/",
         )
 
+    def fetch_corporation_assets(
+        self,
+        corporation_id: int,
+        *,
+        character_id: int,
+    ) -> list[dict]:
+        """Fetch all corporation assets for the given corp using a character token."""
+
+        return self._fetch_paginated(
+            character_id=character_id,
+            scope="esi-assets.read_corporation_assets.v1",
+            endpoint=f"/corporations/{corporation_id}/assets/",
+        )
+
+    def fetch_character_assets(self, *, character_id: int) -> list[dict]:
+        """Fetch all assets for a character using their token."""
+
+        return self._fetch_paginated(
+            character_id=character_id,
+            scope="esi-assets.read_assets.v1",
+            endpoint=f"/characters/{character_id}/assets/",
+        )
+
+    def fetch_corporation_structures(
+        self,
+        corporation_id: int,
+        *,
+        character_id: int,
+    ) -> list[dict]:
+        """Fetch corporation structures (includes names) using corp structures scope."""
+
+        return self._fetch_paginated(
+            character_id=character_id,
+            scope="esi-corporations.read_structures.v1",
+            endpoint=f"/corporations/{corporation_id}/structures/",
+        )
+
     def _handle_forbidden_token(
         self, token: Token, *, scope: str, endpoint: str
     ) -> None:

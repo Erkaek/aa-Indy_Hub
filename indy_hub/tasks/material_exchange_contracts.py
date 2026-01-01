@@ -20,6 +20,7 @@ from django.utils.translation import gettext_lazy as _
 # AA Example App
 # Local
 from indy_hub.models import (
+    CachedStructureName,
     ESIContract,
     ESIContractItem,
     MaterialExchangeBuyOrder,
@@ -27,6 +28,7 @@ from indy_hub.models import (
     MaterialExchangeSellOrder,
 )
 from indy_hub.notifications import notify_multi, notify_user
+from indy_hub.services.asset_cache import resolve_structure_names
 from indy_hub.services.esi_client import (
     ESIClientError,
     ESIForbiddenError,
@@ -40,21 +42,12 @@ logger = logging.getLogger(__name__)
 _structure_name_cache: dict[int, str] = {}
 
 
-def _get_location_name(location_id: int, esi_client=None) -> str | None:
-    """
-    Resolve a location name from corptools EveLocation or ESI as fallback.
+def _get_location_name(
+    location_id: int, esi_client=None, *, corporation_id: int | None = None
+) -> str | None:
+    """Resolve a location name from ESI, with caching and signed/unsigned support."""
 
-    Tries:
-    1. Corptools EveLocation (handles signed/unsigned ID variants)
-    2. ESI API as fallback (with caching)
-    """
-    try:
-        # Third Party
-        from corptools.models import EveLocation
-    except Exception:
-        # Corptools not available, fall back to ESI
-        return _get_structure_name(location_id, esi_client)
-
+    # Handle potential unsigned IDs coming from ESI
     def to_signed(n: int) -> int:
         if n > 9223372036854775807:
             return n - 18446744073709551616
@@ -65,27 +58,22 @@ def _get_location_name(location_id: int, esi_client=None) -> str | None:
             return n + 18446744073709551616
         return n
 
-    # Try original ID first in corptools
-    try:
-        loc = EveLocation.objects.get(location_id=location_id)
-        return loc.location_name
-    except EveLocation.DoesNotExist:
-        pass
+    # Try original ID
+    name = _get_structure_name(location_id, esi_client, corporation_id=corporation_id)
+    if name:
+        return name
 
-    # Try variant (signed/unsigned) in corptools
+    # Try variant (signed/unsigned) via ESI
     variant = to_signed(location_id) if location_id > 0 else to_unsigned(location_id)
     if variant != location_id:
-        try:
-            loc = EveLocation.objects.get(location_id=variant)
-            return loc.location_name
-        except EveLocation.DoesNotExist:
-            pass
+        return _get_structure_name(variant, esi_client, corporation_id=corporation_id)
 
-    # Fall back to ESI if not found in corptools
-    return _get_structure_name(location_id, esi_client)
+    return None
 
 
-def _get_structure_name(location_id: int, esi_client) -> str | None:
+def _get_structure_name(
+    location_id: int, esi_client, *, corporation_id: int | None = None
+) -> str | None:
     """
     Get the name of a structure from ESI, with caching.
 
@@ -95,15 +83,55 @@ def _get_structure_name(location_id: int, esi_client) -> str | None:
     if location_id in _structure_name_cache:
         return _structure_name_cache[location_id]
 
+    # Prefer persistent DB cache first
+    try:
+        cached = (
+            CachedStructureName.objects.filter(structure_id=int(location_id))
+            .values_list("name", flat=True)
+            .first()
+        )
+        if cached:
+            _structure_name_cache[int(location_id)] = str(cached)
+            return str(cached)
+    except Exception:
+        pass
+
+    # Prefer shared Indy Hub resolver (handles corp structure cache + token selection,
+    # and supports managed negative hangar ids when corporation_id is provided).
+    try:
+        resolved = resolve_structure_names(
+            [int(location_id)],
+            corporation_id=int(corporation_id) if corporation_id is not None else None,
+        ).get(int(location_id))
+        if resolved:
+            _structure_name_cache[int(location_id)] = str(resolved)
+            return str(resolved)
+    except Exception:
+        pass
+
     if not esi_client:
         return None
 
     try:
-        structure_info = esi_client.get_structure_info(location_id)
-        structure_name = structure_info.get("name")
-        if structure_name:
-            _structure_name_cache[location_id] = structure_name
-            return structure_name
+        get_structure_info = getattr(esi_client, "get_structure_info", None)
+        if callable(get_structure_info):
+            structure_info = get_structure_info(location_id)
+            structure_name = (
+                structure_info.get("name") if isinstance(structure_info, dict) else None
+            )
+            if structure_name:
+                _structure_name_cache[int(location_id)] = str(structure_name)
+                try:
+                    CachedStructureName.objects.update_or_create(
+                        structure_id=int(location_id),
+                        defaults={
+                            "name": str(structure_name),
+                            "last_resolved": timezone.now(),
+                        },
+                    )
+                except Exception:
+                    pass
+                return str(structure_name)
     except Exception as exc:
         logger.debug(
             "Failed to fetch structure name for location %s: %s",
@@ -851,8 +879,16 @@ def _matches_sell_order_criteria_db(
         return False
 
     # Check location by name to handle signed/unsigned variants and service-module IDs
-    contract_start_name = _get_location_name(contract.start_location_id, esi_client)
-    contract_end_name = _get_location_name(contract.end_location_id, esi_client)
+    contract_start_name = _get_location_name(
+        contract.start_location_id,
+        esi_client,
+        corporation_id=int(config.corporation_id),
+    )
+    contract_end_name = _get_location_name(
+        contract.end_location_id,
+        esi_client,
+        corporation_id=int(config.corporation_id),
+    )
     config_location_name = config.structure_name
 
     # Try name matching first
@@ -883,8 +919,16 @@ def _matches_buy_order_criteria_db(
     if contract.assignee_id not in buyer_character_ids:
         return False
 
-    contract_start_name = _get_location_name(contract.start_location_id, esi_client)
-    contract_end_name = _get_location_name(contract.end_location_id, esi_client)
+    contract_start_name = _get_location_name(
+        contract.start_location_id,
+        esi_client,
+        corporation_id=int(config.corporation_id),
+    )
+    contract_end_name = _get_location_name(
+        contract.end_location_id,
+        esi_client,
+        corporation_id=int(config.corporation_id),
+    )
     config_location_name = config.structure_name
 
     if contract_start_name and contract_start_name == config_location_name:
@@ -951,12 +995,28 @@ def handle_material_exchange_buy_order_created(order_id):
     config = order.config
     admins = _get_admins_for_config(config)
 
+    items = list(order.items.all())
+    total_qty = order.total_quantity
+    total_price = order.total_price
+
+    preview_lines = []
+    for item in items[:5]:
+        preview_lines.append(
+            f"- {item.type_name or item.type_id}: {item.quantity:,}x @ {item.unit_price:,.2f} ISK"
+        )
+    if len(items) > 5:
+        preview_lines.append(_("…"))
+
+    preview = "\n".join(preview_lines) if preview_lines else _("(no items)")
+
     notify_multi(
         admins,
         _("New Buy Order"),
         _(
-            f"{order.buyer.username} wants to buy {order.quantity}x {order.type_name} for {order.total_price:,.2f} ISK.\n"
-            f"Stock available at creation: {order.stock_available_at_creation}x\n"
+            f"{order.buyer.username} created a buy order {order.order_reference}.\n"
+            f"Items: {len(items)} (qty: {total_qty:,})\n"
+            f"Total: {total_price:,.2f} ISK\n\n"
+            f"Preview:\n{preview}\n\n"
             f"Review and approve to proceed with delivery."
         ),
         level="info",

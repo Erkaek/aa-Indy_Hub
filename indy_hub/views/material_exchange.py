@@ -7,9 +7,11 @@ from decimal import Decimal
 # Django
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.cache import cache
 from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Count, Q, Sum
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -18,6 +20,7 @@ from django.views.decorators.http import require_http_methods
 # Local
 from ..decorators import indy_hub_permission_required
 from ..models import (
+    CachedCharacterAsset,
     MaterialExchangeBuyOrder,
     MaterialExchangeBuyOrderItem,
     MaterialExchangeConfig,
@@ -26,7 +29,9 @@ from ..models import (
     MaterialExchangeStock,
     MaterialExchangeTransaction,
 )
+from ..services.asset_cache import get_corp_divisions_cached, get_user_assets_cached
 from ..tasks.material_exchange import (
+    refresh_material_exchange_sell_user_assets,
     sync_material_exchange_prices,
     sync_material_exchange_stock,
 )
@@ -35,6 +40,124 @@ from ..utils.eve import get_type_name
 logger = logging.getLogger(__name__)
 
 _PRODUCTION_IDS_CACHE: set[int] | None = None
+
+
+def _fetch_user_assets_for_structure(
+    user, structure_id: int, *, allow_refresh: bool = True
+) -> tuple[dict[int, int], bool]:
+    """Return aggregated asset quantities for the user's characters at a structure using cache."""
+
+    assets, scope_missing = get_user_assets_cached(user, allow_refresh=allow_refresh)
+
+    aggregated: dict[int, int] = {}
+    for asset in assets:
+        try:
+            if int(asset.get("location_id", 0)) != int(structure_id):
+                continue
+        except (TypeError, ValueError):
+            continue
+
+        try:
+            type_id = int(asset.get("type_id"))
+        except (TypeError, ValueError):
+            continue
+
+        qty_raw = asset.get("quantity", 1)
+        try:
+            quantity = int(qty_raw or 0)
+        except (TypeError, ValueError):
+            quantity = 1
+
+        if quantity <= 0:
+            quantity = 1 if asset.get("is_singleton") else 0
+
+        aggregated[type_id] = aggregated.get(type_id, 0) + quantity
+
+    return aggregated, scope_missing
+
+
+def _me_sell_assets_progress_key(user_id: int) -> str:
+    return f"indy_hub:material_exchange:sell_assets_refresh:{int(user_id)}"
+
+
+def _ensure_sell_assets_refresh_started(user) -> dict:
+    """Start (if needed) an async refresh of user assets and return the current progress state."""
+
+    progress_key = _me_sell_assets_progress_key(user.id)
+    ttl_seconds = 10 * 60
+    state = cache.get(progress_key) or {}
+    if state.get("running"):
+        return state
+
+    # Always refresh on page open unless explicitly suppressed.
+    try:
+        # Alliance Auth
+        from allianceauth.authentication.models import CharacterOwnership
+        from esi.models import Token
+
+        total = int(
+            CharacterOwnership.objects.filter(user=user)
+            .values_list("character__character_id", flat=True)
+            .distinct()
+            .count()
+        )
+
+        has_assets_token = (
+            Token.objects.filter(user=user)
+            .require_scopes(["esi-assets.read_assets.v1"])
+            .exists()
+        )
+    except Exception:
+        total = 0
+        has_assets_token = False
+
+    if total > 0 and not has_assets_token:
+        state = {
+            "running": False,
+            "finished": True,
+            "error": "missing_assets_scope",
+            "total": total,
+            "done": 0,
+            "failed": 0,
+        }
+        cache.set(progress_key, state, ttl_seconds)
+        return state
+
+    state = {
+        "running": True,
+        "finished": False,
+        "error": None,
+        "total": total,
+        "done": 0,
+        "failed": 0,
+    }
+    cache.set(progress_key, state, ttl_seconds)
+
+    try:
+        refresh_material_exchange_sell_user_assets.delay(int(user.id))
+    except Exception:
+        # Fallback: mark as finished; UI will stop polling.
+        state.update({"running": False, "finished": True, "error": "task_start_failed"})
+        cache.set(progress_key, state, ttl_seconds)
+
+    return state
+
+
+@login_required
+@indy_hub_permission_required("can_access_indy_hub")
+def material_exchange_sell_assets_refresh_status(request):
+    """Return JSON progress for sell-page user asset refresh."""
+
+    progress_key = _me_sell_assets_progress_key(request.user.id)
+    state = cache.get(progress_key) or {
+        "running": False,
+        "finished": False,
+        "error": None,
+        "total": 0,
+        "done": 0,
+        "failed": 0,
+    }
+    return JsonResponse(state)
 
 
 def _load_production_ids() -> set[int]:
@@ -211,157 +334,54 @@ def material_exchange_index(request):
     total_stock_value = 0
 
     try:
-        # Django
-        from django.db import connection
-
-        # Alliance Auth
-        from allianceauth.authentication.models import CharacterOwnership
-
         # Alliance Auth (External Libs)
         from eveuniverse.models import EveType
 
-        character_ids = list(
-            CharacterOwnership.objects.filter(user=request.user).values_list(
-                "character_id", flat=True
-            )
+        user_assets, scope_missing = _fetch_user_assets_for_structure(
+            request.user, int(config.structure_id)
         )
 
-        if character_ids:
-            placeholders = ",".join(["%s"] * len(character_ids))
-            base_id = int(config.structure_id)
-            low = base_id * 10
-            high = base_id * 10 + 9
-
-            personal_loc_ids: list[int] = []
-            with connection.cursor() as cursor:
-                try:
-                    cursor.execute(
-                        """
-SELECT DISTINCT e.location_id
-FROM corptools_evelocation e
-WHERE e.location_id > 0
-AND e.system_id = (
-    SELECT system_id FROM corptools_evelocation
-    WHERE location_id < 0 AND ABS(location_id) DIV 10 = %s
-    LIMIT 1
-)
-AND (
-    e.location_name = (
-        SELECT SUBSTRING_INDEX(location_name, '>', 1)
-        FROM corptools_evelocation
-        WHERE location_id < 0 AND ABS(location_id) DIV 10 = %s
-        LIMIT 1
-    )
-    OR e.location_name LIKE CONCAT(
-        (
-            SELECT SUBSTRING_INDEX(location_name, '>', 1)
-            FROM corptools_evelocation
-            WHERE location_id < 0 AND ABS(location_id) DIV 10 = %s
-            LIMIT 1
-        ), %s
-    )
-)
-""",
-                        [base_id, base_id, base_id, "%"],
-                    )
-                    personal_loc_ids = [
-                        int(r[0]) for r in cursor.fetchall() if r and r[0]
-                    ]
-                except Exception:
-                    personal_loc_ids = []
-
-                extra_clause = ""
-                params = list(character_ids)
-                # First bind base/range placeholders, then optional personal location IDs
-                base_params = [base_id, low, high]
-                if personal_loc_ids:
-                    plh = ",".join(["%s"] * len(personal_loc_ids))
-                    extra_clause = f" OR location_id IN ({plh})"
-                    params.extend(base_params + personal_loc_ids)
-                else:
-                    params.extend(base_params)
-
-                query = (
-                    f"""
-SELECT type_id, SUM(quantity) as total_qty
-FROM corptools_characterasset
-WHERE character_id IN ({placeholders})
-AND ((ABS(location_id) = %s OR (ABS(location_id) BETWEEN %s AND %s))"""
-                    + extra_clause
-                    + """
-)
-GROUP BY type_id
-"""
-                )
-
-                cursor.execute(query, params)
-                user_assets = {row[0]: row[1] for row in cursor.fetchall()}
-
-            # NOTE: Removed production filter to align with Sell page (allow all items)
-            logger.info(
-                f"INDEX DEBUG: Found {len(user_assets)} unique items in assets before production filter (filter disabled)"
-            )
-            logger.info(
-                f"INDEX DEBUG: {len(user_assets)} items after production filter (filter disabled)"
+        if scope_missing:
+            messages.info(
+                request,
+                _(
+                    "Actualisation en cours via ESI. Assurez-vous d'avoir donné le scope assets à au moins un personnage."
+                ),
             )
 
-            allowed_type_ids = set(
-                EveType.objects.filter(
-                    eve_market_group__parent_market_group_id__in=[
-                        533,
-                        1031,
-                        1034,
-                        2395,
-                    ]
-                ).values_list("id", flat=True)
-            )
-            user_assets = {
-                tid: qty for tid, qty in user_assets.items() if tid in allowed_type_ids
-            }
-            logger.info(
-                f"INDEX DEBUG: {len(user_assets)} items after market group filter"
-            )
+        allowed_type_ids = set(
+            EveType.objects.filter(
+                eve_market_group__parent_market_group_id__in=[
+                    533,
+                    1031,
+                    1034,
+                    2395,
+                ]
+            ).values_list("id", flat=True)
+        )
+        user_assets = {
+            tid: qty for tid, qty in user_assets.items() if tid in allowed_type_ids
+        }
 
-            if user_assets:
-                logger.info(
-                    f"INDEX DEBUG: user_assets keys: {list(user_assets.keys())}"
-                )
-                price_data = _fetch_fuzzwork_prices(list(user_assets.keys()))
-                logger.info(
-                    f"INDEX DEBUG: Got prices for {len(price_data)} items from Fuzzwork"
-                )
-                logger.info(f"INDEX DEBUG: price_data keys: {list(price_data.keys())}")
-                visible_items = 0
-                total_value = Decimal(0)
+        if user_assets:
+            price_data = _fetch_fuzzwork_prices(list(user_assets.keys()))
+            visible_items = 0
+            total_value = Decimal(0)
 
-                for type_id, user_qty in user_assets.items():
-                    fuzz_prices = price_data.get(type_id, {})
-                    jita_buy = fuzz_prices.get("buy") or Decimal(0)
-                    jita_sell = fuzz_prices.get("sell") or Decimal(0)
-                    base = jita_sell if config.sell_markup_base == "sell" else jita_buy
-                    logger.info(
-                        f"INDEX DEBUG: type_id={type_id} qty={user_qty} jita_buy={jita_buy} jita_sell={jita_sell} base={base} sell_markup_base={config.sell_markup_base}"
-                    )
-                    if base <= 0:
-                        logger.info(
-                            f"INDEX DEBUG: SKIPPING type_id {type_id} - no valid price (base={base})"
-                        )
-                        continue
-                    unit_price = base * (
-                        1 + (config.sell_markup_percent / Decimal(100))
-                    )
-                    item_value = unit_price * user_qty
-                    logger.info(
-                        f"INDEX DEBUG: COUNTING type_id {type_id} qty={user_qty} unit_price={unit_price} item_value={item_value}"
-                    )
-                    total_value += item_value
-                    visible_items += 1
+            for type_id, user_qty in user_assets.items():
+                fuzz_prices = price_data.get(type_id, {})
+                jita_buy = fuzz_prices.get("buy") or Decimal(0)
+                jita_sell = fuzz_prices.get("sell") or Decimal(0)
+                base = jita_sell if config.sell_markup_base == "sell" else jita_buy
+                if base <= 0:
+                    continue
+                unit_price = base * (1 + (config.sell_markup_percent / Decimal(100)))
+                item_value = unit_price * user_qty
+                total_value += item_value
+                visible_items += 1
 
-                logger.info(
-                    f"INDEX DEBUG: Final visible items count: {visible_items}, total_value: {total_value}"
-                )
-                stock_count = visible_items
-                total_stock_value = total_value
+            stock_count = visible_items
+            total_stock_value = total_value
     except Exception:
         # Fall back silently if user assets cannot be loaded
         pass
@@ -428,100 +448,53 @@ def material_exchange_sell(request):
     """
     config = get_object_or_404(MaterialExchangeConfig, is_active=True)
     materials_with_qty: list[dict] = []
+    assets_refreshing = False
+
+    sell_last_update = (
+        CachedCharacterAsset.objects.filter(user=request.user)
+        .order_by("-synced_at")
+        .values_list("synced_at", flat=True)
+        .first()
+    )
+
+    try:
+        user_assets_stale = (
+            not sell_last_update
+            or (timezone.now() - sell_last_update).total_seconds() > 3600
+        )
+    except Exception:
+        user_assets_stale = True
+
+    # Start async refresh of the user's assets on page open (GET only).
+    progress_key = _me_sell_assets_progress_key(request.user.id)
+    sell_assets_progress = cache.get(progress_key) or {}
+    if (
+        request.method == "GET"
+        and request.GET.get("refreshed") != "1"
+        and user_assets_stale
+    ):
+        sell_assets_progress = _ensure_sell_assets_refresh_started(request.user)
+    assets_refreshing = bool(sell_assets_progress.get("running"))
 
     if request.method == "POST":
-        # Django
-        from django.db import connection
-
-        cursor = connection.cursor()
-
-        try:
-            # Alliance Auth
-            from allianceauth.authentication.models import CharacterOwnership
-
-            character_ids = list(
-                CharacterOwnership.objects.filter(user=request.user).values_list(
-                    "character_id", flat=True
-                )
-            )
-        except Exception:
-            character_ids = []
-
-        if not character_ids:
+        user_assets, scope_missing = _fetch_user_assets_for_structure(
+            request.user, config.structure_id
+        )
+        if not user_assets:
             messages.error(
                 request,
                 _(
-                    "Aucun personnage associé trouvé. Liez vos personnages dans Alliance Auth."
+                    "Impossible de charger vos assets via ESI. Ajoutez le scope assets au moins sur un personnage."
                 ),
             )
             return redirect("indy_hub:material_exchange_sell")
-
-        placeholders = ",".join(["%s"] * len(character_ids))
-        base_id = int(config.structure_id)
-        low = base_id * 10
-        high = base_id * 10 + 9
-
-        personal_loc_ids: list[int] = []
-        try:
-            cursor.execute(
-                """
-SELECT DISTINCT e.location_id
-FROM corptools_evelocation e
-WHERE e.location_id > 0
-AND e.system_id = (
-SELECT system_id FROM corptools_evelocation
-WHERE location_id < 0 AND ABS(location_id) DIV 10 = %s
-LIMIT 1
-)
-AND (
-e.location_name = (
-SELECT SUBSTRING_INDEX(location_name, '>', 1)
-FROM corptools_evelocation
-WHERE location_id < 0 AND ABS(location_id) DIV 10 = %s
-LIMIT 1
-)
-OR e.location_name LIKE CONCAT(
-(
-SELECT SUBSTRING_INDEX(location_name, '>', 1)
-FROM corptools_evelocation
-WHERE location_id < 0 AND ABS(location_id) DIV 10 = %s
-LIMIT 1
-), %s
-)
-)
-                """,
-                [base_id, base_id, base_id, "%"],
+        if scope_missing:
+            messages.info(
+                request,
+                _(
+                    "Actualisation en cours via ESI. Assurez-vous d'avoir donné le scope assets à au moins un personnage."
+                ),
             )
-            personal_loc_ids = [int(r[0]) for r in cursor.fetchall() if r and r[0]]
-        except Exception:
-            personal_loc_ids = []
-
-        extra_clause = ""
-        params = list(character_ids)
-        # First bind base/range placeholders, then optional personal location IDs
-        base_params = [base_id, low, high]
-        if personal_loc_ids:
-            plh = ",".join(["%s"] * len(personal_loc_ids))
-            extra_clause = f" OR location_id IN ({plh})"
-            params.extend(base_params + personal_loc_ids)
-        else:
-            params.extend(base_params)
-
-        query = (
-            f"""
-SELECT type_id, SUM(quantity) as total_qty
-FROM corptools_characterasset
-WHERE character_id IN ({placeholders})
-AND ((ABS(location_id) = %s OR (ABS(location_id) BETWEEN %s AND %s))"""
-            + extra_clause
-            + """
-)
-GROUP BY type_id
-"""
-        )
-
-        cursor.execute(query, params)
-        user_assets = {row[0]: row[1] for row in cursor.fetchall()}
 
         # Apply market group filter if configured
         # Always apply parent market group filter (Materials hierarchy)
@@ -625,9 +598,6 @@ GROUP BY type_id
                 MaterialExchangeSellOrderItem.objects.create(order=order, **item_data)
 
             # Send PM notification with order reference and instructions
-            # Alliance Auth
-            from allianceauth.authentication.models import CharacterOwnership
-
             from ..notifications import notify_user
 
             # Get corporation name
@@ -674,84 +644,47 @@ GROUP BY type_id
 
         return redirect("indy_hub:material_exchange_sell")
 
-    # GET branch
-    # Django
-    from django.db import connection
-
-    cursor = connection.cursor()
-
+    # GET branch: trigger stock sync only if stale (> 1h) or never synced
+    message_shown = False
     try:
-        # Alliance Auth
-        from allianceauth.authentication.models import CharacterOwnership
-
-        character_ids = list(
-            CharacterOwnership.objects.filter(user=request.user).values_list(
-                "character_id", flat=True
-            )
+        last_sync = config.last_stock_sync
+        needs_refresh = (
+            not last_sync or (timezone.now() - last_sync).total_seconds() > 3600
         )
     except Exception:
-        character_ids = []
+        needs_refresh = True
 
-    if character_ids:
-        placeholders = ",".join(["%s"] * len(character_ids))
-        base_id = int(config.structure_id)
-        low = base_id * 10
-        high = base_id * 10 + 9
-
-        personal_loc_ids: list[int] = []
+    if needs_refresh:
+        assets_refreshing = True
+        messages.info(
+            request,
+            _(
+                "Actualisation en cours via ESI. Assurez-vous d'avoir donné le scope assets à au moins un personnage."
+            ),
+        )
+        message_shown = True
         try:
-            cursor.execute(
-                """
-SELECT DISTINCT e.location_id
-FROM corptools_evelocation e
-WHERE e.location_id > 0
-AND e.system_id = (
-SELECT system_id FROM corptools_evelocation
-WHERE location_id < 0 AND ABS(location_id) DIV 10 = %s
-LIMIT 1
-)
-AND (
-e.location_name = (
-SELECT SUBSTRING_INDEX(location_name, '>', 1)
-FROM corptools_evelocation
-WHERE location_id < 0 AND ABS(location_id) DIV 10 = %s
-LIMIT 1
-)
-OR e.location_name LIKE CONCAT(
-(
-SELECT SUBSTRING_INDEX(location_name, '>', 1)
-FROM corptools_evelocation
-WHERE location_id < 0 AND ABS(location_id) DIV 10 = %s
-LIMIT 1
-), %s
-)
-)
-                """,
-                [base_id, base_id, base_id, "%"],
-            )
-            personal_loc_ids = [int(r[0]) for r in cursor.fetchall() if r and r[0]]
-        except Exception:
-            personal_loc_ids = []
+            sync_material_exchange_stock()
+            config.refresh_from_db()
+            assets_refreshing = False
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("Stock auto-sync failed (sell page): %s", exc)
 
-        extra_clause = ""
-        if personal_loc_ids:
-            plh = ",".join(["%s"] * len(personal_loc_ids))
-            extra_clause = f" OR location_id IN ({plh})"
+    # Avoid blocking GET requests: if a background refresh is running, don't do a synchronous refresh.
+    # If we're on ?refreshed=1 and nothing is cached yet, allow a one-time sync refresh so the list
+    # can still render even if the background job didn't populate anything.
+    has_cached_assets = CachedCharacterAsset.objects.filter(user=request.user).exists()
 
-        query = f"""
-    SELECT type_id, SUM(quantity) as total_qty
-    FROM corptools_characterasset
-    WHERE character_id IN ({placeholders})
-    AND (
-    (ABS(location_id) = %s OR (ABS(location_id) BETWEEN %s AND %s)){extra_clause}
+    allow_refresh = (
+        not bool(sell_assets_progress.get("running"))
+        or sell_assets_progress.get("error") == "task_start_failed"
+    ) and (request.GET.get("refreshed") != "1" or not has_cached_assets)
+    user_assets, scope_missing = _fetch_user_assets_for_structure(
+        request.user,
+        config.structure_id,
+        allow_refresh=allow_refresh,
     )
-    GROUP BY type_id
-    """
-
-        params = list(character_ids) + [base_id, low, high] + (personal_loc_ids or [])
-        cursor.execute(query, params)
-
-        user_assets = {row[0]: row[1] for row in cursor.fetchall()}
+    if user_assets:
         logger.info(
             f"SELL DEBUG: Found {len(user_assets)} unique items in assets before production filter (filter disabled)"
         )
@@ -809,6 +742,23 @@ LIMIT 1
             f"SELL DEBUG: Final materials_with_qty count: {len(materials_with_qty)}"
         )
         materials_with_qty.sort(key=lambda x: x["type_name"])
+    else:
+        if scope_missing and not message_shown:
+            messages.info(
+                request,
+                _(
+                    "Actualisation en cours via ESI. Assurez-vous d'avoir donné le scope assets à au moins un personnage."
+                ),
+            )
+        elif not message_shown:
+            messages.info(
+                request,
+                _(
+                    "Aucun asset trouvé à cette structure. Vérifiez le scope assets sur au moins un personnage."
+                ),
+            )
+
+    assets_refreshing = assets_refreshing or needs_refresh
 
     # Get corporation name
     corporation_name = _get_corp_name_for_hub(config.corporation_id)
@@ -817,6 +767,9 @@ LIMIT 1
         "config": config,
         "materials": materials_with_qty,
         "corporation_name": corporation_name,
+        "assets_refreshing": assets_refreshing,
+        "sell_assets_progress": sell_assets_progress,
+        "sell_last_update": sell_last_update,
         "nav_context": _build_nav_context(request.user),
     }
 
@@ -831,6 +784,7 @@ def material_exchange_buy(request):
     Member chooses materials + quantities, creates ONE order with multiple items.
     """
     config = get_object_or_404(MaterialExchangeConfig, is_active=True)
+    stock_refreshing = False
 
     if request.method == "POST":
         # Get available stock
@@ -967,14 +921,33 @@ def material_exchange_buy(request):
 
         return redirect("indy_hub:material_exchange_buy")
 
-    # GET: ensure stock is current if config was just changed or never synced
+    # Auto-refresh stock only if stale (> 1h) or never synced; otherwise keep cache
     try:
-        if not config.last_stock_sync or (
-            config.updated_at and config.last_stock_sync < config.updated_at
-        ):
+        last_sync = config.last_stock_sync
+        # Django
+        from django.utils import timezone
+
+        needs_refresh = (
+            not last_sync or (timezone.now() - last_sync).total_seconds() > 3600
+        )
+    except Exception:
+        needs_refresh = True
+
+    if needs_refresh:
+        stock_refreshing = True
+        messages.info(
+            request,
+            _(
+                "Actualisation en cours via ESI. Assurez-vous d'avoir donné le scope assets à au moins un personnage."
+            ),
+        )
+        try:
             sync_material_exchange_stock()
-    except Exception as exc:  # pragma: no cover - defensive
-        logger.warning("Stock auto-sync failed: %s", exc)
+            config.refresh_from_db()
+            stock_refreshing = False
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("Stock auto-sync failed: %s", exc)
+            stock_refreshing = True
 
     # GET: ensure prices are populated if stock exists without prices
     base_stock_qs = config.stock_items.filter(quantity__gt=0)
@@ -986,10 +959,7 @@ def material_exchange_buy(request):
             sync_material_exchange_prices()
             config.refresh_from_db()
         except Exception as exc:  # pragma: no cover - defensive
-            messages.warning(
-                request,
-                _(f"Price sync failed automatically: {exc}"),
-            )
+            messages.warning(request, f"Price sync failed automatically: {exc}")
 
     # Show available stock (quantity > 0 and price available)
     stock_items = list(config.stock_items.filter(quantity__gt=0, jita_buy_price__gt=0))
@@ -1022,9 +992,34 @@ def material_exchange_buy(request):
         )
     )
 
+    buy_last_update = None
+    try:
+        candidates = [config.last_stock_sync, config.last_price_sync]
+        candidates = [dt for dt in candidates if dt]
+        buy_last_update = max(candidates) if candidates else None
+    except Exception:
+        buy_last_update = None
+
+    try:
+        div_map, _div_scope_missing = get_corp_divisions_cached(
+            int(config.corporation_id), allow_refresh=False
+        )
+        hangar_division_label = (
+            div_map.get(int(config.hangar_division)) if div_map else None
+        )
+    except Exception:
+        hangar_division_label = None
+
+    hangar_division_label = (
+        hangar_division_label or ""
+    ).strip() or f"Hangar Division {int(config.hangar_division)}"
+
     context = {
         "config": config,
         "stock": stock_items,
+        "stock_refreshing": stock_refreshing,
+        "hangar_division_label": hangar_division_label,
+        "buy_last_update": buy_last_update,
         "nav_context": _build_nav_context(request.user),
     }
 
@@ -1036,7 +1031,7 @@ def material_exchange_buy(request):
 @require_http_methods(["POST"])
 def material_exchange_sync_stock(request):
     """
-    Force an immediate sync of stock from corptools cache.
+    Force an immediate sync of stock from ESI corp assets.
     Updates MaterialExchangeStock and redirects back.
     """
     try:

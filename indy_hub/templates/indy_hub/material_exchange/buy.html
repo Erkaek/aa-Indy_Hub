@@ -2,6 +2,7 @@
 {% load i18n %}
 {% load static %}
 {% load humanize %}
+{% load tz %}
 
 {% block page_title %}{% trans "Buy Materials from Hub" %}{% endblock page_title %}
 
@@ -112,13 +113,29 @@
                     <span class="text-primary fw-bold">{{ config.buy_markup_percent }}%</span>
                 </div>
             </div>
+            {% if stock_refreshing %}
+            <div class="alert alert-info mt-3 mb-0">
+                <i class="fas fa-sync fa-spin me-2"></i>
+                {% trans "Actualisation en cours via ESI (assets + prix)." %}
+            </div>
+            {% endif %}
         </div>
 
         {% if stock %}
         <div class="row g-4">
             <div class="col-lg-8">
                 <div class="glass-panel p-4">
-                    <h5 class="mb-4">{% trans "Available Stock" %}</h5>
+                    <h5 class="mb-4">
+                        {% trans "Available Stock in" %} {{ config.structure_name }} - {{ hangar_division_label }} hangar division
+                    </h5>
+                        <div class="text-muted small">
+                            {% trans "Last update" %}:
+                            {% if buy_last_update %}
+                                {{ buy_last_update|timezone:"UTC"|date:"Y-m-d H:i" }} EVE
+                            {% else %}
+                                {% trans "Never" %}
+                            {% endif %}
+                        </div>
                     <form method="post" id="purchaseForm">
                         {% csrf_token %}
                         <input type="hidden" id="hidden_order_reference" name="order_reference" value="">
@@ -220,7 +237,7 @@
                 <form method="post" action="{% url 'indy_hub:material_exchange_sync_stock' %}" class="d-inline">
                     {% csrf_token %}
                     <button type="submit" class="btn btn-info">
-                        <i class="fas fa-sync me-1"></i>{% trans "Sync Stock from Corptools" %}
+                        <i class="fas fa-sync me-1"></i>{% trans "Sync Stock from ESI" %}
                     </button>
                 </form>
                 <form method="post" action="{% url 'indy_hub:material_exchange_sync_prices' %}" class="d-inline">

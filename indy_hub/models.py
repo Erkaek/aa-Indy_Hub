@@ -1287,10 +1287,106 @@ class MaterialExchangeConfig(models.Model):
         return f"Material Exchange Config (Corp {self.corporation_id})"
 
 
+class CachedCorporationAsset(models.Model):
+    """Cached corporation assets fetched from ESI for reuse across views/tasks."""
+
+    corporation_id = models.BigIntegerField(db_index=True)
+    item_id = models.BigIntegerField(blank=True, null=True, db_index=True)
+    location_id = models.BigIntegerField(db_index=True)
+    location_flag = models.CharField(max_length=50, blank=True, db_index=True)
+    type_id = models.BigIntegerField(db_index=True)
+    quantity = models.BigIntegerField(default=0)
+    is_singleton = models.BooleanField(default=False)
+    is_blueprint = models.BooleanField(default=False)
+    synced_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        verbose_name = "Cached Corporation Asset"
+        verbose_name_plural = "Cached Corporation Assets"
+        indexes = [
+            models.Index(
+                fields=["corporation_id", "location_id"], name="cca_corp_loc_idx"
+            ),
+            models.Index(
+                fields=["corporation_id", "type_id"], name="cca_corp_type_idx"
+            ),
+            models.Index(
+                fields=["corporation_id", "location_flag"], name="cca_corp_flag_idx"
+            ),
+        ]
+
+    def __str__(self):
+        return f"Corp {self.corporation_id} asset {self.type_id} @ {self.location_id} ({self.location_flag})"
+
+
+class CachedCorporationDivision(models.Model):
+    """Cached corporation hangar division names from ESI."""
+
+    corporation_id = models.BigIntegerField(db_index=True)
+    division = models.IntegerField()
+    name = models.CharField(max_length=255)
+    synced_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        unique_together = ("corporation_id", "division")
+        indexes = [
+            models.Index(
+                fields=["corporation_id", "division"], name="ccd_corp_div_idx"
+            ),
+        ]
+
+    def __str__(self):
+        return f"Corp {self.corporation_id} division {self.division}: {self.name}"
+
+
+class CachedCharacterAsset(models.Model):
+    """Cached character assets fetched from ESI for reuse across views/tasks."""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, db_index=True)
+    character_id = models.BigIntegerField(db_index=True)
+    location_id = models.BigIntegerField(db_index=True)
+    location_flag = models.CharField(max_length=50, blank=True, db_index=True)
+    type_id = models.BigIntegerField(db_index=True)
+    quantity = models.BigIntegerField(default=0)
+    is_singleton = models.BooleanField(default=False)
+    is_blueprint = models.BooleanField(default=False)
+    synced_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        verbose_name = "Cached Character Asset"
+        verbose_name_plural = "Cached Character Assets"
+        indexes = [
+            models.Index(fields=["user", "character_id"], name="cca_user_char_idx"),
+            models.Index(fields=["user", "location_id"], name="cca_user_loc_idx"),
+            models.Index(fields=["user", "type_id"], name="cca_user_type_idx"),
+        ]
+
+    def __str__(self):
+        return (
+            f"User {self.user_id} char {self.character_id} asset {self.type_id} "
+            f"@ {self.location_id} ({self.location_flag})"
+        )
+
+
+class CachedStructureName(models.Model):
+    """Cached structure names to avoid repeated ESI lookups."""
+
+    structure_id = models.BigIntegerField(primary_key=True)
+    name = models.CharField(max_length=255)
+    last_resolved = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        verbose_name = "Cached Structure Name"
+        verbose_name_plural = "Cached Structure Names"
+
+    def __str__(self):
+        return f"{self.structure_id}: {self.name}"
+
+
 class MaterialExchangeStock(models.Model):
     """
-    Cached stock levels from corptools corp assets.
-    Refreshed periodically via Celery task.
+    Cached stock levels from corporation assets (ESI).
+    Refreshed on-demand via Celery task.
     Single source of truth for Material Exchange inventory.
     """
 

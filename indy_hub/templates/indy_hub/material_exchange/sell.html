@@ -2,6 +2,7 @@
 {% load i18n %}
 {% load static %}
 {% load humanize %}
+{% load tz %}
 
 {% block page_title %}{% trans "Sell Materials to Hub" %}{% endblock page_title %}
 
@@ -119,6 +120,36 @@
                 <i class="fas fa-exclamation-circle me-2"></i>
                 <small>{% trans "Enter the quantities you want to sell. Make sure you have the items in your hangar." %}</small>
             </div>
+            {% if sell_assets_progress.error == "missing_assets_scope" %}
+            <div class="alert alert-danger mt-3 mb-0">
+                <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+                    <div>
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        {% trans "Token assets manquant: ajoutez le scope ESI pour charger vos assets." %}
+                    </div>
+                    <a class="btn btn-outline-light btn-sm" href="{% url 'indy_hub:authorize_assets' %}">
+                        <i class="fas fa-key me-1"></i>{% trans "Ajouter le token assets" %}
+                    </a>
+                </div>
+            </div>
+            {% endif %}
+            {% if assets_refreshing %}
+            <div class="alert alert-warning mt-3 mb-0">
+                <i class="fas fa-sync fa-spin me-2"></i>
+                {% trans "Actualisation en cours via ESI pour vos assets." %}
+                <span class="ms-2">
+                    <strong id="me-assets-progress">0/0</strong>
+                </span>
+            </div>
+            {% endif %}
+                <p class="text-sm opacity-70">
+                    {% trans "Last update" %}:
+                    {% if sell_last_update %}
+                        {{ sell_last_update|timezone:"UTC"|date:"Y-m-d H:i" }} EVE
+                    {% else %}
+                        {% trans "Never" %}
+                    {% endif %}
+                </p>
         </div>
 
         {% if materials %}
@@ -531,6 +562,48 @@ document.addEventListener('DOMContentLoaded', function() {
     if (hasInvoice) {
         updateInvoice();
     }
+
+    // Live asset refresh progress (per character)
+    {% if assets_refreshing %}
+    const progressEl = document.getElementById('me-assets-progress');
+    const statusUrl = '{% url "indy_hub:material_exchange_sell_assets_refresh_status" %}';
+
+    async function pollAssetsProgress() {
+        try {
+            const resp = await fetch(statusUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+            if (!resp.ok) {
+                return;
+            }
+            const data = await resp.json();
+            const total = parseInt(data.total || 0);
+            const done = parseInt(data.done || 0);
+            const error = data.error || null;
+
+            if (progressEl) {
+                progressEl.textContent = `${done}/${total}`;
+            }
+
+            if (data.running) {
+                setTimeout(pollAssetsProgress, 1000);
+                return;
+            }
+
+            // When finished successfully, reload once to show the updated materials list.
+            // Guard against loops if the page was already reloaded.
+            if (data.finished && !error && total > 0 && done >= total) {
+                const url = new URL(window.location.href);
+                if (url.searchParams.get('refreshed') !== '1') {
+                    url.searchParams.set('refreshed', '1');
+                    window.location.replace(url.toString());
+                }
+            }
+        } catch (e) {
+            // silent
+        }
+    }
+
+    pollAssetsProgress();
+    {% endif %}
 });
 </script>
 {% endblock content %}

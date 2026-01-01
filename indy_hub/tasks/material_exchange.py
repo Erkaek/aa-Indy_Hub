@@ -10,22 +10,237 @@ from decimal import Decimal
 from celery import shared_task
 
 # Django
-from django.db import connection, transaction
+from django.contrib.auth import get_user_model
+from django.core.cache import cache
+from django.db import transaction
 from django.utils import timezone
 
 # Alliance Auth
-from esi.clients import EsiClientProvider
+from esi.models import Token
 
 # AA Example App
 from indy_hub.models import (
+    CachedCharacterAsset,
     MaterialExchangeConfig,
     MaterialExchangeStock,
+)
+from indy_hub.services.asset_cache import (
+    force_refresh_corp_assets,
+    force_refresh_corp_divisions,
+    get_corp_assets_cached,
+    get_office_folder_item_id_from_assets,
+)
+from indy_hub.services.esi_client import (
+    ESIClientError,
+    ESIForbiddenError,
+    ESIRateLimitError,
+    ESITokenError,
+    shared_client,
 )
 from indy_hub.utils.eve import get_type_name
 
 logger = logging.getLogger(__name__)
 
-esi = EsiClientProvider()
+
+def _me_sell_assets_progress_key(user_id: int) -> str:
+    return f"indy_hub:material_exchange:sell_assets_refresh:{int(user_id)}"
+
+
+@shared_task
+def refresh_material_exchange_sell_user_assets(user_id: int) -> None:
+    """Refresh CachedCharacterAsset for all of a user's characters, tracking progress.
+
+    Progress is stored in the Django cache and consumed by the sell page.
+    """
+
+    progress_key = _me_sell_assets_progress_key(int(user_id))
+    ttl_seconds = 10 * 60
+
+    UserModel = get_user_model()
+
+    try:
+        user = UserModel.objects.get(pk=int(user_id))
+    except Exception:
+        cache.set(
+            progress_key,
+            {
+                "running": False,
+                "finished": True,
+                "error": "user_not_found",
+                "total": 0,
+                "done": 0,
+            },
+            ttl_seconds,
+        )
+        return
+
+    # Progress should reflect *all* of the user's characters.
+    try:
+        # Alliance Auth
+        from allianceauth.authentication.models import CharacterOwnership
+
+        character_ids = list(
+            CharacterOwnership.objects.filter(user=user)
+            .values_list("character__character_id", flat=True)
+            .distinct()
+        )
+        character_ids = [int(cid) for cid in character_ids if cid]
+    except Exception:
+        character_ids = []
+
+    total = int(len(character_ids))
+    cache.set(
+        progress_key,
+        {
+            "running": True,
+            "finished": False,
+            "error": None,
+            "total": total,
+            "done": 0,
+            "failed": 0,
+        },
+        ttl_seconds,
+    )
+
+    if total <= 0:
+        cache.set(
+            progress_key,
+            {
+                "running": False,
+                "finished": True,
+                "error": "no_characters",
+                "total": 0,
+                "done": 0,
+                "failed": 0,
+            },
+            ttl_seconds,
+        )
+        return
+
+    now = timezone.now()
+
+    done = 0
+    failed = 0
+    all_rows: list[CachedCharacterAsset] = []
+
+    for character_id in character_ids:
+        if not character_id:
+            failed += 1
+            done += 1
+            cache.set(
+                progress_key,
+                {
+                    "running": True,
+                    "finished": False,
+                    "error": None,
+                    "total": total,
+                    "done": done,
+                    "failed": failed,
+                },
+                ttl_seconds,
+            )
+            continue
+
+        try:
+            # Only use a token actually owned by this user.
+            # Otherwise Token.get_token() could (in edge cases) resolve a token from
+            # another user that happens to have the same character_id.
+            if (
+                not Token.objects.filter(user=user, character_id=int(character_id))
+                .require_scopes(["esi-assets.read_assets.v1"])
+                .exists()
+            ):
+                raise ESITokenError(
+                    f"No assets token for character {character_id} and user {user_id}"
+                )
+
+            assets = shared_client.fetch_character_assets(
+                character_id=int(character_id)
+            )
+        except (ESITokenError, ESIRateLimitError, ESIForbiddenError, ESIClientError):
+            failed += 1
+            done += 1
+            cache.set(
+                progress_key,
+                {
+                    "running": True,
+                    "finished": False,
+                    "error": None,
+                    "total": total,
+                    "done": done,
+                    "failed": failed,
+                },
+                ttl_seconds,
+            )
+            continue
+
+        rows: list[CachedCharacterAsset] = []
+        for asset in assets or []:
+            rows.append(
+                CachedCharacterAsset(
+                    user=user,
+                    character_id=int(character_id),
+                    location_id=int(asset.get("location_id", 0) or 0),
+                    location_flag=str(asset.get("location_flag", "") or ""),
+                    type_id=int(asset.get("type_id", 0) or 0),
+                    quantity=int(asset.get("quantity", 0) or 0),
+                    is_singleton=bool(asset.get("is_singleton", False)),
+                    is_blueprint=bool(asset.get("is_blueprint", False)),
+                    synced_at=now,
+                )
+            )
+
+        if rows:
+            all_rows.extend(rows)
+
+        done += 1
+        cache.set(
+            progress_key,
+            {
+                "running": True,
+                "finished": False,
+                "error": None,
+                "total": total,
+                "done": done,
+                "failed": failed,
+            },
+            ttl_seconds,
+        )
+
+    cache.set(
+        progress_key,
+        {
+            "running": False,
+            "finished": True,
+            "error": None,
+            "total": total,
+            "done": done,
+            "failed": failed,
+        },
+        ttl_seconds,
+    )
+
+    # Only replace cached rows if we managed to fetch at least some assets.
+    # This prevents the sell page from losing previously cached data when ESI is down
+    # or when all characters are missing the required scope.
+    if not all_rows:
+        cache.set(
+            progress_key,
+            {
+                "running": False,
+                "finished": True,
+                "error": "no_assets_fetched",
+                "total": total,
+                "done": done,
+                "failed": failed,
+            },
+            ttl_seconds,
+        )
+        return
+
+    with transaction.atomic():
+        CachedCharacterAsset.objects.filter(user=user).delete()
+        CachedCharacterAsset.objects.bulk_create(all_rows, batch_size=1000)
 
 
 @shared_task
@@ -52,48 +267,60 @@ def sync_material_exchange_stock():
             7: "CorpSAG7",
         }
         target_flag = hangar_flag_map.get(config.hangar_division)
-
-        stock_updates = {}
-
-        # Read directly from corptools_corpasset via SQL JOIN to find corp by EVE ID
-        try:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    """
-                    SELECT ca.type_id, COALESCE(SUM(ca.quantity), 0) AS total_qty
-                    FROM corptools_corpasset ca
-                    INNER JOIN eveonline_evecorporationinfo evc
-                        ON ca.corporation_id = evc.id
-                    WHERE evc.corporation_id = %s
-                        AND ca.location_id = %s
-                        AND ca.location_flag = %s
-                    GROUP BY ca.type_id
-                    """,
-                    [
-                        config.corporation_id,
-                        config.structure_id,
-                        target_flag,
-                    ],
-                )
-                rows = cursor.fetchall()
-                stock_updates = {int(tid): int(qty or 0) for tid, qty in rows}
-                if stock_updates:
-                    logger.info(
-                        "Loaded %d asset types from corptools_corpasset for structure %s, division %s",
-                        len(stock_updates),
-                        config.structure_id,
-                        config.hangar_division,
-                    )
-        except Exception as e:
+        if not target_flag:
             logger.warning(
-                "Failed to fetch corp assets from corptools_corpasset: %s. Will try ESI fallback.",
-                e,
+                "Invalid hangar division %s on config %s; cannot filter assets",
+                config.hangar_division,
+                config.pk,
             )
+            return
 
-        # No ESI fallback: sync strictly from corptools_corpasset
-        # If corptools is empty, MaterialExchangeStock reflects that (empty)
+        stock_updates: dict[int, int] = {}
+
+        corp_assets, assets_scope_missing = get_corp_assets_cached(
+            int(config.corporation_id)
+        )
+        if assets_scope_missing:
+            logger.warning("Missing corp assets scope for %s", config.corporation_id)
+
+        # Upwell structures store corp hangar contents under the OfficeFolder item_id.
+        # Stations (and some locations) use the structure/station id directly.
+        office_folder_item_id = get_office_folder_item_id_from_assets(
+            corp_assets, structure_id=int(config.structure_id)
+        )
+        effective_location_id = (
+            int(office_folder_item_id)
+            if office_folder_item_id is not None
+            else int(config.structure_id)
+        )
+
+        for asset in corp_assets:
+            try:
+                if int(asset.get("location_id", 0)) != int(effective_location_id):
+                    continue
+            except (TypeError, ValueError):
+                continue
+
+            if asset.get("location_flag") != target_flag:
+                continue
+
+            try:
+                type_id = int(asset.get("type_id"))
+            except (TypeError, ValueError):
+                continue
+
+            qty_raw = asset.get("quantity", 1)
+            try:
+                quantity = int(qty_raw or 0)
+            except (TypeError, ValueError):
+                quantity = 1
+            if quantity <= 0:
+                quantity = 1 if asset.get("is_singleton") else 0
+
+            stock_updates[type_id] = stock_updates.get(type_id, 0) + quantity
+
         logger.info(
-            "Stock sync using corptools_corpasset only: %d asset types for structure %s, division %s",
+            "Loaded %d asset types from cache for structure %s, division %s",
             len(stock_updates),
             config.structure_id,
             config.hangar_division,
@@ -214,6 +441,29 @@ def sync_material_exchange_stock():
 
     except Exception as e:
         logger.exception(f"Error syncing material exchange stock: {e}")
+
+
+@shared_task
+def refresh_material_exchange_cache():
+    """Force-refresh corp assets and division cache for the configured exchange."""
+
+    config = MaterialExchangeConfig.objects.first()
+    if not config:
+        logger.warning("Material Exchange not configured - skipping cache refresh")
+        return
+
+    assets, assets_scope_missing = force_refresh_corp_assets(int(config.corporation_id))
+    divisions, div_scope_missing = force_refresh_corp_divisions(
+        int(config.corporation_id)
+    )
+
+    logger.info(
+        "Material Exchange cache refresh: assets=%s (scope_missing=%s), divisions=%s (scope_missing=%s)",
+        len(assets),
+        assets_scope_missing,
+        len(divisions),
+        div_scope_missing,
+    )
 
 
 @shared_task

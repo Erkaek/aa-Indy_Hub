@@ -41,19 +41,25 @@
         <div class="card focus-card">
             <div class="card-body p-4">
                 <div class="row g-4 align-items-center">
-                    <div class="col-lg-4">
+                    <div class="col-lg-3">
                         <div class="stat-chip">
                             <span class="stat-chip-label">{% trans "Blueprint tokens" %}</span>
                             <span class="stat-chip-value">{{ blueprint_token_count|default:0 }}</span>
                         </div>
                     </div>
-                    <div class="col-lg-4">
+                    <div class="col-lg-3">
                         <div class="stat-chip">
                             <span class="stat-chip-label">{% trans "Industry tokens" %}</span>
                             <span class="stat-chip-value">{{ jobs_token_count|default:0 }}</span>
                         </div>
                     </div>
-                    <div class="col-lg-4">
+                    <div class="col-lg-3">
+                        <div class="stat-chip">
+                            <span class="stat-chip-label">{% trans "Assets tokens" %}</span>
+                            <span class="stat-chip-value">{{ assets_token_count|default:0 }}</span>
+                        </div>
+                    </div>
+                    <div class="col-lg-3">
                         <div class="stat-chip">
                             <span class="stat-chip-label">{% trans "Characters connected" %}</span>
                             <span class="stat-chip-value">{{ characters|length }}</span>
@@ -154,6 +160,11 @@
                                 {% if jobs_auth_url %}
                                 <a href="{{ jobs_auth_url }}" class="btn btn-outline-success btn-slim">
                                     <i class="fas fa-industry me-1"></i>{% trans "Authorize industry scope" %}
+                                </a>
+                                {% endif %}
+                                {% if assets_auth_url %}
+                                <a href="{{ assets_auth_url }}" class="btn btn-outline-warning btn-slim">
+                                    <i class="fas fa-boxes me-1"></i>{% trans "Authorize assets scope" %}
                                 </a>
                                 {% endif %}
                                 <a href="{% url 'indy_hub:authorize_all' %}" class="btn btn-accent btn-slim">
