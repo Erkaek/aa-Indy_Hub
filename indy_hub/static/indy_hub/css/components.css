@@ -10,7 +10,7 @@
     padding: 1rem 1.25rem;
     border-radius: 18px;
     border: 1px solid rgba(125, 138, 160, 0.35);
-    background: var(--indy-card-surface, rgba(255, 255, 255, 0.95));
+    background: var(--indy-card-surface, rgba(var(--bs-body-bg-rgb, 255, 255, 255), 0.95));
     box-shadow: var(--indy-card-shadow, 0 24px 54px rgba(15, 23, 42, 0.22));
     display: flex;
     align-items: center;
@@ -20,7 +20,7 @@
     transition: opacity 0.22s ease, transform 0.22s ease, box-shadow 0.22s ease;
 }
 
-[data-bs-theme="dark"] .indy-hub-popup {
+html[data-theme="darkly"] .indy-hub-popup {
     background: var(--indy-card-surface, rgba(17, 24, 39, 0.95));
     border-color: rgba(148, 163, 184, 0.24);
     box-shadow: var(--indy-card-shadow, 0 26px 60px rgba(0, 0, 0, 0.6));
@@ -95,7 +95,7 @@
     color: var(--bs-body-color, #1f2937);
 }
 
-[data-bs-theme="dark"] .indy-hub-popup-message {
+html[data-theme="darkly"] .indy-hub-popup-message {
     color: var(--bs-body-color, #e2e8f0);
 }
 
@@ -144,4 +144,16 @@
     .indy-hub-popup-message {
         font-size: 0.9rem;
     }
+}
+
+/* Bootstrap utility classes overrides */
+html[data-theme="darkly"] .bg-body-tertiary,
+html[data-theme="darkly"] .bg-body-secondary,
+html[data-theme="darkly"] .bg-light,
+html[data-theme="darkly"] .bg-white {
+    background-color: #303030 !important;
+}
+
+html[data-theme="darkly"] [class*="subtle"] {
+    background-color: #303030 !important;
 }

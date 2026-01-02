@@ -1,6 +1,12 @@
+# Django
 from django.test import TestCase
 
-from indy_hub.models import CachedCorporationAsset, CachedCorporationDivision, CachedStructureName
+# AA Example App
+from indy_hub.models import (
+    CachedCorporationAsset,
+    CachedCorporationDivision,
+    CachedStructureName,
+)
 from indy_hub.services.asset_cache import (
     get_office_folder_item_id_from_assets,
     make_managed_hangar_location_id,
@@ -33,7 +39,9 @@ class TestMaterialExchangeLocations(TestCase):
         ]
 
         assert (
-            get_office_folder_item_id_from_assets(corp_assets, structure_id=1045667241057)
+            get_office_folder_item_id_from_assets(
+                corp_assets, structure_id=1045667241057
+            )
             == 1045722708748
         )
 
@@ -41,6 +49,7 @@ class TestMaterialExchangeLocations(TestCase):
         assert make_managed_hangar_location_id(1045722708748, 7) == -10457227087487
 
     def test_structure_name_cache_not_overwritten_on_403(self):
+        # AA Example App
         from indy_hub.services import asset_cache
 
         structure_id = 1045667241057

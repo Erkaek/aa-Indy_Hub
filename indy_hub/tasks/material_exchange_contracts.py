@@ -1069,8 +1069,11 @@ def check_completed_material_exchange_contracts():
         if not contract:
             continue
 
-        # Check if contract is completed
-        if contract.get("status") == "completed":
+        # Handle contract status
+        contract_status = contract.get("status", "")
+
+        # Contract completed successfully
+        if contract_status in ["finished", "finished_issuer", "finished_contractor"]:
             order.status = MaterialExchangeSellOrder.Status.COMPLETED
             order.payment_verified_at = timezone.now()
             order.save(
@@ -1086,15 +1089,82 @@ def check_completed_material_exchange_contracts():
                 _("Sell Order Completed"),
                 _(
                     f"Your sell order {order.order_reference} has been completed!\n"
-                    f"Items: {order.quantity}x {order.type_name}\n"
-                    f"Payment: {order.total_price:,.2f} ISK\n\n"
+                    f"Total payment: {order.total_price:,.2f} ISK\n\n"
                     f"The corporation has accepted the contract. Check your wallet for payment confirmation."
                 ),
                 level="success",
             )
 
             logger.info(
-                "Sell order %s completed: contract %s accepted",
+                "Sell order %s completed: contract %s accepted (status: %s)",
+                order.id,
+                contract_id,
+                contract_status,
+            )
+
+        # Contract cancelled, rejected, failed, expired or deleted
+        elif contract_status in [
+            "cancelled",
+            "rejected",
+            "failed",
+            "expired",
+            "deleted",
+        ]:
+            order.status = MaterialExchangeSellOrder.Status.CANCELLED
+            order.notes = f"Contract {contract_id} was {contract_status} by EVE system"
+            order.save(
+                update_fields=[
+                    "status",
+                    "notes",
+                    "updated_at",
+                ]
+            )
+
+            notify_user(
+                order.seller,
+                _("Sell Order Cancelled"),
+                _(
+                    f"Your sell order {order.order_reference} was cancelled.\n\n"
+                    f"Reason: Contract #{contract_id} status is '{contract_status}'.\n"
+                    f"This means the contract was not accepted or expired.\n\n"
+                    f"You can create a new sell order if you still want to sell these items."
+                ),
+                level="warning",
+            )
+
+            logger.warning(
+                "Sell order %s cancelled: contract %s status is %s",
+                order.id,
+                contract_id,
+                contract_status,
+            )
+
+        # Contract reversed (rare case - completed then reversed)
+        elif contract_status == "reversed":
+            order.status = MaterialExchangeSellOrder.Status.CANCELLED
+            order.notes = f"Contract {contract_id} was reversed after completion"
+            order.save(
+                update_fields=[
+                    "status",
+                    "notes",
+                    "updated_at",
+                ]
+            )
+
+            notify_user(
+                order.seller,
+                _("Sell Order Reversed"),
+                _(
+                    f"Your sell order {order.order_reference} was reversed.\n\n"
+                    f"Contract #{contract_id} was reversed by CCP/GM.\n"
+                    f"This is very rare and usually means a game bug or GM intervention.\n\n"
+                    f"Please contact corporation leadership for clarification."
+                ),
+                level="danger",
+            )
+
+            logger.error(
+                "Sell order %s reversed: contract %s was reversed",
                 order.id,
                 contract_id,
             )
@@ -1120,7 +1190,11 @@ def check_completed_material_exchange_contracts():
         if not contract:
             continue
 
-        if contract.get("status") == "completed":
+        # Handle contract status
+        contract_status = contract.get("status", "")
+
+        # Contract completed successfully
+        if contract_status in ["finished", "finished_issuer", "finished_contractor"]:
             order.status = MaterialExchangeBuyOrder.Status.COMPLETED
             order.delivered_at = contract.get("date_completed") or timezone.now()
             order.save(
@@ -1137,13 +1211,81 @@ def check_completed_material_exchange_contracts():
                 _(
                     f"Your buy order {order.order_reference} has been completed!\n"
                     f"Total paid: {order.total_price:,.2f} ISK\n\n"
-                    f"The corporation contract was accepted. Enjoy your items."
+                    f"The contract was accepted. Enjoy your items!"
                 ),
                 level="success",
             )
 
             logger.info(
-                "Buy order %s completed: contract %s accepted",
+                "Buy order %s completed: contract %s accepted (status: %s)",
+                order.id,
+                contract_id,
+                contract_status,
+            )
+
+        # Contract cancelled, rejected, failed, expired or deleted
+        elif contract_status in [
+            "cancelled",
+            "rejected",
+            "failed",
+            "expired",
+            "deleted",
+        ]:
+            order.status = MaterialExchangeBuyOrder.Status.CANCELLED
+            order.notes = f"Contract {contract_id} was {contract_status} by EVE system"
+            order.save(
+                update_fields=[
+                    "status",
+                    "notes",
+                    "updated_at",
+                ]
+            )
+
+            notify_user(
+                order.buyer,
+                _("Buy Order Cancelled"),
+                _(
+                    f"Your buy order {order.order_reference} was cancelled.\n\n"
+                    f"Reason: Contract #{contract_id} status is '{contract_status}'.\n"
+                    f"This means the contract expired or was cancelled.\n\n"
+                    f"Please contact corporation leadership if you still need these items."
+                ),
+                level="warning",
+            )
+
+            logger.warning(
+                "Buy order %s cancelled: contract %s status is %s",
+                order.id,
+                contract_id,
+                contract_status,
+            )
+
+        # Contract reversed (rare case - completed then reversed)
+        elif contract_status == "reversed":
+            order.status = MaterialExchangeBuyOrder.Status.CANCELLED
+            order.notes = f"Contract {contract_id} was reversed after completion"
+            order.save(
+                update_fields=[
+                    "status",
+                    "notes",
+                    "updated_at",
+                ]
+            )
+
+            notify_user(
+                order.buyer,
+                _("Buy Order Reversed"),
+                _(
+                    f"Your buy order {order.order_reference} was reversed.\n\n"
+                    f"Contract #{contract_id} was reversed by CCP/GM.\n"
+                    f"This is very rare and usually means a game bug or GM intervention.\n\n"
+                    f"Please contact corporation leadership for clarification."
+                ),
+                level="danger",
+            )
+
+            logger.error(
+                "Buy order %s reversed: contract %s was reversed",
                 order.id,
                 contract_id,
             )

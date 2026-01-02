@@ -25,7 +25,7 @@ def setup_periodic_tasks():
         # AA Example App
         from indy_hub.schedules import INDY_HUB_BEAT_SCHEDULE
     except ImportError:
-        return  # django_celery_beat n'est pas installé
+        return  # django_celery_beat is not installed
 
     for name, conf in INDY_HUB_BEAT_SCHEDULE.items():
         schedule = conf["schedule"]
@@ -69,4 +69,4 @@ def setup_periodic_tasks():
         )
 
 
-# ...importez ici d'autres tâches si besoin...
+# ...import additional tasks here if needed...

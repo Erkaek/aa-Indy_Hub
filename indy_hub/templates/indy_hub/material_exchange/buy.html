@@ -9,84 +9,12 @@
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
 <link rel="stylesheet" href="{% static 'indy_hub/css/blueprints.css' %}">
-<style>
-    .stock-table th {
-        background: rgba(var(--bs-primary-rgb), 0.1);
-        font-weight: 600;
-        font-size: 0.9rem;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
-
-    .stock-table tbody tr {
-        transition: all 0.2s ease;
-    }
-
-    .stock-table tbody tr:hover {
-        background: rgba(var(--bs-primary-rgb), 0.03);
-    }
-
-    .stock-table tbody tr.selected {
-        background: rgba(var(--bs-primary-rgb), 0.08);
-        border-left: 3px solid var(--bs-primary);
-    }
-
-    .item-icon {
-        width: 48px;
-        height: 48px;
-        border-radius: 6px;
-        background: rgba(var(--bs-primary-rgb), 0.05);
-        padding: 4px;
-    }
-
-    .qty-input {
-        max-width: 120px;
-    }
-
-    .qty-input.is-invalid {
-        border-color: var(--bs-danger);
-    }
-
-    .qty-error {
-        color: var(--bs-danger);
-        font-size: 0.85rem;
-        margin-top: 0.25rem;
-        display: none;
-    }
-
-    .invoice-panel {
-        position: sticky;
-        top: 20px;
-    }
-
-    .invoice-item {
-        padding: 0.75rem 0;
-        border-bottom: 1px solid rgba(var(--bs-border-color-rgb), 0.5);
-    }
-
-    .invoice-item:last-child {
-        border-bottom: none;
-    }
-
-    .invoice-total {
-        background: linear-gradient(135deg, rgba(var(--bs-primary-rgb), 0.1), rgba(var(--bs-info-rgb), 0.1));
-        padding: 1rem;
-        border-radius: 8px;
-        margin-top: 1rem;
-    }
-
-    .empty-invoice {
-        text-align: center;
-        padding: 2rem;
-        color: var(--bs-secondary);
-    }
-</style>
+<link rel="stylesheet" href="{% static 'indy_hub/css/material_exchange.css' %}">
 {% endblock extra_css %}
 
 {% block content %}
-<main class="bg-body p-4">
-    <div class="container-fluid my-0 bg-body">
-        <div class="page-header mb-4">
+<div class="container-fluid py-4">
+    <div class="page-header mb-4">
             <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
                 <div>
                     <h2 class="h3 mb-1">
@@ -105,18 +33,47 @@
         </div>
 
         <div class="glass-panel p-4 mb-4">
-            <div class="d-flex align-items-center gap-2">
-                <i class="fas fa-info-circle text-info"></i>
-                <div>
-                    <strong>{% trans "Pricing" %}:</strong>
-                    <span class="text-muted">{% trans "Jita Buy" %} + </span>
-                    <span class="text-primary fw-bold">{{ config.buy_markup_percent }}%</span>
+            <div class="d-flex align-items-start gap-3">
+                <i class="fas fa-info-circle text-info mt-1" style="flex-shrink: 0;"></i>
+                <div style="flex: 1;">
+                    <p class="mb-2 small text-muted text-uppercase">{% trans "Pricing Formula" %}</p>
+                    <div class="d-flex align-items-baseline gap-2 flex-wrap">
+                        <span class="fw-semibold">
+                            {% if config.buy_markup_base == 'sell' %}
+                                {% trans "Jita Sell Price" %}
+                            {% else %}
+                                {% trans "Jita Buy Price" %}
+                            {% endif %}
+                        </span>
+                        {% if config.buy_markup_percent > 0 %}
+                        <span class="text-success">+</span>
+                        <span class="text-success fw-bold h5 mb-0">{{ config.buy_markup_percent }}%</span>
+                        {% elif config.buy_markup_percent < 0 %}
+                        <span class="text-success fw-bold h5 mb-0">{{ config.buy_markup_percent }}%</span>
+                        {% else %}
+                        <span class="text-muted small">({% trans "no markup" %})</span>
+                        {% endif %}
+                    </div>
                 </div>
             </div>
+            {% if corp_assets_scope_missing %}
+            <div class="alert alert-danger mt-3 mb-0">
+                <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+                    <div>
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        {% trans "Missing corporation assets token: the hub cannot load stock. A director must authorize the required ESI scope for the corporation." %}
+                    </div>
+                    <div class="d-flex gap-2">
+                        <a class="btn btn-outline-light btn-sm" href="{% url 'indy_hub:esi_hub' %}">{% trans "Open ESI" %}</a>
+                        <a class="btn btn-outline-light btn-sm" href="{% url 'indy_hub:token_management' %}">{% trans "Manage tokens" %}</a>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
             {% if stock_refreshing %}
             <div class="alert alert-info mt-3 mb-0">
                 <i class="fas fa-sync fa-spin me-2"></i>
-                {% trans "Actualisation en cours via ESI (assets + prix)." %}
+                {% trans "Refreshing via ESI (assets + prices)." %}
             </div>
             {% endif %}
         </div>
@@ -183,7 +140,7 @@
                                                     max="{{ item.quantity }}"
                                                     value="0"
                                                     data-type-id="{{ item.type_id }}"
-                                                    data-max="{{ item.quantity }}">>
+                                                    data-max="{{ item.quantity }}">
                                                 <div class="qty-error" id="error-{{ item.type_id }}">
                                                     {% trans "Max:" %} {{ item.quantity|intcomma }}
                                                 </div>
@@ -250,8 +207,7 @@
             {% endif %}
         </div>
         {% endif %}
-    </div>
-</main>
+</div>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {

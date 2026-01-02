@@ -1,0 +1,21 @@
+/* Material Exchange Configuration Styles */
+
+.border-info {
+    border-left: 4px solid #0d6efd !important;
+}
+
+html[data-theme="darkly"] .border-info {
+    border-left-color: var(--bs-info) !important;
+}
+
+/* Bootstrap utility classes overrides */
+html[data-theme="darkly"] .bg-body-tertiary,
+html[data-theme="darkly"] .bg-body-secondary,
+html[data-theme="darkly"] .bg-light,
+html[data-theme="darkly"] .bg-white {
+    background-color: #303030 !important;
+}
+
+html[data-theme="darkly"] [class*="subtle"] {
+    background-color: #303030 !important;
+}

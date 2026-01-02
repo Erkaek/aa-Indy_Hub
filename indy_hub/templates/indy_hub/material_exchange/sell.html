@@ -9,83 +9,11 @@
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
 <link rel="stylesheet" href="{% static 'indy_hub/css/blueprints.css' %}">
-<style>
-    .stock-table th {
-        background: rgba(var(--bs-success-rgb), 0.1);
-        font-weight: 600;
-        font-size: 0.9rem;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
-
-    .stock-table tbody tr {
-        transition: all 0.2s ease;
-    }
-
-    .stock-table tbody tr:hover {
-        background: rgba(var(--bs-success-rgb), 0.03);
-    }
-
-    .stock-table tbody tr.selected {
-        background: rgba(var(--bs-success-rgb), 0.08);
-        border-left: 3px solid var(--bs-success);
-    }
-
-    .item-icon {
-        width: 48px;
-        height: 48px;
-        border-radius: 6px;
-        background: rgba(var(--bs-success-rgb), 0.05);
-        padding: 4px;
-    }
-
-    .qty-input {
-        max-width: 120px;
-    }
-
-    .qty-error {
-        color: var(--bs-danger);
-        font-size: 0.85rem;
-        margin-top: 0.25rem;
-        display: none;
-    }
-
-    .qty-input.is-invalid {
-        border-color: var(--bs-danger);
-    }
-
-    .invoice-panel {
-        position: sticky;
-        top: 20px;
-    }
-
-    .invoice-item {
-        padding: 0.75rem 0;
-        border-bottom: 1px solid rgba(var(--bs-border-color-rgb), 0.5);
-    }
-
-    .invoice-item:last-child {
-        border-bottom: none;
-    }
-
-    .invoice-total {
-        background: linear-gradient(135deg, rgba(var(--bs-success-rgb), 0.1), rgba(var(--bs-info-rgb), 0.1));
-        padding: 1rem;
-        border-radius: 8px;
-        margin-top: 1rem;
-    }
-
-    .empty-invoice {
-        text-align: center;
-        padding: 2rem;
-        color: var(--bs-secondary);
-    }
-</style>
+<link rel="stylesheet" href="{% static 'indy_hub/css/material_exchange.css' %}">
 {% endblock extra_css %}
 
 {% block content %}
-<main class="bg-body p-4">
-    <div class="container-fluid my-0 bg-body">
+<div class="container-fluid py-4">
         <div class="page-header mb-4">
             <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
                 <div>
@@ -105,15 +33,27 @@
         </div>
 
         <div class="glass-panel p-4 mb-4">
-            <div class="d-flex align-items-center gap-2">
-                <i class="fas fa-info-circle text-info"></i>
-                <div>
-                    <strong>{% trans "Pricing" %}:</strong>
-                    <span class="text-muted">{% trans "Jita Buy" %}</span>
-                    {% if config.sell_markup_percent > 0 %}
-                    <span class="text-muted"> + </span>
-                    <span class="text-success fw-bold">{{ config.sell_markup_percent }}%</span>
-                    {% endif %}
+            <div class="d-flex align-items-start gap-3">
+                <i class="fas fa-info-circle text-info mt-1" style="flex-shrink: 0;"></i>
+                <div style="flex: 1;">
+                    <p class="mb-2 small text-muted text-uppercase">{% trans "Pricing Formula" %}</p>
+                    <div class="d-flex align-items-baseline gap-2 flex-wrap">
+                        <span class="fw-semibold">
+                            {% if config.sell_markup_base == 'sell' %}
+                                {% trans "Jita Sell Price" %}
+                            {% else %}
+                                {% trans "Jita Buy Price" %}
+                            {% endif %}
+                        </span>
+                        {% if config.sell_markup_percent > 0 %}
+                        <span class="text-success">+</span>
+                        <span class="text-success fw-bold h5 mb-0">{{ config.sell_markup_percent }}%</span>
+                        {% elif config.sell_markup_percent < 0 %}
+                        <span class="text-success fw-bold h5 mb-0">{{ config.sell_markup_percent }}%</span>
+                        {% else %}
+                        <span class="text-muted small">({% trans "no markup" %})</span>
+                        {% endif %}
+                    </div>
                 </div>
             </div>
             <div class="alert alert-info mt-3 mb-0">
@@ -125,10 +65,10 @@
                 <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
                     <div>
                         <i class="fas fa-exclamation-triangle me-2"></i>
-                        {% trans "Token assets manquant: ajoutez le scope ESI pour charger vos assets." %}
+                        {% trans "Missing assets token: add the ESI assets scope to load your assets." %}
                     </div>
                     <a class="btn btn-outline-light btn-sm" href="{% url 'indy_hub:authorize_assets' %}">
-                        <i class="fas fa-key me-1"></i>{% trans "Ajouter le token assets" %}
+                        <i class="fas fa-key me-1"></i>{% trans "Add assets token" %}
                     </a>
                 </div>
             </div>
@@ -136,7 +76,7 @@
             {% if assets_refreshing %}
             <div class="alert alert-warning mt-3 mb-0">
                 <i class="fas fa-sync fa-spin me-2"></i>
-                {% trans "Actualisation en cours via ESI pour vos assets." %}
+                {% trans "Refreshing your assets via ESI." %}
                 <span class="ms-2">
                     <strong id="me-assets-progress">0/0</strong>
                 </span>
@@ -335,41 +275,7 @@
             </div>
         </div>
 
-        <style>
-            .detail-card {
-                padding: 1rem;
-                background: rgba(var(--bs-info-rgb), 0.05);
-                border-radius: 0.375rem;
-                border-left: 3px solid var(--bs-info);
-            }
 
-            .detail-value {
-                font-size: 1.1rem;
-                margin-top: 0.5rem;
-                color: var(--bs-body-color);
-            }
-
-            .items-list .item-row {
-                padding: 0.75rem;
-                border-bottom: 1px solid rgba(var(--bs-border-color-rgb), 0.2);
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-            }
-
-            .items-list .item-row:last-child {
-                border-bottom: none;
-            }
-
-            .items-list .item-name {
-                font-weight: 500;
-            }
-
-            .items-list .item-qty {
-                color: var(--bs-info);
-                font-weight: 500;
-            }
-        </style>
         {% else %}
         <div class="glass-panel p-4">
             <div class="alert alert-warning mb-0">
@@ -378,8 +284,7 @@
             </div>
         </div>
         {% endif %}
-    </div>
-</main>
+</div>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {

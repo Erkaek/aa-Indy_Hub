@@ -1,4 +1,4 @@
-# Tâches asynchrones spécifiques aux utilisateurs
+# User-specific asynchronous tasks
 """
 User-specific Celery tasks for the Indy Hub module.
 These tasks handle user profile management, preferences, cleanup, etc.

@@ -1,21 +1,149 @@
 {% extends "allianceauth/base-bs5.html" %}
 {% load i18n %}
+{% load static %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'indy_hub/css/dark-mode-adaptive.css' %}">
+<style>
+    /* Active state for Indy Hub nav brand */
+    .nav-link.me-auto.active {
+        color: var(--bs-primary) !important;
+        font-weight: 600;
+        border-bottom: 3px solid var(--bs-primary);
+        padding-bottom: calc(0.375rem - 3px) !important;
+    }
+</style>
+{% endblock extra_css %}
+
+{% block extra_javascript %}
+    {{ block.super }}
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            var path = window.location.pathname;
+            // Cover the different sidebar templates (sortable-side-menu.html, side-menu.html, etc.)
+            var selectors = ['#sidebar-menu a', '#side-menu a', '#sidebar a', '.sidebar a'];
+            var links = selectors.flatMap(function (selector) {
+                return Array.from(document.querySelectorAll(selector));
+            });
+            // Fallback: catch any direct links in case sidebar ids change
+            if (!links.length) {
+                links = Array.from(document.querySelectorAll('a[href^="/indy_hub"]'));
+            }
+
+            links.forEach(function (link) {
+                var href = link.getAttribute('href') || '';
+                if (href === '/indy_hub/' || href === '/indy_hub') {
+                    link.dataset.indyHubRoot = 'true';
+                }
+
+                if (path === '/indy_hub/' || path === '/indy_hub') {
+                    if (href === '/indy_hub/' || href === '/indy_hub') {
+                        link.classList.add('active');
+                    }
+                    return;
+                }
+
+                if (path.startsWith('/indy_hub/') && href.startsWith('/indy_hub/')) {
+                    link.classList.add('active');
+                }
+            });
+        });
+    </script>
+{% endblock extra_javascript %}
 
 {% block header_nav_brand %}
     {% block indy_hub_nav_brand %}
-        <span class="fw-semibold">{% trans "Indy Hub" %}</span>
+        <a href="{% url 'indy_hub:index' %}" class="nav-link flex-fill align-self-center me-auto active">
+            <span class="fw-semibold">{% trans "Indy Hub" %}</span>
+        </a>
     {% endblock %}
 {% endblock header_nav_brand %}
 
 {% block header_nav_collapse_left %}
     {% block indy_hub_nav_tabs %}
-        {% if personal_nav_url %}
-            {% translate "Personal" as personal_tab_title %}
-            {% include "framework/header/nav-collapse-button.html" with btn_class=personal_nav_class url=personal_nav_url title=personal_tab_title fa_icon="fa-solid fa-user-astronaut" icon_on_mobile=True icon_on_desktop=True %}
+        {% if overview_nav_url %}
+            {% translate "Overview" as overview_tab_title %}
+            {% include "framework/header/nav-collapse-button.html" with btn_class=overview_nav_class url=overview_nav_url title=overview_tab_title fa_icon="fa-solid fa-chart-simple" icon_on_mobile=True icon_on_desktop=True %}
         {% endif %}
-        {% if corporation_nav_url %}
-            {% translate "Corporation" as corporation_tab_title %}
-            {% include "framework/header/nav-collapse-button.html" with btn_class=corporation_nav_class url=corporation_nav_url title=corporation_tab_title fa_icon="fa-solid fa-building" icon_on_mobile=True icon_on_desktop=True %}
+        {% if blueprints_nav_url %}
+            {% translate "Blueprints" as blueprints_tab_title %}
+            <div class="nav-item dropdown">
+                <a class="nav-link {{ blueprints_nav_class }} dropdown-toggle" href="#" id="blueprintsDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                    <i class="fa-solid fa-copy me-2"></i>
+                    <span class="d-none d-lg-inline">{{ blueprints_tab_title }}</span>
+                </a>
+                <ul class="dropdown-menu" aria-labelledby="blueprintsDropdown">
+                    <li><a class="dropdown-item" href="{% url 'indy_hub:personnal_bp_list' %}">
+                        <i class="fas fa-user me-2"></i>{% trans "My Blueprints" %}
+                    </a></li>
+                    {% if can_manage_corporate_assets %}
+                    <li><a class="dropdown-item" href="{% url 'indy_hub:corporation_bp_list' %}">
+                        <i class="fas fa-building me-2"></i>{% trans "Corporation Blueprints" %}
+                    </a></li>
+                    {% endif %}
+                    <li><hr class="dropdown-divider"></li>
+                    <li><a class="dropdown-item" href="{% url 'indy_hub:all_bp_list' %}">
+                        <i class="fas fa-list-check me-2"></i>{% trans "All Buildable" %}
+                    </a></li>
+                </ul>
+            </div>
+        {% endif %}
+        {% if blueprint_sharing_nav_url %}
+            {% translate "Blueprint Sharing" as blueprint_sharing_tab_title %}
+            <div class="nav-item dropdown">
+                <a class="nav-link {{ blueprint_sharing_nav_class }} dropdown-toggle" href="#" id="blueprintSharingDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                    <i class="fa-solid fa-share-nodes me-2"></i>
+                    <span class="d-none d-lg-inline">{{ blueprint_sharing_tab_title }}</span>
+                </a>
+                <ul class="dropdown-menu" aria-labelledby="blueprintSharingDropdown">
+                    <li><a class="dropdown-item" href="{% url 'indy_hub:bp_copy_request_page' %}">
+                        <i class="fas fa-copy me-2"></i>{% trans "Request a Copy" %}
+                    </a></li>
+                    <li><a class="dropdown-item" href="{% url 'indy_hub:bp_copy_my_requests' %}">
+                        <i class="fas fa-list me-2"></i>{% trans "My Requests" %}
+                    </a></li>
+                    {% if can_manage_copy_requests %}
+                    <li><a class="dropdown-item" href="{% url 'indy_hub:bp_copy_fulfill_requests' %}">
+                        <i class="fas fa-handshake me-2"></i>{% trans "Fulfill Requests" %}
+                    </a></li>
+                    {% endif %}
+                </ul>
+            </div>
+        {% endif %}
+        {% if material_hub_nav_url %}
+            {% translate "Material Hub" as material_hub_tab_title %}
+            {% include "framework/header/nav-collapse-button.html" with btn_class=material_hub_nav_class url=material_hub_nav_url title=material_hub_tab_title fa_icon="fa-solid fa-boxes-stacked" icon_on_mobile=True icon_on_desktop=True %}
+        {% endif %}
+        {% if industry_nav_url %}
+            {% translate "Industry" as industry_tab_title %}
+            <div class="nav-item dropdown">
+                <a class="nav-link {{ industry_nav_class }} dropdown-toggle" href="#" id="industryDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                    <i class="fa-solid fa-industry me-2"></i>
+                    <span class="d-none d-lg-inline">{{ industry_tab_title }}</span>
+                </a>
+                <ul class="dropdown-menu" aria-labelledby="industryDropdown">
+                    <li><a class="dropdown-item" href="{% url 'indy_hub:personnal_job_list' %}">
+                        <i class="fas fa-user me-2"></i>{% trans "My Jobs" %}
+                    </a></li>
+                    {% if can_manage_corporate_assets %}
+                    <li><a class="dropdown-item" href="{% url 'indy_hub:corporation_job_list' %}">
+                        <i class="fas fa-building me-2"></i>{% trans "Corporation Jobs" %}
+                    </a></li>
+                    {% endif %}
+                    <li><hr class="dropdown-divider"></li>
+                    <li><a class="dropdown-item" href="{% url 'indy_hub:production_simulations_list' %}">
+                        <i class="fas fa-flask me-2"></i>{% trans "Production Simulations" %}
+                    </a></li>
+                </ul>
+            </div>
+        {% endif %}
+        {% if esi_nav_url %}
+            {% translate "ESI" as esi_tab_title %}
+            {% include "framework/header/nav-collapse-button.html" with btn_class=esi_nav_class url=esi_nav_url title=esi_tab_title fa_icon="fa-solid fa-key" icon_on_mobile=True icon_on_desktop=True %}
+        {% endif %}
+        {% if settings_nav_url %}
+            {% translate "Settings" as settings_tab_title %}
+            {% include "framework/header/nav-collapse-button.html" with btn_class=settings_nav_class url=settings_nav_url title=settings_tab_title fa_icon="fa-solid fa-gear" icon_on_mobile=True icon_on_desktop=True %}
         {% endif %}
     {% endblock %}
 {% endblock header_nav_collapse_left %}

@@ -6,80 +6,211 @@
 
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
+<link rel="stylesheet" href="{% static 'indy_hub/css/components.css' %}">
 <link rel="stylesheet" href="{% static 'indy_hub/css/blueprints.css' %}">
-<style>
-    .border-info {
-        border-left: 4px solid #0d6efd !important;
-    }
-</style>
+<link rel="stylesheet" href="{% static 'indy_hub/css/material_exchange_config.css' %}">
 {% endblock extra_css %}
 
 {% block content %}
-<main class="bg-body p-4">
-    <div class="container-fluid my-0 bg-body">
-        <div class="page-header mb-4">
-            <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
-                <div>
-                    <h2 class="h3 mb-1">
-                        <i class="fas fa-cog me-2"></i>
-                        {% trans "Material Exchange Configuration" %}
-                    </h2>
-                    <p class="description">{% trans "Configure corp hangar location and pricing rules" %}</p>
+<div class="container-fluid py-4">
+    <div class="page-header mb-4">
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+            <div>
+                <h2 class="h3 mb-1">
+                    <i class="fas fa-exchange-alt me-2"></i>
+                    {% trans "Material Exchange" %}
+                </h2>
+                <p class="description mb-0">{% trans "Configure corp hangar location and pricing rules." %}</p>
+            </div>
+            <div class="d-flex gap-2">
+                <a href="{% url 'indy_hub:material_exchange_index' %}" class="btn btn-outline-light">
+                    <i class="fas fa-arrow-left me-1"></i>{% trans "Back to Hub" %}
+                </a>
+            </div>
+        </div>
+        <i class="fas fa-exchange-alt header-bg"></i>
+    </div>
+
+    <!-- ESI Scopes Setup -->
+    <section class="dashboard-section mb-4">
+        <header class="section-heading">
+            <div>
+                <h3 class="section-title">{% trans "ESI Scopes Setup" %}</h3>
+                <p class="text-muted small mb-0">{% trans "Material Exchange requires ESI authentication with specific scopes." %}</p>
+            </div>
+        </header>
+        <div class="card focus-card">
+            <div class="card-body p-4">
+                <div class="row g-3 mb-3">
+                    <div class="col-lg-6">
+                        <div class="d-flex gap-3 align-items-start">
+                            <div class="flex-shrink-0">
+                                <div class="bg-info bg-opacity-10 text-info p-3 rounded-3">
+                                    <i class="fas fa-boxes fa-lg"></i>
+                                </div>
+                            </div>
+                            <div class="flex-grow-1">
+                                <h6 class="fw-semibold mb-1">{% trans "Assets Scope" %}</h6>
+                                <p class="small text-muted mb-0">esi-assets.read_corporation_assets.v1</p>
+                                <p class="small text-muted">{% trans "Read corporation assets and structures" %}</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-6">
+                        <div class="d-flex gap-3 align-items-start">
+                            <div class="flex-shrink-0">
+                                <div class="bg-success bg-opacity-10 text-success p-3 rounded-3">
+                                    <i class="fas fa-sitemap fa-lg"></i>
+                                </div>
+                            </div>
+                            <div class="flex-grow-1">
+                                <h6 class="fw-semibold mb-1">{% trans "Divisions Scope" %}</h6>
+                                <p class="small text-muted mb-0">esi-corporations.read_divisions.v1</p>
+                                <p class="small text-muted">{% trans "Read corporation hangar divisions" %}</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-6">
+                        <div class="d-flex gap-3 align-items-start">
+                            <div class="flex-shrink-0">
+                                <div class="bg-warning bg-opacity-10 text-warning p-3 rounded-3">
+                                    <i class="fas fa-file-contract fa-lg"></i>
+                                </div>
+                            </div>
+                            <div class="flex-grow-1">
+                                <h6 class="fw-semibold mb-1">{% trans "Contracts Scope" %}</h6>
+                                <p class="small text-muted mb-0">esi-contracts.read_corporation_contracts.v1</p>
+                                <p class="small text-muted">{% trans "Read corporation contracts for validation" %}</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-6">
+                        <div class="d-flex gap-3 align-items-start">
+                            <div class="flex-shrink-0">
+                                <div class="bg-primary bg-opacity-10 text-primary p-3 rounded-3">
+                                    <i class="fas fa-globe fa-lg"></i>
+                                </div>
+                            </div>
+                            <div class="flex-grow-1">
+                                <h6 class="fw-semibold mb-1">{% trans "Universe Scope" %}</h6>
+                                <p class="small text-muted mb-0">esi-universe.read_structures.v1</p>
+                                <p class="small text-muted">{% trans "Read structure names and information" %}</p>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 <div class="d-flex gap-2">
-                    <a href="{% url 'indy_hub:material_exchange_index' %}" class="btn btn-outline-light">
-                        <i class="fas fa-arrow-left me-1"></i>{% trans "Back to Hub" %}
-                    </a>
-                </div>
-            </div>
-            <i class="fas fa-cog header-bg"></i>
-        </div>
-
-        <!-- ESI Scopes Setup -->
-        <div class="glass-panel p-4 mb-4 border-info">
-            <div class="d-flex align-items-center justify-content-between gap-3">
-                <div>
-                    <h5 class="mb-2">
-                        <i class="fas fa-key me-2 text-info"></i>
-                        {% trans "ESI Scopes Setup" %}
-                    </h5>
-                    <p class="text-muted small mb-0">
-                        {% trans "Material Exchange requires ESI authentication with specific scopes:" %}
-                    </p>
-                    <ul class="small text-muted mb-0 mt-2">
-                        <li>📦 esi-assets.read_corporation_assets.v1 (structures)</li>
-                        <li>🗂️ esi-corporations.read_divisions.v1 (hangar divisions)</li>
-                        <li>📋 esi-contracts.read_corporation_contracts.v1 (contract validation)</li>
-                        <li>🏷️ esi-universe.read_structures.v1 (structure names)</li>
-                    </ul>
-                </div>
-                <div>
-                    <a href="{% url 'indy_hub:material_exchange_request_all_scopes' %}" class="btn btn-lg btn-success">
-                        <i class="fas fa-plus-circle me-2"></i>
+                    <a href="{% url 'indy_hub:material_exchange_request_all_scopes' %}" class="btn btn-success">
+                        <i class="fas fa-plus-circle me-1"></i>
                         {% trans "Add All Scopes" %}
                     </a>
                 </div>
             </div>
         </div>
+    </section>
 
         {% if not available_corps %}
-        <div class="alert alert-warning">
-            <i class="fas fa-exclamation-triangle me-2"></i>
-            {% trans "No corporations found. Make sure you have ESI tokens authorized." %}
-            <a href="{% url 'indy_hub:token_management' %}" class="alert-link">{% trans "Manage Tokens" %}</a>
-            {% trans "or" %}
-            <a href="{% url 'indy_hub:material_exchange_request_all_scopes' %}" class="alert-link">{% trans "Add All Scopes" %}</a>
-        </div>
+        <section class="dashboard-section mb-4">
+            <div class="alert alert-warning">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                {% trans "No corporations found. Make sure you have ESI tokens authorized." %}
+                <a href="{% url 'indy_hub:token_management' %}" class="alert-link">{% trans "Manage Tokens" %}</a>
+                {% trans "or" %}
+                <a href="{% url 'indy_hub:material_exchange_request_all_scopes' %}" class="alert-link">{% trans "Add All Scopes" %}</a>
+            </div>
+        </section>
         {% endif %}
 
-        <div class="glass-panel p-4">
-            <form method="post" id="configForm" onsubmit="return validateForm()">
-                {% csrf_token %}
+    {% if config %}
+    <section class="dashboard-section mb-4">
+        <header class="section-heading">
+            <div>
+                <h3 class="section-title">{% trans "Current Configuration" %}</h3>
+                <p class="text-muted small mb-0">{% trans "Your active Material Exchange hub setup." %}</p>
+            </div>
+        </header>
+        <div class="card focus-card">
+            <div class="card-body p-4">
+                <div class="row g-4">
+                    <div class="col-md-6">
+                        <div class="d-flex align-items-start gap-3">
+                            <div class="flex-shrink-0">
+                                <div class="bg-primary bg-opacity-10 text-primary p-3 rounded-3">
+                                    <i class="fas fa-building fa-lg"></i>
+                                </div>
+                            </div>
+                            <div class="flex-grow-1">
+                                <p class="text-muted small mb-1">{% trans "Corporation" %}</p>
+                                <h6 class="fw-semibold">{{ config.corporation_name }}</h6>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="d-flex align-items-start gap-3">
+                            <div class="flex-shrink-0">
+                                <div class="bg-info bg-opacity-10 text-info p-3 rounded-3">
+                                    <i class="fas fa-warehouse fa-lg"></i>
+                                </div>
+                            </div>
+                            <div class="flex-grow-1">
+                                <p class="text-muted small mb-1">{% trans "Structure" %}</p>
+                                <h6 class="fw-semibold">{{ config.structure_name }}</h6>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="d-flex align-items-start gap-3">
+                            <div class="flex-shrink-0">
+                                <div class="bg-success bg-opacity-10 text-success p-3 rounded-3">
+                                    <i class="fas fa-box fa-lg"></i>
+                                </div>
+                            </div>
+                            <div class="flex-grow-1">
+                                <p class="text-muted small mb-1">{% trans "Hangar Division" %}</p>
+                                <h6 class="fw-semibold">{{ config.hangar_division }}</h6>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="d-flex align-items-start gap-3">
+                            <div class="flex-shrink-0">
+                                <div class="{% if config.is_active %}bg-success{% else %}bg-secondary{% endif %} bg-opacity-10 {% if config.is_active %}text-success{% else %}text-secondary{% endif %} p-3 rounded-3">
+                                    <i class="fas fa-{% if config.is_active %}power-off{% else %}ban{% endif %} fa-lg"></i>
+                                </div>
+                            </div>
+                            <div class="flex-grow-1">
+                                <p class="text-muted small mb-1">{% trans "Status" %}</p>
+                                <h6 class="fw-semibold">
+                                    {% if config.is_active %}
+                                        <span class="badge bg-success">{% trans "Active" %}</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">{% trans "Disabled" %}</span>
+                                    {% endif %}
+                                </h6>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+    {% endif %}
 
+    <section class="dashboard-section mb-4">
+        <header class="section-heading">
+            <div>
+                <h3 class="section-title">{% trans "Hub Configuration" %}</h3>
+                <p class="text-muted small mb-0">{% trans "Select corporation, structure, and hangar division." %}</p>
+            </div>
+        </header>
+        <div class="card focus-card">
+            <div class="card-body p-4">
+                <form method="post" id="configForm" onsubmit="return validateForm()">
+                    {% csrf_token %}
                 <!-- Corporation Selection -->
                 <div class="row g-3 mb-4">
                     <div class="col-md-6">
-                        <label class="form-label">{% trans "Corporation" %} <span class="text-danger">*</span></label>
+                        <label class="form-label fw-semibold">{% trans "Corporation" %} <span class="text-danger">*</span></label>
                         <select name="corporation_id" class="form-select" required id="corpSelect">
                             <option value="">{% trans "Select a corporation..." %}</option>
                             {% for corp in available_corps %}
@@ -88,14 +219,14 @@
                             </option>
                             {% endfor %}
                         </select>
-                        <small class="text-muted">{% trans "Corporation owning the Material Exchange hangar" %}</small>
+                        <small class="text-muted d-block mt-2">{% trans "Corporation owning the Material Exchange hangar" %}</small>
                     </div>
                 </div>
 
                 <!-- Structure Selection -->
                 <div class="row g-3 mb-4">
                     <div class="col-md-6">
-                        <label class="form-label">{% trans "Structure" %} <span class="text-danger">*</span></label>
+                        <label class="form-label fw-semibold">{% trans "Structure" %} <span class="text-danger">*</span></label>
                         <select name="structure_id" class="form-select" required id="structureSelect">
                             <option value="">{% trans "Select corporation first..." %}</option>
                             {% for structure in available_structures %}
@@ -108,22 +239,24 @@
                             {% endfor %}
                         </select>
                         <input type="hidden" name="structure_name" id="structureName" value="{{ config.structure_name|default:'' }}">
-                        <small class="text-muted">{% trans "Structure or station where the hub is located" %}</small>
-                        <div id="assetsScopeInfo" class="mt-1">
+                        <small class="text-muted d-block mt-2">{% trans "Structure or station where the hub is located" %}</small>
+                        <div id="assetsScopeInfo" class="mt-2">
                             <small class="text-muted d-block">{% trans "Structures are listed from corporation assets" %}</small>
-                            <div class="d-flex align-items-center gap-2 mt-1 {% if not assets_scope_missing %}d-none{% endif %}" id="assetsScopeMissingNotice">
-                                <small class="text-warning mb-0">{% trans "Structures need esi-assets.read_corporation_assets.v1 for this corporation." %}</small>
-                                <button type="button" class="btn btn-sm btn-outline-primary" id="assetsScopeButton" onclick="requestAssetsToken()">
-                                    {% trans "Add token" %}
-                                </button>
-                                <button type="button" class="btn btn-sm btn-outline-secondary" id="assetsScopeRefreshButton" onclick="requestTokensSync()">
-                                    {% trans "Refresh tokens" %}
-                                </button>
+                            <div class="alert alert-warning mt-2 d-none" id="assetsScopeMissingNotice">
+                                <small><i class="fas fa-warning me-1"></i>{% trans "Structures need esi-assets.read_corporation_assets.v1 for this corporation." %}</small>
+                                <div class="mt-2 d-flex gap-2">
+                                    <button type="button" class="btn btn-sm btn-outline-primary" id="assetsScopeButton" onclick="requestAssetsToken()">
+                                        {% trans "Add token" %}
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="assetsScopeRefreshButton" onclick="requestTokensSync()">
+                                        {% trans "Refresh tokens" %}
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
                     <div class="col-md-6">
-                        <label class="form-label">{% trans "Hangar Division" %} <span class="text-danger">*</span></label>
+                        <label class="form-label fw-semibold">{% trans "Hangar Division" %} <span class="text-danger">*</span></label>
                         <select name="hangar_division" class="form-select" required id="hangarSelect">
                             {% for div_num, div_name in hangar_divisions.items %}
                             <option value="{{ div_num }}" {% if config and config.hangar_division == div_num %}selected{% endif %}>
@@ -131,102 +264,122 @@
                             </option>
                             {% endfor %}
                         </select>
-                        <div id="divisionScopeInfo" class="mt-1">
-                            <small class="text-muted d-block">{% trans "Corp hangar division (1-7)" %}</small>
-                            <div class="d-flex align-items-center gap-2 mt-1 {% if not division_scope_missing %}d-none{% endif %}" id="divisionScopeMissingNotice">
-                                <small class="text-warning mb-0">{% trans "Division names need esi-corporations.read_divisions.v1 for this corporation." %}</small>
-                                <button type="button" class="btn btn-sm btn-outline-primary" id="divisionScopeButton" onclick="requestDivisionsToken()">
-                                    {% trans "Add token" %}
-                                </button>
-                                <button type="button" class="btn btn-sm btn-outline-secondary" id="divisionScopeRefreshButton" onclick="requestTokensSync()">
-                                    {% trans "Refresh tokens" %}
-                                </button>
+                        <small class="text-muted d-block mt-2">{% trans "Corp hangar division (1-7)" %}</small>
+                        <div id="divisionScopeInfo" class="mt-2">
+                            <div class="alert alert-warning d-none" id="divisionScopeMissingNotice">
+                                <small><i class="fas fa-warning me-1"></i>{% trans "Division names need esi-corporations.read_divisions.v1 for this corporation." %}</small>
+                                <div class="mt-2 d-flex gap-2">
+                                    <button type="button" class="btn btn-sm btn-outline-primary" id="divisionScopeButton" onclick="requestDivisionsToken()">
+                                        {% trans "Add token" %}
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="divisionScopeRefreshButton" onclick="requestTokensSync()">
+                                        {% trans "Refresh tokens" %}
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- Pricing Configuration -->
-                <h5 class="mb-3">{% trans "Pricing Rules" %}</h5>
-                <div class="alert alert-info mb-3">
-                    <i class="fas fa-info-circle me-2"></i>
-                    {% trans "Prices are based on Jita prices from Fuzzwork API. You can choose whether to apply markup on Buy or Sell prices." %}
-                </div>
-
+                <!-- Pricing Rules section within form -->
+                <hr class="my-4">
                 <div class="row g-3 mb-4">
-                    <div class="col-md-6">
-                        <label class="form-label">{% trans "Sell Markup %" %}</label>
-                        <div class="input-group mb-2">
-                            <input
-                                type="number"
-                                name="sell_markup_percent"
-                                class="form-control"
-                                step="0.01"
-                                min="-100"
-                                max="100"
-                                inputmode="decimal"
-                                value="{{ config.sell_markup_percent|default:'0'|floatformat:'-2' }}">
-                            <span class="input-group-text">%</span>
+                    <div class="col-12">
+                        <h5 class="fw-semibold mb-3">{% trans "Pricing Rules" %}</h5>
+                        <p class="text-muted small mb-3">{% trans "Configure markups based on Jita prices from Fuzzwork API." %}</p>
+                        <div class="alert alert-info mb-3">
+                            <i class="fas fa-lightbulb me-2"></i>
+                            {% trans "Prices are dynamically based on Jita prices. You can choose whether to apply markup on Buy or Sell prices." %}
                         </div>
-                        <label class="form-label">{% trans "Apply on" %}</label>
-                        <select name="sell_markup_base" class="form-select">
-                            <option value="buy" {% if not config or config.sell_markup_base == 'buy' %}selected{% endif %}>
-                                {% trans "Jita Buy Price" %}
-                            </option>
-                            <option value="sell" {% if config and config.sell_markup_base == 'sell' %}selected{% endif %}>
-                                {% trans "Jita Sell Price" %}
-                            </option>
-                        </select>
-                        <small class="text-muted">
-                            {% trans "When members SELL to hub: Base price + this %. Example: 0% on Jita Buy = exact Jita Buy" %}
-                        </small>
-                    </div>
-                    <div class="col-md-6">
-                        <label class="form-label">{% trans "Buy Markup %" %}</label>
-                        <div class="input-group mb-2">
-                            <input
-                                type="number"
-                                name="buy_markup_percent"
-                                class="form-control"
-                                step="0.01"
-                                min="-100"
-                                max="1000"
-                                inputmode="decimal"
-                                value="{{ config.buy_markup_percent|default:'5'|floatformat:'-2' }}">
-                            <span class="input-group-text">%</span>
-                        </div>
-                        <label class="form-label">{% trans "Apply on" %}</label>
-                        <select name="buy_markup_base" class="form-select">
-                            <option value="buy" {% if not config or config.buy_markup_base == 'buy' %}selected{% endif %}>
-                                {% trans "Jita Buy Price" %}
-                            </option>
-                            <option value="sell" {% if config and config.buy_markup_base == 'sell' %}selected{% endif %}>
-                                {% trans "Jita Sell Price" %}
-                            </option>
-                        </select>
-                        <small class="text-muted">
-                            {% trans "When members BUY from hub: Base price + this %. Example: -10% on Jita Sell = Jita Sell - 10%" %}
-                        </small>
                     </div>
                 </div>
-
-                <!-- Market Group Filters removed: filtering is now fixed to parent group 533 -->
-
-                <!-- Active Status -->
-                <div class="form-check mb-4">
-                    <input
-                        type="checkbox"
-                        name="is_active"
-                        class="form-check-input"
-                        id="isActive"
-                        {% if not config or config.is_active %}checked{% endif %}>
-                    <label class="form-check-label" for="isActive">
-                        {% trans "Enable Material Exchange" %}
-                    </label>
-                    <div class="form-text">{% trans "Uncheck to temporarily disable the Material Exchange without deleting configuration" %}</div>
+                <div class="row g-4 mb-4">
+                    <div class="col-md-6">
+                        <div class="card focus-card h-100">
+                            <div class="card-body p-4">
+                                <div class="d-flex align-items-center mb-3">
+                                    <div class="bg-success bg-opacity-10 text-success p-2 rounded-2 me-2">
+                                        <i class="fas fa-arrow-right"></i>
+                                    </div>
+                                    <h6 class="fw-semibold mb-0">{% trans "Sell Markup" %}</h6>
+                                </div>
+                                <p class="text-muted small mb-3">{% trans "Members SELL items to your hub" %}</p>
+                                <label class="form-label fw-semibold">{% trans "Markup %" %}</label>
+                                <div class="input-group mb-3">
+                                    <input
+                                        type="number"
+                                        name="sell_markup_percent"
+                                        class="form-control"
+                                        step="0.01"
+                                        min="-100"
+                                        max="100"
+                                        inputmode="decimal"
+                                        value="{{ config.sell_markup_percent|default:'0'|floatformat:'-2' }}">
+                                    <span class="input-group-text">%</span>
+                                </div>
+                                <label class="form-label fw-semibold">{% trans "Base Price" %}</label>
+                                <select name="sell_markup_base" class="form-select mb-3">
+                                    <option value="buy" {% if not config or config.sell_markup_base == 'buy' %}selected{% endif %}>
+                                        {% trans "Jita Buy Price" %}
+                                    </option>
+                                    <option value="sell" {% if config and config.sell_markup_base == 'sell' %}selected{% endif %}>
+                                        {% trans "Jita Sell Price" %}
+                                    </option>
+                                </select>
+                                <div class="p-3 bg-body-secondary rounded-3 small">
+                                    <p class="text-muted mb-2"><strong>{% trans "Example:" %}</strong></p>
+                                    <ul class="text-muted mb-0 ps-3">
+                                        <li>{% trans "0% on Jita Buy = members get exact Jita Buy price" %}</li>
+                                        <li>{% trans "5% on Jita Buy = members get 5% less ISK per unit" %}</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card focus-card h-100">
+                            <div class="card-body p-4">
+                                <div class="d-flex align-items-center mb-3">
+                                    <div class="bg-danger bg-opacity-10 text-danger p-2 rounded-2 me-2">
+                                        <i class="fas fa-arrow-left"></i>
+                                    </div>
+                                    <h6 class="fw-semibold mb-0">{% trans "Buy Markup" %}</h6>
+                                </div>
+                                <p class="text-muted small mb-3">{% trans "Members BUY items from your hub" %}</p>
+                                <label class="form-label fw-semibold">{% trans "Markup %" %}</label>
+                                <div class="input-group mb-3">
+                                    <input
+                                        type="number"
+                                        name="buy_markup_percent"
+                                        class="form-control"
+                                        step="0.01"
+                                        min="-100"
+                                        max="1000"
+                                        inputmode="decimal"
+                                        value="{{ config.buy_markup_percent|default:'5'|floatformat:'-2' }}">
+                                    <span class="input-group-text">%</span>
+                                </div>
+                                <label class="form-label fw-semibold">{% trans "Base Price" %}</label>
+                                <select name="buy_markup_base" class="form-select mb-3">
+                                    <option value="buy" {% if not config or config.buy_markup_base == 'buy' %}selected{% endif %}>
+                                        {% trans "Jita Buy Price" %}
+                                    </option>
+                                    <option value="sell" {% if config and config.buy_markup_base == 'sell' %}selected{% endif %}>
+                                        {% trans "Jita Sell Price" %}
+                                    </option>
+                                </select>
+                                <div class="p-3 bg-body-secondary rounded-3 small">
+                                    <p class="text-muted mb-2"><strong>{% trans "Example:" %}</strong></p>
+                                    <ul class="text-muted mb-0 ps-3">
+                                        <li>{% trans "-5% on Jita Sell = members pay 5% less than Jita Sell" %}</li>
+                                        <li>{% trans "5% on Jita Buy = members pay 5% more than Jita Buy" %}</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-
-                <!-- Submit -->
+                <hr class="my-4">
                 <div class="d-flex gap-2">
                     <button type="submit" class="btn btn-primary" id="submitBtn">
                         <i class="fas fa-save me-2"></i>{% trans "Save Configuration" %}
@@ -235,46 +388,70 @@
                         {% trans "Cancel" %}
                     </a>
                 </div>
-            </form>
+                </form>
+            </div>
         </div>
 
         {% if config %}
-        <div class="glass-panel p-4 mt-4">
-            <h5 class="mb-3">{% trans "Sync Status" %}</h5>
-            <div class="row">
-                <div class="col-md-6">
-                    <div class="d-flex justify-content-between mb-2">
-                        <span>{% trans "Last Stock Sync:" %}</span>
-                        <strong>
-                            {% if config.last_stock_sync %}
-                                {{ config.last_stock_sync|date:"Y-m-d H:i" }}
-                            {% else %}
-                                {% trans "Never" %}
-                            {% endif %}
-                        </strong>
-                    </div>
+        <section class="dashboard-section">
+            <header class="section-heading">
+                <div>
+                    <h3 class="section-title">{% trans "Synchronization Status" %}</h3>
+                    <p class="text-muted small mb-0">{% trans "Automatic updates of stock and pricing data." %}</p>
                 </div>
-                <div class="col-md-6">
-                    <div class="d-flex justify-content-between mb-2">
-                        <span>{% trans "Last Price Sync:" %}</span>
-                        <strong>
-                            {% if config.last_price_sync %}
-                                {{ config.last_price_sync|date:"Y-m-d H:i" }}
-                            {% else %}
-                                {% trans "Never" %}
-                            {% endif %}
-                        </strong>
+            </header>
+            <div class="card focus-card">
+                <div class="card-body p-4">
+                    <div class="row g-4 mb-4">
+                        <div class="col-md-6">
+                            <div class="d-flex align-items-start gap-3">
+                                <div class="flex-shrink-0">
+                                    <div class="bg-primary bg-opacity-10 text-primary p-3 rounded-3">
+                                        <i class="fas fa-boxes fa-lg"></i>
+                                    </div>
+                                </div>
+                                <div class="flex-grow-1">
+                                    <h6 class="fw-semibold mb-1">{% trans "Last Stock Sync" %}</h6>
+                                    <p class="text-muted mb-0">
+                                        {% if config.last_stock_sync %}
+                                            <strong>{{ config.last_stock_sync|date:"Y-m-d H:i:s" }}</strong>
+                                        {% else %}
+                                            <span class="text-warning">{% trans "Never synced" %}</span>
+                                        {% endif %}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="d-flex align-items-start gap-3">
+                                <div class="flex-shrink-0">
+                                    <div class="bg-success bg-opacity-10 text-success p-3 rounded-3">
+                                        <i class="fas fa-chart-line fa-lg"></i>
+                                    </div>
+                                </div>
+                                <div class="flex-grow-1">
+                                    <h6 class="fw-semibold mb-1">{% trans "Last Price Sync" %}</h6>
+                                    <p class="text-muted mb-0">
+                                        {% if config.last_price_sync %}
+                                            <strong>{{ config.last_price_sync|date:"Y-m-d H:i:s" }}</strong>
+                                        {% else %}
+                                            <span class="text-warning">{% trans "Never synced" %}</span>
+                                        {% endif %}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle me-2"></i>
+                        {% trans "Stock and prices are refreshed on-demand when accessing the Buy and Sell pages (if older than 1 hour)." %}
                     </div>
                 </div>
             </div>
-            <div class="alert alert-warning-soft mt-3">
-                <i class="fas fa-clock me-2"></i>
-                {% trans "Stock and prices are synced automatically by Celery tasks. Make sure periodic tasks are configured." %}
-            </div>
-        </div>
+        </section>
         {% endif %}
     </div>
-</main>
+</div>
 
 {{ hangar_divisions|json_script:"hangarDivisionsData" }}
 

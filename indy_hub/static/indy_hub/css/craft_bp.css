@@ -23,7 +23,7 @@
     );
 }
 
-[data-bs-theme="dark"] {
+html[data-theme="darkly"] {
     --craft-hero-shadow: 0 1.5rem 3rem rgb(0 0 0 / 45%);
     --craft-hero-muted: rgba(var(--bs-light-rgb), 0.65);
     --craft-glass-bg: rgba(var(--bs-light-rgb), 0.18);
@@ -61,7 +61,7 @@
     font-size: clamp(6rem, 12vw, 8rem);
 }
 
-[data-bs-theme="dark"] .craft-hero .header-bg {
+html[data-theme="darkly"] .craft-hero .header-bg {
     color: rgba(var(--bs-light-rgb), 0.18);
 }
 
@@ -436,12 +436,21 @@ details[open] summary .summary-icon i {
 }
 
 .blueprint-tab.active .tab-subtitle {
-    color: rgba(255, 255, 255, 0.75);
+    color: rgba(var(--bs-light-rgb), 0.75);
+}
+
+html[data-theme="darkly"] .blueprint-tab.active .tab-subtitle {
+    color: rgba(var(--bs-light-rgb), 0.85);
 }
 
 .blueprint-tab.active .tab-icon {
-    background: rgba(255, 255, 255, 0.18);
+    background: rgba(var(--bs-light-rgb), 0.18);
     color: #fff;
+}
+
+html[data-theme="darkly"] .blueprint-tab.active .tab-icon {
+    background: rgba(var(--bs-primary-rgb), 0.18);
+    color: var(--bs-light);
 }
 
 #materials-tab.blueprint-tab .tab-icon { background: rgba(2, 132, 199, 0.13); color: #0369a1; }
@@ -454,21 +463,30 @@ details[open] summary .summary-icon i {
 #materials-tab.blueprint-tab.active { background: linear-gradient(135deg, #0284c7, #38bdf8); }
 #tree-tab.blueprint-tab.active { background: linear-gradient(135deg, #16a34a, #4ade80); }
 #cycles-tab.blueprint-tab.active { background: linear-gradient(135deg, #334155, #64748b); }
-#financial-tab.blueprint-tab.active { background: linear-gradient(135deg, #facc15, #fbbf24); color: #1f2937; }
+#financial-tab.blueprint-tab.active { background: linear-gradient(135deg, #facc15, #fbbf24); color: var(--bs-body-color); }
 #financial-tab.blueprint-tab.active .tab-title,
 #financial-tab.blueprint-tab.active .tab-subtitle,
-#financial-tab.blueprint-tab.active .tab-icon { color: #1f2937; }
+#financial-tab.blueprint-tab.active .tab-icon { color: var(--bs-body-color); }
 #needed-tab.blueprint-tab.active { background: linear-gradient(135deg, #0ea5e9, #38bdf8); }
 #config-tab.blueprint-tab.active { background: linear-gradient(135deg, #dc2626, #fb7185); }
 #financial-tab.blueprint-tab.active .tab-icon {
-    background: rgba(255, 255, 255, 0.32);
+    background: rgba(var(--bs-light-rgb), 0.32);
+}
+
+html[data-theme="darkly"] #financial-tab.blueprint-tab.active .tab-icon {
+    background: rgba(var(--bs-warning-rgb), 0.22);
 }
 
 /* Tab intro cards */
 .card-intro {
-    background: linear-gradient(135deg, rgba(241, 245, 249, 0.9), rgba(255, 255, 255, 0.95));
+    background: linear-gradient(135deg, rgba(241, 245, 249, 0.9), rgba(var(--bs-body-bg-rgb, 255, 255, 255), 0.95));
     border: 1px solid rgba(203, 213, 225, 0.8) !important;
     border-radius: 1.1rem !important;
+}
+
+html[data-theme="darkly"] .card-intro {
+    background: linear-gradient(135deg, rgba(var(--bs-body-bg-rgb, 15, 23, 42), 0.92), rgba(var(--bs-body-bg-rgb, 15, 23, 42), 0.96));
+    border-color: rgba(var(--bs-light-rgb), 0.15) !important;
 }
 
 .card-intro .card-body {
@@ -523,7 +541,7 @@ details[open] summary .summary-icon i {
 
 #tab-financial .card-header {
     background: linear-gradient(90deg, #fcd34d 0%, #fde68a 100%) !important;
-    color: #000 !important;
+    color: var(--bs-body-color) !important;
     border-bottom: none !important;
 }
 
@@ -551,6 +569,13 @@ input.sale-price-unit.is-manual {
     border-color: #fb923c !important;
     box-shadow: 0 0 0 3px rgba(251, 146, 60, 0.18);
     color: #9a3412;
+}
+
+html[data-theme="darkly"] input.real-price.is-manual,
+html[data-theme="darkly"] input.sale-price-unit.is-manual {
+    background: rgba(var(--bs-body-bg-rgb), 0.8);
+    border-color: #fb923c !important;
+    color: var(--bs-body-color);
 }
 
 #tab-financial tr.has-manual {
@@ -588,24 +613,27 @@ input.sale-price-unit.is-manual {
     position: sticky;
     top: 0;
     background: #ffffff;
-    z-index: 2;
-    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
+    z-index: 1;
 }
 
-/* Ajustement spécifique pour la première colonne (nom des items) qui peut être plus large */
+html[data-theme="darkly"] #tab-financial .table thead th {
+    background: rgba(var(--bs-body-bg-rgb), 0.88);
+}
+
+/* Specific adjustment for the first column (item name), which can be wider */
 #tab-financial .table th:first-child,
 #tab-financial .table td:first-child {
     width: 30%;
-    min-width: 200px; /* Largeur minimale pour les noms longs */
+    min-width: 200px; /* Minimum width for long names */
 }
 
-/* Les autres colonnes se partagent l'espace restant */
+/* The other columns share the remaining space */
 #tab-financial .table th:not(:first-child),
 #tab-financial .table td:not(:first-child) {
     width: 17.5%; /* (100% - 30%) / 4 = 17.5% */
 }
 
-/* Style pour les badges de nom d'item */
+/* Style for item name badges */
 #tab-financial .badge {
     white-space: nowrap;
     max-width: 100%;
@@ -616,7 +644,7 @@ input.sale-price-unit.is-manual {
     line-height: 1.2;
 }
 
-/* Amélioration pour les badges avec du texte très long */
+/* Improvement for badges with very long text */
 #tab-financial .badge:hover {
     white-space: normal;
     max-width: none;
@@ -627,16 +655,16 @@ input.sale-price-unit.is-manual {
     box-shadow: 0 4px 8px rgba(0,0,0,0.2);
 }
 
-/* Assurer que le tableau reste lisible avec les longs noms */
+/* Ensure the table stays readable with long names */
 #tab-financial .table-responsive {
     overflow-x: auto;
     min-height: 200px;
 }
 
-/* Responsive behavior pour les petits écrans */
+/* Responsive behavior for small screens */
 @media (max-width: 768px) {
     #tab-financial .table {
-        table-layout: auto; /* Retour au comportement auto sur mobile */
+        table-layout: auto; /* Back to auto layout on mobile */
     }
 
     #tab-financial .table th,
@@ -653,6 +681,10 @@ input.sale-price-unit.is-manual {
     border-bottom-right-radius: 12px;
 }
 
+html[data-theme="darkly"] #tab-cycles .cycles-enhanced {
+    background: rgba(var(--bs-body-bg-rgb), 0.88);
+}
+
 #tab-cycles .cycles-overview {
     background: linear-gradient(135deg, rgba(148, 163, 184, 0.15), rgba(148, 163, 184, 0));
 }
@@ -662,6 +694,11 @@ input.sale-price-unit.is-manual {
     border: 1px solid #e2e8f0;
     padding: 1rem 1.25rem;
     transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+html[data-theme="darkly"] #tab-cycles .cycles-stat-tile {
+    background: rgba(var(--bs-body-bg-rgb), 0.85);
+    border-color: rgba(var(--bs-light-rgb), 0.15);
 }
 
 #tab-cycles .cycles-stat-tile:hover {
@@ -677,7 +714,7 @@ input.sale-price-unit.is-manual {
 #tab-cycles .cycles-stat-value {
     font-size: 1.85rem;
     font-weight: 700;
-    color: #1f2937;
+    color: var(--bs-body-color);
 }
 
 #tab-cycles .cycles-stat-meta {
@@ -717,10 +754,18 @@ input.sale-price-unit.is-manual {
     background: #f1f5f9;
 }
 
+html[data-theme="darkly"] #tab-cycles .cycles-insights {
+    background: rgba(var(--bs-body-bg-rgb), 0.82);
+}
+
 #tab-cycles .cycles-insight-card {
     background: #ffffff;
     border: 1px solid #e2e8f0;
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+html[data-theme="darkly"] #tab-cycles .cycles-insight-card {
+    background: rgba(var(--bs-body-bg-rgb), 0.88);
+    border-color: rgba(var(--bs-light-rgb), 0.15);
 }
 
 #tab-cycles .cycles-insight-card:hover {
@@ -750,5 +795,21 @@ input.sale-price-unit.is-manual {
 }
 
 #tab-cycles .cycles-insight-card .text-muted {
-    color: #475569 !important;
+    color: var(--indy-text-secondary, #475569) !important;
+}
+
+html[data-theme="darkly"] #tab-cycles .cycles-insight-card .text-muted {
+    color: rgba(var(--bs-light-rgb), 0.7) !important;
+}
+
+/* Bootstrap utility classes overrides */
+html[data-theme="darkly"] .bg-body-tertiary,
+html[data-theme="darkly"] .bg-body-secondary,
+html[data-theme="darkly"] .bg-light,
+html[data-theme="darkly"] .bg-white {
+    background-color: #303030 !important;
+}
+
+html[data-theme="darkly"] [class*="subtle"] {
+    background-color: #303030 !important;
 }

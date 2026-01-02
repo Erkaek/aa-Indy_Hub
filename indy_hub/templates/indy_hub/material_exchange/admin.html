@@ -130,178 +130,208 @@
         </div>
 
         <!-- Sell Orders -->
-        <div class="glass-panel p-4 mb-4">
-            <h5 class="mb-3">{% trans "Sell Orders" %}</h5>
+        <div class="mb-4">
+            <div class="d-flex align-items-center gap-2 mb-3">
+                <h5 class="mb-0">
+                    <i class="fas fa-arrow-up text-danger me-2"></i>{% trans "Sell Orders" %}
+                </h5>
+            </div>
             {% if sell_orders %}
-            <div class="table-responsive">
-                <table class="table table-dark table-striped">
-                    <thead>
-                        <tr>
-                            <th>{% trans "ID" %}</th>
-                            <th>{% trans "Seller" %}</th>
-                            <th>{% trans "Items" %}</th>
-                            <th>{% trans "Total Quantity" %}</th>
-                            <th>{% trans "Total Price" %}</th>
-                            <th>{% trans "Status" %}</th>
-                            <th>{% trans "Created" %}</th>
-                            <th>{% trans "Actions" %}</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for order in sell_orders %}
-                        <tr>
-                            <td><strong>#{{ order.id }}</strong></td>
-                            <td>{{ order.seller.username }}</td>
-                            <td>
-                                <ul style="margin: 0; padding-left: 20px;">
-                                    {% for item in order.items.all %}
-                                    <li>{{ item.type_name }} x{{ item.quantity|intcomma }} @ {{ item.unit_price|floatformat:2|intcomma }} ISK</li>
-                                    {% endfor %}
-                                </ul>
-                            </td>
-                            <td>{{ order.total_quantity|intcomma }}</td>
-                            <td>{{ order.total_price|floatformat:0|intcomma }} ISK</td>
-                            <td>
-                                <div class="status-badge status-{{ order.status }}">
-                                    {% if order.status == 'draft' %}
-                                    <i class="fas fa-file status-icon"></i>
-                                    {% elif order.status == 'awaiting_validation' %}
-                                    <i class="fas fa-hourglass-half status-icon"></i>
-                                    {% elif order.status == 'validated' %}
-                                    <i class="fas fa-check-circle status-icon"></i>
-                                    {% elif order.status == 'completed' %}
-                                    <i class="fas fa-check status-icon"></i>
-                                    {% elif order.status == 'rejected' %}
-                                    <i class="fas fa-times-circle status-icon"></i>
-                                    {% elif order.status == 'cancelled' %}
-                                    <i class="fas fa-ban status-icon"></i>
-                                    {% endif %}
-                                    <span>{{ order.get_status_display }}</span>
-                                </div>
-                            </td>
-                            <td>{{ order.created_at|date:"Y-m-d H:i" }}</td>
-                            <td>
-                                {% if order.status == 'pending' %}
-                                <form method="post" style="display: inline;">
-                                    {% csrf_token %}
-                                    <button formaction="{% url 'indy_hub:material_exchange_approve_sell' order.id %}" type="submit" class="btn btn-sm btn-success">
-                                        <i class="fas fa-check"></i> {% trans "Approve" %}
-                                    </button>
-                                    <button formaction="{% url 'indy_hub:material_exchange_reject_sell' order.id %}" type="submit" class="btn btn-sm btn-danger">
-                                        <i class="fas fa-times"></i> {% trans "Reject" %}
-                                    </button>
-                                </form>
-                                {% elif order.status == 'approved' %}
-                                <form method="post" style="display: inline;">
-                                    {% csrf_token %}
-                                    <button formaction="{% url 'indy_hub:material_exchange_verify_payment_sell' order.id %}" type="submit" class="btn btn-sm btn-info">
-                                        <i class="fas fa-check-circle"></i> {% trans "Verify Contract" %}
-                                    </button>
-                                </form>
+            <div class="row g-3">
+                {% for order in sell_orders %}
+                <div class="col-12">
+                    <div class="focus-card p-4 rounded-3">
+                        <div class="d-flex justify-content-between align-items-start mb-3">
+                            <div>
+                                <h6 class="mb-1">
+                                    <span class="text-muted">{% trans "Order" %} #{{ order.id }}</span>
+                                    <span class="text-primary ms-2">{{ order.seller.username }}</span>
+                                </h6>
+                                <small class="text-muted">{{ order.created_at|date:"Y-m-d H:i" }}</small>
+                            </div>
+                            <div class="status-badge status-{{ order.status }}">
+                                {% if order.status == 'draft' %}
+                                <i class="fas fa-file status-icon"></i>
+                                {% elif order.status == 'awaiting_validation' %}
+                                <i class="fas fa-hourglass-half status-icon"></i>
                                 {% elif order.status == 'validated' %}
-                                <form method="post" style="display: inline;">
-                                    {% csrf_token %}
-                                    <button formaction="{% url 'indy_hub:material_exchange_complete_sell' order.id %}" type="submit" class="btn btn-sm btn-primary">
-                                        <i class="fas fa-flag-checkered"></i> {% trans "Complete" %}
-                                    </button>
-                                </form>
+                                <i class="fas fa-check-circle status-icon"></i>
+                                {% elif order.status == 'completed' %}
+                                <i class="fas fa-check status-icon"></i>
+                                {% elif order.status == 'rejected' %}
+                                <i class="fas fa-times-circle status-icon"></i>
+                                {% elif order.status == 'cancelled' %}
+                                <i class="fas fa-ban status-icon"></i>
                                 {% endif %}
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+                                <span>{{ order.get_status_display }}</span>
+                            </div>
+                        </div>
+
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-4">
+                                <small class="text-muted d-block mb-1">{% trans "Total Quantity" %}</small>
+                                <strong>{{ order.total_quantity|intcomma }}</strong>
+                            </div>
+                            <div class="col-md-4">
+                                <small class="text-muted d-block mb-1">{% trans "Total Price" %}</small>
+                                <strong class="text-success">{{ order.total_price|floatformat:0|intcomma }} ISK</strong>
+                            </div>
+                            <div class="col-md-4">
+                                <small class="text-muted d-block mb-1">{% trans "Items Count" %}</small>
+                                <strong>{{ order.items.all|length }}</strong>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <small class="text-muted d-block mb-2">{% trans "Items" %}</small>
+                            <ul class="mb-0 ps-3">
+                                {% for item in order.items.all %}
+                                <li class="text-muted small">{{ item.type_name }} <span class="text-info">×{{ item.quantity|intcomma }}</span> @ <span class="text-success">{{ item.unit_price|floatformat:2|intcomma }} ISK</span></li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+
+                        <div class="d-flex gap-2 flex-wrap">
+                            {% if order.status == 'pending' %}
+                            <form method="post" class="d-inline">
+                                {% csrf_token %}
+                                <button formaction="{% url 'indy_hub:material_exchange_approve_sell' order.id %}" type="submit" class="btn btn-sm btn-success">
+                                    <i class="fas fa-check me-1"></i>{% trans "Approve" %}
+                                </button>
+                            </form>
+                            <form method="post" class="d-inline">
+                                {% csrf_token %}
+                                <button formaction="{% url 'indy_hub:material_exchange_reject_sell' order.id %}" type="submit" class="btn btn-sm btn-danger">
+                                    <i class="fas fa-times me-1"></i>{% trans "Reject" %}
+                                </button>
+                            </form>
+                            {% elif order.status == 'approved' %}
+                            <form method="post" class="d-inline">
+                                {% csrf_token %}
+                                <button formaction="{% url 'indy_hub:material_exchange_verify_payment_sell' order.id %}" type="submit" class="btn btn-sm btn-info">
+                                    <i class="fas fa-check-circle me-1"></i>{% trans "Verify Contract" %}
+                                </button>
+                            </form>
+                            {% elif order.status == 'validated' %}
+                            <form method="post" class="d-inline">
+                                {% csrf_token %}
+                                <button formaction="{% url 'indy_hub:material_exchange_complete_sell' order.id %}" type="submit" class="btn btn-sm btn-primary">
+                                    <i class="fas fa-flag-checkered me-1"></i>{% trans "Complete" %}
+                                </button>
+                            </form>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
             </div>
             {% else %}
-            <div class="alert alert-info">{% trans "No sell orders found matching criteria." %}</div>
+            <div class="alert alert-info mb-4">
+                <i class="fas fa-info-circle me-2"></i>{% trans "No sell orders found matching criteria." %}
+            </div>
             {% endif %}
         </div>
 
         <!-- Buy Orders -->
-        <div class="glass-panel p-4">
-            <h5 class="mb-3">{% trans "Buy Orders" %}</h5>
+        <div>
+            <div class="d-flex align-items-center gap-2 mb-3">
+                <h5 class="mb-0">
+                    <i class="fas fa-arrow-down text-success me-2"></i>{% trans "Buy Orders" %}
+                </h5>
+            </div>
             {% if buy_orders %}
-            <div class="table-responsive">
-                <table class="table table-dark table-striped">
-                    <thead>
-                        <tr>
-                            <th>{% trans "ID" %}</th>
-                            <th>{% trans "Buyer" %}</th>
-                            <th>{% trans "Items" %}</th>
-                            <th>{% trans "Total Quantity" %}</th>
-                            <th>{% trans "Total Price" %}</th>
-                            <th>{% trans "Status" %}</th>
-                            <th>{% trans "Created" %}</th>
-                            <th>{% trans "Actions" %}</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for order in buy_orders %}
-                        <tr>
-                            <td><strong>#{{ order.id }}</strong></td>
-                            <td>{{ order.buyer.username }}</td>
-                            <td>
-                                <ul style="margin: 0; padding-left: 20px;">
-                                    {% for item in order.items.all %}
-                                    <li>{{ item.type_name }} x{{ item.quantity|intcomma }} @ {{ item.unit_price|floatformat:2|intcomma }} ISK</li>
-                                    {% endfor %}
-                                </ul>
-                            </td>
-                            <td>{{ order.total_quantity|intcomma }}</td>
-                            <td>{{ order.total_price|floatformat:0|intcomma }} ISK</td>
-                            <td>
-                                <div class="status-badge status-{{ order.status }}">
-                                    {% if order.status == 'pending' %}
-                                    <i class="fas fa-hourglass-half status-icon"></i>
-                                    {% elif order.status == 'approved' %}
-                                    <i class="fas fa-check-circle status-icon"></i>
-                                    {% elif order.status == 'delivered' %}
-                                    <i class="fas fa-shipping-fast status-icon"></i>
-                                    {% elif order.status == 'completed' %}
-                                    <i class="fas fa-check status-icon"></i>
-                                    {% elif order.status == 'rejected' %}
-                                    <i class="fas fa-times-circle status-icon"></i>
-                                    {% elif order.status == 'cancelled' %}
-                                    <i class="fas fa-ban status-icon"></i>
-                                    {% endif %}
-                                    <span>{{ order.get_status_display }}</span>
-                                </div>
-                            </td>
-                            <td>{{ order.created_at|date:"Y-m-d H:i" }}</td>
-                            <td>
+            <div class="row g-3">
+                {% for order in buy_orders %}
+                <div class="col-12">
+                    <div class="focus-card p-4 rounded-3">
+                        <div class="d-flex justify-content-between align-items-start mb-3">
+                            <div>
+                                <h6 class="mb-1">
+                                    <span class="text-muted">{% trans "Order" %} #{{ order.id }}</span>
+                                    <span class="text-primary ms-2">{{ order.buyer.username }}</span>
+                                </h6>
+                                <small class="text-muted">{{ order.created_at|date:"Y-m-d H:i" }}</small>
+                            </div>
+                            <div class="status-badge status-{{ order.status }}">
                                 {% if order.status == 'pending' %}
-                                <form method="post" style="display: inline;">
-                                    {% csrf_token %}
-                                    <button formaction="{% url 'indy_hub:material_exchange_approve_buy' order.id %}" type="submit" class="btn btn-sm btn-success">
-                                        <i class="fas fa-check"></i> {% trans "Approve" %}
-                                    </button>
-                                    <button formaction="{% url 'indy_hub:material_exchange_reject_buy' order.id %}" type="submit" class="btn btn-sm btn-danger">
-                                        <i class="fas fa-times"></i> {% trans "Reject" %}
-                                    </button>
-                                </form>
+                                <i class="fas fa-hourglass-half status-icon"></i>
                                 {% elif order.status == 'approved' %}
-                                <form method="post" style="display: inline;">
-                                    {% csrf_token %}
-                                    <button formaction="{% url 'indy_hub:material_exchange_mark_delivered_buy' order.id %}" type="submit" class="btn btn-sm btn-info">
-                                        <i class="fas fa-shipping-fast"></i> {% trans "Mark Delivered" %}
-                                    </button>
-                                </form>
+                                <i class="fas fa-check-circle status-icon"></i>
                                 {% elif order.status == 'delivered' %}
-                                <form method="post" style="display: inline;">
-                                    {% csrf_token %}
-                                    <button formaction="{% url 'indy_hub:material_exchange_complete_buy' order.id %}" type="submit" class="btn btn-sm btn-primary">
-                                        <i class="fas fa-flag-checkered"></i> {% trans "Complete" %}
-                                    </button>
-                                </form>
+                                <i class="fas fa-shipping-fast status-icon"></i>
+                                {% elif order.status == 'completed' %}
+                                <i class="fas fa-check status-icon"></i>
+                                {% elif order.status == 'rejected' %}
+                                <i class="fas fa-times-circle status-icon"></i>
+                                {% elif order.status == 'cancelled' %}
+                                <i class="fas fa-ban status-icon"></i>
                                 {% endif %}
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+                                <span>{{ order.get_status_display }}</span>
+                            </div>
+                        </div>
+
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-4">
+                                <small class="text-muted d-block mb-1">{% trans "Total Quantity" %}</small>
+                                <strong>{{ order.total_quantity|intcomma }}</strong>
+                            </div>
+                            <div class="col-md-4">
+                                <small class="text-muted d-block mb-1">{% trans "Total Price" %}</small>
+                                <strong class="text-success">{{ order.total_price|floatformat:0|intcomma }} ISK</strong>
+                            </div>
+                            <div class="col-md-4">
+                                <small class="text-muted d-block mb-1">{% trans "Items Count" %}</small>
+                                <strong>{{ order.items.all|length }}</strong>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <small class="text-muted d-block mb-2">{% trans "Items" %}</small>
+                            <ul class="mb-0 ps-3">
+                                {% for item in order.items.all %}
+                                <li class="text-muted small">{{ item.type_name }} <span class="text-info">×{{ item.quantity|intcomma }}</span> @ <span class="text-success">{{ item.unit_price|floatformat:2|intcomma }} ISK</span></li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+
+                        <div class="d-flex gap-2 flex-wrap">
+                            {% if order.status == 'pending' %}
+                            <form method="post" class="d-inline">
+                                {% csrf_token %}
+                                <button formaction="{% url 'indy_hub:material_exchange_approve_buy' order.id %}" type="submit" class="btn btn-sm btn-success">
+                                    <i class="fas fa-check me-1"></i>{% trans "Approve" %}
+                                </button>
+                            </form>
+                            <form method="post" class="d-inline">
+                                {% csrf_token %}
+                                <button formaction="{% url 'indy_hub:material_exchange_reject_buy' order.id %}" type="submit" class="btn btn-sm btn-danger">
+                                    <i class="fas fa-times me-1"></i>{% trans "Reject" %}
+                                </button>
+                            </form>
+                            {% elif order.status == 'approved' %}
+                            <form method="post" class="d-inline">
+                                {% csrf_token %}
+                                <button formaction="{% url 'indy_hub:material_exchange_mark_delivered_buy' order.id %}" type="submit" class="btn btn-sm btn-info">
+                                    <i class="fas fa-shipping-fast me-1"></i>{% trans "Mark Delivered" %}
+                                </button>
+                            </form>
+                            {% elif order.status == 'delivered' %}
+                            <form method="post" class="d-inline">
+                                {% csrf_token %}
+                                <button formaction="{% url 'indy_hub:material_exchange_complete_buy' order.id %}" type="submit" class="btn btn-sm btn-primary">
+                                    <i class="fas fa-flag-checkered me-1"></i>{% trans "Complete" %}
+                                </button>
+                            </form>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
             </div>
             {% else %}
-            <div class="alert alert-info">{% trans "No buy orders found matching criteria." %}</div>
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle me-2"></i>{% trans "No buy orders found matching criteria." %}
+            </div>
             {% endif %}
         </div>
     </div>

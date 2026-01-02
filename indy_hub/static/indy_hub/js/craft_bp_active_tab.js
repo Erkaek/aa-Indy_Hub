@@ -67,7 +67,7 @@ window.CraftBPTabs = {
         this.bindTabEvents();
         this.setDefaultTab();
 
-        // Pré-charger silencieusement l'onglet Tree pour initialiser les switches, puis afficher le contenu
+        // Silently preload the Tree tab to initialize switches, then show the content
         setTimeout(() => {
             this.preloadTreeTab();
             this.finishLoadingAndShowContent();
@@ -269,7 +269,7 @@ window.CraftBPTabs = {
         window.SimulationAPI.markTabClean(tabId);
     },
 
-    // Appelé par l'init de SimulationState quand tout est prêt
+    // Called by SimulationState init when everything is ready
     onAllReady: function() {
         this.finishLoadingAndShowContent();
     }

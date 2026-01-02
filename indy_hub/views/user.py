@@ -12,7 +12,6 @@ from urllib.parse import urlencode
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import Count, F, Max, Q
 from django.http import JsonResponse
@@ -39,6 +38,7 @@ from ..models import (
     BlueprintCopyOffer,
     BlueprintCopyRequest,
     IndustryJob,
+    JobNotificationDigestEntry,
     ProductionConfig,
     ProductionSimulation,
     UserOnboardingProgress,
@@ -47,6 +47,7 @@ from ..notifications import build_site_url, notify_user
 from ..services.esi_client import ESIClientError, ESITokenError
 from ..services.simulations import summarize_simulations
 from ..tasks.industry import (
+    CORP_ASSETS_SCOPE,
     CORP_BLUEPRINT_SCOPE,
     CORP_BLUEPRINT_SCOPE_SET,
     CORP_JOBS_SCOPE,
@@ -118,6 +119,7 @@ ONBOARDING_TASK_CONFIG = [
 MANUAL_ONBOARDING_KEYS = {
     cfg["key"] for cfg in ONBOARDING_TASK_CONFIG if cfg["mode"] == "manual"
 }
+MANUAL_ONBOARDING_KEYS.add("overview_intro_seen")
 
 BLUEPRINT_SCOPE = "esi-characters.read_blueprints.v1"
 JOBS_SCOPE = "esi-industry.read_character_jobs.v1"
@@ -422,6 +424,12 @@ def _collect_corporation_scope_status(
                     "character_name": None,
                     "last_updated": None,
                 },
+                "assets": {
+                    "has_scope": False,
+                    "character_id": None,
+                    "character_name": None,
+                    "last_updated": None,
+                },
                 "authorization": _build_corporation_authorization_summary(setting),
             },
         )
@@ -445,6 +453,15 @@ def _collect_corporation_scope_status(
                 "character_id": character_id,
                 "character_name": character_name,
                 "last_updated": getattr(jobs_token, "created", None),
+            }
+
+        assets_token = _select_corporation_token(token_qs, CORP_ASSETS_SCOPE)
+        if assets_token and not entry["assets"]["has_scope"]:
+            entry["assets"] = {
+                "has_scope": True,
+                "character_id": character_id,
+                "character_name": character_name,
+                "last_updated": getattr(assets_token, "created", None),
             }
 
     result = sorted(
@@ -1210,6 +1227,30 @@ def _build_dashboard_context(request):
         )[:5]
     )
 
+    job_digest_pending_count = JobNotificationDigestEntry.objects.filter(
+        user=request.user,
+        sent_at__isnull=True,
+    ).count()
+
+    aa_unread_notifications_count = None
+    try:
+        # Alliance Auth
+        from allianceauth.notifications.models import Notification as AANotification
+
+        field_names = {field.name for field in AANotification._meta.get_fields()}
+        if "is_read" in field_names:
+            aa_unread_notifications_count = AANotification.objects.filter(
+                user=request.user,
+                is_read=False,
+            ).count()
+        elif "read" in field_names:
+            aa_unread_notifications_count = AANotification.objects.filter(
+                user=request.user,
+                read=False,
+            ).count()
+    except Exception:
+        aa_unread_notifications_count = None
+
     copy_chat_alerts: list[dict[str, Any]] = []
     for chat in unread_chat_cards:
         request_obj = chat.request
@@ -1351,6 +1392,8 @@ def _build_dashboard_context(request):
         "copy_my_requests_pending_delivery": copy_my_requests_pending_delivery,
         "copy_my_requests_total": copy_my_requests_total,
         "copy_chat_unread_count": copy_chat_unread_count,
+        "job_digest_pending_count": job_digest_pending_count,
+        "aa_unread_notifications_count": aa_unread_notifications_count,
         "copy_chat_alerts": copy_chat_alerts,
         "copy_chat_alerts_has_more": copy_chat_unread_count > len(copy_chat_alerts),
         "onboarding": {
@@ -1386,40 +1429,29 @@ def _build_dashboard_context(request):
 @login_required
 def index(request):
     context = _build_dashboard_context(request)
-    personal_url = reverse("indy_hub:index")
-    corporation_url = (
-        reverse("indy_hub:corporation_dashboard")
-        if context.get("show_corporation_tab")
-        else None
-    )
     context.update(
-        {
-            "personal_nav_url": personal_url,
-            "personal_nav_class": "active fw-semibold",
-            "corporation_nav_url": corporation_url,
-            "corporation_nav_class": "",
-            "current_dashboard": "personal",
-        }
+        build_nav_context(
+            request.user,
+            can_manage_corp=bool(context.get("show_corporation_tab")),
+            active_tab="overview",
+        )
     )
+    context["current_dashboard"] = "personal"
+
+    progress, _created = UserOnboardingProgress.objects.get_or_create(user=request.user)
+    intro_key = "overview_intro_seen"
+    if not (progress.manual_steps or {}).get(intro_key):
+        progress.mark_step(intro_key, True)
+        progress.save(update_fields=["manual_steps", "updated_at"])
+        return render(request, "indy_hub/overview_intro.html", context)
+
     return render(request, "indy_hub/index.html", context)
 
 
 @indy_hub_access_required
 @login_required
-def corporation_dashboard(request):
-    context = _build_dashboard_context(request)
-    if not context.get("show_corporation_tab"):
-        raise PermissionDenied
-    context.update(
-        {
-            "personal_nav_url": reverse("indy_hub:index"),
-            "personal_nav_class": "",
-            "corporation_nav_url": reverse("indy_hub:corporation_dashboard"),
-            "corporation_nav_class": "active fw-semibold",
-            "current_dashboard": "corporation",
-        }
-    )
-    return render(request, "indy_hub/corporation_dashboard.html", context)
+def legacy_token_management_redirect(request):
+    return redirect("indy_hub:esi_hub")
 
 
 @indy_hub_access_required
@@ -1502,25 +1534,35 @@ def token_management(request):
     ownerships = CharacterOwnership.objects.filter(user=request.user)
     for ownership in ownerships:
         cid = ownership.character.character_id
+        bp_enabled = (
+            blueprint_tokens.filter(character_id=cid).exists()
+            if blueprint_tokens
+            else False
+        )
+        jobs_enabled = (
+            jobs_tokens.filter(character_id=cid).exists() if jobs_tokens else False
+        )
+        assets_enabled = (
+            assets_tokens.filter(character_id=cid).exists() if assets_tokens else False
+        )
+
+        missing_scopes = []
+        if not bp_enabled:
+            missing_scopes.append(_("Blueprints"))
+        if not jobs_enabled:
+            missing_scopes.append(_("Industry"))
+        if not assets_enabled:
+            missing_scopes.append(_("Assets"))
+
         user_chars.append(
             {
                 "character_id": cid,
                 "name": get_character_name(cid),
-                "bp_enabled": (
-                    blueprint_tokens.filter(character_id=cid).exists()
-                    if blueprint_tokens
-                    else False
-                ),
-                "jobs_enabled": (
-                    jobs_tokens.filter(character_id=cid).exists()
-                    if jobs_tokens
-                    else False
-                ),
-                "assets_enabled": (
-                    assets_tokens.filter(character_id=cid).exists()
-                    if assets_tokens
-                    else False
-                ),
+                "bp_enabled": bp_enabled,
+                "jobs_enabled": jobs_enabled,
+                "assets_enabled": assets_enabled,
+                "missing_scopes": missing_scopes,
+                "has_all_scopes": not missing_scopes,
             }
         )
 
@@ -1575,6 +1617,37 @@ def token_management(request):
             warning_payload.append({"message": message, "level": level})
 
     warning_payload_json = json.dumps(warning_payload) if warning_payload else ""
+
+    required_character_scopes = sorted(
+        {
+            *BLUEPRINT_SCOPE_SET,
+            *JOBS_SCOPE_SET,
+            *ASSETS_SCOPE_SET,
+        }
+    )
+    required_corporation_scopes = sorted(
+        {
+            *CORP_BLUEPRINT_SCOPE_SET,
+            *CORP_JOBS_SCOPE_SET,
+            *MATERIAL_EXCHANGE_SCOPE_SET,
+        }
+    )
+
+    enhanced_corp_scope_status: list[dict[str, Any]] = []
+    for corp_entry in corp_scope_status:
+        missing_scopes = []
+        if not corp_entry.get("blueprint", {}).get("has_scope"):
+            missing_scopes.append(_("Blueprints"))
+        if not corp_entry.get("jobs", {}).get("has_scope"):
+            missing_scopes.append(_("Industry"))
+        if not corp_entry.get("assets", {}).get("has_scope"):
+            missing_scopes.append(_("Assets"))
+
+        corp_entry["missing_scopes"] = missing_scopes
+        corp_entry["has_all_scopes"] = not missing_scopes
+        enhanced_corp_scope_status.append(corp_entry)
+
+    corp_scope_status = enhanced_corp_scope_status
     context = {
         "has_blueprint_tokens": bool(blueprint_char_ids),
         "has_jobs_tokens": bool(jobs_char_ids),
@@ -1585,6 +1658,8 @@ def token_management(request):
         "blueprint_auth_url": blueprint_auth_url,
         "jobs_auth_url": jobs_auth_url,
         "assets_auth_url": assets_auth_url,
+        "required_character_scopes": required_character_scopes,
+        "required_corporation_scopes": required_corporation_scopes,
         "characters": user_chars,
         "can_manage_corporate_assets": can_manage_corp,
         "corporation_sharing": corporation_sharing,
@@ -1601,15 +1676,16 @@ def token_management(request):
         "corp_jobs_scope_count": sum(
             1 for status in corp_scope_status if status["jobs"]["has_scope"]
         ),
+        "corp_role_warnings": warning_payload,
         "corp_role_warning_payload_json": warning_payload_json,
         "corp_role_warning_count": len(warning_payload),
     }
     context.update(
         build_nav_context(
-            request.user, can_manage_corp=can_manage_corp, active_tab="personal"
+            request.user, can_manage_corp=can_manage_corp, active_tab="esi"
         )
     )
-    return render(request, "indy_hub/token_management.html", context)
+    return render(request, "indy_hub/esi/token_management.html", context)
 
 
 @indy_hub_access_required
@@ -1954,7 +2030,7 @@ def authorize_material_exchange(request):
 @indy_hub_access_required
 @login_required
 def authorize_all(request):
-    # Only skip if ALL characters have both blueprint and jobs access
+    # Only skip if ALL characters have blueprint, jobs, and assets access
     all_chars = CharacterOwnership.objects.filter(user=request.user).values_list(
         "character__character_id", flat=True
     )
@@ -1968,7 +2044,12 @@ def authorize_all(request):
         .require_scopes(JOBS_SCOPE_SET)
         .values_list("character_id", flat=True)
     )
-    missing = set(all_chars) - (set(blueprint_auth) & set(jobs_auth))
+    assets_auth = (
+        Token.objects.filter(user=request.user)
+        .require_scopes(ASSETS_SCOPE_SET)
+        .values_list("character_id", flat=True)
+    )
+    missing = set(all_chars) - (set(blueprint_auth) & set(jobs_auth) & set(assets_auth))
     if not missing:
         messages.info(request, "All characters already authorized for all scopes.")
         return redirect("indy_hub:token_management")
@@ -1991,7 +2072,9 @@ def authorize_all(request):
             settings, "ESI_SSO_CALLBACK_URL", "http://localhost:8000/sso/callback/"
         )
         client_id = getattr(settings, "ESI_SSO_CLIENT_ID", "")
-        combined_scopes = sorted({*BLUEPRINT_SCOPE_SET, *JOBS_SCOPE_SET})
+        combined_scopes = sorted(
+            {*BLUEPRINT_SCOPE_SET, *JOBS_SCOPE_SET, *ASSETS_SCOPE_SET}
+        )
         params = {
             "response_type": "code",
             "redirect_uri": callback_url,
@@ -2593,9 +2676,9 @@ def production_simulations(request):
         "total_simulations": total_simulations,
         "stats": stats,
     }
-    context.update(build_nav_context(request.user, active_tab="personal"))
+    context.update(build_nav_context(request.user, active_tab="industry"))
 
-    return render(request, "indy_hub/production_simulations.html", context)
+    return render(request, "indy_hub/industry/production_simulations.html", context)
 
 
 @indy_hub_access_required
@@ -2642,6 +2725,6 @@ def rename_production_simulation(request, simulation_id):
         return redirect("indy_hub:production_simulations")
 
     context = {"simulation": simulation}
-    context.update(build_nav_context(request.user, active_tab="personal"))
+    context.update(build_nav_context(request.user, active_tab="industry"))
 
-    return render(request, "indy_hub/rename_simulation.html", context)
+    return render(request, "indy_hub/industry/rename_simulation.html", context)

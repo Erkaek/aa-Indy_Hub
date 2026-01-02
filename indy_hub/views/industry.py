@@ -70,6 +70,8 @@ from ..utils.job_notifications import (
     build_job_notification_payload,
     serialize_job_notification_for_digest,
 )
+
+# Indy Hub
 from .navigation import build_nav_context
 
 if "eveuniverse" in getattr(settings, "INSTALLED_APPS", ()):  # pragma: no branch
@@ -931,16 +933,17 @@ def personnal_bp_list(request, scope="character"):
                 "corporation": reverse("indy_hub:corporation_bp_list"),
             },
             "can_manage_corporate_assets": has_corporate_perm,
+            "back_to_overview_url": reverse("indy_hub:index"),
         }
         context.update(
             build_nav_context(
                 request.user,
-                active_tab="corporation" if is_corporation_scope else "personal",
+                active_tab="blueprints",
                 can_manage_corp=has_corporate_perm,
             )
         )
 
-        return render(request, "indy_hub/Personnal_BP_list.html", context)
+        return render(request, "indy_hub/blueprints/Personnal_BP_list.html", context)
     except Exception as e:
         logger.error(f"Error displaying blueprints: {e}")
         messages.error(request, f"Error displaying blueprints: {e}")
@@ -1054,10 +1057,11 @@ def all_bp_list(request):
         "activity_options": activity_options,
         "market_group_options": market_group_options,
         "per_page_options": [10, 25, 50, 100, 200],
+        "back_to_overview_url": reverse("indy_hub:index"),
     }
-    context.update(build_nav_context(request.user, active_tab="personal"))
+    context.update(build_nav_context(request.user, active_tab="blueprints"))
 
-    return render(request, "indy_hub/All_BP_list.html", context)
+    return render(request, "indy_hub/blueprints/All_BP_list.html", context)
 
 
 @indy_hub_access_required
@@ -1491,34 +1495,19 @@ def personnal_job_list(request, scope="character"):
             },
             "can_manage_corporate_assets": has_corporate_perm,
         }
-        personal_nav_url = reverse("indy_hub:index")
-        corporation_nav_url = (
-            reverse("indy_hub:corporation_dashboard") if has_corporate_perm else None
-        )
         context.update(
-            {
-                "personal_nav_url": personal_nav_url,
-                "personal_nav_class": (
-                    "" if is_corporation_scope else "active fw-semibold"
-                ),
-                "corporation_nav_url": corporation_nav_url,
-                "corporation_nav_class": (
-                    "active fw-semibold"
-                    if is_corporation_scope and corporation_nav_url
-                    else ""
-                ),
-                "current_dashboard": (
-                    "corporation" if is_corporation_scope else "personal"
-                ),
-                "back_to_dashboard_url": (
-                    corporation_nav_url
-                    if is_corporation_scope and corporation_nav_url
-                    else personal_nav_url
-                ),
-            }
+            build_nav_context(
+                request.user,
+                active_tab="industry",
+                can_manage_corp=has_corporate_perm,
+            )
         )
+        context["current_dashboard"] = (
+            "corporation" if is_corporation_scope else "personal"
+        )
+        context["back_to_overview_url"] = reverse("indy_hub:index")
         # progress_percent and display_eta now available via model properties in template
-        return render(request, "indy_hub/Personnal_Job_list.html", context)
+        return render(request, "indy_hub/industry/Personnal_Job_list.html", context)
     except Exception as e:
         logger.error(f"Error displaying industry jobs: {e}")
         messages.error(request, f"Error displaying industry jobs: {e}")
@@ -1818,7 +1807,7 @@ def craft_bp(request, type_id):
         logger.info("No buy decisions found in URL parameters")  # Debug log
 
     try:
-        # --- Récupération du nom du blueprint ---
+        # --- Fetch blueprint name ---
         with connection.cursor() as cursor:
             cursor.execute(
                 "SELECT name FROM eveuniverse_evetype WHERE id=%s", [type_id]
@@ -1826,7 +1815,7 @@ def craft_bp(request, type_id):
             row = cursor.fetchone()
             bp_name = row[0] if row else str(type_id)
 
-        # --- Récupération du produit final et quantité ---
+        # --- Fetch final product and quantity ---
         with connection.cursor() as cursor:
             cursor.execute(
                 """
@@ -1844,7 +1833,7 @@ def craft_bp(request, type_id):
             )
             final_product_qty = output_qty_per_run * num_runs
 
-        # --- Construction de l'arbre des matériaux ---
+        # --- Build materials tree ---
         def get_materials_tree(
             bp_id, runs, blueprint_me=0, depth=0, max_depth=10, seen=None
         ):
@@ -2401,8 +2390,10 @@ def craft_bp(request, type_id):
             "market_group_map": market_group_map,
             "materials_by_group": materials_by_group,
             "blueprint_payload": blueprint_payload,
+            "back_url": reverse("indy_hub:all_bp_list"),
+            **build_nav_context(request.user, active_tab="blueprints"),
         }
-        return render(request, "indy_hub/Craft_BP.html", context)
+        return render(request, "indy_hub/industry/Craft_BP.html", context)
 
     except Exception as e:
         # Error handling: render the page with a message and default values
@@ -2415,7 +2406,7 @@ def craft_bp(request, type_id):
         messages.error(request, f"Error crafting blueprint: {e}")
         return render(
             request,
-            "indy_hub/Craft_BP.html",
+            "indy_hub/industry/Craft_BP.html",
             {
                 "bp_type_id": type_id,
                 "bp_name": bp_name,
@@ -2766,9 +2757,11 @@ def bp_copy_request_page(request):
         "page_range": page_range,
         "requests": [],
     }
-    context.update(build_nav_context(request.user, active_tab="personal"))
+    context.update(build_nav_context(request.user, active_tab="blueprint_sharing"))
 
-    return render(request, "indy_hub/bp_copy_request_page.html", context)
+    return render(
+        request, "indy_hub/blueprint_sharing/bp_copy_request_page.html", context
+    )
 
 
 @indy_hub_access_required
@@ -2842,14 +2835,16 @@ def bp_copy_fulfill_requests(request):
             ).exists()
             if exists:
                 auto_open_chat_id = str(requested_chat_id)
-    nav_context = build_nav_context(request.user, active_tab="personal")
+    nav_context = build_nav_context(request.user, active_tab="blueprint_sharing")
     if not include_self_requests and not setting and not accessible_corporation_ids:
         context = {"requests": []}
         context.update(nav_context)
         if auto_open_chat_id:
             context["auto_open_chat_id"] = auto_open_chat_id
         context["include_self_requests"] = include_self_requests
-        return render(request, "indy_hub/bp_copy_fulfill_requests.html", context)
+        return render(
+            request, "indy_hub/blueprint_sharing/bp_copy_fulfill_requests.html", context
+        )
 
     my_bps_qs = Blueprint.objects.filter(
         owner_user=request.user,
@@ -2932,7 +2927,9 @@ def bp_copy_fulfill_requests(request):
             "include_self_requests": include_self_requests,
         }
         context.update(nav_context)
-        return render(request, "indy_hub/bp_copy_fulfill_requests.html", context)
+        return render(
+            request, "indy_hub/blueprint_sharing/bp_copy_fulfill_requests.html", context
+        )
 
     q = Q()
     has_filters = False
@@ -2951,7 +2948,9 @@ def bp_copy_fulfill_requests(request):
             "include_self_requests": include_self_requests,
         }
         context.update(nav_context)
-        return render(request, "indy_hub/bp_copy_fulfill_requests.html", context)
+        return render(
+            request, "indy_hub/blueprint_sharing/bp_copy_fulfill_requests.html", context
+        )
 
     def _init_occupancy():
         return {"count": 0, "soonest_end": None}
@@ -3461,7 +3460,9 @@ def bp_copy_fulfill_requests(request):
         context["auto_open_chat_id"] = auto_open_chat_id
     context.update(nav_context)
 
-    return render(request, "indy_hub/bp_copy_fulfill_requests.html", context)
+    return render(
+        request, "indy_hub/blueprint_sharing/bp_copy_fulfill_requests.html", context
+    )
 
 
 def _process_offer_action(
@@ -4297,9 +4298,11 @@ def bp_copy_my_requests(request):
         ),
         "metrics": metrics,
     }
-    context.update(build_nav_context(request.user, active_tab="personal"))
+    context.update(build_nav_context(request.user, active_tab="blueprint_sharing"))
 
-    return render(request, "indy_hub/bp_copy_my_requests.html", context)
+    return render(
+        request, "indy_hub/blueprint_sharing/bp_copy_my_requests.html", context
+    )
 
 
 @indy_hub_access_required
@@ -4757,7 +4760,10 @@ def production_simulations_list(request):
         "market_group_map": json.dumps(market_group_map),
         "stats": stats,
     }
-    return render(request, "indy_hub/production_simulations_list.html", context)
+    context.update(build_nav_context(request.user, active_tab="industry"))
+    return render(
+        request, "indy_hub/industry/production_simulations_list.html", context
+    )
 
 
 @indy_hub_access_required
@@ -4800,7 +4806,7 @@ def delete_production_simulation(request, simulation_id):
         "simulation": simulation,
     }
 
-    return render(request, "indy_hub/confirm_delete_simulation.html", context)
+    return render(request, "indy_hub/industry/confirm_delete_simulation.html", context)
 
 
 @indy_hub_access_required
@@ -4825,4 +4831,4 @@ def edit_simulation_name(request, simulation_id):
         "simulation": simulation,
     }
 
-    return render(request, "indy_hub/edit_simulation_name.html", context)
+    return render(request, "indy_hub/industry/edit_simulation_name.html", context)

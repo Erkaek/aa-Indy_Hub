@@ -1,4 +1,4 @@
-"""Celery tasks liées aux localisations et structures ESI."""
+"""Celery tasks related to ESI locations and structures."""
 
 from __future__ import annotations
 
@@ -52,9 +52,9 @@ _TASK_ESI_KWARGS: dict[str, object] = {
     }
 )
 def refresh_structure_location(self, structure_id: int) -> dict[str, int]:
-    """Ré-exécute la résolution d'un nom de structure en arrière-plan."""
+    """Re-run structure name resolution in the background."""
 
-    logger.debug("Tâche de rafraîchissement du nom pour la structure %s", structure_id)
+    logger.debug("Background task refreshing name for structure %s", structure_id)
 
     try:
         summary = populate_location_names(
@@ -62,14 +62,12 @@ def refresh_structure_location(self, structure_id: int) -> dict[str, int]:
             force_refresh=True,
             schedule_async=False,
         )
-    except Exception as exc:  # pragma: no cover - défensif
-        logger.exception(
-            "Échec du rafraîchissement du nom pour la structure %s", structure_id
-        )
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.exception("Failed to refresh name for structure %s", structure_id)
         raise self.retry(exc=exc, countdown=DEFAULT_TASK_PRIORITY * 10) from exc
 
     logger.info(
-        "Nom de structure mis à jour (structure=%s, blueprints=%s, jobs=%s)",
+        "Structure name updated (structure=%s, blueprints=%s, jobs=%s)",
         structure_id,
         summary.get("blueprints", 0),
         summary.get("jobs", 0),

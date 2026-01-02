@@ -1,0 +1,488 @@
+/* Dark Mode Adaptive Colors - Complete Global Overrides */
+/* This file ensures ALL colors (text, buttons, backgrounds, borders) work correctly in both light and dark modes */
+/* Using Bootstrap CSS variables for complete theme compatibility */
+
+/* ===== TEXT COLORS ===== */
+/* All text elements should use body color for proper contrast */
+*:not(code):not(pre):not([class*="btn-"]) {
+    --text-color: var(--bs-body-color);
+}
+
+.stats-number,
+.stats-label,
+.job-title,
+.job-date,
+.job-status,
+.job-container-name,
+.location-name,
+.product-name,
+.efficiency-value,
+.cycles-stat-value,
+.craft-quantity-badge,
+.indy-text-primary,
+.tab-title,
+.tab-subtitle,
+.card-title,
+.section-title,
+.share-metric-label,
+.share-metric-value,
+.stat-chip-label,
+.job-details-label,
+.job-cost-label,
+.job-output-label,
+.panel-title,
+.stat-value,
+.metric-value,
+.list-item-label,
+.table-label,
+.form-label,
+label,
+h1, h2, h3, h4, h5, h6,
+.h1, .h2, .h3, .h4, .h5, .h6 {
+    color: var(--bs-body-color) !important;
+}
+
+/* Generic text color reset */
+.job-filter-panel__form .form-label,
+.badge-secondary:not(.badge-violet):not(.badge-blue):not(.badge-green):not(.badge-orange),
+.badge-light,
+.badge-dark {
+    color: var(--bs-body-color) !important;
+}
+
+/* Table and list text */
+table td,
+table th,
+.table-label {
+    color: var(--bs-body-color) !important;
+}
+
+/* Muted text - keep slightly dimmed but readable */
+.text-muted {
+    color: var(--bs-secondary-color, var(--bs-body-color)) !important;
+    opacity: 0.85;
+}
+
+/* ===== BACKGROUND COLORS ===== */
+/* Light backgrounds adapt to theme */
+.bg-light,
+.bg-white,
+.bg-light-subtle,
+[class*="bg-light"],
+[style*="background: white"],
+[style*="background:#fff"],
+[style*="background:#ffffff"],
+[style*="background-color: white"],
+[style*="background-color:#fff"],
+[style*="background-color:#ffffff"] {
+    background-color: var(--bs-body-bg) !important;
+    color: var(--bs-body-color) !important;
+}
+
+/* Light background containers */
+.panel,
+.panel-body,
+.card:not([class*="bg-"]),
+.list-group-item {
+    background-color: var(--bs-body-bg) !important;
+    color: var(--bs-body-color) !important;
+}
+
+/* Card backgrounds */
+.card {
+    background-color: var(--bs-body-bg) !important;
+    color: var(--bs-body-color) !important;
+}
+
+.card-body {
+    color: var(--bs-body-color) !important;
+}
+
+.card-header {
+    background-color: var(--bs-tertiary-bg) !important;
+    color: var(--bs-body-color) !important;
+}
+
+/* Form elements */
+.form-control,
+.form-select,
+textarea,
+input[type="text"],
+input[type="email"],
+input[type="number"],
+input[type="date"],
+input[type="time"] {
+    background-color: var(--bs-body-bg) !important;
+    color: var(--bs-body-color) !important;
+    border-color: var(--bs-border-color) !important;
+}
+
+.form-control:focus,
+.form-select:focus,
+textarea:focus,
+input[type="text"]:focus,
+input[type="email"]:focus,
+input[type="number"]:focus,
+input[type="date"]:focus,
+input[type="time"]:focus {
+    border-color: var(--bs-primary) !important;
+    box-shadow: 0 0 0 0.25rem rgba(var(--bs-primary-rgb), 0.25) !important;
+}
+
+/* ===== BORDER COLORS ===== */
+/* All borders should adapt to theme */
+.border,
+[class*="border-"],
+.card,
+.form-control,
+.form-select,
+.table,
+.list-group-item {
+    border-color: var(--bs-border-color) !important;
+}
+
+/* Specific border adapts */
+[style*="border-color: #e2e8f0"],
+[style*="border: 1px solid #e2e8f0"],
+[style*="border-bottom: 1px solid #e2e8f0"],
+[style*="border-top: 1px solid #e2e8f0"],
+[style*="border-left: 1px solid #e2e8f0"],
+[style*="border-right: 1px solid #e2e8f0"] {
+    border-color: var(--bs-border-color) !important;
+}
+
+/* ===== BUTTONS ===== */
+/* Ensure button text is readable - only for non-colored buttons */
+.btn:not(.btn-primary):not(.btn-secondary):not(.btn-success):not(.btn-danger):not(.btn-warning):not(.btn-info):not(.btn-dark):not([class*="btn-outline"]):not([class*="gradient"]) {
+    color: var(--bs-body-color) !important;
+    background-color: var(--bs-body-bg) !important;
+    border-color: var(--bs-border-color) !important;
+}
+
+/* Keep colored buttons as-is (they have their own text color) */
+.btn-primary,
+.btn-secondary,
+.btn-success,
+.btn-danger,
+.btn-warning,
+.btn-info,
+.btn-dark {
+    /* Keep original colors - don't override */
+}
+
+.btn-light,
+.btn-outline-light {
+    color: var(--bs-body-color) !important;
+    background-color: var(--bs-body-bg) !important;
+    border-color: var(--bs-border-color) !important;
+}
+
+/* Outline buttons - ensure text is visible in dark mode */
+.btn-outline-primary,
+.btn-outline-secondary,
+.btn-outline-success,
+.btn-outline-danger,
+.btn-outline-warning,
+.btn-outline-info,
+.btn-outline-dark {
+    color: var(--bs-body-color) !important;
+    border-color: var(--bs-border-color) !important;
+}
+
+.btn-outline-primary:hover,
+.btn-outline-secondary:hover,
+.btn-outline-success:hover,
+.btn-outline-danger:hover,
+.btn-outline-warning:hover,
+.btn-outline-info:hover,
+.btn-outline-dark:hover {
+    background-color: var(--bs-tertiary-bg) !important;
+    color: var(--bs-body-color) !important;
+}
+
+/* ===== BADGES & PILLS ===== */
+.badge {
+    color: var(--bs-body-color) !important;
+}
+
+.badge-light {
+    background-color: var(--bs-body-bg) !important;
+    color: var(--bs-body-color) !important;
+    border: 1px solid var(--bs-border-color) !important;
+}
+
+/* ===== ALERTS ===== */
+.alert {
+    background-color: var(--bs-body-bg) !important;
+    color: var(--bs-body-color) !important;
+    border-color: var(--bs-border-color) !important;
+}
+
+/* ===== DROPDOWNS & MODALS ===== */
+.dropdown-menu {
+    background-color: var(--bs-body-bg) !important;
+    border-color: var(--bs-border-color) !important;
+}
+
+.dropdown-item {
+    color: var(--bs-body-color) !important;
+}
+
+.dropdown-item:hover,
+.dropdown-item:focus {
+    background-color: var(--bs-tertiary-bg) !important;
+    color: var(--bs-body-color) !important;
+}
+
+.modal-content {
+    background-color: var(--bs-body-bg) !important;
+    color: var(--bs-body-color) !important;
+}
+
+.modal-header {
+    background-color: var(--bs-tertiary-bg) !important;
+    color: var(--bs-body-color) !important;
+    border-color: var(--bs-border-color) !important;
+}
+
+/* ===== PROGRESS BARS ===== */
+.progress {
+    background-color: var(--bs-tertiary-bg) !important;
+}
+
+/* ===== TABS ===== */
+.nav-tabs {
+    border-color: var(--bs-border-color) !important;
+}
+
+.nav-tabs .nav-link {
+    color: var(--bs-body-color) !important;
+}
+
+.nav-tabs .nav-link.active {
+    background-color: var(--bs-body-bg) !important;
+    color: var(--bs-primary) !important;
+    border-color: var(--bs-border-color) !important;
+}
+
+/* ===== HORIZONTAL RULES ===== */
+hr {
+    border-color: var(--bs-border-color) !important;
+    opacity: 1;
+}
+
+/* ===== SPECIAL ELEMENTS ===== */
+/* Job progress bars */
+.job-progress-bar {
+    background-color: var(--bs-tertiary-bg) !important;
+}
+
+/* Table striped */
+.table-striped tbody tr:nth-of-type(odd) {
+    background-color: var(--bs-tertiary-bg) !important;
+}
+
+/* Code blocks */
+code,
+pre {
+    background-color: var(--bs-tertiary-bg) !important;
+    color: var(--bs-body-color) !important;
+}
+
+/* ===== CUSTOM INDY HUB ELEMENTS ===== */
+.share-metric {
+    background-color: var(--bs-body-bg) !important;
+    border-color: var(--bs-border-color) !important;
+    color: var(--bs-body-color) !important;
+}
+
+.focus-card {
+    background-color: var(--bs-body-bg) !important;
+    border-color: var(--bs-border-color) !important;
+    color: var(--bs-body-color) !important;
+}
+
+.glass-panel {
+    background-color: var(--bs-body-bg) !important;
+    border-color: var(--bs-border-color) !important;
+    color: var(--bs-body-color) !important;
+}
+
+/* Activity badges remain colored */
+.activity-badge,
+.status-badge,
+.badge-violet,
+.badge-blue,
+.badge-green,
+.badge-orange {
+    color: #fff !important; /* Keep white text on colored badges */
+}
+
+/* ===== DARKLY THEME SPECIFIC FIXES ===== */
+/* Override Bootstrap's CSS variables for darkly theme */
+html[data-theme="darkly"] {
+    /* Redefine light color variables to be dark */
+    --bs-tertiary-bg-rgb: 48, 48, 48;
+    --bs-tertiary-bg: rgba(48, 48, 48, 1);
+    --bs-tertiary-color: rgba(248, 249, 250, 1);
+    --bs-tertiary-color-rgb: 248, 249, 250;
+    /* Also override the -subtle variant backgrounds */
+    --bs-primary-bg-subtle: rgba(48, 48, 48, 1);
+    --bs-secondary-bg-subtle: rgba(48, 48, 48, 1);
+    --bs-success-bg-subtle: rgba(48, 48, 48, 1);
+    --bs-danger-bg-subtle: rgba(48, 48, 48, 1);
+    --bs-warning-bg-subtle: rgba(48, 48, 48, 1);
+    --bs-info-bg-subtle: rgba(48, 48, 48, 1);
+    --bs-light-bg-subtle: rgba(48, 48, 48, 1);
+    --bs-dark-bg-subtle: rgba(48, 48, 48, 1);
+}
+
+/* In Darkly, --bs-secondary-color becomes white-ish which is unreadable on dark bg */
+html[data-theme="darkly"] .text-muted,
+html[data-theme="darkly"] .text-muted-foreground,
+html[data-theme="darkly"] .text-secondary {
+    color: rgba(var(--bs-light-rgb), 0.7) !important;
+}
+
+/* Secondary color for all elements in darkly theme */
+html[data-theme="darkly"] a.text-muted:hover,
+html[data-theme="darkly"] a.text-secondary:hover {
+    color: rgba(var(--bs-light-rgb), 0.85) !important;
+}
+
+/* Help blocks and form-text should be readable */
+html[data-theme="darkly"] .form-text,
+html[data-theme="darkly"] .form-help,
+html[data-theme="darkly"] small {
+    color: rgba(var(--bs-light-rgb), 0.7) !important;
+}
+
+/* Fix dark/black text that doesn't work on dark backgrounds */
+html[data-theme="darkly"] {
+    --indy-text-dark: #f8f9fa;
+}
+
+html[data-theme="darkly"] strong,
+html[data-theme="darkly"] .fw-bold,
+html[data-theme="darkly"] .fw-semibold,
+html[data-theme="darkly"] .font-weight-bold {
+    color: inherit;
+}
+
+/* ===== DARKLY BACKGROUND FIXES ===== */
+/* All light backgrounds should become dark in darkly theme */
+html[data-theme="darkly"] [style*="background: #f"],
+html[data-theme="darkly"] [style*="background: #e"],
+html[data-theme="darkly"] [style*="background-color: #f"],
+html[data-theme="darkly"] [style*="background-color: #e"] {
+    background-color: var(--bs-body-bg) !important;
+    color: var(--bs-body-color) !important;
+}
+
+/* White/light backgrounds in cards, sections, panels */
+html[data-theme="darkly"] .bg-light,
+html[data-theme="darkly"] .bg-white,
+html[data-theme="darkly"] .bg-light-subtle,
+html[data-theme="darkly"] [class*="bg-light"],
+html[data-theme="darkly"] .card,
+html[data-theme="darkly"] .card-body,
+html[data-theme="darkly"] .card-header,
+html[data-theme="darkly"] .card-footer,
+html[data-theme="darkly"] .panel,
+html[data-theme="darkly"] .panel-body,
+html[data-theme="darkly"] .list-group-item,
+html[data-theme="darkly"] .preference-item,
+html[data-theme="darkly"] .modal-content,
+html[data-theme="darkly"] .form-control:not([type="color"]),
+html[data-theme="darkly"] .form-select,
+html[data-theme="darkly"] .bg-body-secondary,
+html[data-theme="darkly"] [class*="bg-white"] {
+    background-color: rgba(var(--bs-body-bg-rgb), 0.92) !important;
+    color: var(--bs-body-color) !important;
+}
+
+/* Override Bootstrap utility class variables directly - MUST BE AFTER generic rules */
+html[data-theme="darkly"] .bg-body-tertiary {
+    background: #303030 !important;
+    background-color: #303030 !important;
+}
+
+/* Alert/badge backgrounds that are white */
+html[data-theme="darkly"] .chat-alert-item__action .bp-chat-trigger__badge,
+html[data-theme="darkly"] .chat-alert-toggle__count,
+html[data-theme="darkly"] .badge-white,
+html[data-theme="darkly"] [style*="background: #fff"],
+html[data-theme="darkly"] [style*="background:#fff"],
+html[data-theme="darkly"] [style*="background-color: #fff"],
+html[data-theme="darkly"] [style*="background-color:#fff"] {
+    background-color: rgba(var(--bs-body-bg-rgb), 0.85) !important;
+    border-color: rgba(var(--bs-light-rgb), 0.2) !important;
+}
+
+/* Gradients with light colors */
+html[data-theme="darkly"] .simulation-footer,
+html[data-theme="darkly"] .card-header,
+html[data-theme="darkly"] [style*="background: linear-gradient"] {
+    background: var(--bs-secondary-bg) !important;
+}
+
+/* Light borders in darkly theme */
+html[data-theme="darkly"] [style*="border-color: #e"],
+html[data-theme="darkly"] [style*="border-color: #f"],
+html[data-theme="darkly"] [style*="border: 1px solid #e"],
+html[data-theme="darkly"] [style*="border: 1px solid #f"],
+html[data-theme="darkly"] [style*="border-bottom: 1px solid #e"],
+html[data-theme="darkly"] [style*="border-bottom: 2px solid #e"],
+html[data-theme="darkly"] [style*="border-top: 1px solid #e"],
+html[data-theme="darkly"] [style*="border-left: 1px solid #e"],
+html[data-theme="darkly"] [style*="border-right: 1px solid #e"],
+html[data-theme="darkly"] .card,
+html[data-theme="darkly"] .list-group-item {
+    border-color: rgba(var(--bs-light-rgb), 0.15) !important;
+}
+
+/* ===== PRIORITY: Force important on all to override inline styles ===== */
+[style*="color: #"] {
+    color: var(--bs-body-color) !important;
+}
+
+[style*="background-color: #f"] {
+    background-color: var(--bs-body-bg) !important;
+    color: var(--bs-body-color) !important;
+}
+
+/* ===== ABSOLUTE FINAL OVERRIDE FOR DARKLY - HIGHEST PRIORITY ===== */
+/* This must be at the end to override ANY other CSS */
+html[data-theme="darkly"] body .p-3.bg-body-tertiary,
+html[data-theme="darkly"] .p-3.bg-body-tertiary,
+html[data-theme="darkly"] div.bg-body-tertiary,
+html[data-theme="darkly"] [class*="bg-body-tertiary"] {
+    background-color: #303030 !important;
+    background: #303030 !important;
+    color: var(--bs-body-color) !important;
+}
+
+html[data-theme="darkly"] [class*="subtle"] {
+    background-color: #303030 !important;
+    background: #303030 !important;
+}
+
+/* ===== PREVENT HORIZONTAL SCROLLBAR ===== */
+/* Prevent any horizontal overflow on all pages */
+html {
+    overflow-x: hidden !important;
+    width: 100% !important;
+}
+
+body {
+    overflow-x: hidden !important;
+    width: 100% !important;
+    margin: 0 !important;
+}
+
+/* Ensure container-fluid doesn't cause overflow */
+.container-fluid {
+    max-width: 100% !important;
+    padding-left: var(--bs-gutter-x, 0.75rem) !important;
+    padding-right: var(--bs-gutter-x, 0.75rem) !important;
+}

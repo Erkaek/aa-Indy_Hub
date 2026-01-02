@@ -16,6 +16,7 @@ from allianceauth.eveonline.models import EveCharacter
 from esi.clients import EsiClientProvider
 from esi.models import Token
 
+# AA Example App
 # Local
 from indy_hub.models import (
     CachedCharacterAsset,
@@ -202,7 +203,9 @@ def _refresh_corp_assets(corporation_id: int) -> tuple[list[dict], bool]:
             )
 
         with transaction.atomic():
-            CachedCorporationAsset.objects.filter(corporation_id=corporation_id).delete()
+            CachedCorporationAsset.objects.filter(
+                corporation_id=corporation_id
+            ).delete()
             if rows:
                 CachedCorporationAsset.objects.bulk_create(rows, batch_size=1000)
 
@@ -216,13 +219,18 @@ def _refresh_corp_assets(corporation_id: int) -> tuple[list[dict], bool]:
     except (ESIRateLimitError, ESIClientError) as exc:
         logger.warning("ESI assets lookup failed for corp %s: %s", corporation_id, exc)
     except Exception as exc:  # pragma: no cover - defensive
-        logger.warning("Unexpected error refreshing corp assets for %s: %s", corporation_id, exc)
+        logger.warning(
+            "Unexpected error refreshing corp assets for %s: %s", corporation_id, exc
+        )
 
     return [], assets_scope_missing
 
 
 def get_corp_assets_cached(
-    corporation_id: int, *, allow_refresh: bool = True, max_age_minutes: int | None = None
+    corporation_id: int,
+    *,
+    allow_refresh: bool = True,
+    max_age_minutes: int | None = None,
 ) -> tuple[list[dict], bool]:
     """Return cached corp assets; refresh from ESI when stale/empty if allowed."""
 
@@ -268,7 +276,9 @@ def get_corp_assets_cached(
 
 
 def resolve_structure_names(
-    structure_ids: list[int], character_id: int | None = None, corporation_id: int | None = None
+    structure_ids: list[int],
+    character_id: int | None = None,
+    corporation_id: int | None = None,
 ) -> dict[int, str]:
     """Return a mapping of structure_id -> name using cache, corp structures, and ESI lookups."""
 
@@ -279,7 +289,6 @@ def resolve_structure_names(
 
     # Managed hangar ids are negative ids derived from an office folder item id + division.
     managed_ids = [sid for sid in requested_ids if sid < 0]
-    positive_ids = [sid for sid in requested_ids if sid > 0]
 
     managed_mapping: dict[int, tuple[int, int]] = {}
     managed_base_structure_ids: set[int] = set()
@@ -315,7 +324,9 @@ def resolve_structure_names(
     all_ids_for_cache = list(set(requested_ids + list(managed_base_structure_ids)))
     known = {
         obj.structure_id: obj.name
-        for obj in CachedStructureName.objects.filter(structure_id__in=all_ids_for_cache)
+        for obj in CachedStructureName.objects.filter(
+            structure_id__in=all_ids_for_cache
+        )
     }
     missing = [sid for sid in all_ids_for_cache if sid not in known]
 
@@ -393,12 +404,16 @@ def resolve_structure_names(
                 name = shared_client.fetch_structure_name(structure_id, cid)
             except ESIForbiddenError:
                 logger.info(
-                    "Structure lookup forbidden for %s with character %s", structure_id, cid
+                    "Structure lookup forbidden for %s with character %s",
+                    structure_id,
+                    cid,
                 )
                 continue
             except ESITokenError:
                 logger.info(
-                    "Structure lookup missing/invalid token for %s with character %s", structure_id, cid
+                    "Structure lookup missing/invalid token for %s with character %s",
+                    structure_id,
+                    cid,
                 )
                 continue
 
@@ -430,7 +445,9 @@ def resolve_structure_names(
             .values_list("item_id", "location_id")
             .distinct()
         )
-        folder_to_structure = {int(item_id): int(loc_id) for item_id, loc_id in folder_rows}
+        folder_to_structure = {
+            int(item_id): int(loc_id) for item_id, loc_id in folder_rows
+        }
 
         now = timezone.now()
         for mid, (folder_item_id, division) in managed_mapping.items():
@@ -480,10 +497,14 @@ def _refresh_corp_divisions(corporation_id: int) -> tuple[dict[int, str], bool]:
             division_num = info.get("division")
             division_name = info.get("name")
             if division_num:
-                divisions[int(division_num)] = division_name or f"Hangar Division {division_num}"
+                divisions[int(division_num)] = (
+                    division_name or f"Hangar Division {division_num}"
+                )
 
         with transaction.atomic():
-            CachedCorporationDivision.objects.filter(corporation_id=corporation_id).delete()
+            CachedCorporationDivision.objects.filter(
+                corporation_id=corporation_id
+            ).delete()
             if divisions:
                 CachedCorporationDivision.objects.bulk_create(
                     [
@@ -502,13 +523,18 @@ def _refresh_corp_divisions(corporation_id: int) -> tuple[dict[int, str], bool]:
     except ESITokenError:
         scope_missing = True
     except Exception as exc:  # pragma: no cover - defensive
-        logger.warning("Error refreshing corp divisions for %s: %s", corporation_id, exc)
+        logger.warning(
+            "Error refreshing corp divisions for %s: %s", corporation_id, exc
+        )
 
     return {}, scope_missing
 
 
 def get_corp_divisions_cached(
-    corporation_id: int, *, allow_refresh: bool = True, max_age_minutes: int | None = None
+    corporation_id: int,
+    *,
+    allow_refresh: bool = True,
+    max_age_minutes: int | None = None,
 ) -> tuple[dict[int, str], bool]:
     """Return cached hangar division names; refresh from ESI when stale if allowed."""
 
@@ -544,7 +570,9 @@ def _refresh_character_assets(user) -> tuple[list[dict], bool]:
     """Fetch character assets for a user from ESI and refresh the cache."""
 
     asset_scope = "esi-assets.read_assets.v1"
-    tokens = Token.objects.filter(user=user).require_scopes([asset_scope]).require_valid()
+    tokens = (
+        Token.objects.filter(user=user).require_scopes([asset_scope]).require_valid()
+    )
     if not tokens.exists():
         return [], True
 
@@ -566,9 +594,13 @@ def _refresh_character_assets(user) -> tuple[list[dict], bool]:
         if not character_id:
             continue
         try:
-            assets = shared_client.fetch_character_assets(character_id=int(character_id))
+            assets = shared_client.fetch_character_assets(
+                character_id=int(character_id)
+            )
         except (ESITokenError, ESIRateLimitError, ESIClientError) as exc:
-            logger.warning("Failed to load assets for character %s: %s", character_id, exc)
+            logger.warning(
+                "Failed to load assets for character %s: %s", character_id, exc
+            )
             continue
 
         for asset in assets:

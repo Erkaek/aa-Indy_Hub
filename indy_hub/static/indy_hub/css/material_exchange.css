@@ -1,0 +1,242 @@
+/* Material Exchange Styles */
+
+/* Override blueprint variables to remove borders */
+:root {
+    --bp-border-color: transparent;
+}
+
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.4rem 0.8rem;
+    border-radius: 0.25rem;
+    font-weight: 500;
+    font-size: 0.85rem;
+}
+
+.status-pending {
+    background-color: #ffc107;
+    color: var(--indy-text-primary, #000);
+}
+
+html[data-theme="darkly"] .status-pending {
+    color: #222;
+}
+
+.status-approved {
+    background-color: #17a2b8;
+    color: #fff;
+}
+
+.status-completed {
+    background-color: #198754;
+    color: #fff;
+}
+
+.status-rejected {
+    background-color: #dc3545;
+    color: #fff;
+}
+
+.status-cancelled {
+    background-color: #6c757d;
+    color: #fff;
+}
+
+.status-icon {
+    font-size: 0.9rem;
+}
+
+/* Stock table styles for buy.html and sell.html */
+.stock-table th {
+    font-weight: 600;
+    font-size: 0.9rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.stock-table tbody tr {
+    transition: all 0.2s ease;
+}
+
+.stock-table tbody tr:hover {
+    opacity: 0.8;
+}
+
+.stock-table tbody tr.selected {
+    border-left: 3px solid;
+}
+
+.item-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 6px;
+    padding: 4px;
+}
+
+.qty-input {
+    max-width: 120px;
+}
+
+.qty-input.is-invalid {
+    border-color: var(--bs-danger);
+}
+
+.qty-error {
+    color: var(--bs-danger);
+    font-size: 0.85rem;
+    margin-top: 0.25rem;
+    display: none;
+}
+
+.invoice-panel {
+    position: sticky;
+    top: 20px;
+}
+
+.invoice-item {
+    padding: 0.75rem 0;
+    border-bottom: 1px solid rgba(var(--bs-border-color-rgb), 0.5);
+}
+
+.invoice-item:last-child {
+    border-bottom: none;
+}
+
+/* Buy.html specific */
+html[data-theme="darkly"] .stock-table th {
+    background: rgba(var(--bs-primary-rgb), 0.1);
+}
+
+html[data-theme="darkly"] .stock-table tbody tr:hover {
+    background: rgba(var(--bs-primary-rgb), 0.03);
+}
+
+html[data-theme="darkly"] .stock-table tbody tr.selected {
+    background: rgba(var(--bs-primary-rgb), 0.08);
+    border-left-color: var(--bs-primary);
+}
+
+html[data-theme="darkly"] .item-icon {
+    background: rgba(var(--bs-primary-rgb), 0.05);
+}
+
+/* Sell.html specific */
+html[data-theme="darkly"] .material-exchange.sell .stock-table th {
+    background: rgba(var(--bs-success-rgb), 0.1);
+}
+
+html[data-theme="darkly"] .material-exchange.sell .stock-table tbody tr:hover {
+    background: rgba(var(--bs-success-rgb), 0.03);
+}
+
+html[data-theme="darkly"] .material-exchange.sell .stock-table tbody tr.selected {
+    background: rgba(var(--bs-success-rgb), 0.08);
+    border-left-color: var(--bs-success);
+}
+
+html[data-theme="darkly"] .material-exchange.sell .item-icon {
+    background: rgba(var(--bs-success-rgb), 0.05);
+}
+
+/* Detail card styles - used in sell.html line 294 */
+.detail-card {
+    padding: 1rem;
+    border-radius: 0.375rem;
+    border-left: 3px solid var(--bs-info);
+}
+
+.detail-value {
+    font-size: 1.1rem;
+    margin-top: 0.5rem;
+    color: var(--bs-body-color);
+}
+
+.items-list .item-row {
+    padding: 0.75rem;
+    border-bottom: 1px solid rgba(var(--bs-border-color-rgb), 0.2);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.items-list .item-row:last-child {
+    border-bottom: none;
+}
+
+.items-list .item-name {
+    font-weight: 500;
+}
+
+.items-list .item-qty {
+    color: var(--bs-info);
+    font-weight: 500;
+}
+
+html[data-theme="darkly"] .detail-card {
+    background: rgba(var(--bs-info-rgb), 0.08);
+}
+
+/* Invoice styles for buy.html and sell.html */
+.invoice-total {
+    padding: 1rem;
+    border-radius: 8px;
+    margin-top: 1rem;
+}
+
+.empty-invoice {
+    text-align: center;
+    padding: 2rem;
+    color: var(--bs-secondary);
+}
+
+.invoice-total {
+    background: linear-gradient(135deg, rgba(var(--bs-success-rgb), 0.1), rgba(var(--bs-info-rgb), 0.1));
+    padding: 1rem;
+    border-radius: 8px;
+    margin-top: 1rem;
+}
+
+html[data-theme="darkly"] .invoice-total {
+    background: linear-gradient(135deg, rgba(var(--bs-success-rgb), 0.08), rgba(var(--bs-info-rgb), 0.08));
+}
+
+.empty-invoice {
+    text-align: center;
+    padding: 2rem;
+    color: var(--bs-secondary);
+}
+
+html[data-theme="darkly"] .empty-invoice {
+    color: var(--bs-secondary);
+}
+
+/* Remove glass-panel borders for cleaner look - override blueprints.css */
+.glass-panel {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+}
+
+.col-md-3 .glass-panel,
+.row .glass-panel {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+/* Bootstrap utility classes overrides */
+html[data-theme="darkly"] .bg-body-tertiary,
+html[data-theme="darkly"] .bg-body-secondary,
+html[data-theme="darkly"] .bg-light,
+html[data-theme="darkly"] .bg-white {
+    background-color: #303030 !important;
+}
+
+html[data-theme="darkly"] [class*="subtle"] {
+    background-color: #303030 !important;
+}
+
+

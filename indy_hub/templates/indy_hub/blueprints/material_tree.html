@@ -1,0 +1,40 @@
+{% load humanize %}
+{% load i18n %}
+{# Recursive tree for production materials #}
+<ul class="list-unstyled ms-{{ level|add:1 }}">
+    {% for mat in materials %}
+    <li>
+        <details class="mb-2" {% if level == 0 %}open{% endif %}>
+            <summary class="d-flex align-items-center gap-2 py-1" data-type-id="{{ mat.type_id }}" data-type-name="{{ mat.type_name }}" data-qty="{{ mat.quantity }}" data-tree-id="{{ mat.type_id }}">
+                {% if mat.sub_materials and mat.sub_materials|length > 0 %}
+                <span class="summary-icon"><i class="fas fa-caret-right"></i></span>
+                {% else %}
+                <span class="me-2" style="width:2.5rem;display:inline-block;"></span>
+                {% endif %}
+                <span class="blueprint-icon" style="width:28px;height:28px;">
+                    <img src="https://images.evetech.net/types/{{ mat.type_id }}/icon?size=32" alt="{{ mat.type_name }}" style="width:28px;height:28px;object-fit:cover;border-radius:6px;background:#f3f4f6;" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+                    <span class="fallback" style="display:none;"><i class="fas fa-cube"></i></span>
+                </span>
+                <span class="fw-bold">{{ mat.type_name }}</span>
+                <span class="text-muted">x{{ mat.quantity|intcomma }}</span>
+                {# Right-side switch only for items with sub-materials #}
+                {% if mat.sub_materials and mat.sub_materials|length > 0 %}
+                <span class="ms-auto"></span>
+                <div class="mat-switch-group d-flex align-items-center gap-2">
+                    <div class="form-switch">
+                        <input class="form-check-input mat-switch" type="checkbox" id="mat-switch-{{ mat.type_id }}" data-type-id="{{ mat.type_id }}" checked style="cursor:pointer; accent-color: #0d6efd;">
+                        <label class="form-check-label visually-hidden" for="mat-switch-{{ mat.type_id }}">{% trans "Mode prod/buy" %}</label>
+                    </div>
+                    <span class="mode-label badge px-2 py-1 fw-bold bg-success text-white" style="font-size:0.85em;">{% trans "Prod" %}</span>
+                </div>
+                {% endif %}
+            </summary>
+            {% if mat.sub_materials and mat.sub_materials|length > 0 %}
+            <ul class="list-unstyled ms-3">
+                {% include "indy_hub/blueprints/material_tree.html" with materials=mat.sub_materials level=level|add:1 %}
+            </ul>
+            {% endif %}
+        </details>
+    </li>
+    {% endfor %}
+</ul>

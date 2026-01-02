@@ -6,6 +6,10 @@ from .views.api import (
     load_production_config,
     save_production_config,
 )
+from .views.hubs import (
+    settings_hub,
+    test_darkly_theme,
+)
 from .views.industry import (
     all_bp_list,
     bp_accept_copy_request,
@@ -63,6 +67,7 @@ from .views.material_exchange_config import (
     material_exchange_request_assets_token,
     material_exchange_request_contracts_scope,
     material_exchange_request_divisions_token,
+    material_exchange_toggle_active,
 )
 from .views.material_exchange_orders import (
     buy_order_delete,
@@ -80,8 +85,8 @@ from .views.user import (
     authorize_corp_jobs,
     authorize_jobs,
     authorize_material_exchange,
-    corporation_dashboard,
     index,
+    legacy_token_management_redirect,
     onboarding_set_visibility,
     onboarding_toggle_task,
     production_simulations,
@@ -98,7 +103,10 @@ from .views.user import (
 app_name = "indy_hub"
 urlpatterns = [
     path("", index, name="index"),
-    path("corporation/", corporation_dashboard, name="corporation_dashboard"),
+    path("test-darkly/", test_darkly_theme, name="test_darkly_theme"),
+    path("esi/", token_management, name="esi_hub"),
+    path("esi/", token_management, name="esi_hub"),
+    path("settings/", settings_hub, name="settings_hub"),
     path("personnal-bp/", personnal_bp_list, name="personnal_bp_list"),
     path(
         "corporation-bp/",
@@ -129,7 +137,7 @@ urlpatterns = [
         {"scope": "corporation"},
         name="corporation_job_list",
     ),
-    path("tokens/", token_management, name="token_management"),
+    path("tokens/", legacy_token_management_redirect, name="token_management"),
     path("tokens/sync-blueprints/", sync_blueprints, name="sync_blueprints"),
     path("tokens/sync-jobs/", sync_jobs, name="sync_jobs"),
     path("tokens/sync-all/", sync_all_tokens, name="sync_all_tokens"),
@@ -280,6 +288,11 @@ urlpatterns = [
         "material-exchange/config/",
         material_exchange_config,
         name="material_exchange_config",
+    ),
+    path(
+        "material-exchange/toggle-active/",
+        material_exchange_toggle_active,
+        name="material_exchange_toggle_active",
     ),
     path(
         "material-exchange/config/request-assets-token/",

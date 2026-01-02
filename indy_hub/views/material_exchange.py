@@ -36,6 +36,7 @@ from ..tasks.material_exchange import (
     sync_material_exchange_stock,
 )
 from ..utils.eve import get_type_name
+from .navigation import build_nav_context
 
 logger = logging.getLogger(__name__)
 
@@ -323,10 +324,20 @@ def material_exchange_index(request):
         config = None
 
     if not config:
+        context = {"nav_context": _build_nav_context(request.user)}
+        context.update(
+            build_nav_context(
+                request.user,
+                active_tab="material_hub",
+                can_manage_corp=request.user.has_perm(
+                    "indy_hub.can_manage_corporate_assets"
+                ),
+            )
+        )
         return render(
             request,
             "indy_hub/material_exchange/not_configured.html",
-            {"nav_context": _build_nav_context(request.user)},
+            context,
         )
 
     # Stats (based on the user's visible sell items)
@@ -345,7 +356,7 @@ def material_exchange_index(request):
             messages.info(
                 request,
                 _(
-                    "Actualisation en cours via ESI. Assurez-vous d'avoir donné le scope assets à au moins un personnage."
+                    "Refreshing via ESI. Make sure you have granted the assets scope to at least one character."
                 ),
             )
 
@@ -434,6 +445,16 @@ def material_exchange_index(request):
         "nav_context": _build_nav_context(request.user),
     }
 
+    context.update(
+        build_nav_context(
+            request.user,
+            active_tab="material_hub",
+            can_manage_corp=request.user.has_perm(
+                "indy_hub.can_manage_corporate_assets"
+            ),
+        )
+    )
+
     return render(request, "indy_hub/material_exchange/index.html", context)
 
 
@@ -480,21 +501,15 @@ def material_exchange_sell(request):
         user_assets, scope_missing = _fetch_user_assets_for_structure(
             request.user, config.structure_id
         )
-        if not user_assets:
-            messages.error(
-                request,
-                _(
-                    "Impossible de charger vos assets via ESI. Ajoutez le scope assets au moins sur un personnage."
-                ),
-            )
-            return redirect("indy_hub:material_exchange_sell")
         if scope_missing:
-            messages.info(
-                request,
-                _(
-                    "Actualisation en cours via ESI. Assurez-vous d'avoir donné le scope assets à au moins un personnage."
-                ),
-            )
+            # Avoid transient flash messaging for missing scopes; the page already
+            # renders a persistent on-page warning based on `sell_assets_progress`.
+            _ensure_sell_assets_refresh_started(request.user)
+            return redirect("indy_hub:material_exchange_sell")
+
+        if not user_assets:
+            messages.error(request, _("You have no items to sell at this location."))
+            return redirect("indy_hub:material_exchange_sell")
 
         # Apply market group filter if configured
         # Always apply parent market group filter (Materials hierarchy)
@@ -619,7 +634,7 @@ def material_exchange_sell(request):
                     f"📦 Items ({len(items_to_create)}):\n{items_list}\n\n"
                     f"**Next Steps:**\n"
                     f"1. Create an Item Exchange contract in-game\n"
-                    f"2. Set 'Assigné à': {corp_name}\n"
+                    f"2. Set 'Assigned to': {corp_name}\n"
                     f"3. Add all items listed above\n"
                     f"4. **IMPORTANT: Include '{order.order_reference}' in the contract title/description**\n"
                     f"5. Set location: {config.structure_name} (ID: {config.structure_id})\n"
@@ -659,7 +674,7 @@ def material_exchange_sell(request):
         messages.info(
             request,
             _(
-                "Actualisation en cours via ESI. Assurez-vous d'avoir donné le scope assets à au moins un personnage."
+                "Refreshing via ESI. Make sure you have granted the assets scope to at least one character."
             ),
         )
         message_shown = True
@@ -747,14 +762,14 @@ def material_exchange_sell(request):
             messages.info(
                 request,
                 _(
-                    "Actualisation en cours via ESI. Assurez-vous d'avoir donné le scope assets à au moins un personnage."
+                    "Refreshing via ESI. Make sure you have granted the assets scope to at least one character."
                 ),
             )
         elif not message_shown:
             messages.info(
                 request,
                 _(
-                    "Aucun asset trouvé à cette structure. Vérifiez le scope assets sur au moins un personnage."
+                    "No assets found at this structure. Check the assets scope on at least one character."
                 ),
             )
 
@@ -773,6 +788,16 @@ def material_exchange_sell(request):
         "nav_context": _build_nav_context(request.user),
     }
 
+    context.update(
+        build_nav_context(
+            request.user,
+            active_tab="material_hub",
+            can_manage_corp=request.user.has_perm(
+                "indy_hub.can_manage_corporate_assets"
+            ),
+        )
+    )
+
     return render(request, "indy_hub/material_exchange/sell.html", context)
 
 
@@ -785,6 +810,20 @@ def material_exchange_buy(request):
     """
     config = get_object_or_404(MaterialExchangeConfig, is_active=True)
     stock_refreshing = False
+
+    corp_assets_scope_missing = False
+    try:
+        # Alliance Auth
+        from esi.models import Token
+
+        corp_assets_scope_missing = not (
+            Token.objects.filter(character__corporation_id=int(config.corporation_id))
+            .require_scopes(["esi-assets.read_corporation_assets.v1"])
+            .require_valid()
+            .exists()
+        )
+    except Exception:
+        corp_assets_scope_missing = False
 
     if request.method == "POST":
         # Get available stock
@@ -935,12 +974,6 @@ def material_exchange_buy(request):
 
     if needs_refresh:
         stock_refreshing = True
-        messages.info(
-            request,
-            _(
-                "Actualisation en cours via ESI. Assurez-vous d'avoir donné le scope assets à au moins un personnage."
-            ),
-        )
         try:
             sync_material_exchange_stock()
             config.refresh_from_db()
@@ -1018,10 +1051,21 @@ def material_exchange_buy(request):
         "config": config,
         "stock": stock_items,
         "stock_refreshing": stock_refreshing,
+        "corp_assets_scope_missing": corp_assets_scope_missing,
         "hangar_division_label": hangar_division_label,
         "buy_last_update": buy_last_update,
         "nav_context": _build_nav_context(request.user),
     }
+
+    context.update(
+        build_nav_context(
+            request.user,
+            active_tab="material_hub",
+            can_manage_corp=request.user.has_perm(
+                "indy_hub.can_manage_corporate_assets"
+            ),
+        )
+    )
 
     return render(request, "indy_hub/material_exchange/buy.html", context)
 
@@ -1391,6 +1435,16 @@ def material_exchange_transactions(request):
         "month_stats": month_stats,
         "nav_context": _build_nav_context(request.user),
     }
+
+    context.update(
+        build_nav_context(
+            request.user,
+            active_tab="material_hub",
+            can_manage_corp=request.user.has_perm(
+                "indy_hub.can_manage_corporate_assets"
+            ),
+        )
+    )
 
     return render(request, "indy_hub/material_exchange/transactions.html", context)
 

@@ -12,25 +12,37 @@
     --page-header-muted: rgba(var(--bs-light-rgb), 0.85);
 }
 
-[data-bs-theme="dark"] {
+html[data-theme="darkly"] {
     --page-header-shadow: 0 1.5rem 3rem rgb(0 0 0 / 45%);
-    --page-header-muted: rgba(var(--bs-light-rgb), 0.7);
+    --page-header-fg: #fff;
+    --page-header-muted: rgba(var(--bs-light-rgb), 0.82);
 }
 
 .page-header {
     background: var(--page-header-bg);
     border-radius: var(--page-header-radius);
     color: var(--page-header-fg);
-    padding: 2.5rem 2rem 2rem 2rem;
-    margin-bottom: 2.5rem;
+    padding: 2rem;
+    margin-bottom: 2rem;
+    min-height: 180px;
     box-shadow: var(--page-header-shadow);
     position: relative;
     overflow: hidden;
 }
 
-.page-header h1 {
-    color: var(--page-header-fg);
+.page-header h1,
+.page-header h2,
+.page-header h3,
+.page-header .h1,
+.page-header .h2,
+.page-header .h3 {
+    color: var(--page-header-fg) !important;
     margin-bottom: 0.5rem;
+}
+
+/* Force heading tokens inside header to use light fg */
+.page-header {
+    --bs-heading-color: var(--page-header-fg);
 }
 
 .page-header .header-bg {
@@ -44,7 +56,15 @@
     color: rgba(var(--bs-light-rgb), 0.22);
 }
 
-[data-bs-theme="dark"] .page-header .header-bg {
+@media (max-width: 767.98px) {
+    .page-header {
+        padding: 1.5rem;
+        min-height: 0;
+        margin-bottom: 1.5rem;
+    }
+}
+
+html[data-theme="darkly"] .page-header .header-bg {
     opacity: 0.12;
 }
 
@@ -68,16 +88,16 @@
     color: rgba(var(--bs-secondary-rgb, 108 117 125), 0.18);
 }
 
-[data-bs-theme="dark"] .page-header.page-header--surface {
+html[data-theme="darkly"] .page-header.page-header--surface {
     background: rgba(var(--bs-light-rgb), 0.08);
     color: rgba(var(--bs-light-rgb), 0.92);
 }
 
-[data-bs-theme="dark"] .page-header.page-header--surface .description {
+html[data-theme="darkly"] .page-header.page-header--surface .description {
     color: rgba(var(--bs-light-rgb), 0.7);
 }
 
-[data-bs-theme="dark"] .page-header.page-header--surface .header-bg {
+html[data-theme="darkly"] .page-header.page-header--surface .header-bg {
     color: rgba(var(--bs-light-rgb), 0.2);
 }
 
@@ -97,4 +117,16 @@
 /* Ensure main content area background matches theme */
 main {
     background-color: var(--bs-body-bg);
+}
+
+/* Bootstrap utility classes overrides */
+html[data-theme="darkly"] .bg-body-tertiary,
+html[data-theme="darkly"] .bg-body-secondary,
+html[data-theme="darkly"] .bg-light,
+html[data-theme="darkly"] .bg-white {
+    background-color: #303030 !important;
+}
+
+html[data-theme="darkly"] [class*="subtle"] {
+    background-color: #303030 !important;
 }

@@ -17,7 +17,7 @@
                 </span>
                 <span class="fw-bold">{{ mat.type_name }}</span>
                 <span class="text-muted">x{{ mat.quantity|intcomma }}</span>
-                {# Switch à droite uniquement pour les items avec sous-matériaux #}
+                {# Right-side switch only for items with sub-materials #}
                 {% if mat.sub_materials and mat.sub_materials|length > 0 %}
                 <span class="ms-auto"></span>
                 <div class="mat-switch-group d-flex align-items-center gap-2">
@@ -31,7 +31,7 @@
             </summary>
             {% if mat.sub_materials and mat.sub_materials|length > 0 %}
             <ul class="list-unstyled ms-3">
-                {% include "indy_hub/material_tree.html" with materials=mat.sub_materials level=level|add:1 %}
+                {% include "indy_hub/industry/material_tree.html" with materials=mat.sub_materials level=level|add:1 %}
             </ul>
             {% endif %}
         </details>

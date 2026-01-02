@@ -9,6 +9,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.shortcuts import redirect, render
+from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 
 # Alliance Auth
@@ -204,7 +205,60 @@ def material_exchange_config(request):
         # Market groups selection removed
     }
 
+    from .navigation import build_nav_context
+
+    context.update(
+        build_nav_context(
+            request.user,
+            active_tab="material_hub",
+            can_manage_corp=request.user.has_perm(
+                "indy_hub.can_manage_corporate_assets"
+            ),
+        )
+    )
+    context["back_to_overview_url"] = reverse("indy_hub:index")
+    context["material_exchange_enabled"] = MaterialExchangeConfig.objects.filter(
+        is_active=True
+    ).exists()
+
     return render(request, "indy_hub/material_exchange/config.html", context)
+
+
+@login_required
+@indy_hub_permission_required("can_manage_material_exchange")
+def material_exchange_toggle_active(request):
+    """Toggle Material Exchange availability from settings page."""
+
+    if request.method != "POST":
+        return redirect("indy_hub:settings_hub")
+
+    next_url = request.POST.get("next") or reverse("indy_hub:settings_hub")
+    config = MaterialExchangeConfig.objects.first()
+    if not config:
+        messages.error(
+            request,
+            _("Configure the Material Exchange before enabling or disabling it."),
+        )
+        return redirect(next_url)
+
+    desired_active = request.POST.get("is_active") == "on"
+    if config.is_active == desired_active:
+        messages.info(
+            request,
+            _("No change: Material Exchange is already {state}.").format(
+                state=_("enabled") if config.is_active else _("disabled")
+            ),
+        )
+        return redirect(next_url)
+
+    config.is_active = desired_active
+    config.save(update_fields=["is_active", "updated_at"])
+    if desired_active:
+        messages.success(request, _("Material Exchange enabled."))
+    else:
+        messages.success(request, _("Material Exchange disabled."))
+
+    return redirect(next_url)
 
 
 @login_required
@@ -407,7 +461,11 @@ def _handle_config_save(request, existing_config):
     buy_markup_percent = request.POST.get("buy_markup_percent", "5")
     buy_markup_base = request.POST.get("buy_markup_base", "buy")
     # Market group selections removed; filtering is hardcoded
-    is_active = request.POST.get("is_active") == "on"
+    raw_is_active = request.POST.get("is_active")
+    if raw_is_active is None and existing_config is not None:
+        is_active = existing_config.is_active
+    else:
+        is_active = raw_is_active == "on"
 
     # Validation
     try:

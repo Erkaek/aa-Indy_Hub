@@ -29,5 +29,5 @@ def fetch_character_industry_jobs(character_id):
 def fetch_character_assets(character_id):
     """Legacy helper no longer implemented."""
     raise NotImplementedError(
-        "fetch_character_assets est obsolète. Utilisez indy_hub.services.esi_client pour implémenter cette fonctionnalité."
+        "fetch_character_assets is obsolete. Use indy_hub.services.esi_client to implement this functionality."
     )

@@ -5,65 +5,27 @@
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
 <link rel="stylesheet" href="{% static 'indy_hub/css/blueprints.css' %}">
-<style>
-    .bp-request-grid__cell {
-        flex: 0 0 auto;
-        width: 270px;
-    }
-
-    .bp-request-grid__cell .bp-request-card {
-        width: 100%;
-    }
-
-    @media (max-width: 575.98px) {
-        .bp-request-grid__cell {
-            width: 100%;
-            max-width: 270px;
-        }
-    }
-</style>
+<link rel="stylesheet" href="{% static 'indy_hub/css/bp_copy_request_page.css' %}">
 {% endblock extra_css %}
 {% block content %}
-<main class="bp-request-surface bg-body">
-    <div class="container-fluid my-4">
-        <section class="page-header bp-request-hero mb-4 position-relative overflow-hidden">
-            <i class="fas fa-copy header-bg"></i>
-            <div class="bp-request-hero__content position-relative">
-                <div class="row g-4 align-items-center">
-                    <div class="col-lg-8">
-                        <div class="d-flex align-items-start gap-3">
-                            <span class="bp-request-hero__icon flex-shrink-0">
-                                <i class="fas fa-copy"></i>
-                            </span>
-                            <div>
-                                <span class="bp-request-hero__eyebrow text-uppercase fw-semibold">{% trans "Community blueprint library" %}</span>
-                                <h1 class="bp-request-hero__title display-6 fw-bold text-white mb-2">
-                                    {% trans "Request Blueprint Copy" %}
-                                </h1>
-                                <p class="bp-request-hero__subtitle text-white-50 mb-0">
-                                    {% trans "Browse shared originals and request the exact copy runs you need." %}
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-lg-4">
-                        <div class="bp-request-hero__metrics">
-                            <div class="bp-request-hero__metric">
-                                <span class="bp-request-hero__metric-label">{% trans "Available blueprints" %}</span>
-                                <span class="bp-request-hero__metric-value">{{ page_obj.paginator.count }}</span>
-                            </div>
-                            <div class="bp-request-hero__metric">
-                                <span class="bp-request-hero__metric-label">{% trans "Current filters" %}</span>
-                                <span class="bp-request-hero__metric-value">{{ search|default:_("None") }}</span>
-                            </div>
-                            <a href="{% url 'indy_hub:index' %}" class="btn btn-outline-light btn-sm mt-3">
-                                <i class="fas fa-arrow-left me-1"></i>{% trans "Back to dashboard" %}
-                            </a>
-                        </div>
-                    </div>
-                </div>
+<div class="container-fluid py-4">
+    <section class="page-header mb-4">
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+            <div>
+                <h2 class="h3 mb-1">
+                    <i class="fas fa-copy me-2"></i>
+                    {% trans "Request Blueprint Copy" %}
+                </h2>
+                <p class="description mb-0">{% trans "Browse shared originals and request the copies you need." %}</p>
             </div>
-        </section>
+            <div class="d-flex gap-2">
+                <a href="{% url 'indy_hub:index' %}" class="btn btn-outline-light">
+                    <i class="fas fa-arrow-left me-1"></i>{% trans "Back to Overview" %}
+                </a>
+            </div>
+        </div>
+        <i class="fas fa-copy header-bg"></i>
+    </section>
 
         <section class="glass-panel mb-4 p-4">
             <div class="d-flex flex-column flex-lg-row align-items-start align-items-lg-center justify-content-between gap-3 mb-3">

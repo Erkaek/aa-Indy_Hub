@@ -2,898 +2,224 @@
 {% load i18n %}
 {% load static %}
 
-{% block page_title %}{% trans "Indy Hub" %}{% endblock page_title %}
+{% block page_title %}{% trans "Overview" %}{% endblock page_title %}
 
 {% block extra_css %}
+<link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
 <link rel="stylesheet" href="{% static 'indy_hub/css/components.css' %}">
 <link rel="stylesheet" href="{% static 'indy_hub/css/index.css' %}">
-<link rel="stylesheet" href="{% static 'indy_hub/css/chat.css' %}">
 {% endblock extra_css %}
 
 {% block content %}
 <div class="container-fluid py-4">
-    {% include "indy_hub/includes/popup.html" %}
-
-    <section class="hero-section mb-4">
-        <div class="row g-4 align-items-center">
-            <div class="col-xl-7">
-                <span class="hero-badge text-uppercase">{% trans "Industrial command center" %}</span>
-                <h2 class="hero-title d-flex align-items-center">
-                    <span class="hero-icon me-3">
-                        <i class="fas fa-industry"></i>
-                    </span>
-                    {% trans "Welcome to Indy Hub" %}
+    <div class="page-header mb-4">
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+            <div>
+                <h2 class="h3 mb-1">
+                    <i class="fas fa-chart-simple me-2"></i>
+                    {% trans "Indy Hub" %}
                 </h2>
-                <p class="hero-lead mb-0">
-                    {% trans "Monitor your production flow, understand your blueprint inventory, and coordinate copy requests in one glance." %}
-                </p>
+                <p class="description mb-0">{% trans "Unified overview of blueprints, jobs, sharing, and notifications." %}</p>
             </div>
-            {% if copy_chat_unread_count %}
-            <div class="col-xl-auto ms-xl-auto d-flex justify-content-xl-end align-items-start">
-                <div class="chat-alert-dropdown dropdown mt-3 mt-xl-0">
-                    <button
-                        class="chat-alert-toggle"
-                        type="button"
-                        id="chat-alert-toggle"
-                        data-bs-toggle="dropdown"
-                        data-bs-auto-close="outside"
-                    >
-                        <span class="chat-alert-toggle__label">{% trans "Unread chat" %}</span>
-                        <span class="chat-alert-toggle__count badge rounded-pill">{{ copy_chat_unread_count }}</span>
-                        <span class="visually-hidden">
-                            {% blocktrans count total=copy_chat_unread_count %}{{ total }} conversation needs your reply{% plural %}{{ total }} conversations need your reply{% endblocktrans %}
-                        </span>
-                        <i class="fas fa-chevron-down chat-alert-toggle__chevron" aria-hidden="true"></i>
-                    </button>
-                    <div class="dropdown-menu dropdown-menu-end chat-alert-menu" aria-labelledby="chat-alert-toggle">
-                        <div class="chat-alert-card">
-                            <header class="chat-alert-card__header">
-                                <span class="chat-alert-card__glyph" aria-hidden="true">
-                                    <i class="fas fa-comments"></i>
-                                </span>
-                                <div class="chat-alert-card__title">
-                                    <span class="chat-alert-card__eyebrow">{% trans "Unread chat" %}</span>
-                                    <h4 class="chat-alert-card__headline mb-0">
-                                        {% blocktrans count total=copy_chat_unread_count %}{{ total }} conversation needs your reply{% plural %}{{ total }} conversations need your reply{% endblocktrans %}
-                                    </h4>
-                                </div>
-                                <span class="chat-alert-card__count badge rounded-pill bg-primary text-white">{{ copy_chat_unread_count }}</span>
-                            </header>
-                            <div class="chat-alert-card__body">
-                                <ul class="chat-alert-list">
-                                    {% for alert in copy_chat_alerts %}
-                                    <li>
-                                        <div class="chat-alert-item">
-                                            <div class="chat-alert-item__main">
-                                                <span class="chat-alert-item__avatar">
-                                                    <img
-                                                        src="https://images.evetech.net/types/{{ alert.type_id }}/icon?size=64"
-                                                        alt=""
-                                                        loading="lazy"
-                                                        onerror="this.onerror=null;this.src='https://images.evetech.net/types/{{ alert.type_id }}/bp?size=64'"
-                                                    >
-                                                </span>
-                                                <div class="chat-alert-item__info">
-                                                    <span class="chat-alert-item__type">{{ alert.type_name }}</span>
-                                                    <p class="chat-alert-item__meta text-muted small mb-0">
-                                                        {% blocktrans with other=alert.other_label timesince=alert.last_message_at|timesince %}{{ other }} · {{ timesince }} ago{% endblocktrans %}
-                                                    </p>
-                                                    {% if alert.viewer_role == 'buyer' %}
-                                                        {% trans "Buyer" as viewer_label %}
-                                                    {% else %}
-                                                        {% trans "Builder" as viewer_label %}
-                                                    {% endif %}
-                                                    <div class="chat-alert-item__tags">
-                                                        <span class="chat-alert-chip chat-alert-chip--self">
-                                                            <span class="visually-hidden">{% trans "You" %}</span>
-                                                            <i class="fas fa-user"></i>
-                                                            <span aria-hidden="true">{% trans "You" %}</span>
-                                                            <span class="chat-alert-chip__role" aria-hidden="true">· {{ viewer_label }}</span>
-                                                        </span>
-                                                        <span class="chat-alert-chip">
-                                                            <i class="fas fa-user-group"></i>
-                                                            <span>{{ alert.other_label }}</span>
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <div class="chat-alert-item__actions">
-                                                <button
-                                                    type="button"
-                                                    class="bp-btn bp-chat-pill btn-sm bp-chat-trigger chat-alert-item__action"
-                                                    data-chat-fetch-url="{{ alert.fetch_url }}"
-                                                    data-chat-send-url="{{ alert.send_url }}"
-                                                    data-chat-role="{{ alert.viewer_role }}"
-                                                    data-chat-type-name="{{ alert.type_name }}"
-                                                    data-chat-type-id="{{ alert.type_id }}"
-                                                    data-chat-has-unread="true"
-                                                    data-chat-id="{{ alert.chat_id }}"
-                                                    aria-haspopup="dialog"
-                                                >
-                                                    <i class="fas fa-reply"></i>
-                                                    <span>{% trans "Reply" %}</span>
-                                                    <span class="bp-chat-trigger__badge" aria-hidden="true"><i class="fas fa-circle-dot"></i></span>
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </li>
-                                    {% endfor %}
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            {% endif %}
-        </div>
-    </section>
-    {% if onboarding.pending and onboarding.dismissed %}
-    <div class="alert alert-warning-soft d-flex justify-content-between align-items-center gap-3 mb-4">
-        <div class="d-flex align-items-start gap-3">
-            <span class="flex-shrink-0"><i class="fas fa-clipboard-list"></i></span>
-            <div>
-                <strong class="d-block">{% trans "Onboarding checklist hidden" %}</strong>
-                <span class="small text-muted">{% blocktrans with remaining=onboarding.pending %}You still have {{ remaining }} onboarding tasks left. Bring the checklist back when you're ready.{% endblocktrans %}</span>
+            <div class="d-flex gap-2">
+                <a href="{% url 'indy_hub:index' %}" class="btn btn-outline-light">
+                    <i class="fas fa-arrow-left me-1"></i>{% trans "Back to Overview" %}
+                </a>
             </div>
         </div>
-        <form method="post" action="{% url 'indy_hub:onboarding_set_visibility' %}" class="m-0">
-            {% csrf_token %}
-            <input type="hidden" name="action" value="restore">
-            <input type="hidden" name="next" value="{{ request.get_full_path }}">
-            <button type="submit" class="btn btn-outline-warning btn-sm">
-                <i class="fas fa-rotate-left me-2"></i>{% trans "Restore checklist" %}
-            </button>
-        </form>
+        <i class="fas fa-chart-simple header-bg"></i>
     </div>
-    {% endif %}
 
-    {% if onboarding.show %}
-    <section class="dashboard-section mb-5">
-        <header class="section-heading">
-            <div>
-                <h3>{% trans "New pilot onboarding" %}</h3>
-                <p class="text-muted small mb-0">{% trans "Follow these steps to unlock the full Indy Hub workflow." %}</p>
-            </div>
-            <form method="post" action="{% url 'indy_hub:onboarding_set_visibility' %}" class="d-inline">
-                {% csrf_token %}
-                <input type="hidden" name="action" value="dismiss">
-                <input type="hidden" name="next" value="{{ request.get_full_path }}">
-                <button type="submit" class="btn btn-outline-secondary btn-sm px-3 rounded-pill">
-                    <i class="fas fa-eye-slash me-2"></i>{% trans "Hide onboarding" %}
-                </button>
-            </form>
-        </header>
-    <div class="card focus-card">
-            <div class="card-body p-4">
-                <div class="d-flex flex-column flex-lg-row gap-4 align-items-lg-center mb-4">
-                    <div class="flex-grow-1">
-                        <p class="small text-muted mb-1">
-                            {% blocktrans with completed=onboarding.completed total=onboarding.total %}{{ completed }} of {{ total }} tasks complete{% endblocktrans %}
-                        </p>
-                        <div class="progress rounded-pill" role="progressbar" aria-valuenow="{{ onboarding.percent }}" aria-valuemin="0" aria-valuemax="100">
-                            <div class="progress-bar bg-success" style="width: {{ onboarding.percent }}%">
-                                <span class="visually-hidden">{{ onboarding.percent }}%</span>
-                            </div>
-                        </div>
+    <div class="row g-4 align-items-stretch">
+        <div class="col-lg-8">
+            <section class="dashboard-section mb-4">
+                <header class="section-heading">
+                    <div>
+                        <h3>{% trans "Watch your operations" %}</h3>
+                        <p class="text-muted small mb-0">{% trans "Blueprints, industry jobs, and sharing at a glance." %}</p>
                     </div>
-                    <div class="text-center">
-                        <span class="display-6 fw-semibold text-success">{{ onboarding.percent }}%</span>
-                        <p class="small text-muted mb-0">{% trans "Readiness" %}</p>
-                    </div>
-                </div>
-                <div class="row g-4">
-                    <div class="col-lg-7">
-                        <ul class="list-group list-group-flush onboarding-task-list">
-                            {% for task in onboarding.tasks %}
-                            <li class="list-group-item px-0 py-3 {% if task.completed %}opacity-75{% endif %}">
-                                <div class="d-flex gap-3 align-items-start">
-                                    <div class="rounded-circle bg-light text-muted flex-shrink-0 d-flex align-items-center justify-content-center" style="width: 44px; height: 44px;">
-                                        <i class="fas {{ task.icon|default:'fa-clipboard-list' }}"></i>
-                                    </div>
-                                    <div class="flex-grow-1">
-                                        <div class="d-flex align-items-center gap-2 mb-1">
-                                            <strong>{{ task.title }}</strong>
-                                            {% if task.completed %}
-                                            <span class="badge bg-success-subtle text-success fw-normal">{% trans "Done" %}</span>
-                                            {% elif task.mode == 'auto' %}
-                                            <span class="badge bg-secondary-subtle text-secondary fw-normal">{% trans "Auto" %}</span>
-                                            {% else %}
-                                            <span class="badge bg-info-subtle text-info fw-normal">{% trans "Manual" %}</span>
-                                            {% endif %}
-                                        </div>
-                                        <p class="text-muted small mb-2">{{ task.description }}</p>
-                                        <div class="d-flex flex-wrap gap-2 align-items-center">
-                                            {% if task.cta_url %}
-                                            <a href="{{ task.cta_url }}" class="btn btn-outline-primary btn-sm">
-                                                <i class="fas fa-arrow-up-right-from-square me-1"></i>{% trans "Open" %}
-                                            </a>
-                                            {% endif %}
-                                            {% if task.mode == 'manual' %}
-                                                <form method="post" action="{% url 'indy_hub:onboarding_toggle_task' %}" class="d-inline">
-                                                    {% csrf_token %}
-                                                    <input type="hidden" name="task" value="{{ task.key }}">
-                                                    <input type="hidden" name="next" value="{{ request.get_full_path }}">
-                                                    {% if task.completed %}
-                                                    <input type="hidden" name="action" value="reset">
-                                                    <button type="submit" class="btn btn-outline-secondary btn-sm">
-                                                        <i class="fas fa-rotate-left me-1"></i>{% trans "Mark incomplete" %}
-                                                    </button>
-                                                    {% else %}
-                                                    <input type="hidden" name="action" value="complete">
-                                                    <button type="submit" class="btn btn-success btn-sm">
-                                                        <i class="fas fa-check me-1"></i>{% trans "Mark done" %}
-                                                    </button>
-                                                    {% endif %}
-                                                </form>
-                                            {% elif not task.completed %}
-                                                <span class="text-muted small fst-italic">{% trans "We'll detect this automatically." %}</span>
-                                            {% endif %}
-                                        </div>
-                                    </div>
-                                </div>
-                            </li>
-                            {% endfor %}
-                        </ul>
-                    </div>
-                    <div class="col-lg-5">
-                        <div class="border rounded-4 p-4 h-100 bg-light-subtle">
-                            <h6 class="mb-3">{% trans "Why it matters" %}</h6>
-                            <ul class="list-unstyled small text-muted d-flex flex-column gap-2 mb-0">
-                                <li class="d-flex gap-2">
-                                    <i class="fas fa-arrow-trend-up mt-1 text-success"></i>
-                                    <span>{% trans "Blueprint and job tokens unlock live metrics across this dashboard." %}</span>
-                                </li>
-                                <li class="d-flex gap-2">
-                                    <i class="fas fa-share-alt mt-1 text-warning"></i>
-                                    <span>{% trans "Sharing copies ensures your corp can request the prints they need." %}</span>
-                                </li>
-                                <li class="d-flex gap-2">
-                                    <i class="fas fa-circle-info mt-1 text-info"></i>
-                                    <span>{% trans "Manual steps help leadership track who has completed orientation." %}</span>
-                                </li>
-                            </ul>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </section>
-    {% endif %}
+                </header>
 
-    {% if not has_blueprint_tokens or not has_jobs_tokens %}
-    <section class="dashboard-section mb-5">
-        <header class="section-heading">
-            <div>
-                <h3>{% trans "Finish your setup" %}</h3>
-                <p class="text-muted small mb-0">{% trans "Authorize blueprint and industry tokens to unlock live insights across the dashboard." %}</p>
-            </div>
-        </header>
-        <div class="row g-4 align-items-stretch">
-            <div class="col-xl-8 col-lg-12">
-                <div class="card focus-card h-100">
-                    <div class="card-body p-4 d-flex flex-column">
-                        <div class="d-flex justify-content-between align-items-start mb-3">
-                            <div>
-                                <h6 class="card-title mb-1">{% trans "Authorize data sync" %}</h6>
-                                <p class="text-muted small mb-0">{% trans "Connect at least one character for blueprints and jobs so Indy Hub can stay current." %}</p>
-                            </div>
-                            <div class="focus-icon bg-warning bg-opacity-10 text-warning">
-                                <i class="fas fa-plug"></i>
-                            </div>
-                        </div>
-                        <div class="token-status d-flex flex-column gap-2 mb-4">
-                            <div class="token-pill {% if has_blueprint_tokens %}token-pill-ready{% else %}token-pill-missing{% endif %}">
-                                <i class="fas fa-scroll me-2"></i>
-                                {% if has_blueprint_tokens %}
-                                    <strong>{{ blueprint_token_count }}</strong> {% trans "characters authorized for blueprints" %}
-                                {% else %}
-                                    {% trans "Blueprint access missing" %}
-                                {% endif %}
-                            </div>
-                            <div class="token-pill {% if has_jobs_tokens %}token-pill-ready{% else %}token-pill-missing{% endif %}">
-                                <i class="fas fa-industry me-2"></i>
-                                {% if has_jobs_tokens %}
-                                    <strong>{{ jobs_token_count }}</strong> {% trans "characters authorized for industry jobs" %}
-                                {% else %}
-                                    {% trans "Industry jobs access missing" %}
-                                {% endif %}
-                            </div>
-                        </div>
-                        <p class="text-muted small mb-4">{% trans "Tokens enable copy-sharing queues, industry alerts, and blueprint metrics across every card." %}</p>
-                            <a href="{% url 'indy_hub:token_management' %}" class="btn btn-accent btn-slim align-self-start">
-                                <i class="fas fa-arrow-right me-2"></i>{% trans "Manage ESI tokens" %}
-                            </a>
-                    </div>
-                </div>
-            </div>
-            <div class="col-xl-4 col-lg-12">
-                <div class="card focus-card h-100">
-                    <div class="card-body p-4 d-flex flex-column">
-                        <h6 class="card-title mb-3">{% trans "Quick reminders" %}</h6>
-                        <ul class="list-unstyled text-muted small mb-0 d-flex flex-column gap-2">
-                            <li class="d-flex align-items-start gap-2">
-                                <i class="fas fa-circle-info text-warning mt-1"></i>
-                                <span>{% trans "Blueprint tokens give access to originals, copies, and research stats for your characters." %}</span>
-                            </li>
-                            <li class="d-flex align-items-start gap-2">
-                                <i class="fas fa-circle-info text-warning mt-1"></i>
-                                <span>{% trans "Industry job tokens power live slot counts and completion alerts." %}</span>
-                            </li>
-                            <li class="d-flex align-items-start gap-2">
-                                <i class="fas fa-circle-info text-warning mt-1"></i>
-                                <span>{% trans "You can authorize multiple characters—Indy Hub deduplicates everything automatically." %}</span>
-                            </li>
-                        </ul>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </section>
-    {% endif %}
-
-    <!-- Material Exchange Section -->
-    <section class="dashboard-section mb-5">
-        <header class="section-heading">
-            <div>
-                <h3>{% trans "Material Exchange" %}</h3>
-                <p class="text-muted small mb-0">{% trans "Buy and sell materials from corp stock - no need to go to Jita." %}</p>
-            </div>
-        </header>
-        <div class="row g-4 align-items-stretch">
-            <div class="col-lg-12">
                 <div class="card focus-card">
                     <div class="card-body p-4">
-                        <div class="d-flex flex-column flex-lg-row gap-4 align-items-lg-start justify-content-between">
-                            <div class="d-flex gap-3 align-items-start flex-grow-1">
-                                <div class="focus-icon bg-info bg-opacity-10 text-info">
-                                    <i class="fas fa-exchange-alt"></i>
-                                </div>
+                        <div class="share-metrics">
+                            <div class="share-metric">
                                 <div>
-                                    <h6 class="card-title mb-2">{% trans "Corp Material Hub" %}</h6>
-                                    <p class="text-muted small mb-0">
-                                        {% trans "Trade materials directly from corp inventory. Sell your minerals to the corp or buy what you need for production - all at Jita prices with transparent pricing." %}
-                                    </p>
+                                    <span class="share-metric-label"><i class="fas fa-layer-group me-2"></i>{% trans "Blueprints" %}</span>
+                                    <p class="text-muted small mb-0">{% trans "Originals and copies." %}</p>
+                                    {% if not has_blueprint_tokens %}
+                                    <p class="text-danger small mb-0">{% trans "ESI: missing blueprint scope/tokens. Add a character in the ESI tab." %}</p>
+                                    {% endif %}
                                 </div>
-                            </div>
-                            <div class="d-flex gap-2 flex-wrap flex-lg-nowrap">
-                                <a href="{% url 'indy_hub:material_exchange_index' %}" class="btn btn-primary btn-slim">
-                                    <i class="fas fa-store me-2"></i>{% trans "Open Material Exchange" %}
-                                </a>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <section class="dashboard-section mb-5">
-        <header class="section-heading">
-            <div>
-                <h3>{% trans "Watch your operations" %}</h3>
-                <p class="text-muted small mb-0">{% trans "Review personal blueprints, industry jobs, and plan your next run." %}</p>
-            </div>
-        </header>
-        <div class="row g-4 align-items-stretch">
-            <div class="col-xxl-4 col-xl-6 col-lg-12">
-                <div class="card focus-card h-100">
-                    <div class="card-body p-4 d-flex flex-column">
-                        <div class="d-flex justify-content-between align-items-start mb-3">
-                            <div>
-                                <h6 class="card-title mb-1">{% trans "Blueprint library" %}</h6>
-                                <p class="text-muted small mb-0">{% trans "Originals and copies at a glance." %}</p>
-                            </div>
-                            <div class="d-flex align-items-center gap-2">
-                                {% if has_blueprint_tokens %}
-                                <span class="badge rounded-pill bg-primary-subtle text-primary">{{ blueprint_count|default:0 }}</span>
-                                {% endif %}
-                                <div class="focus-icon bg-primary bg-opacity-10 text-primary">
-                                    <i class="fas fa-layer-group"></i>
-                                </div>
-                            </div>
-                        </div>
-                        {% if has_blueprint_tokens %}
-                            <div class="stat-pair mb-4">
-                                <div class="stat-chip">
-                                    <span class="stat-chip-label">{% trans "Originals" %}</span>
-                                    <span class="stat-chip-value">{{ original_blueprints|default:0 }}</span>
-                                </div>
-                                <div class="stat-chip">
-                                    <span class="stat-chip-label">{% trans "Copies" %}</span>
-                                    <span class="stat-chip-value">{{ copy_blueprints|default:0 }}</span>
-                                </div>
-                            </div>
-                            <p class="text-muted small mb-0">{% trans "Review personal research status and locate originals ready to share." %}</p>
-                            <div class="mt-4">
-                                <a href="{% url 'indy_hub:personnal_bp_list' %}" class="btn btn-outline-primary btn-slim">
-                                    <i class="fas fa-arrow-up-right-from-square me-2"></i>{% trans "Open my blueprint library" %}
-                                </a>
-                            </div>
-                        {% else %}
-                            <div class="mt-auto pt-3">
-                                <div class="alert alert-warning-soft rounded-4 mb-2 d-flex align-items-start gap-3">
-                                    <span class="alert-icon flex-shrink-0"><i class="fas fa-key"></i></span>
-                                    <div class="small mb-0 text-start">
-                                        <strong class="d-block text-warning-emphasis">{% trans "Blueprint access missing" %}</strong>
-                                        {% blocktrans %}Connect an ESI blueprint token to populate your library and unlock sharing.{% endblocktrans %}
-                                    </div>
-                                </div>
-                                <a href="{% url 'indy_hub:token_management' %}" class="link-light fw-semibold small text-decoration-none">
-                                    <span class="me-2 align-middle"><i class="fas fa-arrow-up-right-from-square"></i></span>{% trans "Open token management" %}
-                                </a>
-                            </div>
-                        {% endif %}
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-xxl-4 col-xl-6 col-lg-12">
-                <div class="card focus-card h-100">
-                    <div class="card-body p-4 d-flex flex-column">
-                        <div class="d-flex justify-content-between align-items-start mb-3">
-                            <div>
-                                <h6 class="card-title mb-1">{% trans "Industry jobs" %}</h6>
-                                <p class="text-muted small mb-0">{% trans "Track active slots and completed work." %}</p>
-                            </div>
-                            <div class="d-flex align-items-center gap-2">
-                                {% if has_jobs_tokens %}
-                                <span class="badge rounded-pill bg-success-subtle text-success">{{ active_jobs_count|default:0 }}</span>
-                                {% endif %}
-                                <div class="focus-icon bg-success bg-opacity-10 text-success">
-                                    <i class="fas fa-industry"></i>
-                                </div>
-                            </div>
-                        </div>
-                        {% if has_jobs_tokens %}
-                        <div class="job-status-row mb-4">
-                            <div class="status-pill success">
-                                <i class="fas fa-play-circle"></i>
-                                <div>
-                                    <strong>{{ active_jobs_count|default:0 }}</strong>
-                                    <span>{% trans "Active jobs" %}</span>
-                                </div>
-                            </div>
-                            <div class="status-pill">
-                                <i class="fas fa-check-circle"></i>
-                                <div>
-                                    <strong>{{ completed_jobs_count|default:0 }}</strong>
-                                    <span>{% trans "Completed (30d)" %}</span>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="d-grid gap-3">
-                            <a href="{% url 'indy_hub:personnal_job_list' %}" class="btn btn-accent btn-slim">
-                                <i class="fas fa-list"></i>{% trans "Open job tracker" %}
-                            </a>
-                            <p class="text-muted small mb-0">{% trans "Need alerts? Use the preferences card above to enable completion pings." %}</p>
-                        </div>
-                        {% else %}
-                        <div class="focus-empty text-center py-4 mt-auto">
-                            <i class="fas fa-industry fa-3x mb-3 text-success opacity-75"></i>
-                            <p class="text-muted mb-3">{% trans "Connect an industry token to pull live job data and alerts." %}</p>
-                            <a href="{% url 'indy_hub:token_management' %}" class="btn btn-outline-success btn-slim">
-                                <i class="fas fa-key me-2"></i>{% trans "Setup access" %}
-                            </a>
-                        </div>
-                        {% endif %}
-                    </div>
-                </div>
-            </div>
-            <div class="col-xxl-4 col-xl-12">
-                <div class="card focus-card h-100">
-                    <div class="card-body p-4 d-flex flex-column">
-                        <div class="d-flex justify-content-between align-items-start mb-3">
-                            <div>
-                                <h6 class="card-title mb-1">{% trans "Production simulations" %}</h6>
-                                <p class="text-muted small mb-0">{% trans "Plan taxes, fees, and profitability scenarios." %}</p>
-                            </div>
-                            <div class="focus-icon bg-secondary bg-opacity-10 text-secondary">
-                                <i class="fas fa-flask"></i>
-                            </div>
-                        </div>
-                        <p class="text-muted small mb-0">{% trans "Run what-if analyses before committing to large scale production." %}</p>
-                        <div class="mt-4">
-                            <a href="{% url 'indy_hub:production_simulations_list' %}" class="btn btn-outline-secondary btn-slim">
-                                <i class="fas fa-flask me-2"></i>{% trans "Open production simulations" %}
-                            </a>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <section class="dashboard-section mb-5">
-        <header class="section-heading">
-            <div>
-                <h3>{% trans "Collaboration hub" %}</h3>
-                <p class="text-muted small mb-0">{% trans "Coordinate duplicates, fulfil copy queues, and keep your corp in sync." %}</p>
-            </div>
-        </header>
-        <div class="row g-4 align-items-stretch justify-content-center">
-            <div class="col-xxl-10 col-xl-11 col-lg-12">
-                <div class="card focus-card h-100">
-                    <div class="card-body p-4 d-flex flex-column">
-                        <div class="d-flex justify-content-between align-items-start mb-3">
-                            <div>
-                                <h6 class="card-title mb-1">{% trans "Blueprint sharing" %}</h6>
-                                <p class="text-muted small mb-0" id="share-subtitle">{{ copy_sharing_state.subtitle }}</p>
-                            </div>
-                            <div class="focus-icon bg-warning bg-opacity-10 text-warning">
-                                <i class="fas fa-share-alt"></i>
-                            </div>
-                        </div>
-                        <div class="share-panel h-100 d-flex flex-column">
-                            <div class="share-status mb-4" id="share-status-block">
-                                <span class="badge rounded-pill {{ copy_sharing_state.badge_class }} fw-semibold" id="share-status-badge">
-                                    {{ copy_sharing_state.status_label }}
-                                </span>
-                                <p class="text-muted small mb-0" id="share-status-text">{{ copy_sharing_state.status_hint }}</p>
-                            </div>
-                            <div class="share-metrics mb-4">
-                                <div class="share-metric">
-                                    <div>
-                                        <span class="share-metric-label">{% trans "Requests to fulfill" %}</span>
-                                        <p class="text-muted small mb-0" id="share-fulfill-hint">{{ copy_sharing_state.fulfill_hint }}</p>
-                                    </div>
-                                    <span class="share-metric-value">{{ copy_fulfill_count|default:0 }}</span>
-                                </div>
-                                <div class="share-metric">
-                                    <div>
-                                        <span class="share-metric-label">{% trans "My submissions" %}</span>
-                                        {% if copy_my_requests_total %}
-                                            <p class="text-muted small mb-0">
-                                                {% blocktrans with open=copy_my_requests_open pending=copy_my_requests_pending_delivery %}
-                                                    {{ open }} open · {{ pending }} awaiting delivery
-                                                {% endblocktrans %}
-                                            </p>
-                                        {% else %}
-                                            <p class="text-muted small mb-0">{% trans "Keep tabs on the copies you've requested." %}</p>
-                                        {% endif %}
-                                    </div>
-                                    <span class="share-metric-value">{{ copy_my_requests_total|default:0 }}</span>
-                                </div>
-                            </div>
-                            <div class="d-grid gap-2 mt-auto">
-                                <a href="{% url 'indy_hub:bp_copy_request_page' %}" class="btn btn-accent btn-slim">
-                                    <i class="fas fa-copy"></i>{% trans "Request a copy" %}
-                                </a>
-                                <div class="d-grid gap-2">
-                                    <a href="{% url 'indy_hub:bp_copy_fulfill_requests' %}" class="btn btn-slim btn-soft-success">
-                                        <i class="fas fa-handshake me-2"></i>{% trans "Fulfill requests" %}
+                                <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
+                                    {% if has_blueprint_tokens %}
+                                    <span class="badge rounded-pill bg-primary-subtle text-primary">{% trans "Originals" %}: {{ original_blueprints|default:0 }}</span>
+                                    <span class="badge rounded-pill bg-primary-subtle text-primary">{% trans "Copies" %}: {{ copy_blueprints|default:0 }}</span>
+                                    {% else %}
+                                    <span class="badge rounded-pill bg-secondary-subtle text-secondary">{% trans "No token" %}</span>
+                                    {% endif %}
+                                    <a class="btn btn-sm btn-outline-primary" href="{% url 'indy_hub:all_bp_list' %}">
+                                        {% trans "Open" %}
                                     </a>
-                                    <a href="{% url 'indy_hub:bp_copy_my_requests' %}" class="btn btn-slim btn-soft-secondary">
-                                        <i class="fas fa-list me-2"></i>{% trans "My requests" %}
+                                </div>
+                            </div>
+
+                            <div class="share-metric">
+                                <div>
+                                    <span class="share-metric-label"><i class="fas fa-industry me-2"></i>{% trans "Industry" %}</span>
+                                    <p class="text-muted small mb-0">{% trans "Active slots and completions." %}</p>
+                                    {% if not has_jobs_tokens %}
+                                    <p class="text-danger small mb-0">{% trans "ESI: missing job scope/tokens. Add a character in the ESI tab." %}</p>
+                                    {% endif %}
+                                </div>
+                                <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
+                                    {% if has_jobs_tokens %}
+                                    <span class="badge rounded-pill bg-success-subtle text-success">{% trans "Active" %}: {{ active_jobs_count|default:0 }}</span>
+                                    <span class="badge rounded-pill bg-success-subtle text-success">{% trans "Completed" %}: {{ completed_jobs_count|default:0 }}</span>
+                                    {% else %}
+                                    <span class="badge rounded-pill bg-secondary-subtle text-secondary">{% trans "No token" %}</span>
+                                    {% endif %}
+                                    <a class="btn btn-sm btn-outline-success" href="{% url 'indy_hub:personnal_job_list' %}">
+                                        {% trans "Open" %}
+                                    </a>
+                                </div>
+                            </div>
+
+                            <div class="share-metric">
+                                <div>
+                                    <span class="share-metric-label"><i class="fas fa-share-alt me-2"></i>{% trans "Blueprint sharing" %}</span>
+                                    <p class="text-muted small mb-0">{% trans "Requests and unread chats." %}</p>
+                                </div>
+                                <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
+                                    <span class="badge rounded-pill bg-warning-subtle text-warning">{% trans "Unread" %}: {{ copy_chat_unread_count|default:0 }}</span>
+                                    <span class="badge rounded-pill bg-warning-subtle text-warning">{% trans "My requests" %}: {{ copy_my_requests_total|default:0 }}</span>
+                                    <a class="btn btn-sm btn-outline-warning" href="{% url 'indy_hub:bp_copy_request_page' %}">
+                                        {% trans "Open" %}
                                     </a>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
-            </div>
-        </div>
-    </section>
+            </section>
 
-    <section class="dashboard-section mb-5">
-        <header class="section-heading">
-            <div>
-                <h3>{% trans "Tools & references" %}</h3>
-                <p class="text-muted small mb-0">{% trans "Jump into catalogs and documentation." %}</p>
-            </div>
-        </header>
-        <div class="row g-4 align-items-stretch justify-content-center">
-            <div class="col-xxl-9 col-xl-10 col-lg-11 col-md-12">
+            {% if can_manage_corporate_assets %}
+            <section class="dashboard-section">
+                <header class="section-heading">
+                    <div>
+                        <h3>{% trans "Corporation" %}</h3>
+                        <p class="text-muted small mb-0">{% trans "Corporate overview counters." %}</p>
+                    </div>
+                </header>
+
+                <div class="card focus-card">
+                    <div class="card-body p-4">
+                        <div class="share-metrics">
+                            <div class="share-metric">
+                                <div>
+                                    <span class="share-metric-label"><i class="fas fa-building me-2"></i>{% trans "Corporation blueprints" %}</span>
+                                    <p class="text-muted small mb-0">{% trans "Originals and copies." %}</p>
+                                    {% if not has_corp_blueprint_tokens %}
+                                    <p class="text-danger small mb-0">{% trans "ESI: missing corporation blueprint scopes (no valid token detected)." %}</p>
+                                    {% endif %}
+                                </div>
+                                <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
+                                    <span class="badge rounded-pill bg-info-subtle text-info">{% trans "Originals" %}: {{ corp_original_blueprints|default:0 }}</span>
+                                    <span class="badge rounded-pill bg-info-subtle text-info">{% trans "Copies" %}: {{ corp_copy_blueprints|default:0 }}</span>
+                                    <a class="btn btn-sm btn-outline-info" href="{% url 'indy_hub:corporation_bp_list' %}">
+                                        {% trans "Open" %}
+                                    </a>
+                                </div>
+                            </div>
+
+                            <div class="share-metric">
+                                <div>
+                                    <span class="share-metric-label"><i class="fas fa-building me-2"></i>{% trans "Corporation jobs" %}</span>
+                                    <p class="text-muted small mb-0">{% trans "Active slots and completions." %}</p>
+                                    {% if not has_corp_job_tokens %}
+                                    <p class="text-danger small mb-0">{% trans "ESI: missing corporation job scopes (no valid token detected)." %}</p>
+                                    {% endif %}
+                                </div>
+                                <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
+                                    <span class="badge rounded-pill bg-info-subtle text-info">{% trans "Active" %}: {{ corp_active_jobs_count|default:0 }}</span>
+                                    <span class="badge rounded-pill bg-info-subtle text-info">{% trans "Completed" %}: {{ corp_jobs_completed|default:0 }}</span>
+                                    <a class="btn btn-sm btn-outline-info" href="{% url 'indy_hub:corporation_job_list' %}">
+                                        {% trans "Open" %}
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            {% endif %}
+        </div>
+
+        <div class="col-lg-4">
+            <section class="dashboard-section h-100">
+                <header class="section-heading">
+                    <div>
+                        <h3>{% trans "Unread" %}</h3>
+                        <p class="text-muted small mb-0">{% trans "Notifications you haven't checked yet." %}</p>
+                    </div>
+                </header>
+
                 <div class="card focus-card h-100">
                     <div class="card-body p-4 d-flex flex-column">
-                        <div class="d-flex justify-content-between align-items-start mb-3">
-                            <div>
-                                <h6 class="card-title mb-1">{% trans "All EVE blueprints" %}</h6>
-                                <p class="text-muted small mb-0">{% trans "Reference database with search and filters." %}</p>
+                        <div class="share-metrics mb-4">
+                            <div class="share-metric">
+                                <div>
+                                    <span class="share-metric-label">{% trans "Copy chats" %}</span>
+                                    <p class="text-muted small mb-0">{% trans "Unread conversation threads." %}</p>
+                                </div>
+                                <span class="share-metric-value">{{ copy_chat_unread_count|default:0 }}</span>
                             </div>
-                            <div class="focus-icon bg-info bg-opacity-10 text-info">
-                                <i class="fas fa-search"></i>
+                            <div class="share-metric">
+                                <div>
+                                    <span class="share-metric-label">{% trans "Pending job digests" %}</span>
+                                    <p class="text-muted small mb-0">{% trans "Queued digest entries." %}</p>
+                                </div>
+                                <span class="share-metric-value">{{ job_digest_pending_count|default:0 }}</span>
                             </div>
+                            {% if aa_unread_notifications_count != None %}
+                            <div class="share-metric">
+                                <div>
+                                    <span class="share-metric-label">{% trans "Auth notifications" %}</span>
+                                    <p class="text-muted small mb-0">{% trans "Alliance Auth notifications." %}</p>
+                                </div>
+                                <span class="share-metric-value">{{ aa_unread_notifications_count|default:0 }}</span>
+                            </div>
+                            {% endif %}
                         </div>
-                        <p class="text-muted small mb-0">{% trans "Browse the complete blueprint catalog to study stats or scout new production opportunities." %}</p>
-                        <div class="mt-4">
-                            <a href="{% url 'indy_hub:all_bp_list' %}" class="btn btn-outline-info btn-slim">
-                                <i class="fas fa-search me-2"></i>{% trans "Open blueprint catalog" %}
-                            </a>
+
+                        {% if copy_chat_alerts %}
+                        <h6 class="mb-3">{% trans "Latest unread copy chats" %}</h6>
+                        <div class="share-metrics">
+                            {% for alert in copy_chat_alerts %}
+                            <div class="share-metric">
+                                <div>
+                                    <span class="share-metric-label">{{ alert.type_name }}</span>
+                                    <p class="text-muted small mb-0">{{ alert.other_label }} · {{ alert.last_message_display }}</p>
+                                </div>
+                                <div class="d-flex align-items-center gap-2">
+                                    <span class="badge rounded-pill bg-warning-subtle text-warning">{% trans "Unread" %}</span>
+                                    <a class="btn btn-sm btn-outline-warning" href="{{ alert.source_url }}">
+                                        {% trans "Open" %}
+                                    </a>
+                                </div>
+                            </div>
+                            {% endfor %}
                         </div>
+                        {% if copy_chat_alerts_has_more %}
+                        <p class="text-muted small mt-3 mb-0">{% trans "More unread chats are available in Blueprint Sharing." %}</p>
+                        {% endif %}
+                        {% else %}
+                        <p class="text-muted small mb-0 mt-auto">{% trans "No unread items right now." %}</p>
+                        {% endif %}
                     </div>
                 </div>
-            </div>
-        </div>
-    </section>
-
-    <section class="dashboard-section mb-4">
-        <header class="section-heading">
-            <div>
-                <h3>{% trans "Preferences & access" %}</h3>
-                <p class="text-muted small mb-0">{% trans "Tune notifications and keep your ESI connections healthy." %}</p>
-            </div>
-        </header>
-        <div class="row g-4 align-items-stretch justify-content-center">
-            <div class="col-xxl-9 col-xl-10 col-lg-11 col-md-12">
-                <div class="card preference-card h-100">
-                    <div class="card-body p-4 d-flex flex-column">
-                        <h6 class="card-title mb-3">{% trans "Quick preferences" %}</h6>
-                        <div class="preference-stack">
-                            <div class="preference-item">
-                                <div class="preference-text">
-                                    <span class="preference-label">{% trans "Industry job alerts" %}</span>
-                                    <p class="preference-hint mb-0" id="notify-hint">{{ job_notification_hint }}</p>
-                                </div>
-                                <div class="notification-preference" id="job-notification-controls">
-                                    <div
-                                        class="notify-mode-grid"
-                                        id="job-notification-group"
-                                        role="group"
-                                        aria-label="{% trans 'Industry job notification cadence' %}"
-                                        data-current-frequency="{{ job_notification_frequency }}"
-                                    >
-                                        <button
-                                            type="button"
-                                            class="notify-mode-tile {% if job_notification_frequency == 'disabled' %}is-active{% endif %}"
-                                            data-frequency="disabled"
-                                            data-hint="{% trans "Muted: we stay quiet until you re-enable alerts." %}"
-                                            aria-pressed="{% if job_notification_frequency == 'disabled' %}true{% else %}false{% endif %}"
-                                        >
-                                            <span class="notify-tile-icon muted">
-                                                <i class="fas fa-bell-slash"></i>
-                                            </span>
-                                            <div class="notify-tile-main">
-                                                <span class="notify-tile-title">{% trans "Muted" %}</span>
-                                                <span class="notify-tile-tag">{% trans "Off" %}</span>
-                                            </div>
-                                        </button>
-                                        <button
-                                            type="button"
-                                            class="notify-mode-tile {% if job_notification_frequency == 'immediate' %}is-active{% endif %}"
-                                            data-frequency="immediate"
-                                            data-hint="{% trans "Instant: we ping you the moment a job completes." %}"
-                                            aria-pressed="{% if job_notification_frequency == 'immediate' %}true{% else %}false{% endif %}"
-                                        >
-                                            <span class="notify-tile-icon instant">
-                                                <i class="fas fa-bolt"></i>
-                                            </span>
-                                            <div class="notify-tile-main">
-                                                <span class="notify-tile-title">{% trans "Instant" %}</span>
-                                                <span class="notify-tile-tag">{% trans "Live" %}</span>
-                                            </div>
-                                        </button>
-                                        <button
-                                            type="button"
-                                            class="notify-mode-tile {% if job_notification_frequency == 'daily' %}is-active{% endif %}"
-                                            data-frequency="daily"
-                                            data-hint="{% trans "Daily digest: one summary every night." %}"
-                                            aria-pressed="{% if job_notification_frequency == 'daily' %}true{% else %}false{% endif %}"
-                                        >
-                                            <span class="notify-tile-icon digest">
-                                                <i class="fas fa-sun"></i>
-                                            </span>
-                                            <div class="notify-tile-main">
-                                                <span class="notify-tile-title">{% trans "Daily" %}</span>
-                                                <span class="notify-tile-tag">{% trans "Digest" %}</span>
-                                            </div>
-                                        </button>
-                                        <button
-                                            type="button"
-                                            class="notify-mode-tile {% if job_notification_frequency == 'weekly' %}is-active{% endif %}"
-                                            data-frequency="weekly"
-                                            data-hint="{% trans "Weekly digest: recap every seven days." %}"
-                                            aria-pressed="{% if job_notification_frequency == 'weekly' %}true{% else %}false{% endif %}"
-                                        >
-                                            <span class="notify-tile-icon digest">
-                                                <i class="fas fa-calendar-week"></i>
-                                            </span>
-                                            <div class="notify-tile-main">
-                                                <span class="notify-tile-title">{% trans "Weekly" %}</span>
-                                                <span class="notify-tile-tag">{% trans "Digest" %}</span>
-                                            </div>
-                                        </button>
-                                        <button
-                                            type="button"
-                                            class="notify-mode-tile {% if job_notification_frequency == 'monthly' %}is-active{% endif %}"
-                                            data-frequency="monthly"
-                                            data-hint="{% trans "Monthly digest: grouped update every thirty days." %}"
-                                            aria-pressed="{% if job_notification_frequency == 'monthly' %}true{% else %}false{% endif %}"
-                                        >
-                                            <span class="notify-tile-icon digest">
-                                                <i class="fas fa-calendar-days"></i>
-                                            </span>
-                                            <div class="notify-tile-main">
-                                                <span class="notify-tile-title">{% trans "Monthly" %}</span>
-                                                <span class="notify-tile-tag">{% trans "Digest" %}</span>
-                                            </div>
-                                        </button>
-                                        <button
-                                            type="button"
-                                            class="notify-mode-tile {% if job_notification_frequency == 'custom' %}is-active{% endif %}"
-                                            data-frequency="custom"
-                                            data-hint="{% blocktrans with days=job_notification_custom_days|default:3 %}Custom cadence: grouped alert every {{ days }} day(s).{% endblocktrans %}"
-                                            data-hint-template="{% trans 'Custom cadence: grouped alert every __days__ day(s).' %}"
-                                            data-hint-placeholder="__days__"
-                                            data-hint-default-days="{{ job_notification_custom_days|default:3 }}"
-                                            aria-pressed="{% if job_notification_frequency == 'custom' %}true{% else %}false{% endif %}"
-                                        >
-                                            <span class="notify-tile-icon custom">
-                                                <i class="fas fa-sliders"></i>
-                                            </span>
-                                            <div class="notify-tile-main">
-                                                <span class="notify-tile-title">{% trans "Custom" %}</span>
-                                                <span class="notify-tile-tag">{% trans "Custom" %}</span>
-                                            </div>
-                                        </button>
-                                    </div>
-                                    <div
-                                        class="notification-custom mt-3{% if job_notification_frequency != 'custom' %} d-none{% endif %}"
-                                        id="job-notification-custom-wrapper"
-                                        aria-live="polite"
-                                    >
-                                        <div class="input-group input-group-sm">
-                                            <span class="input-group-text">{% trans "Every" %}</span>
-                                            <input
-                                                type="number"
-                                                min="1"
-                                                max="90"
-                                                step="1"
-                                                class="form-control"
-                                                id="job-notification-custom-days"
-                                                value="{{ job_notification_custom_days }}"
-                                                aria-describedby="job-notification-help"
-                                                aria-label="{% trans "Custom digest cadence" %}"
-                                            >
-                                            <span class="input-group-text">{% trans "day(s)" %}</span>
-                                        </div>
-                                        <p class="text-muted small mt-2 mb-0" id="job-notification-help">{% trans "Set how many days should pass between grouped alerts." %}</p>
-                                    </div>
-                                    <div class="preference-actions mt-3">
-                                        <button
-                                            type="button"
-                                            class="btn btn-primary btn-sm px-3 rounded-pill"
-                                            id="job-notification-apply"
-                                        >
-                                            <i class="fas fa-save me-1"></i>{% trans "Save cadence" %}
-                                        </button>
-                                        <div class="notify-preview-actions">
-                                            <a href="{% url 'indy_hub:job_notification_preview_live' %}" class="btn btn-outline-secondary btn-sm px-3 rounded-pill">
-                                                <i class="fas fa-bell me-1"></i>{% trans "Preview live" %}
-                                            </a>
-                                            <a href="{% url 'indy_hub:job_notification_preview_digest' %}" class="btn btn-outline-secondary btn-sm px-3 rounded-pill">
-                                                <i class="fas fa-list-ul me-1"></i>{% trans "Preview digest" %}
-                                            </a>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="preference-item share-preference">
-                                <div class="preference-text share-preference-info">
-                                    <div class="share-preference-header">
-                                        <span class="preference-label">{% trans "Blueprint sharing" %}</span>
-                                    </div>
-                                    <p class="preference-hint mb-0" id="copy-sharing-hint">{{ copy_sharing_state.button_hint }}</p>
-                                </div>
-                                <div
-                                    class="share-mode-group"
-                                    id="share-mode-group"
-                                    role="group"
-                                    aria-label="{% trans 'Blueprint sharing scope' %}"
-                                    data-current-scope="{{ copy_sharing_scope }}"
-                                >
-                                    <button
-                                        type="button"
-                                        class="share-mode-chip {% if copy_sharing_scope == 'none' %}is-active{% endif %}"
-                                        data-share-scope="none"
-                                        aria-pressed="{% if copy_sharing_scope == 'none' %}true{% else %}false{% endif %}"
-                                    >
-                                        <i class="fas fa-lock"></i>
-                                        <span>{% trans "Private" %}</span>
-                                    </button>
-                                    <button
-                                        type="button"
-                                        class="share-mode-chip {% if copy_sharing_scope == 'corporation' %}is-active{% endif %}"
-                                        data-share-scope="corporation"
-                                        aria-pressed="{% if copy_sharing_scope == 'corporation' %}true{% else %}false{% endif %}"
-                                    >
-                                        <i class="fas fa-building"></i>
-                                        <span>{% trans "Corporation" %}</span>
-                                    </button>
-                                    <button
-                                        type="button"
-                                        class="share-mode-chip {% if copy_sharing_scope == 'alliance' %}is-active{% endif %}"
-                                        data-share-scope="alliance"
-                                        aria-pressed="{% if copy_sharing_scope == 'alliance' %}true{% else %}false{% endif %}"
-                                    >
-                                        <i class="fas fa-people-group"></i>
-                                        <span>{% trans "Alliance" %}</span>
-                                    </button>
-                                    <button
-                                        type="button"
-                                        class="share-mode-chip {% if copy_sharing_scope == 'everyone' %}is-active{% endif %}"
-                                        data-share-scope="everyone"
-                                        aria-pressed="{% if copy_sharing_scope == 'everyone' %}true{% else %}false{% endif %}"
-                                    >
-                                        <i class="fas fa-globe"></i>
-                                        <span>{% trans "Everyone" %}</span>
-                                    </button>
-                                </div>
-                                <p class="text-muted small mt-2" id="copy-sharing-explanation">{{ copy_sharing_state.explanation }}</p>
-                            </div>
-                        </div>
-                        <a href="{% url 'indy_hub:token_management' %}" class="btn btn-outline-primary btn-slim mt-3 align-self-start">
-                            <i class="fas fa-key me-2"></i>{% trans "Manage ESI tokens" %}
-                        </a>
-                    </div>
-                </div>
-        </div>
-    </section>
-    <footer class="dashboard-footer text-center text-muted small">
-        <div class="container">
-            <span>Indy Hub &copy; {{ year|default:2025 }} &mdash; {% trans "Powered by Alliance Auth" %}</span>
-            <span class="mx-2">|</span>
-            <a href="https://github.com/Erkaek/aa-Indy_Hub" target="_blank" class="text-muted">
-                <i class="fab fa-github me-1"></i>{% trans "Source" %}
-            </a>
-        </div>
-    </footer>
-</div>
-{% endblock content %}
-
-{% block indy_hub_global_modals %}
-    {{ block.super }}
-    {% include "indy_hub/includes/bp_chat_modal.html" %}
-    <div class="modal fade" id="copy-sharing-confirm-modal" tabindex="-1" aria-labelledby="copy-sharing-confirm-title" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="copy-sharing-confirm-title">{% trans 'Confirm sharing change' %}</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
-                </div>
-                <div class="modal-body">
-                    <p class="mb-3" id="copy-sharing-confirm-message">{% trans 'Changing blueprint sharing scope may decline accepted requests.' %}</p>
-                    <ul class="list-group list-group-flush small" id="copy-sharing-confirm-list"></ul>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{% trans 'Cancel' %}</button>
-                    <button
-                        type="button"
-                        class="btn btn-danger"
-                        id="copy-sharing-confirm-accept"
-                        data-confirm-label="{% trans 'Confirm change' %}"
-                        data-loading-label="{% trans 'Updating...' %}"
-                    >
-                        {% trans 'Confirm change' %}
-                    </button>
-                </div>
-            </div>
+            </section>
         </div>
     </div>
-{% endblock %}
-
-{% block extra_javascript %}
-<script>
-window.csrfToken = '{{ csrf_token }}';
-window.updateJobNotificationsUrl = '{% url 'indy_hub:toggle_job_notifications' %}';
-window.toggleCopySharingUrl = '{% url 'indy_hub:toggle_copy_sharing' %}';
-window.toggleCorporationCopySharingUrl = '{% url 'indy_hub:toggle_corporation_copy_sharing' %}';
-window.copySharingStates = JSON.parse('{{ copy_sharing_states_json|escapejs }}');
-window.corporationShareControls = JSON.parse('{{ corporation_share_controls_json|escapejs }}');
-window.jobNotificationState = {
-    frequency: '{{ job_notification_frequency }}',
-    customDays: {{ job_notification_custom_days|default:3 }},
-    hint: '{{ job_notification_hint|escapejs }}'
-};
-window.indyChatDefaults = Object.assign({}, window.indyChatDefaults || {}, {
-    viewerRole: 'buyer',
-    labels: {
-        buyer: '{% trans "Buyer" %}',
-        seller: '{% trans "Builder" %}',
-        system: '{% trans "System" %}',
-        you: '{% trans "You" %}'
-    }
-});
-</script>
-<script src="{% static 'indy_hub/js/bp_copy_chat.js' %}?v=20251021"></script>
-<script src="{% static 'indy_hub/js/index.js' %}"></script>
-{% endblock extra_javascript %}
+</div>
+{% endblock content %}

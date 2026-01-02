@@ -48,13 +48,13 @@
 .stats-number {
     font-size: 2rem;
     font-weight: 700;
-    color: #2c3e50;
+    color: var(--bs-body-color);
     line-height: 1;
 }
 
 .stats-label {
     font-size: 0.875rem;
-    color: #6c757d;
+    color: var(--bs-body-color);
     font-weight: 500;
     margin-top: 0.25rem;
 }
@@ -312,6 +312,10 @@
     position: relative;
 }
 
+html[data-theme="darkly"] .job-progress-bar {
+    background: rgba(var(--bs-light-rgb), 0.15);
+}
+
 .job-progress-fill {
     height: 100%;
     background: linear-gradient(90deg, #60a5fa, #34d399);
@@ -327,16 +331,20 @@
     text-align: center;
     font-size: 1em;
     font-weight: 700;
-    color: #222;
+    color: var(--indy-text-primary, #222);
     line-height: 14px;
     pointer-events: none;
     letter-spacing: 0.5px;
     text-shadow: 0 1px 2px #fff, 0 0 2px #e3e8ef;
 }
 
+html[data-theme="darkly"] .job-progress-wrapper {
+    text-shadow: none;
+}
+
 .job-progress-percent {
     font-variant-numeric: tabular-nums;
-    color: #1565c0;
+    color: var(--bs-info, #1565c0);
     font-size: 1.1em;
     font-weight: 700;
     margin-right: 0.5em;
@@ -344,7 +352,7 @@
 
 .job-progress-eta {
     font-variant-numeric: tabular-nums;
-    color: #2e7d32;
+    color: var(--bs-success, #2e7d32);
     font-size: 1.1em;
     font-weight: 700;
     margin-left: 0.5em;
@@ -353,6 +361,11 @@
 .job-progress-row {
     background: #f8fafc;
     border-bottom: 2px solid #e3e8ef;
+}
+
+html[data-theme="darkly"] .job-progress-row {
+    background: rgba(var(--bs-light-rgb), 0.08);
+    border-bottom-color: rgba(var(--bs-light-rgb), 0.12);
 }
 
 .job-progress-panel {
@@ -458,8 +471,12 @@
 
 /* Item Info */
 .item-info strong {
-    color: #2c3e50;
+    color: var(--indy-text-primary, #2c3e50);
     font-weight: 600;
+}
+
+html[data-theme="darkly"] .item-info strong {
+    color: #f8f9fa;
 }
 
 .item-info small {
@@ -723,7 +740,35 @@
     .activity-badge,
     .status-badge {
         background: #f8f9fa !important;
-        color: #000 !important;
-        border: 1px solid #000;
+        color: var(--bs-dark);
+        border: 1px solid var(--bs-dark);
     }
+
+    html[data-theme="darkly"] .activity-badge,
+    html[data-theme="darkly"] .status-badge {
+        background: rgba(var(--bs-body-bg-rgb), 0.88) !important;
+        color: var(--bs-body-color);
+        border-color: rgba(var(--bs-light-rgb), 0.2);
+    }
+}
+
+@media (prefers-color-scheme: dark) {
+    .activity-badge,
+    .status-badge {
+        background: #343a40 !important;
+        color: #fff;
+        border: 1px solid #495057;
+    }
+}
+
+/* Bootstrap utility classes overrides */
+html[data-theme="darkly"] .bg-body-tertiary,
+html[data-theme="darkly"] .bg-body-secondary,
+html[data-theme="darkly"] .bg-light,
+html[data-theme="darkly"] .bg-white {
+    background-color: #303030 !important;
+}
+
+html[data-theme="darkly"] [class*="subtle"] {
+    background-color: #303030 !important;
 }

@@ -472,7 +472,7 @@ def _build_status_timeline(order, order_type):
         if order.status == "rejected":
             timeline.append(
                 {
-                    "status": "Rejetée",
+                    "status": _("Rejected"),
                     "timestamp": order.updated_at,
                     "user": (
                         order.approved_by.username if order.approved_by else "System"
