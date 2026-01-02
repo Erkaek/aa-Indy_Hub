@@ -4,7 +4,7 @@ from __future__ import annotations
 
 # Django
 from django.contrib.auth.decorators import login_required
-from django.shortcuts import redirect, render
+from django.shortcuts import render
 from django.utils.translation import gettext_lazy as _
 
 # Local
@@ -37,7 +37,9 @@ def settings_hub(request):
     context["material_exchange_config_active"] = MaterialExchangeConfig.objects.filter(
         is_active=True
     ).count()
-    context["material_exchange_enabled"] = bool(context["material_exchange_config_active"])
+    context["material_exchange_enabled"] = bool(
+        context["material_exchange_config_active"]
+    )
 
     context.update(
         build_nav_context(
@@ -56,4 +58,3 @@ def settings_hub(request):
 def test_darkly_theme(request):
     """Test page for darkly theme CSS overrides."""
     return render(request, "indy_hub/test_darkly_theme.html")
-

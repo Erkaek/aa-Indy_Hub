@@ -135,9 +135,11 @@ ______________________________________________________________________
 1. **Navigate** to Indy Hub in the Alliance Auth dashboard
 1. **Authorize ESI** for blueprints and jobs via the settings
 1. **View Your Data**:
-   - Personal blueprints and industry jobs
-   - Corporation blueprints (if director)
-   - Pending blueprint copy requests
+
+- Personal blueprints and industry jobs
+- Corporation blueprints (if director)
+- Pending blueprint copy requests
+
 1. **Share Blueprints**: Set sharing scopes and send copy offers to alliance members
 1. **Receive Notifications**: View job completions and copy request updates in the notification feed
 
