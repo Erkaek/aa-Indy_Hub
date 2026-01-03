@@ -231,106 +231,6 @@ def material_exchange_buy_stock_refresh_status(request):
     return JsonResponse(state)
 
 
-def _load_production_ids() -> set[int]:
-    """Return the cached set of production item type IDs from EveUniverse."""
-
-    global _PRODUCTION_IDS_CACHE
-
-    # Return cached value if already loaded
-    if _PRODUCTION_IDS_CACHE is not None:
-        return _PRODUCTION_IDS_CACHE
-
-    try:
-        # Alliance Auth (External Libs)
-        from eveuniverse.models import EveIndustryActivityMaterial
-
-        # Get all unique material_eve_type_id values
-        material_ids = (
-            EveIndustryActivityMaterial.objects.values_list(
-                "material_eve_type_id", flat=True
-            )
-            .distinct()
-            .order_by()
-        )
-        _PRODUCTION_IDS_CACHE = set(material_ids)
-        logger.info(
-            f"Loaded {len(_PRODUCTION_IDS_CACHE)} production IDs from EveUniverse"
-        )
-        return _PRODUCTION_IDS_CACHE
-    except Exception as exc:  # pragma: no cover - defensive
-        logger.warning("Failed to load production IDs from EveUniverse: %s", exc)
-        _PRODUCTION_IDS_CACHE = set()
-        return set()
-
-
-def _get_available_market_groups() -> list[dict]:
-    """
-    Return list of market groups available for production materials.
-
-    - Filters to EveIndustryActivityMaterial -> EveType -> EveMarketGroup
-    - Uses parent market group name when parent exists
-    - Groups identical names and merges their IDs
-    - Returns list of dicts: {"name": str, "ids": list[int]}
-    """
-    try:
-        # Alliance Auth (External Libs)
-        from eveuniverse.models import (
-            EveIndustryActivityMaterial,
-            EveMarketGroup,
-        )
-
-        # Get all material type IDs used in production
-        material_type_ids = list(
-            EveIndustryActivityMaterial.objects.values_list(
-                "material_eve_type_id", flat=True
-            )
-            .distinct()
-            .order_by()
-        )
-
-        logger.info(f"Found {len(material_type_ids)} production material type IDs")
-
-        # Limit to child groups of the desired parent market groups (e.g. Materials + others)
-        TARGET_PARENT_IDS = [533, 1031, 1034, 2395]
-        raw_groups = (
-            EveMarketGroup.objects.filter(
-                eve_types__id__in=material_type_ids,
-                parent_market_group_id__in=TARGET_PARENT_IDS,
-            )
-            .select_related("parent_market_group")
-            .exclude(name="")  # Exclude empty names
-            .distinct()
-            .values(
-                "id",
-                "name",
-                "parent_market_group_id",
-                "parent_market_group__name",
-            )
-        )
-
-        grouped: dict[str, set[int]] = {}
-        for mg in raw_groups:
-            parent_name = (mg.get("parent_market_group__name") or "").strip()
-            base_name = (mg.get("name") or "").strip()
-            display_name = parent_name or base_name
-            if not display_name:
-                continue
-            grouped.setdefault(display_name, set()).add(mg["id"])
-
-        result = [
-            {"name": name, "ids": sorted(ids)} for name, ids in sorted(grouped.items())
-        ]
-        logger.info(
-            "Returning %s market group display rows from %s raw groups",
-            len(result),
-            len(raw_groups),
-        )
-        return result
-    except Exception as exc:  # pragma: no cover - defensive
-        logger.warning("Failed to load market groups from EveUniverse: %s", exc)
-        return []
-
-
 def _get_group_map(type_ids: list[int]) -> dict[int, str]:
     """Return mapping type_id -> group name using EveUniverse if available."""
 
@@ -1214,19 +1114,6 @@ def material_exchange_sync_prices(request):
         return redirect("indy_hub:material_exchange_sell")
     else:
         return redirect("indy_hub:material_exchange_index")
-
-
-@login_required
-@indy_hub_permission_required("can_manage_material_hub")
-def material_exchange_admin(request):
-    """
-    [DEPRECATED] Admin dashboard for managing orders.
-    Functionality moved to material_exchange_index() with can_admin context.
-
-    This view is kept for backwards compatibility but is no longer used.
-    Admins see the admin panel directly on the main Material Exchange page.
-    """
-    return redirect("indy_hub:material_exchange_index")
 
 
 @login_required

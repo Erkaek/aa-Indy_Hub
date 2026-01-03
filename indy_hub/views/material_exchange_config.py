@@ -7,6 +7,7 @@ from decimal import Decimal
 # Django
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.cache import cache
 from django.db import transaction
 from django.shortcuts import redirect, render
 from django.urls import reverse
@@ -300,39 +301,51 @@ def _get_user_corporations(user):
     corporations = []
     seen_corps = set()
 
+    # Only hit ESI once per unique character and cache corp lookups briefly.
+    cache_ttl = 10 * 60  # 10 minutes
+    character_ids = set()
     try:
-        # Get all user tokens
         tokens = Token.objects.filter(user=user)
-
         for token in tokens:
-            # Get character info
+            if token.character_id:
+                character_ids.add(int(token.character_id))
+    except Exception:
+        logger.warning("Failed to list tokens for user %s", user.username)
+        return corporations
+
+    for char_id in character_ids:
+        try:
+            char_info = esi.client.Character.get_characters_character_id(
+                character_id=char_id
+            ).results()
+        except Exception as exc:
+            logger.debug("Skip char %s (character lookup failed: %s)", char_id, exc)
+            continue
+
+        corp_id = char_info.get("corporation_id")
+        if not corp_id or corp_id in seen_corps:
+            continue
+
+        cache_key = f"indy_hub:corp_info:{corp_id}"
+        corp_info = cache.get(cache_key)
+        if not corp_info:
             try:
-                char_info = esi.client.Character.get_characters_character_id(
-                    character_id=token.character_id
+                corp_info = esi.client.Corporation.get_corporations_corporation_id(
+                    corporation_id=corp_id
                 ).results()
-
-                corp_id = char_info.get("corporation_id")
-                if corp_id and corp_id not in seen_corps:
-                    # Get corp name
-                    corp_info = esi.client.Corporation.get_corporations_corporation_id(
-                        corporation_id=corp_id
-                    ).results()
-
-                    corporations.append(
-                        {
-                            "id": corp_id,
-                            "name": corp_info.get("name", f"Corp {corp_id}"),
-                            "ticker": corp_info.get("ticker", ""),
-                        }
-                    )
-                    seen_corps.add(corp_id)
-
-            except Exception:
-                # Skip tokens with errors
+                cache.set(cache_key, corp_info, cache_ttl)
+            except Exception as exc:
+                logger.debug("Skip corp %s (lookup failed: %s)", corp_id, exc)
                 continue
 
-    except Exception as e:
-        messages.warning(None, f"Error fetching corporations from ESI: {e}")
+        corporations.append(
+            {
+                "id": corp_id,
+                "name": corp_info.get("name", f"Corp {corp_id}"),
+                "ticker": corp_info.get("ticker", ""),
+            }
+        )
+        seen_corps.add(corp_id)
 
     return corporations
 

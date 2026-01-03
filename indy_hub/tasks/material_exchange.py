@@ -26,7 +26,6 @@ from indy_hub.models import (
 )
 from indy_hub.services.asset_cache import (
     force_refresh_corp_assets,
-    force_refresh_corp_divisions,
     get_corp_assets_cached,
     get_office_folder_item_id_from_assets,
 )
@@ -549,35 +548,6 @@ def _sync_stock_impl():
     autoretry_for=(Exception,),
     retry_kwargs={"max_retries": 3, "countdown": 10},
     rate_limit="100/m",
-    time_limit=300,
-    soft_time_limit=280,
-)
-def refresh_material_exchange_cache():
-    """Force-refresh corp assets and division cache for the configured exchange."""
-
-    config = MaterialExchangeConfig.objects.first()
-    if not config:
-        logger.warning("Material Exchange not configured - skipping cache refresh")
-        return
-
-    assets, assets_scope_missing = force_refresh_corp_assets(int(config.corporation_id))
-    divisions, div_scope_missing = force_refresh_corp_divisions(
-        int(config.corporation_id)
-    )
-
-    logger.info(
-        "Material Exchange cache refresh: assets=%s (scope_missing=%s), divisions=%s (scope_missing=%s)",
-        len(assets),
-        assets_scope_missing,
-        len(divisions),
-        div_scope_missing,
-    )
-
-
-@shared_task(
-    autoretry_for=(Exception,),
-    retry_kwargs={"max_retries": 3, "countdown": 10},
-    rate_limit="100/m",
     time_limit=60,
     soft_time_limit=50,
 )
@@ -646,22 +616,3 @@ def sync_material_exchange_prices():
 
     except Exception as e:
         logger.exception(f"Error syncing material exchange prices: {e}")
-
-
-@shared_task(
-    autoretry_for=(Exception,),
-    retry_kwargs={"max_retries": 3, "countdown": 10},
-    rate_limit="100/m",
-    time_limit=60,
-    soft_time_limit=50,
-)
-def verify_pending_sell_payments():
-    """
-    DEPRECATED: Payment verification is now done automatically when the in-game
-    contract is accepted (status goes from VALIDATED to COMPLETED directly).
-    This task is kept for backwards compatibility but does nothing.
-    """
-    logger.info("Payment verification task called (deprecated - no action taken)")
-
-
-# Task refresh_production_items removed - now using EveUniverse.EveIndustryActivityMaterial instead of JSON files
