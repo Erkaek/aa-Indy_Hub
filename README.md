@@ -70,10 +70,35 @@ python manage.py eveuniverse_load_data types --types-enabled-sections industry_a
 
 ### 5. Set Permissions
 
-Assign permissions in Alliance Auth:
+Assign permissions in Alliance Auth to control access levels:
 
-- `indy_hub.can_access_indy_hub` → Pilots who should access the module
-- `indy_hub.can_manage_corporate_assets` → Directors managing corporation data
+#### Base Access (Required for all users)
+
+- **`indy_hub.can_access_indy_hub`** → "Can access Indy Hub"
+  - View and manage personal blueprints
+  - Create and manage blueprint copy requests
+  - Use Material Exchange (buy/sell orders)
+  - View personal industry jobs
+  - Configure personal settings and notifications
+
+#### Corporation Management (Optional)
+
+- **`indy_hub.can_manage_corp_bp_requests`** → "Can manage corporation indy"
+  - View and manage corporation blueprints (director only)
+  - Handle corporation blueprint copy requests
+  - Access corporation industry jobs
+  - Configure corporation sharing settings
+  - Requires ESI director roles for the corporation
+
+#### Material Exchange Administration (Optional)
+
+- **`indy_hub.can_manage_material_hub`** → "Can manage Mat Exchange"
+  - Configure Material Exchange settings
+  - Manage stock availability
+  - View all transactions
+  - Admin panel access
+
+**Note**: Permissions are independent and can be combined. Most users only need `can_access_indy_hub`.
 
 ### 6. Restart Services
 

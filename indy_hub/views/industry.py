@@ -295,8 +295,8 @@ def _eligible_owner_details_for_request(
             corp_manager_ids = set(
                 User.objects.filter(id__in=corp_member_user_ids)
                 .filter(
-                    Q(user_permissions__codename="can_manage_corporate_assets")
-                    | Q(groups__permissions__codename="can_manage_corporate_assets")
+                    Q(user_permissions__codename="can_manage_corp_bp_requests")
+                    | Q(groups__permissions__codename="can_manage_corp_bp_requests")
                 )
                 .values_list("id", flat=True)
             )
@@ -620,7 +620,7 @@ def personnal_bp_list(request, scope="character"):
         scope = "character"
 
     is_corporation_scope = scope == "corporation"
-    has_corporate_perm = request.user.has_perm("indy_hub.can_manage_corporate_assets")
+    has_corporate_perm = request.user.has_perm("indy_hub.can_manage_corp_bp_requests")
     try:
         # Check if we need to sync data
         force_update = request.GET.get("refresh") == "1"
@@ -932,7 +932,7 @@ def personnal_bp_list(request, scope="character"):
                 "character": reverse("indy_hub:personnal_bp_list"),
                 "corporation": reverse("indy_hub:corporation_bp_list"),
             },
-            "can_manage_corporate_assets": has_corporate_perm,
+            "can_manage_corp_bp_requests": has_corporate_perm,
             "back_to_overview_url": reverse("indy_hub:index"),
         }
         context.update(
@@ -1074,7 +1074,7 @@ def personnal_job_list(request, scope="character"):
         scope = "character"
 
     is_corporation_scope = scope == "corporation"
-    has_corporate_perm = request.user.has_perm("indy_hub.can_manage_corporate_assets")
+    has_corporate_perm = request.user.has_perm("indy_hub.can_manage_corp_bp_requests")
     try:
         force_update = request.GET.get("refresh") == "1"
         if force_update:
@@ -1493,7 +1493,7 @@ def personnal_job_list(request, scope="character"):
                 "character": reverse("indy_hub:personnal_job_list"),
                 "corporation": reverse("indy_hub:corporation_job_list"),
             },
-            "can_manage_corporate_assets": has_corporate_perm,
+            "can_manage_corp_bp_requests": has_corporate_perm,
         }
         context.update(
             build_nav_context(
@@ -2422,7 +2422,7 @@ def craft_bp(request, type_id):
 
 
 @indy_hub_access_required
-@indy_hub_permission_required("can_manage_copy_requests")
+@indy_hub_permission_required("can_access_indy_hub")
 @login_required
 def bp_copy_request_page(request):
     # Alliance Auth
@@ -2447,9 +2447,7 @@ def bp_copy_request_page(request):
         if alliance_id is not None:
             viewer_alliance_ids.add(alliance_id)
 
-    viewer_can_request_copies = request.user.has_perm(
-        "indy_hub.can_manage_copy_requests"
-    )
+    viewer_can_request_copies = request.user.has_perm("indy_hub.can_access_indy_hub")
 
     # Fetch copy sharing configuration for character-owned and corporation-owned originals
     character_settings = list(
@@ -2765,7 +2763,7 @@ def bp_copy_request_page(request):
 
 
 @indy_hub_access_required
-@indy_hub_permission_required("can_manage_copy_requests")
+@indy_hub_permission_required("can_access_indy_hub")
 @login_required
 def bp_copy_fulfill_requests(request):
     """List requests for blueprints the user owns and allows copy requests for."""
@@ -2782,7 +2780,7 @@ def bp_copy_fulfill_requests(request):
         "yes",
         "on",
     }
-    can_manage_corporate = request.user.has_perm("indy_hub.can_manage_corporate_assets")
+    can_manage_corporate = request.user.has_perm("indy_hub.can_manage_corp_bp_requests")
 
     accessible_corporation_ids: set[int] = set()
     characters_by_corp: dict[int, set[int]] = defaultdict(set)
@@ -3591,7 +3589,7 @@ def _process_offer_action(
 
 
 @indy_hub_access_required
-@indy_hub_permission_required("can_manage_copy_requests")
+@indy_hub_permission_required("can_access_indy_hub")
 @login_required
 def bp_offer_copy_request(request, request_id):
     """Handle offering to fulfill a blueprint copy request."""
@@ -3633,7 +3631,7 @@ def bp_offer_copy_request(request, request_id):
 
 
 @indy_hub_access_required
-@indy_hub_permission_required("can_manage_copy_requests")
+@indy_hub_permission_required("can_access_indy_hub")
 @login_required
 def bp_discord_action(request):
     """Process quick actions triggered from Discord notifications."""
@@ -3734,7 +3732,7 @@ def bp_discord_action(request):
 
 
 @indy_hub_access_required
-@indy_hub_permission_required("can_manage_copy_requests")
+@indy_hub_permission_required("can_access_indy_hub")
 @login_required
 def bp_buyer_accept_offer(request, offer_id):
     """Allow buyer to accept a conditional offer."""
@@ -3788,7 +3786,7 @@ def bp_buyer_accept_offer(request, offer_id):
 
 
 @indy_hub_access_required
-@indy_hub_permission_required("can_manage_copy_requests")
+@indy_hub_permission_required("can_access_indy_hub")
 @login_required
 def bp_accept_copy_request(request, request_id):
     """Accept a blueprint copy request and notify requester."""
@@ -3822,7 +3820,7 @@ def bp_accept_copy_request(request, request_id):
 
 
 @indy_hub_access_required
-@indy_hub_permission_required("can_manage_copy_requests")
+@indy_hub_permission_required("can_access_indy_hub")
 @login_required
 def bp_cond_copy_request(request, request_id):
     """Send conditional acceptance message for a blueprint copy request."""
@@ -3855,7 +3853,7 @@ def bp_cond_copy_request(request, request_id):
 
 
 @indy_hub_access_required
-@indy_hub_permission_required("can_manage_copy_requests")
+@indy_hub_permission_required("can_access_indy_hub")
 @login_required
 def bp_reject_copy_request(request, request_id):
     """Reject a blueprint copy request and notify requester."""
@@ -3886,7 +3884,7 @@ def bp_reject_copy_request(request, request_id):
 
 
 @indy_hub_access_required
-@indy_hub_permission_required("can_manage_copy_requests")
+@indy_hub_permission_required("can_access_indy_hub")
 @login_required
 def bp_cancel_copy_request(request, request_id):
     """Allow user to cancel their own copy request before delivery."""
@@ -3924,7 +3922,7 @@ def bp_cancel_copy_request(request, request_id):
 
 
 @indy_hub_access_required
-@indy_hub_permission_required("can_manage_copy_requests")
+@indy_hub_permission_required("can_access_indy_hub")
 @login_required
 def bp_mark_copy_delivered(request, request_id):
     """Mark a fulfilled blueprint copy request as delivered (provider action)."""
@@ -3971,7 +3969,7 @@ def bp_mark_copy_delivered(request, request_id):
 
 
 @indy_hub_access_required
-@indy_hub_permission_required("can_manage_copy_requests")
+@indy_hub_permission_required("can_access_indy_hub")
 @login_required
 def bp_update_copy_request(request, request_id):
     """Allow requester to update runs / copies for an open request."""
@@ -4046,7 +4044,7 @@ def bp_update_copy_request(request, request_id):
 
 
 @indy_hub_access_required
-@indy_hub_permission_required("can_manage_copy_requests")
+@indy_hub_permission_required("can_access_indy_hub")
 @login_required
 def bp_copy_my_requests(request):
     """List copy requests made by the current user."""

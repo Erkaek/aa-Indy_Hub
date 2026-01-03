@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 
 @login_required
-@indy_hub_permission_required("can_manage_material_exchange")
+@indy_hub_permission_required("can_manage_material_hub")
 def material_exchange_request_divisions_token(request):
     """Request ESI token with divisions scope, then redirect back to config."""
     return sso_redirect(
@@ -40,7 +40,7 @@ def material_exchange_request_divisions_token(request):
 
 
 @login_required
-@indy_hub_permission_required("can_manage_material_exchange")
+@indy_hub_permission_required("can_manage_material_hub")
 def material_exchange_request_all_scopes(request):
     """
     Request all Material Exchange required ESI scopes at once.
@@ -67,7 +67,7 @@ def material_exchange_request_all_scopes(request):
 
 
 @login_required
-@indy_hub_permission_required("can_manage_material_exchange")
+@indy_hub_permission_required("can_manage_material_hub")
 def material_exchange_request_contracts_scope(request):
     """Request ESI token with contracts scope, then redirect back to config."""
     return sso_redirect(
@@ -162,7 +162,7 @@ def _get_token_for_corp(user, corp_id, scope, require_corporation_token: bool = 
 
 
 @login_required
-@indy_hub_permission_required("can_manage_material_exchange")
+@indy_hub_permission_required("can_manage_material_hub")
 def material_exchange_config(request):
     """
     Material Exchange configuration page.
@@ -212,7 +212,7 @@ def material_exchange_config(request):
             request.user,
             active_tab="material_hub",
             can_manage_corp=request.user.has_perm(
-                "indy_hub.can_manage_corporate_assets"
+                "indy_hub.can_manage_corp_bp_requests"
             ),
         )
     )
@@ -225,7 +225,7 @@ def material_exchange_config(request):
 
 
 @login_required
-@indy_hub_permission_required("can_manage_material_exchange")
+@indy_hub_permission_required("can_manage_material_hub")
 def material_exchange_toggle_active(request):
     """Toggle Material Exchange availability from settings page."""
 
@@ -262,7 +262,7 @@ def material_exchange_toggle_active(request):
 
 
 @login_required
-@indy_hub_permission_required("can_manage_material_exchange")
+@indy_hub_permission_required("can_manage_material_hub")
 def material_exchange_get_structures(request, corp_id):
     """
     AJAX endpoint to get structures for a given corporation.
@@ -420,7 +420,7 @@ def _get_corp_structures(user, corp_id):
 
 
 @login_required
-@indy_hub_permission_required("can_manage_material_exchange")
+@indy_hub_permission_required("can_manage_material_hub")
 def material_exchange_request_assets_token(request):
     """Request ESI token with corp assets scope, then redirect back to config."""
     return sso_redirect(
@@ -549,7 +549,7 @@ def _handle_config_save(request, existing_config):
 
 
 @login_required
-@indy_hub_permission_required("can_manage_material_exchange")
+@indy_hub_permission_required("can_manage_material_hub")
 def material_exchange_debug_tokens(request, corp_id):
     """Debug endpoint: list user's tokens and scopes relevant to a corporation.
 

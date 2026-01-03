@@ -206,7 +206,7 @@ def _build_corporation_authorization_summary(
 def _collect_corporation_scope_status(
     user, *, include_warnings: bool = False
 ) -> list[dict[str, Any]] | tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    if not user.has_perm("indy_hub.can_manage_corporate_assets"):
+    if not user.has_perm("indy_hub.can_manage_corp_bp_requests"):
         empty: list[dict[str, Any]] = []
         return (empty, []) if include_warnings else empty
 
@@ -511,7 +511,7 @@ def _default_corporation_summary_entry(
 
 
 def build_corporation_sharing_context(user) -> dict[str, Any] | None:
-    if not user.has_perm("indy_hub.can_manage_corporate_assets"):
+    if not user.has_perm("indy_hub.can_manage_corp_bp_requests"):
         return None
 
     corp_scope_status = _collect_corporation_scope_status(user)
@@ -882,7 +882,7 @@ def _viewer_has_scope_access(
         viewer_alliances = viewer_affiliations.get("alliance_ids", set())
         return bool(owner_alliances & viewer_alliances)
     if scope == CharacterSettings.SCOPE_EVERYONE:
-        return viewer_user.has_perm("indy_hub.can_manage_copy_requests")
+        return viewer_user.has_perm("indy_hub.can_access_indy_hub")
     return False
 
 
@@ -1331,7 +1331,7 @@ def _build_dashboard_context(request):
     )
     onboarding_show = bool(pending_tasks) and not onboarding_progress.dismissed
 
-    can_manage_corp = request.user.has_perm("indy_hub.can_manage_corporate_assets")
+    can_manage_corp = request.user.has_perm("indy_hub.can_manage_corp_bp_requests")
     corp_scope_status = _collect_corporation_scope_status(request.user)
     corporation_share_controls, corporation_share_summary = (
         _build_corporation_share_controls(request.user, corp_scope_status)
@@ -1405,7 +1405,7 @@ def _build_dashboard_context(request):
             "show": onboarding_show,
             "dismissed": onboarding_progress.dismissed,
         },
-        "can_manage_corporate_assets": can_manage_corp,
+        "can_manage_corp_bp_requests": can_manage_corp,
         "has_corp_blueprint_tokens": corp_blueprint_scope_count > 0,
         "has_corp_job_tokens": corp_jobs_scope_count > 0,
         "corporation_share_controls": corporation_share_controls,
@@ -1471,7 +1471,7 @@ def token_management(request):
         or status.get("jobs", {}).get("has_scope")
     ]
     corporation_sharing = build_corporation_sharing_context(request.user)
-    can_manage_corp = request.user.has_perm("indy_hub.can_manage_corporate_assets")
+    can_manage_corp = request.user.has_perm("indy_hub.can_manage_corp_bp_requests")
     if Token:
         try:
             blueprint_tokens = Token.objects.filter(user=request.user).require_scopes(
@@ -1522,12 +1522,10 @@ def token_management(request):
         if can_manage_corp and CallbackRedirect
         else None
     )
-    can_manage_material_exchange = request.user.has_perm(
-        "indy_hub.can_manage_material_exchange"
-    )
+    can_manage_material_hub = request.user.has_perm("indy_hub.can_manage_material_hub")
     material_exchange_auth_url = (
         reverse("indy_hub:authorize_material_exchange")
-        if can_manage_material_exchange and CallbackRedirect
+        if can_manage_material_hub and CallbackRedirect
         else None
     )
     user_chars = []
@@ -1661,14 +1659,14 @@ def token_management(request):
         "required_character_scopes": required_character_scopes,
         "required_corporation_scopes": required_corporation_scopes,
         "characters": user_chars,
-        "can_manage_corporate_assets": can_manage_corp,
+        "can_manage_corp_bp_requests": can_manage_corp,
         "corporation_sharing": corporation_sharing,
         "corporations": corp_scope_status,
         "corp_blueprint_auth_url": corp_blueprint_auth_url,
         "corp_jobs_auth_url": corp_jobs_auth_url,
         "corp_all_auth_url": corp_all_auth_url,
         "material_exchange_auth_url": material_exchange_auth_url,
-        "can_manage_material_exchange": can_manage_material_exchange,
+        "can_manage_material_hub": can_manage_material_hub,
         "corp_count": len(corp_scope_status),
         "corp_blueprint_scope_count": sum(
             1 for status in corp_scope_status if status["blueprint"]["has_scope"]
@@ -1845,7 +1843,7 @@ def authorize_jobs(request):
 @indy_hub_access_required
 @login_required
 def authorize_corp_blueprints(request):
-    if not request.user.has_perm("indy_hub.can_manage_corporate_assets"):
+    if not request.user.has_perm("indy_hub.can_manage_corp_bp_requests"):
         messages.error(
             request, "You do not have permission to manage corporation assets."
         )
@@ -1889,7 +1887,7 @@ def authorize_corp_blueprints(request):
 @indy_hub_access_required
 @login_required
 def authorize_corp_jobs(request):
-    if not request.user.has_perm("indy_hub.can_manage_corporate_assets"):
+    if not request.user.has_perm("indy_hub.can_manage_corp_bp_requests"):
         messages.error(
             request, "You do not have permission to manage corporation assets."
         )
@@ -1933,7 +1931,7 @@ def authorize_corp_jobs(request):
 @indy_hub_access_required
 @login_required
 def authorize_corp_all(request):
-    if not request.user.has_perm("indy_hub.can_manage_corporate_assets"):
+    if not request.user.has_perm("indy_hub.can_manage_corp_bp_requests"):
         messages.error(
             request, "You do not have permission to manage corporation assets."
         )
@@ -1983,7 +1981,7 @@ def authorize_corp_all(request):
 @indy_hub_access_required
 @login_required
 def authorize_material_exchange(request):
-    if not request.user.has_perm("indy_hub.can_manage_material_exchange"):
+    if not request.user.has_perm("indy_hub.can_manage_material_hub"):
         messages.error(
             request, "You do not have permission to manage Material Exchange."
         )
@@ -2505,7 +2503,7 @@ def toggle_copy_sharing(request):
 @login_required
 @require_POST
 def toggle_corporation_copy_sharing(request):
-    if not request.user.has_perm("indy_hub.can_manage_corporate_assets"):
+    if not request.user.has_perm("indy_hub.can_manage_corp_bp_requests"):
         return JsonResponse({"error": "forbidden"}, status=403)
 
     payload = {}

@@ -92,18 +92,14 @@ class Blueprint(models.Model):
             ),
         ]
         permissions = [
-            ("can_access_indy_hub", "Can access Indy Hub module"),
+            ("can_access_indy_hub", "Can access Indy Hub"),
             (
-                "can_manage_copy_requests",
-                "Can request or share blueprint copies",
+                "can_manage_corp_bp_requests",
+                "Can manage corporation indy",
             ),
             (
-                "can_manage_corporate_assets",
-                "Can manage corporation blueprints and jobs",
-            ),
-            (
-                "can_manage_material_exchange",
-                "Can manage Material Exchange (approve orders, configure settings)",
+                "can_manage_material_hub",
+                "Can manage Mat Exchange",
             ),
         ]
         default_permissions = ()  # Disable Django's add/change/delete/view permissions
@@ -1303,6 +1299,7 @@ class CachedCorporationAsset(models.Model):
     class Meta:
         verbose_name = "Cached Corporation Asset"
         verbose_name_plural = "Cached Corporation Assets"
+        default_permissions = ()
         indexes = [
             models.Index(
                 fields=["corporation_id", "location_id"], name="cca_corp_loc_idx"
@@ -1329,6 +1326,7 @@ class CachedCorporationDivision(models.Model):
 
     class Meta:
         unique_together = ("corporation_id", "division")
+        default_permissions = ()
         indexes = [
             models.Index(
                 fields=["corporation_id", "division"], name="ccd_corp_div_idx"
@@ -1355,6 +1353,7 @@ class CachedCharacterAsset(models.Model):
     class Meta:
         verbose_name = "Cached Character Asset"
         verbose_name_plural = "Cached Character Assets"
+        default_permissions = ()
         indexes = [
             models.Index(fields=["user", "character_id"], name="cca_user_char_idx"),
             models.Index(fields=["user", "location_id"], name="cca_user_loc_idx"),
@@ -1378,6 +1377,7 @@ class CachedStructureName(models.Model):
     class Meta:
         verbose_name = "Cached Structure Name"
         verbose_name_plural = "Cached Structure Names"
+        default_permissions = ()
 
     def __str__(self):
         return f"{self.structure_id}: {self.name}"
@@ -1416,6 +1416,7 @@ class MaterialExchangeStock(models.Model):
     class Meta:
         verbose_name = _("Material Exchange Stock")
         verbose_name_plural = _("Material Exchange Stock")
+        default_permissions = ()
         unique_together = ("config", "type_id")
         indexes = [
             models.Index(fields=["type_id"]),
@@ -1541,6 +1542,7 @@ class MaterialExchangeSellOrder(models.Model):
     class Meta:
         verbose_name = _("Material Exchange Sell Order")
         verbose_name_plural = _("Material Exchange Sell Orders")
+        default_permissions = ()
         ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["status", "-created_at"]),
@@ -1641,6 +1643,7 @@ class MaterialExchangeSellOrderItem(models.Model):
     class Meta:
         verbose_name = _("Material Exchange Sell Order Item")
         verbose_name_plural = _("Material Exchange Sell Order Items")
+        default_permissions = ()
         ordering = ["created_at"]
         indexes = [
             models.Index(fields=["type_id"]),
@@ -1741,6 +1744,7 @@ class MaterialExchangeBuyOrder(models.Model):
     class Meta:
         verbose_name = _("Material Exchange Buy Order")
         verbose_name_plural = _("Material Exchange Buy Orders")
+        default_permissions = ()
         ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["status", "-created_at"]),
@@ -1844,6 +1848,7 @@ class MaterialExchangeBuyOrderItem(models.Model):
     class Meta:
         verbose_name = _("Material Exchange Buy Order Item")
         verbose_name_plural = _("Material Exchange Buy Order Items")
+        default_permissions = ()
         ordering = ["created_at"]
         indexes = [
             models.Index(fields=["type_id"]),
@@ -1901,6 +1906,7 @@ class MaterialExchangeTransaction(models.Model):
     class Meta:
         verbose_name = _("Material Exchange Transaction")
         verbose_name_plural = _("Material Exchange Transactions")
+        default_permissions = ()
         ordering = ["-completed_at"]
         indexes = [
             models.Index(fields=["transaction_type", "-completed_at"]),
@@ -1955,6 +1961,7 @@ class ESIContract(models.Model):
     class Meta:
         verbose_name = _("ESI Contract")
         verbose_name_plural = _("ESI Contracts")
+        default_permissions = ()
         ordering = ["-date_issued"]
         indexes = [
             models.Index(fields=["corporation_id", "status", "contract_type"]),
@@ -1991,6 +1998,7 @@ class ESIContractItem(models.Model):
     class Meta:
         verbose_name = _("ESI Contract Item")
         verbose_name_plural = _("ESI Contract Items")
+        default_permissions = ()
         unique_together = [["contract", "record_id"]]
         indexes = [
             models.Index(fields=["contract", "type_id"]),

@@ -9,16 +9,16 @@ def build_nav_context(
     *,
     active_tab: str | None = None,
     can_manage_corp: bool | None = None,
-    can_manage_copy_requests: bool | None = None,
+    can_access_indy_hub: bool | None = None,
     material_hub_enabled: bool | None = None,
 ) -> dict[str, str | None]:
     """Return navbar context entries for templates extending the Indy Hub base."""
 
     if can_manage_corp is None:
-        can_manage_corp = user.has_perm("indy_hub.can_manage_corporate_assets")
+        can_manage_corp = user.has_perm("indy_hub.can_manage_corp_bp_requests")
 
-    if can_manage_copy_requests is None:
-        can_manage_copy_requests = user.has_perm("indy_hub.can_manage_copy_requests")
+    if can_access_indy_hub is None:
+        can_access_indy_hub = user.has_perm("indy_hub.can_access_indy_hub")
 
     if material_hub_enabled is None:
         try:
@@ -95,8 +95,8 @@ def build_nav_context(
         "settings_nav_url": settings_url,
         "settings_nav_class": settings_class,
         # Permission flags for dropdowns
-        "can_manage_corporate_assets": can_manage_corp,
-        "can_manage_copy_requests": can_manage_copy_requests,
+        "can_manage_corp_bp_requests": can_manage_corp,
+        "can_access_indy_hub": can_access_indy_hub,
         "material_hub_enabled": material_hub_enabled,
         # Legacy keys (kept so we don't break older templates / buttons)
         "personal_nav_url": personal_url,

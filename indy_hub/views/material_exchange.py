@@ -330,7 +330,7 @@ def material_exchange_index(request):
                 request.user,
                 active_tab="material_hub",
                 can_manage_corp=request.user.has_perm(
-                    "indy_hub.can_manage_corporate_assets"
+                    "indy_hub.can_manage_corp_bp_requests"
                 ),
             )
         )
@@ -416,7 +416,7 @@ def material_exchange_index(request):
     )[:10]
 
     # Admin section data (if user has permission)
-    can_admin = request.user.has_perm("indy_hub.can_manage_material_exchange")
+    can_admin = request.user.has_perm("indy_hub.can_manage_material_hub")
     admin_sell_orders = None
     admin_buy_orders = None
     status_filter = None
@@ -450,7 +450,7 @@ def material_exchange_index(request):
             request.user,
             active_tab="material_hub",
             can_manage_corp=request.user.has_perm(
-                "indy_hub.can_manage_corporate_assets"
+                "indy_hub.can_manage_corp_bp_requests"
             ),
         )
     )
@@ -793,7 +793,7 @@ def material_exchange_sell(request):
             request.user,
             active_tab="material_hub",
             can_manage_corp=request.user.has_perm(
-                "indy_hub.can_manage_corporate_assets"
+                "indy_hub.can_manage_corp_bp_requests"
             ),
         )
     )
@@ -1062,7 +1062,7 @@ def material_exchange_buy(request):
             request.user,
             active_tab="material_hub",
             can_manage_corp=request.user.has_perm(
-                "indy_hub.can_manage_corporate_assets"
+                "indy_hub.can_manage_corp_bp_requests"
             ),
         )
     )
@@ -1071,7 +1071,7 @@ def material_exchange_buy(request):
 
 
 @login_required
-@indy_hub_permission_required("can_manage_material_exchange")
+@indy_hub_permission_required("can_manage_material_hub")
 @require_http_methods(["POST"])
 def material_exchange_sync_stock(request):
     """
@@ -1101,7 +1101,7 @@ def material_exchange_sync_stock(request):
 
 
 @login_required
-@indy_hub_permission_required("can_manage_material_exchange")
+@indy_hub_permission_required("can_manage_material_hub")
 @require_http_methods(["POST"])
 def material_exchange_sync_prices(request):
     """
@@ -1131,7 +1131,7 @@ def material_exchange_sync_prices(request):
 
 
 @login_required
-@indy_hub_permission_required("can_manage_material_exchange")
+@indy_hub_permission_required("can_manage_material_hub")
 def material_exchange_admin(request):
     """
     [DEPRECATED] Admin dashboard for managing orders.
@@ -1149,7 +1149,7 @@ def material_exchange_admin(request):
 @require_http_methods(["POST"])
 def material_exchange_approve_sell(request, order_id):
     """Approve a sell order (member → hub)."""
-    if not request.user.has_perm("indy_hub.can_manage_material_exchange"):
+    if not request.user.has_perm("indy_hub.can_manage_material_hub"):
         messages.error(request, _("Permission denied."))
         return redirect("indy_hub:material_exchange_index")
 
@@ -1170,7 +1170,7 @@ def material_exchange_approve_sell(request, order_id):
 @require_http_methods(["POST"])
 def material_exchange_reject_sell(request, order_id):
     """Reject a sell order."""
-    if not request.user.has_perm("indy_hub.can_manage_material_exchange"):
+    if not request.user.has_perm("indy_hub.can_manage_material_hub"):
         messages.error(request, _("Permission denied."))
         return redirect("indy_hub:material_exchange_index")
 
@@ -1186,7 +1186,7 @@ def material_exchange_reject_sell(request, order_id):
 @require_http_methods(["POST"])
 def material_exchange_verify_payment_sell(request, order_id):
     """Mark sell order as completed (contract accepted in-game)."""
-    if not request.user.has_perm("indy_hub.can_manage_material_exchange"):
+    if not request.user.has_perm("indy_hub.can_manage_material_hub"):
         messages.error(request, _("Permission denied."))
         return redirect("indy_hub:material_exchange_index")
 
@@ -1207,7 +1207,7 @@ def material_exchange_verify_payment_sell(request, order_id):
 @require_http_methods(["POST"])
 def material_exchange_complete_sell(request, order_id):
     """Mark sell order as fully completed and create transaction logs for each item."""
-    if not request.user.has_perm("indy_hub.can_manage_material_exchange"):
+    if not request.user.has_perm("indy_hub.can_manage_material_hub"):
         messages.error(request, _("Permission denied."))
         return redirect("indy_hub:material_exchange_index")
 
@@ -1253,7 +1253,7 @@ def material_exchange_complete_sell(request, order_id):
 @require_http_methods(["POST"])
 def material_exchange_approve_buy(request, order_id):
     """Approve a buy order (hub → member) - Creates contract permission."""
-    if not request.user.has_perm("indy_hub.can_manage_material_exchange"):
+    if not request.user.has_perm("indy_hub.can_manage_material_hub"):
         messages.error(request, _("Permission denied."))
         return redirect("indy_hub:material_exchange_index")
 
@@ -1293,7 +1293,7 @@ def material_exchange_approve_buy(request, order_id):
 @require_http_methods(["POST"])
 def material_exchange_reject_buy(request, order_id):
     """Reject a buy order."""
-    if not request.user.has_perm("indy_hub.can_manage_material_exchange"):
+    if not request.user.has_perm("indy_hub.can_manage_material_hub"):
         messages.error(request, _("Permission denied."))
         return redirect("indy_hub:material_exchange_index")
 
@@ -1323,7 +1323,7 @@ def material_exchange_reject_buy(request, order_id):
 @require_http_methods(["POST"])
 def material_exchange_mark_delivered_buy(request, order_id):
     """Mark buy order as delivered."""
-    if not request.user.has_perm("indy_hub.can_manage_material_exchange"):
+    if not request.user.has_perm("indy_hub.can_manage_material_hub"):
         messages.error(request, _("Permission denied."))
         return redirect("indy_hub:material_exchange_index")
 
@@ -1344,7 +1344,7 @@ def material_exchange_mark_delivered_buy(request, order_id):
 @require_http_methods(["POST"])
 def material_exchange_complete_buy(request, order_id):
     """Mark buy order as completed and create transaction logs for each item."""
-    if not request.user.has_perm("indy_hub.can_manage_material_exchange"):
+    if not request.user.has_perm("indy_hub.can_manage_material_hub"):
         messages.error(request, _("Permission denied."))
         return redirect("indy_hub:material_exchange_index")
 
@@ -1441,7 +1441,7 @@ def material_exchange_transactions(request):
             request.user,
             active_tab="material_hub",
             can_manage_corp=request.user.has_perm(
-                "indy_hub.can_manage_corporate_assets"
+                "indy_hub.can_manage_corp_bp_requests"
             ),
         )
     )
@@ -1453,7 +1453,7 @@ def material_exchange_transactions(request):
 @require_http_methods(["POST"])
 def material_exchange_assign_contract(request, order_id):
     """Assign ESI contract ID to a sell or buy order."""
-    if not request.user.has_perm("indy_hub.can_manage_material_exchange"):
+    if not request.user.has_perm("indy_hub.can_manage_material_hub"):
         messages.error(request, _("Permission denied."))
         return redirect("indy_hub:material_exchange_index")
 
@@ -1505,7 +1505,7 @@ def material_exchange_assign_contract(request, order_id):
 def _build_nav_context(user):
     """Helper to build navigation context for Material Exchange."""
     return {
-        "can_manage": user.has_perm("indy_hub.can_manage_material_exchange"),
+        "can_manage": user.has_perm("indy_hub.can_manage_material_hub"),
     }
 
 

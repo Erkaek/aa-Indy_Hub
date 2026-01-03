@@ -19,15 +19,13 @@ from .user import _build_dashboard_context
 @indy_hub_permission_required("can_access_indy_hub")
 @login_required
 def settings_hub(request):
-    can_manage_corp = request.user.has_perm("indy_hub.can_manage_corporate_assets")
-    can_manage_material_exchange = request.user.has_perm(
-        "indy_hub.can_manage_material_exchange"
-    )
+    can_manage_corp = request.user.has_perm("indy_hub.can_manage_corp_bp_requests")
+    can_manage_material_hub = request.user.has_perm("indy_hub.can_manage_material_hub")
 
     context = _build_dashboard_context(request)
     context.update(
         {
-            "can_manage_material_exchange": can_manage_material_exchange,
+            "can_manage_material_hub": can_manage_material_hub,
             "can_manage_corp": can_manage_corp,
         }
     )
