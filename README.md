@@ -136,7 +136,7 @@ ______________________________________________________________________
 
 ```bash
 # Backup your database
-python manage.py dumpdata > backup.json
+python manage.py dumpdata >backup.json
 
 # Update the package
 pip install --upgrade indy_hub
