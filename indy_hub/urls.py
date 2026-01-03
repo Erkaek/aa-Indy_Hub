@@ -46,6 +46,7 @@ from .views.material_exchange import (
     material_exchange_approve_sell,
     material_exchange_assign_contract,
     material_exchange_buy,
+    material_exchange_buy_stock_refresh_status,
     material_exchange_complete_buy,
     material_exchange_complete_sell,
     material_exchange_index,
@@ -338,6 +339,11 @@ urlpatterns = [
         "material-exchange/buy/",
         material_exchange_buy,
         name="material_exchange_buy",
+    ),
+    path(
+        "material-exchange/api/buy-stock-refresh-status/",
+        material_exchange_buy_stock_refresh_status,
+        name="material_exchange_buy_stock_refresh_status",
     ),
     # User Order Management
     path(

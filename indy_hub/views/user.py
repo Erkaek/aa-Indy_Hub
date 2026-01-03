@@ -13,7 +13,18 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
-from django.db.models import Count, F, Max, Q
+from django.db.models import (
+    Case,
+    Count,
+    Exists,
+    F,
+    IntegerField,
+    Max,
+    OuterRef,
+    Q,
+    Sum,
+    When,
+)
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -1065,33 +1076,74 @@ def _build_dashboard_context(request):
 
     blueprints_qs = Blueprint.objects.filter(owner_user=request.user)
 
-    def normalized_quantity(value: int | None) -> int:
-        if value in (-1, -2):
-            return 1
-        if value is None:
-            return 0
-        return max(value, 0)
+    # Optimize: Use SQL aggregation instead of Python loop
+    bp_stats = blueprints_qs.aggregate(
+        total=Sum(
+            Case(
+                When(quantity__in=[-1, -2], then=1),
+                When(quantity__isnull=True, then=0),
+                When(quantity__lt=0, then=0),
+                default="quantity",
+                output_field=IntegerField(),
+            )
+        ),
+        original=Sum(
+            Case(
+                When(
+                    bp_type__in=[Blueprint.BPType.ORIGINAL, Blueprint.BPType.REACTION],
+                    quantity__in=[-1, -2],
+                    then=1,
+                ),
+                When(
+                    bp_type__in=[Blueprint.BPType.ORIGINAL, Blueprint.BPType.REACTION],
+                    quantity__isnull=True,
+                    then=0,
+                ),
+                When(
+                    bp_type__in=[Blueprint.BPType.ORIGINAL, Blueprint.BPType.REACTION],
+                    quantity__lt=0,
+                    then=0,
+                ),
+                When(
+                    bp_type__in=[Blueprint.BPType.ORIGINAL, Blueprint.BPType.REACTION],
+                    then="quantity",
+                ),
+                default=0,
+                output_field=IntegerField(),
+            )
+        ),
+        copy=Sum(
+            Case(
+                When(bp_type=Blueprint.BPType.COPY, quantity__in=[-1, -2], then=1),
+                When(bp_type=Blueprint.BPType.COPY, quantity__isnull=True, then=0),
+                When(bp_type=Blueprint.BPType.COPY, quantity__lt=0, then=0),
+                When(bp_type=Blueprint.BPType.COPY, then="quantity"),
+                default=0,
+                output_field=IntegerField(),
+            )
+        ),
+    )
 
-    blueprint_count = 0
-    original_blueprints = 0
-    copy_blueprints = 0
+    blueprint_count = bp_stats["total"] or 0
+    original_blueprints = bp_stats["original"] or 0
+    copy_blueprints = bp_stats["copy"] or 0
 
-    for bp in blueprints_qs:
-        qty = normalized_quantity(bp.quantity)
-        blueprint_count += qty
-        if bp.is_copy:
-            copy_blueprints += qty
-        else:
-            original_blueprints += qty
-
+    # Optimize: Consolidate 3 count() queries into 1 aggregate()
     jobs_qs = IndustryJob.objects.filter(owner_user=request.user)
     now = timezone.now()
     today = now.date()
-    active_jobs_count = jobs_qs.filter(status="active", end_date__gt=now).count()
-    completed_jobs_count = jobs_qs.filter(end_date__lte=now).count()
-    completed_jobs_today = jobs_qs.filter(
-        end_date__date=today, end_date__lte=now
-    ).count()
+
+    job_stats = jobs_qs.aggregate(
+        active=Count(Case(When(status="active", end_date__gt=now, then=1))),
+        completed=Count(Case(When(end_date__lte=now, then=1))),
+        completed_today=Count(
+            Case(When(end_date__date=today, end_date__lte=now, then=1))
+        ),
+    )
+
+    active_jobs_count = job_stats["active"]
+    completed_jobs_count = job_stats["completed"]
+    completed_jobs_today = job_stats["completed_today"]
 
     settings_obj, _created = CharacterSettings.objects.get_or_create(
         user=request.user, character_id=0
@@ -1169,34 +1221,35 @@ def _build_dashboard_context(request):
     ).count()
 
     if sharing_state["enabled"]:
-        fulfill_filters = Q()
+        # Optimize: Use Exists subquery instead of building giant OR
         originals_for_fulfill = blueprints_qs.filter(
             bp_type__in=[Blueprint.BPType.ORIGINAL, Blueprint.BPType.REACTION]
         )
 
-        for bp in originals_for_fulfill:
-            fulfill_filters |= Q(
-                type_id=bp.type_id,
-                material_efficiency=bp.material_efficiency,
-                time_efficiency=bp.time_efficiency,
-            )
+        # Create a subquery that checks if a request matches any of user's blueprints
+        matching_bp_subquery = originals_for_fulfill.filter(
+            type_id=OuterRef("type_id"),
+            material_efficiency=OuterRef("material_efficiency"),
+            time_efficiency=OuterRef("time_efficiency"),
+        )
 
-        if fulfill_filters:
-            fulfill_qs = BlueprintCopyRequest.objects.filter(fulfill_filters)
-            fulfill_qs = fulfill_qs.filter(
+        fulfill_qs = (
+            BlueprintCopyRequest.objects.filter(Exists(matching_bp_subquery))
+            .filter(
                 Q(fulfilled=False)
                 | Q(
                     fulfilled=True,
                     delivered=False,
                     offers__owner=request.user,
                 )
-            ).exclude(requested_by=request.user)
-
-            fulfill_qs = fulfill_qs.exclude(
-                offers__owner=request.user, offers__status="rejected"
             )
+            .exclude(requested_by=request.user)
+            .exclude(offers__owner=request.user, offers__status="rejected")
+        )
 
-            copy_fulfill_count = fulfill_qs.distinct().count()
+        copy_fulfill_count = fulfill_qs.distinct().count()
+    else:
+        copy_fulfill_count = 0
 
     copy_my_requests_total = copy_my_requests_open + copy_my_requests_pending_delivery
 

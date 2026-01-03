@@ -10,6 +10,7 @@ import logging
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
+from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.translation import gettext as _
 
@@ -28,17 +29,18 @@ def my_orders(request):
     Display all orders (sell + buy) for the current user.
     Shows order reference, status, items count, total price, timestamps.
     """
-    # Get all sell orders for user
+    # Optimize: Annotate items_count to avoid N+1 queries
+    # Get all sell orders for user with annotated count
     sell_orders = (
         MaterialExchangeSellOrder.objects.filter(seller=request.user)
-        .prefetch_related("items")
+        .annotate(items_count=Count("items"))
         .order_by("-created_at")
     )
 
-    # Get all buy orders for user
+    # Get all buy orders for user with annotated count
     buy_orders = (
         MaterialExchangeBuyOrder.objects.filter(buyer=request.user)
-        .prefetch_related("items")
+        .annotate(items_count=Count("items"))
         .order_by("-created_at")
     )
 
@@ -53,7 +55,7 @@ def my_orders(request):
                 "reference": order.order_reference,
                 "status": order.get_status_display(),
                 "status_class": _get_status_class(order.status),
-                "items_count": order.items.count(),
+                "items_count": order.items_count,  # Use annotated value
                 "total_price": order.total_price,
                 "created_at": order.created_at,
                 "id": order.id,
@@ -69,7 +71,7 @@ def my_orders(request):
                 "reference": order.order_reference,
                 "status": order.get_status_display(),
                 "status_class": _get_status_class(order.status),
-                "items_count": order.items.count(),
+                "items_count": order.items_count,  # Use annotated value
                 "total_price": order.total_price,
                 "created_at": order.created_at,
                 "id": order.id,
@@ -85,10 +87,20 @@ def my_orders(request):
     page_number = request.GET.get("page")
     page_obj = paginator.get_page(page_number)
 
+    # Optimize: Use aggregate instead of separate count() calls
+    orders_stats = MaterialExchangeSellOrder.objects.filter(
+        Q(seller=request.user) | Q(pk__in=[])
+    ).aggregate(
+        sell_count=Count("id", filter=Q(seller=request.user)),
+    )
+    buy_stats = MaterialExchangeBuyOrder.objects.filter(buyer=request.user).aggregate(
+        buy_count=Count("id")
+    )
+
     context = {
         "page_obj": page_obj,
-        "total_sell": sell_orders.count(),
-        "total_buy": buy_orders.count(),
+        "total_sell": orders_stats["sell_count"],
+        "total_buy": buy_stats["buy_count"],
     }
 
     return render(request, "indy_hub/material_exchange/my_orders.html", context)

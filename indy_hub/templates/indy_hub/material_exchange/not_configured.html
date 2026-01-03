@@ -37,7 +37,7 @@
                         <p class="text-muted mb-4">
                             {% trans "The Material Exchange hub is not yet configured. Please contact an administrator to set up the corp hangar, structure location, and pricing rules." %}
                         </p>
-                        {% if perms.indy_hub.can_manage_material_exchange %}
+                        {% if perms.indy_hub.can_manage_material_hub %}
                         <a href="{% url 'indy_hub:material_exchange_config' %}" class="btn btn-primary">
                             <i class="fas fa-cog me-2"></i>{% trans "Configure Material Exchange" %}
                         </a>

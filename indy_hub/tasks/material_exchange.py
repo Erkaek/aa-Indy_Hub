@@ -46,12 +46,20 @@ def _me_sell_assets_progress_key(user_id: int) -> str:
     return f"indy_hub:material_exchange:sell_assets_refresh:{int(user_id)}"
 
 
-@shared_task
+@shared_task(
+    autoretry_for=(Exception,),
+    retry_kwargs={"max_retries": 3, "countdown": 5},
+    rate_limit="100/m",
+    time_limit=300,
+    soft_time_limit=280,
+)
 def refresh_material_exchange_sell_user_assets(user_id: int) -> None:
     """Refresh CachedCharacterAsset for all of a user's characters, tracking progress.
 
     Progress is stored in the Django cache and consumed by the sell page.
     """
+
+    logger.info("Starting asset refresh task for user %s", user_id)
 
     progress_key = _me_sell_assets_progress_key(int(user_id))
     ttl_seconds = 10 * 60
@@ -242,12 +250,93 @@ def refresh_material_exchange_sell_user_assets(user_id: int) -> None:
         CachedCharacterAsset.objects.filter(user=user).delete()
         CachedCharacterAsset.objects.bulk_create(all_rows, batch_size=1000)
 
+    logger.info(
+        "Successfully refreshed %s character assets for user %s",
+        len(all_rows),
+        user.id,
+    )
 
-@shared_task
+
+def _me_buy_stock_refresh_progress_key(corporation_id: int) -> str:
+    return f"indy_hub:material_exchange:buy_stock_refresh:{int(corporation_id)}"
+
+
+@shared_task(
+    autoretry_for=(Exception,),
+    retry_kwargs={"max_retries": 3, "countdown": 5},
+    rate_limit="100/m",
+    time_limit=300,
+    soft_time_limit=280,
+)
+def refresh_material_exchange_buy_stock(corporation_id: int) -> None:
+    """Refresh corporation assets and update Material Exchange stock for buy page.
+
+    Progress is stored in the Django cache and consumed by the buy page.
+    """
+    logger.info("Starting buy stock refresh task for corporation %s", corporation_id)
+
+    progress_key = _me_buy_stock_refresh_progress_key(int(corporation_id))
+    ttl_seconds = 10 * 60
+
+    try:
+        # Fetch fresh corp assets from ESI
+        logger.info("Fetching corporation assets from ESI for %s", corporation_id)
+        force_refresh_corp_assets(int(corporation_id))
+
+        # Now sync the material exchange stock based on fresh corp assets
+        logger.info("Syncing Material Exchange stock from refreshed corp assets")
+        _sync_stock_impl()
+
+        cache.set(
+            progress_key,
+            {
+                "running": False,
+                "finished": True,
+                "error": None,
+            },
+            ttl_seconds,
+        )
+        logger.info(
+            "Buy stock refresh completed successfully for corporation %s",
+            corporation_id,
+        )
+    except Exception as exc:
+        logger.error(
+            "Buy stock refresh failed for corporation %s: %s",
+            corporation_id,
+            exc,
+            exc_info=True,
+        )
+        cache.set(
+            progress_key,
+            {
+                "running": False,
+                "finished": True,
+                "error": "refresh_failed",
+            },
+            ttl_seconds,
+        )
+
+
+@shared_task(
+    autoretry_for=(Exception,),
+    retry_kwargs={"max_retries": 3, "countdown": 10},
+    rate_limit="100/m",
+    time_limit=300,
+    soft_time_limit=280,
+)
 def sync_material_exchange_stock():
     """
-    Sync material stock from ESI corp assets for configured structure and hangar division.
-    Updates MaterialExchangeStock quantities from actual corp inventory.
+    Celery task to sync material stock from ESI corp assets.
+    Delegates to the implementation function.
+    """
+    _sync_stock_impl()
+
+
+def _sync_stock_impl():
+    """
+    Implementation of material stock synchronization.
+    Can be called from Celery tasks or directly from other async tasks.
     """
     try:
         config = MaterialExchangeConfig.objects.first()
@@ -365,6 +454,15 @@ def sync_material_exchange_stock():
             to_create = []
             to_update = []
 
+            # Fetch existing items with their PKs for updates
+            existing_items = {
+                int(item.type_id): item
+                for item in MaterialExchangeStock.objects.filter(config=config)
+            }
+
+            # Track which items had quantity changes
+            items_with_qty_change = set()
+
             for type_id, quantity in stock_updates.items():
                 type_id = int(type_id)
                 quantity = int(quantity or 0)
@@ -382,17 +480,18 @@ def sync_material_exchange_stock():
                         )
                     )
                 else:
-                    # Existing item: update only if quantity or type_name changed
+                    existing_item = existing_items[type_id]
+                    # Check if quantity or type_name changed
                     if quantity != current_data[type_id]:
-                        to_update.append(
-                            MaterialExchangeStock(
-                                config=config,
-                                type_id=type_id,
-                                type_name=type_name,
-                                quantity=quantity,
-                                last_stock_sync=now,
-                            )
-                        )
+                        existing_item.quantity = quantity
+                        items_with_qty_change.add(type_id)
+                    # Always update type_name in case it changed
+                    if existing_item.type_name != type_name:
+                        existing_item.type_name = type_name
+                    # Always update last_stock_sync and updated_at for all existing items
+                    existing_item.last_stock_sync = now
+                    existing_item.updated_at = now
+                    to_update.append(existing_item)
 
             # Bulk create new items
             if to_create:
@@ -407,15 +506,18 @@ def sync_material_exchange_stock():
                     config.pk,
                 )
 
-            # Bulk update existing items
+            # Bulk update existing items (all items get last_stock_sync and updated_at updated)
             if to_update:
                 MaterialExchangeStock.objects.bulk_update(
                     to_update,
-                    fields=["quantity", "type_name", "last_stock_sync"],
+                    fields=["quantity", "type_name", "last_stock_sync", "updated_at"],
                     batch_size=500,
                 )
                 logger.info(
-                    "Updated %d stock items for config %s", len(to_update), config.pk
+                    "Updated %d stock items for config %s (qty changes: %d)",
+                    len(to_update),
+                    config.pk,
+                    len(items_with_qty_change),
                 )
 
             logger.debug(
@@ -443,7 +545,13 @@ def sync_material_exchange_stock():
         logger.exception(f"Error syncing material exchange stock: {e}")
 
 
-@shared_task
+@shared_task(
+    autoretry_for=(Exception,),
+    retry_kwargs={"max_retries": 3, "countdown": 10},
+    rate_limit="100/m",
+    time_limit=300,
+    soft_time_limit=280,
+)
 def refresh_material_exchange_cache():
     """Force-refresh corp assets and division cache for the configured exchange."""
 
@@ -466,7 +574,13 @@ def refresh_material_exchange_cache():
     )
 
 
-@shared_task
+@shared_task(
+    autoretry_for=(Exception,),
+    retry_kwargs={"max_retries": 3, "countdown": 10},
+    rate_limit="100/m",
+    time_limit=60,
+    soft_time_limit=50,
+)
 def sync_material_exchange_prices():
     """
     Sync Jita buy/sell prices from Fuzzwork API for all stock items.
@@ -534,7 +648,13 @@ def sync_material_exchange_prices():
         logger.exception(f"Error syncing material exchange prices: {e}")
 
 
-@shared_task
+@shared_task(
+    autoretry_for=(Exception,),
+    retry_kwargs={"max_retries": 3, "countdown": 10},
+    rate_limit="100/m",
+    time_limit=60,
+    soft_time_limit=50,
+)
 def verify_pending_sell_payments():
     """
     DEPRECATED: Payment verification is now done automatically when the in-game

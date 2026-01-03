@@ -216,7 +216,7 @@ def _refresh_corp_assets(corporation_id: int) -> tuple[list[dict], bool]:
 
     except ESITokenError:
         assets_scope_missing = True
-    except (ESIRateLimitError, ESIClientError) as exc:
+    except (ESIForbiddenError, ESIRateLimitError, ESIClientError) as exc:
         logger.warning("ESI assets lookup failed for corp %s: %s", corporation_id, exc)
     except Exception as exc:  # pragma: no cover - defensive
         logger.warning(
@@ -597,7 +597,12 @@ def _refresh_character_assets(user) -> tuple[list[dict], bool]:
             assets = shared_client.fetch_character_assets(
                 character_id=int(character_id)
             )
-        except (ESITokenError, ESIRateLimitError, ESIClientError) as exc:
+        except (
+            ESITokenError,
+            ESIRateLimitError,
+            ESIForbiddenError,
+            ESIClientError,
+        ) as exc:
             logger.warning(
                 "Failed to load assets for character %s: %s", character_id, exc
             )

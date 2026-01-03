@@ -32,6 +32,7 @@ from indy_hub.services.asset_cache import resolve_structure_names
 from indy_hub.services.esi_client import (
     ESIClientError,
     ESIForbiddenError,
+    ESIRateLimitError,
     ESITokenError,
     shared_client,
 )
@@ -142,7 +143,13 @@ def _get_structure_name(
     return None
 
 
-@shared_task
+@shared_task(
+    autoretry_for=(Exception,),
+    retry_kwargs={"max_retries": 3, "countdown": 10},
+    rate_limit="500/m",
+    time_limit=600,
+    soft_time_limit=580,
+)
 def sync_esi_contracts():
     """
     Fetch corporation contracts from ESI and store/update them in the database.
@@ -169,7 +176,13 @@ def sync_esi_contracts():
             )
 
 
-@shared_task
+@shared_task(
+    autoretry_for=(Exception,),
+    retry_kwargs={"max_retries": 2, "countdown": 5},
+    rate_limit="300/m",
+    time_limit=900,
+    soft_time_limit=880,
+)
 def run_material_exchange_cycle():
     """
     End-to-end cycle: sync contracts, validate pending sell orders,
@@ -219,7 +232,7 @@ def _sync_contracts_for_corporation(corporation_id: int):
             exc,
         )
         return
-    except (ESIClientError, ESIForbiddenError) as exc:
+    except (ESIRateLimitError, ESIClientError, ESIForbiddenError) as exc:
         logger.error(
             "Failed to fetch contracts from ESI for corporation %s: %s",
             corporation_id,
@@ -354,7 +367,13 @@ def _sync_contracts_for_corporation(corporation_id: int):
     )
 
 
-@shared_task
+@shared_task(
+    autoretry_for=(Exception,),
+    retry_kwargs={"max_retries": 3, "countdown": 10},
+    rate_limit="500/m",
+    time_limit=600,
+    soft_time_limit=580,
+)
 def validate_material_exchange_sell_orders():
     """
     Validate pending sell orders against cached ESI contracts in the database.
@@ -426,7 +445,13 @@ def validate_material_exchange_sell_orders():
             )
 
 
-@shared_task
+@shared_task(
+    autoretry_for=(Exception,),
+    retry_kwargs={"max_retries": 3, "countdown": 10},
+    rate_limit="500/m",
+    time_limit=600,
+    soft_time_limit=580,
+)
 def validate_material_exchange_buy_orders():
     """
     Validate pending buy orders against cached ESI contracts in the database.
@@ -981,13 +1006,24 @@ def _contract_price_matches_db(contract, order) -> tuple[bool, str]:
     return True, f"price {contract_price:,.2f} ISK OK"
 
 
-@shared_task
+@shared_task(
+    autoretry_for=(Exception,),
+    retry_kwargs={"max_retries": 3, "countdown": 5},
+    rate_limit="1000/m",
+    time_limit=300,
+    soft_time_limit=280,
+)
 def handle_material_exchange_buy_order_created(order_id):
     """
     Send immediate notification to admins when a buy order is created.
+    Resilient task with auto-retry and rate limiting.
     """
     try:
-        order = MaterialExchangeBuyOrder.objects.get(id=order_id)
+        order = (
+            MaterialExchangeBuyOrder.objects.select_related("config", "buyer")
+            .prefetch_related("items")
+            .get(id=order_id)
+        )
     except MaterialExchangeBuyOrder.DoesNotExist:
         logger.warning("Buy order %s not found", order_id)
         return
@@ -1026,7 +1062,97 @@ def handle_material_exchange_buy_order_created(order_id):
     logger.info("Buy order %s notification sent to admins", order_id)
 
 
-@shared_task
+@shared_task(
+    autoretry_for=(Exception,),
+    retry_kwargs={"max_retries": 3, "countdown": 10},
+    rate_limit="500/m",
+    time_limit=600,
+    soft_time_limit=580,
+)
+def handle_material_exchange_buy_orders_batch(order_ids):
+    """
+    Batch notification for multiple buy orders created in close succession.
+    Reduces task queue overhead by consolidating 10 orders → 1 task.
+    """
+    if not order_ids:
+        logger.warning("No order IDs provided to batch handler")
+        return
+
+    # Fetch all orders in one query with prefetch
+    orders = (
+        MaterialExchangeBuyOrder.objects.filter(id__in=order_ids)
+        .select_related("config", "buyer")
+        .prefetch_related("items")
+    )
+
+    if not orders.exists():
+        logger.warning("No buy orders found for ids: %s", order_ids)
+        return
+
+    # Group by config to send consolidated notifications
+    orders_by_config = {}
+    for order in orders:
+        key = order.config.id
+        if key not in orders_by_config:
+            orders_by_config[key] = []
+        orders_by_config[key].append(order)
+
+    # Send batch notification per config
+    for config_id, config_orders in orders_by_config.items():
+        if not config_orders:
+            continue
+
+        config = config_orders[0].config
+        admins = _get_admins_for_config(config)
+
+        # Build consolidated message
+        total_items = sum(len(list(o.items.all())) for o in config_orders)
+        total_qty = sum(o.total_quantity for o in config_orders)
+        total_price = sum(o.total_price for o in config_orders)
+
+        preview_lines = []
+        preview_lines.append(
+            _("Batch of {} new buy orders created:").format(len(config_orders))
+        )
+        for order in config_orders[:3]:
+            items = list(order.items.all())
+            preview_lines.append(
+                f"  • {order.buyer.username} - {order.order_reference} ({len(items)} items, {order.total_price:,.2f} ISK)"
+            )
+        if len(config_orders) > 3:
+            preview_lines.append(
+                _("…and {} more orders").format(len(config_orders) - 3)
+            )
+
+        preview = "\n".join(preview_lines) if preview_lines else _("(no items)")
+
+        notify_multi(
+            admins,
+            _(f"New Buy Orders Batch ({len(config_orders)} orders)"),
+            _(
+                f"Total items: {total_items} (qty: {total_qty:,})\n"
+                f"Total price: {total_price:,.2f} ISK\n\n"
+                f"{preview}\n\n"
+                f"Review and approve orders to proceed with delivery."
+            ),
+            level="info",
+            link="/indy_hub/material-exchange/buy-orders/",
+        )
+
+    logger.info(
+        "Batch notification sent for %d buy orders across %d configs",
+        len(order_ids),
+        len(orders_by_config),
+    )
+
+
+@shared_task(
+    autoretry_for=(Exception,),
+    retry_kwargs={"max_retries": 3, "countdown": 10},
+    rate_limit="500/m",
+    time_limit=600,
+    soft_time_limit=580,
+)
 def check_completed_material_exchange_contracts():
     """
     Check if corp contracts for approved sell orders have been completed.
@@ -1052,7 +1178,7 @@ def check_completed_material_exchange_contracts():
                 "esi-contracts.read_corporation_contracts.v1",
             ),
         )
-    except (ESITokenError, ESIClientError) as exc:
+    except (ESITokenError, ESIRateLimitError, ESIForbiddenError, ESIClientError) as exc:
         logger.error("Failed to check contract status: %s", exc)
         return
 

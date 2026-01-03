@@ -27,7 +27,13 @@ from ..models import (
     CorporationSharingSetting,
     IndustryJob,
 )
-from ..services.esi_client import ESIClientError, ESITokenError, shared_client
+from ..services.esi_client import (
+    ESIClientError,
+    ESIForbiddenError,
+    ESIRateLimitError,
+    ESITokenError,
+    shared_client,
+)
 from ..services.location_population import populate_location_names
 from ..utils.eve import (
     PLACEHOLDER_PREFIX,
@@ -103,7 +109,16 @@ def get_character_corporation_roles(character_id: int) -> set[str]:
     if character_id in _CORPORATION_ROLE_CACHE:
         return _CORPORATION_ROLE_CACHE[character_id]
 
-    payload = shared_client.fetch_character_corporation_roles(int(character_id))
+    try:
+        payload = shared_client.fetch_character_corporation_roles(int(character_id))
+    except (ESITokenError, ESIForbiddenError, ESIRateLimitError, ESIClientError) as exc:
+        logger.warning(
+            "Failed to fetch corporation roles for character %s: %s",
+            character_id,
+            exc,
+        )
+        return set()  # Return empty set on error instead of crashing
+
     collected: set[str] = set()
     for key in ("roles", "roles_at_hq", "roles_at_base", "roles_at_other"):
         collected.update(_normalized_roles(payload.get(key)))
@@ -123,10 +138,46 @@ def _collect_corporation_contexts(
         "character"
     )
 
+    # Optimize: Bulk load corp settings instead of querying in get_or_create loop
     corp_settings = {
         setting.corporation_id: setting
         for setting in CorporationSharingSetting.objects.filter(user=user)
     }
+
+    # Collect corporation IDs from ownerships to bulk fetch missing settings
+    corp_ids_in_ownerships = {
+        getattr(ownership.character, "corporation_id", None) for ownership in ownerships
+    }
+    corp_ids_in_ownerships.discard(None)
+    missing_corp_ids = corp_ids_in_ownerships - set(corp_settings.keys())
+
+    # Bulk create missing settings
+    if missing_corp_ids:
+        new_settings = [
+            CorporationSharingSetting(
+                user=user,
+                corporation_id=corp_id,
+                corporation_name=get_corporation_name(corp_id) or str(corp_id),
+                share_scope=CharacterSettings.SCOPE_NONE,
+                allow_copy_requests=False,
+            )
+            for corp_id in missing_corp_ids
+        ]
+        created_settings = CorporationSharingSetting.objects.bulk_create(
+            new_settings, ignore_conflicts=True
+        )
+        # Reload to get the created settings (in case of conflicts)
+        for created_setting in created_settings:
+            corp_settings[created_setting.corporation_id] = created_setting
+        # Also fetch any existing conflicting settings
+        for corp_id in missing_corp_ids:
+            if corp_id not in corp_settings:
+                try:
+                    corp_settings[corp_id] = CorporationSharingSetting.objects.get(
+                        user=user, corporation_id=corp_id
+                    )
+                except CorporationSharingSetting.DoesNotExist:
+                    pass
 
     try:
         # Alliance Auth
@@ -141,18 +192,6 @@ def _collect_corporation_contexts(
             continue
 
         setting = corp_settings.get(corp_id)
-        if setting is None:
-            corp_name = get_corporation_name(corp_id) or str(corp_id)
-            setting, _ = CorporationSharingSetting.objects.get_or_create(
-                user=user,
-                corporation_id=corp_id,
-                defaults={
-                    "corporation_name": corp_name,
-                    "share_scope": CharacterSettings.SCOPE_NONE,
-                    "allow_copy_requests": False,
-                },
-            )
-            corp_settings[corp_id] = setting
 
         char_id = ownership.character.character_id
         base_qs = Token.objects.filter(character_id=char_id, user=user).order_by(
@@ -450,7 +489,7 @@ def update_blueprints_for_user(self, user_id, scope: str | None = None):
     process_characters = normalized_scope in {None, "character"}
     process_corporations = normalized_scope in {None, "corporation"}
 
-    if process_corporations and user.has_perm("indy_hub.can_manage_corporate_assets"):
+    if process_corporations and user.has_perm("indy_hub.can_manage_corp_bp_requests"):
         corp_contexts = _collect_corporation_contexts(user, CORP_BLUEPRINT_SCOPE_SET)
         logger.info(
             "Corporation context detected for %s: %s",
@@ -515,7 +554,7 @@ def update_blueprints_for_user(self, user_id, scope: str | None = None):
             logger.warning(message)
             error_messages.append(message)
             continue
-        except ESIClientError as exc:
+        except (ESIForbiddenError, ESIRateLimitError, ESIClientError) as exc:
             message = f"ESI error for {character_name} ({char_id}): {exc}"
             logger.error(message)
             error_messages.append(message)
@@ -606,7 +645,7 @@ def update_blueprints_for_user(self, user_id, scope: str | None = None):
                 logger.warning(message)
                 error_messages.append(message)
                 continue
-            except ESIClientError as exc:
+            except (ESIForbiddenError, ESIRateLimitError, ESIClientError) as exc:
                 message = f"ESI error for corporation {corp_name} ({corp_id}) via {acting_character_name}: {exc}"
                 logger.error(message)
                 error_messages.append(message)
@@ -732,7 +771,7 @@ def update_industry_jobs_for_user(self, user_id, scope: str | None = None):
             ownerships = []
 
         if process_corporations and user.has_perm(
-            "indy_hub.can_manage_corporate_assets"
+            "indy_hub.can_manage_corp_bp_requests"
         ):
             corp_contexts = _collect_corporation_contexts(user, CORP_JOBS_SCOPE_SET)
             logger.info(
@@ -793,7 +832,7 @@ def update_industry_jobs_for_user(self, user_id, scope: str | None = None):
                 logger.warning(message)
                 error_messages.append(message)
                 continue
-            except ESIClientError as exc:
+            except (ESIForbiddenError, ESIRateLimitError, ESIClientError) as exc:
                 message = f"ESI error for {character_name} ({char_id}): {exc}"
                 logger.error(message)
                 error_messages.append(message)
@@ -964,7 +1003,7 @@ def update_industry_jobs_for_user(self, user_id, scope: str | None = None):
                     logger.warning(message)
                     error_messages.append(message)
                     continue
-                except ESIClientError as exc:
+                except (ESIForbiddenError, ESIRateLimitError, ESIClientError) as exc:
                     message = f"ESI error for corporation {corp_name} ({corp_id}) via {acting_character_name}: {exc}"
                     logger.error(message)
                     error_messages.append(message)

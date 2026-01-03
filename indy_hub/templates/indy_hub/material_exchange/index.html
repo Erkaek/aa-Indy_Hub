@@ -23,7 +23,7 @@
                     <p class="description">{% trans "Corp supply hub for buying and selling materials" %}</p>
                 </div>
                 <div class="d-flex gap-2">
-                    {% if perms.indy_hub.can_manage_material_exchange %}
+                    {% if perms.indy_hub.can_manage_material_hub %}
                     <a href="{% url 'indy_hub:material_exchange_config' %}" class="btn btn-outline-secondary">
                         <i class="fas fa-cog me-1"></i>{% trans "Configuration" %}
                     </a>

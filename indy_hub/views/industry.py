@@ -19,7 +19,7 @@ from django.contrib.auth.models import User
 from django.core.exceptions import FieldDoesNotExist, ValidationError
 from django.core.paginator import Paginator
 from django.db import connection
-from django.db.models import Q
+from django.db.models import Case, Count, Q, When
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -817,7 +817,7 @@ def personnal_bp_list(request, scope="character"):
 
             agg.total_quantity = agg.orig_quantity + agg.copy_quantity
             agg.runs = agg.total_runs
-        # Compute precise human-readable location path for each blueprint
+        # Optimize: Bulk load location data to avoid N+1 queries
         try:
             # Alliance Auth (External Libs)
             from eveuniverse.models import EveStation, EveStructure
@@ -825,30 +825,40 @@ def personnal_bp_list(request, scope="character"):
             EveStation = None
             EveStructure = None
 
-        def get_location_path(location_id):
-            if EveStation:
-                try:
-                    st = EveStation.objects.get(id=location_id)
-                    sys = st.solar_system
-                    cons = sys.constellation
-                    reg = cons.region
-                    return f"{reg.name} > {cons.name} > {sys.name} > {st.name}"
-                except EveStation.DoesNotExist:
-                    pass
-            if EveStructure:
-                try:
-                    struct = EveStructure.objects.get(id=location_id)
+        # Collect unique location IDs from bp_items
+        location_ids = {bp.location_id for bp in bp_items if bp.location_id}
+
+        # Bulk load stations and structures with related data
+        location_map = {}
+        if EveStation and location_ids:
+            stations = EveStation.objects.filter(id__in=location_ids).prefetch_related(
+                "solar_system__constellation__region"
+            )
+            for st in stations:
+                sys = st.solar_system
+                cons = sys.constellation
+                reg = cons.region
+                location_map[st.id] = (
+                    f"{reg.name} > {cons.name} > {sys.name} > {st.name}"
+                )
+
+        if EveStructure and location_ids:
+            remaining_ids = location_ids - set(location_map.keys())
+            if remaining_ids:
+                structures = EveStructure.objects.filter(
+                    id__in=remaining_ids
+                ).prefetch_related("solar_system__constellation__region")
+                for struct in structures:
                     sys = struct.solar_system
                     cons = sys.constellation
                     reg = cons.region
-                    return f"{reg.name} > {cons.name} > {sys.name} > {struct.name}"
-                except EveStructure.DoesNotExist:
-                    pass
-            return None
+                    location_map[struct.id] = (
+                        f"{reg.name} > {cons.name} > {sys.name} > {struct.name}"
+                    )
 
+        # Assign location paths to blueprints
         for bp in bp_items:
-            path = get_location_path(bp.location_id)
-            bp.location_path = path if path else bp.location_flag
+            bp.location_path = location_map.get(bp.location_id) or bp.location_flag
 
         owner_map = {owner_id: name for owner_id, name in owner_options}
         owner_field = "corporation_id" if is_corporation_scope else "character_id"
@@ -1241,13 +1251,18 @@ def personnal_job_list(request, scope="character"):
         jobs_qs = jobs_qs.order_by(sort_by)
         paginator = Paginator(jobs_qs, per_page)
         jobs_page = paginator.get_page(page)
-        total_jobs = jobs_qs.count()
-        active_jobs = jobs_qs.filter(status="active", end_date__gt=now).count()
-        completed_jobs = jobs_qs.filter(end_date__lte=now).count()
+
+        # Optimize: Consolidate 3 count() queries into 1 aggregate()
+        job_stats = jobs_qs.aggregate(
+            total=Count("id"),
+            active=Count(Case(When(status="active", end_date__gt=now, then=1))),
+            completed=Count(Case(When(end_date__lte=now, then=1))),
+        )
+
         statistics = {
-            "total": total_jobs,
-            "active": active_jobs,
-            "completed": completed_jobs,
+            "total": job_stats["total"],
+            "active": job_stats["active"],
+            "completed": job_stats["completed"],
         }
         # Only show computed statuses for filtering: 'active' and 'completed'
         statuses = ["active", "completed"]
@@ -2646,20 +2661,21 @@ def bp_copy_request_page(request):
         }
 
         corporate_source_line = ""
-        corporate_blueprint_qs = Blueprint.objects.filter(
-            owner_kind=Blueprint.OwnerKind.CORPORATION,
-            type_id=type_id,
-            material_efficiency=me,
-            time_efficiency=te,
-        ).values("corporation_id", "corporation_name")
+        # Optimize: Use values_list directly with distinct() instead of looping
+        corporate_blueprint_qs = (
+            Blueprint.objects.filter(
+                owner_kind=Blueprint.OwnerKind.CORPORATION,
+                type_id=type_id,
+                material_efficiency=me,
+                time_efficiency=te,
+            )
+            .values_list("corporation_name", flat=True)
+            .distinct()
+        )
 
         corp_labels: set[str] = set()
-        for corp_entry in corporate_blueprint_qs:
-            corp_name = corp_entry.get("corporation_name")
-            corp_id = corp_entry.get("corporation_id")
+        for corp_name in corporate_blueprint_qs:
             label = corp_name.strip() if isinstance(corp_name, str) else ""
-            if not label and corp_id:
-                label = str(corp_id)
             if label:
                 corp_labels.add(label)
 

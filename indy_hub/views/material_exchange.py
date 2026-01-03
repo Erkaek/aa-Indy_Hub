@@ -31,6 +31,7 @@ from ..models import (
 )
 from ..services.asset_cache import get_corp_divisions_cached, get_user_assets_cached
 from ..tasks.material_exchange import (
+    refresh_material_exchange_buy_stock,
     refresh_material_exchange_sell_user_assets,
     sync_material_exchange_prices,
     sync_material_exchange_stock,
@@ -135,9 +136,20 @@ def _ensure_sell_assets_refresh_started(user) -> dict:
     cache.set(progress_key, state, ttl_seconds)
 
     try:
-        refresh_material_exchange_sell_user_assets.delay(int(user.id))
-    except Exception:
+        task_result = refresh_material_exchange_sell_user_assets.delay(int(user.id))
+        logger.info(
+            "Started asset refresh task for user %s (task_id=%s)",
+            user.id,
+            task_result.id,
+        )
+    except Exception as exc:
         # Fallback: mark as finished; UI will stop polling.
+        logger.error(
+            "Failed to start asset refresh task for user %s: %s",
+            user.id,
+            exc,
+            exc_info=True,
+        )
         state.update({"running": False, "finished": True, "error": "task_start_failed"})
         cache.set(progress_key, state, ttl_seconds)
 
@@ -157,6 +169,64 @@ def material_exchange_sell_assets_refresh_status(request):
         "total": 0,
         "done": 0,
         "failed": 0,
+    }
+    return JsonResponse(state)
+
+
+def _ensure_buy_stock_refresh_started(config) -> dict:
+    """Start (if needed) an async refresh of buy stock and return the current progress state."""
+
+    progress_key = (
+        f"indy_hub:material_exchange:buy_stock_refresh:{int(config.corporation_id)}"
+    )
+    ttl_seconds = 10 * 60
+    state = cache.get(progress_key) or {}
+
+    if state.get("running"):
+        return state
+
+    state = {
+        "running": True,
+        "finished": False,
+        "error": None,
+    }
+    cache.set(progress_key, state, ttl_seconds)
+
+    try:
+        task_result = refresh_material_exchange_buy_stock.delay(
+            int(config.corporation_id)
+        )
+        logger.info(
+            "Started buy stock refresh task for corporation %s (task_id=%s)",
+            config.corporation_id,
+            task_result.id,
+        )
+    except Exception as exc:
+        logger.error(
+            "Failed to start buy stock refresh task for corporation %s: %s",
+            config.corporation_id,
+            exc,
+            exc_info=True,
+        )
+        state.update({"running": False, "finished": True, "error": "task_start_failed"})
+        cache.set(progress_key, state, ttl_seconds)
+
+    return state
+
+
+@login_required
+@indy_hub_permission_required("can_access_indy_hub")
+def material_exchange_buy_stock_refresh_status(request):
+    """Return JSON progress for buy-page stock refresh."""
+
+    config = get_object_or_404(MaterialExchangeConfig, is_active=True)
+    progress_key = (
+        f"indy_hub:material_exchange:buy_stock_refresh:{int(config.corporation_id)}"
+    )
+    state = cache.get(progress_key) or {
+        "running": False,
+        "finished": False,
+        "error": None,
     }
     return JsonResponse(state)
 
@@ -348,8 +418,9 @@ def material_exchange_index(request):
         # Alliance Auth (External Libs)
         from eveuniverse.models import EveType
 
+        # Avoid blocking ESI calls on index page; use cached data only
         user_assets, scope_missing = _fetch_user_assets_for_structure(
-            request.user, int(config.structure_id)
+            request.user, int(config.structure_id), allow_refresh=False
         )
 
         if scope_missing:
@@ -670,7 +741,6 @@ def material_exchange_sell(request):
         needs_refresh = True
 
     if needs_refresh:
-        assets_refreshing = True
         messages.info(
             request,
             _(
@@ -679,11 +749,18 @@ def material_exchange_sell(request):
         )
         message_shown = True
         try:
+            logger.info(
+                "Starting stock sync for sell page (last_sync=%s)",
+                config.last_stock_sync,
+            )
             sync_material_exchange_stock()
             config.refresh_from_db()
-            assets_refreshing = False
+            logger.info(
+                "Stock sync completed successfully (last_sync=%s)",
+                config.last_stock_sync,
+            )
         except Exception as exc:  # pragma: no cover - defensive
-            logger.warning("Stock auto-sync failed (sell page): %s", exc)
+            logger.warning("Stock auto-sync failed (sell page): %s", exc, exc_info=True)
 
     # Avoid blocking GET requests: if a background refresh is running, don't do a synchronous refresh.
     # If we're on ?refreshed=1 and nothing is cached yet, allow a one-time sync refresh so the list
@@ -773,6 +850,8 @@ def material_exchange_sell(request):
                 ),
             )
 
+    # Show loading spinner if either Celery task is running OR stock sync just happened
+    # (stock sync is bloquant and completes before template render, so this is safe)
     assets_refreshing = assets_refreshing or needs_refresh
 
     # Get corporation name
@@ -972,15 +1051,21 @@ def material_exchange_buy(request):
     except Exception:
         needs_refresh = True
 
-    if needs_refresh:
-        stock_refreshing = True
-        try:
-            sync_material_exchange_stock()
-            config.refresh_from_db()
-            stock_refreshing = False
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.warning("Stock auto-sync failed: %s", exc)
-            stock_refreshing = True
+    stock_refreshing = False
+    buy_stock_progress = (
+        cache.get(
+            f"indy_hub:material_exchange:buy_stock_refresh:{int(config.corporation_id)}"
+        )
+        or {}
+    )
+
+    if (
+        request.method == "GET"
+        and request.GET.get("refreshed") != "1"
+        and needs_refresh
+    ):
+        buy_stock_progress = _ensure_buy_stock_refresh_started(config)
+    stock_refreshing = bool(buy_stock_progress.get("running"))
 
     # GET: ensure prices are populated if stock exists without prices
     base_stock_qs = config.stock_items.filter(quantity__gt=0)
@@ -1051,6 +1136,7 @@ def material_exchange_buy(request):
         "config": config,
         "stock": stock_items,
         "stock_refreshing": stock_refreshing,
+        "buy_stock_progress": buy_stock_progress,
         "corp_assets_scope_missing": corp_assets_scope_missing,
         "hangar_division_label": hangar_division_label,
         "buy_last_update": buy_last_update,

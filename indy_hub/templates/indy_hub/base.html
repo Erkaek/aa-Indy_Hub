@@ -76,7 +76,7 @@
                     <li><a class="dropdown-item" href="{% url 'indy_hub:personnal_bp_list' %}">
                         <i class="fas fa-user me-2"></i>{% trans "My Blueprints" %}
                     </a></li>
-                    {% if can_manage_corporate_assets %}
+                    {% if can_manage_corp_bp_requests %}
                     <li><a class="dropdown-item" href="{% url 'indy_hub:corporation_bp_list' %}">
                         <i class="fas fa-building me-2"></i>{% trans "Corporation Blueprints" %}
                     </a></li>
@@ -102,7 +102,7 @@
                     <li><a class="dropdown-item" href="{% url 'indy_hub:bp_copy_my_requests' %}">
                         <i class="fas fa-list me-2"></i>{% trans "My Requests" %}
                     </a></li>
-                    {% if can_manage_copy_requests %}
+                    {% if can_manage_corp_bp_requests %}
                     <li><a class="dropdown-item" href="{% url 'indy_hub:bp_copy_fulfill_requests' %}">
                         <i class="fas fa-handshake me-2"></i>{% trans "Fulfill Requests" %}
                     </a></li>
@@ -125,7 +125,7 @@
                     <li><a class="dropdown-item" href="{% url 'indy_hub:personnal_job_list' %}">
                         <i class="fas fa-user me-2"></i>{% trans "My Jobs" %}
                     </a></li>
-                    {% if can_manage_corporate_assets %}
+                    {% if can_manage_corp_bp_requests %}
                     <li><a class="dropdown-item" href="{% url 'indy_hub:corporation_job_list' %}">
                         <i class="fas fa-building me-2"></i>{% trans "Corporation Jobs" %}
                     </a></li>

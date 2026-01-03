@@ -76,10 +76,7 @@
             {% if assets_refreshing %}
             <div class="alert alert-warning mt-3 mb-0">
                 <i class="fas fa-sync fa-spin me-2"></i>
-                {% trans "Refreshing your assets via ESI." %}
-                <span class="ms-2">
-                    <strong id="me-assets-progress">0/0</strong>
-                </span>
+                {% trans "Loading your asset inventory. This may take a moment..." %}
             </div>
             {% endif %}
                 <p class="text-sm opacity-70">
@@ -277,12 +274,14 @@
 
 
         {% else %}
+        {% if not assets_refreshing %}
         <div class="glass-panel p-4">
             <div class="alert alert-warning mb-0">
                 <i class="fas fa-exclamation-triangle me-2"></i>
                 {% trans "No materials available for selling. Please contact an admin." %}
             </div>
         </div>
+        {% endif %}
         {% endif %}
 </div>
 
@@ -470,8 +469,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Live asset refresh progress (per character)
     {% if assets_refreshing %}
-    const progressEl = document.getElementById('me-assets-progress');
     const statusUrl = '{% url "indy_hub:material_exchange_sell_assets_refresh_status" %}';
+    console.log('Asset polling enabled. Current assets_refreshing:', {{ assets_refreshing|lower }});
 
     async function pollAssetsProgress() {
         try {
@@ -480,34 +479,45 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
             }
             const data = await resp.json();
+            console.log('Poll status response:', data);
             const total = parseInt(data.total || 0);
             const done = parseInt(data.done || 0);
             const error = data.error || null;
 
-            if (progressEl) {
-                progressEl.textContent = `${done}/${total}`;
-            }
-
             if (data.running) {
+                console.log('Task still running, will poll again in 1s');
                 setTimeout(pollAssetsProgress, 1000);
                 return;
             }
 
-            // When finished successfully, reload once to show the updated materials list.
-            // Guard against loops if the page was already reloaded.
+            // When finished successfully, hide the loading alert and reload to show updated materials
             if (data.finished && !error && total > 0 && done >= total) {
+                console.log('Task finished successfully! Reloading page with refreshed=1');
+                // Find and hide the assets loading alert
+                const alerts = document.querySelectorAll('.alert-warning');
+                alerts.forEach(alert => {
+                    if (alert.textContent.includes('Loading your asset inventory')) {
+                        alert.style.display = 'none';
+                    }
+                });
+
+                // Guard against loops if the page was already reloaded
                 const url = new URL(window.location.href);
                 if (url.searchParams.get('refreshed') !== '1') {
                     url.searchParams.set('refreshed', '1');
-                    window.location.replace(url.toString());
+                    setTimeout(() => window.location.replace(url.toString()), 300);
                 }
+            } else {
+                console.log('Task not yet finished or has error. finished:', data.finished, 'error:', error, 'total:', total, 'done:', done);
             }
         } catch (e) {
-            // silent
+            console.error('Poll error:', e);
         }
     }
 
     pollAssetsProgress();
+    {% else %}
+    console.log('Asset polling DISABLED - assets_refreshing is False');
     {% endif %}
 });
 </script>

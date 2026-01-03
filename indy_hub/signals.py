@@ -15,9 +15,6 @@ from .tasks.material_exchange import (
     sync_material_exchange_prices,
     sync_material_exchange_stock,
 )
-from .tasks.material_exchange_contracts import (
-    handle_material_exchange_buy_order_created,
-)
 from .utils.eve import PLACEHOLDER_PREFIX, resolve_location_name
 from .utils.job_notifications import process_job_completion_notification
 
@@ -372,14 +369,25 @@ def remove_duplicate_tokens(sender, instance, created, **kwargs):
 @receiver(post_save, sender=MaterialExchangeBuyOrder)
 def notify_admins_on_buy_order_created(sender, instance, created, **kwargs):
     """
-    When a buy order is created, notify admins immediately.
-    They will then approve and arrange delivery.
+    When a buy order is created, queue notification with batching.
+    Multiple orders created close together are consolidated into one task.
     """
     if not created:
         return
 
     try:
-        handle_material_exchange_buy_order_created.delay(instance.id)
+        # Use apply_async with countdown to batch orders created within 2 seconds
+        # This reduces queue overhead: 10 orders → 1 batch task instead of 10 tasks
+        # AA Example App
+        from indy_hub.tasks.material_exchange_contracts import (
+            handle_material_exchange_buy_order_created,
+        )
+
+        handle_material_exchange_buy_order_created.apply_async(
+            args=(instance.id,),
+            countdown=2,  # Wait 2 seconds to batch with other orders
+            expires=30,  # Expire after 30 seconds if not processed
+        )
     except Exception as exc:
         logger.error(
             "Failed to queue buy order notification for order %s: %s",

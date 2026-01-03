@@ -189,7 +189,7 @@
                 <i class="fas fa-exclamation-triangle me-2"></i>
                 {% trans "No materials currently available in stock. Please check back later." %}
             </div>
-            {% if perms.indy_hub.can_manage_material_exchange %}
+            {% if perms.indy_hub.can_manage_material_hub %}
             <div class="d-flex gap-2">
                 <form method="post" action="{% url 'indy_hub:material_exchange_sync_stock' %}" class="d-inline">
                     {% csrf_token %}
@@ -370,6 +370,47 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Initial update
     updateInvoice();
+
+    // Live stock refresh progress
+    {% if stock_refreshing %}
+    const statusUrl = '{% url "indy_hub:material_exchange_buy_stock_refresh_status" %}';
+    console.log('Stock polling enabled. Current stock_refreshing:', {{ stock_refreshing|lower }});
+
+    async function pollStockProgress() {
+        try {
+            const resp = await fetch(statusUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+            if (!resp.ok) {
+                return;
+            }
+            const data = await resp.json();
+            console.log('Poll status response:', data);
+
+            if (data.running) {
+                console.log('Task still running, will poll again in 1s');
+                setTimeout(pollStockProgress, 1000);
+                return;
+            }
+
+            // When finished successfully, reload to show updated stock
+            if (data.finished && !data.error) {
+                console.log('Stock refresh finished successfully! Reloading page with refreshed=1');
+                const url = new URL(window.location.href);
+                if (url.searchParams.get('refreshed') !== '1') {
+                    url.searchParams.set('refreshed', '1');
+                    setTimeout(() => window.location.replace(url.toString()), 300);
+                }
+            } else {
+                console.log('Task finished with error:', data.error);
+            }
+        } catch (e) {
+            console.error('Poll error:', e);
+        }
+    }
+
+    pollStockProgress();
+    {% else %}
+    console.log('Stock polling DISABLED - stock_refreshing is False');
+    {% endif %}
 });
 </script>
 {% endblock content %}
