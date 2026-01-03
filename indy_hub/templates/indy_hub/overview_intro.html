@@ -20,8 +20,7 @@
                     {% trans "Indy Hub" %}
                 </h2>
                 <p class="text-muted mb-0">
-                    {% trans "This page is a summary of all features in the module." %}
-                    {% trans "It is shown only once on first open. After that, you will land directly on the Overview (counters + unread)." %}
+                    {% trans "Quick tour of Indy Hub. You see this once; next time you'll land on the Overview." %}
                 </p>
             </div>
         </div>
@@ -33,133 +32,118 @@
                 <header class="section-heading">
                     <div>
                         <h3>{% trans "Module summary" %}</h3>
-                        <p class="text-muted small mb-0">{% trans "Goal: centralize industry (BPO/BPC, jobs), copy sharing, ESI, and settings." %}</p>
+                        <p class="text-muted small mb-0">{% trans "Everything for blueprints, jobs, sharing, and corp hub in one place." %}</p>
                     </div>
                 </header>
 
                 <div class="card focus-card">
                     <div class="card-body p-4">
-                        <h5 class="mb-3">{% trans "Where to start (recommended)" %}</h5>
+                        <h5 class="mb-3">{% trans "Where to start" %}</h5>
                         <ol class="text-muted mb-4">
-                            <li class="mb-2">
-                                {% trans "Go to the ESI tab and authorize the characters you want to track." %}
-                            </li>
-                            <li class="mb-2">
-                                {% trans "Check that the required scopes are present (Blueprints / Jobs / Assets depending on your needs)." %}
-                            </li>
-                            <li class="mb-2">
-                                {% trans "Once your tokens are set up, explore Blueprints and Industry: counters and lists will populate." %}
-                            </li>
-                            <li class="mb-2">
-                                {% trans "Configure your preferences in Settings (sharing, notifications, material exchange)." %}
-                            </li>
-                            <li>
-                                {% trans "Come back to Overview for a quick summary (counters + unread)." %}
-                            </li>
+                            <li class="mb-2">{% trans "Connect your characters in ESI." %}</li>
+                            <li class="mb-2">{% trans "Browse Blueprints and Industry to see your data." %}</li>
+                            <li>{% trans "Set your sharing and notification preferences." %}</li>
                         </ol>
 
                         <h5 class="mb-3">{% trans "Feature details" %}</h5>
-                        <div class="share-metrics">
-                            <div class="share-metric">
-                                <div>
-                                    <span class="share-metric-label"><i class="fas fa-chart-simple me-2"></i>{% trans "Overview" %}</span>
-                                    <p class="text-muted small mb-2">{% trans "Intentionally simple: only counters and unread alerts." %}</p>
-                                    <ul class="text-muted small mb-0">
-                                        <li>{% trans "Blueprint counters (originals / copies)" %}</li>
-                                        <li>{% trans "Industry counters (active / completed jobs)" %}</li>
-                                        <li>{% trans "Unread: copy chats, pending job digests, Auth notifications (if available)" %}</li>
-                                    </ul>
+                        <div class="row row-cols-1 row-cols-md-2 g-3">
+                            <div class="col">
+                                <div class="card h-100 border-0 shadow-sm" style="border-top: 4px solid #4c6fff;">
+                                    <div class="card-body">
+                                        <div class="d-flex align-items-center mb-2">
+                                            <i class="fas fa-chart-simple text-primary me-2"></i>
+                                            <h6 class="mb-0">{% trans "Overview" %}</h6>
+                                            <span class="badge ms-2 rounded-pill bg-primary-subtle text-primary">{% trans "You're here" %}</span>
+                                        </div>
+                                        <p class="text-muted small mb-0">{% trans "See what matters now: blueprint and job counts, unread alerts, next actions." %}</p>
+                                    </div>
                                 </div>
-                                <span class="badge rounded-pill bg-primary-subtle text-primary">{% trans "You're here" %}</span>
                             </div>
 
-                            <div class="share-metric">
-                                <div>
-                                    <span class="share-metric-label"><i class="fas fa-key me-2"></i>{% trans "ESI" %}</span>
-                                    <p class="text-muted small mb-2">{% trans "Everything ESI: authorizations, scopes, and token health." %}</p>
-                                    <ul class="text-muted small mb-0">
-                                        <li>{% trans "Authorize characters to fetch Blueprints and/or Jobs" %}</li>
-                                        <li>{% trans "Quickly see what's missing (scopes) and re-run sync" %}</li>
-                                        <li>{% trans "Start here if something stays at 0" %}</li>
-                                    </ul>
+                            <div class="col">
+                                <div class="card h-100 border-0 shadow-sm" style="border-top: 4px solid #3bb273;">
+                                    <div class="card-body">
+                                        <div class="d-flex align-items-center mb-2">
+                                            <i class="fas fa-copy text-success me-2"></i>
+                                            <h6 class="mb-0">{% trans "Blueprints" %}</h6>
+                                        </div>
+                                        <p class="text-muted small mb-2">{% trans "Browse your BPO/BPCs and see which ones are busy." %}</p>
+                                        <p class="text-muted small mb-0">{% trans "Filter by type, check ME/TE, and jump to the prints you use most." %}</p>
+                                    </div>
                                 </div>
-                                <a class="btn btn-sm btn-outline-primary" href="{% url 'indy_hub:esi_hub' %}">{% trans "Open" %}</a>
                             </div>
 
-                            <div class="share-metric">
-                                <div>
-                                    <span class="share-metric-label"><i class="fas fa-copy me-2"></i>{% trans "Blueprints" %}</span>
-                                    <p class="text-muted small mb-2">{% trans "Blueprint visibility and management (personal and, if authorized, corporation)." %}</p>
-                                    <ul class="text-muted small mb-0">
-                                        <li>{% trans "List your BPO/BPC (and useful details)" %}</li>
-                                        <li>{% trans "Spot blueprints occupied/blocked by a job" %}</li>
-                                        <li>{% trans "Use dedicated pages instead of doing everything from Overview" %}</li>
-                                    </ul>
+                            <div class="col">
+                                <div class="card h-100 border-0 shadow-sm" style="border-top: 4px solid #f4a261;">
+                                    <div class="card-body">
+                                        <div class="d-flex align-items-center mb-2">
+                                            <i class="fas fa-share-nodes text-warning me-2"></i>
+                                            <h6 class="mb-0">{% trans "Blueprint Sharing" %}</h6>
+                                        </div>
+                                        <p class="text-muted small mb-2">{% trans "Demande une copie, suis la file, discute sur chaque requête." %}</p>
+                                        <p class="text-muted small mb-0">{% trans "Reçois et livre rapidement avec les statuts clairs." %}</p>
+                                    </div>
                                 </div>
-                                <a class="btn btn-sm btn-outline-primary" href="{% url 'indy_hub:all_bp_list' %}">{% trans "Open" %}</a>
                             </div>
 
-                            <div class="share-metric">
-                                <div>
-                                    <span class="share-metric-label"><i class="fas fa-industry me-2"></i>{% trans "Industry" %}</span>
-                                    <p class="text-muted small mb-2">{% trans "Track EVE jobs and use simulation/planning tools." %}</p>
-                                    <ul class="text-muted small mb-0">
-                                        <li>{% trans "See active and completed jobs" %}</li>
-                                        <li>{% trans "Trigger and configure job completion notifications" %}</li>
-                                        <li>{% trans "Production simulations: estimate/plan runs (depending on your setup)" %}</li>
-                                    </ul>
+                            <div class="col">
+                                <div class="card h-100 border-0 shadow-sm" style="border-top: 4px solid #2ec4b6;">
+                                    <div class="card-body">
+                                        <div class="d-flex align-items-center mb-2">
+                                            <i class="fas fa-industry text-info me-2"></i>
+                                            <h6 class="mb-0">{% trans "Industry" %}</h6>
+                                        </div>
+                                        <p class="text-muted small mb-2">{% trans "Vois tes jobs actifs et terminés en un coup d'œil." %}</p>
+                                        <p class="text-muted small mb-0">{% trans "Retrouve le détail d'un job et configure les alertes qui t'importent." %}</p>
+                                    </div>
                                 </div>
-                                <a class="btn btn-sm btn-outline-success" href="{% url 'indy_hub:personnal_job_list' %}">{% trans "Open" %}</a>
                             </div>
 
-                            <div class="share-metric">
-                                <div>
-                                    <span class="share-metric-label"><i class="fas fa-share-nodes me-2"></i>{% trans "Blueprint Sharing" %}</span>
-                                    <p class="text-muted small mb-2">{% trans "End-to-end workflow for requesting blueprint copies (BPC) between players." %}</p>
-                                    <ul class="text-muted small mb-0">
-                                        <li>{% trans "Request a copy (BPC) from shared blueprints" %}</li>
-                                        <li>{% trans "Industrialist side: see the fulfill queue and respond to requests" %}</li>
-                                        <li>{% trans "Track offers, acceptance, delivery, and status" %}</li>
-                                        <li>{% trans "Per-request chat with unread indicators" %}</li>
-                                    </ul>
+                            <div class="col">
+                                <div class="card h-100 border-0 shadow-sm" style="border-top: 4px solid #ff7f50;">
+                                    <div class="card-body">
+                                        <div class="d-flex align-items-center mb-2">
+                                            <i class="fas fa-boxes-stacked text-danger me-2"></i>
+                                            <h6 class="mb-0">{% trans "Material Hub" %}</h6>
+                                        </div>
+                                        <p class="text-muted small mb-2">{% trans "Achète ou vends au prix corp, suis validation et livraison." %}</p>
+                                        <p class="text-muted small mb-0">{% trans "Statuts clairs pour savoir quoi préparer ou récupérer." %}</p>
+                                    </div>
                                 </div>
-                                <a class="btn btn-sm btn-outline-warning" href="{% url 'indy_hub:bp_copy_request_page' %}">{% trans "Open" %}</a>
                             </div>
 
-                            <div class="share-metric">
-                                <div>
-                                    <span class="share-metric-label"><i class="fas fa-boxes-stacked me-2"></i>{% trans "Material Hub" %}</span>
-                                    <p class="text-muted small mb-2">{% trans "Material Exchange: buy/sell materials via a hub (depending on configuration)." %}</p>
-                                    <ul class="text-muted small mb-0">
-                                        <li>{% trans "Create buy/sell orders" %}</li>
-                                        <li>{% trans "Track processing (validation, delivery, etc.)" %}</li>
-                                        <li>{% trans "Price/stock sync (if enabled and tokens available)" %}</li>
-                                    </ul>
+                            <div class="col">
+                                <div class="card h-100 border-0 shadow-sm" style="border-top: 4px solid #7b61ff;">
+                                    <div class="card-body">
+                                        <div class="d-flex align-items-center mb-2">
+                                            <i class="fas fa-key text-primary me-2"></i>
+                                            <h6 class="mb-0">{% trans "ESI" %}</h6>
+                                        </div>
+                                        <p class="text-muted small mb-2">{% trans "Connecte tes persos en quelques clics." %}</p>
+                                        <p class="text-muted small mb-0">{% trans "Reviens ici si un compteur reste vide pour remettre un accès." %}</p>
+                                    </div>
                                 </div>
-                                <a class="btn btn-sm btn-outline-secondary" href="{% url 'indy_hub:material_exchange_index' %}">{% trans "Open" %}</a>
                             </div>
 
-                            <div class="share-metric">
-                                <div>
-                                    <span class="share-metric-label"><i class="fas fa-gear me-2"></i>{% trans "Settings" %}</span>
-                                    <p class="text-muted small mb-2">{% trans "Settings: behavior, permissions, and configuration." %}</p>
-                                    <ul class="text-muted small mb-0">
-                                        <li>{% trans "Copy sharing scope (private/corp/alliance/everyone)" %}</li>
-                                        <li>{% trans "Corporation sharing (if you have access)" %}</li>
-                                        <li>{% trans "Job notification cadence (instant/digest/...)" %}</li>
-                                        <li>{% trans "Material Exchange configuration (if you have access)" %}</li>
-                                    </ul>
+                            <div class="col">
+                                <div class="card h-100 border-0 shadow-sm" style="border-top: 4px solid #ffa600;">
+                                    <div class="card-body">
+                                        <div class="d-flex align-items-center mb-2">
+                                            <i class="fas fa-gear text-warning me-2"></i>
+                                            <h6 class="mb-0">{% trans "Settings" %}</h6>
+                                        </div>
+                                        <p class="text-muted small mb-2">{% trans "Choisis qui voit quoi et comment tu es notifié." %}</p>
+                                        <p class="text-muted small mb-0">{% trans "Ajuste le partage, les alertes, et le hub matériel si tu y as accès." %}</p>
+                                    </div>
                                 </div>
-                                <a class="btn btn-sm btn-outline-secondary" href="{% url 'indy_hub:settings_hub' %}">{% trans "Open" %}</a>
                             </div>
                         </div>
 
-                        <div class="d-flex flex-column flex-sm-row justify-content-end gap-2 mt-4">
-                            <a class="btn btn-primary" href="{% url 'indy_hub:index' %}">{% trans "Go to Overview" %}</a>
-                            <a class="btn btn-outline-secondary" href="{% url 'indy_hub:esi_hub' %}">{% trans "Go to ESI" %}</a>
+                        <div class="d-flex justify-content-end mt-4">
+                            <a class="btn btn-primary" href="{% url 'indy_hub:index' %}">{% trans "Let's go" %}</a>
                         </div>
                         <p class="text-muted small mb-0 mt-3">
-                            {% trans "To see this page again later: Settings → Intro → Reset intro." %}
+                            {% trans "Need to see this again? Settings → Intro → Reset intro." %}
                         </p>
                     </div>
                 </div>
