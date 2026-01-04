@@ -282,6 +282,61 @@ def material_exchange_get_structures(request, corp_id):
     )
 
 
+def _find_director_character(user, corp_id):
+    """Find a character with DIRECTOR role in the given corporation.
+
+    Returns the character_id or None if not found.
+    """
+    # Alliance Auth
+    from esi.models import Token
+    from indy_hub.services.esi_client import shared_client
+
+    # Get all character tokens for the user
+    try:
+        tokens = (
+            Token.objects.filter(user=user)
+            .require_scopes(["esi-characters.read_corporation_roles.v1"])
+            .require_valid()
+        )
+    except Exception:
+        return None
+
+    for token in tokens:
+        try:
+            # Get the character's corporation
+            char = token.character
+            if not char or int(char.corporation_id) != int(corp_id):
+                continue
+
+            # Check if character has DIRECTOR role
+            roles_data = shared_client.fetch_character_corporation_roles(
+                int(token.character_id)
+            )
+            corp_roles = roles_data.get("roles", [])
+
+            if "Director" in corp_roles:
+                logger.info(
+                    "Found DIRECTOR character %s for corporation %s",
+                    token.character_id,
+                    corp_id,
+                )
+                return int(token.character_id)
+        except Exception as exc:
+            logger.debug(
+                "Failed to check director role for character %s: %s",
+                getattr(token, "character_id", "?"),
+                exc,
+            )
+            continue
+
+    logger.warning(
+        "No DIRECTOR character found for user %s in corporation %s",
+        user.username,
+        corp_id,
+    )
+    return None
+
+
 @login_required
 @indy_hub_permission_required("can_manage_material_hub")
 def material_exchange_refresh_corp_assets(request):
@@ -309,11 +364,22 @@ def material_exchange_refresh_corp_assets(request):
         )
 
     try:
-        # Trigger task to refresh corp assets
+        # Find a DIRECTOR character for this corporation
+        director_char_id = _find_director_character(request.user, corp_id)
+        if not director_char_id:
+            return JsonResponse(
+                {
+                    "success": False,
+                    "error": "No character with DIRECTOR role found in this corporation",
+                },
+                status=400,
+            )
+
+        # Trigger task to refresh corp assets using the director character
         # AA Example App
         from indy_hub.tasks.material_exchange import refresh_corp_assets_cached
 
-        refresh_corp_assets_cached.delay(corp_id)
+        refresh_corp_assets_cached.delay(corp_id, director_char_id)
 
         return JsonResponse(
             {
