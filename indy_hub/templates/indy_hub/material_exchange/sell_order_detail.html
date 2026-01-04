@@ -23,11 +23,14 @@
                     </h2>
                     <p class="description">{% trans "Order" %} #{{ order.id }}</p>
                 </div>
+                {% url 'indy_hub:my_orders' as my_orders_url %}
+                {% with back_url=request.GET.next|default:my_orders_url %}
                 <div class="d-flex gap-2">
-                    <a href="{% url 'indy_hub:my_orders' %}" class="btn btn-outline-light">
+                    <a href="{{ back_url }}" class="btn btn-outline-light">
                         <i class="fas fa-arrow-left me-1"></i>{% trans "My Orders" %}
                     </a>
                 </div>
+                {% endwith %}
             </div>
         </div>
 
@@ -65,7 +68,8 @@
                         <div class="d-flex justify-content-between align-items-center">
                             <div>
                                 <h3>
-                                    <span class="badge bg-{{ timeline.0.color }} fs-5">
+                                    <span class="order-status-badge status-{{ order.status }}">
+                                        <i class="fas {{ timeline.0.icon }} status-icon"></i>
                                         {{ order.get_status_display }}
                                     </span>
                                 </h3>

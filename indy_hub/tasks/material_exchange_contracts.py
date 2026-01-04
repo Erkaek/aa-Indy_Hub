@@ -12,6 +12,7 @@ from celery import shared_task
 
 # Django
 from django.contrib.auth.models import User
+from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -576,7 +577,8 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
     ref_missing = False
     last_price_issue: str | None = None
     last_reason: str | None = None
-    contract_with_correct_ref: dict | None = None  # Track contracts with correct title
+    contract_with_correct_ref_wrong_structure: dict | None = None
+    contract_with_correct_ref_wrong_price: dict | None = None
 
     for contract in contracts:
         # Track contracts with correct order reference in title (for better diagnostics)
@@ -589,8 +591,8 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
         )
         if not criteria_match:
             # Store contract info if it has correct ref but wrong structure
-            if has_correct_ref and not contract_with_correct_ref:
-                contract_with_correct_ref = {
+            if has_correct_ref and not contract_with_correct_ref_wrong_structure:
+                contract_with_correct_ref_wrong_structure = {
                     "contract_id": contract.contract_id,
                     "issue": "structure location mismatch",
                     "start_location_id": contract.start_location_id,
@@ -608,6 +610,13 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
         if not price_ok:
             last_price_issue = price_msg
             last_reason = price_msg
+            if has_correct_ref and not contract_with_correct_ref_wrong_price:
+                contract_with_correct_ref_wrong_price = {
+                    "contract_id": contract.contract_id,
+                    "price_msg": price_msg,
+                    "contract_price": contract.price,
+                    "expected_price": order.total_price,
+                }
             continue
 
         # Title reference check (optional)
@@ -678,13 +687,13 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
             order.id,
             matching_contract.contract_id,
         )
-    elif contract_with_correct_ref:
+    elif contract_with_correct_ref_wrong_structure:
         # Contract found with correct title but wrong structure
         order.status = MaterialExchangeSellOrder.Status.REJECTED
         order.notes = (
-            f"Contract {contract_with_correct_ref['contract_id']} has the correct title ({order_ref}) "
+            f"Contract {contract_with_correct_ref_wrong_structure['contract_id']} has the correct title ({order_ref}) "
             f"but wrong location. Expected: {config.structure_name or f'Structure {config.structure_id}'}\n"
-            f"Contract is at location {contract_with_correct_ref.get('start_location_id') or contract_with_correct_ref.get('end_location_id')}"
+            f"Contract is at location {contract_with_correct_ref_wrong_structure.get('start_location_id') or contract_with_correct_ref_wrong_structure.get('end_location_id')}"
         )
         order.save(update_fields=["status", "notes", "updated_at"])
 
@@ -693,10 +702,10 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
             _("Sell Order Rejected: Wrong Contract Location"),
             _(
                 f"Your sell order {order_ref} was rejected.\n\n"
-                f"You submitted contract #{contract_with_correct_ref['contract_id']} which has the correct title, "
+                f"You submitted contract #{contract_with_correct_ref_wrong_structure['contract_id']} which has the correct title, "
                 f"but it's located at the wrong structure.\n\n"
                 f"Required location: {config.structure_name or f'Structure {config.structure_id}'}\n"
-                f"Your contract is at location {contract_with_correct_ref.get('start_location_id') or contract_with_correct_ref.get('end_location_id')}\n\n"
+                f"Your contract is at location {contract_with_correct_ref_wrong_structure.get('start_location_id') or contract_with_correct_ref_wrong_structure.get('end_location_id')}\n\n"
                 f"Please create a new contract at the correct location."
             ),
             level="danger",
@@ -705,7 +714,50 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
         logger.warning(
             "Sell order %s rejected: contract %s has correct title but wrong structure",
             order.id,
-            contract_with_correct_ref["contract_id"],
+            contract_with_correct_ref_wrong_structure["contract_id"],
+        )
+    elif contract_with_correct_ref_wrong_price:
+        order.status = MaterialExchangeSellOrder.Status.REJECTED
+        order.notes = (
+            f"Contract {contract_with_correct_ref_wrong_price['contract_id']} has the correct title ({order_ref}) "
+            f"but wrong price ({contract_with_correct_ref_wrong_price['price_msg']})."
+        )
+        order.save(update_fields=["status", "notes", "updated_at"])
+
+        expected_value = contract_with_correct_ref_wrong_price.get("expected_price")
+        contract_value = contract_with_correct_ref_wrong_price.get("contract_price")
+        try:
+            expected_price = (
+                f"{Decimal(str(expected_value)).quantize(Decimal('0.01')):,.2f} ISK"
+            )
+        except (InvalidOperation, TypeError):
+            expected_price = str(expected_value)
+
+        try:
+            contract_price = (
+                f"{Decimal(str(contract_value)).quantize(Decimal('0.01')):,.2f} ISK"
+            )
+        except (InvalidOperation, TypeError):
+            contract_price = str(contract_value)
+
+        notify_user(
+            order.seller,
+            _("Sell Order Rejected: Wrong Price"),
+            _(
+                f"Your sell order {order_ref} was rejected.\n\n"
+                f"You submitted contract #{contract_with_correct_ref_wrong_price['contract_id']} with the correct title, but the price does not match the agreed total.\n\n"
+                f"Expected price: {expected_price}\n"
+                f"Contract price: {contract_price}\n\n"
+                f"Please create a new contract with the correct price at {config.structure_name or f'Structure {config.structure_id}'}."
+            ),
+            level="danger",
+        )
+
+        logger.warning(
+            "Sell order %s rejected: contract %s has correct title but wrong price (%s)",
+            order.id,
+            contract_with_correct_ref_wrong_price["contract_id"],
+            contract_with_correct_ref_wrong_price["price_msg"],
         )
     else:
         # No contract found - only notify if status is changing or notes have significantly changed
@@ -724,16 +776,25 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
         order.notes = new_notes
         order.save(update_fields=["notes", "updated_at"])
 
-        if notes_changed or not order.updated_at:
+        reminder_key = f"material_exchange:sell_order:{order.id}:contract_reminder"
+        reminder_set = cache.add(reminder_key, timezone.now().timestamp(), 60 * 60 * 24)
+        if notes_changed:
+            cache.set(reminder_key, timezone.now().timestamp(), 60 * 60 * 24)
+
+        delete_link = f"/indy_hub/material-exchange/my-orders/sell/{order.id}/delete/"
+
+        if notes_changed or reminder_set:
             notify_user(
                 order.seller,
                 _("Sell Order Pending: waiting for contract"),
                 _(
-                    f"We didn't find a matching contract yet for your sell order {order_ref}.\n"
-                    f"Please submit an item exchange contract matching the above requirements."
+                    f"We still don't see a matching contract for your sell order {order_ref}.\n"
+                    f"Please submit an item exchange contract matching the requirements above."
                     + (f"\nLatest issue seen: {last_reason}" if last_reason else "")
+                    + "\n\nDon't need this order anymore? You can delete it from your orders page."
                 ),
                 level="warning",
+                link=delete_link,
             )
 
         logger.info("Sell order %s pending: no matching contract yet", order.id)
@@ -866,21 +927,8 @@ def _validate_buy_order_from_db(config, order, contracts, esi_client=None):
         ]
     ).strip()
 
-    notes_changed = order.notes != new_notes
     order.notes = new_notes
     order.save(update_fields=["notes", "updated_at"])
-
-    if notes_changed or not order.updated_at:
-        notify_user(
-            order.buyer,
-            _("Buy Order Pending: waiting for contract"),
-            _(
-                f"We didn't find a matching contract yet for your buy order {order_ref}.\n"
-                f"The corporation needs to issue an item exchange contract to you."
-                + (f"\nLatest issue seen: {last_reason}" if last_reason else "")
-            ),
-            level="info",
-        )
 
     logger.info("Buy order %s pending: no matching contract yet", order.id)
 
@@ -1126,17 +1174,6 @@ def check_completed_material_exchange_contracts():
                 ]
             )
 
-            notify_user(
-                order.seller,
-                _("Sell Order Completed"),
-                _(
-                    f"Your sell order {order.order_reference} has been completed!\n"
-                    f"Total payment: {order.total_price:,.2f} ISK\n\n"
-                    f"The corporation has accepted the contract. Check your wallet for payment confirmation."
-                ),
-                level="success",
-            )
-
             logger.info(
                 "Sell order %s completed: contract %s accepted (status: %s)",
                 order.id,
@@ -1162,18 +1199,6 @@ def check_completed_material_exchange_contracts():
                 ]
             )
 
-            notify_user(
-                order.seller,
-                _("Sell Order Cancelled"),
-                _(
-                    f"Your sell order {order.order_reference} was cancelled.\n\n"
-                    f"Reason: Contract #{contract_id} status is '{contract_status}'.\n"
-                    f"This means the contract was not accepted or expired.\n\n"
-                    f"You can create a new sell order if you still want to sell these items."
-                ),
-                level="warning",
-            )
-
             logger.warning(
                 "Sell order %s cancelled: contract %s status is %s",
                 order.id,
@@ -1191,18 +1216,6 @@ def check_completed_material_exchange_contracts():
                     "notes",
                     "updated_at",
                 ]
-            )
-
-            notify_user(
-                order.seller,
-                _("Sell Order Reversed"),
-                _(
-                    f"Your sell order {order.order_reference} was reversed.\n\n"
-                    f"Contract #{contract_id} was reversed by CCP/GM.\n"
-                    f"This is very rare and usually means a game bug or GM intervention.\n\n"
-                    f"Please contact corporation leadership for clarification."
-                ),
-                level="danger",
             )
 
             logger.error(
@@ -1247,17 +1260,6 @@ def check_completed_material_exchange_contracts():
                 ]
             )
 
-            notify_user(
-                order.buyer,
-                _("Buy Order Completed"),
-                _(
-                    f"Your buy order {order.order_reference} has been completed!\n"
-                    f"Total paid: {order.total_price:,.2f} ISK\n\n"
-                    f"The contract was accepted. Enjoy your items!"
-                ),
-                level="success",
-            )
-
             logger.info(
                 "Buy order %s completed: contract %s accepted (status: %s)",
                 order.id,
@@ -1283,18 +1285,6 @@ def check_completed_material_exchange_contracts():
                 ]
             )
 
-            notify_user(
-                order.buyer,
-                _("Buy Order Cancelled"),
-                _(
-                    f"Your buy order {order.order_reference} was cancelled.\n\n"
-                    f"Reason: Contract #{contract_id} status is '{contract_status}'.\n"
-                    f"This means the contract expired or was cancelled.\n\n"
-                    f"Please contact corporation leadership if you still need these items."
-                ),
-                level="warning",
-            )
-
             logger.warning(
                 "Buy order %s cancelled: contract %s status is %s",
                 order.id,
@@ -1312,18 +1302,6 @@ def check_completed_material_exchange_contracts():
                     "notes",
                     "updated_at",
                 ]
-            )
-
-            notify_user(
-                order.buyer,
-                _("Buy Order Reversed"),
-                _(
-                    f"Your buy order {order.order_reference} was reversed.\n\n"
-                    f"Contract #{contract_id} was reversed by CCP/GM.\n"
-                    f"This is very rare and usually means a game bug or GM intervention.\n\n"
-                    f"Please contact corporation leadership for clarification."
-                ),
-                level="danger",
             )
 
             logger.error(
@@ -1459,10 +1437,10 @@ def _get_admins_for_config(config: MaterialExchangeConfig) -> list[User]:
     # Start with staff members and superusers (all have admin panel access)
     admins = list(User.objects.filter(is_staff=True, is_active=True).distinct())
 
-    # Add users with explicit can_manage_material_exchange permission (via groups or user)
+    # Add users with explicit can_manage_material_hub permission (via groups or user)
     try:
         perm = Permission.objects.get(
-            codename="can_manage_material_exchange",
+            codename="can_manage_material_hub",
             content_type__app_label="indy_hub",
         )
         perm_users = list(

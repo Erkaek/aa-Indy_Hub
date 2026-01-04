@@ -225,14 +225,14 @@
                             </button>
                         </div>
                         <small class="text-muted d-block mt-2">{% trans "Corporation owning the Material Exchange hangar" %}</small>
-                        <div id="refreshStatus" class="mt-2" style="display:none;">
+                        <div id="refreshStatus" class="mt-2 refresh-status">
                             <small class="text-info d-flex align-items-center gap-2">
                                 <span class="spinner-border spinner-border-sm" id="refreshSpinner"></span>
                                 <span id="refreshStatusText">{% trans "Refreshing assets..." %}</span>
                             </small>
-                            <div class="progress mt-2" id="progressBar" style="height: 25px; display:none;">
-                                <div id="progressBarFill" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
-                                    <span id="progressText" style="color: black; font-weight: bold;">0%</span>
+                            <div class="progress mt-2 refresh-progress" id="progressBar">
+                                <div id="progressBarFill" class="progress-bar progress-bar-striped progress-bar-animated refresh-progress-bar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                                    <span id="progressText" class="text-dark fw-bold">0%</span>
                                 </div>
                             </div>
                         </div>

@@ -34,8 +34,8 @@
 
         <div class="glass-panel p-4 mb-4">
             <div class="d-flex align-items-start gap-3">
-                <i class="fas fa-info-circle text-info mt-1" style="flex-shrink: 0;"></i>
-                <div style="flex: 1;">
+                <i class="fas fa-info-circle text-info mt-1 info-icon-fixed"></i>
+                <div class="info-body-flex">
                     <p class="mb-2 small text-muted text-uppercase">{% trans "Pricing Formula" %}</p>
                     <div class="d-flex align-items-baseline gap-2 flex-wrap">
                         <span class="fw-semibold">
@@ -104,11 +104,11 @@
                             <table class="table table-hover stock-table align-middle">
                                 <thead>
                                     <tr>
-                                        <th style="width: 60px;"></th>
+                                        <th class="stock-col-icon"></th>
                                         <th>{% trans "Item" %}</th>
                                         <th class="text-end">{% trans "You Own" %}</th>
                                         <th class="text-end">{% trans "Unit Price" %}</th>
-                                        <th class="text-center" style="width: 140px;">{% trans "Quantity" %}</th>
+                                        <th class="text-center stock-col-qty">{% trans "Quantity" %}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -227,7 +227,7 @@
                                 <div class="col-12">
                                     <div class="detail-card">
                                         <label class="fw-bold text-muted small">{% trans "Items to Sell" %}</label>
-                                        <div class="items-list" id="modalItemsList" style="max-height: 200px; overflow-y: auto;">
+                                        <div class="items-list modal-items-list" id="modalItemsList">
                                         </div>
                                     </div>
                                 </div>
@@ -251,7 +251,7 @@
                                                 {% trans "You will receive your order reference ID after submission. Please note it down and include it in the contract title." %}
                                             </small>
                                         </div>
-                                        <div class="detail-value text-warning fw-monospace" id="modalRefId" style="word-break: break-all; background: rgba(var(--bs-warning-rgb), 0.1); padding: 0.75rem; border-radius: 0.375rem;">
+                                        <div class="detail-value text-warning fw-monospace contract-ref-tag" id="modalRefId">
                                             INDY-[will be generated after submission]
                                         </div>
                                         <small class="text-muted mt-2">{% trans "Copy and paste this into the contract title/description field in-game" %}</small>

@@ -1,0 +1,117 @@
+{% extends "indy_hub/base.html" %}
+{% load i18n %}
+{% load static %}
+{% load humanize %}
+
+{% block page_title %}{% trans "Material Exchange History" %}{% endblock page_title %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
+<link rel="stylesheet" href="{% static 'indy_hub/css/material_exchange.css' %}">
+<style>
+    .history-table th { text-transform: uppercase; font-size: 12px; letter-spacing: 0.4px; }
+    .history-table td { vertical-align: middle; }
+    .history-panel { background: #ffffff; border: 1px solid rgba(15, 23, 42, 0.08); border-radius: 12px; box-shadow: 0 10px 28px rgba(15, 23, 42, 0.08); }
+</style>
+{% endblock extra_css %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="page-header mb-4">
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+            <div>
+                <h2 class="h4 mb-1">
+                    <i class="fas fa-archive me-2"></i>
+                    {% trans "Closed Orders History" %}
+                </h2>
+                <p class="description">{% trans "Completed, rejected and cancelled contracts" %}</p>
+            </div>
+            <div class="d-flex gap-2">
+                <a href="{% url 'indy_hub:material_exchange_index' %}#admin-panel" class="btn btn-outline-secondary">
+                    <i class="fas fa-arrow-left me-1"></i>{% trans "Back to Admin" %}
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-12 col-lg-6">
+            <div class="history-panel p-3">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h5 class="mb-0"><i class="fas fa-arrow-up text-danger me-2"></i>{% trans "Sell Orders" %}</h5>
+                    <span class="badge bg-light text-dark">{{ sell_history|length }}</span>
+                </div>
+                {% if sell_history %}
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover history-table mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>{% trans "Ref" %}</th>
+                                <th>{% trans "Seller" %}</th>
+                                <th class="text-end">{% trans "Total" %}</th>
+                                <th>{% trans "Status" %}</th>
+                                <th>{% trans "Date" %}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for order in sell_history %}
+                            <tr>
+                                <td class="fw-semibold">{{ order.order_reference }}</td>
+                                <td>{{ order.seller.username }}</td>
+                                <td class="text-end text-success fw-semibold">{{ order.total_price|floatformat:0|intcomma }} ISK</td>
+                                <td>
+                                    <span class="badge bg-secondary">{{ order.get_status_display }}</span>
+                                </td>
+                                <td>{{ order.created_at|date:"Y-m-d H:i" }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted mb-0">{% trans "No closed sell orders." %}</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="col-12 col-lg-6">
+            <div class="history-panel p-3">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h5 class="mb-0"><i class="fas fa-arrow-down text-success me-2"></i>{% trans "Buy Orders" %}</h5>
+                    <span class="badge bg-light text-dark">{{ buy_history|length }}</span>
+                </div>
+                {% if buy_history %}
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover history-table mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>{% trans "Ref" %}</th>
+                                <th>{% trans "Buyer" %}</th>
+                                <th class="text-end">{% trans "Total" %}</th>
+                                <th>{% trans "Status" %}</th>
+                                <th>{% trans "Date" %}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for order in buy_history %}
+                            <tr>
+                                <td class="fw-semibold">{{ order.order_reference }}</td>
+                                <td>{{ order.buyer.username }}</td>
+                                <td class="text-end text-success fw-semibold">{{ order.total_price|floatformat:0|intcomma }} ISK</td>
+                                <td>
+                                    <span class="badge bg-secondary">{{ order.get_status_display }}</span>
+                                </td>
+                                <td>{{ order.created_at|date:"Y-m-d H:i" }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted mb-0">{% trans "No closed buy orders." %}</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock content %}

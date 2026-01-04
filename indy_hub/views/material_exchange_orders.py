@@ -112,11 +112,13 @@ def sell_order_detail(request, order_id):
     Display detailed view of a specific sell order.
     Shows order reference prominently, items, status timeline, contract info.
     """
-    order = get_object_or_404(
-        MaterialExchangeSellOrder.objects.prefetch_related("items"),
-        id=order_id,
-        seller=request.user,  # Ensure user owns this order
-    )
+    queryset = MaterialExchangeSellOrder.objects.prefetch_related("items")
+
+    # Admins can inspect any order; regular users limited to their own
+    if request.user.has_perm("indy_hub.can_manage_material_hub"):
+        order = get_object_or_404(queryset, id=order_id)
+    else:
+        order = get_object_or_404(queryset, id=order_id, seller=request.user)
 
     config = order.config
 
@@ -145,11 +147,13 @@ def buy_order_detail(request, order_id):
     Display detailed view of a specific buy order.
     Shows order reference prominently, items, status timeline, delivery info.
     """
-    order = get_object_or_404(
-        MaterialExchangeBuyOrder.objects.prefetch_related("items"),
-        id=order_id,
-        buyer=request.user,  # Ensure user owns this order
-    )
+    queryset = MaterialExchangeBuyOrder.objects.prefetch_related("items")
+
+    # Admins can inspect any order; regular users limited to their own
+    if request.user.has_perm("indy_hub.can_manage_material_hub"):
+        order = get_object_or_404(queryset, id=order_id)
+    else:
+        order = get_object_or_404(queryset, id=order_id, buyer=request.user)
 
     config = order.config
 

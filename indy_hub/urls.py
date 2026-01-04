@@ -49,6 +49,7 @@ from .views.material_exchange import (
     material_exchange_buy_stock_refresh_status,
     material_exchange_complete_buy,
     material_exchange_complete_sell,
+    material_exchange_history,
     material_exchange_index,
     material_exchange_mark_delivered_buy,
     material_exchange_reject_buy,
@@ -398,6 +399,11 @@ urlpatterns = [
         "material-exchange/transactions/",
         material_exchange_transactions,
         name="material_exchange_transactions",
+    ),
+    path(
+        "material-exchange/history/",
+        material_exchange_history,
+        name="material_exchange_history",
     ),
     path(
         "material-exchange/sell/<int:order_id>/approve/",

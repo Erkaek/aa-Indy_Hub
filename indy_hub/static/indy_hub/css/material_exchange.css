@@ -5,16 +5,71 @@
     --bp-border-color: transparent;
 }
 
+/* Unified status pills (used on lists, admin, detail) */
 .status-badge {
     display: inline-flex;
     align-items: center;
-    gap: 0.4rem;
-    padding: 0.4rem 0.8rem;
-    border-radius: 0.25rem;
-    font-weight: 500;
-    font-size: 0.85rem;
+    gap: 6px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    background: #ffffff;
+    color: #0f172a;
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: 0.2px;
+    text-transform: none;
 }
 
+.status-badge .status-icon {
+    color: inherit;
+    font-size: 0.9rem;
+}
+
+/* New workflow statuses */
+.status-badge.status-awaiting_validation {
+    background: #fef3c7;
+    border-color: #f59e0b;
+    color: #b45309;
+}
+
+.status-badge.status-validated {
+    background: #e0f2fe;
+    border-color: #38bdf8;
+    color: #075985;
+}
+
+.status-badge.status-accepted {
+    background: #e0f2fe;
+    border-color: #60a5fa;
+    color: #1d4ed8;
+}
+
+.status-badge.status-completed {
+    background: #dcfce7;
+    border-color: #22c55e;
+    color: #166534;
+}
+
+.status-badge.status-draft {
+    background: #e2e8f0;
+    border-color: #cbd5e1;
+    color: #475569;
+}
+
+.status-badge.status-rejected {
+    background: #fee2e2;
+    border-color: #ef4444;
+    color: #991b1b;
+}
+
+.status-badge.status-cancelled {
+    background: #e5e7eb;
+    border-color: #9ca3af;
+    color: #475569;
+}
+
+/* Legacy statuses kept for compatibility */
 .status-pending {
     background-color: #ffc107;
     color: var(--indy-text-primary, #000);
@@ -27,25 +82,6 @@ html[data-theme="darkly"] .status-pending {
 .status-approved {
     background-color: #17a2b8;
     color: #fff;
-}
-
-.status-completed {
-    background-color: #198754;
-    color: #fff;
-}
-
-.status-rejected {
-    background-color: #dc3545;
-    color: #fff;
-}
-
-.status-cancelled {
-    background-color: #6c757d;
-    color: #fff;
-}
-
-.status-icon {
-    font-size: 0.9rem;
 }
 
 /* Stock table styles for buy.html and sell.html */
@@ -61,10 +97,6 @@ html[data-theme="darkly"] .status-pending {
 }
 
 .stock-table tbody tr:hover {
-    opacity: 0.8;
-}
-
-.stock-table tbody tr.selected {
     border-left: 3px solid;
 }
 
@@ -212,6 +244,145 @@ html[data-theme="darkly"] .empty-invoice {
     color: var(--bs-secondary);
 }
 
+/* Admin ledger layout */
+.admin-ledger {
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 12px;
+    background: linear-gradient(120deg, #f8fafc, #eef2ff);
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+    overflow: hidden;
+}
+
+.admin-ledger .ledger-head {
+    padding: 12px 16px;
+    background: rgba(15, 23, 42, 0.04);
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 12px;
+}
+
+.ledger-head .title {
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    color: #0f172a;
+}
+
+.ledger-list {
+    padding: 6px 0;
+}
+
+.ledger-row {
+    display: grid;
+    grid-template-columns: 260px 1fr 260px;
+    gap: 16px;
+    align-items: center;
+    padding: 14px 18px;
+    border-top: 1px solid rgba(15, 23, 42, 0.08);
+    transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.ledger-row:first-of-type {
+    border-top: 0;
+}
+
+.ledger-row:hover {
+    background: rgba(79, 70, 229, 0.06);
+    transform: translateY(-1px);
+}
+
+.ledger-row .ref {
+    font-weight: 800;
+    color: #0f172a;
+}
+
+.ledger-row .identity {
+    color: #334155;
+    font-size: 13px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.ledger-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 8px;
+}
+
+.stat-chip {
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    background: rgba(255, 255, 255, 0.65);
+}
+
+.stat-chip .label {
+    color: #475569;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.stat-chip .value {
+    color: #0f172a;
+    font-weight: 700;
+}
+
+.preview {
+    color: #1f2937;
+    font-size: 13px;
+}
+
+.ledger-actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.status-rail {
+    width: 6px;
+    height: 100%;
+    border-radius: 10px;
+    background: #cbd5e1;
+}
+
+.ledger-row.status-draft .status-rail {
+    background: #cbd5e1;
+}
+
+.ledger-row.status-awaiting_validation .status-rail {
+    background: #f59e0b;
+}
+
+.ledger-row.status-validated .status-rail {
+    background: #38bdf8;
+}
+
+.ledger-row.status-completed .status-rail {
+    background: #22c55e;
+}
+
+.ledger-row.status-rejected .status-rail {
+    background: #ef4444;
+}
+
+.ledger-row.status-cancelled .status-rail {
+    background: #94a3b8;
+}
+
+@media (max-width: 992px) {
+    .ledger-row {
+        grid-template-columns: 1fr;
+        align-items: flex-start;
+    }
+    .ledger-actions {
+        justify-content: flex-start;
+    }
+}
+
 /* Remove glass-panel borders for cleaner look - override blueprints.css */
 .glass-panel {
     background: transparent !important;
@@ -225,6 +396,61 @@ html[data-theme="darkly"] .empty-invoice {
     background: transparent !important;
     border: none !important;
     box-shadow: none !important;
+}
+
+/* Page header divider chip on admin section */
+.admin-divider-line {
+    border-color: rgba(15, 23, 42, 0.12) !important;
+}
+
+.admin-divider-chip {
+    background: rgba(15, 23, 42, 0.05);
+    border: 1px solid rgba(15, 23, 42, 0.12);
+}
+
+/* Info panels icon + body flex handling */
+.info-icon-fixed {
+    flex-shrink: 0;
+}
+
+.info-body-flex {
+    flex: 1;
+}
+
+/* Stock table fixed column widths */
+.stock-col-icon {
+    width: 60px;
+}
+
+.stock-col-qty {
+    width: 140px;
+}
+
+/* Modal lists and reference tag styling */
+.modal-items-list {
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.contract-ref-tag {
+    word-break: break-all;
+    background: rgba(var(--bs-warning-rgb), 0.1);
+    padding: 0.75rem;
+    border-radius: 0.375rem;
+}
+
+/* Config refresh progress visuals */
+.refresh-status {
+    display: none;
+}
+
+.refresh-progress {
+    height: 25px;
+    display: none;
+}
+
+.refresh-progress-bar {
+    width: 0%;
 }
 
 /* Bootstrap utility classes overrides */

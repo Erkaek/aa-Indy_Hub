@@ -20,40 +20,100 @@
 
 /* Buy Order Details */
 .buy-order-detail .order-reference-display {
-    background: linear-gradient(135deg, rgba(var(--bs-info-rgb), 0.2), rgba(var(--bs-primary-rgb), 0.2));
-    border: 2px solid var(--bs-info);
+    background: linear-gradient(135deg, #eef2ff, #e0f2fe);
+    border: 1px solid #cbd5e1;
 }
 
 .buy-order-detail .order-reference-display h1 {
-    color: var(--bs-info);
+    color: #1d4ed8;
 }
 
 html[data-theme="darkly"] .buy-order-detail .order-reference-display {
-    background: linear-gradient(135deg, rgba(var(--bs-info-rgb), 0.15), rgba(var(--bs-primary-rgb), 0.15));
-    border-color: rgba(var(--bs-info-rgb), 0.5);
+    background: linear-gradient(135deg, rgba(var(--bs-primary-rgb), 0.12), rgba(var(--bs-info-rgb), 0.12));
+    border-color: rgba(var(--bs-info-rgb), 0.35);
 }
 
 html[data-theme="darkly"] .buy-order-detail .order-reference-display h1 {
-    color: rgba(var(--bs-info-rgb), 0.9);
+    color: rgba(var(--bs-primary-rgb), 0.92);
 }
 
 /* Sell Order Details */
 .sell-order-detail .order-reference-display {
-    background: linear-gradient(135deg, rgba(var(--bs-warning-rgb), 0.2), rgba(var(--bs-success-rgb), 0.2));
-    border: 2px solid var(--bs-warning);
+    background: linear-gradient(135deg, #fff7ed, #f0fdf4);
+    border: 1px solid #fed7aa;
 }
 
 .sell-order-detail .order-reference-display h1 {
-    color: var(--bs-warning);
+    color: #b45309;
 }
 
 html[data-theme="darkly"] .sell-order-detail .order-reference-display {
-    background: linear-gradient(135deg, rgba(var(--bs-warning-rgb), 0.15), rgba(var(--bs-success-rgb), 0.15));
-    border-color: rgba(var(--bs-warning-rgb), 0.5);
+    background: linear-gradient(135deg, rgba(var(--bs-warning-rgb), 0.12), rgba(var(--bs-success-rgb), 0.12));
+    border-color: rgba(var(--bs-warning-rgb), 0.35);
 }
 
 html[data-theme="darkly"] .sell-order-detail .order-reference-display h1 {
     color: rgba(var(--bs-warning-rgb), 0.9);
+}
+
+/* Status badges to mirror main ledger palette */
+.order-status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.4rem 0.85rem;
+    border-radius: 999px;
+    border: 1px solid rgba(15, 23, 42, 0.1);
+    background: #ffffff;
+    color: #0f172a;
+    font-weight: 700;
+    font-size: 0.95rem;
+}
+
+.order-status-badge .status-icon {
+    color: inherit;
+}
+
+.order-status-badge.status-awaiting_validation {
+    background: #fef3c7;
+    border-color: #f59e0b;
+    color: #b45309;
+}
+
+.order-status-badge.status-validated {
+    background: #e0f2fe;
+    border-color: #38bdf8;
+    color: #075985;
+}
+
+.order-status-badge.status-accepted {
+    background: #e0f2fe;
+    border-color: #60a5fa;
+    color: #1d4ed8;
+}
+
+.order-status-badge.status-completed {
+    background: #dcfce7;
+    border-color: #22c55e;
+    color: #166534;
+}
+
+.order-status-badge.status-draft {
+    background: #e2e8f0;
+    border-color: #cbd5e1;
+    color: #475569;
+}
+
+.order-status-badge.status-rejected {
+    background: #fee2e2;
+    border-color: #ef4444;
+    color: #991b1b;
+}
+
+.order-status-badge.status-cancelled {
+    background: #e5e7eb;
+    border-color: #9ca3af;
+    color: #475569;
 }
 
 /* Timeline styles for order details */

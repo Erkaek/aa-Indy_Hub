@@ -6,7 +6,9 @@ from decimal import Decimal
 
 # Django
 from django.contrib import messages
+from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.models import Permission
 from django.core.cache import cache
 from django.core.paginator import Paginator
 from django.db import transaction
@@ -29,6 +31,7 @@ from ..models import (
     MaterialExchangeStock,
     MaterialExchangeTransaction,
 )
+from ..notifications import notify_multi
 from ..services.asset_cache import get_corp_divisions_cached, get_user_assets_cached
 from ..tasks.material_exchange import (
     refresh_material_exchange_buy_stock,
@@ -40,8 +43,36 @@ from ..utils.eve import get_type_name
 from .navigation import build_nav_context
 
 logger = logging.getLogger(__name__)
+User = get_user_model()
 
 _PRODUCTION_IDS_CACHE: set[int] | None = None
+
+
+def _get_material_exchange_admins() -> list[User]:
+    """Return active admins for Material Exchange (staff + permission holders)."""
+
+    admins = list(User.objects.filter(is_staff=True, is_active=True))
+
+    try:
+        perm = Permission.objects.get(
+            codename="can_manage_material_hub", content_type__app_label="indy_hub"
+        )
+        perm_users = User.objects.filter(
+            Q(groups__permissions=perm) | Q(user_permissions=perm), is_active=True
+        ).distinct()
+        admins.extend(list(perm_users))
+    except Permission.DoesNotExist:
+        pass
+
+    seen: set[int] = set()
+    unique_admins: list[User] = []
+    for admin in admins:
+        if admin.id in seen:
+            continue
+        seen.add(admin.id)
+        unique_admins.append(admin)
+
+    return unique_admins
 
 
 def _fetch_user_assets_for_structure(
@@ -393,9 +424,15 @@ def material_exchange_index(request):
     status_filter = None
 
     if can_admin:
-        status_filter = request.GET.get("status", "pending")
-        admin_sell_orders = config.sell_orders.all().order_by("-created_at")
-        admin_buy_orders = config.buy_orders.all().order_by("-created_at")
+        closed_statuses = ["completed", "rejected", "cancelled"]
+        status_filter = request.GET.get("status") or None
+        # Admin panel: show only active/in-flight orders; closed ones move to history view
+        admin_sell_orders = config.sell_orders.exclude(
+            status__in=closed_statuses
+        ).order_by("-created_at")
+        admin_buy_orders = config.buy_orders.exclude(
+            status__in=closed_statuses
+        ).order_by("-created_at")
         if status_filter:
             admin_sell_orders = admin_sell_orders.filter(status=status_filter)
             admin_buy_orders = admin_buy_orders.filter(status=status_filter)
@@ -431,6 +468,46 @@ def material_exchange_index(request):
 
 @login_required
 @indy_hub_permission_required("can_access_indy_hub")
+def material_exchange_history(request):
+    """Admin-only history page showing closed (completed/rejected/cancelled) orders."""
+    if not request.user.has_perm("indy_hub.can_manage_material_hub"):
+        messages.error(request, _("You are not allowed to view this page."))
+        return redirect("indy_hub:material_exchange_index")
+
+    config = get_object_or_404(MaterialExchangeConfig, is_active=True)
+    closed_statuses = ["completed", "rejected", "cancelled"]
+
+    sell_history = (
+        config.sell_orders.filter(status__in=closed_statuses)
+        .select_related("seller")
+        .order_by("-created_at")
+    )
+    buy_history = (
+        config.buy_orders.filter(status__in=closed_statuses)
+        .select_related("buyer")
+        .order_by("-created_at")
+    )
+
+    context = {
+        "config": config,
+        "sell_history": sell_history,
+        "buy_history": buy_history,
+        "nav_context": _build_nav_context(request.user),
+    }
+
+    context.update(
+        build_nav_context(
+            request.user,
+            active_tab="material_hub",
+            can_manage_corp=request.user.has_perm(
+                "indy_hub.can_manage_corp_bp_requests"
+            ),
+        )
+    )
+
+    return render(request, "indy_hub/material_exchange/history.html", context)
+
+
 @login_required
 @indy_hub_permission_required("can_access_indy_hub")
 def material_exchange_sell(request):
@@ -582,40 +659,6 @@ def material_exchange_sell(request):
             )
             for item_data in items_to_create:
                 MaterialExchangeSellOrderItem.objects.create(order=order, **item_data)
-
-            # Send PM notification with order reference and instructions
-            from ..notifications import notify_user
-
-            # Get corporation name
-            corp_name = _get_corp_name_for_hub(config.corporation_id)
-
-            # Build items list for notification
-            items_list = "\n".join(
-                f"• {item.type_name}: {item.quantity:,}x @ {item.unit_price:,.2f} ISK"
-                for item in order.items.all()
-            )
-
-            notify_user(
-                request.user,
-                _("✅ Sell Order Created"),
-                _(
-                    f"Your sell order has been created!\n\n"
-                    f"📋 Order Reference: **{order.order_reference}**\n"
-                    f"💰 Total Payout: {total_payout:,.2f} ISK\n"
-                    f"📦 Items ({len(items_to_create)}):\n{items_list}\n\n"
-                    f"**Next Steps:**\n"
-                    f"1. Create an Item Exchange contract in-game\n"
-                    f"2. Set 'Assigned to': {corp_name}\n"
-                    f"3. Add all items listed above\n"
-                    f"4. **IMPORTANT: Include '{order.order_reference}' in the contract title/description**\n"
-                    f"5. Set location: {config.structure_name} (ID: {config.structure_id})\n"
-                    f"6. Set price: {total_payout:,.2f} ISK\n"
-                    f"7. Set duration: 4 weeks\n\n"
-                    f"The system will automatically verify your contract within 5 minutes.\n"
-                    f"View your order status: /indy-hub/material-exchange/my-orders/{order.id}/"
-                ),
-                level="success",
-            )
 
             messages.success(
                 request,
@@ -909,25 +952,33 @@ def material_exchange_buy(request):
             for item_data in items_to_create:
                 MaterialExchangeBuyOrderItem.objects.create(order=order, **item_data)
 
-            # Notify the buyer
-            from ..notifications import notify_user
+            admins = _get_material_exchange_admins()
+            if admins:
+                preview_lines = []
+                for item in order.items.all()[:5]:
+                    preview_lines.append(
+                        f"- {item.type_name}: {item.quantity:,} @ {item.unit_price:,.2f} ISK"
+                    )
+                if order.items.count() > 5:
+                    preview_lines.append("…")
 
-            notify_user(
-                request.user,
-                _("✅ Buy Order Created"),
-                _(
-                    f"Your buy order has been created!\n\n"
-                    f"📋 Order #{order.id}\n"
-                    f"💰 Total Cost: {total_cost:,.2f} ISK\n"
-                    f"📦 Items: {len(items_to_create)}\n\n"
-                    f"**Next Steps:**\n"
-                    f"1. Wait for admin approval\n"
-                    f"2. Corporation will create a contract\n"
-                    f"3. Review and accept the contract in-game\n\n"
-                    f"Once you accept the contract, your order will be completed."
-                ),
-                level="success",
-            )
+                notify_multi(
+                    admins,
+                    _("Nouvelle commande d'achat"),
+                    _(
+                        f"{request.user.username} a créé un buy order {order.order_reference}.\n"
+                        f"Articles: {order.items.count()}  |  Qté totale: {order.total_quantity:,}\n"
+                        f"Total: {total_cost:,.2f} ISK\n\n"
+                        f"A faire: créer/valider le contrat."
+                        + (
+                            "\n\nAperçu:\n" + "\n".join(preview_lines)
+                            if preview_lines
+                            else ""
+                        )
+                    ),
+                    level="info",
+                    link=f"/indy_hub/material-exchange/my-orders/buy/{order.id}/",
+                )
 
             messages.success(
                 request,
@@ -1280,9 +1331,10 @@ def material_exchange_reject_buy(request, order_id):
         _(
             f"Your buy order #{order.id} has been rejected.\n\n"
             f"Reason: Insufficient stock or admin decision.\n\n"
-            f"Please contact admin if you have questions."
+            f"Contact the admins in Auth if you need details or want to retry."
         ),
         level="error",
+        link=f"/indy_hub/material-exchange/my-orders/buy/{order.id}/",
     )
 
     order.status = "rejected"
