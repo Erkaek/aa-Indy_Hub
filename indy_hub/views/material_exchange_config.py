@@ -19,7 +19,7 @@ from esi.clients import EsiClientProvider
 from esi.views import sso_redirect
 
 from ..decorators import indy_hub_permission_required
-from ..models import CachedStructureName, MaterialExchangeConfig
+from ..models import MaterialExchangeConfig
 from ..services.asset_cache import (
     get_corp_assets_cached,
     get_corp_divisions_cached,
@@ -289,6 +289,8 @@ def _find_director_character(user, corp_id):
     """
     # Alliance Auth
     from esi.models import Token
+
+    # AA Example App
     from indy_hub.services.esi_client import shared_client
 
     # Get all character tokens for the user
@@ -405,9 +407,11 @@ def material_exchange_check_refresh_status(request, task_id):
     AJAX endpoint to check the status of a refresh task.
     Returns the task status: pending, success, or failure.
     """
-    from django.http import JsonResponse
-
+    # Third Party
     from celery.result import AsyncResult
+
+    # Django
+    from django.http import JsonResponse
 
     try:
         task_result = AsyncResult(task_id)
