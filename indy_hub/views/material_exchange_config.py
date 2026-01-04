@@ -9,6 +9,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
 from django.db import transaction
+from django.db.models import Q
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
@@ -351,10 +352,27 @@ def _get_user_corporations(user):
 
 
 def _get_corp_structures(user, corp_id):
-    """Get list of player structures for a corporation using cached corp assets."""
+    """Get list of player structures using cached corp assets without loading them all."""
 
-    structures: list[dict] = []
-    corp_assets, assets_scope_missing = get_corp_assets_cached(int(corp_id))
+    cache_key = f"indy_hub:material_exchange:corp_structures:{int(corp_id)}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    assets_qs, assets_scope_missing = get_corp_assets_cached(
+        int(corp_id),
+        allow_refresh=True,
+        as_queryset=True,
+    )
+
+    # Prefer structure ids from OfficeFolder entries (Upwell offices) or CorpSAG*
+    loc_ids = list(
+        assets_qs.filter(
+            Q(location_flag="OfficeFolder") | Q(location_flag__startswith="CorpSAG")
+        )
+        .values_list("location_id", flat=True)
+        .distinct()
+    )
 
     # Need a character with universe.read_structures to resolve names
     token_for_names = _get_token_for_corp(
@@ -381,31 +399,7 @@ def _get_corp_structures(user, corp_id):
         getattr(token_for_names, "character_id", None) if token_for_names else None
     )
 
-    # Prefer structure ids from OfficeFolder entries (Upwell offices)
-    loc_ids: set[int] = set()
-    for asset in corp_assets:
-        if str(asset.get("location_flag") or "") != "OfficeFolder":
-            continue
-        try:
-            loc_id = int(asset.get("location_id"))
-        except (TypeError, ValueError):
-            continue
-        if loc_id:
-            loc_ids.add(loc_id)
-
-    # Fallback: stations and older locations may not have OfficeFolder entries
-    if not loc_ids:
-        for asset in corp_assets:
-            flag = str(asset.get("location_flag", "") or "")
-            if not flag.startswith("CorpSAG"):
-                continue
-            try:
-                loc_id = int(asset.get("location_id"))
-            except (TypeError, ValueError):
-                continue
-            if loc_id:
-                loc_ids.add(loc_id)
-
+    structures: list[dict] = []
     structure_names = resolve_structure_names(
         sorted(loc_ids), character_id_for_names, int(corp_id)
     )
@@ -418,18 +412,22 @@ def _get_corp_structures(user, corp_id):
             }
         )
 
-    if structures:
-        return structures, assets_scope_missing
+    if not structures:
+        result = (
+            [
+                {
+                    "id": 0,
+                    "name": _("⚠ No corporation assets available (ESI scope missing)"),
+                }
+            ],
+            assets_scope_missing,
+        )
+        cache.set(cache_key, result, 300)
+        return result
 
-    return (
-        [
-            {
-                "id": 0,
-                "name": _("⚠ No corporation assets available (ESI scope missing)"),
-            }
-        ],
-        assets_scope_missing,
-    )
+    result = (structures, assets_scope_missing)
+    cache.set(cache_key, result, 300)
+    return result
 
 
 @login_required

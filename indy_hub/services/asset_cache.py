@@ -5,6 +5,7 @@ from __future__ import annotations
 # Standard Library
 import logging
 from datetime import timedelta
+from typing import Any
 
 # Django
 from django.conf import settings
@@ -231,15 +232,31 @@ def get_corp_assets_cached(
     *,
     allow_refresh: bool = True,
     max_age_minutes: int | None = None,
-) -> tuple[list[dict], bool]:
-    """Return cached corp assets; refresh from ESI when stale/empty if allowed."""
+    as_queryset: bool = False,
+    location_flags: list[str] | None = None,
+    values_fields: list[str] | None = None,
+) -> tuple[Any, bool]:
+    """Return corp assets from cache or refresh.
+
+    When ``as_queryset`` is True, a lazy queryset is returned (optionally values-only)
+    to avoid loading large corp inventories into Python memory.
+    """
 
     max_age = max_age_minutes or ASSET_CACHE_MAX_AGE_MINUTES
     qs = CachedCorporationAsset.objects.filter(corporation_id=corporation_id)
+    if location_flags:
+        qs = qs.filter(location_flag__in=location_flags)
 
     latest = qs.order_by("-synced_at").values_list("synced_at", flat=True).first()
     assets_scope_missing = False
-    if latest and timezone.now() - latest <= timedelta(minutes=max_age):
+    fresh_enough = latest and timezone.now() - latest <= timedelta(minutes=max_age)
+
+    if fresh_enough:
+        if as_queryset:
+            return (
+                qs.values(*values_fields) if values_fields else qs,
+                assets_scope_missing,
+            )
         assets = [
             {
                 "item_id": row.item_id,
@@ -256,10 +273,27 @@ def get_corp_assets_cached(
 
     if allow_refresh:
         refreshed_assets, assets_scope_missing = _refresh_corp_assets(corporation_id)
+        # After refresh, return a lazy queryset if requested; otherwise the refreshed list
         if refreshed_assets:
+            if as_queryset:
+                qs = CachedCorporationAsset.objects.filter(
+                    corporation_id=corporation_id
+                )
+                if location_flags:
+                    qs = qs.filter(location_flag__in=location_flags)
+                return (
+                    qs.values(*values_fields) if values_fields else qs,
+                    assets_scope_missing,
+                )
             return refreshed_assets, assets_scope_missing
 
     # Fallback to whatever is in cache even if stale
+    if as_queryset:
+        return (
+            qs.values(*values_fields) if values_fields else qs,
+            assets_scope_missing,
+        )
+
     assets = [
         {
             "item_id": row.item_id,
