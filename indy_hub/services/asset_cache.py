@@ -315,8 +315,13 @@ def resolve_structure_names(
     character_id: int | None = None,
     corporation_id: int | None = None,
     user=None,
+    task=None,
 ) -> dict[int, str]:
-    """Return a mapping of structure_id -> name using cache, corp structures, and ESI lookups."""
+    """Return a mapping of structure_id -> name using cache, corp structures, and ESI lookups.
+
+    Args:
+        task: Optional Celery task object for progress updates
+    """
 
     if not structure_ids:
         return {}
@@ -452,7 +457,7 @@ def resolve_structure_names(
                     corp_roles = roles_data.get("roles", [])
 
                     # Accept only DIRECTOR role
-                    if "Director" in corp_roles:
+                    if "DIRECTOR" in corp_roles:
                         candidate_characters.append(int(cid))
                         logger.debug(
                             "Character %s has Director role, added to candidates", cid
@@ -475,10 +480,41 @@ def resolve_structure_names(
     # Only attempt direct structure lookups for positive ids.
     # Batch DB writes to optimize performance
     structures_to_cache = []
-    for structure_id in [sid for sid in list(missing) if sid > 0]:
+    # Standard Library
+    import time
+
+    missing_positive = [sid for sid in list(missing) if sid > 0]
+    total_to_resolve = len(missing_positive)
+
+    # NPC stations have IDs < 61000 and cannot be fetched via /universe/structures/
+    # They should only be resolved via /universe/names/ (public endpoint)
+    npc_station_threshold = 61000
+
+    for idx, structure_id in enumerate(missing_positive):
+        # Update task progress if task is provided
+        if task:
+            try:
+                task.update_state(
+                    state="PROGRESS",
+                    meta={
+                        "current": idx,
+                        "total": total_to_resolve,
+                        "status": f"Resolving structure {idx+1}/{total_to_resolve}...",
+                    },
+                )
+            except Exception as exc:
+                logger.debug("Failed to update task progress: %s", exc)
+
+        # Skip direct /universe/structures/ lookup for NPC stations (small IDs)
+        # They will be resolved via /universe/names/ later
+        if structure_id < npc_station_threshold:
+            continue
+
         resolved = False
         for cid in candidate_characters:
             try:
+                # Add small delay to avoid ESI rate limit (100 requests per 30 seconds ~= 3.3 per second)
+                time.sleep(0.3)
                 name = shared_client.fetch_structure_name(structure_id, cid)
             except ESIForbiddenError:
                 logger.info(
@@ -513,25 +549,34 @@ def resolve_structure_names(
 
     # For any remaining unresolved structures, try the public /universe/names/ endpoint
     # This can resolve stations, citadels visible to the user, etc.
+    # Note: /universe/names/ only accepts int32 values, so filter out large int64 structure IDs
+    # Large structure IDs are typically private structures that we don't have access to anyway
     if missing:
         still_missing = [sid for sid in list(missing) if sid > 0]
         if still_missing:
-            logger.info(
-                "Attempting to resolve %s structures via /universe/names/",
-                len(still_missing),
-            )
-            public_names = shared_client.resolve_ids_to_names(still_missing)
-            for structure_id, name in public_names.items():
-                known[structure_id] = name
-                structures_to_cache.append(
-                    {
-                        "structure_id": structure_id,
-                        "name": name,
-                        "last_resolved": timezone.now(),
-                    }
+            # Filter to only int32-compatible IDs (< 2^31)
+            # Large IDs (private structures) will be skipped as we don't have permission anyway
+            int32_max = 2147483647
+            still_missing_int32 = [sid for sid in still_missing if sid <= int32_max]
+
+            if still_missing_int32:
+                logger.info(
+                    "Attempting to resolve %s structures via /universe/names/ (skipped %s large int64 IDs)",
+                    len(still_missing_int32),
+                    len(still_missing) - len(still_missing_int32),
                 )
-                if structure_id in missing:
-                    missing.remove(structure_id)
+                public_names = shared_client.resolve_ids_to_names(still_missing_int32)
+                for structure_id, name in public_names.items():
+                    known[structure_id] = name
+                    structures_to_cache.append(
+                        {
+                            "structure_id": structure_id,
+                            "name": name,
+                            "last_resolved": timezone.now(),
+                        }
+                    )
+                    if structure_id in missing:
+                        missing.remove(structure_id)
 
     # Batch update cached structure names
     if structures_to_cache:

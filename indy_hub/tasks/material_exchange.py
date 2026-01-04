@@ -59,7 +59,12 @@ def refresh_corp_assets_cached(
 
     Uses the director_character_id (if provided) for all ESI calls.
     This ensures all operations use a single character with consistent scopes.
+
+    Sends progress updates via task.update_state() so clients can track progress.
     """
+    # Third Party
+    from celery import current_task
+
     # AA Example App
     from indy_hub.models import CachedCorporationAsset
     from indy_hub.services.asset_cache import resolve_structure_names
@@ -71,6 +76,17 @@ def refresh_corp_assets_cached(
             director_character_id,
         )
 
+        # Update progress: Starting assets refresh
+        if current_task:
+            current_task.update_state(
+                state="PROGRESS",
+                meta={
+                    "current": 0,
+                    "total": 1,
+                    "status": "Refreshing corporation assets...",
+                },
+            )
+
         # Refresh corp assets using the provided director character
         force_refresh_corp_assets(int(corporation_id))
         logger.info(
@@ -78,18 +94,47 @@ def refresh_corp_assets_cached(
         )
 
         # Get all structure IDs from the refreshed corp assets
+        # Only include locations that have "structure" location flags
+        # (These indicate actual stations/citadels, not ships or containers)
+        resolvable_structure_flags = {
+            # Station/Citadel service areas
+            "OfficeFolder",  # NPC and player corporation office
+            "StructureFuel",  # Citadel fuel bay
+            "MoonMaterialBay",  # Moon mining facility material bay
+            "QuantumCoreRoom",  # Upwell citadel quantum core room
+            "ServiceSlot0",  # Service slot (appears in citadels)
+            # Delivery/Contract bays
+            "CorpDeliveries",  # Corporate delivery hangar
+        }
+
         structure_ids = list(
-            CachedCorporationAsset.objects.filter(corporation_id=int(corporation_id))
+            CachedCorporationAsset.objects.filter(
+                corporation_id=int(corporation_id),
+                location_flag__in=resolvable_structure_flags,
+            )
             .values_list("location_id", flat=True)
             .distinct()
         )
 
         if structure_ids:
+            total_structures = len(structure_ids)
             logger.info(
                 "Resolving %s unique structure names for corporation %s",
-                len(structure_ids),
+                total_structures,
                 corporation_id,
             )
+
+            # Update progress: Starting structure resolution
+            if current_task:
+                current_task.update_state(
+                    state="PROGRESS",
+                    meta={
+                        "current": 0,
+                        "total": total_structures,
+                        "status": f"Resolving {total_structures} structure names...",
+                    },
+                )
+
             # Use the director character for structure lookups
             # This will try /universe/structures/{id} with the character's token
             # Then fallback to /universe/names/ for any unresolved structures
@@ -99,11 +144,23 @@ def refresh_corp_assets_cached(
                     int(director_character_id) if director_character_id else None
                 ),
                 corporation_id=int(corporation_id),
+                task=current_task,  # Pass task for progress updates
             )
             logger.info(
                 "Successfully resolved structure names for corporation %s",
                 corporation_id,
             )
+
+            # Final progress update
+            if current_task:
+                current_task.update_state(
+                    state="PROGRESS",
+                    meta={
+                        "current": total_structures,
+                        "total": total_structures,
+                        "status": "Complete!",
+                    },
+                )
 
     except Exception as exc:
         logger.exception(

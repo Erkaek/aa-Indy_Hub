@@ -288,44 +288,178 @@ def _find_director_character(user, corp_id):
     Returns the character_id or None if not found.
     """
     # Alliance Auth
+    from allianceauth.eveonline.models import EveCharacter
     from esi.models import Token
 
     # AA Example App
     from indy_hub.services.esi_client import shared_client
 
-    # Get all character tokens for the user
+    logger.warning(
+        "Looking for DIRECTOR character in corp %s for user %s", corp_id, user.username
+    )
+
+    # Get ALL character tokens for the user first
     try:
-        tokens = (
+        all_tokens = Token.objects.filter(user=user).require_valid()
+        all_tokens_list = list(all_tokens)
+        logger.warning(
+            "Found %s valid tokens for user %s: %s",
+            len(all_tokens_list),
+            user.username,
+            [t.character_id for t in all_tokens_list],
+        )
+    except Exception as exc:
+        logger.warning("Failed to get tokens for user %s: %s", user.username, exc)
+        return None
+
+    # Try tokens with the role-checking scope
+    try:
+        scoped_tokens = (
             Token.objects.filter(user=user)
             .require_scopes(["esi-characters.read_corporation_roles.v1"])
             .require_valid()
         )
-    except Exception:
-        return None
+        scoped_tokens_list = list(scoped_tokens)
+        logger.warning(
+            "Found %s tokens with role-checking scope for user %s: %s",
+            len(scoped_tokens_list),
+            user.username,
+            [t.character_id for t in scoped_tokens_list],
+        )
+    except Exception as exc:
+        logger.warning(
+            "Failed to filter tokens by scope for user %s: %s", user.username, exc
+        )
+        scoped_tokens_list = []
 
-    for token in tokens:
+    # Check scoped tokens first
+    for token in scoped_tokens_list:
         try:
-            # Get the character's corporation
-            char = token.character
-            if not char or int(char.corporation_id) != int(corp_id):
-                continue
-
-            # Check if character has DIRECTOR role
-            roles_data = shared_client.fetch_character_corporation_roles(
-                int(token.character_id)
+            character_id = token.character_id
+            logger.warning(
+                "Checking character %s from scoped token",
+                character_id,
             )
-            corp_roles = roles_data.get("roles", [])
 
-            if "Director" in corp_roles:
-                logger.info(
-                    "Found DIRECTOR character %s for corporation %s",
-                    token.character_id,
+            # Get the character from the database
+            try:
+                char = EveCharacter.objects.get(character_id=character_id)
+                char_corp_id = int(char.corporation_id) if char.corporation_id else None
+                logger.warning(
+                    "Character %s is in corp %s (looking for %s)",
+                    character_id,
+                    char_corp_id,
                     corp_id,
                 )
-                return int(token.character_id)
+                if char_corp_id != int(corp_id):
+                    logger.warning(
+                        "Character %s is in corp %s, not %s - SKIPPING",
+                        character_id,
+                        char_corp_id,
+                        corp_id,
+                    )
+                    continue
+            except EveCharacter.DoesNotExist:
+                logger.warning(
+                    "Character %s not found in database",
+                    character_id,
+                )
+                continue
+
+            logger.warning(
+                "Checking DIRECTOR role for character %s in corp %s",
+                character_id,
+                corp_id,
+            )
+
+            # Check if character has DIRECTOR role
+            roles_data = shared_client.fetch_character_corporation_roles(character_id)
+            corp_roles = roles_data.get("roles", [])
+            logger.warning("Character %s roles: %s", character_id, corp_roles)
+
+            if "Director" in corp_roles:
+                logger.warning(
+                    "Found DIRECTOR character %s for corporation %s",
+                    character_id,
+                    corp_id,
+                )
+                return character_id
+            else:
+                logger.warning(
+                    "Character %s does NOT have Director role (has: %s)",
+                    character_id,
+                    corp_roles,
+                )
         except Exception as exc:
-            logger.debug(
+            logger.warning(
                 "Failed to check director role for character %s: %s",
+                getattr(token, "character_id", "?"),
+                exc,
+            )
+            continue
+
+    # If no scoped tokens worked, try ALL tokens (they might have the scope but not filtered correctly)
+    logger.warning(
+        "No DIRECTOR found in scoped tokens, trying all tokens for user %s",
+        user.username,
+    )
+
+    all_tokens = Token.objects.filter(user=user).require_valid()
+    for token in all_tokens:
+        try:
+            character_id = token.character_id
+            logger.warning(
+                "Checking character %s from all tokens",
+                character_id,
+            )
+
+            # Get the character from the database
+            try:
+                char = EveCharacter.objects.get(character_id=character_id)
+                char_corp_id = int(char.corporation_id) if char.corporation_id else None
+                if char_corp_id != int(corp_id):
+                    continue
+            except EveCharacter.DoesNotExist:
+                continue
+
+            logger.warning(
+                "Checking DIRECTOR role for character %s (second pass)",
+                character_id,
+            )
+
+            # Try to check roles anyway (might fail if no scope, but worth trying)
+            try:
+                roles_data = shared_client.fetch_character_corporation_roles(
+                    character_id
+                )
+                corp_roles = roles_data.get("roles", [])
+                logger.warning(
+                    "Character %s roles (second pass): %s", character_id, corp_roles
+                )
+
+                if "Director" in corp_roles:
+                    logger.warning(
+                        "Found DIRECTOR character %s for corporation %s (second pass)",
+                        character_id,
+                        corp_id,
+                    )
+                    return character_id
+                else:
+                    logger.warning(
+                        "Character %s does NOT have Director role in second pass (has: %s)",
+                        character_id,
+                        corp_roles,
+                    )
+            except Exception as role_exc:
+                logger.warning(
+                    "Failed to get roles for character %s: %s",
+                    character_id,
+                    role_exc,
+                )
+                continue
+        except Exception as exc:
+            logger.warning(
+                "Unexpected error checking character %s: %s",
                 getattr(token, "character_id", "?"),
                 exc,
             )
@@ -405,32 +539,150 @@ def material_exchange_refresh_corp_assets(request):
 def material_exchange_check_refresh_status(request, task_id):
     """
     AJAX endpoint to check the status of a refresh task.
-    Returns the task status: pending, success, or failure.
+    Returns the task status: pending, success, or failure, plus progress info.
+
+    Can also accept corp_id query parameter to check actual database updates
+    instead of relying on Celery backend state tracking.
     """
+    # Standard Library
+    from datetime import timedelta
+
     # Third Party
     from celery.result import AsyncResult
 
     # Django
     from django.http import JsonResponse
+    from django.utils import timezone
+
+    # AA Example App
+    from indy_hub.models import CachedStructureName
 
     try:
+        # Get optional corp_id from query params for database-based status check
+        corp_id = request.GET.get("corp_id")
+
         task_result = AsyncResult(task_id)
 
-        if task_result.state == "PENDING":
-            return JsonResponse({"status": "pending"})
-        elif task_result.state == "SUCCESS":
-            return JsonResponse({"status": "success"})
-        elif task_result.state == "FAILURE":
+        # Try to get the task state from Celery
+        try:
+            state = task_result.state
+        except AttributeError:
+            # DisabledBackend or other backend that doesn't support task tracking
+            state = None
+
+        # Get progress info from task metadata
+        progress_info = {}
+        if task_result.state in ["PROGRESS", "SUCCESS"]:
+            try:
+                progress_data = task_result.info
+                if isinstance(progress_data, dict) and "current" in progress_data:
+                    progress_info = {
+                        "current": progress_data.get("current", 0),
+                        "total": progress_data.get("total", 0),
+                        "percent": (
+                            int(
+                                (
+                                    progress_data.get("current", 0)
+                                    / progress_data.get("total", 1)
+                                )
+                                * 100
+                            )
+                            if progress_data.get("total", 0) > 0
+                            else 0
+                        ),
+                        "status": progress_data.get("status", ""),
+                    }
+            except Exception as exc:
+                logger.debug("Failed to extract progress info: %s", exc)
+
+        # If we have a corp_id, verify by checking database updates
+        if corp_id and state != "SUCCESS":
+            try:
+                # Check if any structures were cached in the last 30 seconds
+                # This indicates the task has completed or is completing
+                recent_structures = CachedStructureName.objects.filter(
+                    last_resolved__gte=timezone.now() - timedelta(seconds=30)
+                ).exists()
+
+                if recent_structures:
+                    logger.info(
+                        "Task %s appears complete (found recent structure caches)",
+                        task_id,
+                    )
+                    return JsonResponse(
+                        {
+                            "status": "success",
+                            "progress": {
+                                "percent": 100,
+                                "status": "Complete!",
+                            },
+                        }
+                    )
+            except Exception as exc:
+                logger.debug("Failed to check structure cache status: %s", exc)
+
+        # Use Celery state if available
+        if state == "PENDING":
             return JsonResponse(
-                {"status": "failure", "error": str(task_result.info)}, status=400
+                {
+                    "status": "pending",
+                    "progress": progress_info
+                    or {"percent": 0, "status": "Initializing..."},
+                }
+            )
+        elif state == "SUCCESS":
+            return JsonResponse(
+                {
+                    "status": "success",
+                    "progress": {"percent": 100, "status": "Complete!"},
+                }
+            )
+        elif state == "FAILURE":
+            return JsonResponse(
+                {
+                    "status": "failure",
+                    "error": str(task_result.info),
+                    "progress": progress_info,
+                },
+                status=400,
+            )
+        elif state == "PROGRESS":
+            return JsonResponse(
+                {
+                    "status": "pending",
+                    "progress": progress_info
+                    or {"percent": 0, "status": "Processing..."},
+                }
+            )
+        elif state is None:
+            # Backend doesn't support state tracking and no db verification
+            # Wait a bit longer before declaring success (give task time to run)
+            return JsonResponse(
+                {
+                    "status": "pending",
+                    "progress": {
+                        "percent": 50,
+                        "status": "Processing (no backend tracking)...",
+                    },
+                }
             )
         else:
             # RETRY, STARTED, etc.
-            return JsonResponse({"status": "pending"})
+            return JsonResponse(
+                {
+                    "status": "pending",
+                    "progress": progress_info
+                    or {"percent": 0, "status": "In progress..."},
+                }
+            )
     except Exception as exc:
         logger.exception("Failed to check refresh status for task %s: %s", task_id, exc)
         return JsonResponse(
-            {"status": "failure", "error": f"Failed to check status: {str(exc)}"},
+            {
+                "status": "failure",
+                "error": f"Failed to check status: {str(exc)}",
+                "progress": {"percent": 0},
+            },
             status=500,
         )
 
@@ -538,15 +790,28 @@ def _get_corp_structures(user, corp_id):
         sorted(loc_ids), character_id=None, corporation_id=int(corp_id), user=user
     )
 
+    # Only show structures that have been successfully resolved in CachedStructureName
+    # Structures that don't have a cached name will be skipped
+    # AA Example App
+    from indy_hub.models import CachedStructureName
+
+    resolved_structure_ids = set(
+        CachedStructureName.objects.filter(structure_id__in=loc_ids).values_list(
+            "structure_id", flat=True
+        )
+    )
+
     structures: list[dict] = []
     for loc_id in sorted(loc_ids):
-        structures.append(
-            {
-                "id": loc_id,
-                "name": structure_names.get(loc_id) or f"Structure {loc_id}",
-                "flags": [],
-            }
-        )
+        # Only include structures that have been successfully resolved
+        if loc_id in resolved_structure_ids:
+            structures.append(
+                {
+                    "id": loc_id,
+                    "name": structure_names.get(loc_id) or f"Structure {loc_id}",
+                    "flags": [],
+                }
+            )
 
     result = (structures, assets_scope_missing)
     cache.set(cache_key, result, 300)

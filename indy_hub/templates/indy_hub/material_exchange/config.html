@@ -230,6 +230,11 @@
                                 <span class="spinner-border spinner-border-sm" id="refreshSpinner"></span>
                                 <span id="refreshStatusText">{% trans "Refreshing assets..." %}</span>
                             </small>
+                            <div class="progress mt-2" id="progressBar" style="height: 25px; display:none;">
+                                <div id="progressBarFill" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                                    <span id="progressText" style="color: black; font-weight: bold;">0%</span>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -729,13 +734,31 @@ document.addEventListener('DOMContentLoaded', function() {
                         throw new Error('{% trans "Task took too long to complete" %}');
                     }
 
-                    return fetch(`/indy_hub/material-exchange/api/refresh-status/${taskId}/`, {
+                    return fetch(`/indy_hub/material-exchange/api/refresh-status/${taskId}/?corp_id=${corpId}`, {
                         headers: {
                             'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
                         }
                     })
                     .then(r => r.json())
                     .then(statusData => {
+                        // Update progress bar if available
+                        const progress = statusData.progress || {};
+                        const percent = progress.percent || 0;
+                        const progressBar = document.getElementById('progressBar');
+                        const progressBarFill = document.getElementById('progressBarFill');
+                        const progressText = document.getElementById('progressText');
+
+                        if (progressBar && percent > 0) {
+                            progressBar.style.display = 'block';
+                            progressBarFill.style.width = percent + '%';
+                            progressBarFill.setAttribute('aria-valuenow', percent);
+                            progressText.textContent = percent + '%';
+                        }
+
+                        if (progress.status) {
+                            refreshStatusText.textContent = progress.status;
+                        }
+
                         if (statusData.status === 'pending') {
                             // Still waiting, retry after delay
                             return new Promise((resolve, reject) => {
@@ -745,6 +768,10 @@ document.addEventListener('DOMContentLoaded', function() {
                             // Task complete!
                             refreshStatusText.textContent = '{% trans "Task complete! Loading structures..." %}';
                             refreshStatusText.className = 'text-success';
+                            if (progressBarFill) {
+                                progressBarFill.style.width = '100%';
+                                progressText.textContent = '100%';
+                            }
                             return true;
                         } else if (statusData.status === 'failure') {
                             throw new Error(statusData.error || '{% trans "Task failed" %}');
