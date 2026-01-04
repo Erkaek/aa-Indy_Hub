@@ -1,0 +1,16 @@
+{% extends "indy_hub/base.html" %}
+{% load i18n %}
+
+{% block page_title %}{% trans "Material Exchange" %}{% endblock page_title %}
+
+{% block content %}
+<div class="container py-5">
+    <div class="alert alert-info">
+        <h4 class="alert-heading mb-2">{% trans "Page removed" %}</h4>
+        <p class="mb-3">{% trans "Administration is now managed from the Material Exchange page." %}</p>
+        <a href="{% url 'indy_hub:material_exchange_index' %}" class="btn btn-primary">
+            <i class="fas fa-store me-1"></i>{% trans "Go to Material Exchange" %}
+        </a>
+    </div>
+</div>
+{% endblock content %}
