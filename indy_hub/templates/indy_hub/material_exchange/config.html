@@ -714,33 +714,73 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                refreshStatusText.textContent = '{% trans "Assets refreshed! Updating structures..." %}';
-                refreshStatusText.className = 'text-success';
+                refreshStatusText.textContent = '{% trans "Task started. Waiting for completion..." %}';
+                refreshStatusText.className = 'text-info';
 
-                // Reload structures after refresh
-                return fetch(`{% url "indy_hub:material_exchange_get_structures" 0 %}`.replace('/0/', '/' + corpId + '/'), {
-                    headers: {
-                        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                // Poll for task completion
+                const taskId = data.task_id;
+                const pollInterval = 2000; // 2 seconds
+                const maxAttempts = 60; // 2 minutes max
+                let attempts = 0;
+
+                const checkStatus = () => {
+                    attempts++;
+                    if (attempts > maxAttempts) {
+                        throw new Error('{% trans "Task took too long to complete" %}');
                     }
-                })
-                .then(r => r.json())
-                .then(structData => {
-                    // Update structure select
-                    structureSelect.innerHTML = '<option value="">{% trans "Select a structure..." %}</option>';
-                    structData.structures.forEach(struct => {
-                        const option = document.createElement('option');
-                        option.value = struct.id;
-                        option.textContent = struct.name;
-                        option.dataset.name = struct.name;
-                        option.dataset.flags = (struct.flags || []).join(',');
-                        structureSelect.appendChild(option);
-                    });
 
-                    refreshStatusText.textContent = '{% trans "Done! Structures loaded." %}';
-                    setTimeout(() => {
-                        refreshStatus.style.display = 'none';
-                        refreshBtn.disabled = false;
-                    }, 2000);
+                    return fetch(`/indy_hub/material-exchange/api/refresh-status/${taskId}/`, {
+                        headers: {
+                            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                        }
+                    })
+                    .then(r => r.json())
+                    .then(statusData => {
+                        if (statusData.status === 'pending') {
+                            // Still waiting, retry after delay
+                            return new Promise((resolve, reject) => {
+                                setTimeout(() => checkStatus().then(resolve).catch(reject), pollInterval);
+                            });
+                        } else if (statusData.status === 'success') {
+                            // Task complete!
+                            refreshStatusText.textContent = '{% trans "Task complete! Loading structures..." %}';
+                            refreshStatusText.className = 'text-success';
+                            return true;
+                        } else if (statusData.status === 'failure') {
+                            throw new Error(statusData.error || '{% trans "Task failed" %}');
+                        } else {
+                            throw new Error('{% trans "Unknown task status" %}');
+                        }
+                    });
+                };
+
+                return checkStatus()
+                .then(() => {
+                    // Reload structures after task completes
+                    return fetch(`{% url "indy_hub:material_exchange_get_structures" 0 %}`.replace('/0/', '/' + corpId + '/'), {
+                        headers: {
+                            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                        }
+                    })
+                    .then(r => r.json())
+                    .then(structData => {
+                        // Update structure select
+                        structureSelect.innerHTML = '<option value="">{% trans "Select a structure..." %}</option>';
+                        structData.structures.forEach(struct => {
+                            const option = document.createElement('option');
+                            option.value = struct.id;
+                            option.textContent = struct.name;
+                            option.dataset.name = struct.name;
+                            option.dataset.flags = (struct.flags || []).join(',');
+                            structureSelect.appendChild(option);
+                        });
+
+                        refreshStatusText.textContent = '{% trans "Done! Structures loaded." %}';
+                        setTimeout(() => {
+                            refreshStatus.style.display = 'none';
+                            refreshBtn.disabled = false;
+                        }, 2000);
+                    });
                 });
             } else {
                 throw new Error(data.error || '{% trans "Failed to refresh assets" %}');

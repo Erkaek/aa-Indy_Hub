@@ -379,11 +379,12 @@ def material_exchange_refresh_corp_assets(request):
         # AA Example App
         from indy_hub.tasks.material_exchange import refresh_corp_assets_cached
 
-        refresh_corp_assets_cached.delay(corp_id, director_char_id)
+        task = refresh_corp_assets_cached.delay(corp_id, director_char_id)
 
         return JsonResponse(
             {
                 "success": True,
+                "task_id": task.id,
                 "message": "Asset refresh task started. Structures will be updated shortly.",
             }
         )
@@ -393,6 +394,39 @@ def material_exchange_refresh_corp_assets(request):
         )
         return JsonResponse(
             {"success": False, "error": f"Failed to refresh assets: {str(exc)}"},
+            status=500,
+        )
+
+
+@login_required
+@indy_hub_permission_required("can_manage_material_hub")
+def material_exchange_check_refresh_status(request, task_id):
+    """
+    AJAX endpoint to check the status of a refresh task.
+    Returns the task status: pending, success, or failure.
+    """
+    from django.http import JsonResponse
+
+    from celery.result import AsyncResult
+
+    try:
+        task_result = AsyncResult(task_id)
+
+        if task_result.state == "PENDING":
+            return JsonResponse({"status": "pending"})
+        elif task_result.state == "SUCCESS":
+            return JsonResponse({"status": "success"})
+        elif task_result.state == "FAILURE":
+            return JsonResponse(
+                {"status": "failure", "error": str(task_result.info)}, status=400
+            )
+        else:
+            # RETRY, STARTED, etc.
+            return JsonResponse({"status": "pending"})
+    except Exception as exc:
+        logger.exception("Failed to check refresh status for task %s: %s", task_id, exc)
+        return JsonResponse(
+            {"status": "failure", "error": f"Failed to check status: {str(exc)}"},
             status=500,
         )
 

@@ -61,6 +61,7 @@ from .views.material_exchange import (
     material_exchange_verify_payment_sell,
 )
 from .views.material_exchange_config import (
+    material_exchange_check_refresh_status,
     material_exchange_config,
     material_exchange_debug_tokens,
     material_exchange_get_structures,
@@ -325,6 +326,11 @@ urlpatterns = [
         "material-exchange/api/refresh-assets/",
         material_exchange_refresh_corp_assets,
         name="material_exchange_refresh_corp_assets",
+    ),
+    path(
+        "material-exchange/api/refresh-status/<str:task_id>/",
+        material_exchange_check_refresh_status,
+        name="material_exchange_check_refresh_status",
     ),
     path(
         "material-exchange/api/debug-tokens/<int:corp_id>/",
