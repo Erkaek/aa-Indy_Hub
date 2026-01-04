@@ -211,15 +211,26 @@
                 <div class="row g-3 mb-4">
                     <div class="col-md-6">
                         <label class="form-label fw-semibold">{% trans "Corporation" %} <span class="text-danger">*</span></label>
-                        <select name="corporation_id" class="form-select" required id="corpSelect">
-                            <option value="">{% trans "Select a corporation..." %}</option>
-                            {% for corp in available_corps %}
-                            <option value="{{ corp.id }}" {% if config and config.corporation_id == corp.id %}selected{% endif %}>
-                                [{{ corp.ticker }}] {{ corp.name }}
-                            </option>
-                            {% endfor %}
-                        </select>
+                        <div class="input-group">
+                            <select name="corporation_id" class="form-select" required id="corpSelect">
+                                <option value="">{% trans "Select a corporation..." %}</option>
+                                {% for corp in available_corps %}
+                                <option value="{{ corp.id }}" {% if config and config.corporation_id == corp.id %}selected{% endif %}>
+                                    [{{ corp.ticker }}] {{ corp.name }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                            <button type="button" class="btn btn-outline-secondary" id="refreshAssetsBtn" title="{% trans 'Refresh corporation assets and structures' %}" disabled>
+                                <i class="fas fa-sync-alt"></i>
+                            </button>
+                        </div>
                         <small class="text-muted d-block mt-2">{% trans "Corporation owning the Material Exchange hangar" %}</small>
+                        <div id="refreshStatus" class="mt-2" style="display:none;">
+                            <small class="text-info d-flex align-items-center gap-2">
+                                <span class="spinner-border spinner-border-sm" id="refreshSpinner"></span>
+                                <span id="refreshStatusText">{% trans "Refreshing assets..." %}</span>
+                            </small>
+                        </div>
                     </div>
                 </div>
 
@@ -667,5 +678,88 @@ function requestTokensSync() {
     document.body.appendChild(form);
     form.submit();
 }
+
+// Handle corporation selection and asset refresh
+document.addEventListener('DOMContentLoaded', function() {
+    const corpSelect = document.getElementById('corpSelect');
+    const refreshBtn = document.getElementById('refreshAssetsBtn');
+    const refreshStatus = document.getElementById('refreshStatus');
+    const refreshStatusText = document.getElementById('refreshStatusText');
+    const structureSelect = document.getElementById('structureSelect');
+
+    // Enable/disable refresh button based on corp selection
+    corpSelect.addEventListener('change', function() {
+        refreshBtn.disabled = !this.value;
+    });
+
+    // Handle refresh button click
+    refreshBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        const corpId = corpSelect.value;
+        if (!corpId) return;
+
+        refreshBtn.disabled = true;
+        refreshStatus.style.display = 'block';
+        refreshStatusText.textContent = '{% trans "Refreshing assets..." %}';
+        refreshStatusText.className = 'text-info';
+
+        fetch('{% url "indy_hub:material_exchange_refresh_corp_assets" %}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+            },
+            body: JSON.stringify({ corporation_id: parseInt(corpId) })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                refreshStatusText.textContent = '{% trans "Assets refreshed! Updating structures..." %}';
+                refreshStatusText.className = 'text-success';
+
+                // Reload structures after refresh
+                return fetch(`{% url "indy_hub:material_exchange_get_structures" 0 %}`.replace('/0/', '/' + corpId + '/'), {
+                    headers: {
+                        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                    }
+                })
+                .then(r => r.json())
+                .then(structData => {
+                    // Update structure select
+                    structureSelect.innerHTML = '<option value="">{% trans "Select a structure..." %}</option>';
+                    structData.structures.forEach(struct => {
+                        const option = document.createElement('option');
+                        option.value = struct.id;
+                        option.textContent = struct.name;
+                        option.dataset.name = struct.name;
+                        option.dataset.flags = (struct.flags || []).join(',');
+                        structureSelect.appendChild(option);
+                    });
+
+                    refreshStatusText.textContent = '{% trans "Done! Structures loaded." %}';
+                    setTimeout(() => {
+                        refreshStatus.style.display = 'none';
+                        refreshBtn.disabled = false;
+                    }, 2000);
+                });
+            } else {
+                throw new Error(data.error || '{% trans "Failed to refresh assets" %}');
+            }
+        })
+        .catch(err => {
+            console.error('Error:', err);
+            refreshStatusText.textContent = err.message || '{% trans "Error refreshing assets" %}';
+            refreshStatusText.className = 'text-danger';
+            setTimeout(() => {
+                refreshStatus.style.display = 'none';
+                refreshBtn.disabled = false;
+            }, 3000);
+        });
+    });
+
+    // Initial state
+    refreshBtn.disabled = !corpSelect.value;
+});
+
 </script>
 {% endblock content %}

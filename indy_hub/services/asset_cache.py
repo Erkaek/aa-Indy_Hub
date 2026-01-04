@@ -13,6 +13,7 @@ from django.db import transaction
 from django.utils import timezone
 
 # Alliance Auth
+from allianceauth.authentication.models import CharacterOwnership
 from allianceauth.eveonline.models import EveCharacter
 from esi.clients import EsiClientProvider
 from esi.models import Token
@@ -313,6 +314,7 @@ def resolve_structure_names(
     structure_ids: list[int],
     character_id: int | None = None,
     corporation_id: int | None = None,
+    user=None,
 ) -> dict[int, str]:
     """Return a mapping of structure_id -> name using cache, corp structures, and ESI lookups."""
 
@@ -416,21 +418,63 @@ def resolve_structure_names(
     except Exception:  # pragma: no cover - defensive
         pass
 
-    # As a last resort, try any valid token with universe.read_structures scope (alts in other corps/alliances)
-    try:
-        global_chars = list(
-            Token.objects.all()
-            .require_scopes(["esi-universe.read_structures.v1"])
-            .require_valid()
-            .values_list("character_id", flat=True)
-        )
-        for cid in global_chars:
-            if cid and cid not in candidate_characters:
-                candidate_characters.append(int(cid))
-    except Exception:  # pragma: no cover - defensive
-        pass
+    # Filter only user's characters with DIRECTOR role to limit ESI calls
+    if user:
+        try:
+            # 1. Get user's character IDs
+            user_char_ids = list(
+                CharacterOwnership.objects.filter(user=user).values_list(
+                    "character__character_id", flat=True
+                )
+            )
+
+            if not user_char_ids:
+                logger.debug("No characters found for user %s", user.username)
+
+            # 2. Filter tokens with scope universe.read_structures
+            user_tokens_with_scope = list(
+                Token.objects.filter(character_id__in=user_char_ids)
+                .require_scopes(["esi-universe.read_structures.v1"])
+                .require_valid()
+                .values_list("character_id", flat=True)
+            )
+
+            # 3. Verify DIRECTOR role for each character to limit candidates
+            for cid in user_tokens_with_scope:
+                if cid in candidate_characters:
+                    continue
+
+                try:
+                    # Check corporation roles via ESI
+                    roles_data = shared_client.fetch_character_corporation_roles(
+                        int(cid)
+                    )
+                    corp_roles = roles_data.get("roles", [])
+
+                    # Accept only DIRECTOR role
+                    if "Director" in corp_roles:
+                        candidate_characters.append(int(cid))
+                        logger.debug(
+                            "Character %s has Director role, added to candidates", cid
+                        )
+                    else:
+                        logger.debug(
+                            "Character %s lacks Director role (has: %s)",
+                            cid,
+                            corp_roles,
+                        )
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to check roles for character %s: %s", cid, exc
+                    )
+                    continue
+
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("Failed to filter user characters: %s", exc)
 
     # Only attempt direct structure lookups for positive ids.
+    # Batch DB writes to optimize performance
+    structures_to_cache = []
     for structure_id in [sid for sid in list(missing) if sid > 0]:
         resolved = False
         for cid in candidate_characters:
@@ -454,15 +498,26 @@ def resolve_structure_names(
             if not name:
                 continue
             known[structure_id] = name
-            CachedStructureName.objects.update_or_create(
-                structure_id=structure_id,
-                defaults={"name": name, "last_resolved": timezone.now()},
+            structures_to_cache.append(
+                {
+                    "structure_id": structure_id,
+                    "name": name,
+                    "last_resolved": timezone.now(),
+                }
             )
             resolved = True
             break
 
         if resolved:
             missing.remove(structure_id)
+
+    # Batch update cached structure names
+    if structures_to_cache:
+        for s in structures_to_cache:
+            CachedStructureName.objects.update_or_create(
+                structure_id=s["structure_id"],
+                defaults={"name": s["name"], "last_resolved": s["last_resolved"]},
+            )
 
     # Resolve managed hangar ids to "<structure name> > <division name>".
     if managed_ids and corporation_id:

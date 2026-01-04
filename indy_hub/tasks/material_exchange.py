@@ -52,6 +52,30 @@ def _me_sell_assets_progress_key(user_id: int) -> str:
     time_limit=300,
     soft_time_limit=280,
 )
+def refresh_corp_assets_cached(corporation_id: int) -> None:
+    """Refresh corp assets cache for a given corporation."""
+    try:
+        logger.info("Refreshing corp assets for corporation %s", corporation_id)
+        force_refresh_corp_assets(int(corporation_id))
+        logger.info(
+            "Successfully refreshed corp assets for corporation %s", corporation_id
+        )
+    except Exception as exc:
+        logger.exception(
+            "Failed to refresh corp assets for corporation %s: %s",
+            corporation_id,
+            exc,
+        )
+        raise
+
+
+@shared_task(
+    autoretry_for=(Exception,),
+    retry_kwargs={"max_retries": 3, "countdown": 5},
+    rate_limit="100/m",
+    time_limit=300,
+    soft_time_limit=280,
+)
 def refresh_material_exchange_sell_user_assets(user_id: int) -> None:
     """Refresh CachedCharacterAsset for all of a user's characters, tracking progress.
 

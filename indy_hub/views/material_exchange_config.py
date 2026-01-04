@@ -175,20 +175,11 @@ def material_exchange_config(request):
     # Get available corporations from user's ESI tokens
     available_corps = _get_user_corporations(request.user)
 
-    # Get structures if corp is selected
+    # Do NOT load structures on initial page load - wait for AJAX after corp selection
     available_structures = []
     hangar_divisions = {}
     division_scope_missing = False
     assets_scope_missing = False
-    if config and config.corporation_id:
-        available_structures, assets_scope_missing = _get_corp_structures(
-            request.user, config.corporation_id
-        )
-        hangar_divisions, division_scope_missing = _get_corp_hangar_divisions(
-            request.user, config.corporation_id
-        )
-
-    # Removed market group selection UI: filtering is now hardcoded to parent market group 533
 
     if request.method == "POST":
         return _handle_config_save(request, config)
@@ -291,6 +282,55 @@ def material_exchange_get_structures(request, corp_id):
     )
 
 
+@login_required
+@indy_hub_permission_required("can_manage_material_hub")
+def material_exchange_refresh_corp_assets(request):
+    """
+    AJAX endpoint to refresh corporation assets and structures.
+    Triggers background task to fetch latest ESI data.
+    """
+    # Standard Library
+    import json
+
+    # Django
+    from django.http import JsonResponse
+
+    if request.method != "POST":
+        return JsonResponse(
+            {"success": False, "error": "Method not allowed"}, status=405
+        )
+
+    try:
+        data = json.loads(request.body)
+        corp_id = int(data.get("corporation_id"))
+    except (json.JSONDecodeError, ValueError, TypeError):
+        return JsonResponse(
+            {"success": False, "error": "Invalid corporation_id"}, status=400
+        )
+
+    try:
+        # Trigger task to refresh corp assets
+        # AA Example App
+        from indy_hub.tasks.material_exchange import refresh_corp_assets_cached
+
+        refresh_corp_assets_cached.delay(corp_id)
+
+        return JsonResponse(
+            {
+                "success": True,
+                "message": "Asset refresh task started. Structures will be updated shortly.",
+            }
+        )
+    except Exception as exc:
+        logger.exception(
+            "Failed to trigger asset refresh for corp %s: %s", corp_id, exc
+        )
+        return JsonResponse(
+            {"success": False, "error": f"Failed to refresh assets: {str(exc)}"},
+            status=500,
+        )
+
+
 def _get_user_corporations(user):
     """
     Get list of corporations the user has ESI access to.
@@ -352,20 +392,21 @@ def _get_user_corporations(user):
 
 
 def _get_corp_structures(user, corp_id):
-    """Get list of player structures using cached corp assets without loading them all."""
+    """Get list of player structures from cached structure names only."""
 
     cache_key = f"indy_hub:material_exchange:corp_structures:{int(corp_id)}"
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
 
+    # Get structure IDs from corp assets
     assets_qs, assets_scope_missing = get_corp_assets_cached(
         int(corp_id),
         allow_refresh=True,
         as_queryset=True,
     )
 
-    # Prefer structure ids from OfficeFolder entries (Upwell offices) or CorpSAG*
+    # Get unique location IDs from corp assets (OfficeFolder or CorpSAG*)
     loc_ids = list(
         assets_qs.filter(
             Q(location_flag="OfficeFolder") | Q(location_flag__startswith="CorpSAG")
@@ -374,50 +415,33 @@ def _get_corp_structures(user, corp_id):
         .distinct()
     )
 
-    # Need a character with universe.read_structures to resolve names
-    token_for_names = _get_token_for_corp(
-        user, corp_id, "esi-universe.read_structures.v1"
-    )
+    # Only return structures that are already cached in CachedStructureName
+    # AA Example App
+    from indy_hub.models import CachedStructureName
 
-    # Fallback: use any corp member token with the scope if the current user lacks it
-    if not token_for_names:
-        try:
-            # Alliance Auth
-            from esi.models import Token
-
-            token_for_names = (
-                Token.objects.filter(character__corporation_id=corp_id)
-                .require_scopes(["esi-universe.read_structures.v1"])
-                .require_valid()
-                .order_by("-created")
-                .first()
-            )
-        except Exception:
-            token_for_names = None
-
-    character_id_for_names = (
-        getattr(token_for_names, "character_id", None) if token_for_names else None
-    )
+    cached_structures = CachedStructureName.objects.filter(
+        structure_id__in=loc_ids
+    ).values_list("structure_id", "name")
 
     structures: list[dict] = []
-    structure_names = resolve_structure_names(
-        sorted(loc_ids), character_id_for_names, int(corp_id)
-    )
-    for loc_id in sorted(loc_ids):
+    for structure_id, name in cached_structures:
         structures.append(
             {
-                "id": loc_id,
-                "name": structure_names.get(loc_id) or f"Structure {loc_id}",
+                "id": structure_id,
+                "name": name or f"Structure {structure_id}",
                 "flags": [],
             }
         )
+
+    # Sort by ID
+    structures.sort(key=lambda x: x["id"])
 
     if not structures:
         result = (
             [
                 {
                     "id": 0,
-                    "name": _("⚠ No corporation assets available (ESI scope missing)"),
+                    "name": _("⚠ No cached structures available"),
                 }
             ],
             assets_scope_missing,
@@ -517,7 +541,10 @@ def _handle_config_save(request, existing_config):
                     else None
                 )
                 resolved = resolve_structure_names(
-                    [int(structure_id)], character_id_for_names, int(corporation_id)
+                    [int(structure_id)],
+                    character_id_for_names,
+                    int(corporation_id),
+                    user=request.user,
                 ).get(int(structure_id))
                 if resolved and not str(resolved).startswith("Structure "):
                     structure_name = resolved
