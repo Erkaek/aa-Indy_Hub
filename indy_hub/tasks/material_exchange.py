@@ -53,16 +53,26 @@ def _me_sell_assets_progress_key(user_id: int) -> str:
     soft_time_limit=280,
 )
 def refresh_corp_assets_cached(corporation_id: int) -> None:
-    """Refresh corp assets cache for a given corporation."""
+    """Refresh corp assets cache and structure names for a given corporation."""
+    # AA Example App
+    from indy_hub.services.asset_cache import _cache_corp_structure_names
+
     try:
         logger.info("Refreshing corp assets for corporation %s", corporation_id)
         force_refresh_corp_assets(int(corporation_id))
         logger.info(
             "Successfully refreshed corp assets for corporation %s", corporation_id
         )
+
+        # Also refresh structure names using corp structures endpoint
+        logger.info("Caching structure names for corporation %s", corporation_id)
+        _cache_corp_structure_names(int(corporation_id))
+        logger.info(
+            "Successfully cached structure names for corporation %s", corporation_id
+        )
     except Exception as exc:
         logger.exception(
-            "Failed to refresh corp assets for corporation %s: %s",
+            "Failed to refresh corp assets/structures for corporation %s: %s",
             corporation_id,
             exc,
         )

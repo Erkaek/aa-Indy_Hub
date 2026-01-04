@@ -392,7 +392,7 @@ def _get_user_corporations(user):
 
 
 def _get_corp_structures(user, corp_id):
-    """Get list of player structures from cached structure names only."""
+    """Get list of player structures using lazy queryset and resolve names for user's DIRECTOR characters."""
 
     cache_key = f"indy_hub:material_exchange:corp_structures:{int(corp_id)}"
     cached = cache.get(cache_key)
@@ -415,39 +415,34 @@ def _get_corp_structures(user, corp_id):
         .distinct()
     )
 
-    # Only return structures that are already cached in CachedStructureName
-    # AA Example App
-    from indy_hub.models import CachedStructureName
-
-    cached_structures = CachedStructureName.objects.filter(
-        structure_id__in=loc_ids
-    ).values_list("structure_id", "name")
-
-    structures: list[dict] = []
-    for structure_id, name in cached_structures:
-        structures.append(
-            {
-                "id": structure_id,
-                "name": name or f"Structure {structure_id}",
-                "flags": [],
-            }
-        )
-
-    # Sort by ID
-    structures.sort(key=lambda x: x["id"])
-
-    if not structures:
+    if not loc_ids:
         result = (
             [
                 {
                     "id": 0,
-                    "name": _("⚠ No cached structures available"),
+                    "name": _("⚠ No corporation assets available (ESI scope missing)"),
                 }
             ],
             assets_scope_missing,
         )
         cache.set(cache_key, result, 300)
         return result
+
+    # Resolve structure names using user's DIRECTOR characters
+    # This will use /universe/structures/{structure_id} for each structure
+    structure_names = resolve_structure_names(
+        sorted(loc_ids), character_id=None, corporation_id=int(corp_id), user=user
+    )
+
+    structures: list[dict] = []
+    for loc_id in sorted(loc_ids):
+        structures.append(
+            {
+                "id": loc_id,
+                "name": structure_names.get(loc_id) or f"Structure {loc_id}",
+                "flags": [],
+            }
+        )
 
     result = (structures, assets_scope_missing)
     cache.set(cache_key, result, 300)
