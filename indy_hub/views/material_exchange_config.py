@@ -572,7 +572,8 @@ def material_exchange_check_refresh_status(request, task_id):
 
         # Get progress info from task metadata
         progress_info = {}
-        if task_result.state in ["PROGRESS", "SUCCESS"]:
+        # Check state safely, handling DisabledBackend which may not support state access
+        if state and state in ["PROGRESS", "SUCCESS"]:
             try:
                 progress_data = task_result.info
                 if isinstance(progress_data, dict) and "current" in progress_data:
