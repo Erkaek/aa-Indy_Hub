@@ -76,7 +76,7 @@ def build_nav_context(
         elif active_tab == "settings":
             settings_class = "active fw-semibold"
 
-    material_hub_nav_url = material_hub_url if material_hub_enabled else None
+    material_hub_nav_url = material_hub_url
 
     context: dict[str, str | None] = {
         # New top-level sections
@@ -87,7 +87,7 @@ def build_nav_context(
         "blueprint_sharing_nav_url": blueprint_sharing_url,
         "blueprint_sharing_nav_class": blueprint_sharing_class,
         "material_hub_nav_url": material_hub_nav_url,
-        "material_hub_nav_class": material_hub_class if material_hub_nav_url else "",
+        "material_hub_nav_class": material_hub_class,
         "industry_nav_url": industry_url,
         "industry_nav_class": industry_class,
         "esi_nav_url": esi_url,
