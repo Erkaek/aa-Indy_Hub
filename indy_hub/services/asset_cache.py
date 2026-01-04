@@ -499,7 +499,7 @@ def resolve_structure_names(
                     meta={
                         "current": idx,
                         "total": total_to_resolve,
-                        "status": f"Resolving structure {idx+1}/{total_to_resolve}...",
+                        "status": f"Resolving structure {idx + 1}/{total_to_resolve}...",
                     },
                 )
             except Exception as exc:
