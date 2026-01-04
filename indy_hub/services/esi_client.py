@@ -501,6 +501,87 @@ class ESIClient:
             endpoint=f"/corporations/{corporation_id}/structures/",
         )
 
+    def resolve_ids_to_names(self, ids: list[int]) -> dict[int, str]:
+        """Resolve a list of IDs to names via the public /universe/names/ endpoint.
+
+        This endpoint doesn't require authentication and can resolve stations, structures,
+        systems, regions, etc.
+
+        Returns a dict mapping ID -> name for successfully resolved IDs.
+        """
+        if not ids:
+            return {}
+
+        # ESI accepts max 1000 IDs per request
+        result = {}
+        for i in range(0, len(ids), 1000):
+            batch = ids[i : i + 1000]
+            url = f"{self.base_url}/universe/names/"
+            params = {"datasource": "tranquility"}
+
+            attempt = 0
+            while attempt < self.max_attempts:
+                attempt += 1
+                try:
+                    response = self.session.post(
+                        url,
+                        json=batch,
+                        params=params,
+                        headers=self._merge_headers(None),
+                        timeout=self.timeout,
+                    )
+                except requests.RequestException as exc:
+                    if attempt >= self.max_attempts:
+                        logger.warning(
+                            "Failed to resolve IDs to names after %s attempts: %s",
+                            self.max_attempts,
+                            exc,
+                        )
+                        break
+                    sleep_for = self.backoff_factor * (2 ** (attempt - 1))
+                    logger.warning(
+                        "Resolve IDs request failed (%s), retry %s/%s in %.1fs",
+                        exc,
+                        attempt,
+                        self.max_attempts,
+                        sleep_for,
+                    )
+                    time.sleep(sleep_for)
+                    continue
+
+                if response.status_code == 200:
+                    try:
+                        payload = response.json()
+                        for item in payload:
+                            if "id" in item and "name" in item:
+                                result[int(item["id"])] = str(item["name"])
+                    except (ValueError, KeyError, TypeError) as exc:
+                        logger.warning("Invalid payload from /universe/names/: %s", exc)
+                    break
+
+                if response.status_code == 420:
+                    sleep_for, remaining = rate_limit_wait_seconds(
+                        response, self.backoff_factor * (2 ** (attempt - 1))
+                    )
+                    logger.warning(
+                        "ESI rate limit reached while resolving IDs (remaining=%s)",
+                        remaining,
+                    )
+                    if attempt >= self.max_attempts:
+                        break
+                    time.sleep(sleep_for)
+                    continue
+
+                # Other errors - log and break
+                logger.warning(
+                    "Resolve IDs failed with status %s: %s",
+                    response.status_code,
+                    response.text[:200],
+                )
+                break
+
+        return result
+
     def _handle_forbidden_token(
         self, token: Token, *, scope: str, endpoint: str
     ) -> None:

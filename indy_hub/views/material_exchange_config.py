@@ -19,7 +19,7 @@ from esi.clients import EsiClientProvider
 from esi.views import sso_redirect
 
 from ..decorators import indy_hub_permission_required
-from ..models import MaterialExchangeConfig
+from ..models import CachedStructureName, MaterialExchangeConfig
 from ..services.asset_cache import (
     get_corp_assets_cached,
     get_corp_divisions_cached,

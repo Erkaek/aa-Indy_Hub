@@ -511,6 +511,28 @@ def resolve_structure_names(
         if resolved:
             missing.remove(structure_id)
 
+    # For any remaining unresolved structures, try the public /universe/names/ endpoint
+    # This can resolve stations, citadels visible to the user, etc.
+    if missing:
+        still_missing = [sid for sid in list(missing) if sid > 0]
+        if still_missing:
+            logger.info(
+                "Attempting to resolve %s structures via /universe/names/",
+                len(still_missing),
+            )
+            public_names = shared_client.resolve_ids_to_names(still_missing)
+            for structure_id, name in public_names.items():
+                known[structure_id] = name
+                structures_to_cache.append(
+                    {
+                        "structure_id": structure_id,
+                        "name": name,
+                        "last_resolved": timezone.now(),
+                    }
+                )
+                if structure_id in missing:
+                    missing.remove(structure_id)
+
     # Batch update cached structure names
     if structures_to_cache:
         for s in structures_to_cache:

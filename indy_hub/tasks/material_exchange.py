@@ -55,7 +55,11 @@ def _me_sell_assets_progress_key(user_id: int) -> str:
 def refresh_corp_assets_cached(corporation_id: int) -> None:
     """Refresh corp assets cache and structure names for a given corporation."""
     # AA Example App
-    from indy_hub.services.asset_cache import _cache_corp_structure_names
+    from indy_hub.models import CachedCorporationAsset
+    from indy_hub.services.asset_cache import (
+        _cache_corp_structure_names,
+        resolve_structure_names,
+    )
 
     try:
         logger.info("Refreshing corp assets for corporation %s", corporation_id)
@@ -70,6 +74,29 @@ def refresh_corp_assets_cached(corporation_id: int) -> None:
         logger.info(
             "Successfully cached structure names for corporation %s", corporation_id
         )
+
+        # Force resolution of ALL structure IDs found in corp assets
+        # This will use /universe/structures/{id} and /universe/names/ as fallback
+        structure_ids = list(
+            CachedCorporationAsset.objects.filter(corporation_id=int(corporation_id))
+            .values_list("location_id", flat=True)
+            .distinct()
+        )
+        if structure_ids:
+            logger.info(
+                "Resolving %s unique structure names for corporation %s",
+                len(structure_ids),
+                corporation_id,
+            )
+            # Pass corporation_id but not user - will use any corp token with required scope
+            resolve_structure_names(
+                structure_ids, character_id=None, corporation_id=int(corporation_id)
+            )
+            logger.info(
+                "Successfully resolved structure names for corporation %s",
+                corporation_id,
+            )
+
     except Exception as exc:
         logger.exception(
             "Failed to refresh corp assets/structures for corporation %s: %s",
