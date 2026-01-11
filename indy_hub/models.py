@@ -1442,6 +1442,10 @@ class CachedCharacterAsset(models.Model):
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, db_index=True)
     character_id = models.BigIntegerField(db_index=True)
+    # ESI asset item_id (needed to follow container parent chains).
+    item_id = models.BigIntegerField(null=True, blank=True, db_index=True)
+    # Raw ESI location_id (may point to a container item_id).
+    raw_location_id = models.BigIntegerField(null=True, blank=True, db_index=True)
     location_id = models.BigIntegerField(db_index=True)
     location_flag = models.CharField(max_length=50, blank=True, db_index=True)
     type_id = models.BigIntegerField(db_index=True)
@@ -1458,6 +1462,7 @@ class CachedCharacterAsset(models.Model):
             models.Index(fields=["user", "character_id"], name="cca_user_char_idx"),
             models.Index(fields=["user", "location_id"], name="cca_user_loc_idx"),
             models.Index(fields=["user", "type_id"], name="cca_user_type_idx"),
+            models.Index(fields=["user", "item_id"], name="cca_user_item_idx"),
         ]
 
     def __str__(self):

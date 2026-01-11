@@ -843,37 +843,83 @@ def personnal_bp_list(request, scope="character"):
         # Collect unique location IDs from bp_items
         location_ids = {bp.location_id for bp in bp_items if bp.location_id}
 
-        # Bulk load stations and structures with related data
-        location_map = {}
-        if EveStation and location_ids:
-            stations = EveStation.objects.filter(id__in=location_ids).prefetch_related(
-                "solar_system__constellation__region"
-            )
-            for st in stations:
-                sys = st.solar_system
-                cons = sys.constellation
-                reg = cons.region
-                location_map[st.id] = (
-                    f"{reg.name} > {cons.name} > {sys.name} > {st.name}"
+        def _populate_location_map(ids: set[int], location_map: dict[int, str]) -> None:
+            if EveStation and ids:
+                stations = EveStation.objects.filter(id__in=ids).prefetch_related(
+                    "solar_system__constellation__region"
                 )
-
-        if EveStructure and location_ids:
-            remaining_ids = location_ids - set(location_map.keys())
-            if remaining_ids:
-                structures = EveStructure.objects.filter(
-                    id__in=remaining_ids
-                ).prefetch_related("solar_system__constellation__region")
-                for struct in structures:
-                    sys = struct.solar_system
+                for st in stations:
+                    sys = st.solar_system
                     cons = sys.constellation
                     reg = cons.region
-                    location_map[struct.id] = (
-                        f"{reg.name} > {cons.name} > {sys.name} > {struct.name}"
+                    location_map[st.id] = (
+                        f"{reg.name} > {cons.name} > {sys.name} > {st.name}"
                     )
+
+            if EveStructure and ids:
+                remaining_ids = ids - set(location_map.keys())
+                if remaining_ids:
+                    structures = EveStructure.objects.filter(
+                        id__in=remaining_ids
+                    ).prefetch_related("solar_system__constellation__region")
+                    for struct in structures:
+                        sys = struct.solar_system
+                        cons = sys.constellation
+                        reg = cons.region
+                        location_map[struct.id] = (
+                            f"{reg.name} > {cons.name} > {sys.name} > {struct.name}"
+                        )
+
+            # Fallback for environments without EveUniverse (or missing entries).
+            remaining_ids = ids - set(location_map.keys())
+            if remaining_ids:
+                # AA Example App
+                from indy_hub.models import CachedStructureName
+
+                for structure_id, name in CachedStructureName.objects.filter(
+                    structure_id__in=remaining_ids
+                ).values_list("structure_id", "name"):
+                    if structure_id and name:
+                        location_map[int(structure_id)] = str(name)
+
+        # Bulk load stations and structures with related data
+        location_map: dict[int, str] = {}
+        _populate_location_map(location_ids, location_map)
+
+        # If we have cached assets, we can resolve container item IDs to their root structure.
+        container_root_map: dict[int, int] = {}
+        if not is_corporation_scope and location_ids:
+            unresolved_ids = location_ids - set(location_map.keys())
+            if unresolved_ids:
+                # AA Example App
+                from indy_hub.models import CachedCharacterAsset
+
+                container_pairs = (
+                    CachedCharacterAsset.objects.filter(
+                        user=request.user,
+                        item_id__in=unresolved_ids,
+                    )
+                    .exclude(location_id__isnull=True)
+                    .values_list("item_id", "location_id")
+                )
+                for item_id, root_location_id in container_pairs:
+                    if not item_id or not root_location_id:
+                        continue
+                    container_root_map[int(item_id)] = int(root_location_id)
+
+                root_ids = set(container_root_map.values()) - set(location_map.keys())
+                if root_ids:
+                    _populate_location_map(root_ids, location_map)
 
         # Assign location paths to blueprints
         for bp in bp_items:
-            bp.location_path = location_map.get(bp.location_id) or bp.location_flag
+            effective_location_id = container_root_map.get(
+                bp.location_id, bp.location_id
+            )
+            location_path = location_map.get(effective_location_id)
+            if not location_path and effective_location_id != bp.location_id:
+                location_path = str(effective_location_id)
+            bp.location_path = location_path or bp.location_flag
 
         owner_map = {owner_id: name for owner_id, name in owner_options}
         owner_field = "corporation_id" if is_corporation_scope else "character_id"

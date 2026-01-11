@@ -331,6 +331,17 @@ def refresh_material_exchange_sell_user_assets(user_id: int) -> None:
 
         rows: list[CachedCharacterAsset] = []
         for asset in assets or []:
+            item_id = asset.get("item_id")
+            try:
+                item_id_int = int(item_id) if item_id is not None else None
+            except (TypeError, ValueError):
+                item_id_int = None
+
+            try:
+                raw_location_id = int(asset.get("location_id", 0) or 0)
+            except (TypeError, ValueError):
+                raw_location_id = None
+
             resolved_location_id = resolve_asset_root_location_id(
                 asset, index_by_item_id
             )
@@ -341,6 +352,8 @@ def refresh_material_exchange_sell_user_assets(user_id: int) -> None:
                 CachedCharacterAsset(
                     user=user,
                     character_id=int(character_id),
+                    item_id=item_id_int,
+                    raw_location_id=raw_location_id,
                     location_id=int(resolved_location_id),
                     location_flag=str(asset.get("location_flag", "") or ""),
                     type_id=int(asset.get("type_id", 0) or 0),

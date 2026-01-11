@@ -23,6 +23,8 @@ from indy_hub.models import (
     BlueprintCopyChat,
     BlueprintCopyOffer,
     BlueprintCopyRequest,
+    CachedCharacterAsset,
+    CachedStructureName,
     CharacterSettings,
     CorporationSharingSetting,
     IndustryJob,
@@ -2306,6 +2308,82 @@ class PersonnalBlueprintViewTests(TestCase):
         assign_main_character(self.user, character_id=102001)
         grant_indy_permissions(self.user)
         self.client.force_login(self.user)
+
+    def test_container_blueprint_location_resolves_when_assets_available(self) -> None:
+        container_item_id = 91003
+        root_structure_id = 99000001
+        Blueprint.objects.create(
+            owner_user=self.user,
+            character_id=11,
+            item_id=91001,
+            blueprint_id=91002,
+            type_id=999001,
+            location_id=container_item_id,
+            location_flag="hangar",
+            quantity=-1,
+            time_efficiency=0,
+            material_efficiency=0,
+            runs=0,
+            character_name="Industrialist",
+            type_name="Polymer Reaction",
+        )
+        CachedCharacterAsset.objects.create(
+            user=self.user,
+            character_id=11,
+            item_id=container_item_id,
+            raw_location_id=root_structure_id,
+            location_id=root_structure_id,
+            location_flag="hangar",
+            type_id=123,
+            quantity=1,
+            synced_at=timezone.now(),
+        )
+
+        CachedStructureName.objects.create(
+            structure_id=root_structure_id,
+            name="Test Structure",
+            last_resolved=timezone.now(),
+        )
+
+        with patch("indy_hub.views.industry.connection") as mock_connection:
+            cursor = mock_connection.cursor.return_value.__enter__.return_value
+            cursor.fetchall.return_value = [(999001,)]
+            response = self.client.get(reverse("indy_hub:personnal_bp_list"))
+
+        self.assertEqual(response.status_code, 200)
+        page = response.context["blueprints"]
+        self.assertGreaterEqual(len(page.object_list), 1)
+        bp = page.object_list[0]
+        self.assertEqual(bp.location_path, "Test Structure")
+
+    def test_container_blueprint_location_falls_back_without_assets(self) -> None:
+        container_item_id = 91003
+        Blueprint.objects.create(
+            owner_user=self.user,
+            character_id=11,
+            item_id=91001,
+            blueprint_id=91002,
+            type_id=999001,
+            location_id=container_item_id,
+            location_flag="hangar",
+            quantity=-1,
+            time_efficiency=0,
+            material_efficiency=0,
+            runs=0,
+            character_name="Industrialist",
+            type_name="Polymer Reaction",
+        )
+
+        with patch("indy_hub.views.industry.connection") as mock_connection:
+            cursor = mock_connection.cursor.return_value.__enter__.return_value
+            cursor.fetchall.return_value = [(999001,)]
+            response = self.client.get(reverse("indy_hub:personnal_bp_list"))
+
+        self.assertEqual(response.status_code, 200)
+        page = response.context["blueprints"]
+        self.assertGreaterEqual(len(page.object_list), 1)
+        bp = page.object_list[0]
+        self.assertEqual(bp.location_path, "hangar")
 
     def test_reaction_blueprint_hides_efficiency_bars(self) -> None:
         Blueprint.objects.create(
