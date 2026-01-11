@@ -155,7 +155,7 @@
     border: 1px solid rgba(var(--bs-secondary-rgb), 0.2);
 }
 
-/* When the view gives Bootstrap badge classes (bg-*/text-*), keep them */
+/* When the view gives Bootstrap badge classes (bg-* and text-*), keep them */
 .status-chip.bg-success { background: rgba(var(--bs-success-rgb), 0.12) !important; border-color: rgba(var(--bs-success-rgb), 0.35) !important; color: var(--bs-success) !important; }
 .status-chip.bg-warning { background: rgba(var(--bs-warning-rgb), 0.12) !important; border-color: rgba(var(--bs-warning-rgb), 0.35) !important; color: var(--bs-warning) !important; }
 .status-chip.bg-danger { background: rgba(var(--bs-danger-rgb), 0.12) !important; border-color: rgba(var(--bs-danger-rgb), 0.35) !important; color: var(--bs-danger) !important; }
@@ -710,16 +710,16 @@ html[data-theme="darkly"] .requests-panel {
     .bp-request-filters__inputs {
         width: 100%;
     }
-    
+
     .bp-request-filters__field:first-child {
         flex: 1 1 100%;
         min-width: 100%;
     }
-    
+
     .bp-request-filters__actions {
         width: 100%;
     }
-    
+
     .bp-request-filters__actions .btn {
         flex: 1;
     }
@@ -729,15 +729,15 @@ html[data-theme="darkly"] .requests-panel {
     .bp-request-filters {
         padding: 1rem;
     }
-    
+
     .bp-request-filters__form {
         gap: 1rem;
     }
-    
+
     .bp-request-filters__inputs {
         gap: 0.75rem;
     }
-    
+
     .bp-request-filters__field {
         flex: 1 1 100%;
         min-width: 100%;

@@ -542,10 +542,12 @@
                                             {% for bc in level.blueprints %}
                                             <div class="craft-bp-card card h-100" data-blueprint-type-id="{{ bc.type_id }}" {% if not bc.user_owns %}data-blueprint-not-owned="true"{% endif %}>
                                                 <div class="card-header text-center py-1 {% if bc.user_owns %}bg-success bg-opacity-10{% elif bc.shared_copies_available %}bg-warning bg-opacity-10{% else %}bg-danger bg-opacity-10{% endif %}">
-                                                    <img src="https://images.evetech.net/types/{{ bc.type_id }}/bp?size=128"
-                                                         alt="{{ bc.type_name }}"
-                                                         class="craft-bp-icon mx-auto d-block mb-1"
-                                                         onerror="this.style.display='none';">
+                                                    <img
+                                                        src="https://images.evetech.net/types/{{ bc.type_id }}/bp?size=128"
+                                                        alt="{{ bc.type_name }}"
+                                                        class="craft-bp-icon mx-auto d-block mb-1"
+                                                        onerror="this.style.display='none';"
+                                                    >
                                                     {% if bc.user_owns %}
                                                         {% if bc.is_copy %}
                                                         <span class="badge bg-info w-100 mb-1" style="font-size: 0.7rem;">
@@ -577,23 +579,29 @@
                                                                 <label class="form-label small fw-bold text-uppercase text-muted" style="font-size: 0.65rem; margin-bottom: 0.25rem;">
                                                                     <i class="fas fa-cubes me-1"></i>ME
                                                                 </label>
-                                                                <input type="number"
-                                                                       name="me_{{ bc.type_id }}"
-                                                                       value="{{ bc.material_efficiency }}"
-                                                                       min="0"
-                                                                       max="10"
-                                                                       class="form-control form-control-sm text-center fw-bold bp-me-input" style="font-size: 0.9rem; padding: 0.3rem;">
+                                                                <input
+                                                                    type="number"
+                                                                    name="me_{{ bc.type_id }}"
+                                                                    value="{{ bc.material_efficiency }}"
+                                                                    min="0"
+                                                                    max="10"
+                                                                    class="form-control form-control-sm text-center fw-bold bp-me-input"
+                                                                    style="font-size: 0.9rem; padding: 0.3rem;"
+                                                                >
                                                             </div>
                                                             <div style="flex: 1; min-width: 0;">
                                                                 <label class="form-label small fw-bold text-uppercase text-muted" style="font-size: 0.65rem; margin-bottom: 0.25rem;">
                                                                     <i class="fas fa-clock me-1"></i>TE
                                                                 </label>
-                                                                <input type="number"
-                                                                       name="te_{{ bc.type_id }}"
-                                                                       value="{{ bc.time_efficiency }}"
-                                                                       min="0"
-                                                                       max="20"
-                                                                       class="form-control form-control-sm text-center fw-bold bp-te-input" style="font-size: 0.9rem; padding: 0.3rem;">
+                                                                <input
+                                                                    type="number"
+                                                                    name="te_{{ bc.type_id }}"
+                                                                    value="{{ bc.time_efficiency }}"
+                                                                    min="0"
+                                                                    max="20"
+                                                                    class="form-control form-control-sm text-center fw-bold bp-te-input"
+                                                                    style="font-size: 0.9rem; padding: 0.3rem;"
+                                                                >
                                                             </div>
                                                         </div>
                                                     </div>
