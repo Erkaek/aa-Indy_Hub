@@ -606,36 +606,46 @@
                                                         </div>
                                                     </div>
 
-                                                    {% if not bc.user_owns %}
-                                                    <div class="blueprint-sharing-section">
+                                                    {% if (not bc.user_owns) or bc.is_copy %}
+                                                    <div class="blueprint-sharing-section{% if bc.user_owns and bc.is_copy %} d-none{% endif %}" data-bp-type-id="{{ bc.type_id }}" data-bp-owned-copy="{% if bc.user_owns and bc.is_copy %}1{% else %}0{% endif %}">
                                                         {% if bc.shared_copies_available %}
                                                         <div class="alert alert-info py-1 px-2 mb-0" style="font-size: 0.8rem;">
                                                             <div class="d-flex align-items-center justify-content-between gap-1 mb-1">
                                                                 <small class="fw-bold" style="flex-shrink: 0;"><i class="fas fa-share-alt me-1"></i>Copies</small>
                                                                 <span class="badge bg-primary" style="font-size: 0.65rem;">{{ bc.shared_copies_available|length }}</span>
                                                             </div>
-                                                            {% if bc.shared_copies_available|length == 1 %}
-                                                            <form method="post" action="{% url 'indy_hub:bp_copy_request_create' %}" class="d-inline w-100">
-                                                                {% csrf_token %}
-                                                                <input type="hidden" name="type_id" value="{{ bc.type_id }}">
-                                                                <input type="hidden" name="material_efficiency" value="{{ bc.shared_copies_available.0.me }}">
-                                                                <input type="hidden" name="time_efficiency" value="{{ bc.shared_copies_available.0.te }}">
-                                                                <input type="hidden" name="runs_requested" value="300">
-                                                                <input type="hidden" name="copies_requested" value="1">
-                                                                <button type="submit" class="btn btn-sm btn-primary w-100" style="font-size: 0.8rem; padding: 0.25rem;">
-                                                                    <i class="fas fa-paper-plane me-1"></i>ME{{ bc.shared_copies_available.0.me }}/TE{{ bc.shared_copies_available.0.te }}
-                                                                </button>
-                                                            </form>
-                                                            {% else %}
-                                                            <select class="form-select form-select-sm mb-1" id="bpCopySelect{{ bc.type_id }}" style="font-size: 0.8rem; padding: 0.25rem;">
+                                                            <select class="form-select form-select-sm mb-1" id="bpCopySelect{{ bc.type_id }}" style="font-size: 0.8rem; padding: 0.25rem;" {% if bc.shared_copies_available|length == 1 %}disabled{% endif %}>
                                                                 {% for copy in bc.shared_copies_available %}
                                                                 <option value="{{ copy.me }},{{ copy.te }}">ME{{ copy.me }}/TE{{ copy.te }}</option>
                                                                 {% endfor %}
                                                             </select>
+
+                                                            <div class="d-flex gap-1 mb-1">
+                                                                <input
+                                                                    type="number"
+                                                                    id="bpRunsRequested{{ bc.type_id }}"
+                                                                    class="form-control form-control-sm"
+                                                                    min="1"
+                                                                    value="300"
+                                                                    title="{% trans 'Runs requested' %}"
+                                                                    placeholder="{% trans 'Runs' %}"
+                                                                    style="font-size: 0.8rem; padding: 0.25rem;"
+                                                                >
+                                                                <input
+                                                                    type="number"
+                                                                    id="bpCopiesRequested{{ bc.type_id }}"
+                                                                    class="form-control form-control-sm"
+                                                                    min="1"
+                                                                    value="1"
+                                                                    title="{% trans 'Copies requested' %}"
+                                                                    placeholder="{% trans 'Copies' %}"
+                                                                    style="font-size: 0.8rem; padding: 0.25rem;"
+                                                                >
+                                                            </div>
+
                                                             <button type="button" class="btn btn-sm btn-primary w-100" onclick="requestBlueprintCopy({{ bc.type_id }}, this)" style="font-size: 0.8rem; padding: 0.25rem;">
                                                                 <i class="fas fa-paper-plane me-1"></i>{% trans "Request" %}
                                                             </button>
-                                                            {% endif %}
                                                         </div>
                                                         {% else %}
                                                         <div class="alert alert-danger py-1 px-2 mb-0" style="font-size: 0.8rem;">
@@ -751,6 +761,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const [me, te] = select.value.split(',');
 
+        const runsValue = Math.max(1, parseInt(document.getElementById(`bpRunsRequested${typeId}`)?.value || '300', 10) || 300);
+        const copiesValue = Math.max(1, parseInt(document.getElementById(`bpCopiesRequested${typeId}`)?.value || '1', 10) || 1);
+
         // Create and submit form
         const form = document.createElement('form');
         form.method = 'POST';
@@ -788,14 +801,14 @@ document.addEventListener('DOMContentLoaded', function() {
         const runsInput = document.createElement('input');
         runsInput.type = 'hidden';
         runsInput.name = 'runs_requested';
-        runsInput.value = '300';
+        runsInput.value = String(runsValue);
         form.appendChild(runsInput);
 
         // Copies
         const copiesInput = document.createElement('input');
         copiesInput.type = 'hidden';
         copiesInput.name = 'copies_requested';
-        copiesInput.value = '1';
+        copiesInput.value = String(copiesValue);
         form.appendChild(copiesInput);
 
         document.body.appendChild(form);
@@ -1119,14 +1132,19 @@ document.addEventListener('DOMContentLoaded', function() {
             : null;
 
         document.querySelectorAll('.runs-validation-alert').forEach(el => el.innerHTML = '');
+        document.querySelectorAll('.blueprint-sharing-section[data-bp-owned-copy="1"]').forEach(el => el.classList.add('d-none'));
 
         blueprintConfigs.forEach(bp => {
-            if (!bp.is_copy || bp.runs_available == null) return;
+            const userOwns = Boolean(bp.user_owns);
+            const isCopyOwned = userOwns && Boolean(bp.is_copy) && bp.runs_available != null;
+            const isNotOwned = !userOwns;
+
+            if (!isCopyOwned && !isNotOwned) return;
 
             const productId = bp.product_type_id || bp.type_id;
             let cyclesData = cyclesSummary[productId] || cyclesSummary[String(productId)];
             let calculatedCycles = cyclesData ? (Number(cyclesData.cycles) || 0) : null;
-            let availableRuns = Number(bp.runs_available) || 0;
+            let availableRuns = isCopyOwned ? (Number(bp.runs_available) || 0) : 0;
 
             if (!cyclesData && mainBpInfo && Number(bp.type_id) === mainBpTypeId) {
                 calculatedCycles = mainNumRuns;
@@ -1148,6 +1166,19 @@ document.addEventListener('DOMContentLoaded', function() {
                             <strong>Missing ${shortfallRuns} run(s)</strong>
                         </div>
                     `;
+                }
+
+                const requestContainer = document.querySelector(`.blueprint-sharing-section[data-bp-owned-copy="1"][data-bp-type-id="${bp.type_id}"]`);
+                if (requestContainer) {
+                    requestContainer.classList.remove('d-none');
+                }
+
+                const runsInput = document.getElementById(`bpRunsRequested${bp.type_id}`);
+                if (runsInput) {
+                    const current = parseInt(runsInput.value || '0', 10) || 0;
+                    if (!current || current === 300) {
+                        runsInput.value = String(Math.max(1, shortfallRuns));
+                    }
                 }
             }
         });

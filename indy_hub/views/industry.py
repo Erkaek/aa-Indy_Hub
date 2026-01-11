@@ -2214,10 +2214,14 @@ def craft_bp(request, type_id):
             from collections import defaultdict as dd
 
             shared_bp_map = dd(list)
+            shared_bp_seen = dd(set)
             for bp in available_shared_bps:
-                shared_bp_map[bp["type_id"]].append(
-                    {"me": bp["material_efficiency"], "te": bp["time_efficiency"]}
-                )
+                type_id = bp["type_id"]
+                key = (bp["material_efficiency"], bp["time_efficiency"])
+                if key in shared_bp_seen[type_id]:
+                    continue
+                shared_bp_seen[type_id].add(key)
+                shared_bp_map[type_id].append({"me": key[0], "te": key[1]})
 
             # Enrich blueprint_configs with user's data and sharing availability
             for bc in blueprint_configs:
@@ -2247,6 +2251,11 @@ def craft_bp(request, type_id):
                         bc["runs_available"] = user_entry.get("copy_runs_total", 0)
                         bc["user_material_efficiency"] = best_copy["me"]
                         bc["user_time_efficiency"] = best_copy["te"]
+
+                        # Even if the user owns a copy, allow requesting additional copies via sharing
+                        bc["shared_copies_available"] = shared_bp_map.get(
+                            bp_type_id, []
+                        )
 
                         # Set default ME/TE from owned blueprints
                         # (Will be overridden by URL params later if present)
