@@ -20,7 +20,10 @@ def _import_task_submodules() -> None:
     # Django
     from django.apps import apps
 
-    if not apps.ready:
+    # During AppConfig.ready(), Django has loaded apps and models, but the global
+    # registry flag `apps.ready` is only set to True after *all* apps have run
+    # their ready() methods. We only require apps + models to be ready here.
+    if not (apps.apps_ready and apps.models_ready):
         return
 
     # Import task submodules so their @shared_task are registered
@@ -32,8 +35,19 @@ def _import_task_submodules() -> None:
     from . import user  # noqa: F401
 
 
-try:
+def ensure_task_submodules_imported() -> None:
+    """Ensure all indy_hub task submodules are imported.
+
+    This is safe to call multiple times and is intended to be called from
+    AppConfig.ready() to handle cases where ``indy_hub.tasks`` was imported
+    before Django finished initializing.
+    """
+
     _import_task_submodules()
+
+
+try:
+    ensure_task_submodules_imported()
 except Exception:
     # Keep this package importable even if Django isn't initialized yet.
     # Submodules will be imported later when Django is ready.

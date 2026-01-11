@@ -41,6 +41,16 @@ class IndyHubConfig(AppConfig):
         except Exception as e:
             logger.exception(f"Error loading signals: {e}")
 
+        # Ensure Celery task modules are registered.
+        # Some modules (e.g. signals) may import a single task submodule early,
+        # which can prevent Celery autodiscovery from registering all tasks.
+        try:
+            from .tasks import ensure_task_submodules_imported
+
+            ensure_task_submodules_imported()
+        except Exception as e:
+            logger.warning(f"Could not import indy_hub task submodules: {e}")
+
         # Skip tasks configuration during tests
         if (
             "test" in sys.argv
