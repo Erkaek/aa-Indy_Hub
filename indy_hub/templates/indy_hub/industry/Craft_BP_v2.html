@@ -606,7 +606,7 @@
                                                         </div>
                                                     </div>
 
-                                                    {% if (not bc.user_owns) or bc.is_copy %}
+                                                    {% if not bc.user_owns or bc.is_copy %}
                                                     <div class="blueprint-sharing-section{% if bc.user_owns and bc.is_copy %} d-none{% endif %}" data-bp-type-id="{{ bc.type_id }}" data-bp-owned-copy="{% if bc.user_owns and bc.is_copy %}1{% else %}0{% endif %}">
                                                         {% if bc.shared_copies_available %}
                                                         <div class="alert alert-info py-1 px-2 mb-0" style="font-size: 0.8rem;">

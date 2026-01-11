@@ -34,6 +34,10 @@ from ..models import (
 from ..notifications import notify_multi
 from ..services.asset_cache import get_corp_divisions_cached, get_user_assets_cached
 from ..tasks.material_exchange import (
+    ME_STOCK_SYNC_CACHE_VERSION,
+    ME_USER_ASSETS_CACHE_VERSION,
+    me_stock_sync_cache_version_key,
+    me_user_assets_cache_version_key,
     refresh_material_exchange_buy_stock,
     refresh_material_exchange_sell_user_assets,
     sync_material_exchange_prices,
@@ -341,6 +345,21 @@ def material_exchange_index(request):
             context,
         )
 
+    # Post-deploy self-heal: if the user already has cached assets but they were
+    # produced by an older normalization version, trigger a one-time background refresh.
+    try:
+        has_cached_assets = CachedCharacterAsset.objects.filter(
+            user=request.user
+        ).exists()
+        if has_cached_assets:
+            current_version = int(
+                cache.get(me_user_assets_cache_version_key(int(request.user.id))) or 0
+            )
+            if current_version < int(ME_USER_ASSETS_CACHE_VERSION):
+                _ensure_sell_assets_refresh_started(request.user)
+    except Exception:
+        pass
+
     # Stats (based on the user's visible sell items)
     stock_count = 0
     total_stock_value = 0
@@ -536,6 +555,18 @@ def material_exchange_sell(request):
         .first()
     )
 
+    user_assets_version_refresh = False
+    try:
+        if sell_last_update:
+            current_version = int(
+                cache.get(me_user_assets_cache_version_key(int(request.user.id))) or 0
+            )
+            user_assets_version_refresh = current_version < int(
+                ME_USER_ASSETS_CACHE_VERSION
+            )
+    except Exception:
+        user_assets_version_refresh = False
+
     try:
         user_assets_stale = (
             not sell_last_update
@@ -547,12 +578,10 @@ def material_exchange_sell(request):
     # Start async refresh of the user's assets on page open (GET only).
     progress_key = _me_sell_assets_progress_key(request.user.id)
     sell_assets_progress = cache.get(progress_key) or {}
-    if (
-        request.method == "GET"
-        and request.GET.get("refreshed") != "1"
-        and user_assets_stale
-    ):
-        sell_assets_progress = _ensure_sell_assets_refresh_started(request.user)
+    if request.method == "GET" and (user_assets_stale or user_assets_version_refresh):
+        # The refreshed=1 guard prevents loops, but version migrations should override it.
+        if request.GET.get("refreshed") != "1" or user_assets_version_refresh:
+            sell_assets_progress = _ensure_sell_assets_refresh_started(request.user)
     assets_refreshing = bool(sell_assets_progress.get("running"))
 
     if request.method == "POST":
@@ -693,7 +722,19 @@ def material_exchange_sell(request):
     except Exception:
         needs_refresh = True
 
-    if needs_refresh:
+    stock_version_refresh = False
+    try:
+        # Only trigger the version refresh if there is already synced data.
+        if config.last_stock_sync:
+            current_version = int(
+                cache.get(me_stock_sync_cache_version_key(int(config.corporation_id)))
+                or 0
+            )
+            stock_version_refresh = current_version < int(ME_STOCK_SYNC_CACHE_VERSION)
+    except Exception:
+        stock_version_refresh = False
+
+    if needs_refresh or stock_version_refresh:
         messages.info(
             request,
             _(
@@ -720,10 +761,25 @@ def material_exchange_sell(request):
     # can still render even if the background job didn't populate anything.
     has_cached_assets = CachedCharacterAsset.objects.filter(user=request.user).exists()
 
+    current_user_assets_version = 0
+    try:
+        current_user_assets_version = int(
+            cache.get(me_user_assets_cache_version_key(int(request.user.id))) or 0
+        )
+    except Exception:
+        current_user_assets_version = 0
+    needs_user_assets_version_refresh = has_cached_assets and (
+        current_user_assets_version < int(ME_USER_ASSETS_CACHE_VERSION)
+    )
+
     allow_refresh = (
         not bool(sell_assets_progress.get("running"))
         or sell_assets_progress.get("error") == "task_start_failed"
-    ) and (request.GET.get("refreshed") != "1" or not has_cached_assets)
+    ) and (
+        request.GET.get("refreshed") != "1"
+        or not has_cached_assets
+        or needs_user_assets_version_refresh
+    )
     user_assets, scope_missing = _fetch_user_assets_for_structure(
         request.user,
         config.structure_id,
@@ -1000,7 +1056,8 @@ def material_exchange_buy(request):
 
         return redirect("indy_hub:material_exchange_buy")
 
-    # Auto-refresh stock only if stale (> 1h) or never synced; otherwise keep cache
+    # Auto-refresh stock only if stale (> 1h) or never synced; otherwise keep cache.
+    # Post-deploy self-heal: if we changed stock derivation logic, trigger a one-time refresh.
     try:
         last_sync = config.last_stock_sync
         # Django
@@ -1012,6 +1069,17 @@ def material_exchange_buy(request):
     except Exception:
         needs_refresh = True
 
+    stock_version_refresh = False
+    try:
+        if config.last_stock_sync:
+            current_version = int(
+                cache.get(me_stock_sync_cache_version_key(int(config.corporation_id)))
+                or 0
+            )
+            stock_version_refresh = current_version < int(ME_STOCK_SYNC_CACHE_VERSION)
+    except Exception:
+        stock_version_refresh = False
+
     stock_refreshing = False
     buy_stock_progress = (
         cache.get(
@@ -1020,12 +1088,10 @@ def material_exchange_buy(request):
         or {}
     )
 
-    if (
-        request.method == "GET"
-        and request.GET.get("refreshed") != "1"
-        and needs_refresh
-    ):
-        buy_stock_progress = _ensure_buy_stock_refresh_started(config)
+    if request.method == "GET" and (needs_refresh or stock_version_refresh):
+        # The refreshed=1 guard prevents loops, but version migrations should override it.
+        if request.GET.get("refreshed") != "1" or stock_version_refresh:
+            buy_stock_progress = _ensure_buy_stock_refresh_started(config)
     stock_refreshing = bool(buy_stock_progress.get("running"))
 
     # GET: ensure prices are populated if stock exists without prices

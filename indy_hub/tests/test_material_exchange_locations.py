@@ -8,14 +8,77 @@ from indy_hub.models import (
     CachedStructureName,
 )
 from indy_hub.services.asset_cache import (
+    asset_chain_has_context,
+    build_asset_index_by_item_id,
     get_office_folder_item_id_from_assets,
     make_managed_hangar_location_id,
+    resolve_asset_root_location_id,
     resolve_structure_names,
 )
 from indy_hub.services.esi_client import ESIForbiddenError
 
 
 class TestMaterialExchangeLocations(TestCase):
+    def test_container_asset_resolves_to_parent_structure(self):
+        # Item A is inside container C, which is inside structure B.
+        item_a = {
+            "item_id": 1040503713425,
+            "location_id": 1045691258254,
+            "location_flag": "Unlocked",
+            "type_id": 34,
+            "quantity": 10,
+            "is_singleton": False,
+            "is_blueprint": False,
+        }
+        container_c = {
+            "item_id": 1045691258254,
+            "location_id": 1045667241057,
+            "location_flag": "Hangar",
+            "type_id": 23,
+            "quantity": 1,
+            "is_singleton": True,
+            "is_blueprint": False,
+        }
+
+        assets = [item_a, container_c]
+        index_by_item_id = build_asset_index_by_item_id(assets)
+
+        assert resolve_asset_root_location_id(item_a, index_by_item_id) == 1045667241057
+
+    def test_container_asset_inherits_location_context_from_parent(self):
+        # Container C carries the real hub hangar context; item A should match it.
+        effective_location_id = 1045722708748
+        target_flag = "CorpSAG7"
+
+        item_a = {
+            "item_id": 1040503713425,
+            "location_id": 5555550001,  # container item id
+            "location_flag": "Unlocked",
+            "type_id": 34,
+            "quantity": 10,
+            "is_singleton": False,
+            "is_blueprint": False,
+        }
+        container_c = {
+            "item_id": 5555550001,
+            "location_id": effective_location_id,
+            "location_flag": target_flag,
+            "type_id": 23,
+            "quantity": 1,
+            "is_singleton": True,
+            "is_blueprint": False,
+        }
+
+        assets = [item_a, container_c]
+        index_by_item_id = build_asset_index_by_item_id(assets)
+
+        assert asset_chain_has_context(
+            item_a,
+            index_by_item_id,
+            location_id=effective_location_id,
+            location_flag=target_flag,
+        )
+
     def test_office_folder_item_id_extraction(self):
         corp_assets = [
             {

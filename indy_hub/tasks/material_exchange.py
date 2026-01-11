@@ -25,9 +25,12 @@ from indy_hub.models import (
     MaterialExchangeStock,
 )
 from indy_hub.services.asset_cache import (
+    asset_chain_has_context,
+    build_asset_index_by_item_id,
     force_refresh_corp_assets,
     get_corp_assets_cached,
     get_office_folder_item_id_from_assets,
+    resolve_asset_root_location_id,
 )
 from indy_hub.services.esi_client import (
     ESIClientError,
@@ -39,6 +42,23 @@ from indy_hub.services.esi_client import (
 from indy_hub.utils.eve import get_type_name
 
 logger = logging.getLogger(__name__)
+
+
+# Bump these when a deployment changes how caches are normalized/derived.
+# This lets pages trigger a one-time refresh for already-cached data.
+ME_USER_ASSETS_CACHE_VERSION = 1
+ME_STOCK_SYNC_CACHE_VERSION = 1
+
+# Long TTL: we want this to survive normal operation, but it's OK if cache clears.
+_ME_CACHE_VERSION_TTL_SECONDS = 90 * 24 * 60 * 60
+
+
+def me_user_assets_cache_version_key(user_id: int) -> str:
+    return f"indy_hub:material_exchange:user_assets_cache_version:{int(user_id)}"
+
+
+def me_stock_sync_cache_version_key(corporation_id: int) -> str:
+    return f"indy_hub:material_exchange:stock_sync_cache_version:{int(corporation_id)}"
 
 
 def _me_sell_assets_progress_key(user_id: int) -> str:
@@ -307,13 +327,21 @@ def refresh_material_exchange_sell_user_assets(user_id: int) -> None:
             )
             continue
 
+        index_by_item_id = build_asset_index_by_item_id(assets or [])
+
         rows: list[CachedCharacterAsset] = []
         for asset in assets or []:
+            resolved_location_id = resolve_asset_root_location_id(
+                asset, index_by_item_id
+            )
+            if resolved_location_id is None:
+                resolved_location_id = int(asset.get("location_id", 0) or 0)
+
             rows.append(
                 CachedCharacterAsset(
                     user=user,
                     character_id=int(character_id),
-                    location_id=int(asset.get("location_id", 0) or 0),
+                    location_id=int(resolved_location_id),
                     location_flag=str(asset.get("location_flag", "") or ""),
                     type_id=int(asset.get("type_id", 0) or 0),
                     quantity=int(asset.get("quantity", 0) or 0),
@@ -374,6 +402,12 @@ def refresh_material_exchange_sell_user_assets(user_id: int) -> None:
     with transaction.atomic():
         CachedCharacterAsset.objects.filter(user=user).delete()
         CachedCharacterAsset.objects.bulk_create(all_rows, batch_size=1000)
+
+    cache.set(
+        me_user_assets_cache_version_key(int(user.id)),
+        int(ME_USER_ASSETS_CACHE_VERSION),
+        _ME_CACHE_VERSION_TTL_SECONDS,
+    )
 
     logger.info(
         "Successfully refreshed %s character assets for user %s",
@@ -508,14 +542,18 @@ def _sync_stock_impl():
             else int(config.structure_id)
         )
 
-        for asset in corp_assets:
-            try:
-                if int(asset.get("location_id", 0)) != int(effective_location_id):
-                    continue
-            except (TypeError, ValueError):
-                continue
+        index_by_item_id = build_asset_index_by_item_id(corp_assets or [])
 
-            if asset.get("location_flag") != target_flag:
+        for asset in corp_assets:
+            # Assets can be inside containers (cans/boxes) which have their own item_id.
+            # In those cases the child asset location_id points to the container item_id,
+            # and the container carries the actual hangar context.
+            if not asset_chain_has_context(
+                asset,
+                index_by_item_id,
+                location_id=int(effective_location_id),
+                location_flag=str(target_flag),
+            ):
                 continue
 
             try:
@@ -658,6 +696,12 @@ def _sync_stock_impl():
         logger.info(
             "Material Exchange stock sync completed: %s types updated",
             len(stock_updates),
+        )
+
+        cache.set(
+            me_stock_sync_cache_version_key(int(config.corporation_id)),
+            int(ME_STOCK_SYNC_CACHE_VERSION),
+            _ME_CACHE_VERSION_TTL_SECONDS,
         )
 
         # Auto-sync prices after stock updates so buy page has prices

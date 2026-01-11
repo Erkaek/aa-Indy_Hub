@@ -48,6 +48,105 @@ DIVISION_CACHE_MAX_AGE_MINUTES = getattr(
 )
 
 
+def build_asset_index_by_item_id(assets: list[dict]) -> dict[int, dict]:
+    """Build an index mapping item_id -> asset dict.
+
+    ESI assets can be nested: an item's ``location_id`` can point to another asset's
+    ``item_id`` (e.g. items inside containers/cans). This helper builds an index to
+    follow those parent relationships.
+    """
+
+    index: dict[int, dict] = {}
+    for asset in assets or []:
+        item_id = asset.get("item_id")
+        if item_id is None:
+            continue
+        try:
+            item_id_int = int(item_id)
+        except (TypeError, ValueError):
+            continue
+        if item_id_int <= 0:
+            continue
+        index[item_id_int] = asset
+    return index
+
+
+def resolve_asset_root_location_id(
+    asset: dict,
+    index_by_item_id: dict[int, dict],
+    *,
+    max_depth: int = 25,
+) -> int | None:
+    """Resolve the top-level (non-container) location_id for an asset.
+
+    If ``asset.location_id`` points to a container's ``item_id``, follow the chain
+    until the location_id no longer matches an item_id in ``index_by_item_id``.
+    Returns the final location_id (typically a structure/station id) or None.
+    """
+
+    current = asset
+    seen: set[int] = set()
+
+    for _ in range(int(max_depth)):
+        try:
+            location_id = int(current.get("location_id", 0) or 0)
+        except (TypeError, ValueError):
+            return None
+
+        parent = index_by_item_id.get(location_id)
+        if not parent:
+            return location_id
+
+        if location_id in seen:
+            # Defensive: break loops in pathological asset graphs.
+            return location_id
+        seen.add(location_id)
+
+        current = parent
+
+    # Defensive fallback when nesting is deeper than expected.
+    try:
+        return int(current.get("location_id", 0) or 0)
+    except (TypeError, ValueError):
+        return None
+
+
+def asset_chain_has_context(
+    asset: dict,
+    index_by_item_id: dict[int, dict],
+    *,
+    location_id: int,
+    location_flag: str,
+    max_depth: int = 25,
+) -> bool:
+    """Return True when asset (or any parent container) matches a location context."""
+
+    current = asset
+    seen: set[int] = set()
+    wanted_flag = str(location_flag or "")
+
+    for _ in range(int(max_depth)):
+        try:
+            current_location_id = int(current.get("location_id", 0) or 0)
+        except (TypeError, ValueError):
+            current_location_id = 0
+
+        current_flag = str(current.get("location_flag", "") or "")
+        if current_location_id == int(location_id) and current_flag == wanted_flag:
+            return True
+
+        parent = index_by_item_id.get(current_location_id)
+        if not parent:
+            return False
+
+        if current_location_id in seen:
+            return False
+        seen.add(current_location_id)
+        current = parent
+
+    return False
+
+
 def make_managed_hangar_location_id(office_folder_item_id: int, division: int) -> int:
     """Return the corptools-style managed hangar location id.
 
@@ -764,11 +863,19 @@ def _refresh_character_assets(user) -> tuple[list[dict], bool]:
             )
             continue
 
+        index_by_item_id = build_asset_index_by_item_id(assets or [])
+
         for asset in assets:
+            resolved_location_id = resolve_asset_root_location_id(
+                asset, index_by_item_id
+            )
+            if resolved_location_id is None:
+                resolved_location_id = int(asset.get("location_id", 0) or 0)
+
             row = CachedCharacterAsset(
                 user=user,
                 character_id=int(character_id),
-                location_id=int(asset.get("location_id", 0) or 0),
+                location_id=int(resolved_location_id),
                 location_flag=str(asset.get("location_flag", "") or ""),
                 type_id=int(asset.get("type_id", 0) or 0),
                 quantity=int(asset.get("quantity", 0) or 0),
