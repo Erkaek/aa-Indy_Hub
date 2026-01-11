@@ -137,20 +137,20 @@
                     <div class="col-xl-4 col-lg-6">
                         <div class="card h-100 shadow-sm border-0 job-card">
                             <div class="card-body d-flex flex-column gap-3">
-                                <div class="d-flex justify-content-between gap-3">
-                                    <div class="d-flex gap-3 align-items-center">
+                                <div class="d-flex justify-content-between gap-3 flex-wrap">
+                                    <div class="d-flex gap-3 align-items-center" style="min-width: 0;">
                                         {% if job.icon_url %}
-                                        <img src="{{ job.icon_url }}" alt="{{ job.blueprint_type_name }}" class="rounded"
+                                        <img src="{{ job.icon_url }}" alt="{{ job.blueprint_type_name }}" class="rounded flex-shrink-0"
                                             style="width:48px;height:48px;object-fit:cover;" loading="lazy"
                                             onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
                                         {% endif %}
-                                        <span class="fallback fs-3 text-secondary" style="display:none;"><i class="fas fa-industry"></i></span>
-                                        <div>
+                                        <span class="fallback fs-3 text-secondary flex-shrink-0" style="display:none;"><i class="fas fa-industry"></i></span>
+                                        <div style="min-width: 0;">
                                             <h4 class="h6 mb-1 text-truncate">{{ job.blueprint_type_name|default:job.blueprint_type_id }}</h4>
                                             <p class="text-muted small mb-0"><i class="{{ owner_icon }} me-1"></i>{{ job.display_owner_name }}</p>
                                         </div>
                                     </div>
-                                    <span class="badge {{ group.badge_variant }} align-self-start px-3 py-2">{{ group.chip }}</span>
+                                    <span class="badge {{ group.badge_variant }} align-self-start px-3 py-2 flex-shrink-0">{{ group.chip }}</span>
                                 </div>
                                 <div class="d-flex flex-wrap gap-2 small">
                                     <span class="badge bg-light text-dark border">{{ job.runs }} {% trans 'runs' %}</span>

@@ -1,14 +1,43 @@
 """Celery tasks package for indy_hub.
 
-Ensure submodules are imported so Celery registers all tasks.
+Celery's Django autodiscovery imports the app's ``tasks`` module (or package).
+Because this is a package with multiple submodules, we need to import those
+submodules so their ``@shared_task`` decorators are registered.
+
+However, importing task submodules too early (before Django has initialized the
+app registry) can raise errors during test discovery or other contexts.
 """
 
-# Import task submodules so their @shared_task are registered
-from . import industry  # noqa: F401
-from . import location  # noqa: F401
-from . import material_exchange  # noqa: F401
-from . import notifications  # noqa: F401
-from . import user  # noqa: F401
+
+def _import_task_submodules() -> None:
+    """Import task submodules when Django is ready.
+
+    This keeps imports safe during environments where Django isn't initialized
+    yet (e.g. module discovery), while still registering Celery tasks when
+    running under a fully configured Django/Celery process.
+    """
+
+    # Django
+    from django.apps import apps
+
+    if not apps.ready:
+        return
+
+    # Import task submodules so their @shared_task are registered
+    from . import industry  # noqa: F401
+    from . import location  # noqa: F401
+    from . import material_exchange  # noqa: F401
+    from . import material_exchange_contracts  # noqa: F401
+    from . import notifications  # noqa: F401
+    from . import user  # noqa: F401
+
+
+try:
+    _import_task_submodules()
+except Exception:
+    # Keep this package importable even if Django isn't initialized yet.
+    # Submodules will be imported later when Django is ready.
+    pass
 
 
 # Import the setup function from the main tasks module

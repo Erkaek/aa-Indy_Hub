@@ -50,10 +50,10 @@ html[data-theme="darkly"] {
     right: 0;
     bottom: 0;
     width: 180px;
-    opacity: 0.16;
+    opacity: 0.35;
     pointer-events: none;
-    font-size: clamp(6rem, 12vw, 8rem);
-    color: rgba(var(--bs-light-rgb), 0.22);
+    font-size: clamp(6rem, 12vw, 8rem) !important;
+    color: rgba(255, 255, 255, 0.5);
 }
 
 @media (max-width: 767.98px) {
@@ -65,7 +65,8 @@ html[data-theme="darkly"] {
 }
 
 html[data-theme="darkly"] .page-header .header-bg {
-    opacity: 0.12;
+    opacity: 0.25;
+    color: rgba(255, 255, 255, 0.4);
 }
 
 .page-header .description {
@@ -85,7 +86,8 @@ html[data-theme="darkly"] .page-header .header-bg {
 }
 
 .page-header.page-header--surface .header-bg {
-    color: rgba(var(--bs-secondary-rgb, 108 117 125), 0.18);
+    color: rgba(var(--bs-primary-rgb, 13 110 253), 0.15);
+    opacity: 0.5;
 }
 
 html[data-theme="darkly"] .page-header.page-header--surface {
@@ -98,7 +100,8 @@ html[data-theme="darkly"] .page-header.page-header--surface .description {
 }
 
 html[data-theme="darkly"] .page-header.page-header--surface .header-bg {
-    color: rgba(var(--bs-light-rgb), 0.2);
+    color: rgba(var(--bs-primary-rgb, 13 110 253), 0.2);
+    opacity: 0.4;
 }
 
 /* Specific icons for different pages */

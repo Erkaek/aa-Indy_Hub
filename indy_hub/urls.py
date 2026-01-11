@@ -2,6 +2,7 @@
 from django.urls import path
 
 from .views.api import (
+    craft_bp_payload,
     fuzzwork_price,
     load_production_config,
     save_production_config,
@@ -21,6 +22,7 @@ from .views.industry import (
     bp_cond_copy_request,
     bp_copy_fulfill_requests,
     bp_copy_my_requests,
+    bp_copy_request_create,
     bp_copy_request_page,
     bp_discord_action,
     bp_mark_copy_delivered,
@@ -36,9 +38,6 @@ from .views.industry import (
     edit_simulation_name,
     personnal_bp_list,
     personnal_job_list,
-    personnal_job_notification_test,
-    preview_job_notification_digest,
-    preview_job_notification_live,
     production_simulations_list,
 )
 from .views.material_exchange import (
@@ -100,6 +99,7 @@ from .views.user import (
     sync_jobs,
     toggle_copy_sharing,
     toggle_corporation_copy_sharing,
+    toggle_corporation_job_notifications,
     toggle_job_notifications,
     token_management,
 )
@@ -120,21 +120,6 @@ urlpatterns = [
     ),
     path("all-bp/", all_bp_list, name="all_bp_list"),
     path("personnal-jobs/", personnal_job_list, name="personnal_job_list"),
-    path(
-        "personnal-jobs/notification_test/",
-        personnal_job_notification_test,
-        name="personnal_job_notification_test",
-    ),
-    path(
-        "personnal-jobs/notifications/preview/live/",
-        preview_job_notification_live,
-        name="job_notification_preview_live",
-    ),
-    path(
-        "personnal-jobs/notifications/preview/digest/",
-        preview_job_notification_digest,
-        name="job_notification_preview_digest",
-    ),
     path(
         "corporation-jobs/",
         personnal_job_list,
@@ -167,6 +152,9 @@ urlpatterns = [
     ),
     path("craft/<int:type_id>/", craft_bp, name="craft_bp"),
     path("api/fuzzwork-price/", fuzzwork_price, name="fuzzwork_price"),
+    path(
+        "api/craft-bp-payload/<int:type_id>/", craft_bp_payload, name="craft_bp_payload"
+    ),
     path(
         "api/production-config/save/",
         save_production_config,
@@ -201,6 +189,9 @@ urlpatterns = [
         name="rename_production_simulation",
     ),
     path("bp-copy/request/", bp_copy_request_page, name="bp_copy_request_page"),
+    path(
+        "bp-copy/request/create/", bp_copy_request_create, name="bp_copy_request_create"
+    ),
     path("bp-copy/fulfill/", bp_copy_fulfill_requests, name="bp_copy_fulfill_requests"),
     path(
         "bp-copy/my-requests/", bp_copy_my_requests, name="bp_copy_my_requests"
@@ -265,6 +256,11 @@ urlpatterns = [
         "toggle-job-notifications/",
         toggle_job_notifications,
         name="toggle_job_notifications",
+    ),
+    path(
+        "toggle-corporation-job-notifications/",
+        toggle_corporation_job_notifications,
+        name="toggle_corporation_job_notifications",
     ),
     path(
         "toggle-corporation-copy-sharing/",

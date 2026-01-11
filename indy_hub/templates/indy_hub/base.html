@@ -102,7 +102,7 @@
                     <li><a class="dropdown-item" href="{% url 'indy_hub:bp_copy_my_requests' %}">
                         <i class="fas fa-list me-2"></i>{% trans "My Requests" %}
                     </a></li>
-                    {% if can_manage_corp_bp_requests %}
+                    {% if can_access_indy_hub %}
                     <li><a class="dropdown-item" href="{% url 'indy_hub:bp_copy_fulfill_requests' %}">
                         <i class="fas fa-handshake me-2"></i>{% trans "Fulfill Requests" %}
                     </a></li>

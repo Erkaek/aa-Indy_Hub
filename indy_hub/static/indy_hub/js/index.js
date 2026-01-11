@@ -96,6 +96,7 @@ document.addEventListener('DOMContentLoaded', function() {
     var customWrapper = document.getElementById('job-notification-custom-wrapper');
     var customDaysInput = document.getElementById('job-notification-custom-days');
     var applyBtn = document.getElementById('job-notification-apply');
+    var applyWrapper = document.getElementById('job-notification-apply-wrapper');
     var notifyHint = document.getElementById('notify-hint');
 
     function setNotifyHint(text) {
@@ -110,8 +111,14 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         if (value === 'custom') {
             customWrapper.classList.remove('d-none');
+            if (applyWrapper) {
+                applyWrapper.classList.remove('d-none');
+            }
         } else {
             customWrapper.classList.add('d-none');
+            if (applyWrapper) {
+                applyWrapper.classList.add('d-none');
+            }
         }
     }
 
@@ -356,6 +363,369 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    // Corporation job notification controls (per-corporation state management)
+    var corpJobNotificationStates = {};
+
+    function getCorpJobsHeaderBadge(corpId) {
+        return document.querySelector('.corp-header-jobs-badge[data-corp-id="' + corpId + '"]');
+    }
+
+    function getCorpShareHeaderBadge(corpId) {
+        return document.querySelector('.corp-header-share-badge[data-corp-id="' + corpId + '"]');
+    }
+
+    function getCorpJobsBadgeClass(frequency) {
+        if (frequency === 'disabled') {
+            return 'bg-danger-subtle text-danger';
+        }
+        if (frequency === 'immediate') {
+            return 'bg-success-subtle text-success';
+        }
+        if (frequency === 'daily') {
+            return 'bg-info-subtle text-info';
+        }
+        if (frequency === 'weekly') {
+            return 'bg-warning-subtle text-warning';
+        }
+        if (frequency === 'monthly') {
+            return 'bg-secondary-subtle text-secondary-emphasis';
+        }
+        if (frequency === 'custom') {
+            return 'bg-light-subtle text-body';
+        }
+        return 'bg-info-subtle text-info';
+    }
+
+    function getCorpJobsBadgeLabel(frequency, customDays) {
+        if (frequency === 'disabled') {
+            return __('Muted');
+        }
+        if (frequency === 'immediate') {
+            return __('Instant');
+        }
+        if (frequency === 'daily') {
+            return __('Daily');
+        }
+        if (frequency === 'weekly') {
+            return __('Weekly');
+        }
+        if (frequency === 'monthly') {
+            return __('Monthly');
+        }
+        if (frequency === 'custom') {
+            var days = typeof customDays === 'number' ? customDays : 3;
+            return String(days) + 'd';
+        }
+        return String(frequency || '');
+    }
+
+    function updateCorpAccordionJobsHeader(corpId, frequency, customDays) {
+        var badge = getCorpJobsHeaderBadge(corpId);
+        if (!badge) {
+            return;
+        }
+        badge.className = 'badge rounded-pill corp-header-jobs-badge ' + getCorpJobsBadgeClass(frequency);
+        badge.setAttribute('data-corp-id', corpId);
+
+        var label = badge.querySelector('.corp-header-jobs-label');
+        if (label) {
+            label.textContent = getCorpJobsBadgeLabel(frequency, customDays);
+        }
+    }
+
+    function updateCorpAccordionShareHeader(corpId, payload) {
+        var badge = getCorpShareHeaderBadge(corpId);
+        if (!badge || !payload) {
+            return;
+        }
+        if (payload.badge_class) {
+            badge.className = 'badge rounded-pill corp-header-share-badge ' + payload.badge_class;
+            badge.setAttribute('data-corp-id', corpId);
+        }
+        var label = badge.querySelector('.corp-header-share-label');
+        if (label && payload.status_label) {
+            label.textContent = payload.status_label;
+        }
+    }
+
+    // Initialize per-corporation states from context
+    if (window.corporationJobNotificationControls && Array.isArray(window.corporationJobNotificationControls)) {
+        window.corporationJobNotificationControls.forEach(function(corp) {
+            corpJobNotificationStates[corp.corporation_id] = {
+                frequency: corp.frequency || 'disabled',
+                customDays: corp.custom_days || 3,
+                hint: corp.hint || ''
+            };
+        });
+    }
+
+    // Helper function to get state for a corporation
+    function getCorpState(corpId) {
+        if (!corpJobNotificationStates[corpId]) {
+            corpJobNotificationStates[corpId] = {
+                frequency: 'disabled',
+                customDays: 3,
+                hint: ''
+            };
+        }
+        return corpJobNotificationStates[corpId];
+    }
+
+    // Setup event listeners for each corporation's job notification controls
+    var corpJobAlertControls = document.querySelectorAll('.corp-job-alert-control');
+    corpJobAlertControls.forEach(function(controlDiv) {
+        var corpId = controlDiv.getAttribute('data-corp-id');
+        if (!corpId) {
+            return;
+        }
+
+        var notifyGroup = controlDiv.querySelector('[data-corp-id="' + corpId + '"][role="group"]');
+        var notifyButtons = notifyGroup ? Array.from(notifyGroup.querySelectorAll('[data-frequency]')) : [];
+        var customWrapper = controlDiv.querySelector('#corp-job-notification-custom-wrapper-' + corpId);
+        var customDaysInput = customWrapper ? customWrapper.querySelector('input[type="number"]') : null;
+        var applyBtn = controlDiv.querySelector('[data-corp-id="' + corpId + '"].corp-job-notification-apply');
+        var applyWrapper = controlDiv.querySelector('#corp-job-notification-apply-wrapper-' + corpId);
+        var corpNotifyHint = controlDiv.querySelector('.corp-notify-hint');
+
+        var corpState = getCorpState(corpId);
+
+        function setCorpNotifyHint(text) {
+            if (corpNotifyHint) {
+                corpNotifyHint.textContent = text || '';
+            }
+        }
+
+        function toggleCorpCustomVisibility(value) {
+            if (!customWrapper) {
+                return;
+            }
+            if (value === 'custom') {
+                customWrapper.classList.remove('d-none');
+                if (applyWrapper) {
+                    applyWrapper.classList.remove('d-none');
+                }
+            } else {
+                customWrapper.classList.add('d-none');
+                if (applyWrapper) {
+                    applyWrapper.classList.add('d-none');
+                }
+            }
+        }
+
+        function getCorpNotificationButton(frequency) {
+            if (!notifyGroup) {
+                return null;
+            }
+            return notifyGroup.querySelector('[data-frequency="' + frequency + '"]');
+        }
+
+        function getCorpFrequencyHint(frequency) {
+            var button = getCorpNotificationButton(frequency);
+            if (!button) {
+                return null;
+            }
+
+            if (frequency === 'custom') {
+                var template = button.getAttribute('data-hint-template');
+                if (template) {
+                    var placeholder = button.getAttribute('data-hint-placeholder') || '__days__';
+                    var days = null;
+                    if (customDaysInput) {
+                        days = parseCustomDays(customDaysInput.value);
+                    }
+                    if (days == null) {
+                        if (typeof corpState.customDays === 'number') {
+                            days = corpState.customDays;
+                        } else {
+                            var defaultDays = parseInt(button.getAttribute('data-hint-default-days'), 10);
+                            if (!isNaN(defaultDays)) {
+                                days = defaultDays;
+                            }
+                        }
+                    }
+                    if (days == null) {
+                        days = 1;
+                    }
+                    var stringDays = String(days);
+                    return template.split(placeholder).join(stringDays);
+                }
+            }
+
+            var hint = button.getAttribute('data-hint');
+            return hint && hint.length ? hint : null;
+        }
+
+        function previewCorpFrequencyHint(frequency) {
+            var hint = getCorpFrequencyHint(frequency);
+            if (hint) {
+                setCorpNotifyHint(hint);
+                corpState.hint = hint;
+            }
+        }
+
+        function setCorpActiveFrequency(frequency) {
+            if (!notifyGroup) {
+                return;
+            }
+            notifyGroup.dataset.currentFrequency = frequency || 'disabled';
+            notifyButtons.forEach(function(btn) {
+                var isActive = btn.dataset.frequency === frequency;
+                btn.classList.toggle('is-active', isActive);
+                btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+            });
+        }
+
+        function getCorpActiveFrequency() {
+            if (notifyGroup) {
+                var current = notifyGroup.dataset.currentFrequency;
+                if (current) {
+                    return current;
+                }
+            }
+            return corpState.frequency || 'disabled';
+        }
+
+        function submitCorpNotificationPreference(frequency, customDays) {
+            if (!window.updateCorporationJobNotificationsUrl) {
+                return;
+            }
+
+            var payload = {
+                frequency: frequency,
+                corporation_id: parseInt(corpId, 10)
+            };
+            if (frequency === 'custom') {
+                payload.custom_days = customDays;
+            }
+
+            var previousFrequency = corpState.frequency;
+            var previousCustomDays = corpState.customDays;
+            var previousHint = corpState.hint;
+
+            if (applyBtn) {
+                applyBtn.disabled = true;
+            }
+            notifyButtons.forEach(function(btn) {
+                btn.disabled = true;
+            });
+
+            fetch(window.updateCorporationJobNotificationsUrl, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': window.csrfToken,
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            })
+                .then(function(response) {
+                    if (!response.ok) {
+                        throw new Error('bad_response');
+                    }
+                    return response.json();
+                })
+                .then(function(data) {
+                    corpState.frequency = data.frequency || frequency;
+                    if (typeof data.custom_days === 'number') {
+                        corpState.customDays = data.custom_days;
+                    } else if (frequency === 'custom' && typeof customDays === 'number') {
+                        corpState.customDays = customDays;
+                    }
+                    if (typeof data.hint === 'string' && data.hint.length) {
+                        corpState.hint = data.hint;
+                    }
+
+                    setCorpActiveFrequency(corpState.frequency);
+                    toggleCorpCustomVisibility(corpState.frequency);
+
+                    if (customDaysInput && corpState.customDays) {
+                        customDaysInput.value = corpState.customDays;
+                    }
+
+                    previewCorpFrequencyHint(corpState.frequency);
+
+                    updateCorpAccordionJobsHeader(corpId, corpState.frequency, corpState.customDays);
+
+                    var popupMessage = data.message || __('Corporation job notification preferences updated.');
+                    showIndyHubPopup(popupMessage, 'success');
+                })
+                .catch(function() {
+                    corpState.frequency = previousFrequency;
+                    corpState.customDays = previousCustomDays;
+                    corpState.hint = previousHint;
+                    setCorpActiveFrequency(previousFrequency);
+                    toggleCorpCustomVisibility(previousFrequency);
+                    if (customDaysInput && previousCustomDays) {
+                        customDaysInput.value = previousCustomDays;
+                    }
+                    previewCorpFrequencyHint(previousFrequency);
+                    showIndyHubPopup(__('Error updating corporation job notification preferences.'), 'danger');
+                })
+                .finally(function() {
+                    if (applyBtn) {
+                        applyBtn.disabled = false;
+                    }
+                    notifyButtons.forEach(function(btn) {
+                        btn.disabled = false;
+                    });
+                });
+        }
+
+        // Setup notification button clicks for this corporation
+        notifyButtons.forEach(function(button) {
+            button.addEventListener('click', function() {
+                var selectedFrequency = button.dataset.frequency;
+                setCorpActiveFrequency(selectedFrequency);
+                toggleCorpCustomVisibility(selectedFrequency);
+                previewCorpFrequencyHint(selectedFrequency);
+
+                // Auto-save for non-custom frequencies
+                if (selectedFrequency !== 'custom') {
+                    submitCorpNotificationPreference(selectedFrequency, null);
+                }
+
+                // For custom, preview only; save is manual via button click
+                if (selectedFrequency === 'custom') {
+                    previewCorpFrequencyHint('custom');
+                }
+            });
+        });
+
+        // Setup custom days input change listener
+        if (customDaysInput) {
+            customDaysInput.addEventListener('input', function() {
+                var parsed = parseCustomDays(customDaysInput.value);
+                if (parsed) {
+                    corpState.customDays = parsed;
+                }
+                if (getCorpActiveFrequency() === 'custom') {
+                    previewCorpFrequencyHint('custom');
+                }
+            });
+        }
+
+        // Setup apply button for custom frequency
+        if (applyBtn) {
+            applyBtn.addEventListener('click', function() {
+                var selectedFrequency = getCorpActiveFrequency();
+                var customDays = customDaysInput ? parseCustomDays(customDaysInput.value) : corpState.customDays;
+
+                if (selectedFrequency === 'custom' && !customDays) {
+                    showIndyHubPopup(__('Please enter a valid number of days for the custom cadence.'), 'warning');
+                    if (customDaysInput) {
+                        customDaysInput.focus();
+                    }
+                    return;
+                }
+
+                if (selectedFrequency === 'custom' && typeof customDays === 'number') {
+                    corpState.customDays = customDays;
+                    submitCorpNotificationPreference('custom', customDays);
+                }
+            });
+        }
+    });
+
     // Blueprint copy sharing segmented control
     var shareGroup = document.getElementById('share-mode-group');
     var shareStates = window.copySharingStates || {};
@@ -407,9 +777,11 @@ document.addEventListener('DOMContentLoaded', function() {
             var shareExplanation = document.getElementById('copy-sharing-explanation');
 
             if (shareState) {
-                var badgeClassRoot = (data && data.badge_class) ? data.badge_class : 'bg-secondary-subtle text-secondary';
+                var badgeClassRoot = (data && data.badge_class) ? data.badge_class : 'bg-danger-subtle text-danger';
                 shareState.className = 'badge rounded-pill share-mode-badge ' + badgeClassRoot;
-                if (data && Object.prototype.hasOwnProperty.call(data, 'button_label')) {
+                if (data && Object.prototype.hasOwnProperty.call(data, 'status_label')) {
+                    shareState.textContent = data.status_label || '';
+                } else if (data && Object.prototype.hasOwnProperty.call(data, 'button_label')) {
                     shareState.textContent = data.button_label || '';
                 }
             }
@@ -419,7 +791,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
 
             if (shareBadge) {
-                var badgeClass = data && data.badge_class ? data.badge_class : 'bg-secondary-subtle text-secondary';
+                var badgeClass = data && data.badge_class ? data.badge_class : 'bg-danger-subtle text-danger';
                 shareBadge.className = 'badge rounded-pill fw-semibold ' + badgeClass;
                 if (data && Object.prototype.hasOwnProperty.call(data, 'status_label')) {
                     shareBadge.textContent = data.status_label || '';
@@ -651,15 +1023,22 @@ document.addEventListener('DOMContentLoaded', function() {
                     return;
                 }
                 var badge = container.querySelector('.corp-share-badge');
-                if (badge && payload.badge_class) {
-                    badge.className = 'badge rounded-pill corp-share-badge ' + payload.badge_class;
+                if (badge) {
+                    var nextBadgeClass = payload.badge_class ? payload.badge_class : null;
+                    if (nextBadgeClass) {
+                        badge.className = 'badge rounded-pill corp-share-badge ' + nextBadgeClass;
+                    }
                     if (payload.status_label) {
                         badge.textContent = payload.status_label;
                     }
                 }
                 var hint = container.querySelector('.corp-share-hint');
-                if (hint && payload.status_hint) {
-                    hint.textContent = payload.status_hint;
+                if (hint) {
+                    if (payload.status_hint) {
+                        hint.textContent = payload.status_hint;
+                    } else if (payload.button_hint) {
+                        hint.textContent = payload.button_hint;
+                    }
                 }
             }
 
@@ -692,6 +1071,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 return;
                             }
                             updateCorpUI(data);
+                            updateCorpAccordionShareHeader(corpId, data);
                             var popupMessage = data.popup_message || __('Corporate blueprint sharing updated.');
                             showIndyHubPopup(popupMessage, data.enabled ? 'success' : 'secondary');
                         })

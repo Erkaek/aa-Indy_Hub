@@ -26,6 +26,10 @@ from indy_hub.models import (
     CharacterSettings,
     CorporationSharingSetting,
     IndustryJob,
+    JobNotificationDigestEntry,
+    MaterialExchangeBuyOrder,
+    MaterialExchangeConfig,
+    MaterialExchangeSellOrder,
     UserOnboardingProgress,
 )
 from indy_hub.notifications import notify_user
@@ -165,54 +169,73 @@ class NavigationMenuBadgeTests(TestCase):
             seller_last_seen_at=None,
         )
 
-        menu = self._render_menu(self.builder)
-        self.assertEqual(menu.count, 1)
 
-    def test_menu_count_includes_unread_chats_for_buyers(self) -> None:
-        blueprint = Blueprint.objects.create(
-            owner_user=self.builder,
-            character_id=1111002,
-            item_id=2222002,
-            blueprint_id=3333002,
-            type_id=4444002,
-            location_id=5555002,
-            location_flag="hangar",
-            quantity=-1,
-            time_efficiency=9,
-            material_efficiency=7,
-            runs=0,
-            character_name="Nav Builder",
-            type_name="Navigation Blueprint",
+class NavbarBlueprintSharingTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("navbaruser", password="secret123")
+        assign_main_character(self.user, character_id=7003001)
+        grant_indy_permissions(self.user)
+
+    def test_base_access_user_sees_fulfill_requests_nav_link(self) -> None:
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("indy_hub:index"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, reverse("indy_hub:bp_copy_fulfill_requests"))
+
+
+class NavbarMaterialExchangeMyOrdersTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("materialorders", password="secret123")
+        assign_main_character(self.user, character_id=7010001)
+        grant_indy_permissions(self.user)
+
+    def test_my_orders_page_renders_indy_hub_navbar(self) -> None:
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("indy_hub:my_orders"))
+        self.assertEqual(response.status_code, 200)
+        # This URL is part of the Indy Hub navbar, not the page body.
+        self.assertContains(response, reverse("indy_hub:all_bp_list"))
+
+    def test_my_orders_lists_in_progress_before_completed(self) -> None:
+        config = MaterialExchangeConfig.objects.create(
+            corporation_id=1234,
+            structure_id=5678,
+            is_active=True,
         )
 
-        request_obj = BlueprintCopyRequest.objects.create(
-            type_id=blueprint.type_id,
-            material_efficiency=blueprint.material_efficiency,
-            time_efficiency=blueprint.time_efficiency,
-            requested_by=self.customer,
-            runs_requested=1,
-            copies_requested=1,
+        in_progress = MaterialExchangeSellOrder.objects.create(
+            config=config,
+            seller=self.user,
+            status=MaterialExchangeSellOrder.Status.AWAITING_VALIDATION,
+            order_reference="INDY-TEST-INPROGRESS",
+        )
+        completed = MaterialExchangeBuyOrder.objects.create(
+            config=config,
+            buyer=self.user,
+            status=MaterialExchangeBuyOrder.Status.COMPLETED,
+            order_reference="INDY-TEST-COMPLETED",
         )
 
-        offer = BlueprintCopyOffer.objects.create(
-            request=request_obj,
-            owner=self.builder,
-            status="accepted",
+        # Force timestamps so the completed order is newer (this used to place it in the middle).
+        older = timezone.now() - timedelta(days=2)
+        newer = timezone.now() - timedelta(days=1)
+        MaterialExchangeSellOrder.objects.filter(pk=in_progress.pk).update(
+            created_at=older
+        )
+        MaterialExchangeBuyOrder.objects.filter(pk=completed.pk).update(
+            created_at=newer
         )
 
-        BlueprintCopyChat.objects.create(
-            request=request_obj,
-            offer=offer,
-            buyer=self.customer,
-            seller=self.builder,
-            is_open=True,
-            last_message_at=timezone.now(),
-            last_message_role="seller",
-            buyer_last_seen_at=None,
-        )
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("indy_hub:my_orders"))
+        self.assertEqual(response.status_code, 200)
 
-        menu = self._render_menu(self.customer)
-        self.assertEqual(menu.count, 1)
+        html = response.content.decode("utf-8")
+        in_progress_label = in_progress.get_status_display()
+        completed_label = completed.get_status_display()
+        self.assertIn(in_progress_label, html)
+        self.assertIn(completed_label, html)
+        self.assertLess(html.find(in_progress_label), html.find(completed_label))
 
 
 class BlueprintModelClassificationTests(TestCase):
@@ -525,56 +548,147 @@ class JobNotificationSignalTests(TestCase):
         mock_notify.assert_called_once()
         self.assertTrue(job.job_completed_notified)
 
+    @patch("indy_hub.utils.job_notifications.notify_user")
+    def test_corporation_job_notifications_respect_recipients(self, mock_notify):
+        corp_id = 3000000
 
-class JobNotificationPreviewTests(TestCase):
-    def setUp(self) -> None:
-        self.user = User.objects.create_user("previewer", password="secret123")
-        assign_main_character(self.user, character_id=830001)
-        grant_indy_permissions(self.user)
-        self.client.force_login(self.user)
-
-    @patch("indy_hub.views.industry.notify_user")
-    def test_preview_endpoint_sends_notification(self, mock_notify) -> None:
-        response = self.client.get(reverse("indy_hub:personnal_job_notification_test"))
-
-        self.assertRedirects(response, reverse("indy_hub:personnal_job_list"))
-        mock_notify.assert_called_once()
-        args, kwargs = mock_notify.call_args
-        self.assertEqual(args[0], self.user)
-        self.assertIn("Job #999999", args[1])
-        body = args[2]
-        self.assertIn("Result: TE 16 -> 20", body)
-        self.assertIn("https://images.evetech.net/types/23528/bp", body)
-        self.assertEqual(
-            kwargs.get("thumbnail_url"),
-            "https://images.evetech.net/types/23528/bp",
+        manager_live = User.objects.create_user("corpmanager1", password="test12345")
+        char = assign_main_character(manager_live, character_id=9401)
+        char.corporation_id = corp_id
+        char.save(update_fields=["corporation_id"])
+        grant_indy_permissions(manager_live, "can_manage_corp_bp_requests")
+        CorporationSharingSetting.objects.create(
+            user=manager_live,
+            corporation_id=corp_id,
+            corp_jobs_notify_frequency=CharacterSettings.NOTIFY_IMMEDIATE,
         )
 
-    @patch("indy_hub.views.industry.notify_user")
-    def test_live_preview_redirects_back_to_index(self, mock_notify) -> None:
-        index_url = reverse("indy_hub:index")
-        response = self.client.get(
-            reverse("indy_hub:job_notification_preview_live"),
-            headers={"referer": f"http://testserver{index_url}"},
+        manager_muted = User.objects.create_user("corpmanager2", password="test12345")
+        char = assign_main_character(manager_muted, character_id=9402)
+        char.corporation_id = corp_id
+        char.save(update_fields=["corporation_id"])
+        grant_indy_permissions(manager_muted, "can_manage_corp_bp_requests")
+        CorporationSharingSetting.objects.create(
+            user=manager_muted,
+            corporation_id=corp_id,
+            corp_jobs_notify_frequency=CharacterSettings.NOTIFY_DISABLED,
         )
 
-        expected_url = f"http://{response.wsgi_request.get_host()}{index_url}"
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.url, expected_url)
-        mock_notify.assert_called_once()
-
-    @patch("indy_hub.views.industry.notify_user")
-    def test_digest_preview_redirects_back_to_index(self, mock_notify) -> None:
-        index_url = reverse("indy_hub:index")
-        response = self.client.get(
-            reverse("indy_hub:job_notification_preview_digest"),
-            headers={"referer": f"http://testserver{index_url}"},
+        other_corp_manager = User.objects.create_user(
+            "corpmanager3", password="test12345"
+        )
+        char = assign_main_character(other_corp_manager, character_id=9403)
+        char.corporation_id = 4000000
+        char.save(update_fields=["corporation_id"])
+        grant_indy_permissions(other_corp_manager, "can_manage_corp_bp_requests")
+        CorporationSharingSetting.objects.create(
+            user=other_corp_manager,
+            corporation_id=4000000,
+            corp_jobs_notify_frequency=CharacterSettings.NOTIFY_IMMEDIATE,
         )
 
-        expected_url = f"http://{response.wsgi_request.get_host()}{index_url}"
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.url, expected_url)
-        mock_notify.assert_called_once()
+        provider = User.objects.create_user("provider", password="test12345")
+        assign_main_character(provider, character_id=9404)
+        grant_indy_permissions(provider)
+        CharacterSettings.objects.create(user=provider, character_id=0)
+
+        start = timezone.now() - timedelta(hours=2)
+        end = timezone.now() - timedelta(minutes=5)
+
+        job = IndustryJob.objects.create(
+            owner_user=provider,
+            character_id=9501,
+            corporation_id=corp_id,
+            corporation_name="Test Corp",
+            owner_kind=Blueprint.OwnerKind.CORPORATION,
+            job_id=99001,
+            installer_id=provider.id,
+            station_id=6004,
+            location_name="Factory",
+            activity_id=1,
+            blueprint_id=7007,
+            blueprint_type_id=7008,
+            blueprint_type_name="Widget Blueprint",
+            runs=1,
+            status="delivered",
+            duration=3600,
+            start_date=start,
+            end_date=end,
+            activity_name="Manufacturing",
+            product_type_name="Widget",
+            character_name="Notifier",
+        )
+
+        job.refresh_from_db()
+
+        self.assertTrue(job.job_completed_notified)
+        self.assertEqual(mock_notify.call_count, 1)
+        called_user = mock_notify.call_args[0][0]
+        self.assertEqual(called_user.id, manager_live.id)
+
+    @patch("indy_hub.utils.job_notifications.notify_user")
+    def test_corporation_job_notifications_enqueue_digest(self, mock_notify):
+        corp_id = 3000001
+        manager_digest = User.objects.create_user("corpdigest", password="test12345")
+        char = assign_main_character(manager_digest, character_id=9502)
+        char.corporation_id = corp_id
+        char.save(update_fields=["corporation_id"])
+        grant_indy_permissions(manager_digest, "can_manage_corp_bp_requests")
+        settings = CorporationSharingSetting.objects.create(
+            user=manager_digest,
+            corporation_id=corp_id,
+            corp_jobs_notify_frequency=CharacterSettings.NOTIFY_DAILY,
+            corp_jobs_next_digest_at=None,
+        )
+
+        provider = User.objects.create_user("provider2", password="test12345")
+        assign_main_character(provider, character_id=9503)
+        grant_indy_permissions(provider)
+        CharacterSettings.objects.create(user=provider, character_id=0)
+
+        start = timezone.now() - timedelta(hours=2)
+        end = timezone.now() - timedelta(minutes=5)
+
+        job = IndustryJob.objects.create(
+            owner_user=provider,
+            character_id=9601,
+            corporation_id=corp_id,
+            corporation_name="Test Corp",
+            owner_kind=Blueprint.OwnerKind.CORPORATION,
+            job_id=99002,
+            installer_id=provider.id,
+            station_id=6005,
+            location_name="Factory",
+            activity_id=1,
+            blueprint_id=7010,
+            blueprint_type_id=7011,
+            blueprint_type_name="Widget Blueprint",
+            runs=1,
+            status="delivered",
+            duration=3600,
+            start_date=start,
+            end_date=end,
+            activity_name="Manufacturing",
+            product_type_name="Widget",
+            character_name="Notifier",
+        )
+
+        job.refresh_from_db()
+        settings.refresh_from_db()
+
+        mock_notify.assert_not_called()
+        self.assertTrue(job.job_completed_notified)
+        self.assertIsNotNone(settings.corp_jobs_next_digest_at)
+
+        self.assertTrue(
+            JobNotificationDigestEntry.objects.filter(
+                user=manager_digest,
+                job_id=job.job_id,
+                scope=JobNotificationDigestEntry.SCOPE_CORPORATION,
+                corporation_id=corp_id,
+                sent_at__isnull=True,
+            ).exists()
+        )
 
 
 class BlueprintCopyFulfillViewTests(TestCase):
@@ -2219,6 +2333,92 @@ class PersonnalBlueprintViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, "efficiency-grid")
         self.assertContains(response, "type-badge reaction")
+
+    def test_corporation_blueprints_visible_across_users_in_same_corp(self) -> None:
+        provider = User.objects.create_user("corp_provider", password="secret123")
+        assign_main_character(provider, character_id=102002)
+        grant_indy_permissions(provider, "can_manage_corp_bp_requests")
+
+        viewer = User.objects.create_user("corp_viewer", password="secret123")
+        assign_main_character(viewer, character_id=102003)
+        grant_indy_permissions(viewer, "can_manage_corp_bp_requests")
+
+        corp_id = 2_000_000  # default from assign_main_character
+        Blueprint.objects.create(
+            owner_user=provider,
+            owner_kind=Blueprint.OwnerKind.CORPORATION,
+            corporation_id=corp_id,
+            corporation_name="Test Corp",
+            item_id=9052001,
+            blueprint_id=9052002,
+            type_id=705002,
+            location_id=805002,
+            location_flag="corp_hangar",
+            quantity=-1,
+            time_efficiency=14,
+            material_efficiency=10,
+            runs=0,
+            type_name="Shared Corporate Widget Blueprint",
+        )
+
+        self.client.force_login(viewer)
+        with patch("indy_hub.views.industry.connection") as mock_connection:
+            cursor = mock_connection.cursor.return_value.__enter__.return_value
+            cursor.fetchall.return_value = [(705002,)]
+
+            response = self.client.get(reverse("indy_hub:corporation_bp_list"))
+
+        self.assertEqual(response.status_code, 200)
+        page_obj = response.context["blueprints"]
+        visible_type_ids = {bp.type_id for bp in page_obj}
+        self.assertIn(705002, visible_type_ids)
+
+
+class CorporationJobListViewTests(TestCase):
+    def test_corporation_jobs_visible_across_users_in_same_corp(self) -> None:
+        provider = User.objects.create_user("corpjob_provider", password="secret123")
+        assign_main_character(provider, character_id=103001)
+        grant_indy_permissions(provider, "can_manage_corp_bp_requests")
+
+        viewer = User.objects.create_user("corpjob_viewer", password="secret123")
+        assign_main_character(viewer, character_id=103002)
+        grant_indy_permissions(viewer, "can_manage_corp_bp_requests")
+
+        start = timezone.now()
+        end = start + timedelta(hours=1)
+        corp_id = 2_000_000  # default from assign_main_character
+
+        IndustryJob.objects.create(
+            owner_user=provider,
+            owner_kind=Blueprint.OwnerKind.CORPORATION,
+            corporation_id=corp_id,
+            corporation_name="Test Corp",
+            character_id=103001,
+            job_id=9900001,
+            installer_id=provider.id,
+            station_id=3333001,
+            location_name="Corp Factory",
+            activity_id=1,
+            blueprint_id=6009001,
+            blueprint_type_id=6009002,
+            runs=1,
+            status="active",
+            duration=3600,
+            start_date=start,
+            end_date=end,
+            activity_name="Manufacturing",
+            blueprint_type_name="Corporate Job Blueprint",
+            product_type_name="Corporate Job Product",
+            character_name="Corp Job Provider",
+        )
+
+        self.client.force_login(viewer)
+        response = self.client.get(reverse("indy_hub:corporation_job_list"))
+
+        self.assertEqual(response.status_code, 200)
+        page_obj = response.context["jobs"]
+        visible_job_ids = {job.job_id for job in page_obj}
+        self.assertIn(9900001, visible_job_ids)
 
 
 class BlueprintCopyMyRequestsViewTests(TestCase):

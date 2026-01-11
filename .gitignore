@@ -1,18 +1,61 @@
-/build/
-/dist/
-/*.egg-info/
-.idea/
-.tox/
-htmlcov/
-node_modules/
-.venv/
+# ======================
+# Build / dist artifacts
+# ======================
+build/
+dist/
+*.egg-info/
 
+# ======================
+# Python
+# ======================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.venv/
+.venv*/
+.tox/
+.coverage
+coverage.xml
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+
+# ======================
+# Node / Frontend
+# ======================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ======================
+# IDE / Editor
+# ======================
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ======================
+# Project-specific
+# ======================
+testauth/
+alliance_auth.sqlite3
+.cache/
+_stubs/
+runtests.py
+
+# ======================
+# Logs / temp files
+# ======================
 *.log
 *.tmp
 *.bak
+*.bak.*
 *.old
-__pycache__
-.coverage
-/coverage.xml
-alliance_auth.sqlite3
-/.cache/
+
+# ======================
+# Local developer notes
+# ======================
+NOTES.local.md

@@ -7,491 +7,364 @@
 
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
-<link rel="stylesheet" href="{% static 'indy_hub/css/blueprints.css' %}">
+<link rel="stylesheet" href="{% static 'indy_hub/css/bp_copy_list.css' %}">
 <link rel="stylesheet" href="{% static 'indy_hub/css/chat.css' %}">
 {% endblock %}
 
 {% block content %}
-<main class="bp-request-surface bg-body">
-    <div class="container-fluid my-4">
-        <section class="page-header bp-request-hero mb-4 position-relative overflow-hidden">
-            <i class="fas fa-clipboard-list header-bg"></i>
-            <div class="bp-request-hero__content position-relative">
-                <div class="row g-4 align-items-center">
-                    <div class="col-lg-8">
-                        <div class="d-flex align-items-start gap-3">
-                            <span class="bp-request-hero__icon flex-shrink-0">
-                                <i class="fas fa-clipboard-list"></i>
-                            </span>
-                            <div>
-                                <h1 class="bp-request-hero__title display-6 fw-bold text-white mb-2">
-                                    {% trans "My copy requests" %}
-                                </h1>
-                                <p class="bp-request-hero__subtitle text-white-50 mb-0">
-                                    {% trans "Monitor each request, respond to offers, and follow delivery progress." %}
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-lg-4">
-                        <div class="bp-request-hero__metrics d-flex flex-column align-items-end gap-3">
-                            <a href="{% url 'indy_hub:index' %}" class="btn btn-outline-light align-self-end">
-                                <i class="fas fa-arrow-left me-1"></i>{% trans "Back to Overview" %}
-                            </a>
-                            <div class="bp-request-hero__metric">
-                                <span class="bp-request-hero__metric-label">{% trans "Open requests" %}</span>
-                                <span class="bp-request-hero__metric-value">{{ metrics.open|default:0 }}</span>
-                            </div>
-                            <div class="bp-request-hero__metric">
-                                <span class="bp-request-hero__metric-label">{% trans "Action needed" %}</span>
-                                <span class="bp-request-hero__metric-value">{{ metrics.action_required|default:0 }}</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+<div class="container-fluid py-4">
+    <div data-auto-open-chat="{{ auto_open_chat_id|default:'' }}"></div>
+    {# Page Header #}
+    <div class="page-header mb-4">
+        <i class="fas fa-clipboard-list header-bg"></i>
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+            <div>
+                <h2 class="h3 mb-1">
+                    <i class="fas fa-clipboard-list me-2"></i>
+                    {% trans "My Copy Requests" %}
+                </h2>
+                <p class="description mb-0">{% trans "Monitor each request, respond to offers, and follow delivery progress." %}</p>
             </div>
-        </section>
-
-    <section class="row g-3 mb-4 bp-metrics-row">
-            <div class="col-md-3">
-                <div class="glass-panel h-100 p-3">
-                    <div class="d-flex align-items-center gap-3">
-                        <span class="badge rounded-pill bg-warning-subtle text-warning px-3 py-2 fw-semibold">
-                            <i class="fas fa-hourglass-half me-2"></i>{{ metrics.open|default:0 }}
-                        </span>
-                        <div class="small text-muted">
-                            <strong>{% trans "Waiting for builders" %}</strong><br>
-                                        {% trans "Requests still awaiting a new offer or builder confirmation." %}
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="glass-panel h-100 p-3">
-                    <div class="d-flex align-items-center gap-3">
-                        <span class="badge rounded-pill bg-info-subtle text-info px-3 py-2 fw-semibold">
-                            <i class="fas fa-exclamation-circle me-2"></i>{{ metrics.action_required|default:0 }}
-                        </span>
-                        <div class="small text-muted">
-                            <strong>{% trans "Your action" %}</strong><br>
-                                        {% trans "Review offers awaiting your approval or confirmation." %}
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="glass-panel h-100 p-3">
-                    <div class="d-flex align-items-center gap-3">
-                        <span class="badge rounded-pill bg-success-subtle text-success px-3 py-2 fw-semibold">
-                            <i class="fas fa-shipping-fast me-2"></i>{{ metrics.awaiting_delivery|default:0 }}
-                        </span>
-                        <div class="small text-muted">
-                            <strong>{% trans "In delivery" %}</strong><br>
-                            {% trans "A builder accepted—awaiting handover." %}
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="glass-panel h-100 p-3">
-                    <div class="d-flex align-items-center gap-3">
-                        <span class="badge rounded-pill bg-secondary-subtle text-secondary px-3 py-2 fw-semibold">
-                            <i class="fas fa-check-double me-2"></i>{{ metrics.delivered|default:0 }}
-                        </span>
-                        <div class="small text-muted">
-                            <strong>{% trans "Completed" %}</strong><br>
-                            {% trans "Deliveries marked as finished." %}
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <ul class="nav nav-tabs bp-request-tabs" id="bp-request-tabs" role="tablist">
-            <li class="nav-item" role="presentation">
-                <button
-                    class="nav-link active"
-                    id="bp-request-tab-active"
-                    data-bs-toggle="tab"
-                    data-bs-target="#bp-request-pane-active"
-                    type="button"
-                    role="tab"
-                    aria-controls="bp-request-pane-active"
-                    aria-selected="true"
-                >
-                    <i class="fas fa-stream me-1"></i>{% trans "Active" %}
-                </button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button
-                    class="nav-link"
-                    id="bp-request-tab-history"
-                    data-bs-toggle="tab"
-                    data-bs-target="#bp-request-pane-history"
-                    type="button"
-                    role="tab"
-                    aria-controls="bp-request-pane-history"
-                    aria-selected="false"
-                >
-                    <i class="fas fa-history me-1"></i>{% trans "History" %}
-                </button>
-            </li>
-        </ul>
-
-        <div class="tab-content mt-3" id="bp-request-tab-content">
-            <div
-                class="tab-pane fade show active"
-                id="bp-request-pane-active"
-                role="tabpanel"
-                aria-labelledby="bp-request-tab-active"
-            >
-        {% if my_requests %}
-        <section class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-3">
-            {% for req in my_requests %}
-            {% if not req.is_history %}
-            <div class="col">
-                <article class="card h-100 shadow-sm request-card">
-                    <div class="card-body bp-request-card__layout">
-                        <div class="bp-request-card__primary">
-                            <div class="bp-request-card__top">
-                                <div class="bp-request-card__identity">
-                                    <span class="bp-request-card__avatar">
-                                        <img
-                                            src="{{ req.icon_url }}"
-                                            alt="{{ req.type_name }}"
-                                            loading="lazy"
-                                            onerror="this.onerror=null;this.src='https://images.evetech.net/types/{{ req.type_id }}/icon?size=64'"
-                                        >
-                                    </span>
-                                    <div class="bp-request-card__identity-body">
-                                        <h2 class="h5 mb-1 bp-request-card__title text-break" title="{{ req.type_name }}">{{ req.type_name }}</h2>
-                                        <div class="bp-request-card__identity-meta text-muted small">
-                                            <i class="fas fa-clock me-1"></i>
-                                            <time datetime="{{ req.created_at|date:'c' }}" title="{{ req.created_at|date:'Y-m-d H:i' }}">{{ req.created_at|naturaltime }}</time>
-                                        </div>
-                                    </div>
-                                </div>
-                                <span class="badge bp-request-card__status {{ req.status_class }} fw-semibold text-uppercase px-3 py-2">
-                                    {{ req.status_label }}
-                                </span>
-                            </div>
-
-                            <div class="bp-request-card__metrics-panel" role="group" aria-label="{% trans 'Blueprint copy request details' %}">
-                                <ul class="bp-request-card__metrics">
-                                    <li class="bp-request-card__metric bp-request-card__metric--copies">
-                                        <span class="bp-request-card__metric-label">
-                                            <i class="fas fa-clone"></i>{% trans "Copies" %}
-                                        </span>
-                                        <span class="bp-request-card__metric-value">{{ req.copies_requested|default_if_none:"—" }}</span>
-                                    </li>
-                                    <li class="bp-request-card__metric bp-request-card__metric--runs">
-                                        <span class="bp-request-card__metric-label">
-                                            <i class="fas fa-cogs"></i>{% trans "Runs" %}
-                                        </span>
-                                        <span class="bp-request-card__metric-value">{{ req.runs_requested|default_if_none:"—" }}</span>
-                                    </li>
-                                    <li class="bp-request-card__metric bp-request-card__metric--me">
-                                        <span class="bp-request-card__metric-label">
-                                            <i class="fas fa-industry"></i>{% trans "Material efficiency" %}
-                                        </span>
-                                        <span class="bp-request-card__metric-value">{{ req.material_efficiency }}</span>
-                                    </li>
-                                    <li class="bp-request-card__metric bp-request-card__metric--te">
-                                        <span class="bp-request-card__metric-label">
-                                            <i class="fas fa-stopwatch"></i>{% trans "Time efficiency" %}
-                                        </span>
-                                        <span class="bp-request-card__metric-value">{{ req.time_efficiency }}</span>
-                                    </li>
-                                </ul>
-                            </div>
-                        </div>
-
-                        <div class="bp-request-card__secondary">
-                            <p class="bp-request-card__status-hint text-muted small mb-0">{{ req.status_hint }}</p>
-
-                            {% if req.accepted_offer %}
-                            <div class="alert alert-success mb-0">
-                                <i class="fas fa-handshake me-2"></i>
-                                {% blocktrans with builder=req.accepted_offer.owner_username %}Accepted by {{ builder }}{% endblocktrans %}
-                                {% if req.accepted_offer.message %}
-                                <p class="mb-0 small text-success mt-2">“{{ req.accepted_offer.message }}”</p>
-                                {% endif %}
-                            </div>
-                            {% elif req.cond_accepted %}
-                            <div class="alert alert-info mb-0">
-                                <i class="fas fa-file-signature me-2"></i>
-                                {% blocktrans with builder=req.cond_accepted.builder_label %}Conditional offer accepted from {{ builder }}{% endblocktrans %}
-                                <p class="mb-0 small text-info mt-2">{% trans "Conversation archived. Check previous chat messages if needed." %}</p>
-                            </div>
-                            {% include "indy_hub/includes/chat_preview.html" with preview=req.cond_accepted.chat.preview %}
-                            {% endif %}
-
-                            {% if req.cond_waiting_builder %}
-                            <div class="alert alert-warning mb-0">
-                                <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2">
-                                    <div>
-                                        <i class="fas fa-hourglass-half me-2"></i>
-                                        {% blocktrans with builder=req.cond_waiting_builder.builder_label %}You accepted {{ builder }}'s terms. Waiting for their confirmation.{% endblocktrans %}
-                                    </div>
-                                </div>
-                            </div>
-                            {% include "indy_hub/includes/chat_preview.html" with preview=req.cond_waiting_builder.chat.preview %}
-                            {% endif %}
-
-                            {% if req.cond_waiting_buyer %}
-                            <div class="alert alert-info mb-0">
-                                <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2">
-                                    <div>
-                                        <i class="fas fa-handshake me-2"></i>
-                                        {% blocktrans with builder=req.cond_waiting_buyer.builder_label %}{{ builder }} confirmed your terms. Finalise the agreement when ready.{% endblocktrans %}
-                                    </div>
-                                </div>
-                            </div>
-                            {% include "indy_hub/includes/chat_preview.html" with preview=req.cond_waiting_buyer.chat.preview %}
-                            {% endif %}
-
-                            {% if req.cond_offers %}
-                            {% with cond_count=req.cond_offers|length %}
-                            <div class="card bg-warning-subtle border-0">
-                                <div class="card-body p-3">
-                                    <div class="d-flex align-items-center gap-2 mb-3">
-                                        <i class="fas fa-comments text-warning"></i>
-                                        <p class="small fw-semibold text-uppercase text-dark mb-0">
-                                            {% blocktrans count cond_count=cond_count %}
-                                            {{ cond_count }} conditional offer awaiting review
-                                            {% plural %}
-                                            {{ cond_count }} conditional offers awaiting review
-                                            {% endblocktrans %}
-                                        </p>
-                                    </div>
-                                    <div class="accordion accordion-flush" id="condOffers-{{ req.id }}">
-                                        {% for offer in req.cond_offers %}
-                                        <div class="accordion-item border rounded-3 shadow-sm mb-2">
-                                            <h3 class="accordion-header" id="condOfferHeading-{{ req.id }}-{{ offer.id }}">
-                                                <button
-                                                    class="accordion-button collapsed"
-                                                    type="button"
-                                                    data-bs-toggle="collapse"
-                                                    data-bs-target="#condOfferBody-{{ req.id }}-{{ offer.id }}"
-                                                    aria-expanded="false"
-                                                    aria-controls="condOfferBody-{{ req.id }}-{{ offer.id }}"
-                                                >
-                                                    {% blocktrans with builder=offer.builder_label offer_id=offer.id %}Offer #{{ offer_id }} from {{ builder }}{% endblocktrans %}
-                                                </button>
-                                            </h3>
-                                            <div
-                                                id="condOfferBody-{{ req.id }}-{{ offer.id }}"
-                                                class="accordion-collapse collapse"
-                                                aria-labelledby="condOfferHeading-{{ req.id }}-{{ offer.id }}"
-                                                data-bs-parent="#condOffers-{{ req.id }}"
-                                            >
-                                                <div class="accordion-body">
-                                                    <p class="text-muted small mb-3">{% trans "Review the conversation, then accept or decline via the chat actions." %}</p>
-                                                    {% include "indy_hub/includes/chat_preview.html" with preview=offer.chat.preview %}
-                                                </div>
-                                            </div>
-                                        </div>
-                                        {% endfor %}
-                                    </div>
-                                </div>
-                            </div>
-                            {% endwith %}
-                            {% endif %}
-
-                            {% if req.delivered %}
-                            <div class="alert alert-secondary mb-0">
-                                <i class="fas fa-check-double me-1"></i>{% trans "Delivery confirmed. Blueprints are in your hands." %}
-                            </div>
-                            {% endif %}
-
-                            <div class="mt-auto">
-                                <div class="bp-card-toolbar">
-                                    {% if req.chat_actions %}
-                                        {% for action in req.chat_actions %}
-                                        <div class="bp-card-toolbar__group bp-card-toolbar__group--stacked{% if forloop.first %} bp-card-toolbar__group--push{% endif %}" role="group" aria-label="{% trans 'Chat controls' %}">
-                                            <button
-                                                type="button"
-                                                class="bp-btn bp-chat-pill btn-sm bp-chat-trigger"
-                                                data-chat-fetch-url="{{ action.chat.fetch_url }}"
-                                                data-chat-send-url="{{ action.chat.send_url }}"
-                                                data-chat-role="buyer"
-                                                data-chat-type-name="{{ req.type_name }}"
-                                                data-chat-type-id="{{ req.type_id }}"
-                                                data-chat-has-unread="{{ action.chat.has_unread|yesno:'true,false' }}"
-                                                data-chat-id="{{ action.chat.id }}"
-                                                aria-haspopup="dialog"
-                                            >
-                                                <i class="fas fa-comments"></i>
-                                                <span>
-                                                    {% if action.builder_label %}
-                                                        {% blocktrans with builder=action.builder_label %}Open chat ({{ builder }}){% endblocktrans %}
-                                                    {% else %}
-                                                        {% trans "Open chat" %}
-                                                    {% endif %}
-                                                </span>
-                                                {% if action.chat.has_unread %}
-                                                <span class="bp-chat-trigger__badge" aria-hidden="true">
-                                                    <i class="fas fa-circle-dot"></i>
-                                                </span>
-                                                {% endif %}
-                                            </button>
-                                            {% if action.chat.last_message_display %}
-                                            <span class="bp-card-toolbar__timestamp">
-                                                {% blocktrans with timestamp=action.chat.last_message_display %}Last message {{ timestamp }}{% endblocktrans %}
-                                            </span>
-                                            {% endif %}
-                                        </div>
-                                        {% endfor %}
-                                    {% endif %}
-                                    {% if req.can_cancel %}
-                                    <div class="bp-card-toolbar__group" role="group" aria-label="{% trans 'Request actions' %}">
-                                        <button
-                                            type="button"
-                                            class="bp-btn bp-btn-soft-secondary btn-sm"
-                                            data-bs-toggle="modal"
-                                            data-bs-target="#editRequestModal-{{ req.id }}"
-                                        >
-                                            <i class="fas fa-edit"></i>
-                                            <span>{% trans "Edit request" %}</span>
-                                        </button>
-                                        <form action="{% url 'indy_hub:bp_cancel_copy_request' req.id %}" method="post" class="bp-card-toolbar__form">
-                                            {% csrf_token %}
-                                            <input type="hidden" name="next" value="{{ request.get_full_path }}">
-                                            <button type="submit" class="bp-btn bp-btn-soft-danger btn-sm">
-                                                <i class="fas fa-times"></i>
-                                                <span>{% trans "Cancel request" %}</span>
-                                            </button>
-                                        </form>
-                                    </div>
-                                    {% endif %}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </article>
-                {% if req.can_cancel %}
-                <div class="modal fade" id="editRequestModal-{{ req.id }}" tabindex="-1" aria-labelledby="editRequestModalLabel-{{ req.id }}" aria-hidden="true">
-                    <div class="modal-dialog modal-dialog-centered">
-                        <div class="modal-content">
-                            <form method="post" action="{% url 'indy_hub:bp_update_copy_request' req.id %}">
-                                {% csrf_token %}
-                                <div class="modal-header">
-                                    <h5 class="modal-title" id="editRequestModalLabel-{{ req.id }}">{% trans "Update request" %}</h5>
-                                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
-                                </div>
-                                <div class="modal-body">
-                                    <p class="small text-muted mb-3">
-                                        <strong>{{ req.type_name }}</strong><br>
-                                        <span class="text-uppercase">ME {{ req.material_efficiency }} • TE {{ req.time_efficiency }}</span>
-                                    </p>
-                                    <div class="mb-3">
-                                        <label class="form-label" for="copiesRequested-{{ req.id }}">{% trans "Copies requested" %}</label>
-                                        <input
-                                            type="number"
-                                            min="1"
-                                            class="form-control"
-                                            id="copiesRequested-{{ req.id }}"
-                                            name="copies_requested"
-                                            value="{{ req.copies_requested }}"
-                                            required
-                                        >
-                                    </div>
-                                    <div class="mb-0">
-                                        <label class="form-label" for="runsRequested-{{ req.id }}">{% trans "Runs requested" %}</label>
-                                        <input
-                                            type="number"
-                                            min="1"
-                                            class="form-control"
-                                            id="runsRequested-{{ req.id }}"
-                                            name="runs_requested"
-                                            value="{{ req.runs_requested }}"
-                                            required
-                                        >
-                                    </div>
-                                </div>
-                                <div class="modal-footer">
-                                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{% trans "Cancel" %}</button>
-                                    <button type="submit" class="btn btn-primary">
-                                        <i class="fas fa-save me-1"></i>{% trans "Save changes" %}
-                                    </button>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
-                </div>
-                {% endif %}
-            </div>
-            {% endif %}
-            {% endfor %}
-        </section>
-        {% else %}
-        <section class="bp-request-empty card border-0 shadow-sm">
-            <div class="card-body text-center py-5">
-                <span class="bp-request-empty__icon"><i class="fas fa-clipboard-check"></i></span>
-                <h2 class="h4 mt-3">{% trans "No copy requests yet" %}</h2>
-                <p class="text-muted small mb-4">{% trans "Submit your first request to see progress updates here." %}</p>
-                <a href="{% url 'indy_hub:bp_copy_request_page' %}" class="btn btn-outline-primary btn-sm">
-                    <i class="fas fa-copy me-1"></i>{% trans "Browse available blueprints" %}
-                </a>
-            </div>
-        </section>
-        {% endif %}
-            </div>
-            <div
-                class="tab-pane fade"
-                id="bp-request-pane-history"
-                role="tabpanel"
-                aria-labelledby="bp-request-tab-history"
-            >
-                {% if history_requests %}
-                <div class="card shadow-sm border-0">
-                    <div class="card-body p-0">
-                        <div class="list-group list-group-flush">
-                            {% for item in history_requests %}
-                            <div class="list-group-item d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2">
-                                <div>
-                                    <h3 class="h6 mb-1">{{ item.type_name }}</h3>
-                                    <p class="text-muted small mb-1">
-                                        <i class="fas fa-check-double me-1"></i>{{ item.status_label }}
-                                    </p>
-                                    <p class="text-muted small mb-0">
-                                        <span class="text-uppercase">ME {{ item.material_efficiency }} • TE {{ item.time_efficiency }}</span>
-                                        · {% blocktrans with copies=item.copies_requested runs=item.runs_requested %}{{ copies }} copies, {{ runs }} runs{% endblocktrans %}
-                                    </p>
-                                </div>
-                                <div class="text-muted small text-md-end">
-                                    {% if item.closed_at %}
-                                    <p class="mb-1">
-                                        <i class="fas fa-calendar-check me-1"></i>
-                                        {% blocktrans with timestamp=item.closed_at|naturaltime %}Closed {{ timestamp }}{% endblocktrans %}
-                                    </p>
-                                    <p class="mb-0">
-                                        <i class="fas fa-clock me-1"></i>{{ item.closed_at|date:"Y-m-d H:i" }} {% trans "EVE time" %}
-                                    </p>
-                                    {% endif %}
-                                </div>
-                            </div>
-                            {% endfor %}
-                        </div>
-                    </div>
-                </div>
-                {% else %}
-                <section class="bp-request-empty card border-0 shadow-sm">
-                    <div class="card-body text-center py-5">
-                        <span class="bp-request-empty__icon"><i class="fas fa-archive"></i></span>
-                        <h2 class="h4 mt-3">{% trans "History is empty" %}</h2>
-                        <p class="text-muted small mb-0">{% trans "Delivered requests will appear here for easy reference." %}</p>
-                    </div>
-                </section>
-                {% endif %}
-            </div>
+            <a href="{% url 'indy_hub:index' %}" class="btn btn-outline-light">
+                <i class="fas fa-arrow-left me-1"></i>{% trans "Back to Overview" %}
+            </a>
         </div>
     </div>
-</main>
-{% block indy_hub_global_modals %}
-    {{ block.super }}
-    {% include "indy_hub/includes/bp_chat_modal.html" %}
-{% endblock %}
+
+    {# Metric Tiles #}
+    <div class="row g-3 mb-4">
+        <div class="col-md-6">
+            <a href="?status=open" class="metric-tile-link">
+                <div class="metric-tile bg-gradient-info">
+                    <div>
+                        <p class="label text-info mb-1">
+                            <i class="fas fa-hourglass-half me-2"></i>{% trans "Waiting for Builders" %}
+                        </p>
+                        <div class="metric-value text-info">{{ metrics.open|default:0 }}</div>
+                    </div>
+                    <div class="metric-icon text-info">
+                        <i class="fas fa-clock"></i>
+                    </div>
+                </div>
+            </a>
+        </div>
+        <div class="col-md-6">
+            <a href="?status=action_required" class="metric-tile-link">
+                <div class="metric-tile bg-gradient-warning">
+                    <div>
+                        <p class="label text-warning mb-1">
+                            <i class="fas fa-exclamation-circle me-2"></i>{% trans "Your Action" %}
+                        </p>
+                        <div class="metric-value text-warning">{{ metrics.action_required|default:0 }}</div>
+                    </div>
+                    <div class="metric-icon text-warning">
+                        <i class="fas fa-bell"></i>
+                    </div>
+                </div>
+            </a>
+        </div>
+        <div class="col-md-6">
+            <a href="?status=awaiting_delivery" class="metric-tile-link">
+                <div class="metric-tile bg-gradient-success">
+                    <div>
+                        <p class="label text-success mb-1">
+                            <i class="fas fa-shipping-fast me-2"></i>{% trans "In Delivery" %}
+                        </p>
+                        <div class="metric-value text-success">{{ metrics.awaiting_delivery|default:0 }}</div>
+                    </div>
+                    <div class="metric-icon text-success">
+                        <i class="fas fa-truck"></i>
+                    </div>
+                </div>
+            </a>
+        </div>
+        <div class="col-md-6">
+            <a href="?status=delivered" class="metric-tile-link">
+                <div class="metric-tile bg-gradient-secondary">
+                    <div>
+                        <p class="label text-secondary mb-1">
+                            <i class="fas fa-check-double me-2"></i>{% trans "Completed" %}
+                        </p>
+                        <div class="metric-value text-secondary">{{ metrics.delivered|default:0 }}</div>
+                    </div>
+                    <div class="metric-icon text-secondary">
+                        <i class="fas fa-inbox"></i>
+                    </div>
+                </div>
+            </a>
+        </div>
+    </div>
+
+    {# Tabs #}
+    <ul class="nav nav-tabs bp-request-tabs mb-3" id="bp-request-tabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button
+                class="nav-link active"
+                id="bp-request-tab-active"
+                data-bs-toggle="tab"
+                data-bs-target="#bp-request-pane-active"
+                type="button"
+                role="tab"
+                aria-controls="bp-request-pane-active"
+                aria-selected="true"
+            >
+                <i class="fas fa-stream me-1"></i>{% trans "Active" %}
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button
+                class="nav-link"
+                id="bp-request-tab-history"
+                data-bs-toggle="tab"
+                data-bs-target="#bp-request-pane-history"
+                type="button"
+                role="tab"
+                aria-controls="bp-request-pane-history"
+                aria-selected="false"
+            >
+                <i class="fas fa-history me-1"></i>{% trans "History" %}
+            </button>
+        </li>
+    </ul>
+
+    <div class="tab-content" id="bp-request-tab-content">
+        {# Active Tab #}
+        <div
+            class="tab-pane fade show active"
+            id="bp-request-pane-active"
+            role="tabpanel"
+            aria-labelledby="bp-request-tab-active"
+        >
+            <form method="get" class="d-flex flex-wrap align-items-end gap-2 mb-3">
+                <div>
+                    <label for="bp-my-filter-status" class="form-label small text-muted mb-1">{% trans "Display" %}</label>
+                    <select id="bp-my-filter-status" name="status" class="form-select form-select-sm" onchange="this.form.submit()">
+                        <option value="all" {% if active_filter == 'all' %}selected{% endif %}>{% trans "All" %}</option>
+                        <option value="open" {% if active_filter == 'open' %}selected{% endif %}>{% trans "Waiting for builders" %}</option>
+                        <option value="action_required" {% if active_filter == 'action_required' %}selected{% endif %}>{% trans "Your action needed" %}</option>
+                        <option value="awaiting_delivery" {% if active_filter == 'awaiting_delivery' %}selected{% endif %}>{% trans "In progress" %}</option>
+                        <option value="waiting_on_builder" {% if active_filter == 'waiting_on_builder' %}selected{% endif %}>{% trans "Waiting on builder" %}</option>
+                        <option value="waiting_on_you" {% if active_filter == 'waiting_on_you' %}selected{% endif %}>{% trans "Confirm agreement" %}</option>
+                    </select>
+                </div>
+            </form>
+            {% if my_requests %}
+            <div class="requests-panel requests-panel--my-active">
+                <div class="requests-head d-none d-lg-grid">
+                    <span>{% trans "Blueprint" %}</span>
+                    <span>{% trans "Status" %}</span>
+                    <span>{% trans "Details" %}</span>
+                    <span>{% trans "Progress" %}</span>
+                    <span class="text-end">{% trans "Action" %}</span>
+                </div>
+
+                {% for req in my_requests %}
+                {% if not req.is_history %}
+                <div class="request-row">
+                    {# Blueprint Type #}
+                    <div class="request-blueprint">
+                        <div class="d-flex align-items-center gap-2">
+                            <img
+                                src="{{ req.icon_url }}"
+                                alt="{{ req.type_name }}"
+                                loading="lazy"
+                                class="request-blueprint__icon"
+                                onerror="this.onerror=null;this.src='https://images.evetech.net/types/{{ req.type_id }}/icon?size=32'"
+                            >
+                            <div>
+                                <div class="fw-600">{{ req.type_name }}</div>
+                                <div class="bp-params">
+                                    <span class="spec-badge spec-badge--green spec-badge--compact">
+                                        <i class="fas fa-industry"></i> ME {{ req.material_efficiency }}
+                                    </span>
+                                    <span class="spec-badge spec-badge--green spec-badge--compact">
+                                        <i class="fas fa-stopwatch"></i> TE {{ req.time_efficiency }}
+                                    </span>
+                                </div>
+                                <small class="text-muted">
+                                    <i class="far fa-clock me-1"></i>{{ req.created_at|naturaltime }}
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+
+                    {# Status #}
+                    <div class="request-status">
+                        <span class="status-chip {{ req.status_class }}">{{ req.status_label }}</span>
+                    </div>
+
+                    {# Details: Copies/Runs/ME/TE #}
+                    <div class="request-specs">
+                        <div class="spec-block">
+                            <small class="spec-caption">{% trans "Order" %}</small>
+                            <div class="spec-group">
+                                <span class="spec-badge spec-badge--blue">
+                                    <i class="fas fa-clone"></i> {{ req.copies_requested }} {% trans "copies" %}
+                                </span>
+                                <span class="spec-badge spec-badge--blue">
+                                    <i class="fas fa-cogs"></i> {{ req.runs_requested }} {% trans "runs" %}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {# Progress / Alert #}
+                    <div class="request-progress">
+                        {% if req.accepted_offer %}
+                        <span class="badge bg-success">
+                            <i class="fas fa-handshake me-1"></i>{% trans "Accepted" %}
+                        </span>
+                        {% elif req.cond_accepted %}
+                        <span class="badge bg-info">
+                            <i class="fas fa-file-signature me-1"></i>{% trans "Conditions Accepted" %}
+                        </span>
+                        {% elif req.cond_waiting_builder %}
+                        <span class="badge bg-warning">
+                            <i class="fas fa-hourglass-half me-1"></i>{% trans "Awaiting Confirmation" %}
+                        </span>
+                        {% elif req.cond_waiting_buyer %}
+                        <span class="badge bg-info">
+                            <i class="fas fa-handshake me-1"></i>{% trans "Ready to Accept" %}
+                        </span>
+                        {% elif req.cond_offers %}
+                        <span class="badge bg-warning">
+                            <i class="fas fa-comments me-1"></i>{% trans "Offers Pending" %}
+                        </span>
+                        {% endif %}
+                    </div>
+
+                    {# Actions #}
+                    <div class="request-actions text-end">
+                        <div class="btn-group btn-group-sm" role="group">
+                            {% if req.chat_actions %}
+                                {% for action in req.chat_actions %}
+                                <button
+                                    type="button"
+                                    class="btn btn-sm btn-outline-secondary bp-chat-trigger bp-action bp-action--chat"
+                                    data-chat-fetch-url="{{ action.chat.fetch_url }}"
+                                    data-chat-send-url="{{ action.chat.send_url }}"
+                                    data-chat-role="buyer"
+                                    data-chat-type-name="{{ req.type_name }}"
+                                    data-chat-type-id="{{ req.type_id }}"
+                                    data-chat-id="{{ action.chat.id }}"
+                                >
+                                    <i class="fas fa-comments me-1"></i>{% trans "Open chat" %}
+                                </button>
+                                {% endfor %}
+                            {% endif %}
+                            {% if req.can_cancel %}
+                            <form method="post" action="{% url 'indy_hub:bp_cancel_copy_request' req.id %}" class="d-inline">
+                                {% csrf_token %}
+                                <button
+                                    type="submit"
+                                    class="btn btn-sm btn-outline-danger"
+                                    onclick="return confirm('{% trans "Cancel this request?" %}')"
+                                >
+                                    <i class="fas fa-times me-1"></i>{% trans "Cancel" %}
+                                </button>
+                            </form>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="empty-state">
+                <i class="fas fa-inbox"></i>
+                <h3>{% trans "No active requests" %}</h3>
+                <p class="text-muted">{% trans "Create a new copy request to get started." %}</p>
+            </div>
+            {% endif %}
+        </div>
+
+        {# History Tab #}
+        <div
+            class="tab-pane fade"
+            id="bp-request-pane-history"
+            role="tabpanel"
+            aria-labelledby="bp-request-tab-history"
+        >
+            {% if history_requests %}
+            <div class="requests-panel requests-panel--my-history">
+                <div class="requests-head d-none d-lg-grid">
+                    <span>{% trans "Blueprint" %}</span>
+                    <span>{% trans "Status" %}</span>
+                    <span>{% trans "Details" %}</span>
+                    <span>{% trans "Completed" %}</span>
+                </div>
+
+                {% for req in history_requests %}
+                <div class="request-row">
+                    {# Blueprint Type #}
+                    <div class="request-blueprint">
+                        <div class="d-flex align-items-center gap-2">
+                            <img
+                                src="https://images.evetech.net/types/{{ req.type_id }}/bp?size=64"
+                                alt="{{ req.type_name }}"
+                                loading="lazy"
+                                class="request-blueprint__icon"
+                                onerror="this.onerror=null;this.src='https://images.evetech.net/types/{{ req.type_id }}/icon?size=32'"
+                            >
+                            <div>
+                                <div class="fw-600">{{ req.type_name }}</div>
+                                <div class="bp-params">
+                                    <span class="spec-badge spec-badge--green spec-badge--compact">
+                                        <i class="fas fa-industry"></i> ME {{ req.material_efficiency }}
+                                    </span>
+                                    <span class="spec-badge spec-badge--green spec-badge--compact">
+                                        <i class="fas fa-stopwatch"></i> TE {{ req.time_efficiency }}
+                                    </span>
+                                </div>
+                                <small class="text-muted">
+                                    <i class="far fa-clock me-1"></i>{{ req.closed_at|naturaltime }}
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+
+                    {# Status #}
+                    <div class="request-status">
+                        <span class="status-chip bg-secondary text-white">{{ req.status_label }}</span>
+                    </div>
+
+                    {# Details #}
+                    <div class="request-specs">
+                        <div class="spec-block">
+                            <small class="spec-caption">{% trans "Order" %}</small>
+                            <div class="spec-group">
+                                <span class="spec-badge spec-badge--blue">
+                                    <i class="fas fa-clone"></i> {{ req.copies_requested }} {% trans "copies" %}
+                                </span>
+                                <span class="spec-badge spec-badge--blue">
+                                    <i class="fas fa-cogs"></i> {{ req.runs_requested }} {% trans "runs" %}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {# Completed Date #}
+                    <div class="request-progress">
+                        <small class="text-muted">
+                            <i class="fas fa-check me-1"></i>{{ req.closed_at|naturaltime }}
+                        </small>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="empty-state">
+                <i class="fas fa-history"></i>
+                <h3>{% trans "No history" %}</h3>
+                <p class="text-muted">{% trans "Completed requests will appear here." %}</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+{% include "indy_hub/includes/bp_chat_modal.html" %}
 {% endblock %}
 
 {% block extra_javascript %}
@@ -500,10 +373,9 @@
     window.indyChatDefaults = Object.assign({}, window.indyChatDefaults || {}, {
         viewerRole: 'buyer',
         labels: {
-            buyer: '{% trans "Buyer" %}',
+            buyer: '{% trans "You" %}',
             seller: '{% trans "Builder" %}',
-            system: '{% trans "System" %}',
-            you: '{% trans "You" %}'
+            system: '{% trans "System" %}'
         }
     });
 </script>

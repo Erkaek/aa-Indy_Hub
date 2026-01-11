@@ -32,6 +32,7 @@
                 </div>
                 {% endwith %}
             </div>
+            <i class="fas fa-file-invoice-dollar header-bg"></i>
         </div>
 
         <!-- Order Reference Display -->
@@ -83,20 +84,21 @@
                     </div>
                 </div>
 
-                <!-- Contract Instructions (show until contract validated/accepted) -->
-                {% if order.status == 'draft' or order.status == 'awaiting_validation' %}
+                <!-- How This Works / Contract Instructions (visible until validated) -->
+                {% if order.status == 'draft' or order.status == 'awaiting_validation' or order.status == 'validated' %}
                     <div class="card mb-4">
                         <div class="card-header bg-info bg-opacity-10">
                             <h5 class="mb-0">
-                                <i class="fas fa-clipboard-list me-2"></i>{% trans "Contract Instructions" %}
+                                <i class="fas fa-info-circle me-2"></i>{% trans "How This Works" %}
                             </h5>
                         </div>
                         <div class="card-body">
                             <div class="contract-instructions">
-                                <h6 class="text-info mb-3">
-                                    <i class="fas fa-rocket me-2"></i>{% trans "Create your contract in-game:" %}
-                                </h6>
-                                <ol>
+                                <p class="mb-3">
+                                    <i class="fas fa-handshake me-2 text-info"></i>
+                                    {% trans "You create an Item Exchange contract to the corporation with the details below. The system auto-validates the contract once it matches." %}
+                                </p>
+                                <ol class="mb-3">
                                     <li>
                                         <strong>{% trans "Type:" %}</strong> {% trans "Item Exchange" %}
                                     </li>
@@ -126,7 +128,7 @@
                                 <div class="alert alert-warning mt-3 mb-0">
                                     <i class="fas fa-exclamation-triangle me-2"></i>
                                     <strong>{% trans "Important:" %}</strong>
-                                    {% trans "The system will automatically verify your contract within 5 minutes. Make sure to include the exact reference in your contract title!" %}
+                                    {% trans "Include the exact order reference in the contract title. Once the contract matches these details, validation happens automatically within a few minutes." %}
                                 </div>
                             </div>
                         </div>
@@ -185,7 +187,7 @@
                                         <td class="text-end text-success fs-5">
                                             {{ order.total_price|floatformat:2|intcomma }} ISK
                                         </td>
-                                        {% if order.status != 'pending' %}
+                                        {% if order.status != 'draft' %}
                                             <td></td>
                                         {% endif %}
                                     </tr>

@@ -761,6 +761,15 @@ class CharacterSettings(models.Model):
     jobs_notify_custom_days = models.PositiveSmallIntegerField(default=3)
     jobs_next_digest_at = models.DateTimeField(null=True, blank=True)
     jobs_last_digest_at = models.DateTimeField(null=True, blank=True)
+
+    corp_jobs_notify_frequency = models.CharField(
+        max_length=20,
+        choices=JOB_NOTIFICATION_FREQUENCY_CHOICES,
+        default=NOTIFY_DISABLED,
+    )
+    corp_jobs_notify_custom_days = models.PositiveSmallIntegerField(default=3)
+    corp_jobs_next_digest_at = models.DateTimeField(null=True, blank=True)
+    corp_jobs_last_digest_at = models.DateTimeField(null=True, blank=True)
     allow_copy_requests = models.BooleanField(default=False)
     copy_sharing_scope = models.CharField(
         max_length=20,
@@ -821,11 +830,52 @@ class CharacterSettings(models.Model):
                 days_value = self.jobs_notify_custom_days or 1
             self.jobs_notify_custom_days = max(1, days_value)
 
-    def compute_next_digest(self, *, reference=None):
+    def set_corp_job_notification_frequency(
+        self,
+        frequency: str,
+        *,
+        custom_days: int | None = None,
+    ) -> None:
+        valid = dict(self.JOB_NOTIFICATION_FREQUENCY_CHOICES)
+        if frequency not in valid:
+            raise ValueError(f"Invalid corp job notification frequency: {frequency}")
+
+        self.corp_jobs_notify_frequency = frequency
+
+        if frequency == self.NOTIFY_CUSTOM:
+            days_value = (
+                custom_days
+                if custom_days is not None
+                else self.corp_jobs_notify_custom_days
+            )
+            try:
+                days_value = int(days_value)
+            except (TypeError, ValueError):
+                days_value = self.corp_jobs_notify_custom_days or 1
+            self.corp_jobs_notify_custom_days = max(1, days_value)
+
+        if frequency in {
+            self.NOTIFY_DAILY,
+            self.NOTIFY_WEEKLY,
+            self.NOTIFY_MONTHLY,
+            self.NOTIFY_CUSTOM,
+        }:
+            if not self.corp_jobs_next_digest_at or frequency == self.NOTIFY_CUSTOM:
+                self.schedule_next_corp_digest(reference=timezone.now())
+        else:
+            self.corp_jobs_next_digest_at = None
+
+    def compute_next_digest_for(
+        self,
+        *,
+        frequency: str,
+        custom_days: int | None = None,
+        reference=None,
+    ):
         if reference is None:
             reference = timezone.now()
 
-        freq = self.jobs_notify_frequency
+        freq = frequency
         if freq in {self.NOTIFY_DISABLED, self.NOTIFY_IMMEDIATE}:
             return None
 
@@ -836,14 +886,36 @@ class CharacterSettings(models.Model):
         elif freq == self.NOTIFY_MONTHLY:
             delta = timedelta(days=30)
         else:
-            days = max(1, self.jobs_notify_custom_days or 1)
-            delta = timedelta(days=days)
+            days_source = custom_days if custom_days is not None else 1
+            try:
+                days_source = int(days_source)
+            except (TypeError, ValueError):
+                days_source = 1
+            delta = timedelta(days=max(1, days_source))
 
         return reference + delta
+
+    def compute_next_digest(self, *, reference=None):
+        return self.compute_next_digest_for(
+            frequency=self.jobs_notify_frequency,
+            custom_days=self.jobs_notify_custom_days,
+            reference=reference,
+        )
+
+    def compute_next_corp_digest(self, *, reference=None):
+        return self.compute_next_digest_for(
+            frequency=self.corp_jobs_notify_frequency,
+            custom_days=self.corp_jobs_notify_custom_days,
+            reference=reference,
+        )
 
     def schedule_next_digest(self, *, reference=None) -> None:
         next_at = self.compute_next_digest(reference=reference)
         self.jobs_next_digest_at = next_at
+
+    def schedule_next_corp_digest(self, *, reference=None) -> None:
+        next_at = self.compute_next_corp_digest(reference=reference)
+        self.corp_jobs_next_digest_at = next_at
 
     def save(self, *args, **kwargs):
         if (
@@ -868,11 +940,27 @@ class CharacterSettings(models.Model):
 class JobNotificationDigestEntry(models.Model):
     """Queued job notifications awaiting digest dispatch."""
 
+    SCOPE_PERSONAL = "personal"
+    SCOPE_CORPORATION = "corporation"
+    SCOPE_CHOICES = [
+        (SCOPE_PERSONAL, "Personal"),
+        (SCOPE_CORPORATION, "Corporation"),
+    ]
+
     user = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
         related_name="indy_job_notification_entries",
     )
+    scope = models.CharField(
+        max_length=16,
+        choices=SCOPE_CHOICES,
+        default=SCOPE_PERSONAL,
+    )
+    # For scope == SCOPE_CORPORATION, this identifies which corporation the
+    # digest entry belongs to. For personal entries it is 0.
+    # NOTE: kept non-null because MySQL allows multiple NULLs in UNIQUE indexes.
+    corporation_id = models.BigIntegerField(default=0, db_index=True)
     job_id = models.BigIntegerField()
     payload = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -883,8 +971,8 @@ class JobNotificationDigestEntry(models.Model):
         default_permissions = ()
         constraints = [
             models.UniqueConstraint(
-                fields=["user", "job_id"],
-                name="job_digest_user_job_uq",
+                fields=["user", "job_id", "scope", "corporation_id"],
+                name="job_digest_user_job_scope_corp_uq",
             )
         ]
         indexes = [
@@ -921,6 +1009,17 @@ class CorporationSharingSetting(models.Model):
         choices=CharacterSettings.COPY_SHARING_SCOPE_CHOICES,
         default=CharacterSettings.SCOPE_NONE,
     )
+
+    # Corporation job alerts preferences (per user, per corporation)
+    corp_jobs_notify_frequency = models.CharField(
+        max_length=20,
+        choices=CharacterSettings.JOB_NOTIFICATION_FREQUENCY_CHOICES,
+        default=CharacterSettings.NOTIFY_DISABLED,
+    )
+    corp_jobs_notify_custom_days = models.PositiveSmallIntegerField(default=3)
+    corp_jobs_next_digest_at = models.DateTimeField(null=True, blank=True)
+    corp_jobs_last_digest_at = models.DateTimeField(null=True, blank=True)
+
     allow_copy_requests = models.BooleanField(default=False)
     authorized_characters = models.JSONField(default=list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -1278,6 +1377,7 @@ class MaterialExchangeConfig(models.Model):
     class Meta:
         verbose_name = _("Material Exchange Configuration")
         verbose_name_plural = _("Material Exchange Configurations")
+        default_permissions = ()
 
     def __str__(self):
         return f"Material Exchange Config (Corp {self.corporation_id})"
@@ -1469,7 +1569,7 @@ class MaterialExchangeSellOrder(models.Model):
     """
 
     class Status(models.TextChoices):
-        DRAFT = "draft", _("Draft - Awaiting Contract")
+        DRAFT = "draft", _("Order Created - Awaiting Contract")
         AWAITING_VALIDATION = "awaiting_validation", _("Awaiting Auth Validation")
         VALIDATED = "validated", _("Validated - Awaiting Contract Accept")
         COMPLETED = "completed", _("Completed")
@@ -1667,7 +1767,7 @@ class MaterialExchangeBuyOrder(models.Model):
     """
 
     class Status(models.TextChoices):
-        DRAFT = "draft", _("Draft - Awaiting Contract")
+        DRAFT = "draft", _("Order Created - Awaiting Contract")
         AWAITING_VALIDATION = "awaiting_validation", _("Awaiting Auth Validation")
         VALIDATED = "validated", _("Validated - Awaiting User Accept")
         COMPLETED = "completed", _("Completed")

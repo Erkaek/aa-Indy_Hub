@@ -30,235 +30,405 @@
         <i class="fas fa-gear header-bg"></i>
     </div>
 
-    <section class="dashboard-section mb-4">
-        <header class="section-heading">
-            <div>
-                <h3>{% trans "Job alerts" %}</h3>
-                <p class="text-muted small mb-0">{% trans "Configure industry job notification cadence." %}</p>
-            </div>
-        </header>
-        <div class="card preference-card h-100">
-            <div class="card-body p-4 d-flex flex-column">
-                <div class="preference-stack">
-                    <div class="preference-item">
-                        <div class="preference-text">
-                            <span class="preference-label">{% trans "Industry job alerts" %}</span>
-                            <p class="preference-hint mb-0" id="notify-hint">{{ job_notification_hint }}</p>
-                        </div>
-                        <div class="notification-preference" id="job-notification-controls">
-                            <div
-                                class="notify-mode-grid"
-                                id="job-notification-group"
-                                role="group"
-                                aria-label="{% trans 'Industry job notification cadence' %}"
-                                data-current-frequency="{{ job_notification_frequency }}"
-                            >
-                                <button type="button" class="notify-mode-tile {% if job_notification_frequency == 'disabled' %}is-active{% endif %}" data-frequency="disabled" data-hint="{% trans 'Muted: we stay quiet until you re-enable alerts.' %}" aria-pressed="{% if job_notification_frequency == 'disabled' %}true{% else %}false{% endif %}">
-                                    <span class="notify-tile-icon muted"><i class="fas fa-bell-slash"></i></span>
-                                    <div class="notify-tile-main"><span class="notify-tile-title">{% trans "Muted" %}</span><span class="notify-tile-tag">{% trans "Off" %}</span></div>
-                                </button>
-                                <button type="button" class="notify-mode-tile {% if job_notification_frequency == 'immediate' %}is-active{% endif %}" data-frequency="immediate" data-hint="{% trans 'Instant: we ping you the moment a job completes.' %}" aria-pressed="{% if job_notification_frequency == 'immediate' %}true{% else %}false{% endif %}">
-                                    <span class="notify-tile-icon instant"><i class="fas fa-bolt"></i></span>
-                                    <div class="notify-tile-main"><span class="notify-tile-title">{% trans "Instant" %}</span><span class="notify-tile-tag">{% trans "Live" %}</span></div>
-                                </button>
-                                <button type="button" class="notify-mode-tile {% if job_notification_frequency == 'daily' %}is-active{% endif %}" data-frequency="daily" data-hint="{% trans 'Daily digest: one summary every night.' %}" aria-pressed="{% if job_notification_frequency == 'daily' %}true{% else %}false{% endif %}">
-                                    <span class="notify-tile-icon digest"><i class="fas fa-sun"></i></span>
-                                    <div class="notify-tile-main"><span class="notify-tile-title">{% trans "Daily" %}</span><span class="notify-tile-tag">{% trans "Digest" %}</span></div>
-                                </button>
-                                <button type="button" class="notify-mode-tile {% if job_notification_frequency == 'weekly' %}is-active{% endif %}" data-frequency="weekly" data-hint="{% trans 'Weekly digest: recap every seven days.' %}" aria-pressed="{% if job_notification_frequency == 'weekly' %}true{% else %}false{% endif %}">
-                                    <span class="notify-tile-icon digest"><i class="fas fa-calendar-week"></i></span>
-                                    <div class="notify-tile-main"><span class="notify-tile-title">{% trans "Weekly" %}</span><span class="notify-tile-tag">{% trans "Digest" %}</span></div>
-                                </button>
-                                <button type="button" class="notify-mode-tile {% if job_notification_frequency == 'monthly' %}is-active{% endif %}" data-frequency="monthly" data-hint="{% trans 'Monthly digest: grouped update every thirty days.' %}" aria-pressed="{% if job_notification_frequency == 'monthly' %}true{% else %}false{% endif %}">
-                                    <span class="notify-tile-icon digest"><i class="fas fa-calendar-days"></i></span>
-                                    <div class="notify-tile-main"><span class="notify-tile-title">{% trans "Monthly" %}</span><span class="notify-tile-tag">{% trans "Digest" %}</span></div>
-                                </button>
-                                <button type="button" class="notify-mode-tile {% if job_notification_frequency == 'custom' %}is-active{% endif %}" data-frequency="custom" data-hint="{% blocktrans with days=job_notification_custom_days|default:3 %}Custom cadence: grouped alert every {{ days }} day(s).{% endblocktrans %}" data-hint-template="{% trans 'Custom cadence: grouped alert every __days__ day(s).' %}" data-hint-placeholder="__days__" data-hint-default-days="{{ job_notification_custom_days|default:3 }}" aria-pressed="{% if job_notification_frequency == 'custom' %}true{% else %}false{% endif %}">
-                                    <span class="notify-tile-icon custom"><i class="fas fa-sliders"></i></span>
-                                    <div class="notify-tile-main"><span class="notify-tile-title">{% trans "Custom" %}</span><span class="notify-tile-tag">{% trans "Custom" %}</span></div>
-                                </button>
-                            </div>
-                            <div class="notification-custom mt-3{% if job_notification_frequency != 'custom' %} d-none{% endif %}" id="job-notification-custom-wrapper" aria-live="polite">
-                                <div class="input-group input-group-sm">
-                                    <span class="input-group-text">{% trans "Every" %}</span>
-                                    <input type="number" min="1" max="90" step="1" class="form-control" id="job-notification-custom-days" value="{{ job_notification_custom_days }}" aria-label="{% trans 'Custom digest cadence' %}">
-                                    <span class="input-group-text">{% trans "day(s)" %}</span>
-                                </div>
-                                <p class="text-muted small mt-2 mb-0" id="job-notification-help">{% trans "Set how many days should pass between grouped alerts." %}</p>
-                            </div>
-                            <div class="preference-actions mt-3">
-                                <button type="button" class="btn btn-primary btn-sm px-3 rounded-pill" id="job-notification-apply">
-                                    <i class="fas fa-save me-1"></i>{% trans "Save cadence" %}
-                                </button>
-                                <div class="notify-preview-actions">
-                                    <a href="{% url 'indy_hub:job_notification_preview_live' %}" class="btn btn-outline-secondary btn-sm px-3 rounded-pill">
-                                        <i class="fas fa-bell me-1"></i>{% trans "Preview live" %}
-                                    </a>
-                                    <a href="{% url 'indy_hub:job_notification_preview_digest' %}" class="btn btn-outline-secondary btn-sm px-3 rounded-pill">
-                                        <i class="fas fa-list-ul me-1"></i>{% trans "Preview digest" %}
-                                    </a>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </section>
+    <div class="settings-grid">
 
-    <section class="dashboard-section mb-4">
-        <header class="section-heading">
-            <div>
-                <h3>{% trans "Copy sharing" %}</h3>
-                <p class="text-muted small mb-0">{% trans "Configure personal and corporation blueprint sharing scopes." %}</p>
-            </div>
-        </header>
-        <div class="card preference-card focus-card">
-            <div class="card-body p-4 d-flex flex-column">
-                <div class="preference-stack">
-                    <div class="preference-item share-preference">
-                        <div class="preference-text share-preference-info">
-                            <div class="share-preference-header">
-                                <span class="preference-label">{% trans "Personal sharing scope" %}</span>
-                            </div>
-                            <p class="preference-hint mb-0" id="copy-sharing-hint">{{ copy_sharing_state.button_hint }}</p>
-                        </div>
-                        <div class="share-mode-group" id="share-mode-group" role="group" aria-label="{% trans 'Blueprint sharing scope' %}" data-current-scope="{{ copy_sharing_scope }}">
-                            <button type="button" class="share-mode-chip {% if copy_sharing_scope == 'none' %}is-active{% endif %}" data-share-scope="none" aria-pressed="{% if copy_sharing_scope == 'none' %}true{% else %}false{% endif %}">
-                                <i class="fas fa-lock"></i><span>{% trans "Private" %}</span>
-                            </button>
-                            <button type="button" class="share-mode-chip {% if copy_sharing_scope == 'corporation' %}is-active{% endif %}" data-share-scope="corporation" aria-pressed="{% if copy_sharing_scope == 'corporation' %}true{% else %}false{% endif %}">
-                                <i class="fas fa-building"></i><span>{% trans "Corporation" %}</span>
-                            </button>
-                            <button type="button" class="share-mode-chip {% if copy_sharing_scope == 'alliance' %}is-active{% endif %}" data-share-scope="alliance" aria-pressed="{% if copy_sharing_scope == 'alliance' %}true{% else %}false{% endif %}">
-                                <i class="fas fa-people-group"></i><span>{% trans "Alliance" %}</span>
-                            </button>
-                            <button type="button" class="share-mode-chip {% if copy_sharing_scope == 'everyone' %}is-active{% endif %}" data-share-scope="everyone" aria-pressed="{% if copy_sharing_scope == 'everyone' %}true{% else %}false{% endif %}">
-                                <i class="fas fa-globe"></i><span>{% trans "Everyone" %}</span>
-                            </button>
-                        </div>
-                        <p class="text-muted small mt-2" id="copy-sharing-explanation">{{ copy_sharing_state.explanation }}</p>
-                    </div>
-                </div>
+    <ul class="nav nav-tabs mb-4" id="settingsTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="tab-personal" data-bs-toggle="tab" data-bs-target="#settings-personal" type="button" role="tab" aria-controls="settings-personal" aria-selected="true">
+                {% trans "Personal" %}
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link {% if not can_manage_corp_bp_requests %}disabled{% endif %}" id="tab-corporations" data-bs-toggle="tab" data-bs-target="#settings-corporations" type="button" role="tab" aria-controls="settings-corporations" aria-selected="false" {% if not can_manage_corp_bp_requests %}disabled aria-disabled="true" tabindex="-1"{% endif %}>
+                {% trans "Corporations" %}
+                <span class="badge text-bg-secondary ms-2">
+                    {% if corporation_share_summary and corporation_share_summary.total %}
+                        {{ corporation_share_summary.total }}
+                    {% elif corporation_settings_controls %}
+                        {{ corporation_settings_controls|length }}
+                    {% else %}
+                        0
+                    {% endif %}
+                </span>
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="tab-services" data-bs-toggle="tab" data-bs-target="#settings-services" type="button" role="tab" aria-controls="settings-services" aria-selected="false">
+                {% trans "Services" %}
+                {% if can_manage_material_hub %}
+                <span class="badge text-bg-{% if material_exchange_enabled %}success{% else %}secondary{% endif %} ms-2">
+                    {% if material_exchange_enabled %}{% trans "On" %}{% else %}{% trans "Off" %}{% endif %}
+                </span>
+                {% endif %}
+            </button>
+        </li>
+    </ul>
 
-                {% if can_manage_corp_bp_requests %}
-                <hr class="my-4" />
-                <div class="d-flex align-items-start justify-content-between gap-3 mb-3">
+    <div class="tab-content" id="settingsTabsContent">
+
+    <div class="tab-pane fade show active" id="settings-personal" role="tabpanel" aria-labelledby="tab-personal" tabindex="0">
+
+    <div class="row g-4">
+        <div class="col-12 col-lg-6">
+            <section class="dashboard-section">
+                <header class="section-heading">
                     <div>
-                        <span class="preference-label">{% trans "Corporation sharing" %}</span>
-                        {% if corporation_share_summary and corporation_share_summary.total %}
-                        <p class="preference-hint mb-1">
-                            {% blocktrans with enabled=corporation_share_summary.enabled total=corporation_share_summary.total %}{{ enabled }} of {{ total }} corporations sharing copies{% endblocktrans %}
-                        </p>
-                        {% else %}
-                        <p class="preference-hint mb-1">{% trans "Authorize a director token to share corporate hangars and industry activity." %}</p>
-                        {% endif %}
-                        <p class="text-muted small mb-0">{% trans "Set the scope per corporation." %}</p>
+                        <h3>{% trans "Job alerts" %}</h3>
+                        <p class="text-muted small mb-0">{% trans "Configure industry job notification cadence." %}</p>
                     </div>
-                    <div class="focus-icon bg-info bg-opacity-10 text-info"><i class="fas fa-share-alt"></i></div>
-                </div>
-
-                {% if corporation_share_controls %}
-                <div class="corporation-share-list d-flex flex-column gap-3">
-                    {% for corp in corporation_share_controls %}
-                    <div class="corp-share-control border rounded-4 p-3" data-corp-id="{{ corp.corporation_id }}">
-                        <div class="d-flex justify-content-between align-items-start gap-3">
+                </header>
+                <div class="card focus-card">
+                    <div class="card-body p-3">
+                        <div class="d-flex flex-column gap-2">
                             <div>
-                                <span class="fw-semibold d-block">{{ corp.corporation_name }}</span>
-                                <p class="text-muted small mb-1 corp-share-hint">{{ corp.status_hint }}</p>
+                                <span class="share-metric-label"><i class="fas fa-bell me-2"></i>{% trans "Industry job alerts" %}</span>
+                                <p class="text-muted small mb-0 mt-1" id="notify-hint">{{ job_notification_hint }}</p>
                             </div>
-                            <span class="badge rounded-pill corp-share-badge {{ corp.badge_class }}">{{ corp.status_label }}</span>
+                            <div class="notification-preference" id="job-notification-controls">
+                                <div
+                                    class="notify-mode-grid"
+                                    id="job-notification-group"
+                                    role="group"
+                                    aria-label="{% trans 'Industry job notification cadence' %}"
+                                    data-current-frequency="{{ job_notification_frequency }}"
+                                >
+                                    <button type="button" class="notify-mode-tile {% if job_notification_frequency == 'disabled' %}is-active{% endif %}" data-frequency="disabled" data-hint="{% trans 'Muted: we stay quiet until you re-enable alerts.' %}" aria-pressed="{% if job_notification_frequency == 'disabled' %}true{% else %}false{% endif %}">
+                                        <span class="notify-tile-icon muted"><i class="fas fa-bell-slash"></i></span>
+                                        <div class="notify-tile-main"><span class="notify-tile-title">{% trans "Muted" %}</span><span class="notify-tile-tag">{% trans "Off" %}</span></div>
+                                    </button>
+                                    <button type="button" class="notify-mode-tile {% if job_notification_frequency == 'immediate' %}is-active{% endif %}" data-frequency="immediate" data-hint="{% trans 'Instant: we ping you the moment a job completes.' %}" aria-pressed="{% if job_notification_frequency == 'immediate' %}true{% else %}false{% endif %}">
+                                        <span class="notify-tile-icon instant"><i class="fas fa-bolt"></i></span>
+                                        <div class="notify-tile-main"><span class="notify-tile-title">{% trans "Instant" %}</span><span class="notify-tile-tag">{% trans "Live" %}</span></div>
+                                    </button>
+                                    <button type="button" class="notify-mode-tile {% if job_notification_frequency == 'daily' %}is-active{% endif %}" data-frequency="daily" data-hint="{% trans 'Daily digest: one summary every night.' %}" aria-pressed="{% if job_notification_frequency == 'daily' %}true{% else %}false{% endif %}">
+                                        <span class="notify-tile-icon digest"><i class="fas fa-sun"></i></span>
+                                        <div class="notify-tile-main"><span class="notify-tile-title">{% trans "Daily" %}</span><span class="notify-tile-tag">{% trans "Digest" %}</span></div>
+                                    </button>
+                                    <button type="button" class="notify-mode-tile {% if job_notification_frequency == 'weekly' %}is-active{% endif %}" data-frequency="weekly" data-hint="{% trans 'Weekly digest: recap every seven days.' %}" aria-pressed="{% if job_notification_frequency == 'weekly' %}true{% else %}false{% endif %}">
+                                        <span class="notify-tile-icon digest"><i class="fas fa-calendar-week"></i></span>
+                                        <div class="notify-tile-main"><span class="notify-tile-title">{% trans "Weekly" %}</span><span class="notify-tile-tag">{% trans "Digest" %}</span></div>
+                                    </button>
+                                    <button type="button" class="notify-mode-tile {% if job_notification_frequency == 'monthly' %}is-active{% endif %}" data-frequency="monthly" data-hint="{% trans 'Monthly digest: grouped update every thirty days.' %}" aria-pressed="{% if job_notification_frequency == 'monthly' %}true{% else %}false{% endif %}">
+                                        <span class="notify-tile-icon digest"><i class="fas fa-calendar-days"></i></span>
+                                        <div class="notify-tile-main"><span class="notify-tile-title">{% trans "Monthly" %}</span><span class="notify-tile-tag">{% trans "Digest" %}</span></div>
+                                    </button>
+                                    <button type="button" class="notify-mode-tile {% if job_notification_frequency == 'custom' %}is-active{% endif %}" data-frequency="custom" data-hint="{% blocktrans with days=job_notification_custom_days|default:3 %}Custom cadence: grouped alert every {{ days }} day(s).{% endblocktrans %}" data-hint-template="{% trans 'Custom cadence: grouped alert every __days__ day(s).' %}" data-hint-placeholder="__days__" data-hint-default-days="{{ job_notification_custom_days|default:3 }}" aria-pressed="{% if job_notification_frequency == 'custom' %}true{% else %}false{% endif %}">
+                                        <span class="notify-tile-icon custom"><i class="fas fa-sliders"></i></span>
+                                        <div class="notify-tile-main"><span class="notify-tile-title">{% trans "Custom" %}</span><span class="notify-tile-tag">{% trans "Custom" %}</span></div>
+                                    </button>
+                                </div>
+                                <div class="notification-custom mt-3{% if job_notification_frequency != 'custom' %} d-none{% endif %}" id="job-notification-custom-wrapper" aria-live="polite">
+                                    <div class="input-group input-group-sm">
+                                        <span class="input-group-text">{% trans "Every" %}</span>
+                                        <input type="number" min="1" max="90" step="1" class="form-control" id="job-notification-custom-days" value="{{ job_notification_custom_days }}" aria-label="{% trans 'Custom digest cadence' %}">
+                                        <span class="input-group-text">{% trans "day(s)" %}</span>
+                                    </div>
+                                    <p class="text-muted small mt-2 mb-0" id="job-notification-help">{% trans "Set how many days should pass between grouped alerts." %}</p>
+                                </div>
+                                <div class="d-flex align-items-center gap-2 mt-3{% if job_notification_frequency != 'custom' %} d-none{% endif %}" id="job-notification-apply-wrapper">
+                                    <button type="button" class="btn btn-primary btn-sm px-3 rounded-pill" id="job-notification-apply">
+                                        <i class="fas fa-save me-1"></i>{% trans "Save cadence" %}
+                                    </button>
+                                </div>
+                            </div>
                         </div>
-                        <div class="share-mode-group corp-share-mode-group mt-3" data-corp-id="{{ corp.corporation_id }}" data-has-blueprint-scope="{{ corp.has_blueprint_scope|yesno:'true,false' }}" role="group" aria-label="{% blocktrans with name=corp.corporation_name %}{{ name }} blueprint sharing scope{% endblocktrans %}" data-current-scope="{{ corp.share_scope }}">
-                            <button type="button" class="share-mode-chip {% if corp.share_scope == 'none' %}is-active{% endif %}" data-share-scope="none" aria-pressed="{% if corp.share_scope == 'none' %}true{% else %}false{% endif %}"><i class="fas fa-lock"></i><span>{% trans "Private" %}</span></button>
-                            <button type="button" class="share-mode-chip {% if corp.share_scope == 'corporation' %}is-active{% endif %}" data-share-scope="corporation" aria-pressed="{% if corp.share_scope == 'corporation' %}true{% else %}false{% endif %}"><i class="fas fa-building"></i><span>{% trans "Corporation" %}</span></button>
-                            <button type="button" class="share-mode-chip {% if corp.share_scope == 'alliance' %}is-active{% endif %}" data-share-scope="alliance" aria-pressed="{% if corp.share_scope == 'alliance' %}true{% else %}false{% endif %}"><i class="fas fa-people-group"></i><span>{% trans "Alliance" %}</span></button>
-                            <button type="button" class="share-mode-chip {% if corp.share_scope == 'everyone' %}is-active{% endif %}" data-share-scope="everyone" aria-pressed="{% if corp.share_scope == 'everyone' %}true{% else %}false{% endif %}"><i class="fas fa-globe"></i><span>{% trans "Everyone" %}</span></button>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <div class="col-12 col-lg-6">
+            <section class="dashboard-section">
+                <header class="section-heading">
+                    <div>
+                        <h3>{% trans "Copy sharing" %}</h3>
+                        <p class="text-muted small mb-0">{% trans "Configure personal and corporation blueprint sharing scopes." %}</p>
+                    </div>
+                </header>
+                <div class="card focus-card">
+                    <div class="card-body p-3">
+                        <div class="d-flex flex-column gap-3">
+                            <div>
+                                <div class="d-flex align-items-start justify-content-between gap-3 mb-3">
+                                    <div class="flex-grow-1">
+                                        <span class="share-metric-label"><i class="fas fa-user me-2"></i>{% trans "Personal sharing scope" %}</span>
+                                        <p class="text-muted small mb-0 mt-1" id="copy-sharing-hint">{{ copy_sharing_state.button_hint }}</p>
+                                    </div>
+                                    <span id="copy-sharing-state" class="badge rounded-pill share-mode-badge {{ copy_sharing_state.badge_class }}">{{ copy_sharing_state.status_label }}</span>
+                                </div>
+                                <div class="share-mode-group personal-share-group d-flex align-items-stretch gap-2" id="share-mode-group" role="group" aria-label="{% trans 'Blueprint sharing scope' %}" data-current-scope="{{ copy_sharing_scope }}">
+                                    <button type="button" class="share-mode-chip flex-fill {% if copy_sharing_scope == 'none' %}is-active{% endif %}" data-share-scope="none" aria-pressed="{% if copy_sharing_scope == 'none' %}true{% else %}false{% endif %}">
+                                        <i class="fas fa-lock"></i><span>{% trans "Private" %}</span>
+                                    </button>
+                                    <button type="button" class="share-mode-chip flex-fill {% if copy_sharing_scope == 'corporation' %}is-active{% endif %}" data-share-scope="corporation" aria-pressed="{% if copy_sharing_scope == 'corporation' %}true{% else %}false{% endif %}">
+                                        <i class="fas fa-building"></i><span>{% trans "Corporation" %}</span>
+                                    </button>
+                                    <button type="button" class="share-mode-chip flex-fill {% if copy_sharing_scope == 'alliance' %}is-active{% endif %}" data-share-scope="alliance" aria-pressed="{% if copy_sharing_scope == 'alliance' %}true{% else %}false{% endif %}">
+                                        <i class="fas fa-people-group"></i><span>{% trans "Alliance" %}</span>
+                                    </button>
+                                    <button type="button" class="share-mode-chip flex-fill {% if copy_sharing_scope == 'everyone' %}is-active{% endif %}" data-share-scope="everyone" aria-pressed="{% if copy_sharing_scope == 'everyone' %}true{% else %}false{% endif %}">
+                                        <i class="fas fa-globe"></i><span>{% trans "Everyone" %}</span>
+                                    </button>
+                                </div>
+                                <p class="text-muted small mt-2" id="copy-sharing-explanation">{{ copy_sharing_state.explanation }}</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    </div>
+
+    <div class="tab-pane fade" id="settings-corporations" role="tabpanel" aria-labelledby="tab-corporations" tabindex="0">
+
+    {% if can_manage_corp_bp_requests %}
+    <div class="row g-4 mt-0">
+        <div class="col-12">
+            <section class="dashboard-section">
+                <header class="section-heading">
+                    <div>
+                        <h3>{% trans "Corporations" %}</h3>
+                        <p class="text-muted small mb-0">{% trans "Manage job alerts and sharing per corporation." %}</p>
+                    </div>
+                </header>
+
+                {% if corporation_settings_controls %}
+                {% with corp_count=corporation_settings_controls|length %}
+                <div class="accordion" id="corporationSettingsAccordion">
+                    {% for corp in corporation_settings_controls %}
+                    <div class="accordion-item focus-card mb-2">
+                        <h2 class="accordion-header" id="corp-heading-{{ corp.corporation_id }}">
+                            <button class="accordion-button {% if corp_count == 1 and forloop.first %}{% else %}collapsed{% endif %}" type="button" data-bs-toggle="collapse" data-bs-target="#corp-collapse-{{ corp.corporation_id }}" aria-expanded="{% if corp_count == 1 and forloop.first %}true{% else %}false{% endif %}" aria-controls="corp-collapse-{{ corp.corporation_id }}">
+                                <div class="d-flex align-items-center gap-3 w-100">
+                                    <div class="fw-semibold">{{ corp.corporation_name }}</div>
+                                    <div class="d-flex align-items-center gap-2 flex-grow-1 justify-content-center">
+                                        <span class="badge rounded-pill corp-header-jobs-badge {% if corp.jobs_frequency == 'disabled' %}bg-danger-subtle text-danger{% elif corp.jobs_frequency == 'immediate' %}bg-success-subtle text-success{% elif corp.jobs_frequency == 'daily' %}bg-info-subtle text-info{% elif corp.jobs_frequency == 'weekly' %}bg-warning-subtle text-warning{% elif corp.jobs_frequency == 'monthly' %}bg-secondary-subtle text-secondary-emphasis{% elif corp.jobs_frequency == 'custom' %}bg-light-subtle text-body{% else %}bg-info-subtle text-info{% endif %}" data-corp-id="{{ corp.corporation_id }}">
+                                            <i class="fas fa-bell fa-xs me-1"></i>
+                                            <span class="corp-header-jobs-label">
+                                            {% if corp.jobs_frequency == 'disabled' %}
+                                                {% trans "Muted" %}
+                                            {% elif corp.jobs_frequency == 'immediate' %}
+                                                {% trans "Instant" %}
+                                            {% elif corp.jobs_frequency == 'daily' %}
+                                                {% trans "Daily" %}
+                                            {% elif corp.jobs_frequency == 'weekly' %}
+                                                {% trans "Weekly" %}
+                                            {% elif corp.jobs_frequency == 'monthly' %}
+                                                {% trans "Monthly" %}
+                                            {% elif corp.jobs_frequency == 'custom' %}
+                                                {{ corp.jobs_custom_days }}d
+                                            {% else %}
+                                                {{ corp.jobs_frequency }}
+                                            {% endif %}
+                                            </span>
+                                        </span>
+                                        <span class="badge rounded-pill corp-header-share-badge {{ corp.badge_class|default:'bg-danger-subtle text-danger' }}" data-corp-id="{{ corp.corporation_id }}">
+                                            <i class="fas fa-share-nodes fa-xs me-1"></i>
+                                            <span class="corp-header-share-label">{{ corp.status_label }}</span>
+                                        </span>
+                                    </div>
+                                </div>
+                            </button>
+                        </h2>
+                        <div id="corp-collapse-{{ corp.corporation_id }}" class="accordion-collapse collapse {% if corp_count == 1 and forloop.first %}show{% endif %}" aria-labelledby="corp-heading-{{ corp.corporation_id }}" data-bs-parent="#corporationSettingsAccordion">
+                            <div class="accordion-body">
+                                <div class="row g-3">
+                                    <div class="col-12 col-lg-6 d-flex">
+                                        <div class="corp-job-alert-control border rounded-4 p-3 bg-body-tertiary bg-opacity-25 w-100 h-100 d-flex flex-column" data-corp-id="{{ corp.corporation_id }}">
+                                            <div class="mb-2">
+                                                <span class="share-metric-label"><i class="fas fa-bell me-2"></i>{% trans "Job alerts" %}</span>
+                                                <p class="text-muted small mb-0 corp-notify-hint">{{ corp.jobs_hint }}</p>
+                                            </div>
+                                            <div class="notification-preference flex-grow-1" id="corp-job-notification-controls-{{ corp.corporation_id }}">
+                                                <div
+                                                    class="notify-mode-grid"
+                                                    role="group"
+                                                    aria-label="{% blocktrans with name=corp.corporation_name %}{{ name }} job notification cadence{% endblocktrans %}"
+                                                    data-current-frequency="{{ corp.jobs_frequency }}"
+                                                    data-corp-id="{{ corp.corporation_id }}"
+                                                >
+                                                    <button type="button" class="notify-mode-tile {% if corp.jobs_frequency == 'disabled' %}is-active{% endif %}" data-frequency="disabled" data-hint="{% trans 'Muted: no alerts for corporation jobs.' %}" aria-pressed="{% if corp.jobs_frequency == 'disabled' %}true{% else %}false{% endif %}">
+                                                        <span class="notify-tile-icon muted"><i class="fas fa-bell-slash"></i></span>
+                                                        <div class="notify-tile-main"><span class="notify-tile-title">{% trans "Muted" %}</span><span class="notify-tile-tag">{% trans "Off" %}</span></div>
+                                                    </button>
+                                                    <button type="button" class="notify-mode-tile {% if corp.jobs_frequency == 'immediate' %}is-active{% endif %}" data-frequency="immediate" data-hint="{% trans 'Instant: live alerts for completed corporation jobs.' %}" aria-pressed="{% if corp.jobs_frequency == 'immediate' %}true{% else %}false{% endif %}">
+                                                        <span class="notify-tile-icon instant"><i class="fas fa-bolt"></i></span>
+                                                        <div class="notify-tile-main"><span class="notify-tile-title">{% trans "Instant" %}</span><span class="notify-tile-tag">{% trans "Live" %}</span></div>
+                                                    </button>
+                                                    <button type="button" class="notify-mode-tile {% if corp.jobs_frequency == 'daily' %}is-active{% endif %}" data-frequency="daily" data-hint="{% trans 'Daily digest: one summary for corporation jobs every night.' %}" aria-pressed="{% if corp.jobs_frequency == 'daily' %}true{% else %}false{% endif %}">
+                                                        <span class="notify-tile-icon digest"><i class="fas fa-sun"></i></span>
+                                                        <div class="notify-tile-main"><span class="notify-tile-title">{% trans "Daily" %}</span><span class="notify-tile-tag">{% trans "Digest" %}</span></div>
+                                                    </button>
+                                                    <button type="button" class="notify-mode-tile {% if corp.jobs_frequency == 'weekly' %}is-active{% endif %}" data-frequency="weekly" data-hint="{% trans 'Weekly digest: recap for corporation jobs every seven days.' %}" aria-pressed="{% if corp.jobs_frequency == 'weekly' %}true{% else %}false{% endif %}">
+                                                        <span class="notify-tile-icon digest"><i class="fas fa-calendar-week"></i></span>
+                                                        <div class="notify-tile-main"><span class="notify-tile-title">{% trans "Weekly" %}</span><span class="notify-tile-tag">{% trans "Digest" %}</span></div>
+                                                    </button>
+                                                    <button type="button" class="notify-mode-tile {% if corp.jobs_frequency == 'monthly' %}is-active{% endif %}" data-frequency="monthly" data-hint="{% trans 'Monthly digest: grouped update for corporation jobs every thirty days.' %}" aria-pressed="{% if corp.jobs_frequency == 'monthly' %}true{% else %}false{% endif %}">
+                                                        <span class="notify-tile-icon digest"><i class="fas fa-calendar-days"></i></span>
+                                                        <div class="notify-tile-main"><span class="notify-tile-title">{% trans "Monthly" %}</span><span class="notify-tile-tag">{% trans "Digest" %}</span></div>
+                                                    </button>
+                                                    <button type="button" class="notify-mode-tile {% if corp.jobs_frequency == 'custom' %}is-active{% endif %}" data-frequency="custom" data-hint="{% blocktrans with days=corp.jobs_custom_days|default:3 %}Custom cadence: grouped alert for corporation jobs every {{ days }} day(s).{% endblocktrans %}" data-hint-template="{% trans 'Custom cadence: grouped alert for corporation jobs every __days__ day(s).' %}" data-hint-placeholder="__days__" data-hint-default-days="{{ corp.jobs_custom_days|default:3 }}" aria-pressed="{% if corp.jobs_frequency == 'custom' %}true{% else %}false{% endif %}">
+                                                        <span class="notify-tile-icon custom"><i class="fas fa-sliders"></i></span>
+                                                        <div class="notify-tile-main"><span class="notify-tile-title">{% trans "Custom" %}</span><span class="notify-tile-tag">{% trans "Custom" %}</span></div>
+                                                    </button>
+                                                </div>
+                                                <div class="notification-custom mt-3{% if corp.jobs_frequency != 'custom' %} d-none{% endif %}" id="corp-job-notification-custom-wrapper-{{ corp.corporation_id }}" aria-live="polite">
+                                                    <div class="input-group input-group-sm">
+                                                        <span class="input-group-text">{% trans "Every" %}</span>
+                                                        <input type="number" min="1" max="90" step="1" class="form-control" data-corp-id="{{ corp.corporation_id }}" value="{{ corp.jobs_custom_days }}" aria-label="{% blocktrans with name=corp.corporation_name %}Custom {{ name }} digest cadence{% endblocktrans %}">
+                                                        <span class="input-group-text">{% trans "day(s)" %}</span>
+                                                    </div>
+                                                    <p class="text-muted small mt-2 mb-0">{% trans "Set how many days should pass between grouped corporation alerts." %}</p>
+                                                </div>
+                                                <div class="d-flex align-items-center gap-2 mt-3{% if corp.jobs_frequency != 'custom' %} d-none{% endif %}" id="corp-job-notification-apply-wrapper-{{ corp.corporation_id }}">
+                                                    <button type="button" class="btn btn-primary btn-sm px-3 rounded-pill corp-job-notification-apply" data-corp-id="{{ corp.corporation_id }}">
+                                                        <i class="fas fa-save me-1"></i>{% trans "Save cadence" %}
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="col-12 col-lg-6 d-flex">
+                                        <div class="corp-share-control border rounded-4 p-3 bg-body-tertiary bg-opacity-25 w-100 h-100" data-corp-id="{{ corp.corporation_id }}">
+                                            <div class="mb-2">
+                                                <div class="d-flex align-items-start justify-content-between gap-3">
+                                                    <div>
+                                                        <span class="share-metric-label"><i class="fas fa-share-nodes me-2"></i>{% trans "Copy sharing" %}</span>
+                                                        <p class="text-muted small mb-0 corp-share-hint">{{ corp.status_hint }}</p>
+                                                    </div>
+                                                    <span class="badge rounded-pill corp-share-badge {{ corp.badge_class|default:'bg-danger-subtle text-danger' }}">{{ corp.status_label }}</span>
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            <div class="share-mode-group corp-share-mode-group mt-2 d-flex align-items-stretch gap-2" data-corp-id="{{ corp.corporation_id }}" data-has-blueprint-scope="{{ corp.has_blueprint_scope|yesno:'true,false' }}" role="group" aria-label="{% blocktrans with name=corp.corporation_name %}{{ name }} blueprint sharing scope{% endblocktrans %}" data-current-scope="{{ corp.share_scope }}">
+                                                <button type="button" class="share-mode-chip flex-fill {% if corp.share_scope == 'none' %}is-active{% endif %}" data-share-scope="none" aria-pressed="{% if corp.share_scope == 'none' %}true{% else %}false{% endif %}"><i class="fas fa-lock"></i><span>{% trans "Private" %}</span></button>
+                                                <button type="button" class="share-mode-chip flex-fill {% if corp.share_scope == 'corporation' %}is-active{% endif %}" data-share-scope="corporation" aria-pressed="{% if corp.share_scope == 'corporation' %}true{% else %}false{% endif %}"><i class="fas fa-building"></i><span>{% trans "Corporation" %}</span></button>
+                                                <button type="button" class="share-mode-chip flex-fill {% if corp.share_scope == 'alliance' %}is-active{% endif %}" data-share-scope="alliance" aria-pressed="{% if corp.share_scope == 'alliance' %}true{% else %}false{% endif %}"><i class="fas fa-people-group"></i><span>{% trans "Alliance" %}</span></button>
+                                                <button type="button" class="share-mode-chip flex-fill {% if corp.share_scope == 'everyone' %}is-active{% endif %}" data-share-scope="everyone" aria-pressed="{% if corp.share_scope == 'everyone' %}true{% else %}false{% endif %}"><i class="fas fa-globe"></i><span>{% trans "Everyone" %}</span></button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     {% endfor %}
                 </div>
+                {% endwith %}
                 {% else %}
-                <p class="text-muted small mb-0">{% trans "No corporation tokens detected yet." %}</p>
+                <div class="card focus-card">
+                    <div class="card-body p-3">
+                        <p class="text-muted small mb-0">{% trans "No corporation tokens detected yet." %}</p>
+                    </div>
+                </div>
                 {% endif %}
-                {% endif %}
-            </div>
+            </section>
         </div>
-    </section>
-
-    {% if can_manage_material_hub %}
-    <section class="dashboard-section">
-        <header class="section-heading">
-            <div>
-                <h3>{% trans "Material Exchange" %}</h3>
-                <p class="text-muted small mb-0">{% trans "Configure and manage material exchange hubs across your corporations." %}</p>
-            </div>
-        </header>
-        <div class="card focus-card">
-            <div class="card-body p-4">
-                <div class="d-flex align-items-center justify-content-between gap-3 flex-wrap">
-                    <div class="flex-grow-1">
-                        <p class="text-muted small mb-1">{% trans "Set up pricing rules, corporation hangars, and market operations." %}</p>
-                        <p class="text-muted small mb-0">
-                            {% if material_exchange_enabled %}
-                                <span class="badge bg-success me-2">{% trans "Enabled" %}</span>
-                            {% else %}
-                                <span class="badge bg-secondary me-2">{% trans "Disabled" %}</span>
-                            {% endif %}
-                            {% blocktrans with total=material_exchange_config_total active=material_exchange_config_active %}{{ active }} active of {{ total }} configured hubs{% endblocktrans %}
-                        </p>
-                    </div>
-                    <div class="d-flex align-items-center gap-3">
-                        <form method="post" action="{% url 'indy_hub:material_exchange_toggle_active' %}" class="d-flex align-items-center gap-2 mb-0">
-                            {% csrf_token %}
-                            <input type="hidden" name="next" value="{% url 'indy_hub:settings_hub' %}">
-                            <div class="form-check form-switch m-0">
-                                <input class="form-check-input" type="checkbox" id="meEnableSwitch" name="is_active" {% if material_exchange_enabled %}checked{% endif %}>
-                                <label class="form-check-label small" for="meEnableSwitch">{% trans "Enable Material Exchange" %}</label>
-                            </div>
-                            <button type="submit" class="btn btn-sm btn-primary">
-                                <i class="fas fa-save me-1"></i>{% trans "Save" %}
-                            </button>
-                        </form>
-                        <a class="btn btn-success btn-slim" href="{% url 'indy_hub:material_exchange_config' %}">
-                            <i class="fas fa-cog me-1"></i>{% trans "Configure" %}
-                        </a>
-                    </div>
+    </div>
+    {% else %}
+    <div class="row g-4 mt-0">
+        <div class="col-12">
+            <div class="card focus-card">
+                <div class="card-body p-3">
+                    <p class="text-muted small mb-0">{% trans "Corporation settings are not available for your account." %}</p>
                 </div>
             </div>
         </div>
-    </section>
+    </div>
     {% endif %}
 
-    <section class="dashboard-section mt-4">
-        <header class="section-heading">
-            <div>
-                <h3>{% trans "Intro" %}</h3>
-                <p class="text-muted small mb-0">{% trans "Show the Overview introduction again." %}</p>
-            </div>
-        </header>
-        <div class="card focus-card">
-            <div class="card-body p-4">
-                <div class="share-metrics">
-                    <div class="share-metric">
-                        <div>
-                            <span class="share-metric-label"><i class="fas fa-compass me-2"></i>{% trans "Overview intro" %}</span>
-                            <p class="text-muted small mb-0">{% trans "Resets the first-open tour for your account." %}</p>
+    </div>
+
+    <div class="tab-pane fade" id="settings-services" role="tabpanel" aria-labelledby="tab-services" tabindex="0">
+
+    <div class="row g-4 mt-0">
+        {% if can_manage_material_hub %}
+        <div class="col-12 col-lg-6">
+            <section class="dashboard-section">
+                <header class="section-heading">
+                    <div>
+                        <h3>{% trans "Material Exchange" %}</h3>
+                        <p class="text-muted small mb-0">{% trans "Configure and manage material exchange hubs across your corporations." %}</p>
+                    </div>
+                </header>
+                <div class="card focus-card">
+                    <div class="card-body p-3">
+                        <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap">
+                            <div class="flex-grow-1">
+                                <p class="text-muted small mb-1">{% trans "Set up pricing rules, corporation hangars, and market operations." %}</p>
+                                <p class="text-muted small mb-0">
+                                    {% if material_exchange_enabled %}
+                                        <span class="badge bg-success me-2">{% trans "Enabled" %}</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary me-2">{% trans "Disabled" %}</span>
+                                    {% endif %}
+                                    {% blocktrans with total=material_exchange_config_total active=material_exchange_config_active %}{{ active }} active of {{ total }} configured hubs{% endblocktrans %}
+                                </p>
+                            </div>
+                            <div class="d-flex align-items-center gap-3">
+                                <form method="post" action="{% url 'indy_hub:material_exchange_toggle_active' %}" class="d-flex align-items-center gap-2 mb-0">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="next" value="{% url 'indy_hub:settings_hub' %}">
+                                    <div class="form-check form-switch m-0">
+                                        <input class="form-check-input" type="checkbox" id="meEnableSwitch" name="is_active" {% if material_exchange_enabled %}checked{% endif %}>
+                                        <label class="form-check-label small" for="meEnableSwitch">{% trans "Enable Material Exchange" %}</label>
+                                    </div>
+                                    <button type="submit" class="btn btn-sm btn-primary">
+                                        <i class="fas fa-save me-1"></i>{% trans "Save" %}
+                                    </button>
+                                </form>
+                                <a class="btn btn-success btn-slim" href="{% url 'indy_hub:material_exchange_config' %}">
+                                    <i class="fas fa-cog me-1"></i>{% trans "Configure" %}
+                                </a>
+                            </div>
                         </div>
-                        <form method="post" action="{% url 'indy_hub:onboarding_toggle_task' %}" class="d-flex align-items-center">
-                            {% csrf_token %}
-                            <input type="hidden" name="task" value="overview_intro_seen" />
-                            <input type="hidden" name="action" value="reset" />
-                            <input type="hidden" name="next" value="{% url 'indy_hub:settings_hub' %}" />
-                            <button type="submit" class="btn btn-sm btn-outline-danger">
-                                {% trans "Reset intro" %}
-                            </button>
-                        </form>
                     </div>
                 </div>
-            </div>
+            </section>
         </div>
-    </section>
+        {% endif %}
+
+        <div class="col-12 {% if can_manage_material_hub %}col-lg-6{% else %}col-lg-12{% endif %}">
+            <section class="dashboard-section">
+                <header class="section-heading">
+                    <div>
+                        <h3>{% trans "Intro" %}</h3>
+                        <p class="text-muted small mb-0">{% trans "Show the Overview introduction again." %}</p>
+                    </div>
+                </header>
+                <div class="card focus-card">
+                    <div class="card-body p-3">
+                        <div class="share-metrics">
+                            <div class="share-metric">
+                                <div>
+                                    <span class="share-metric-label"><i class="fas fa-compass me-2"></i>{% trans "Overview intro" %}</span>
+                                    <p class="text-muted small mb-0">{% trans "Resets the first-open tour for your account." %}</p>
+                                </div>
+                                <form method="post" action="{% url 'indy_hub:onboarding_toggle_task' %}" class="d-flex align-items-center">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="task" value="overview_intro_seen" />
+                                    <input type="hidden" name="action" value="reset" />
+                                    <input type="hidden" name="next" value="{% url 'indy_hub:settings_hub' %}" />
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">
+                                        {% trans "Reset intro" %}
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    </div>
+
+    </div>
+
+    </div>
 </div>
 {% endblock content %}
 
@@ -290,10 +460,12 @@
 <script>
 window.csrfToken = '{{ csrf_token }}';
 window.updateJobNotificationsUrl = '{% url 'indy_hub:toggle_job_notifications' %}';
+window.updateCorporationJobNotificationsUrl = '{% url 'indy_hub:toggle_corporation_job_notifications' %}';
 window.toggleCopySharingUrl = '{% url 'indy_hub:toggle_copy_sharing' %}';
 window.toggleCorporationCopySharingUrl = '{% url 'indy_hub:toggle_corporation_copy_sharing' %}';
-window.copySharingStates = JSON.parse('{{ copy_sharing_states_json|escapejs }}');
-window.corporationShareControls = JSON.parse('{{ corporation_share_controls_json|escapejs }}');
+window.copySharingStates = JSON.parse('{{ copy_sharing_states_json|default:"{}"|escapejs }}');
+window.corporationShareControls = JSON.parse('{{ corporation_share_controls_json|default:"[]"|escapejs }}');
+window.corporationJobNotificationControls = JSON.parse('{{ corp_job_notification_controls_json|default:"[]"|escapejs }}');
 window.jobNotificationState = {
     frequency: '{{ job_notification_frequency }}',
     customDays: {{ job_notification_custom_days|default:3 }},

@@ -341,21 +341,47 @@
 
     function deriveStateFromDom() {
         const treeTab = document.getElementById('tab-tree');
-        if (!treeTab) {
-            return;
+        if (treeTab) {
+            treeTab.querySelectorAll('summary input.mat-switch').forEach((input) => {
+                const typeId = Number(input.getAttribute('data-type-id'));
+                if (!typeId) {
+                    return;
+                }
+                let state = 'prod';
+                if (input.disabled) {
+                    state = 'useless';
+                } else if (!input.checked) {
+                    state = 'buy';
+                }
+                setSwitchState(typeId, state);
+            });
         }
-        treeTab.querySelectorAll('summary input.mat-switch').forEach((input) => {
+
+        // Keep pricesMap in sync with the visible UI so optimizer and financials
+        // use the same price values.
+        // - fuzzwork-price: fetched market price
+        // - real-price: buy cost per unit (manual override allowed)
+        // - sale-price-unit: sell revenue per unit (manual override allowed)
+        const priceInputs = document.querySelectorAll(
+            'input.fuzzwork-price[data-type-id], input.real-price[data-type-id], input.sale-price-unit[data-type-id]'
+        );
+        priceInputs.forEach((input) => {
             const typeId = Number(input.getAttribute('data-type-id'));
             if (!typeId) {
                 return;
             }
-            let state = 'prod';
-            if (input.disabled) {
-                state = 'useless';
-            } else if (!input.checked) {
-                state = 'buy';
+
+            let priceType = null;
+            if (input.classList.contains('fuzzwork-price')) {
+                priceType = 'fuzzwork';
+            } else if (input.classList.contains('sale-price-unit')) {
+                priceType = 'sale';
+            } else {
+                priceType = 'real';
             }
-            setSwitchState(typeId, state);
+
+            const value = parseFloat(input.value);
+            setPrice(typeId, priceType, Number.isFinite(value) ? value : 0);
         });
     }
 
@@ -373,98 +399,90 @@
         };
     }
 
-    const buyAncestorCache = new Map();
+    // NOTE: The production tree is a DAG in practice (shared children / shared leaf materials).
+    // Any logic that treats parentage as a single chain (e.g. "has a BUY ancestor") will
+    // incorrectly exclude shared materials when only one branch is bought.
+    // We therefore aggregate demand by traversing the original payload.materials_tree (which
+    // keeps duplicated occurrences per parent) and applying switch rules per path.
 
-    function hasBuyingAncestor(typeId, visited = new Set()) {
+    function addToCounter(map, typeId, qty) {
         const numericId = Number(typeId);
-        if (!numericId || visited.has(numericId)) {
-            return false;
+        const amount = normalizeQuantity(qty);
+        if (!numericId || amount <= 0) {
+            return;
         }
-        if (buyAncestorCache.has(numericId)) {
-            return buyAncestorCache.get(numericId);
-        }
+        map.set(numericId, (map.get(numericId) || 0) + amount);
+    }
 
-        const treeEntry = treeMap.get(numericId);
-        if (!treeEntry || !treeEntry.parentIds || treeEntry.parentIds.size === 0) {
-            buyAncestorCache.set(numericId, false);
-            return false;
-        }
+    function getSwitchState(typeId) {
+        const entry = switchesMap.get(Number(typeId));
+        return entry ? entry.state : null;
+    }
 
-        visited.add(numericId);
-        let hasBuy = false;
-        treeEntry.parentIds.forEach((parentId) => {
-            if (hasBuy) {
+    function computeDemandFromPayloadTree() {
+        const leafNeeds = new Map();
+        const buyCraftables = new Map();
+        const prodCraftables = new Map();
+
+        const walk = (nodes, blockedByBuyAncestor = false) => {
+            if (!Array.isArray(nodes) || nodes.length === 0) {
                 return;
             }
-            const parentNumeric = Number(parentId);
-            const parentSwitch = switchesMap.get(parentNumeric);
-            if (parentSwitch && parentSwitch.state === 'buy') {
-                hasBuy = true;
-                return;
-            }
-            if (parentNumeric && hasBuyingAncestor(parentNumeric, visited)) {
-                hasBuy = true;
-            }
-        });
-        visited.delete(numericId);
+            nodes.forEach((node) => {
+                const typeId = Number(readValue(node, 'type_id', 'typeId'));
+                if (!typeId) {
+                    return;
+                }
+                if (blockedByBuyAncestor) {
+                    // A bought ancestor encapsulates this subtree; do not count children separately.
+                    return;
+                }
 
-        buyAncestorCache.set(numericId, hasBuy);
-        return hasBuy;
+                const qty = normalizeQuantity(readValue(node, 'quantity', 'qty'));
+                const children = readChildren(node);
+                const craftable = children.length > 0;
+
+                const state = craftable ? (getSwitchState(typeId) || 'prod') : (getSwitchState(typeId) || 'prod');
+                if (state === 'useless') {
+                    return;
+                }
+
+                if (craftable) {
+                    if (state === 'buy') {
+                        addToCounter(buyCraftables, typeId, qty);
+                        // Do not traverse children.
+                        return;
+                    }
+                    // Produced craftable: we need its inputs.
+                    addToCounter(prodCraftables, typeId, qty);
+                    walk(children, false);
+                    return;
+                }
+
+                // Leaf material: always a buy input (unless explicitly marked useless).
+                addToCounter(leafNeeds, typeId, qty);
+            });
+        };
+
+        walk(Array.isArray(payload.materials_tree) ? payload.materials_tree : [], false);
+        return { leafNeeds, buyCraftables, prodCraftables };
     }
 
     function getFinancialItems() {
-        buyAncestorCache.clear();
         const items = new Map();
+        debugLog('[SimulationAPI] Computing financial items from payload tree traversal.');
 
-        debugLog('[SimulationAPI] treeMap size:', treeMap.size, 'switches size:', switchesMap.size);
+        const demand = computeDemandFromPayloadTree();
 
-        treeMap.forEach((treeEntry, typeId) => {
-            const switchData = switchesMap.get(typeId);
-            const state = switchData ? switchData.state : 'prod';
-
-            if (state === 'useless') {
-                return;
-            }
-
-            if (hasBuyingAncestor(typeId)) {
-                debugLog('[SimulationAPI] Skipping', typeId, treeEntry?.typeName, 'because ancestor is BUY');
-                return;
-            }
-
-            const isLeaf = !treeEntry || treeEntry.children.size === 0 || !treeEntry.craftable;
-            const shouldInclude = isLeaf || state === 'buy';
-
-            if (!shouldInclude) {
-                return;
-            }
-
-            debugLog('[SimulationAPI] Including from treeMap:', typeId, treeEntry.typeName, 'isLeaf?', isLeaf, 'state', state);
-
-            const materialEntry = materialsMap.get(typeId) || {
-                typeId,
-                typeName: treeEntry.typeName,
-                quantity: treeEntry.quantity,
-                marketGroup: null,
-                groupId: null
-            };
-
+        const addItem = (typeId, qty) => {
+            const materialEntry = materialsMap.get(typeId) || treeMap.get(typeId) || { typeId, typeName: '', quantity: 0 };
             const dto = materialToDto(materialEntry);
-            dto.quantity = Math.max(dto.quantity || 0, treeEntry.quantity || 0);
-            items.set(typeId, dto);
-        });
+            dto.quantity = normalizeQuantity(qty);
+            items.set(Number(typeId), dto);
+        };
 
-        materialsMap.forEach((entry, typeId) => {
-            if (!items.has(typeId)) {
-                const treeEntry = treeMap.get(typeId);
-                const switchData = switchesMap.get(typeId);
-                const state = switchData ? switchData.state : 'prod';
-                const craftable = treeEntry ? treeEntry.craftable : false;
-                if (!hasBuyingAncestor(typeId) && state !== 'useless' && (!craftable || state === 'buy')) {
-                    debugLog('[SimulationAPI] Adding from materialsMap fallback:', typeId, entry.typeName, 'craftable?', craftable, 'state', state);
-                    items.set(typeId, materialToDto(entry));
-                }
-            }
-        });
+        demand.leafNeeds.forEach((qty, typeId) => addItem(typeId, qty));
+        demand.buyCraftables.forEach((qty, typeId) => addItem(typeId, qty));
 
         if (items.size === 0) {
             const fallbackMaterials = Array.isArray(payload.direct_materials)
@@ -528,35 +546,46 @@
     }
 
     function getNeededMaterials() {
-        // Currently mirrors financial items – can be refined later if needed
+        // Mirrors financial items: everything that must be bought (leaf inputs + craftables switched to BUY).
+        // Critically, this is path-aware for shared materials.
         return getFinancialItems();
     }
 
     function buildProductionCycles() {
         const results = [];
 
-        treeMap.forEach((treeEntry, typeId) => {
-            if (!treeEntry || !treeEntry.craftable) {
-                return;
-            }
-
-            const switchData = switchesMap.get(typeId);
+        const demand = computeDemandFromPayloadTree();
+        demand.prodCraftables.forEach((qtyNeeded, typeId) => {
+            const switchData = switchesMap.get(Number(typeId));
             const state = switchData ? switchData.state : 'prod';
             if (state === 'buy' || state === 'useless') {
                 return;
             }
 
-            const materialEntry = materialsMap.get(typeId);
-            const totalNeeded = normalizeQuantity(materialEntry ? materialEntry.quantity : treeEntry.quantity);
-            const producedPerCycle = normalizeQuantity(readValue(materialEntry, 'produced_per_cycle', 'producedPerCycle') || treeEntry.quantity || 0);
+            const treeEntry = treeMap.get(Number(typeId));
+            const materialEntry = materialsMap.get(Number(typeId));
+            const typeName = (materialEntry && materialEntry.typeName) || (treeEntry && treeEntry.typeName) || '';
+            const marketGroupInfo = readMarketGroup(typeId);
+            const marketGroup = marketGroupInfo && marketGroupInfo.groupName ? marketGroupInfo.groupName : null;
+
+            const totalNeeded = normalizeQuantity(qtyNeeded);
+
+            // produced_per_cycle is stable per blueprint output; pull from materialsMap first.
+            // Fallback to payload craft_cycles_summary if present.
+            let producedPerCycle = normalizeQuantity(readValue(materialEntry, 'produced_per_cycle', 'producedPerCycle') || 0);
+            if (!producedPerCycle) {
+                const entry = payload.craft_cycles_summary && (payload.craft_cycles_summary[String(typeId)] || payload.craft_cycles_summary[typeId]);
+                producedPerCycle = normalizeQuantity(entry ? (entry.produced_per_cycle || entry.producedPerCycle || 0) : 0);
+            }
 
             const cycles = producedPerCycle > 0 ? Math.ceil(totalNeeded / producedPerCycle) : 0;
             const totalProduced = producedPerCycle * cycles;
             const surplus = Math.max(totalProduced - totalNeeded, 0);
 
             results.push({
-                typeId,
-                typeName: treeEntry.typeName,
+                typeId: Number(typeId),
+                typeName,
+                marketGroup,
                 totalNeeded,
                 producedPerCycle,
                 cycles,
@@ -565,16 +594,51 @@
             });
         });
 
-        results.sort((a, b) => a.typeName.localeCompare(b.typeName));
+        const fallbackGroupName = 'Other';
+        results.sort((a, b) => {
+            const groupA = a.marketGroup || fallbackGroupName;
+            const groupB = b.marketGroup || fallbackGroupName;
+            const groupCmp = String(groupA).localeCompare(String(groupB), undefined, { sensitivity: 'base' });
+            if (groupCmp !== 0) {
+                return groupCmp;
+            }
+            return String(a.typeName).localeCompare(String(b.typeName), undefined, { sensitivity: 'base' });
+        });
         return results;
     }
 
-    function getPrice(typeId) {
+    function getPrice(typeId, preference) {
         const numericId = Number(typeId);
         if (!pricesMap.has(numericId)) {
             return { value: 0, source: 'default' };
         }
         const record = pricesMap.get(numericId);
+
+        // Optional preference:
+        // - 'buy': prioritize real > fuzzwork (never sale)
+        // - 'sale': prioritize sale > fuzzwork > real
+        if (preference === 'buy') {
+            if (record.real > 0) {
+                return { value: record.real, source: 'real' };
+            }
+            if (record.fuzzwork > 0) {
+                return { value: record.fuzzwork, source: 'fuzzwork' };
+            }
+            return { value: 0, source: 'default' };
+        }
+        if (preference === 'sale') {
+            if (record.sale > 0) {
+                return { value: record.sale, source: 'sale' };
+            }
+            if (record.fuzzwork > 0) {
+                return { value: record.fuzzwork, source: 'fuzzwork' };
+            }
+            if (record.real > 0) {
+                return { value: record.real, source: 'real' };
+            }
+            return { value: 0, source: 'default' };
+        }
+
         if (record.real > 0) {
             return { value: record.real, source: 'real' };
         }

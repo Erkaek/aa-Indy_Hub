@@ -14,11 +14,13 @@ from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.translation import gettext as _
 
-# Local
 from ..models import (
     MaterialExchangeBuyOrder,
     MaterialExchangeSellOrder,
 )
+
+# Local
+from .navigation import build_nav_context
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +50,8 @@ def my_orders(request):
     all_orders = []
 
     for order in sell_orders:
+        timeline = _build_timeline_breadcrumb(order, "sell")
+        is_closed = order.status in {"completed", "rejected", "cancelled"}
         all_orders.append(
             {
                 "type": "sell",
@@ -58,12 +62,16 @@ def my_orders(request):
                 "items_count": order.items_count,  # Use annotated value
                 "total_price": order.total_price,
                 "created_at": order.created_at,
+                "is_closed": is_closed,
                 "id": order.id,
-                "timeline_breadcrumb": _build_timeline_breadcrumb(order, "sell"),
+                "timeline_breadcrumb": timeline,
+                "progress_width": _calc_progress_width(timeline),
             }
         )
 
     for order in buy_orders:
+        timeline = _build_timeline_breadcrumb(order, "buy")
+        is_closed = order.status in {"completed", "rejected", "cancelled"}
         all_orders.append(
             {
                 "type": "buy",
@@ -74,13 +82,16 @@ def my_orders(request):
                 "items_count": order.items_count,  # Use annotated value
                 "total_price": order.total_price,
                 "created_at": order.created_at,
+                "is_closed": is_closed,
                 "id": order.id,
-                "timeline_breadcrumb": _build_timeline_breadcrumb(order, "buy"),
+                "timeline_breadcrumb": timeline,
+                "progress_width": _calc_progress_width(timeline),
             }
         )
 
-    # Sort by created_at descending
+    # Sort: in-progress orders first, then closed orders; each group newest-first.
     all_orders.sort(key=lambda x: x["created_at"], reverse=True)
+    all_orders.sort(key=lambda x: x["is_closed"])
 
     # Paginate
     paginator = Paginator(all_orders, 20)
@@ -102,6 +113,8 @@ def my_orders(request):
         "total_sell": orders_stats["sell_count"],
         "total_buy": buy_stats["buy_count"],
     }
+
+    context.update(build_nav_context(request.user, active_tab="material_hub"))
 
     return render(request, "indy_hub/material_exchange/my_orders.html", context)
 
@@ -138,6 +151,8 @@ def sell_order_detail(request, order_id):
         "can_cancel": order.status not in ["completed", "rejected", "cancelled"],
     }
 
+    context.update(build_nav_context(request.user, active_tab="material_hub"))
+
     return render(request, "indy_hub/material_exchange/sell_order_detail.html", context)
 
 
@@ -173,6 +188,8 @@ def buy_order_detail(request, order_id):
         "can_cancel": order.status not in ["completed", "rejected", "cancelled"],
     }
 
+    context.update(build_nav_context(request.user, active_tab="material_hub"))
+
     return render(request, "indy_hub/material_exchange/buy_order_detail.html", context)
 
 
@@ -182,7 +199,6 @@ def _get_status_class(status):
         "draft": "secondary",
         "awaiting_validation": "warning",
         "validated": "info",
-        "accepted": "primary",
         "completed": "success",
         "rejected": "danger",
         "cancelled": "secondary",
@@ -199,11 +215,22 @@ def _build_timeline_breadcrumb(order, order_type):
     breadcrumb = []
 
     if order_type == "sell":
-        # Sell order breadcrumb: Draft -> Validation -> Validated -> Completed
+        # Sell steps: Order Created -> Awaiting Contract -> Auth Validated -> Corp Accepted
         breadcrumb.append(
             {
-                "status": _("Draft"),
-                "completed": True,
+                "status": _("Order Created"),
+                "completed": order.status
+                in ["draft", "awaiting_validation", "validated", "completed"],
+                "icon": "fa-pen",
+                "color": "secondary",
+            }
+        )
+
+        breadcrumb.append(
+            {
+                "status": _("Awaiting Contract"),
+                "completed": order.status
+                in ["awaiting_validation", "validated", "completed"],
                 "icon": "fa-file",
                 "color": "secondary",
             }
@@ -211,16 +238,7 @@ def _build_timeline_breadcrumb(order, order_type):
 
         breadcrumb.append(
             {
-                "status": _("Validation"),
-                "completed": order.status in ["validated", "completed"],
-                "icon": "fa-hourglass-half",
-                "color": "warning",
-            }
-        )
-
-        breadcrumb.append(
-            {
-                "status": _("Validated"),
+                "status": _("Auth Validation"),
                 "completed": order.status in ["validated", "completed"],
                 "icon": "fa-check-circle",
                 "color": "info",
@@ -229,7 +247,7 @@ def _build_timeline_breadcrumb(order, order_type):
 
         breadcrumb.append(
             {
-                "status": _("Completed"),
+                "status": _("Corporation Acceptance"),
                 "completed": order.status == "completed",
                 "icon": "fa-flag-checkered",
                 "color": "success",
@@ -237,11 +255,22 @@ def _build_timeline_breadcrumb(order, order_type):
         )
 
     else:  # buy order
-        # Buy order breadcrumb: Draft -> Validation -> Validated -> Completed
+        # Buy steps: Order Created -> Awaiting Corp Contract -> Auth Validated -> You Accept
         breadcrumb.append(
             {
-                "status": _("Draft"),
-                "completed": True,
+                "status": _("Order Created"),
+                "completed": order.status
+                in ["draft", "awaiting_validation", "validated", "completed"],
+                "icon": "fa-pen",
+                "color": "secondary",
+            }
+        )
+
+        breadcrumb.append(
+            {
+                "status": _("Awaiting Corp Contract"),
+                "completed": order.status
+                in ["awaiting_validation", "validated", "completed"],
                 "icon": "fa-file",
                 "color": "secondary",
             }
@@ -249,16 +278,7 @@ def _build_timeline_breadcrumb(order, order_type):
 
         breadcrumb.append(
             {
-                "status": _("Validation"),
-                "completed": order.status in ["validated", "completed"],
-                "icon": "fa-hourglass-half",
-                "color": "warning",
-            }
-        )
-
-        breadcrumb.append(
-            {
-                "status": _("Validated"),
+                "status": _("Auth Validation"),
                 "completed": order.status in ["validated", "completed"],
                 "icon": "fa-check-circle",
                 "color": "info",
@@ -267,14 +287,30 @@ def _build_timeline_breadcrumb(order, order_type):
 
         breadcrumb.append(
             {
-                "status": _("Completed"),
+                "status": _("You Accept"),
                 "completed": order.status == "completed",
-                "icon": "fa-flag-checkered",
+                "icon": "fa-hand-pointer",
                 "color": "success",
             }
         )
 
     return breadcrumb
+
+
+def _calc_progress_width(breadcrumb):
+    """Return percentage width for completed steps (0-100)."""
+    if not breadcrumb:
+        return 0
+
+    total = len(breadcrumb)
+    done = sum(1 for step in breadcrumb if step.get("completed"))
+
+    if total <= 1:
+        return 100 if done else 0
+
+    # Map completed steps to a segment-based percent so first step starts at 0
+    ratio = max(0, min(done - 1, total - 1)) / (total - 1)
+    return int(ratio * 100)
 
 
 def _build_status_timeline(order, order_type):
@@ -285,7 +321,6 @@ def _build_status_timeline(order, order_type):
     timeline = []
 
     if order_type == "sell":
-        # Sell order timeline
         timeline.append(
             {
                 "status": _("Created"),
@@ -297,27 +332,14 @@ def _build_status_timeline(order, order_type):
             }
         )
 
-        if order.approved_at:
+        if order.status == "draft":
             timeline.append(
                 {
-                    "status": _("Approved"),
-                    "timestamp": order.approved_at,
-                    "user": (
-                        order.approved_by.username if order.approved_by else "System"
-                    ),
-                    "completed": True,
-                    "icon": "fa-check-circle",
-                    "color": "info",
-                }
-            )
-        else:
-            timeline.append(
-                {
-                    "status": _("Awaiting Approval"),
+                    "status": _("Awaiting Your Contract"),
                     "timestamp": None,
                     "user": None,
                     "completed": False,
-                    "icon": "fa-hourglass-half",
+                    "icon": "fa-file-contract",
                     "color": "warning",
                 }
             )
@@ -325,18 +347,18 @@ def _build_status_timeline(order, order_type):
         if order.contract_validated_at:
             timeline.append(
                 {
-                    "status": _("Contract Validated"),
+                    "status": _("Contract Validated by Auth"),
                     "timestamp": order.contract_validated_at,
                     "user": "System",
                     "completed": True,
-                    "icon": "fa-file-contract",
+                    "icon": "fa-check-circle",
                     "color": "info",
                 }
             )
         elif order.status in ["awaiting_validation", "validated", "completed"]:
             timeline.append(
                 {
-                    "status": _("Awaiting Contract Validation"),
+                    "status": _("Awaiting Auth Validation"),
                     "timestamp": None,
                     "user": None,
                     "completed": False,
@@ -345,34 +367,19 @@ def _build_status_timeline(order, order_type):
                 }
             )
 
-        if order.payment_verified_at:
+        if order.status == "validated":
             timeline.append(
                 {
-                    "status": _("Payment Verified"),
-                    "timestamp": order.payment_verified_at,
-                    "user": (
-                        order.payment_verified_by.username
-                        if order.payment_verified_by
-                        else "System"
-                    ),
-                    "completed": True,
-                    "icon": "fa-dollar-sign",
-                    "color": "primary",
-                }
-            )
-        elif order.status == "completed":
-            timeline.append(
-                {
-                    "status": _("Awaiting Payment Verification"),
+                    "status": _("Awaiting Corporation Acceptance"),
                     "timestamp": None,
                     "user": None,
                     "completed": False,
-                    "icon": "fa-hourglass-half",
+                    "icon": "fa-building",
                     "color": "warning",
                 }
             )
 
-        if order.status == "completed":
+        if order.payment_verified_at or order.status == "completed":
             timeline.append(
                 {
                     "status": _("Completed"),
@@ -410,26 +417,23 @@ def _build_status_timeline(order, order_type):
             }
         )
 
-        # For buy orders, the corp needs to create the contract first
-        # Status: draft = waiting for corp contract
         if order.status == "draft":
             timeline.append(
                 {
-                    "status": _("Awaiting Contract Creation"),
+                    "status": _("Awaiting Corporation Contract"),
                     "timestamp": None,
                     "user": None,
                     "completed": False,
-                    "icon": "fa-hourglass-half",
+                    "icon": "fa-building",
                     "color": "warning",
                 }
             )
 
-        # Status: awaiting_validation = contract created, waiting for auth validation
         if order.status in ["awaiting_validation", "validated", "completed"]:
             timeline.append(
                 {
-                    "status": _("Contract Created by Corporation"),
-                    "timestamp": None,  # We don't track when contract was created
+                    "status": _("Contract Created"),
+                    "timestamp": None,
                     "user": None,
                     "completed": True,
                     "icon": "fa-file-contract",
@@ -440,7 +444,7 @@ def _build_status_timeline(order, order_type):
         if order.contract_validated_at:
             timeline.append(
                 {
-                    "status": _("Contract Validated"),
+                    "status": _("Contract Validated by Auth"),
                     "timestamp": order.contract_validated_at,
                     "user": "System",
                     "completed": True,
@@ -448,10 +452,10 @@ def _build_status_timeline(order, order_type):
                     "color": "info",
                 }
             )
-        elif order.status in ["awaiting_validation"]:
+        elif order.status == "awaiting_validation":
             timeline.append(
                 {
-                    "status": _("Awaiting Contract Validation"),
+                    "status": _("Awaiting Auth Validation"),
                     "timestamp": None,
                     "user": None,
                     "completed": False,
@@ -460,7 +464,6 @@ def _build_status_timeline(order, order_type):
                 }
             )
 
-        # Status: validated = waiting for user to accept
         if order.status == "validated":
             timeline.append(
                 {

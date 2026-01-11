@@ -1386,9 +1386,15 @@ html[data-theme="darkly"] .preference-item {
 
 .notify-mode-grid {
     display: grid;
-    gap: 0.75rem;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.6rem;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     grid-auto-rows: 1fr;
+}
+
+@media (max-width: 1200px) {
+    .notify-mode-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
 }
 
 @media (max-width: 992px) {
@@ -1411,6 +1417,39 @@ html[data-theme="darkly"] .preference-item {
     transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease, transform 0.2s ease;
     color: inherit;
     height: 100%;
+}
+
+@media (min-width: 992px) {
+    .notify-mode-tile {
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        text-align: center;
+        gap: 0.35rem;
+        padding: 0.55rem 0.4rem;
+        border-radius: 14px;
+    }
+
+    .notify-tile-icon {
+        width: 30px;
+        height: 30px;
+        border-radius: 10px;
+        font-size: 0.85rem;
+    }
+
+    .notify-tile-main {
+        align-items: center;
+    }
+
+    .notify-tile-title {
+        font-size: 0.78rem;
+        line-height: 1.05;
+    }
+
+    .notify-tile-tag {
+        font-size: 0.55rem;
+        padding: 0.15rem 0.4rem;
+    }
 }
 
 .notify-mode-tile:focus-visible {
@@ -1577,7 +1616,15 @@ html[data-theme="darkly"] .notify-tile-tag {
     justify-content: flex-end;
 }
 
-.share-preference .share-mode-group {
+.share-preference .share-mode-group,
+.personal-share-group {
+    width: 100%;
+    justify-content: space-between;
+    flex-wrap: nowrap;
+    gap: 0.75rem;
+}
+
+.corp-share-control .share-mode-group {
     width: 100%;
     justify-content: space-between;
     flex-wrap: nowrap;
@@ -1599,7 +1646,15 @@ html[data-theme="darkly"] .notify-tile-tag {
     min-height: 2.2rem;
 }
 
-.share-preference .share-mode-chip {
+.share-preference .share-mode-chip,
+.personal-share-group .share-mode-chip {
+    flex: 1 1 0;
+    justify-content: center;
+    text-align: center;
+    min-width: 0;
+}
+
+.corp-share-control .share-mode-chip {
     flex: 1 1 0;
     justify-content: center;
     text-align: center;
@@ -1634,19 +1689,53 @@ html[data-theme="darkly"] .share-mode-chip.is-active {
 }
 
 .share-mode-badge {
-    font-size: 0.7rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+    font-size: 0.75em;
+    letter-spacing: normal;
+    text-transform: none;
     font-weight: 700;
 }
 
+.corp-share-control {
+    transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.corp-share-control:hover {
+    border-color: rgba(var(--bs-primary-rgb), 0.25) !important;
+    background: rgba(var(--bs-primary-rgb), 0.03) !important;
+}
+
+@media (max-width: 1200px) {
+    .settings-grid .personal-share-group,
+    .settings-grid .corp-share-control .share-mode-group {
+        flex-wrap: wrap;
+    }
+
+    .settings-grid .personal-share-group .share-mode-chip,
+    .settings-grid .corp-share-control .share-mode-group .share-mode-chip {
+        flex: 1 1 calc(50% - 0.5rem);
+        padding: 0.3rem 0.75rem;
+        min-height: 2rem;
+    }
+}
+
 @media (max-width: 576px) {
-    .share-preference .share-mode-group {
+    .share-preference .share-mode-group,
+    .personal-share-group {
         flex-wrap: wrap;
         gap: 0.5rem;
     }
 
-    .share-preference .share-mode-chip {
+    .corp-share-control .share-mode-group {
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .share-preference .share-mode-chip,
+    .personal-share-group .share-mode-chip {
+        flex: 1 1 100%;
+    }
+
+    .corp-share-control .share-mode-chip {
         flex: 1 1 100%;
     }
 }

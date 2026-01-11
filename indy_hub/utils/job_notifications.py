@@ -5,10 +5,11 @@ from __future__ import annotations
 # Standard Library
 import logging
 from dataclasses import dataclass
-from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from datetime import datetime, timedelta
+from typing import Any
 
 # Django
+from django.contrib.auth.models import User
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -16,7 +17,9 @@ from django.utils.translation import gettext_lazy as _
 
 # Indy Hub
 from ..models import (
+    Blueprint,
     CharacterSettings,
+    CorporationSharingSetting,
     IndustryJob,
     JobNotificationDigestEntry,
 )
@@ -24,10 +27,6 @@ from ..notifications import build_site_url, notify_user
 from .eve import get_character_name
 
 logger = logging.getLogger(__name__)
-
-if TYPE_CHECKING:
-    # AA Example App
-    from indy_hub.models import Blueprint
 
 
 @dataclass(frozen=True)
@@ -342,6 +341,7 @@ def _enqueue_job_notification_digest(
     job: IndustryJob,
     payload: JobNotificationPayload,
     settings: CharacterSettings,
+    scope: str = JobNotificationDigestEntry.SCOPE_PERSONAL,
 ) -> None:
     job_id = getattr(job, "job_id", None)
     if job_id is None:
@@ -349,9 +349,21 @@ def _enqueue_job_notification_digest(
         return
 
     snapshot = serialize_job_notification_for_digest(job, payload)
+    lookup = {
+        "user": user,
+        "job_id": job_id,
+        "scope": scope,
+    }
+    if scope == JobNotificationDigestEntry.SCOPE_CORPORATION:
+        corp_id = getattr(job, "corporation_id", None)
+        try:
+            corp_id = int(corp_id)
+        except (TypeError, ValueError):
+            corp_id = 0
+        lookup["corporation_id"] = corp_id
+
     entry, created = JobNotificationDigestEntry.objects.update_or_create(
-        user=user,
-        job_id=job_id,
+        **lookup,
         defaults={
             "payload": snapshot,
             "sent_at": None,
@@ -372,13 +384,214 @@ def _enqueue_job_notification_digest(
         )
 
     now = timezone.now()
+    if scope == JobNotificationDigestEntry.SCOPE_CORPORATION:
+        if (
+            not settings.corp_jobs_next_digest_at
+            or settings.corp_jobs_next_digest_at <= now
+            or settings.corp_jobs_notify_frequency == CharacterSettings.NOTIFY_CUSTOM
+        ):
+            settings.schedule_next_corp_digest(reference=now)
+            settings.save(update_fields=["corp_jobs_next_digest_at", "updated_at"])
+    else:
+        if (
+            not settings.jobs_next_digest_at
+            or settings.jobs_next_digest_at <= now
+            or settings.jobs_notify_frequency == CharacterSettings.NOTIFY_CUSTOM
+        ):
+            settings.schedule_next_digest(reference=now)
+            settings.save(update_fields=["jobs_next_digest_at", "updated_at"])
+
+
+def _resolve_user_corporation_id(user: User | None) -> int | None:
+    if not user:
+        return None
+
+    try:
+        # Alliance Auth
+        from allianceauth.authentication.models import CharacterOwnership, UserProfile
+    except Exception:  # pragma: no cover
+        return None
+
+    profile = getattr(user, "profile", None)
+    main_character = getattr(profile, "main_character", None) if profile else None
+    if not main_character:
+        try:
+            profile = UserProfile.objects.select_related("main_character").get(
+                user=user
+            )
+        except Exception:
+            profile = None
+        else:
+            main_character = getattr(profile, "main_character", None)
+
+    if main_character and getattr(main_character, "corporation_id", None):
+        try:
+            return int(main_character.corporation_id)
+        except (TypeError, ValueError):
+            return None
+
+    ownership_qs = CharacterOwnership.objects.filter(user=user).select_related(
+        "character"
+    )
+    try:
+        CharacterOwnership._meta.get_field("is_main")
+    except Exception:
+        ownership = ownership_qs.first()
+    else:
+        ownership = ownership_qs.order_by("-is_main").first()
+
+    character = getattr(ownership, "character", None) if ownership else None
+    if character and getattr(character, "corporation_id", None):
+        try:
+            return int(character.corporation_id)
+        except (TypeError, ValueError):
+            return None
+
+    return None
+
+
+def _user_is_member_of_corporation(user: User | None, corporation_id: int) -> bool:
+    if not user:
+        return False
+
+    try:
+        corp_id = int(corporation_id)
+    except (TypeError, ValueError):
+        return False
+
+    profile = getattr(user, "profile", None)
+    main_character = getattr(profile, "main_character", None) if profile else None
+    if main_character and getattr(main_character, "corporation_id", None) is not None:
+        try:
+            if int(main_character.corporation_id) == corp_id:
+                return True
+        except (TypeError, ValueError):
+            pass
+
+    try:
+        # Alliance Auth
+        from allianceauth.authentication.models import CharacterOwnership
+    except Exception:  # pragma: no cover
+        return False
+
+    return CharacterOwnership.objects.filter(
+        user=user,
+        character__corporation_id=corp_id,
+    ).exists()
+
+
+def _compute_next_digest_at(
+    *,
+    frequency: str,
+    custom_days: int | None,
+    reference: datetime | None = None,
+) -> datetime | None:
+    if reference is None:
+        reference = timezone.now()
+
+    if frequency in {
+        CharacterSettings.NOTIFY_DISABLED,
+        CharacterSettings.NOTIFY_IMMEDIATE,
+    }:
+        return None
+
+    if frequency == CharacterSettings.NOTIFY_DAILY:
+        return reference + timedelta(days=1)
+    if frequency == CharacterSettings.NOTIFY_WEEKLY:
+        return reference + timedelta(days=7)
+    if frequency == CharacterSettings.NOTIFY_MONTHLY:
+        return reference + timedelta(days=30)
+
+    try:
+        days = int(custom_days or 1)
+    except (TypeError, ValueError):
+        days = 1
+    days = max(1, days)
+    return reference + timedelta(days=days)
+
+
+def compute_next_digest_at(
+    *,
+    frequency: str,
+    custom_days: int | None = None,
+    reference: datetime | None = None,
+) -> datetime | None:
+    """Compute the next digest timestamp for the given cadence."""
+
+    return _compute_next_digest_at(
+        frequency=frequency,
+        custom_days=custom_days,
+        reference=reference,
+    )
+
+
+def _enqueue_corp_job_notification_digest(
+    *,
+    user,
+    job: IndustryJob,
+    payload: JobNotificationPayload,
+    setting: CorporationSharingSetting,
+) -> None:
+    job_id = getattr(job, "job_id", None)
+    corporation_id = getattr(job, "corporation_id", None)
+    if job_id is None or not corporation_id:
+        return
+
+    try:
+        corporation_id = int(corporation_id)
+    except (TypeError, ValueError):
+        return
+
+    snapshot = serialize_job_notification_for_digest(job, payload)
+    JobNotificationDigestEntry.objects.update_or_create(
+        user=user,
+        job_id=job_id,
+        scope=JobNotificationDigestEntry.SCOPE_CORPORATION,
+        corporation_id=corporation_id,
+        defaults={
+            "payload": snapshot,
+            "sent_at": None,
+        },
+    )
+
+    now = timezone.now()
     if (
-        not settings.jobs_next_digest_at
-        or settings.jobs_next_digest_at <= now
-        or settings.jobs_notify_frequency == CharacterSettings.NOTIFY_CUSTOM
+        not setting.corp_jobs_next_digest_at
+        or setting.corp_jobs_next_digest_at <= now
+        or setting.corp_jobs_notify_frequency == CharacterSettings.NOTIFY_CUSTOM
     ):
-        settings.schedule_next_digest(reference=now)
-        settings.save(update_fields=["jobs_next_digest_at", "updated_at"])
+        setting.corp_jobs_next_digest_at = _compute_next_digest_at(
+            frequency=setting.corp_jobs_notify_frequency,
+            custom_days=setting.corp_jobs_notify_custom_days,
+            reference=now,
+        )
+        setting.save(update_fields=["corp_jobs_next_digest_at", "updated_at"])
+
+
+def _eligible_corporation_notification_settings(corporation_id: int):
+    """Yield CorporationSharingSetting entries eligible to receive corp job notifications."""
+
+    try:
+        corp_id = int(corporation_id)
+    except (TypeError, ValueError):
+        return
+
+    enabled_settings = (
+        CorporationSharingSetting.objects.select_related("user")
+        .filter(corporation_id=corp_id)
+        .exclude(corp_jobs_notify_frequency=CharacterSettings.NOTIFY_DISABLED)
+        .order_by("user__id")
+    )
+
+    for setting in enabled_settings.iterator():
+        user = setting.user
+        if not getattr(user, "is_active", True):
+            continue
+        if not user.has_perm("indy_hub.can_manage_corp_bp_requests"):
+            continue
+        if not _user_is_member_of_corporation(user, corp_id):
+            continue
+        yield setting
 
 
 def _mark_job_notified(job: IndustryJob) -> None:
@@ -413,6 +626,62 @@ def process_job_completion_notification(job: IndustryJob) -> bool:
 
     if not end_date or end_date > timezone.now():
         return False
+
+    is_corp_job = getattr(job, "owner_kind", None) == Blueprint.OwnerKind.CORPORATION
+
+    if is_corp_job:
+        corporation_id = getattr(job, "corporation_id", None)
+        if not corporation_id:
+            _mark_job_notified(job)
+            return True
+
+        eligible_settings = list(
+            _eligible_corporation_notification_settings(int(corporation_id))
+        )
+        if not eligible_settings:
+            _mark_job_notified(job)
+            return True
+
+        payload = build_job_notification_payload(job)
+        jobs_url = build_site_url(reverse("indy_hub:corporation_job_list"))
+
+        for corp_setting in eligible_settings:
+            user = corp_setting.user
+            frequency = (
+                corp_setting.corp_jobs_notify_frequency
+                or CharacterSettings.NOTIFY_DISABLED
+            )
+            if frequency == CharacterSettings.NOTIFY_DISABLED:
+                continue
+
+            if frequency == CharacterSettings.NOTIFY_IMMEDIATE:
+                try:
+                    notify_user(
+                        user,
+                        payload.title,
+                        payload.message,
+                        level="success",
+                        link=jobs_url,
+                        link_label=_("View corporation jobs"),
+                        thumbnail_url=payload.thumbnail_url,
+                    )
+                except Exception:  # pragma: no cover - defensive fallback
+                    logger.error(
+                        "Failed to notify user %s about corp job %s",
+                        getattr(user, "username", user),
+                        job.job_id,
+                        exc_info=True,
+                    )
+            else:
+                _enqueue_corp_job_notification_digest(
+                    user=user,
+                    job=job,
+                    payload=payload,
+                    setting=corp_setting,
+                )
+
+        _mark_job_notified(job)
+        return True
 
     user = getattr(job, "owner_user", None)
     if not user:

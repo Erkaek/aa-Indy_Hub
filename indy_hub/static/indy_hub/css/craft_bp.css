@@ -31,9 +31,45 @@ html[data-theme="darkly"] {
     --craft-glass-shadow: 0 22px 52px -18px rgb(0 0 0 / 65%);
 }
 
+/* Hide html scrollbar on craft page, keep only .nav-padding scrollbar */
+html:has(#craftMainTabs) {
+    overflow: hidden !important;
+}
+
 .craft-bp-surface {
-    background: var(--bs-body-bg);
-    min-height: 100vh;
+    background: transparent;
+}
+
+/* Ensure craft main tabs only scroll horizontally if needed */
+#craftMainTabs.craft-nav-tabs {
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+}
+
+#craftMainTabs {
+    overflow-y: hidden !important;
+}
+
+/* Ensure craft page doesn't create additional scroll contexts */
+.craft-bp-surface,
+.craft-bp-surface * {
+    overflow-y: visible !important;
+    overflow-x: visible !important;
+    max-height: none !important;
+    height: auto !important;
+}
+
+/* Hide inactive tab panes completely to avoid taking up space */
+.tab-pane.fade:not(.show) {
+    display: none !important;
+}
+
+/* Stronger scoping for redesigned craft tabs: only show the active pane */
+.craft-tab-content > .tab-pane:not(.active) {
+    display: none !important;
+}
+.craft-tab-content > .tab-pane.active {
+    display: block;
 }
 
 .craft-hero {
@@ -98,6 +134,22 @@ html[data-theme="darkly"] .craft-hero .header-bg {
     font-size: 1.5rem;
     width: 100%;
     height: 100%;
+}
+
+/* Shared EVE type icon sizing (avoid inline styles in templates) */
+.eve-type-icon {
+    object-fit: cover;
+    background: var(--bs-tertiary-bg, var(--bs-secondary-bg));
+}
+
+.eve-type-icon--30 {
+    width: 30px;
+    height: 30px;
+}
+
+.eve-type-icon--28 {
+    width: 28px;
+    height: 28px;
 }
 
 .hero-eyebrow {
@@ -369,6 +421,29 @@ details[open] summary .summary-icon i {
     -webkit-overflow-scrolling: touch;
 }
 
+/* Keep the tab rail available while scrolling through large tables. */
+.craft-tabs-sticky {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    padding-top: 0.25rem;
+    background: linear-gradient(
+        to bottom,
+        rgba(var(--bs-body-bg-rgb), 0.98),
+        rgba(var(--bs-body-bg-rgb), 0.92)
+    );
+    backdrop-filter: blur(6px);
+}
+
+.craft-tabs-sticky::after {
+    content: "";
+    display: block;
+    height: 1px;
+    background: var(--bs-border-color);
+    opacity: 0.6;
+    margin-top: 0.35rem;
+}
+
 .blueprint-tab {
     background: var(--bs-body-bg);
     border-radius: 1.25rem;
@@ -507,6 +582,50 @@ html[data-theme="darkly"] .card-intro {
     letter-spacing: 0.1em;
 }
 
+/* Compact per-tab header (replaces the intro cards for denser data views). */
+.craft-pane-head {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    padding: 0.85rem 1rem;
+    margin-bottom: 0.85rem;
+    border-radius: 1rem;
+    border: 1px solid var(--bs-border-color);
+    background: rgba(var(--bs-body-bg-rgb), 0.7);
+}
+
+.craft-pane-icon {
+    width: 42px;
+    height: 42px;
+    border-radius: 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.15rem;
+    flex: 0 0 auto;
+}
+
+.craft-pane-title {
+    margin: 0;
+    font-weight: 700;
+    font-size: 0.95rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--bs-secondary-color);
+}
+
+.craft-pane-subtitle {
+    margin: 0.15rem 0 0;
+    color: var(--bs-secondary-color);
+    font-size: 0.9rem;
+}
+
+@media (max-width: 575.98px) {
+    .craft-pane-head {
+        align-items: flex-start;
+    }
+}
+
 /* Harmonisation des backgrounds pour chaque onglet CraftBP */
 
 #tab-materials .card,
@@ -587,7 +706,7 @@ html[data-theme="darkly"] input.sale-price-unit.is-manual {
 }
 
 #tab-financial tr.has-manual td:first-child::before {
-    content: "Manual";
+    content: attr(data-manual-label);
     position: absolute;
     top: -0.6rem;
     left: 0;
@@ -599,6 +718,10 @@ html[data-theme="darkly"] input.sale-price-unit.is-manual {
     padding: 0.15rem 0.45rem;
     border-radius: 999px;
     box-shadow: 0 6px 14px rgba(180, 83, 9, 0.22);
+}
+
+#tab-financial tr.has-manual td:first-child:not([data-manual-label])::before {
+    content: "Manual";
 }
 
 #tab-financial .table th,
@@ -812,4 +935,1507 @@ html[data-theme="darkly"] .bg-white {
 
 html[data-theme="darkly"] [class*="subtle"] {
     background-color: #303030 !important;
+}
+
+/* ==========================================================================
+ * Merged from craft_bp_redesigned.css (2026-01-10)
+ * ========================================================================== */
+
+/* Craft BP Redesigned - 3 Column Layout
+ *
+ * FEATURES FOR COMPLEX BLUEPRINTS:
+ * - Max-height + scroll on all major sections to prevent overwhelming data
+ * - Collapsible material groups (click header to expand/collapse)
+ * - Expand/Collapse all buttons for materials
+ * - Responsive 3-column → 1-column layout
+ * - Custom scrollbars for better UX
+ *
+ * SCROLL LIMITS:
+ * - Materials list: 500px
+ * - Material group items: 300px
+ * - Production Tree: 600px
+ * - Blueprint Config: 750px
+ * - Financial table: 500px
+ * - Shopping list: 400px
+ */
+
+/* HIDE LEGACY TAB SYSTEM - Force hidden for backward compatibility */
+#bpTabs,
+#bpTabs.nav,
+#bpTabs.nav-pills,
+#bpTabs.blueprint-tabs,
+div[id="bpTabs"] {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    width: 0 !important;
+    overflow: hidden !important;
+}
+
+#bpTabsContent,
+.tab-content[id="bpTabsContent"] {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    width: 0 !important;
+    overflow: hidden !important;
+}
+
+/* Hide any remaining tab elements */
+.nav.nav-pills#bpTabs,
+.blueprint-tabs#bpTabs {
+    display: none !important;
+}
+
+.blueprint-tab {
+    /* Allow styling for hidden elements only */
+}
+
+.craft-layout-3col {
+    display: grid !important;
+    grid-template-columns: 1fr 380px 1fr !important;
+    gap: 1.5rem !important;
+    align-items: start !important;
+    width: 100% !important;
+}
+
+/* Responsive Breakpoints */
+@media (max-width: 1400px) {
+    .craft-layout-3col {
+        grid-template-columns: 1fr 350px 1fr !important;
+        gap: 1rem !important;
+    }
+}
+
+@media (max-width: 1200px) {
+    .craft-layout-3col {
+        grid-template-columns: 1fr !important;
+        gap: 1rem !important;
+    }
+
+    .craft-col {
+        order: 0 !important;
+    }
+
+    .craft-col-config {
+        order: 2 !important;
+    }
+
+    .craft-col-analysis {
+        order: 3 !important;
+    }
+}
+
+@media (max-width: 768px) {
+    .craft-layout-3col {
+        gap: 1rem !important;
+    }
+
+    .craft-header-compact {
+        flex-direction: column !important;
+        gap: 1rem !important;
+    }
+
+    .craft-header-left {
+        flex-direction: column !important;
+        width: 100% !important;
+    }
+
+    .craft-header-runs {
+        width: 100% !important;
+    }
+}
+
+/* Column Styling */
+.craft-col {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 1.5rem !important;
+    min-width: 0 !important;
+}
+
+.craft-col-planning {
+    /* Left column - Materials, Tree, Cycles */
+}
+
+.craft-col-config {
+    /* Center column - Config */
+    min-width: 0 !important;
+}
+
+.craft-col-analysis {
+    /* Right column - Financial, Shopping */
+}
+
+/* Section Styling */
+.craft-section {
+    background: var(--bs-body-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.5rem;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.craft-section-title {
+    font-size: 0.875rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--bs-body-color);
+    margin: 0;
+    padding: 0 0.5rem;
+}
+
+.craft-section-header-with-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.craft-section-header-with-actions .craft-section-title {
+    flex: 1;
+    margin: 0;
+}
+
+.craft-section-controls {
+    display: flex;
+    gap: 0.25rem;
+}
+
+/* KPI Row */
+.craft-kpi-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 0.5rem;
+}
+
+.craft-kpi {
+    background: var(--bs-secondary-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.375rem;
+    padding: 0.75rem;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.craft-kpi-sm {
+    padding: 0.5rem;
+}
+
+.craft-kpi-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.25px;
+    color: var(--bs-secondary);
+}
+
+.craft-kpi-value {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--bs-body-color);
+    word-break: break-word;
+}
+
+/* Materials List */
+.craft-materials-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    overflow-x: hidden;
+}
+
+.craft-materials-list::-webkit-scrollbar {
+    width: 6px;
+}
+
+.craft-materials-list::-webkit-scrollbar-track {
+    background: var(--bs-tertiary-bg);
+    border-radius: 3px;
+}
+
+.craft-materials-list::-webkit-scrollbar-thumb {
+    background: var(--bs-border-color);
+    border-radius: 3px;
+}
+
+.craft-materials-list::-webkit-scrollbar-thumb:hover {
+    background: var(--bs-secondary-color);
+}
+
+.craft-group-card {
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.375rem;
+    overflow: hidden;
+    transition: all 0.2s ease;
+}
+
+.craft-group-toggle {
+    transition: transform 0.2s ease;
+    font-size: 0.75rem;
+}
+
+.craft-group-card.collapsed .craft-group-toggle {
+    transform: rotate(-90deg);
+}
+
+.craft-group-card.collapsed .craft-group-items {
+    display: none;
+}
+
+.craft-group-header {
+    background: var(--bs-secondary-bg);
+    padding: 0.625rem 0.75rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    user-select: none;
+}
+
+.craft-group-header:hover {
+    background: var(--bs-tertiary-bg);
+}
+
+.craft-group-items {
+    padding: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+}
+
+.craft-group-items::-webkit-scrollbar {
+    width: 4px;
+}
+
+.craft-group-items::-webkit-scrollbar-thumb {
+    background: var(--bs-border-color);
+    border-radius: 2px;
+}
+
+.craft-item-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.375rem 0.5rem;
+    border-radius: 0.25rem;
+    background: var(--bs-body-bg);
+    font-size: 0.8125rem;
+}
+
+.craft-item-row:hover {
+    background: var(--bs-secondary-bg);
+}
+
+.craft-item-name {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex: 1;
+    min-width: 0;
+}
+
+.craft-item-name .badge {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Tree Container */
+.craft-tree-container {
+    font-size: 0.85rem;
+    overflow-x: hidden;
+}
+
+.craft-tree-container::-webkit-scrollbar {
+    width: 6px;
+}
+
+.craft-tree-container::-webkit-scrollbar-track {
+    background: var(--bs-tertiary-bg);
+    border-radius: 3px;
+}
+
+.craft-tree-container::-webkit-scrollbar-thumb {
+    background: var(--bs-border-color);
+    border-radius: 3px;
+}
+
+.craft-tree-container::-webkit-scrollbar-thumb:hover {
+    background: var(--bs-secondary-color);
+}
+
+.craft-tree-item {
+    padding: 0.25rem 0;
+}
+
+/* Collapsible */
+.craft-collapsible {
+    margin: 0;
+    padding: 0;
+}
+
+.craft-collapsible-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem;
+    background: var(--bs-secondary-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.375rem;
+    font-weight: 600;
+    font-size: 0.875rem;
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 0.2s ease;
+}
+
+.craft-collapsible-header:hover {
+    background: var(--bs-tertiary-bg);
+}
+
+.craft-collapsible[open] .craft-collapsible-header {
+    border-radius: 0.375rem 0.375rem 0 0;
+    border-bottom: none;
+}
+
+.craft-collapsible-body {
+    border: 1px solid var(--bs-border-color);
+    border-top: none;
+    border-radius: 0 0 0.375rem 0.375rem;
+    padding: 0.75rem;
+}
+
+/* Config */
+#blueprintConfigAccordion::-webkit-scrollbar {
+    width: 6px;
+}
+
+#blueprintConfigAccordion::-webkit-scrollbar-track {
+    background: var(--bs-tertiary-bg);
+    border-radius: 3px;
+}
+
+#blueprintConfigAccordion::-webkit-scrollbar-thumb {
+    background: var(--bs-border-color);
+    border-radius: 3px;
+}
+
+#blueprintConfigAccordion::-webkit-scrollbar-thumb:hover {
+    background: var(--bs-secondary-color);
+}
+
+.craft-config-level {
+    margin-bottom: 1rem;
+}
+
+.craft-config-level:last-child {
+    margin-bottom: 0;
+}
+
+.craft-config-level-title {
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--bs-secondary);
+    margin-bottom: 0.5rem;
+}
+
+.craft-config-items {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.craft-config-item {
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.375rem;
+    padding: 0.5rem;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+    align-items: center;
+    background: var(--bs-secondary-bg);
+}
+
+.craft-config-name {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-size: 0.75rem;
+}
+
+.craft-config-name .small {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.craft-config-inputs {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+}
+
+.craft-config-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.craft-config-field label {
+    font-weight: 600;
+    color: var(--bs-secondary);
+}
+
+.craft-config-field input {
+    font-size: 0.75rem;
+}
+
+/* Financial Table */
+.craft-financial-table-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
+.craft-financial-table-header h4 {
+    margin: 0;
+}
+
+.craft-financial-actions {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.craft-financial-table {
+    font-size: 0.8125rem;
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.375rem;
+}
+
+.craft-financial-table::-webkit-scrollbar {
+    width: 6px;
+}
+
+.craft-financial-table::-webkit-scrollbar-track {
+    background: var(--bs-tertiary-bg);
+    border-radius: 3px;
+}
+
+.craft-financial-table::-webkit-scrollbar-thumb {
+    background: var(--bs-border-color);
+    border-radius: 3px;
+}
+
+.craft-financial-table::-webkit-scrollbar-thumb:hover {
+    background: var(--bs-secondary-color);
+}
+
+.craft-financial-table table {
+    margin-bottom: 0;
+    width: 100%;
+    table-layout: fixed; /* enables predictable column sizing + ellipsis */
+}
+
+/* Purchase Planner column sizing: keep numeric columns readable, let Item take the remaining space */
+.craft-financial-table .col-qty {
+    width: clamp(70px, 7vw, 95px);
+}
+
+.craft-financial-table .col-fuzzwork {
+    width: clamp(110px, 10vw, 145px);
+}
+
+.craft-financial-table .col-real {
+    width: clamp(110px, 10vw, 145px);
+}
+
+.craft-financial-table .col-total {
+    width: clamp(125px, 11vw, 170px);
+}
+
+.craft-financial-table .col-margin {
+    width: clamp(90px, 8vw, 130px);
+}
+
+.craft-financial-table th,
+.craft-financial-table td {
+    overflow: hidden;
+}
+
+.craft-financial-table th.text-end,
+.craft-financial-table td.text-end {
+    white-space: nowrap;
+}
+
+/* Item column should truncate when space is tight */
+.craft-planner-item-flex {
+    min-width: 0; /* critical for flex truncation */
+}
+
+.craft-planner-item-name-wrap {
+    min-width: 0;
+    flex: 1 1 auto;
+    text-align: left;
+}
+
+/* The badge itself should not stretch; it truncates within the available width */
+.craft-planner-item-name {
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: left;
+}
+
+.craft-financial-table input[type="number"] {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.375rem;
+    height: 1.875rem;
+}
+
+.craft-financial-table input.readonly {
+    background-color: var(--bs-secondary-bg) !important;
+    border-color: var(--bs-border-color) !important;
+}
+
+.craft-financial-table td {
+    padding: 0.5rem 0.375rem;
+    vertical-align: middle;
+}
+
+.craft-financial-table .text-xs {
+    font-size: 0.75rem;
+}
+
+/* Slightly larger table text (requested: +20%) */
+.craft-financial-table.craft-table-text-120 .text-xs {
+    font-size: 0.9rem; /* 0.75 * 1.2 */
+}
+
+.craft-financial-table.craft-table-text-120 input[type="number"] {
+    font-size: 0.9rem; /* 0.75 * 1.2 */
+}
+
+.craft-financial-table input {
+    max-width: 100%;
+}
+
+/* Needed Table */
+.craft-needed-table {
+    font-size: 0.8125rem;
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.375rem;
+}
+
+.craft-needed-table::-webkit-scrollbar {
+    width: 6px;
+}
+
+.craft-needed-table::-webkit-scrollbar-track {
+    background: var(--bs-tertiary-bg);
+    border-radius: 3px;
+}
+
+.craft-needed-table::-webkit-scrollbar-thumb {
+    background: var(--bs-border-color);
+    border-radius: 3px;
+}
+
+.craft-needed-table::-webkit-scrollbar-thumb:hover {
+    background: var(--bs-secondary-color);
+}
+
+.craft-needed-table table {
+    margin-bottom: 0;
+}
+
+.craft-needed-table td {
+    padding: 0.5rem 0.375rem;
+}
+
+.craft-needed-table .text-xs {
+    font-size: 0.75rem;
+}
+
+/* Cycles table (build tab) +20% */
+.craft-cycles-table.craft-table-text-120 .text-xs {
+    font-size: 0.9rem; /* 0.75 * 1.2 */
+}
+
+/* Header Compact */
+.craft-header-compact {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 2rem;
+    padding: 1rem;
+    background: var(--bs-body-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.craft-header-left {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex: 1;
+    min-width: 0;
+}
+
+.craft-header-title {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex: 1;
+    min-width: 0;
+}
+
+.craft-header-icon {
+    flex-shrink: 0;
+    width: 48px;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bs-secondary-bg);
+    border-radius: 0.375rem;
+    overflow: hidden;
+}
+
+.craft-header-icon img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.craft-header-icon .fallback {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--bs-secondary);
+}
+
+.craft-header-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.craft-header-name {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.craft-header-subtitle {
+    font-size: 0.8125rem;
+    color: var(--bs-secondary);
+    margin: 0;
+}
+
+.craft-header-runs {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.craft-header-runs .input-group {
+    white-space: nowrap;
+}
+
+.craft-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+/* Utils */
+.text-xs {
+    font-size: 0.75rem;
+}
+
+.btn-xs {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+}
+
+/* Profit percentage inside the blue "Net Profit" row: keep contrast, avoid "muted" blue-on-blue */
+.profit-pct {
+    color: inherit;
+    opacity: 0.75;
+    font-weight: 600;
+}
+
+/* Eve Type Icons */
+.eve-type-icon {
+    border: 1px solid var(--bs-border-color);
+}
+
+.eve-type-icon--20 {
+    width: 20px;
+    height: 20px;
+}
+
+.eve-type-icon--28 {
+    width: 28px;
+    height: 28px;
+}
+
+.eve-type-icon--30 {
+    width: 30px;
+    height: 30px;
+}
+
+/* Bootstrap overrides for dark theme compatibility */
+@media (prefers-color-scheme: dark) {
+    .craft-section {
+        background: #1a1a1a;
+        border-color: #333;
+    }
+
+    .craft-kpi {
+        background: #2a2a2a;
+        border-color: #333;
+    }
+
+    .craft-group-header {
+        background: #2a2a2a;
+    }
+
+    .craft-item-row:hover {
+        background: #2a2a2a;
+    }
+
+    .craft-header-icon {
+        background: #2a2a2a;
+    }
+}
+
+/* ==========================================================================
+ * Merged from craft_bp_tabs.css (2026-01-10)
+ * ========================================================================== */
+
+/* Craft BP - Modern 3-Tab Layout */
+
+/* ========== MODERN TAB NAVIGATION ========== */
+.craft-tabs-modern {
+    margin-bottom: 2rem;
+}
+
+.craft-tab-content {
+    min-height: auto;
+    max-height: none;
+    overflow: visible;
+}
+
+.craft-nav-tabs {
+    display: flex;
+    align-items: center;
+    border-bottom: 2px solid var(--bs-border-color);
+    gap: 0;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: visible;
+    background: transparent;
+    padding: 0;
+    margin-bottom: 1.5rem;
+}
+
+.craft-nav-tabs .nav-link {
+    position: relative;
+    border: none;
+    border-bottom: 3px solid transparent;
+    background: transparent;
+    color: var(--bs-body-color);
+    font-weight: 600;
+    font-size: 0.95rem;
+    padding: 1rem 1.5rem;
+    white-space: nowrap;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    border-radius: 0;
+}
+
+.craft-nav-tabs .nav-link:hover {
+    color: var(--bs-primary);
+    border-bottom-color: var(--bs-primary);
+    background: transparent;
+}
+
+.craft-nav-tabs .nav-link.active {
+    color: var(--bs-primary);
+    border-bottom-color: var(--bs-primary);
+    background: transparent;
+    font-weight: 700;
+}
+
+.craft-nav-tabs .nav-link i {
+    font-size: 1.15rem;
+    opacity: 0.9;
+}
+
+.craft-nav-tabs .nav-link.active i {
+    opacity: 1;
+}
+
+.craft-tab-content {
+    padding: 1.5rem 0 0 0;
+}
+
+/* Override inner scroll/height constraints from legacy styles */
+.craft-materials-list,
+.craft-group-items,
+.craft-tree-container,
+.craft-config-items,
+.craft-financial-table,
+.craft-needed-table {
+    max-height: none !important;
+    overflow-y: visible !important;
+}
+
+/* Ensure inactive panes do not occupy space */
+.tab-content > .tab-pane:not(.active) {
+    display: none !important;
+}
+
+/* ========== QUICK STATS CARDS ========== */
+.craft-quick-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.craft-stat-card {
+    background: var(--bs-body-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.5rem;
+    padding: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    transition: all 0.2s ease;
+}
+
+.craft-stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.craft-stat-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 0.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    color: white;
+    flex-shrink: 0;
+}
+
+.craft-stat-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.craft-stat-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--bs-secondary);
+    margin-bottom: 0.25rem;
+}
+
+.craft-stat-value {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--bs-body-color);
+    word-break: break-word;
+}
+
+/* ========== PROGRESS INDICATORS ========== */
+.craft-progress-section {
+    background: var(--bs-body-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.craft-progress-item {
+    margin-bottom: 1rem;
+}
+
+.craft-progress-item:last-child {
+    margin-bottom: 0;
+}
+
+.craft-progress-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+.craft-progress-percent {
+    font-size: 0.875rem;
+    font-weight: 700;
+    color: var(--bs-primary);
+}
+
+.craft-progress-bar {
+    height: 8px;
+    border-radius: 4px;
+    background: var(--bs-secondary-bg);
+}
+
+.craft-progress-bar .progress-bar {
+    border-radius: 4px;
+}
+
+/* ========== SEARCH SECTION ========== */
+.craft-search-section {
+    margin-bottom: 1.5rem;
+}
+
+.craft-search-section .input-group-text {
+    background: var(--bs-body-bg);
+    border-right: none;
+}
+
+.craft-search-section .form-control {
+    border-left: none;
+}
+
+.craft-search-section .form-control:focus {
+    border-left: none;
+    box-shadow: none;
+}
+
+.craft-search-section .form-control:focus + .input-group-text {
+    border-color: var(--bs-primary);
+}
+
+/* ========== DASHBOARD 2-COLUMN LAYOUT ========== */
+.craft-dashboard-columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+}
+
+.craft-dashboard-col {
+    min-width: 0;
+}
+
+@media (max-width: 1200px) {
+    .craft-dashboard-columns {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ========== FINANCIAL HERO ========== */
+.craft-financial-hero {
+    background: var(--bs-body-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.75rem;
+    padding: 1.25rem;
+    color: var(--bs-body-color);
+}
+
+.craft-financial-hero .craft-kpi-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 0.75rem;
+}
+
+.craft-financial-hero .craft-kpi {
+    background: var(--bs-secondary-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.5rem;
+    padding: 1rem;
+    text-align: center;
+}
+
+.craft-financial-hero .craft-kpi-label {
+    color: var(--bs-secondary);
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    margin-bottom: 0.5rem;
+}
+
+.craft-financial-hero .craft-kpi-value {
+    color: var(--bs-body-color);
+    font-size: 1.5rem;
+    font-weight: 700;
+}
+
+/* ========== BULK ACTIONS ========== */
+.craft-bulk-actions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1rem;
+}
+
+.craft-bulk-group {
+    background: var(--bs-body-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.5rem;
+    padding: 1rem;
+}
+
+.craft-bulk-group .form-label {
+    margin-bottom: 0.5rem;
+    color: var(--bs-body-color);
+}
+
+/* ========== RESPONSIVE ADJUSTMENTS ========== */
+@media (max-width: 768px) {
+    .craft-nav-tabs .nav-link {
+        padding: 0.875rem 1.25rem;
+        font-size: 0.875rem;
+    }
+
+    .craft-nav-tabs .nav-link i {
+        font-size: 1rem;
+    }
+
+    .craft-quick-stats {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 0.75rem;
+    }
+
+    .craft-stat-card {
+        padding: 0.75rem;
+    }
+
+    .craft-stat-icon {
+        width: 40px;
+        height: 40px;
+        font-size: 1.25rem;
+    }
+
+    .craft-stat-value {
+        font-size: 1rem;
+    }
+
+    .craft-financial-hero {
+        padding: 1.5rem;
+    }
+
+    .craft-financial-hero .craft-kpi-row {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 1rem;
+    }
+
+    .craft-financial-hero .craft-kpi {
+        padding: 1rem;
+    }
+
+    .craft-financial-hero .craft-kpi-value {
+        font-size: 1.25rem;
+    }
+
+    .craft-bulk-actions {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 576px) {
+    .craft-quick-stats {
+        grid-template-columns: 1fr;
+    }
+
+    .craft-financial-hero .craft-kpi-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ========== FINANCIAL TABLE ENHANCEMENTS ========== */
+.craft-financial-table .item-margin {
+    font-weight: 600;
+}
+
+.craft-financial-table .item-margin.positive {
+    color: var(--bs-success);
+}
+
+.craft-financial-table .item-margin.negative {
+    color: var(--bs-danger);
+}
+
+/* ========== CONFIG ACCORDION ENHANCEMENTS - CARD GRID LAYOUT ========== */
+.craft-config-items-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 0.75rem;
+    margin-top: 1rem;
+}
+
+.craft-bp-card {
+    transition: all 0.3s ease;
+    border: 2px solid var(--bs-border-color);
+    border-radius: 0.75rem;
+    overflow: hidden;
+}
+
+.craft-bp-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
+    border-color: var(--bs-primary);
+}
+
+.craft-bp-card .card-header {
+    border-bottom: 2px solid var(--bs-border-color);
+    position: relative;
+    padding: 0.75rem !important;
+}
+
+.craft-bp-icon {
+    width: 64px;
+    height: 64px;
+    object-fit: contain;
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
+}
+
+.craft-bp-card .card-title {
+    font-size: 0.95rem;
+    line-height: 1.3;
+    color: var(--bs-body-color);
+    overflow-wrap: break-word;
+}
+
+.craft-efficiency-controls {
+    width: 100%;
+}
+
+.efficiency-group label {
+    font-size: 0.7rem;
+    letter-spacing: 0.5px;
+    margin-bottom: 0.5rem;
+}
+
+.efficiency-group .input-group {
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.efficiency-group .form-control {
+    font-size: 1.5rem;
+    height: auto;
+    padding: 0.75rem 0.5rem;
+    border-width: 2px;
+}
+
+.efficiency-group .input-group-text {
+    font-size: 1rem;
+    font-weight: 700;
+    background: var(--bs-secondary-bg);
+    border-width: 2px;
+}
+
+/* Blueprint sharing section */
+.blueprint-sharing-section {
+    border-top: 1px solid var(--bs-border-color);
+    padding-top: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.blueprint-sharing-section .alert {
+    font-size: 0.875rem;
+    margin-bottom: 0;
+}
+
+.blueprint-sharing-section .btn-sm {
+    font-size: 0.875rem;
+    padding: 0.5rem 0.75rem;
+}
+
+.blueprint-sharing-section .form-select-sm {
+    font-size: 0.875rem;
+}
+
+/* Legacy items support (if any remain) */
+.craft-config-items {
+    display: grid;
+    gap: 1.25rem;
+}
+
+.craft-config-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: stretch;
+    transition: all 0.2s ease;
+    border: 2px solid var(--bs-border-color);
+}
+
+.craft-config-item.card {
+    background: var(--bs-body-bg);
+    border-radius: 0.5rem;
+    overflow: hidden;
+}
+
+.craft-config-item.card:hover {
+    border-color: var(--bs-primary);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.craft-config-item .card-body {
+    width: 100%;
+    padding: 1.25rem !important;
+}
+
+.craft-config-name {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+    flex: 1;
+    min-width: 0;
+}
+
+.craft-config-name .eve-type-icon--64 {
+    width: 64px;
+    height: 64px;
+    flex-shrink: 0;
+}
+
+.craft-config-inputs {
+    display: flex;
+    gap: 2rem;
+    flex-shrink: 0;
+    align-items: flex-end;
+}
+
+.craft-config-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-width: 120px;
+}
+
+.craft-config-field label {
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--bs-secondary);
+    margin: 0;
+    letter-spacing: 0.5px;
+}
+
+.craft-config-field .input-group-lg .form-control {
+    height: auto;
+    padding: 0.75rem;
+    font-size: 1.25rem;
+    font-weight: 700;
+    min-width: 80px;
+}
+
+.craft-config-field .input-group-text {
+    font-weight: 700;
+    font-size: 0.9rem;
+    background: var(--bs-secondary-bg);
+}
+
+.craft-config-field input {
+    width: 70px;
+}
+
+/* ========== BULK ACTIONS IMPROVEMENTS ========== */
+.craft-bulk-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.craft-bulk-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.craft-bulk-group .btn-group {
+    flex: 1;
+}
+
+.craft-bulk-group .btn {
+    flex: 1;
+    font-size: 0.875rem;
+}
+
+.craft-bulk-group .input-group {
+    gap: 0.5rem;
+}
+
+.craft-bulk-group .btn-primary {
+    background: var(--bs-primary);
+    border-color: var(--bs-primary);
+}
+
+.craft-bulk-group .btn-primary:hover {
+    background: var(--bs-primary);
+    border-color: var(--bs-primary);
+    filter: brightness(1.1);
+}
+
+/* ========== SEARCH IMPROVEMENTS ========== */
+#blueprintSearchInput {
+    border-radius: 0.375rem 0 0 0.375rem;
+}
+
+#blueprintSearchInput::placeholder {
+    color: var(--bs-secondary);
+    opacity: 0.7;
+}
+
+#clearSearch {
+    border-radius: 0 0.375rem 0.375rem 0;
+}
+
+#clearSearch:hover {
+    background: var(--bs-danger);
+    border-color: var(--bs-danger);
+    color: white;
+}
+
+/* Hide items that don't match search */
+.craft-bp-card[style*="display: none"],
+.craft-config-item[style*="display: none"] {
+    display: none !important;
+}
+
+.accordion-item[style*="display: none"] {
+    display: none !important;
+}
+
+/* Blueprint ownership styling - Card version */
+.craft-bp-card[data-blueprint-not-owned="true"] {
+    border-color: rgba(255, 193, 7, 0.6);
+}
+
+.craft-bp-card[data-blueprint-not-owned="true"]:hover {
+    border-color: var(--bs-warning);
+    box-shadow: 0 8px 16px rgba(255, 193, 7, 0.25);
+}
+
+.craft-bp-card[data-blueprint-not-owned="true"] .efficiency-group input {
+    background-color: rgba(255, 193, 7, 0.08);
+    border-color: rgba(255, 193, 7, 0.4) !important;
+}
+
+.craft-bp-card[data-blueprint-not-owned="true"] .efficiency-group input:focus {
+    background-color: rgba(255, 193, 7, 0.12);
+    border-color: var(--bs-warning) !important;
+    box-shadow: 0 0 0 0.25rem rgba(255, 193, 7, 0.15);
+}
+
+/* Legacy item styling for not owned */
+.craft-config-item[data-blueprint-not-owned="true"] {
+    opacity: 1;
+    border-color: rgba(255, 193, 7, 0.5);
+    background: linear-gradient(135deg, rgba(255, 193, 7, 0.03) 0%, transparent 100%);
+}
+
+.craft-config-item[data-blueprint-not-owned="true"] .card-body::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    background: linear-gradient(180deg, var(--bs-warning) 0%, rgba(255, 193, 7, 0.6) 100%);
+}
+
+.craft-config-item[data-blueprint-not-owned="true"] .card-body {
+    position: relative;
+    padding-left: 1.5rem !important;
+}
+
+.craft-config-item[data-blueprint-not-owned="true"] .craft-config-inputs input {
+    background-color: rgba(255, 193, 7, 0.08);
+    border-color: rgba(255, 193, 7, 0.4) !important;
+}
+
+@media (prefers-color-scheme: dark) {
+    .craft-bp-card[data-blueprint-not-owned="true"] .efficiency-group input {
+        background-color: rgba(255, 193, 7, 0.1);
+        border-color: rgba(255, 193, 7, 0.5) !important;
+    }
+
+    .craft-config-item[data-blueprint-not-owned="true"] .craft-config-inputs input {
+        background-color: rgba(255, 193, 7, 0.1);
+        border-color: rgba(255, 193, 7, 0.5) !important;
+    }
+}
+
+.craft-section-header-with-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.craft-section-header-with-actions .craft-section-title {
+    margin: 0;
+}
+
+/* Toast notification styling */
+.toast {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.toast.bg-success {
+    background: var(--bs-success) !important;
+}
+
+.toast.bg-danger {
+    background: var(--bs-danger) !important;
+}
+
+/* ========== DARK THEME ADJUSTMENTS ========== */
+@media (prefers-color-scheme: dark) {
+    .craft-stat-card:hover {
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+
+    .craft-search-section .input-group-text {
+        background: var(--bs-tertiary-bg);
+    }
+
+    .craft-bulk-actions {
+        background: var(--bs-secondary-bg);
+        padding: 1.5rem;
+        border-radius: 0.375rem;
+    }
+
+    #blueprintSearchInput {
+        background: var(--bs-body-bg);
+        border-color: var(--bs-border-color);
+    }
 }

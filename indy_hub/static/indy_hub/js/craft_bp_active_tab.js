@@ -156,8 +156,12 @@ window.CraftBPTabs = {
             el.style.removeProperty('display');
         });
 
+        // Only reveal the legacy tab rail on pages that actually use it.
+        // The redesigned craft page uses the modern tab system (#craftMainTabs)
+        // and keeps #bpTabs hidden purely for JS compatibility.
+        const usesModernTabs = !!document.getElementById('craftMainTabs');
         const nav = document.querySelector('#bpTabs');
-        if (nav) {
+        if (nav && !usesModernTabs) {
             nav.style.removeProperty('display');
             nav.classList.remove('d-none');
         }
@@ -165,7 +169,7 @@ window.CraftBPTabs = {
 
     // Set the default active tab
     setDefaultTab: function() {
-        const activeTab = document.querySelector('.nav-link.active');
+        const activeTab = document.querySelector('#bpTabs .nav-link.active');
         if (activeTab) {
             this.activeTabId = activeTab.id.replace('-tab', '');
         }

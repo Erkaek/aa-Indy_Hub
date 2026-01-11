@@ -400,22 +400,26 @@ def material_exchange_index(request):
         pass
 
     pending_sell_orders = config.sell_orders.filter(
-        status="awaiting_validation"
+        status=MaterialExchangeSellOrder.Status.DRAFT
     ).count()
     pending_buy_orders = config.buy_orders.filter(status="draft").count()
 
     # User's recent orders
-    user_sell_orders = request.user.material_sell_orders.filter(config=config).order_by(
-        "-created_at"
-    )[:5]
-    user_buy_orders = request.user.material_buy_orders.filter(config=config).order_by(
-        "-created_at"
-    )[:5]
+    user_sell_orders = (
+        request.user.material_sell_orders.filter(config=config)
+        .prefetch_related("items")
+        .order_by("-created_at")[:5]
+    )
+    user_buy_orders = (
+        request.user.material_buy_orders.filter(config=config)
+        .prefetch_related("items")
+        .order_by("-created_at")[:5]
+    )
 
     # Recent transactions (last 10)
-    recent_transactions = config.transactions.select_related("user").order_by(
-        "-completed_at"
-    )[:10]
+    recent_transactions = config.transactions.select_related(
+        "user", "sell_order", "buy_order"
+    ).order_by("-completed_at")[:10]
 
     # Admin section data (if user has permission)
     can_admin = request.user.has_perm("indy_hub.can_manage_material_hub")
@@ -427,12 +431,18 @@ def material_exchange_index(request):
         closed_statuses = ["completed", "rejected", "cancelled"]
         status_filter = request.GET.get("status") or None
         # Admin panel: show only active/in-flight orders; closed ones move to history view
-        admin_sell_orders = config.sell_orders.exclude(
-            status__in=closed_statuses
-        ).order_by("-created_at")
-        admin_buy_orders = config.buy_orders.exclude(
-            status__in=closed_statuses
-        ).order_by("-created_at")
+        admin_sell_orders = (
+            config.sell_orders.exclude(status__in=closed_statuses)
+            .select_related("seller")
+            .prefetch_related("items")
+            .order_by("-created_at")
+        )
+        admin_buy_orders = (
+            config.buy_orders.exclude(status__in=closed_statuses)
+            .select_related("buyer")
+            .prefetch_related("items")
+            .order_by("-created_at")
+        )
         if status_filter:
             admin_sell_orders = admin_sell_orders.filter(status=status_filter)
             admin_buy_orders = admin_buy_orders.filter(status=status_filter)
@@ -654,7 +664,7 @@ def material_exchange_sell(request):
             order = MaterialExchangeSellOrder.objects.create(
                 config=config,
                 seller=request.user,
-                status="pending",
+                status=MaterialExchangeSellOrder.Status.DRAFT,
                 order_reference=client_order_ref if client_order_ref else None,
             )
             for item_data in items_to_create:
@@ -663,8 +673,8 @@ def material_exchange_sell(request):
             messages.success(
                 request,
                 _(
-                    f"Sell order created! Order reference: {order.order_reference}. "
-                    f"Check your notifications for contract instructions."
+                    f"Sell order created. Order reference: {order.order_reference}. "
+                    f"Open your order page to follow the contract steps."
                 ),
             )
 
@@ -964,14 +974,14 @@ def material_exchange_buy(request):
 
                 notify_multi(
                     admins,
-                    _("Nouvelle commande d'achat"),
+                    _("New Buy Order"),
                     _(
-                        f"{request.user.username} a créé un buy order {order.order_reference}.\n"
-                        f"Articles: {order.items.count()}  |  Qté totale: {order.total_quantity:,}\n"
+                        f"{request.user.username} created buy order {order.order_reference}.\n"
+                        f"Items: {order.items.count()}  |  Total qty: {order.total_quantity:,}\n"
                         f"Total: {total_cost:,.2f} ISK\n\n"
-                        f"A faire: créer/valider le contrat."
+                        f"Action: create/validate the contract."
                         + (
-                            "\n\nAperçu:\n" + "\n".join(preview_lines)
+                            "\n\nPreview:\n" + "\n".join(preview_lines)
                             if preview_lines
                             else ""
                         )
@@ -1177,8 +1187,13 @@ def material_exchange_approve_sell(request, order_id):
         messages.error(request, _("Permission denied."))
         return redirect("indy_hub:material_exchange_index")
 
-    order = get_object_or_404(MaterialExchangeSellOrder, id=order_id, status="pending")
-    order.status = "approved"
+    order = get_object_or_404(
+        MaterialExchangeSellOrder,
+        id=order_id,
+        status=MaterialExchangeSellOrder.Status.DRAFT,
+    )
+
+    order.status = MaterialExchangeSellOrder.Status.AWAITING_VALIDATION
     order.approved_by = request.user
     order.approved_at = timezone.now()
     order.save()
@@ -1198,8 +1213,16 @@ def material_exchange_reject_sell(request, order_id):
         messages.error(request, _("Permission denied."))
         return redirect("indy_hub:material_exchange_index")
 
-    order = get_object_or_404(MaterialExchangeSellOrder, id=order_id, status="pending")
-    order.status = "rejected"
+    order = get_object_or_404(
+        MaterialExchangeSellOrder,
+        id=order_id,
+        status__in=[
+            MaterialExchangeSellOrder.Status.DRAFT,
+            MaterialExchangeSellOrder.Status.AWAITING_VALIDATION,
+            MaterialExchangeSellOrder.Status.VALIDATED,
+        ],
+    )
+    order.status = MaterialExchangeSellOrder.Status.REJECTED
     order.save()
 
     messages.warning(request, _(f"Sell order #{order.id} rejected."))
@@ -1330,7 +1353,7 @@ def material_exchange_reject_buy(request, order_id):
         _("❌ Buy Order Rejected"),
         _(
             f"Your buy order #{order.id} has been rejected.\n\n"
-            f"Reason: Insufficient stock or admin decision.\n\n"
+            f"Reason: Admin decision.\n\n"
             f"Contact the admins in Auth if you need details or want to retry."
         ),
         level="error",
@@ -1352,14 +1375,16 @@ def material_exchange_mark_delivered_buy(request, order_id):
         messages.error(request, _("Permission denied."))
         return redirect("indy_hub:material_exchange_index")
 
-    order = get_object_or_404(MaterialExchangeBuyOrder, id=order_id, status="approved")
+    order = get_object_or_404(
+        MaterialExchangeBuyOrder,
+        id=order_id,
+        status=MaterialExchangeBuyOrder.Status.VALIDATED,
+    )
     delivery_method = request.POST.get("delivery_method", "contract")
 
-    order.status = "delivered"
-    order.delivered_by = request.user
-    order.delivered_at = timezone.now()
-    order.delivery_method = delivery_method
-    order.save()
+    _complete_buy_order(
+        order, delivered_by=request.user, delivery_method=delivery_method
+    )
 
     messages.success(request, _(f"Buy order #{order.id} marked as delivered."))
     return redirect("indy_hub:material_exchange_index")
@@ -1373,15 +1398,33 @@ def material_exchange_complete_buy(request, order_id):
         messages.error(request, _("Permission denied."))
         return redirect("indy_hub:material_exchange_index")
 
-    order = get_object_or_404(MaterialExchangeBuyOrder, id=order_id, status="delivered")
+    order = get_object_or_404(
+        MaterialExchangeBuyOrder,
+        id=order_id,
+        status=MaterialExchangeBuyOrder.Status.VALIDATED,
+    )
 
+    _complete_buy_order(order)
+
+    messages.success(
+        request, _(f"Buy order #{order.id} completed and transaction logged.")
+    )
+    return redirect("indy_hub:material_exchange_index")
+
+
+def _complete_buy_order(order, *, delivered_by=None, delivery_method=None):
+    """Helper to finalize a buy order (auth-side manual completion)."""
     with transaction.atomic():
-        order.status = "completed"
+        if delivered_by:
+            order.delivered_by = delivered_by
+            order.delivered_at = timezone.now()
+            order.delivery_method = delivery_method
+
+        order.status = MaterialExchangeBuyOrder.Status.COMPLETED
         order.save()
 
         # Create transaction log for each item and update stock
         for item in order.items.all():
-            # Create transaction log
             MaterialExchangeTransaction.objects.create(
                 config=order.config,
                 transaction_type="buy",
@@ -1394,20 +1437,12 @@ def material_exchange_complete_buy(request, order_id):
                 total_price=item.total_price,
             )
 
-            # Update stock (subtract quantity)
             try:
                 stock_item = order.config.stock_items.get(type_id=item.type_id)
-                stock_item.quantity -= item.quantity
-                if stock_item.quantity < 0:
-                    stock_item.quantity = 0
+                stock_item.quantity = max(stock_item.quantity - item.quantity, 0)
                 stock_item.save()
             except MaterialExchangeStock.DoesNotExist:
-                pass
-
-    messages.success(
-        request, _(f"Buy order #{order.id} completed and transaction logged.")
-    )
-    return redirect("indy_hub:material_exchange_index")
+                continue
 
 
 @login_required

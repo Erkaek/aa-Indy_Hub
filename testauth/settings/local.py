@@ -40,7 +40,19 @@ SITE_NAME = "testauth"
 DEBUG = False
 
 
-LOGGING = False
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+        },
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": "WARNING",
+    },
+}
 NOTIFICATIONS_REFRESH_TIME = 30
 NOTIFICATIONS_MAX_PER_USER = 50
 

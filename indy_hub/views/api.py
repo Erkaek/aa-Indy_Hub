@@ -7,6 +7,8 @@ These views handle API calls, external data fetching, and service integrations.
 # Standard Library
 import json
 import logging
+from decimal import Decimal
+from math import ceil
 
 # Third Party
 import requests
@@ -14,9 +16,12 @@ import requests
 # Django
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
+from django.db import connection
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods
+
+from ..decorators import indy_hub_access_required, indy_hub_permission_required
 
 # Local
 from ..models import (
@@ -29,6 +34,238 @@ from ..models import (
 logger = logging.getLogger(__name__)
 
 
+def _to_serializable(value):
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, dict):
+        return {k: _to_serializable(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_to_serializable(item) for item in value]
+    return value
+
+
+@indy_hub_access_required
+@indy_hub_permission_required("can_access_indy_hub")
+@login_required
+@require_http_methods(["GET"])
+def craft_bp_payload(request, type_id: int):
+    """Return the craft blueprint payload as JSON for a given number of runs.
+
+    This is used by the V2 UI to simulate profitability across multiple run counts
+    while allowing buy/prod decisions to change with cycle rounding effects.
+    """
+
+    try:
+        num_runs = max(1, int(request.GET.get("runs", 1)))
+    except (TypeError, ValueError):
+        num_runs = 1
+
+    try:
+        me = int(request.GET.get("me", 0) or 0)
+    except (TypeError, ValueError):
+        me = 0
+    try:
+        te = int(request.GET.get("te", 0) or 0)
+    except (TypeError, ValueError):
+        te = 0
+
+    # Parse per-blueprint ME/TE overrides: me_<bpTypeId>, te_<bpTypeId>
+    me_te_configs: dict[int, dict[str, int]] = {}
+    for key, value in request.GET.items():
+        if not value:
+            continue
+        if key.startswith("me_"):
+            try:
+                bp_type_id = int(key.replace("me_", ""))
+                me_value = int(value)
+                me_te_configs.setdefault(bp_type_id, {})["me"] = me_value
+            except (ValueError, TypeError):
+                continue
+        elif key.startswith("te_"):
+            try:
+                bp_type_id = int(key.replace("te_", ""))
+                te_value = int(value)
+                me_te_configs.setdefault(bp_type_id, {})["te"] = te_value
+            except (ValueError, TypeError):
+                continue
+
+    # Final product and output qty per run.
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT product_eve_type_id, quantity
+            FROM eveuniverse_eveindustryactivityproduct
+            WHERE eve_type_id = %s AND activity_id IN (1, 11)
+            LIMIT 1
+            """,
+            [type_id],
+        )
+        product_row = cursor.fetchone()
+
+    product_type_id = product_row[0] if product_row else None
+    output_qty_per_run = product_row[1] if product_row and len(product_row) > 1 else 1
+    final_product_qty = (output_qty_per_run or 1) * num_runs
+
+    # Exact per-cycle recipes for craftable items (keyed by product type_id).
+    # This avoids approximating recipes from tree occurrences in the frontend.
+    recipe_map: dict[int, dict[str, object]] = {}
+    recipe_cache: dict[tuple[int, int], dict[str, object]] = {}
+
+    def get_materials_tree(
+        bp_id,
+        runs,
+        blueprint_me=0,
+        depth=0,
+        max_depth=10,
+        seen=None,
+        me_te_map=None,
+    ):
+        if seen is None:
+            seen = set()
+        if me_te_map is None:
+            me_te_map = {}
+        if depth > max_depth or bp_id in seen:
+            return []
+        seen.add(bp_id)
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT m.material_eve_type_id, t.name, m.quantity
+                FROM eveuniverse_eveindustryactivitymaterial m
+                JOIN eveuniverse_evetype t ON m.material_eve_type_id = t.id
+                WHERE m.eve_type_id = %s AND m.activity_id IN (1, 11)
+                """,
+                [bp_id],
+            )
+
+            mats = []
+            for row in cursor.fetchall():
+                # IMPORTANT: ME rounding must be applied per-run (per job/cycle), then multiplied.
+                # Doing ceil((base * runs) * (1 - ME)) underestimates for small base quantities.
+                per_run_qty = ceil((row[2] or 0) * (100 - blueprint_me) / 100)
+                qty = int(per_run_qty) * int(runs)
+                mat = {
+                    "type_id": row[0],
+                    "type_name": row[1],
+                    "quantity": qty,
+                    "cycles": None,
+                    "produced_per_cycle": None,
+                    "total_produced": None,
+                    "surplus": None,
+                }
+
+                # If craftable, compute cycles + recurse.
+                with connection.cursor() as sub_cursor:
+                    sub_cursor.execute(
+                        """
+                        SELECT eve_type_id
+                        FROM eveuniverse_eveindustryactivityproduct
+                        WHERE product_eve_type_id = %s AND activity_id IN (1, 11)
+                        LIMIT 1
+                        """,
+                        [mat["type_id"]],
+                    )
+                    sub_bp_row = sub_cursor.fetchone()
+
+                    if sub_bp_row:
+                        sub_bp_id = sub_bp_row[0]
+                        sub_cursor.execute(
+                            """
+                            SELECT quantity
+                            FROM eveuniverse_eveindustryactivityproduct
+                            WHERE eve_type_id = %s AND activity_id IN (1, 11)
+                            LIMIT 1
+                            """,
+                            [sub_bp_id],
+                        )
+                        prod_qty_row = sub_cursor.fetchone()
+                        output_qty = prod_qty_row[0] if prod_qty_row else 1
+                        cycles = ceil(mat["quantity"] / output_qty)
+                        total_produced = cycles * output_qty
+                        surplus = total_produced - mat["quantity"]
+                        mat["cycles"] = cycles
+                        mat["produced_per_cycle"] = output_qty
+                        mat["total_produced"] = total_produced
+                        mat["surplus"] = surplus
+
+                        sub_bp_config = (me_te_map or {}).get(sub_bp_id, {})
+                        sub_bp_me = sub_bp_config.get("me", 0)
+
+                        # Build exact per-cycle recipe for this craftable output (mat["type_id"]).
+                        # Cache by (blueprint_id, blueprint_me) because ME changes the rounded per-cycle quantities.
+                        cache_key = (int(sub_bp_id), int(sub_bp_me))
+                        if cache_key not in recipe_cache:
+                            with connection.cursor() as recipe_cursor:
+                                recipe_cursor.execute(
+                                    """
+                                    SELECT material_eve_type_id, quantity
+                                    FROM eveuniverse_eveindustryactivitymaterial
+                                    WHERE eve_type_id = %s AND activity_id IN (1, 11)
+                                    """,
+                                    [sub_bp_id],
+                                )
+                                inputs = []
+                                for (
+                                    mat_type_id,
+                                    base_qty_per_cycle,
+                                ) in recipe_cursor.fetchall():
+                                    qty_per_cycle = ceil(
+                                        (base_qty_per_cycle or 0)
+                                        * (100 - sub_bp_me)
+                                        / 100
+                                    )
+                                    if qty_per_cycle <= 0:
+                                        continue
+                                    inputs.append(
+                                        {
+                                            "type_id": int(mat_type_id),
+                                            "quantity": int(qty_per_cycle),
+                                        }
+                                    )
+                            recipe_cache[cache_key] = {
+                                "produced_per_cycle": int(output_qty or 1),
+                                "inputs_per_cycle": inputs,
+                            }
+
+                        # Key recipe map by produced item type_id (not blueprint id)
+                        produced_type_id = int(mat["type_id"])
+                        if produced_type_id not in recipe_map:
+                            recipe_map[produced_type_id] = recipe_cache[cache_key]
+
+                        mat["sub_materials"] = get_materials_tree(
+                            sub_bp_id,
+                            cycles,
+                            sub_bp_me,
+                            depth + 1,
+                            max_depth,
+                            seen.copy(),
+                            me_te_map,
+                        )
+                    else:
+                        mat["sub_materials"] = []
+
+                mats.append(mat)
+            return mats
+
+    materials_tree = get_materials_tree(type_id, num_runs, me, me_te_map=me_te_configs)
+
+    payload = {
+        "type_id": type_id,
+        "bp_type_id": type_id,
+        "num_runs": num_runs,
+        "me": me,
+        "te": te,
+        "product_type_id": product_type_id,
+        "output_qty_per_run": output_qty_per_run,
+        "final_product_qty": final_product_qty,
+        "materials_tree": _to_serializable(materials_tree),
+        "recipe_map": _to_serializable(recipe_map),
+    }
+
+    return JsonResponse(payload)
+
+
 @login_required
 def fuzzwork_price(request):
     """
@@ -39,6 +276,7 @@ def fuzzwork_price(request):
     Supports both single type_id and comma-separated multiple type_ids.
     """
     type_id = request.GET.get("type_id")
+    full = str(request.GET.get("full", "")).strip().lower() in {"1", "true", "yes"}
     if not type_id:
         return JsonResponse({"error": "type_id parameter required"}, status=400)
 
@@ -60,6 +298,15 @@ def fuzzwork_price(request):
         response.raise_for_status()
 
         data = response.json()
+
+        # Optional: return the full Fuzzwork payload for each requested typeId.
+        # This is used by the "Calcul" tab for deep inspection.
+        if full:
+            result = {}
+            for tid in unique_type_ids:
+                # Fuzzwork keys are strings in the aggregates response.
+                result[tid] = data.get(tid, {})
+            return JsonResponse(result)
 
         # Return simplified price data (use sell.min for material costs, sell.min for products)
         result = {}

@@ -198,7 +198,7 @@
                         {% elif bp.location_path %}
                         <span class="location-tag ms-2"><i class="fas fa-map-marker-alt me-1"></i>{{ bp.location_path }}</span>
                         {% endif %}
-                        <a href="{% url 'indy_hub:craft_bp' bp.type_id %}?next={{ request.get_full_path|urlencode }}" class="btn btn-outline-info btn-sm">
+                        <a href="{% url 'indy_hub:craft_bp' bp.type_id %}?me={{ bp.material_efficiency|default:0 }}&te={{ bp.time_efficiency|default:0 }}&next={{ request.get_full_path|urlencode }}" class="btn btn-outline-info btn-sm">
                             <i class="fas fa-tools me-1"></i>{% trans "View Craft" %}
                         </a>
                     </div>
@@ -215,7 +215,7 @@
                             <span class="efficiency-label">TE</span>
                             <span class="efficiency-value text-success ms-1">{{ bp.time_efficiency }}%</span>
                             <div class="efficiency-bar mt-1">
-                                <div class="efficiency-fill te" style="--efficiency-width: {{ bp.time_efficiency }}0"></div>
+                                <div class="efficiency-fill te" style="--efficiency-width: calc({{ bp.time_efficiency }} * 5)"></div>
                             </div>
                         </div>
                     </div>

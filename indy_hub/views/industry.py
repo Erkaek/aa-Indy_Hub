@@ -5,7 +5,6 @@ import json
 import logging
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import timedelta
 from decimal import Decimal
 from math import ceil
 from typing import Any
@@ -24,6 +23,7 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.html import mark_safe
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.translation import gettext_lazy as _
 from django.views.decorators.http import require_http_methods
@@ -64,11 +64,6 @@ from ..utils.eve import (
     get_corporation_name,
     get_corporation_ticker,
     get_type_name,
-)
-from ..utils.job_notifications import (
-    build_digest_notification_body,
-    build_job_notification_payload,
-    serialize_job_notification_for_digest,
 )
 
 # Indy Hub
@@ -706,10 +701,30 @@ def personnal_bp_list(request, scope="character"):
             if is_corporation_scope
             else Blueprint.OwnerKind.CHARACTER
         )
-        base_blueprints_qs = Blueprint.objects.filter(
-            owner_user=request.user,
-            owner_kind=owner_kind_filter,
-        )
+        if is_corporation_scope:
+            # Corporation blueprints should be visible to all corporation managers
+            # within the same corporation as the requesting user, regardless of
+            # which user imported/synced the blueprints.
+            user_corp_ids = list(
+                CharacterOwnership.objects.filter(user=request.user)
+                .exclude(character__corporation_id__isnull=True)
+                .values_list("character__corporation_id", flat=True)
+                .distinct()
+            )
+            if not user_corp_ids:
+                identity = _resolve_user_identity(request.user)
+                if identity.corporation_id:
+                    user_corp_ids = [identity.corporation_id]
+
+            base_blueprints_qs = Blueprint.objects.filter(
+                owner_kind=owner_kind_filter,
+                corporation_id__in=user_corp_ids,
+            )
+        else:
+            base_blueprints_qs = Blueprint.objects.filter(
+                owner_user=request.user,
+                owner_kind=owner_kind_filter,
+            )
 
         if is_corporation_scope:
             owner_pairs = (
@@ -1142,31 +1157,54 @@ def personnal_job_list(request, scope="character"):
     sort_order = request.GET.get("order", "desc")
     page = int(request.GET.get("page", 1))
     per_page = request.GET.get("per_page")
-    if per_page:
-        per_page = int(per_page)
-        if per_page < 1:
-            per_page = 1
-    else:
-        owner_kind_filter = (
-            Blueprint.OwnerKind.CORPORATION
-            if is_corporation_scope
-            else Blueprint.OwnerKind.CHARACTER
-        )
-        per_page = IndustryJob.objects.filter(
-            owner_user=request.user,
-            owner_kind=owner_kind_filter,
-        ).count()
-        if per_page < 1:
-            per_page = 1
+
     owner_kind_filter = (
         Blueprint.OwnerKind.CORPORATION
         if is_corporation_scope
         else Blueprint.OwnerKind.CHARACTER
     )
-    base_jobs_qs = IndustryJob.objects.filter(
-        owner_user=request.user,
-        owner_kind=owner_kind_filter,
-    )
+
+    user_corp_ids: list[int] = []
+    if is_corporation_scope:
+        user_corp_ids = list(
+            CharacterOwnership.objects.filter(user=request.user)
+            .exclude(character__corporation_id__isnull=True)
+            .values_list("character__corporation_id", flat=True)
+            .distinct()
+        )
+        if not user_corp_ids:
+            identity = _resolve_user_identity(request.user)
+            if identity.corporation_id:
+                user_corp_ids = [identity.corporation_id]
+
+    if per_page:
+        per_page = int(per_page)
+        if per_page < 1:
+            per_page = 1
+    else:
+        if is_corporation_scope:
+            per_page = IndustryJob.objects.filter(
+                owner_kind=owner_kind_filter,
+                corporation_id__in=user_corp_ids,
+            ).count()
+        else:
+            per_page = IndustryJob.objects.filter(
+                owner_user=request.user,
+                owner_kind=owner_kind_filter,
+            ).count()
+        if per_page < 1:
+            per_page = 1
+
+    if is_corporation_scope:
+        base_jobs_qs = IndustryJob.objects.filter(
+            owner_kind=owner_kind_filter,
+            corporation_id__in=user_corp_ids,
+        )
+    else:
+        base_jobs_qs = IndustryJob.objects.filter(
+            owner_user=request.user,
+            owner_kind=owner_kind_filter,
+        )
     if is_corporation_scope:
         owner_pairs = (
             base_jobs_qs.exclude(corporation_id__isnull=True)
@@ -1290,14 +1328,24 @@ def personnal_job_list(request, scope="character"):
         # Removed update status tracking since unified settings don't track this
         jobs_on_page = list(jobs_page.object_list)
         blueprint_ids = [job.blueprint_id for job in jobs_on_page if job.blueprint_id]
-        blueprint_map = {
-            bp.item_id: bp
-            for bp in Blueprint.objects.filter(
-                owner_user=request.user,
-                owner_kind=owner_kind_filter,
-                item_id__in=blueprint_ids,
-            )
-        }
+        if is_corporation_scope:
+            blueprint_map = {
+                bp.item_id: bp
+                for bp in Blueprint.objects.filter(
+                    owner_kind=Blueprint.OwnerKind.CORPORATION,
+                    corporation_id__in=user_corp_ids,
+                    item_id__in=blueprint_ids,
+                )
+            }
+        else:
+            blueprint_map = {
+                bp.item_id: bp
+                for bp in Blueprint.objects.filter(
+                    owner_user=request.user,
+                    owner_kind=owner_kind_filter,
+                    item_id__in=blueprint_ids,
+                )
+            }
 
         activity_definitions = [
             {
@@ -1529,232 +1577,6 @@ def personnal_job_list(request, scope="character"):
         return redirect("indy_hub:index")
 
 
-def _resolve_preview_character(request):
-    ownership = (
-        CharacterOwnership.objects.filter(user=request.user)
-        .select_related("character")
-        .first()
-    )
-    character_id = None
-    character_name = request.user.username
-    if ownership and getattr(ownership, "character", None):
-        character_id = getattr(ownership.character, "character_id", None)
-        stored_name = getattr(ownership.character, "character_name", None)
-        character_name = (
-            get_character_name(character_id) or stored_name or request.user.username
-        )
-    return character_id, character_name
-
-
-def _build_preview_job(
-    request,
-    *,
-    job_overrides: dict | None = None,
-    blueprint_overrides: dict | None = None,
-):
-    character_id, character_name = _resolve_preview_character(request)
-
-    base_job_attrs = {
-        "owner_user": request.user,
-        "owner_kind": Blueprint.OwnerKind.CHARACTER,
-        "character_id": character_id,
-        "installer_id": character_id or request.user.id,
-        "job_id": 999_999,
-        "blueprint_id": 123_456_789,
-        "blueprint_type_id": 23_528,
-        "blueprint_type_name": "Drone Link Augmentor I Blueprint",
-        "activity_id": 3,
-        "activity_name": _("Time Efficiency Research"),
-        "runs": 4,
-        "successful_runs": 4,
-        "location_name": _("Test Research Lab"),
-        "product_type_name": _("Blueprint copy"),
-        "status": "delivered",
-        "duration": 3600,
-        "start_date": timezone.now() - timedelta(hours=2),
-        "end_date": timezone.now() - timedelta(minutes=5),
-        "character_name": character_name,
-    }
-
-    if job_overrides:
-        base_job_attrs.update(job_overrides)
-
-    job = IndustryJob(**base_job_attrs)
-
-    base_blueprint_attrs = {
-        "owner_user": request.user,
-        "item_id": 0,
-        "type_id": base_job_attrs.get("blueprint_type_id", 23_528),
-        "type_name": base_job_attrs.get(
-            "blueprint_type_name", "Drone Link Augmentor I Blueprint"
-        ),
-        "time_efficiency": 20,
-        "material_efficiency": 10,
-    }
-
-    if blueprint_overrides:
-        base_blueprint_attrs.update(blueprint_overrides)
-
-    blueprint = Blueprint(**base_blueprint_attrs)
-    return job, blueprint
-
-
-@indy_hub_access_required
-@login_required
-def personnal_job_notification_test(request):
-    job, blueprint = _build_preview_job(request)
-    payload = build_job_notification_payload(job, blueprint=blueprint)
-    jobs_url = build_site_url(reverse("indy_hub:personnal_job_list"))
-
-    notify_user(
-        request.user,
-        payload.title,
-        payload.message,
-        level="success",
-        link=jobs_url,
-        link_label=_("View job dashboard"),
-        thumbnail_url=payload.thumbnail_url,
-    )
-
-    messages.success(
-        request,
-        _("Test industry job notification sent. Check your notifications panel."),
-    )
-    return redirect("indy_hub:personnal_job_list")
-
-
-def _redirect_preview_back(request, *, default_route: str = "indy_hub:index"):
-    """Redirect previews back to the originating page when safe."""
-
-    allowed_hosts = {request.get_host()}
-    next_url = request.GET.get("next")
-    if next_url and url_has_allowed_host_and_scheme(
-        next_url,
-        allowed_hosts=allowed_hosts,
-        require_https=request.is_secure(),
-    ):
-        return redirect(next_url)
-
-    referer = request.headers.get("referer")
-    if referer and url_has_allowed_host_and_scheme(
-        referer,
-        allowed_hosts=allowed_hosts,
-        require_https=request.is_secure(),
-    ):
-        return redirect(referer)
-
-    return redirect(default_route)
-
-
-@indy_hub_access_required
-@login_required
-def preview_job_notification_live(request):
-    job, blueprint = _build_preview_job(request)
-    payload = build_job_notification_payload(job, blueprint=blueprint)
-    jobs_url = build_site_url(reverse("indy_hub:personnal_job_list"))
-
-    notify_user(
-        request.user,
-        payload.title,
-        payload.message,
-        level="success",
-        link=jobs_url,
-        link_label=_("View job dashboard"),
-        thumbnail_url=payload.thumbnail_url,
-    )
-
-    messages.success(
-        request,
-        _("Live industry job notification preview sent. Check your notifications."),
-    )
-    return _redirect_preview_back(request)
-
-
-@indy_hub_access_required
-@login_required
-def preview_job_notification_digest(request):
-    scenarios = [
-        {
-            "job_overrides": {
-                "job_id": 1_000_001,
-                "activity_id": 1,
-                "activity_name": _("Manufacturing"),
-                "runs": 6,
-                "product_type_name": "Heavy Missile",
-                "product_type_id": 20308,
-            },
-            "blueprint_overrides": {
-                "type_id": 51_223,
-                "type_name": "Heavy Missile Blueprint",
-            },
-        },
-        {
-            "job_overrides": {
-                "job_id": 1_000_002,
-                "activity_id": 5,
-                "activity_name": _("Copying"),
-                "runs": 3,
-                "licensed_runs": 10,
-                "blueprint_type_name": "Capital Armor Plate Blueprint",
-                "blueprint_type_id": 44_401,
-                "product_type_name": _("Blueprint copy"),
-            },
-            "blueprint_overrides": {
-                "type_id": 44_401,
-                "type_name": "Capital Armor Plate Blueprint",
-                "time_efficiency": 12,
-                "material_efficiency": 8,
-            },
-        },
-        {
-            "job_overrides": {
-                "job_id": 1_000_003,
-                "activity_id": 3,
-                "activity_name": _("Time Efficiency Research"),
-                "runs": 1,
-                "successful_runs": 1,
-                "blueprint_type_name": "Warp Core Stabilizer Blueprint",
-                "blueprint_type_id": 43_486,
-            },
-            "blueprint_overrides": {
-                "type_id": 43_486,
-                "type_name": "Warp Core Stabilizer Blueprint",
-                "time_efficiency": 20,
-                "material_efficiency": 12,
-            },
-        },
-    ]
-
-    digest_rows: list[dict] = []
-    for scenario in scenarios:
-        job, blueprint = _build_preview_job(
-            request,
-            job_overrides=scenario.get("job_overrides"),
-            blueprint_overrides=scenario.get("blueprint_overrides"),
-        )
-        payload = build_job_notification_payload(job, blueprint=blueprint)
-        digest_rows.append(serialize_job_notification_for_digest(job, payload))
-
-    title, body, thumbnail_url = build_digest_notification_body(digest_rows)
-    jobs_url = build_site_url(reverse("indy_hub:personnal_job_list"))
-
-    notify_user(
-        request.user,
-        title,
-        body,
-        level="info",
-        link=jobs_url,
-        link_label=_("Open industry jobs"),
-        thumbnail_url=thumbnail_url,
-    )
-
-    messages.success(
-        request,
-        _("Digest preview sent. Review the grouped message in your notifications."),
-    )
-    return _redirect_preview_back(request)
-
-
 def collect_blueprints_with_level(blueprint_configs):
     """Annotate each blueprint config with a "level" matching the deepest branch depth."""
     # Map type_id -> blueprint config for quick lookup
@@ -1803,9 +1625,54 @@ def craft_bp(request, type_id):
     me = max(0, min(me, 10))
     te = max(0, min(te, 20))
 
+    logger.warning(
+        f"craft_bp START: me={me}, te={te} (from URL: me={request.GET.get('me', 'NOT SET')}, te={request.GET.get('te', 'NOT SET')})"
+    )
+    logger.warning(f"All GET params keys: {list(request.GET.keys())}")
+
+    # Parse ME/TE configurations for all blueprints from query parameters
+    # Format: me_<type_id>=<value>, te_<type_id>=<value>
+    me_te_configs = {}
+    for param_name, param_value in request.GET.items():
+        if param_name.startswith("me_"):
+            try:
+                bp_type_id = int(param_name[3:])  # Extract type_id after "me_"
+                me_value = max(0, min(int(param_value), 10))  # Clamp to 0-10
+                if bp_type_id not in me_te_configs:
+                    me_te_configs[bp_type_id] = {}
+                me_te_configs[bp_type_id]["me"] = me_value
+                logger.debug(f"Parsed URL param: me_{bp_type_id}={me_value}")
+            except (ValueError, TypeError):
+                pass
+        elif param_name.startswith("te_"):
+            try:
+                bp_type_id = int(param_name[3:])  # Extract type_id after "te_"
+                te_value = max(0, min(int(param_value), 20))  # Clamp to 0-20
+                if bp_type_id not in me_te_configs:
+                    me_te_configs[bp_type_id] = {}
+                me_te_configs[bp_type_id]["te"] = te_value
+                logger.debug(f"Parsed URL param: te_{bp_type_id}={te_value}")
+            except (ValueError, TypeError):
+                pass
+
+    logger.debug(f"Total ME/TE configs from URL: {len(me_te_configs)} blueprints")
+
     active_tab = request.GET.get(
         "active_tab", "materials"
     )  # Active tab from query parameters, defaults to Materials
+
+    next_url = request.GET.get("next")
+    if next_url and url_has_allowed_host_and_scheme(
+        next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+    ):
+        back_url = next_url
+    else:
+        back_url = reverse("indy_hub:all_bp_list")
+
+    # UI selection
+    # The V2 craft interface is now the only supported UI for the craft page.
+    ui_version = "v2"
+    template_name = "indy_hub/industry/Craft_BP_v2.html"
 
     buy_decisions = set()
     buy_list = request.GET.get("buy", "")
@@ -1849,85 +1716,126 @@ def craft_bp(request, type_id):
             final_product_qty = output_qty_per_run * num_runs
 
         # --- Build materials tree ---
+        logger.debug(
+            f"About to build materials tree with me_te_configs: {me_te_configs}"
+        )
+
         def get_materials_tree(
-            bp_id, runs, blueprint_me=0, depth=0, max_depth=10, seen=None
+            bp_id,
+            runs,
+            blueprint_me=0,
+            depth=0,
+            max_depth=10,
+            seen=None,
+            me_te_map=None,
         ):
-            """Recursively build the material tree for a given blueprint."""
+            """Recursively build the material tree for a given blueprint.
+
+            Args:
+                bp_id: Blueprint type ID
+                runs: Number of production runs
+                blueprint_me: Material efficiency for this specific blueprint
+                depth: Current recursion depth
+                max_depth: Maximum recursion depth
+                seen: Set of already processed blueprint IDs (to avoid cycles)
+                me_te_map: Dictionary mapping blueprint type_id to their ME/TE configs
+            """
             if seen is None:
                 seen = set()
+            if me_te_map is None:
+                me_te_map = {}
             if depth > max_depth or bp_id in seen:
                 return []
             seen.add(bp_id)
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    """
-                    SELECT m.material_eve_type_id, t.name, m.quantity
-                    FROM eveuniverse_eveindustryactivitymaterial m
-                    JOIN eveuniverse_evetype t ON m.material_eve_type_id = t.id
-                    WHERE m.eve_type_id = %s AND m.activity_id IN (1, 11)
-                    """,
-                    [bp_id],
-                )
-                mats = []
-                for row in cursor.fetchall():
-                    base_qty = row[2] * runs
-                    # Apply blueprint-specific ME and round up to the next whole number
-                    # Standard Library
-
-                    qty = ceil(base_qty * (100 - blueprint_me) / 100)
-                    mat = {
-                        "type_id": row[0],
-                        "type_name": row[1],
-                        "quantity": qty,
-                        # Default values, will be overwritten if blueprint exists
-                        "cycles": None,
-                        "produced_per_cycle": None,
-                        "total_produced": None,
-                        "surplus": None,
-                    }
-                    # Check if this material can be produced by a blueprint (i.e. is a sub-product)
-                    with connection.cursor() as sub_cursor:
-                        sub_cursor.execute(
-                            """
-                            SELECT eve_type_id
-                            FROM eveuniverse_eveindustryactivityproduct
-                            WHERE product_eve_type_id = %s AND activity_id IN (1, 11)
-                            LIMIT 1
-                            """,
-                            [mat["type_id"]],
-                        )
-                        sub_bp_row = sub_cursor.fetchone()
-                        if sub_bp_row:
-                            sub_bp_id = sub_bp_row[0]
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        SELECT m.material_eve_type_id, t.name, m.quantity
+                        FROM eveuniverse_eveindustryactivitymaterial m
+                        JOIN eveuniverse_evetype t ON m.material_eve_type_id = t.id
+                        WHERE m.eve_type_id = %s AND m.activity_id IN (1, 11)
+                        """,
+                        [bp_id],
+                    )
+                    mats = []
+                    for row in cursor.fetchall():
+                        base_qty = row[2] * runs
+                        # Apply blueprint-specific ME and round up to the next whole number
+                        qty = ceil(base_qty * (100 - blueprint_me) / 100)
+                        mat = {
+                            "type_id": row[0],
+                            "type_name": row[1],
+                            "quantity": qty,
+                            # Default values, will be overwritten if blueprint exists
+                            "cycles": None,
+                            "produced_per_cycle": None,
+                            "total_produced": None,
+                            "surplus": None,
+                        }
+                        # Check if this material can be produced by a blueprint (i.e. is a sub-product)
+                        with connection.cursor() as sub_cursor:
                             sub_cursor.execute(
                                 """
-                                SELECT quantity
+                                SELECT eve_type_id
                                 FROM eveuniverse_eveindustryactivityproduct
-                                WHERE eve_type_id = %s AND activity_id IN (1, 11)
+                                WHERE product_eve_type_id = %s AND activity_id IN (1, 11)
                                 LIMIT 1
                                 """,
-                                [sub_bp_id],
+                                [mat["type_id"]],
                             )
-                            prod_qty_row = sub_cursor.fetchone()
-                            output_qty = prod_qty_row[0] if prod_qty_row else 1
-                            # Standard Library
+                            sub_bp_row = sub_cursor.fetchone()
+                            if sub_bp_row:
+                                sub_bp_id = sub_bp_row[0]
+                                sub_cursor.execute(
+                                    """
+                                    SELECT quantity
+                                    FROM eveuniverse_eveindustryactivityproduct
+                                    WHERE eve_type_id = %s AND activity_id IN (1, 11)
+                                    LIMIT 1
+                                    """,
+                                    [sub_bp_id],
+                                )
+                                prod_qty_row = sub_cursor.fetchone()
+                                output_qty = prod_qty_row[0] if prod_qty_row else 1
+                                cycles = ceil(mat["quantity"] / output_qty)
+                                total_produced = cycles * output_qty
+                                surplus = total_produced - mat["quantity"]
+                                mat["cycles"] = cycles
+                                mat["produced_per_cycle"] = output_qty
+                                mat["total_produced"] = total_produced
+                                mat["surplus"] = surplus
 
-                            cycles = ceil(mat["quantity"] / output_qty)
-                            total_produced = cycles * output_qty
-                            surplus = total_produced - mat["quantity"]
-                            mat["cycles"] = cycles
-                            mat["produced_per_cycle"] = output_qty
-                            mat["total_produced"] = total_produced
-                            mat["surplus"] = surplus
-                            mat["sub_materials"] = get_materials_tree(
-                                sub_bp_id, cycles, 0, depth + 1, max_depth, seen.copy()
-                            )
-                        else:
-                            mat["sub_materials"] = []
-                    mats.append(mat)
-            return mats
+                                # Get ME/TE for this sub-blueprint from the config map
+                                sub_bp_config = me_te_map.get(sub_bp_id, {})
+                                sub_bp_me = sub_bp_config.get("me", 0)
 
-        materials_tree = get_materials_tree(type_id, num_runs, me)
+                                mat["sub_materials"] = get_materials_tree(
+                                    sub_bp_id,
+                                    cycles,
+                                    sub_bp_me,
+                                    depth + 1,
+                                    max_depth,
+                                    seen.copy(),
+                                    me_te_map,
+                                )
+                            else:
+                                mat["sub_materials"] = []
+                        mats.append(mat)
+                return mats
+            except Exception as tree_error:
+                logger.error(
+                    f"Error in get_materials_tree for bp_id={bp_id}: {type(tree_error).__name__}: {str(tree_error)}",
+                    exc_info=True,
+                )
+                return []
+
+        materials_tree = get_materials_tree(
+            type_id, num_runs, me, me_te_map=me_te_configs
+        )
+        logger.warning(
+            f"AFTER get_materials_tree: materials_tree has {len(materials_tree)} top-level materials, me={me}, te={te}"
+        )
 
         # --- Function to collect all blueprints that should be excluded from configs ---
         def collect_buy_exclusions(tree, buy_set, excluded=None):
@@ -2110,15 +2018,12 @@ def craft_bp(request, type_id):
                     }
                     for row in cursor.fetchall()
                 ]
-
-                # --- Apply ME/TE values for the primary blueprint ---
-                for bc in blueprint_configs:
-                    if bc["type_id"] == type_id:  # Main blueprint
-                        bc["material_efficiency"] = me
-                        bc["time_efficiency"] = te
-                        break
         else:
             blueprint_configs = []
+
+        logger.warning(
+            f"AFTER get blueprint_configs: Loaded {len(blueprint_configs)} blueprints, me={me}, te={te}"
+        )
 
         # --- Inject the material structure into each blueprint_config ---
         config_map = {bc["type_id"]: bc for bc in blueprint_configs}
@@ -2141,8 +2046,280 @@ def craft_bp(request, type_id):
 
         # --- Compute the depth level for each blueprint ---
         blueprint_configs = collect_blueprints_with_level(blueprint_configs)
+        logger.warning(f"BEFORE user blueprint enrichment: me={me}, te={te}")
+
+        # --- Load user's blueprints and enrich configs with ownership/efficiency data ---
+        # Alliance Auth
+        from allianceauth.eveonline.models import EveCharacter
+
+        # AA Example App
+        from indy_hub.models import (
+            Blueprint,
+            CharacterSettings,
+            CorporationSharingSetting,
+        )
+
+        try:
+            user_blueprints = (
+                Blueprint.objects.filter(
+                    owner_user=request.user,
+                    owner_kind=Blueprint.OwnerKind.CHARACTER,  # exclude corp-owned blueprints
+                )
+                .values_list(
+                    "type_id",
+                    "material_efficiency",
+                    "time_efficiency",
+                    "bp_type",
+                    "runs",
+                )
+                .order_by("type_id", "-material_efficiency", "-time_efficiency")
+            )
+
+            # Aggregate user blueprints per type_id to capture originals and total copy runs
+            user_bp_map: dict[int, dict[str, object]] = {}
+            for bp_type_id, bp_me, bp_te, bp_type, runs in user_blueprints:
+                entry = user_bp_map.setdefault(
+                    bp_type_id,
+                    {
+                        "original": None,
+                        "best_copy": None,
+                        "copy_runs_total": 0,
+                    },
+                )
+
+                if bp_type == "ORIGINAL":
+                    # Keep the best ORIGINAL (higher ME/TE first)
+                    if not entry["original"]:
+                        entry["original"] = {"me": bp_me, "te": bp_te}
+                    else:
+                        cur = entry["original"]
+                        if bp_me > cur["me"] or (
+                            bp_me == cur["me"] and bp_te > cur["te"]
+                        ):
+                            entry["original"] = {"me": bp_me, "te": bp_te}
+                else:
+                    # Sum all runs across COPY blueprints
+                    entry["copy_runs_total"] += runs or 0
+                    # Track best COPY ME/TE to reuse in UI defaults
+                    if not entry["best_copy"]:
+                        entry["best_copy"] = {"me": bp_me, "te": bp_te}
+                    else:
+                        cur = entry["best_copy"]
+                        if bp_me > cur["me"] or (
+                            bp_me == cur["me"] and bp_te > cur["te"]
+                        ):
+                            entry["best_copy"] = {"me": bp_me, "te": bp_te}
+
+            # --- Load available blueprints from sharing system ---
+            # Determine viewer affiliations
+            viewer_corp_ids: set[int] = set()
+            viewer_alliance_ids: set[int] = set()
+            viewer_characters = EveCharacter.objects.filter(
+                character_ownership__user=request.user
+            ).values("corporation_id", "alliance_id")
+            for char in viewer_characters:
+                corp_id = char.get("corporation_id")
+                if corp_id is not None:
+                    viewer_corp_ids.add(corp_id)
+                alliance_id = char.get("alliance_id")
+                if alliance_id is not None:
+                    viewer_alliance_ids.add(alliance_id)
+
+            # Get sharing settings
+            character_settings = CharacterSettings.objects.filter(
+                character_id=0,
+                allow_copy_requests=True,
+            ).exclude(copy_sharing_scope=CharacterSettings.SCOPE_NONE)
+
+            corporation_settings = CorporationSharingSetting.objects.filter(
+                allow_copy_requests=True
+            ).exclude(share_scope=CharacterSettings.SCOPE_NONE)
+
+            # Determine which users are accessible based on scope
+            owner_user_ids = {
+                s.user_id for s in list(character_settings) + list(corporation_settings)
+            }
+            owner_affiliations: dict[int, dict[str, set[int]]] = {}
+
+            if owner_user_ids:
+                owner_characters = EveCharacter.objects.filter(
+                    character_ownership__user_id__in=owner_user_ids
+                ).values(
+                    "character_ownership__user_id", "corporation_id", "alliance_id"
+                )
+
+                for char in owner_characters:
+                    user_id = char["character_ownership__user_id"]
+                    corp_id = char.get("corporation_id")
+                    alliance_id = char.get("alliance_id")
+                    data = owner_affiliations.setdefault(
+                        user_id, {"corp_ids": set(), "alliance_ids": set()}
+                    )
+                    if corp_id:
+                        data["corp_ids"].add(corp_id)
+                    if alliance_id:
+                        data["alliance_ids"].add(alliance_id)
+
+            # Filter allowed users based on scope
+            allowed_user_ids: set[int] = set()
+            for setting in character_settings:
+                affiliations = owner_affiliations.get(
+                    setting.user_id, {"corp_ids": set(), "alliance_ids": set()}
+                )
+                if setting.copy_sharing_scope == CharacterSettings.SCOPE_CORPORATION:
+                    if viewer_corp_ids & affiliations["corp_ids"]:
+                        allowed_user_ids.add(setting.user_id)
+                elif setting.copy_sharing_scope == CharacterSettings.SCOPE_ALLIANCE:
+                    if (viewer_corp_ids & affiliations["corp_ids"]) or (
+                        viewer_alliance_ids & affiliations["alliance_ids"]
+                    ):
+                        allowed_user_ids.add(setting.user_id)
+                elif setting.copy_sharing_scope == CharacterSettings.SCOPE_EVERYONE:
+                    allowed_user_ids.add(setting.user_id)
+
+            for setting in corporation_settings:
+                affiliations = owner_affiliations.get(
+                    setting.user_id, {"corp_ids": set(), "alliance_ids": set()}
+                )
+                if setting.share_scope == CharacterSettings.SCOPE_CORPORATION:
+                    if viewer_corp_ids & affiliations["corp_ids"]:
+                        allowed_user_ids.add(setting.user_id)
+                elif setting.share_scope == CharacterSettings.SCOPE_ALLIANCE:
+                    if (viewer_corp_ids & affiliations["corp_ids"]) or (
+                        viewer_alliance_ids & affiliations["alliance_ids"]
+                    ):
+                        allowed_user_ids.add(setting.user_id)
+                elif setting.share_scope == CharacterSettings.SCOPE_EVERYONE:
+                    allowed_user_ids.add(setting.user_id)
+
+            # Get all blueprint type_ids we need to check
+            all_bp_type_ids = {
+                bc.get("type_id") for bc in blueprint_configs if bc.get("type_id")
+            }
+
+            # Load available blueprints from sharing system
+            available_shared_bps = (
+                Blueprint.objects.filter(
+                    owner_user_id__in=allowed_user_ids,
+                    type_id__in=all_bp_type_ids,
+                    bp_type=Blueprint.BPType.ORIGINAL,
+                )
+                .exclude(owner_user=request.user)
+                .values("type_id", "material_efficiency", "time_efficiency")
+                .order_by("type_id", "-material_efficiency", "-time_efficiency")
+            )
+
+            # Group by type_id and sort by efficiency (best first)
+            # Standard Library
+            from collections import defaultdict as dd
+
+            shared_bp_map = dd(list)
+            for bp in available_shared_bps:
+                shared_bp_map[bp["type_id"]].append(
+                    {"me": bp["material_efficiency"], "te": bp["time_efficiency"]}
+                )
+
+            # Enrich blueprint_configs with user's data and sharing availability
+            for bc in blueprint_configs:
+                bp_type_id = bc.get("type_id")
+                user_entry = user_bp_map.get(bp_type_id)
+
+                if user_entry:
+                    bc["user_owns"] = True
+                    bc["shared_copies_available"] = []
+
+                    if user_entry.get("original"):
+                        # User has an ORIGINAL (unlimited runs)
+                        orig = user_entry["original"]
+                        bc["is_copy"] = False
+                        bc["runs_available"] = None
+                        bc["user_material_efficiency"] = orig["me"]
+                        bc["user_time_efficiency"] = orig["te"]
+
+                        # Set default ME/TE from owned blueprints
+                        # (Will be overridden by URL params later if present)
+                        bc["material_efficiency"] = orig["me"]
+                        bc["time_efficiency"] = orig["te"]
+                    elif user_entry.get("copy_runs_total", 0) > 0:
+                        # User only has COPY blueprints; aggregate runs across all copies
+                        best_copy = user_entry.get("best_copy") or {"me": 0, "te": 0}
+                        bc["is_copy"] = True
+                        bc["runs_available"] = user_entry.get("copy_runs_total", 0)
+                        bc["user_material_efficiency"] = best_copy["me"]
+                        bc["user_time_efficiency"] = best_copy["te"]
+
+                        # Set default ME/TE from owned blueprints
+                        # (Will be overridden by URL params later if present)
+                        bc["material_efficiency"] = best_copy["me"]
+                        bc["time_efficiency"] = best_copy["te"]
+                    else:
+                        # Edge case: user_entry exists but no original/copy runs (should not happen)
+                        bc["user_owns"] = False
+                        bc["is_copy"] = False
+                        bc["runs_available"] = None
+                        bc["user_material_efficiency"] = None
+                        bc["user_time_efficiency"] = None
+                        bc["shared_copies_available"] = shared_bp_map.get(
+                            bp_type_id, []
+                        )
+                else:
+                    # User doesn't own this blueprint
+                    bc["user_owns"] = False
+                    bc["user_material_efficiency"] = None
+                    bc["user_time_efficiency"] = None
+                    bc["is_copy"] = False
+                    bc["runs_available"] = None
+                    # Check if shared copies are available
+                    bc["shared_copies_available"] = shared_bp_map.get(bp_type_id, [])
+
+        except Exception as enrich_error:
+            logger.error(
+                f"ERROR during enrichment: {type(enrich_error).__name__}: {str(enrich_error)}",
+                exc_info=True,
+            )
+            # If enrichment fails, just continue with empty maps
+            user_bp_map = {}
+            shared_bp_map = {}
+            for bc in blueprint_configs:
+                bc["user_owns"] = False
+                bc["shared_copies_available"] = []
+
+        logger.warning(
+            f"AFTER ENRICHMENT: Enriched {len(blueprint_configs)} blueprints, me={me}, te={te}"
+        )
+
+        # --- Apply ME/TE values from query parameters (AFTER enrichment) ---
+        # This ensures URL parameters always take priority over user's owned blueprints
+        applied_count = 0
+        for bc in blueprint_configs:
+            bp_type_id = bc["type_id"]
+
+            # Apply main blueprint ME/TE
+            if bp_type_id == type_id:
+                bc["material_efficiency"] = me
+                bc["time_efficiency"] = te
+                logger.debug(f"Applied main BP {bp_type_id}: ME={me}, TE={te}")
+                applied_count += 1
+
+            # Apply individual blueprint ME/TE from me_te_configs
+            if bp_type_id in me_te_configs:
+                if "me" in me_te_configs[bp_type_id]:
+                    bc["material_efficiency"] = me_te_configs[bp_type_id]["me"]
+                    logger.debug(
+                        f"Applied URL ME for BP {bp_type_id}: {me_te_configs[bp_type_id]['me']}"
+                    )
+                if "te" in me_te_configs[bp_type_id]:
+                    bc["time_efficiency"] = me_te_configs[bp_type_id]["te"]
+                    logger.debug(
+                        f"Applied URL TE for BP {bp_type_id}: {me_te_configs[bp_type_id]['te']}"
+                    )
+                applied_count += 1
+
+        logger.debug(f"Applied ME/TE to {applied_count} blueprints from URL params")
+        logger.warning(f"AFTER APPLY ME/TE: me={me}, te={te}")
 
         # --- Group by EVE group and then by level ---
+        logger.warning(f"STARTING grouping logic: me={me}, te={te}")
         grouping = {}
         for bc in blueprint_configs:
             # Keep only blueprints with useful data (materials present or quantity > 0)
@@ -2184,6 +2361,8 @@ def craft_bp(request, type_id):
                     and bc["type_id"]
                     not in blueprint_exclusions  # Exclude blueprints flagged for purchase
                 ]
+                # Sort blueprints alphabetically by type_name
+                blueprints_utiles.sort(key=lambda x: x.get("type_name", "").lower())
                 if blueprints_utiles:
                     levels.append({"level": lvl, "blueprints": blueprints_utiles})
             # Keep only groups that have at least one useful blueprint within a level
@@ -2197,6 +2376,8 @@ def craft_bp(request, type_id):
                 )
         if not blueprint_configs_grouped:
             blueprint_configs_grouped = None
+
+        logger.warning(f"AFTER grouping blueprint_configs_grouped: me={me}, te={te}")
 
         # --- Accumulate cycles/production/surplus for every craftable item ---
         # Standard Library
@@ -2280,9 +2461,18 @@ def craft_bp(request, type_id):
         if not materials_list:
             # Use direct materials as fallback
             materials_list = direct_materials_list
-        # --- Add a type_id -> EVE group mapping for the Financial tab ---
-        # Collect every type_id used in materials that will be purchased
+        # --- Add a type_id -> EVE group mapping for the Financial/Build tabs ---
+        # Collect every type_id we might need to display/sort in the UI.
+        # - Financial (Purchase Planner): purchased leaf inputs
+        # - Build (Cycles): craftables to be produced (craft_cycles_summary)
+        # - Final product: revenue row and potential sorting references
         all_type_ids = {mat["type_id"] for mat in materials_list}
+        try:
+            all_type_ids.update(set(dict(craftables).keys()))
+        except Exception:
+            pass
+        if product_type_id:
+            all_type_ids.add(product_type_id)
         eve_types_query = []
         if EveType is not None:
             eve_types_query = list(
@@ -2309,8 +2499,8 @@ def craft_bp(request, type_id):
             return "Other"
 
         group_ids_used = set()
-        for mat in materials_list:
-            eve_type = next((et for et in eve_types if et.id == mat["type_id"]), None)
+        for type_id in all_type_ids:
+            eve_type = next((et for et in eve_types if et.id == type_id), None)
             if eve_type and getattr(eve_type, "eve_market_group", None):
                 group_ids_used.add(eve_type.eve_market_group.id)
             elif eve_type and eve_type.eve_group:
@@ -2385,10 +2575,44 @@ def craft_bp(request, type_id):
                 "load_list": reverse("indy_hub:production_simulations_list"),
                 "load_config": reverse("indy_hub:load_production_config"),
                 "fuzzwork_price": reverse("indy_hub:fuzzwork_price"),
+                "craft_bp_payload": reverse(
+                    "indy_hub:craft_bp_payload", args=[type_id]
+                ),
             },
         }
 
+        # Build craft header controls HTML
+        next_input = ""
+        if request.GET.get("next"):
+            next_input = (
+                f'<input type="hidden" name="next" value="{request.GET.get("next")}">'
+            )
+
+        craft_controls_html = (
+            '<form id="blueprint-control-form" class="d-flex flex-wrap align-items-center gap-2" method="get" action="">'
+            '<div class="input-group input-group-sm" style="min-width: 260px;">'
+            '<span class="input-group-text fw-semibold"><i class="fas fa-cube me-1"></i>Runs</span>'
+            f'<input type="number" min="1" name="runs" id="runsInput" value="{num_runs}" class="form-control">'
+            '<button class="btn btn-primary" type="submit">Update</button>'
+            "</div>"
+            f'<input type="hidden" name="me" value="{me}">'
+            f'<input type="hidden" name="te" value="{te}">'
+            f'<input type="hidden" name="buy" value="{request.GET.get("buy", "")}">'
+            f"{next_input}"
+            f'<input type="hidden" name="active_tab" id="activeTabInput" value="{active_tab}">'
+            "</form>"
+            '<button id="saveSimulationBtn" class="btn btn-light btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#saveSimulationModal">'
+            '<i class="fas fa-save me-1"></i>Save'
+            "</button>"
+            '<button id="loadSimulationBtn" class="btn btn-light btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#loadSimulationModal">'
+            '<i class="fas fa-folder-open me-1"></i>Load'
+            "</button>"
+        )
+
+        logger.warning(f"craft_bp BEFORE RENDER: me={me}, te={te}")
+
         context = {
+            "ui_version": ui_version,
             "bp_type_id": type_id,
             "bp_name": bp_name,
             "materials": materials_list,
@@ -2401,17 +2625,67 @@ def craft_bp(request, type_id):
             "te": te,
             "active_tab": active_tab,
             "blueprint_configs_grouped": blueprint_configs_grouped,
+            "blueprint_configs_json": json.dumps(
+                [
+                    {
+                        "id": bc.get("id"),
+                        "type_id": bc.get("type_id"),
+                        "product_type_id": bc.get("product_type_id"),
+                        "material_efficiency": bc.get("material_efficiency", 0),
+                        "time_efficiency": bc.get("time_efficiency", 0),
+                        "user_material_efficiency": bc.get("user_material_efficiency"),
+                        "user_time_efficiency": bc.get("user_time_efficiency"),
+                        "is_owned": bc.get("user_owns", False),
+                        "is_copy": bc.get("is_copy", False),
+                        "runs_available": bc.get("runs_available", 0),
+                        "shared_copies_available": bool(
+                            bc.get("shared_copies_available", [])
+                        ),
+                    }
+                    for bc in blueprint_configs
+                ]
+            ),
+            "main_bp_info": json.dumps(
+                {
+                    "type_id": type_id,
+                    "is_copy": bool(user_bp_map.get(type_id, {}).get("best_copy"))
+                    and not user_bp_map.get(type_id, {}).get("original"),
+                    "runs_available": (
+                        user_bp_map.get(type_id, {}).get("copy_runs_total", 0)
+                        if not user_bp_map.get(type_id, {}).get("original")
+                        else None
+                    ),
+                }
+            ),
             "craft_cycles_summary": dict(craftables),
+            "craft_cycles_summary_json": json.dumps(
+                {
+                    str(k): {
+                        "type_id": v.get("type_id"),
+                        "type_name": v.get("type_name"),
+                        "cycles": v.get("cycles", 0),
+                        "total_needed": v.get("total_needed", 0),
+                        "produced_per_cycle": v.get("produced_per_cycle", 0),
+                        "total_produced": v.get("total_produced", 0),
+                        "surplus": v.get("surplus", 0),
+                    }
+                    for k, v in craftables.items()
+                }
+            ),
             "market_group_map": market_group_map,
             "materials_by_group": materials_by_group,
             "blueprint_payload": blueprint_payload,
-            "back_url": reverse("indy_hub:all_bp_list"),
+            "back_url": back_url,
+            "craft_header_controls": mark_safe(craft_controls_html),
             **build_nav_context(request.user, active_tab="blueprints"),
         }
-        return render(request, "indy_hub/industry/Craft_BP.html", context)
+        return render(request, template_name, context)
 
     except Exception as e:
         # Error handling: render the page with a message and default values
+        logger.error(
+            f"EXCEPTION IN craft_bp: {type(e).__name__}: {str(e)}", exc_info=True
+        )
         with connection.cursor() as cursor:
             cursor.execute(
                 "SELECT name FROM eveuniverse_evetype WHERE id=%s", [type_id]
@@ -2421,8 +2695,9 @@ def craft_bp(request, type_id):
         messages.error(request, f"Error crafting blueprint: {e}")
         return render(
             request,
-            "indy_hub/industry/Craft_BP.html",
+            template_name,
             {
+                "ui_version": ui_version,
                 "bp_type_id": type_id,
                 "bp_name": bp_name,
                 "materials": [],
@@ -2432,8 +2707,110 @@ def craft_bp(request, type_id):
                 "product_type_id": None,
                 "me": 0,
                 "te": 0,
+                "back_url": back_url,
             },
         )
+
+
+@indy_hub_access_required
+@indy_hub_permission_required("can_access_indy_hub")
+@login_required
+def bp_copy_request_create(request):
+    """Create a new blueprint copy request."""
+    if request.method != "POST":
+        messages.error(request, _("You can only create a request via POST."))
+        return redirect("indy_hub:bp_copy_request_page")
+
+    try:
+        type_id = int(request.POST.get("type_id", 0))
+        material_efficiency = int(request.POST.get("material_efficiency", 0))
+        time_efficiency = int(request.POST.get("time_efficiency", 0))
+        runs_requested = max(1, int(request.POST.get("runs_requested", 1)))
+        copies_requested = max(1, int(request.POST.get("copies_requested", 1)))
+    except (TypeError, ValueError):
+        messages.error(request, _("Invalid values provided for the request."))
+        return redirect("indy_hub:bp_copy_request_page")
+
+    if type_id <= 0:
+        messages.error(request, _("Invalid blueprint type."))
+        return redirect("indy_hub:bp_copy_request_page")
+
+    # Check if user already has an active request for this exact blueprint
+    existing_request = BlueprintCopyRequest.objects.filter(
+        requested_by=request.user,
+        type_id=type_id,
+        material_efficiency=material_efficiency,
+        time_efficiency=time_efficiency,
+        fulfilled=False,
+    ).first()
+
+    if existing_request:
+        messages.warning(
+            request,
+            _("You already have an active request for this blueprint."),
+        )
+        return redirect("indy_hub:bp_copy_my_requests")
+
+    # Create the request
+    BlueprintCopyRequest.objects.create(
+        requested_by=request.user,
+        type_id=type_id,
+        material_efficiency=material_efficiency,
+        time_efficiency=time_efficiency,
+        runs_requested=runs_requested,
+        copies_requested=copies_requested,
+    )
+
+    # Notify potential owners
+    # Django
+    from django.contrib.auth.models import User
+
+    owner_ids = (
+        Blueprint.objects.filter(
+            type_id=type_id,
+            owner_kind=Blueprint.OwnerKind.CHARACTER,
+            bp_type=Blueprint.BPType.ORIGINAL,
+        )
+        .values_list("owner_user", flat=True)
+        .distinct()
+    )
+
+    notification_context = {
+        "username": request.user.username,
+        "type_name": get_type_name(type_id),
+        "me": material_efficiency,
+        "te": time_efficiency,
+        "runs": runs_requested,
+        "copies": copies_requested,
+    }
+    notification_title = _("New blueprint copy request")
+    notification_body = (
+        _(
+            "%(username)s requested %(type_name)s (ME%(me)s, TE%(te)s): %(runs)s runs, %(copies)s copies."
+        )
+        % notification_context
+    )
+
+    fulfill_queue_url = request.build_absolute_uri(
+        reverse("indy_hub:bp_copy_fulfill_requests")
+    )
+    fulfill_label = _("Review copy requests")
+
+    for owner in User.objects.filter(id__in=owner_ids):
+        notify_user(
+            owner,
+            notification_title,
+            notification_body,
+            "info",
+            link=fulfill_queue_url,
+            link_label=fulfill_label,
+        )
+
+    messages.success(
+        request,
+        _("Blueprint copy request created successfully."),
+    )
+    return redirect("indy_hub:bp_copy_my_requests")
 
 
 @indy_hub_access_required
@@ -2623,7 +3000,7 @@ def bp_copy_request_page(request):
         bp_list = [bp for bp in bp_list if bp["time_efficiency"] >= min_te_val]
     per_page_options = [12, 24, 48, 96]
     me_options = list(range(0, 11))
-    te_options = list(range(0, 21))
+    te_options = list(range(0, 21, 2))  # 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20
     paginator = Paginator(bp_list, per_page)
     page_obj = paginator.get_page(page)
     page_range = paginator.get_elided_page_range(
@@ -2785,6 +3162,8 @@ def bp_copy_fulfill_requests(request):
     """List requests for blueprints the user owns and allows copy requests for."""
     from ..models import CharacterSettings
 
+    active_filter = (request.GET.get("status") or "all").strip().lower()
+
     setting = CharacterSettings.objects.filter(
         user=request.user,
         character_id=0,  # Global settings only
@@ -2851,7 +3230,11 @@ def bp_copy_fulfill_requests(request):
                 auto_open_chat_id = str(requested_chat_id)
     nav_context = build_nav_context(request.user, active_tab="blueprint_sharing")
     if not include_self_requests and not setting and not accessible_corporation_ids:
-        context = {"requests": []}
+        context = {
+            "requests": [],
+            "has_requests": False,
+            "active_filter": active_filter,
+        }
         context.update(nav_context)
         if auto_open_chat_id:
             context["auto_open_chat_id"] = auto_open_chat_id
@@ -2939,6 +3322,8 @@ def bp_copy_fulfill_requests(request):
             "requests": [],
             "metrics": metrics,
             "include_self_requests": include_self_requests,
+            "has_requests": False,
+            "active_filter": active_filter,
         }
         context.update(nav_context)
         return render(
@@ -2960,6 +3345,8 @@ def bp_copy_fulfill_requests(request):
             "requests": [],
             "metrics": metrics,
             "include_self_requests": include_self_requests,
+            "has_requests": False,
+            "active_filter": active_filter,
         }
         context.update(nav_context)
         return render(
@@ -3465,8 +3852,20 @@ def bp_copy_fulfill_requests(request):
             }
         )
 
+    valid_filters = {"all", *status_meta.keys()}
+    if active_filter not in valid_filters:
+        active_filter = "all"
+
+    filtered_requests = (
+        [req for req in requests_to_fulfill if req.get("status_key") == active_filter]
+        if active_filter != "all"
+        else requests_to_fulfill
+    )
+
     context = {
-        "requests": requests_to_fulfill,
+        "requests": filtered_requests,
+        "has_requests": bool(requests_to_fulfill),
+        "active_filter": active_filter,
         "metrics": metrics,
         "include_self_requests": include_self_requests,
     }
@@ -4064,12 +4463,28 @@ def bp_update_copy_request(request, request_id):
 @login_required
 def bp_copy_my_requests(request):
     """List copy requests made by the current user."""
+    requested_filter = (request.GET.get("status") or "all").strip().lower()
+    active_filter = requested_filter
     qs = (
         BlueprintCopyRequest.objects.filter(requested_by=request.user)
         .select_related("requested_by")
         .prefetch_related("offers__owner", "offers__chat")
         .order_by("-created_at")
     )
+
+    auto_open_chat_id: str | None = None
+    requested_chat = request.GET.get("open_chat")
+    if requested_chat:
+        try:
+            requested_chat_id = int(requested_chat)
+        except (TypeError, ValueError):
+            requested_chat_id = None
+        if requested_chat_id:
+            exists = BlueprintCopyChat.objects.filter(
+                id=requested_chat_id, buyer=request.user
+            ).exists()
+            if exists:
+                auto_open_chat_id = str(requested_chat_id)
 
     status_meta = {
         "open": {
@@ -4311,7 +4726,18 @@ def bp_copy_my_requests(request):
             reverse=True,
         ),
         "metrics": metrics,
+        "active_filter": "all",
     }
+    valid_filters = {"all", *status_meta.keys()}
+    if active_filter not in valid_filters:
+        active_filter = "all"
+    context["active_filter"] = active_filter
+    if active_filter != "all":
+        context["my_requests"] = [
+            req for req in active_requests if req.get("status_key") == active_filter
+        ]
+    if auto_open_chat_id:
+        context["auto_open_chat_id"] = auto_open_chat_id
     context.update(build_nav_context(request.user, active_tab="blueprint_sharing"))
 
     return render(
@@ -4753,7 +5179,7 @@ def production_simulations_list(request):
     page_number = request.GET.get("page")
     page_obj = paginator.get_page(page_number)
 
-    # --- Add a type_id -> EVE group mapping for Craft_BP.html ---
+    # --- Add a type_id -> EVE group mapping for Craft_BP_v2.html ---
     # Collect every type_id used across the user's simulations
     type_ids = set()
     for sim in simulations:

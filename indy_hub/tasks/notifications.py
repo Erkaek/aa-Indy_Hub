@@ -12,10 +12,16 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 # Indy Hub
-from ..models import CharacterSettings, IndustryJob, JobNotificationDigestEntry
+from ..models import (
+    CharacterSettings,
+    CorporationSharingSetting,
+    IndustryJob,
+    JobNotificationDigestEntry,
+)
 from ..notifications import build_site_url, notify_user
 from ..utils.job_notifications import (
     build_digest_notification_body,
+    compute_next_digest_at,
     process_job_completion_notification,
 )
 
@@ -49,11 +55,29 @@ def dispatch_job_notification_digests() -> dict[str, int]:
 
     jobs_url = build_site_url(reverse("indy_hub:personnal_job_list"))
 
+    corp_eligible_settings = (
+        CorporationSharingSetting.objects.select_related("user")
+        .filter(
+            corp_jobs_notify_frequency__in=[
+                CharacterSettings.NOTIFY_DAILY,
+                CharacterSettings.NOTIFY_WEEKLY,
+                CharacterSettings.NOTIFY_MONTHLY,
+                CharacterSettings.NOTIFY_CUSTOM,
+            ],
+            corp_jobs_next_digest_at__isnull=False,
+            corp_jobs_next_digest_at__lte=now,
+        )
+        .order_by("user__id", "corporation_id")
+    )
+
+    corp_jobs_url = build_site_url(reverse("indy_hub:corporation_job_list"))
+
     for settings in eligible_settings:
         user = settings.user
         pending_entries = list(
             JobNotificationDigestEntry.objects.filter(
                 user=user,
+                scope=JobNotificationDigestEntry.SCOPE_PERSONAL,
                 sent_at__isnull=True,
             ).order_by("created_at")
         )
@@ -114,6 +138,98 @@ def dispatch_job_notification_digests() -> dict[str, int]:
         settings.schedule_next_digest(reference=sent_at)
         settings.save(
             update_fields=["jobs_last_digest_at", "jobs_next_digest_at", "updated_at"]
+        )
+        processed += 1
+
+    for corp_setting in corp_eligible_settings:
+        user = corp_setting.user
+        if not user.has_perm("indy_hub.can_manage_corp_bp_requests"):
+            corp_setting.corp_jobs_next_digest_at = None
+            corp_setting.save(update_fields=["corp_jobs_next_digest_at", "updated_at"])
+            skipped += 1
+            continue
+
+        pending_entries = list(
+            JobNotificationDigestEntry.objects.filter(
+                user=user,
+                scope=JobNotificationDigestEntry.SCOPE_CORPORATION,
+                corporation_id=corp_setting.corporation_id,
+                sent_at__isnull=True,
+            ).order_by("created_at")
+        )
+
+        if not pending_entries:
+            corp_setting.corp_jobs_next_digest_at = compute_next_digest_at(
+                frequency=corp_setting.corp_jobs_notify_frequency,
+                custom_days=corp_setting.corp_jobs_notify_custom_days,
+                reference=now,
+            )
+            corp_setting.save(update_fields=["corp_jobs_next_digest_at", "updated_at"])
+            skipped += 1
+            continue
+
+        payload_rows = [entry.payload or {} for entry in pending_entries]
+        if not payload_rows:
+            logger.debug("No payload data for user %s corp digest", user)
+            corp_setting.corp_jobs_next_digest_at = compute_next_digest_at(
+                frequency=corp_setting.corp_jobs_notify_frequency,
+                custom_days=corp_setting.corp_jobs_notify_custom_days,
+                reference=now,
+            )
+            corp_setting.save(update_fields=["corp_jobs_next_digest_at", "updated_at"])
+            skipped += 1
+            continue
+
+        visible_rows = payload_rows[:10]
+        try:
+            title, body, thumbnail_url = build_digest_notification_body(visible_rows)
+        except ValueError:
+            title = _("Corporation jobs summary")
+            body = _(
+                "Jobs were completed, but no details were captured for this digest."
+            )
+            thumbnail_url = None
+
+        remaining_count = len(payload_rows) - len(visible_rows)
+        if remaining_count > 0:
+            body = f"{body}\n• +{remaining_count} more completion(s)"
+
+        try:
+            notify_user(
+                user,
+                title,
+                body,
+                level="info",
+                link=corp_jobs_url,
+                link_label=_("Open corporation jobs"),
+                thumbnail_url=thumbnail_url,
+            )
+        except Exception:  # pragma: no cover - defensive fallback
+            logger.error(
+                "Failed to send corp digest notification for user %s",
+                getattr(user, "username", user),
+                exc_info=True,
+            )
+            skipped += 1
+            continue
+
+        sent_at = timezone.now()
+        for entry in pending_entries:
+            entry.mark_sent()
+            entry.save(update_fields=["sent_at", "updated_at"])
+
+        corp_setting.corp_jobs_last_digest_at = sent_at
+        corp_setting.corp_jobs_next_digest_at = compute_next_digest_at(
+            frequency=corp_setting.corp_jobs_notify_frequency,
+            custom_days=corp_setting.corp_jobs_notify_custom_days,
+            reference=sent_at,
+        )
+        corp_setting.save(
+            update_fields=[
+                "corp_jobs_last_digest_at",
+                "corp_jobs_next_digest_at",
+                "updated_at",
+            ]
         )
         processed += 1
 

@@ -605,14 +605,6 @@ html[data-theme="darkly"] .btn.btn-outline-info.btn-sm:focus {
     border: 1px solid var(--bp-badge-border);
 }
 
-@media (prefers-color-scheme: dark) {
-    .runs-badge {
-        --bp-badge-bg: rgba(var(--bs-secondary-rgb), 0.18);
-        --bp-badge-color: rgba(var(--bs-light-rgb), 0.9);
-        --bp-badge-border: rgba(var(--bs-secondary-rgb), 0.35);
-    }
-}
-
 html[data-theme="darkly"] .runs-badge {
     background: rgba(var(--bs-secondary-rgb), 0.18) !important;
     color: rgba(var(--bs-light-rgb), 0.9) !important;
@@ -828,11 +820,6 @@ html[data-theme="darkly"] .runs-badge {
 .nav-padding:has(.bp-request-surface) .bp-request-surface {
     flex: 1 1 auto;
     min-height: calc(100vh - var(--aa-nav-gap, 0px));
-}
-
-body:has(.bp-request-surface) {
-    background: var(--bs-body-bg);
-    overflow: hidden;
 }
 
 

@@ -4,7 +4,7 @@
 <ul class="list-unstyled ms-{{ level|add:1 }}">
     {% for mat in materials %}
     <li>
-        <details class="mb-2" {% if level == 0 %}open{% endif %}>
+        <details class="mb-2">
             <summary class="d-flex align-items-center gap-2 py-1" data-type-id="{{ mat.type_id }}" data-type-name="{{ mat.type_name }}" data-qty="{{ mat.quantity }}" data-tree-id="{{ mat.type_id }}">
                 {% if mat.sub_materials and mat.sub_materials|length > 0 %}
                 <span class="summary-icon"><i class="fas fa-caret-right"></i></span>

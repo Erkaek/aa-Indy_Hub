@@ -7,674 +7,281 @@
 
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
-<link rel="stylesheet" href="{% static 'indy_hub/css/blueprints.css' %}">
+<link rel="stylesheet" href="{% static 'indy_hub/css/bp_copy_list.css' %}">
 <link rel="stylesheet" href="{% static 'indy_hub/css/chat.css' %}">
 {% endblock %}
 
 {% block content %}
-<main class="bp-request-surface bg-body" data-auto-open-chat="{{ auto_open_chat_id|default_if_none:'' }}">
-    <div class="container-fluid my-4">
-        <section class="page-header bp-request-hero mb-4 position-relative overflow-hidden">
-            <i class="fas fa-handshake header-bg"></i>
-            <div class="bp-request-hero__content position-relative">
-                <div class="row g-4 align-items-center">
-                    <div class="col-lg-8">
-                        <div class="d-flex align-items-start gap-3">
-                            <span class="bp-request-hero__icon flex-shrink-0">
-                                <i class="fas fa-handshake"></i>
-                            </span>
-                            <div>
-                                <h1 class="bp-request-hero__title display-6 fw-bold text-white mb-2">
-                                    {% trans "Fulfill copy requests" %}
-                                </h1>
-                                <p class="bp-request-hero__subtitle text-white-50 mb-0">
-                                    {% trans "Review outstanding asks, respond with offers, and close the loop once the copies are delivered." %}
-                                </p>
-                            </div>
-                        </div>
+<div class="container-fluid py-4">
+    <div data-auto-open-chat="{{ auto_open_chat_id|default:'' }}"></div>
+    {# Page Header #}
+    <div class="page-header mb-4">
+        <i class="fas fa-handshake header-bg"></i>
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+            <div>
+                <h2 class="h3 mb-1">
+                    <i class="fas fa-handshake me-2"></i>
+                    {% trans "Fulfill Copy Requests" %}
+                </h2>
+                <p class="description mb-0">{% trans "Review outstanding requests, respond with offers, and manage deliveries." %}</p>
+            </div>
+            <a href="{% url 'indy_hub:index' %}" class="btn btn-outline-light">
+                <i class="fas fa-arrow-left me-1"></i>{% trans "Back to Overview" %}
+            </a>
+        </div>
+    </div>
+
+    {% if has_requests %}
+    {# Metric Tiles #}
+    <div class="row g-3 mb-4">
+        <div class="col-md-6">
+            <a href="?status=all" class="metric-tile-link">
+                <div class="metric-tile bg-gradient-primary">
+                    <div>
+                        <p class="label text-primary mb-1">
+                            <i class="fas fa-inbox me-2"></i>{% trans "Total Requests" %}
+                        </p>
+                        <div class="metric-value text-primary">{{ metrics.total|default:0 }}</div>
                     </div>
-                    <div class="col-lg-4">
-                        <div class="bp-request-hero__metrics d-flex flex-column align-items-end gap-3">
-                            <a href="{% url 'indy_hub:index' %}" class="btn btn-outline-light align-self-end">
-                                <i class="fas fa-arrow-left me-1"></i>{% trans "Back to Overview" %}
-                            </a>
-                            <div class="bp-request-hero__metric">
-                                <span class="bp-request-hero__metric-label">{% trans "Active requests" %}</span>
-                                <span class="bp-request-hero__metric-value">{{ metrics.total|default:0 }}</span>
+                    <div class="metric-icon text-primary">
+                        <i class="fas fa-list"></i>
+                    </div>
+                </div>
+            </a>
+        </div>
+        <div class="col-md-6">
+            <a href="?status=awaiting_response" class="metric-tile-link">
+                <div class="metric-tile bg-gradient-warning">
+                    <div>
+                        <p class="label text-warning mb-1">
+                            <i class="fas fa-bell me-2"></i>{% trans "Awaiting Response" %}
+                        </p>
+                        <div class="metric-value text-warning">{{ metrics.awaiting_response|default:0 }}</div>
+                    </div>
+                    <div class="metric-icon text-warning">
+                        <i class="fas fa-clock"></i>
+                    </div>
+                </div>
+            </a>
+        </div>
+        <div class="col-md-6">
+            <a href="?status=waiting_on_buyer" class="metric-tile-link">
+                <div class="metric-tile bg-gradient-info">
+                    <div>
+                        <p class="label text-info mb-1">
+                            <i class="fas fa-hourglass-half me-2"></i>{% trans "Waiting on Buyer" %}
+                        </p>
+                        <div class="metric-value text-info">{{ metrics.waiting_on_buyer|default:0 }}</div>
+                    </div>
+                    <div class="metric-icon text-info">
+                        <i class="fas fa-hourglass"></i>
+                    </div>
+                </div>
+            </a>
+        </div>
+        <div class="col-md-6">
+            <a href="?status=ready_to_deliver" class="metric-tile-link">
+                <div class="metric-tile bg-gradient-success">
+                    <div>
+                        <p class="label text-success mb-1">
+                            <i class="fas fa-check-circle me-2"></i>{% trans "Ready to Deliver" %}
+                        </p>
+                        <div class="metric-value text-success">{{ metrics.ready_to_deliver|default:0 }}</div>
+                    </div>
+                    <div class="metric-icon text-success">
+                        <i class="fas fa-truck"></i>
+                    </div>
+                </div>
+            </a>
+        </div>
+    </div>
+
+    {# Filters #}
+    <form method="get" class="d-flex flex-wrap align-items-end gap-2 mb-3">
+        <div>
+            <label for="bp-copy-filter-status" class="form-label small text-muted mb-1">{% trans "Display" %}</label>
+            <select id="bp-copy-filter-status" name="status" class="form-select form-select-sm" onchange="this.form.submit()">
+                <option value="all" {% if active_filter == 'all' %}selected{% endif %}>{% trans "All" %}</option>
+                <option value="awaiting_response" {% if active_filter == 'awaiting_response' %}selected{% endif %}>{% trans "Awaiting response" %}</option>
+                <option value="waiting_on_buyer" {% if active_filter == 'waiting_on_buyer' %}selected{% endif %}>{% trans "Waiting on buyer" %}</option>
+                <option value="waiting_on_you" {% if active_filter == 'waiting_on_you' %}selected{% endif %}>{% trans "Waiting on you" %}</option>
+                <option value="ready_to_deliver" {% if active_filter == 'ready_to_deliver' %}selected{% endif %}>{% trans "Ready to deliver" %}</option>
+                <option value="offer_rejected" {% if active_filter == 'offer_rejected' %}selected{% endif %}>{% trans "Offer rejected" %}</option>
+                <option value="self_request" {% if active_filter == 'self_request' %}selected{% endif %}>{% trans "My tracked requests" %}</option>
+            </select>
+        </div>
+        <div class="form-check ms-1">
+            <input class="form-check-input" type="checkbox" id="bp-copy-filter-self" name="include_self" value="1" {% if include_self_requests %}checked{% endif %} onchange="this.form.submit()">
+            <label class="form-check-label small" for="bp-copy-filter-self">{% trans "Include my own requests" %}</label>
+        </div>
+    </form>
+
+    {# Requests Table #}
+    <div class="requests-panel requests-panel--fulfill">
+        <div class="requests-head d-none d-lg-grid">
+            <span>{% trans "Blueprint" %}</span>
+            <span>{% trans "Requester" %}</span>
+            <span>{% trans "Details" %}</span>
+            <span>{% trans "Status" %}</span>
+            <span class="text-end">{% trans "Action" %}</span>
+        </div>
+
+        {% if not requests %}
+        <div class="p-4 text-center text-muted">
+            <i class="fas fa-filter me-1"></i>{% trans "No requests match this filter." %}
+        </div>
+        {% endif %}
+
+        {% for req in requests %}
+        <div class="request-row">
+            {# Blueprint Type #}
+            <div class="request-blueprint">
+                <div class="d-flex align-items-center gap-2">
+                    <img
+                        src="{{ req.icon_url }}"
+                        alt="{{ req.type_name }}"
+                        loading="lazy"
+                        class="request-blueprint__icon"
+                        onerror="this.onerror=null;this.src='https://images.evetech.net/types/{{ req.type_id }}/icon?size=32'"
+                    >
+                    <div>
+                        <div class="fw-600">{{ req.type_name }}</div>
+                        {% if req.personal_source_names or req.corporation_names %}
+                        <div class="bp-owner">
+                            {% if req.personal_source_names %}
+                            <div class="bp-owner-row">
+                                <small class="bp-owner-label">
+                                    <i class="fas fa-user me-1"></i>{% trans "Personal owner" %}:
+                                </small>
+                                {% for name in req.personal_source_names %}
+                                <span class="spec-badge bp-owner-badge">{{ name }}</span>
+                                {% endfor %}
                             </div>
-                            <div class="bp-request-hero__metric">
-                                <span class="bp-request-hero__metric-label">{% trans "Awaiting your action" %}</span>
-                                <span class="bp-request-hero__metric-value">{{ metrics.awaiting_response|default:0 }}</span>
+                            {% endif %}
+                            {% if req.corporation_names %}
+                            <div class="bp-owner-row">
+                                <small class="bp-owner-label">
+                                    <i class="fas fa-building me-1"></i>{% trans "Corp owner" %}:
+                                </small>
+                                {% for name in req.corporation_names %}
+                                <span class="spec-badge bp-owner-badge">{{ name }}</span>
+                                {% endfor %}
                             </div>
+                            {% endif %}
                         </div>
+                        {% endif %}
+                        <div class="bp-params">
+                            <span class="spec-badge spec-badge--green spec-badge--compact">
+                                <i class="fas fa-industry"></i> ME {{ req.material_efficiency }}
+                            </span>
+                            <span class="spec-badge spec-badge--green spec-badge--compact">
+                                <i class="fas fa-stopwatch"></i> TE {{ req.time_efficiency }}
+                            </span>
                         </div>
+                        <small class="text-muted">
+                            <i class="far fa-clock me-1"></i>{{ req.created_at|naturaltime }}
+                        </small>
                     </div>
                 </div>
             </div>
-        </section>
 
-        <section class="glass-panel mb-4 p-4">
-            <div class="d-flex flex-column flex-lg-row align-items-start align-items-lg-center justify-content-between gap-3 mb-3">
-                <div>
-                    <h2 class="h5 mb-1 d-flex align-items-center gap-2">
-                        <i class="fas fa-route text-primary"></i>{% trans "Fulfillment playbook" %}
-                    </h2>
-                    <p class="text-muted small mb-0">{% trans "Stay on top of requests, respond clearly, and close the loop with delivery confirmations." %}</p>
+            {# Requester #}
+            <div class="request-requester">
+                <div class="fw-600">{{ req.requester_character|default:req.requester }}</div>
+                {% if req.requester_corporation %}
+                <small class="text-muted">
+                    {{ req.requester_corporation }}{% if req.requester_corporation_ticker %} [{{ req.requester_corporation_ticker }}]{% endif %}
+                </small>
+                {% endif %}
+            </div>
+
+            {# Details: Copies/Runs/ME/TE #}
+            <div class="request-specs">
+                <div class="spec-block">
+                    <small class="spec-caption">{% trans "Order" %}</small>
+                    <div class="spec-group">
+                        <span class="spec-badge spec-badge--blue">
+                            <i class="fas fa-clone"></i> {{ req.copies_requested }} {% trans "copies" %}
+                        </span>
+                        <span class="spec-badge spec-badge--blue">
+                            <i class="fas fa-cogs"></i> {{ req.runs_requested }} {% trans "runs" %}
+                        </span>
+                    </div>
                 </div>
-                <div class="ms-lg-auto d-flex align-items-center gap-3">
-                    <form method="get" class="d-inline-flex align-items-center gap-2">
-                        <div class="form-check form-switch m-0">
-                            <input
-                                class="form-check-input"
-                                type="checkbox"
-                                role="switch"
-                                id="includeSelfToggle"
-                                name="include_self"
-                                value="1"
-                                {% if include_self_requests %}checked{% endif %}
-                                onchange="this.form.submit()"
-                            >
-                            <label class="form-check-label small text-nowrap" for="includeSelfToggle">
-                                <i class="fas fa-eye me-1"></i>{% trans "Show my requests" %}
-                            </label>
-                        </div>
+            </div>
+
+            {# Status #}
+            <div class="request-status">
+                <span class="status-chip {{ req.status_class }}">{{ req.status_label }}</span>
+                {% if req.status_hint %}
+                <small class="text-muted d-block mt-1">{{ req.status_hint }}</small>
+                {% endif %}
+            </div>
+
+            {# Actions #}
+            <div class="request-actions text-end">
+                <div class="btn-group btn-group-sm" role="group">
+                    {% if req.show_offer_actions %}
+                    <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}" class="d-inline">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="accept">
+                        <button type="submit" class="btn btn-sm bp-action bp-action--accept-free">
+                            <i class="fas fa-gift me-1"></i>{% trans "Accept for free" %}
+                        </button>
                     </form>
+                    <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}" class="d-inline">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="reject">
+                        <button type="submit" class="btn btn-sm bp-action bp-action--decline" onclick="return confirm('{% trans "Decline this request?" %}')">
+                            <i class="fas fa-times me-1"></i>{% trans "Decline" %}
+                        </button>
+                    </form>
+                    <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}" class="d-inline">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="conditional">
+                        <button type="submit" class="btn btn-sm bp-action bp-action--conditions">
+                            <i class="fas fa-file-signature me-1"></i>{% trans "Accept with conditions" %}
+                        </button>
+                    </form>
+                    {% endif %}
+                    {% if req.can_mark_delivered %}
+                    <form method="post" action="{% url 'indy_hub:bp_mark_copy_delivered' req.id %}" class="d-inline">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-sm btn-outline-success" onclick="return confirm('{% trans "Mark this request as delivered?" %}')">
+                            <i class="fas fa-truck me-1"></i>{% trans "Delivered" %}
+                        </button>
+                    </form>
+                    {% endif %}
+                    {% if req.chat %}
                     <button
                         type="button"
-                        class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-2 collapse-toggle"
-                        data-bs-toggle="collapse"
-                        data-bs-target="#fulfil-playbook-body"
-                        aria-expanded="true"
-                        aria-controls="fulfil-playbook-body"
-                        data-collapse-label-expanded="{% trans 'Hide playbook' %}"
-                        data-collapse-label-collapsed="{% trans 'Show playbook' %}"
-                        data-collapse-icon-expanded="fa-eye-slash"
-                        data-collapse-icon-collapsed="fa-eye"
-                        data-collapse-storage-key="indyHub.fulfill.playbook"
+                        class="btn btn-sm btn-outline-secondary bp-chat-trigger bp-action bp-action--chat"
+                        data-chat-fetch-url="{{ req.chat.fetch_url }}"
+                        data-chat-send-url="{{ req.chat.send_url }}"
+                        data-chat-role="seller"
+                        data-chat-type-name="{{ req.type_name }}"
+                        data-chat-type-id="{{ req.type_id }}"
+                        data-chat-id="{{ req.chat.id }}"
                     >
-                        <i class="fas fa-eye-slash"></i>
-                        <span class="collapse-toggle__label">{% trans "Hide playbook" %}</span>
+                        <i class="fas fa-comments me-1"></i>{% trans "Open chat" %}
                     </button>
-                </div>
-            </div>
-            <div id="fulfil-playbook-body" class="collapse show">
-                <div class="row g-3">
-                <div class="col-md-4">
-                    <div class="card h-100 shadow-sm border-0">
-                        <div class="card-body">
-                            <div class="d-flex align-items-center gap-3 mb-2">
-                                <span class="badge bg-primary text-white rounded-circle px-2 py-1">1</span>
-                                <h3 class="h6 mb-0">{% trans "Review matching asks" %}</h3>
-                            </div>
-                            <p class="text-muted small mb-0">{% trans "Check availability hints and your queue metrics to prioritise the requests you can accept." %}</p>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="card h-100 shadow-sm border-0">
-                        <div class="card-body">
-                            <div class="d-flex align-items-center gap-3 mb-2">
-                                <span class="badge bg-primary text-white rounded-circle px-2 py-1">2</span>
-                                <h3 class="h6 mb-0">{% trans "Respond with clarity" %}</h3>
-                            </div>
-                            <p class="text-muted small mb-0">{% trans "Accept, reject, or share conditions so the requester knows exactly what to expect." %}</p>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="card h-100 shadow-sm border-0">
-                        <div class="card-body">
-                            <div class="d-flex align-items-center gap-3 mb-2">
-                                <span class="badge bg-primary text-white rounded-circle px-2 py-1">3</span>
-                                <h3 class="h6 mb-0">{% trans "Deliver and update" %}</h3>
-                            </div>
-                            <p class="text-muted small mb-0">{% trans "Finish the contract in game, then mark it delivered here so the request closes automatically." %}</p>
-                        </div>
-                    </div>
-                </div>
-                </div>
-            </div>
-        </section>
-
-        {% if requests %}
-        <section class="row g-3 mb-4 bp-metrics-row">
-            <div class="col-md-3">
-                <div class="glass-panel h-100 p-3">
-                    <div class="d-flex align-items-center gap-3">
-                        <span class="badge rounded-pill bg-primary-subtle text-primary px-3 py-2 fw-semibold">{{ metrics.total|default:0 }}</span>
-                        <div class="small text-muted">
-                            <strong class="d-block">{% trans "Active requests" %}</strong>
-                            {% trans "Total matching your shared originals." %}
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="glass-panel h-100 p-3">
-                    <div class="d-flex align-items-center gap-3">
-                        <span class="badge rounded-pill bg-warning-subtle text-warning px-3 py-2 fw-semibold">{{ metrics.awaiting_response|default:0 }}</span>
-                        <div class="small text-muted">
-                            <strong class="d-block">{% trans "Needs response" %}</strong>
-                            {% trans "Accept, reject, or counter with conditions." %}
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="glass-panel h-100 p-3">
-                    <div class="d-flex align-items-center gap-3">
-                        <span class="badge rounded-pill bg-info-subtle text-info px-3 py-2 fw-semibold">{{ metrics.waiting_on_buyer|default:0 }}</span>
-                        <div class="small text-muted">
-                            <strong class="d-block">{% trans "Waiting on buyer" %}</strong>
-                            {% trans "Your conditional offer is pending their decision." %}
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="glass-panel h-100 p-3">
-                    <div class="d-flex align-items-center gap-3">
-                        <span class="badge rounded-pill bg-success-subtle text-success px-3 py-2 fw-semibold">{{ metrics.ready_to_deliver|default:0 }}</span>
-                        <div class="small text-muted">
-                            <strong class="d-block">{% trans "Ready to deliver" %}</strong>
-                            {% trans "Buyer accepted—hand over the copies." %}
-                        </div>
-                    </div>
-                </div>
-            </div>
-            </section>
-
-        <section class="bp-request-grid">
-            {% for req in requests %}
-            <article class="card h-100 shadow-sm request-card" data-request-id="{{ req.id }}">
-                <div class="card-body bp-request-card__layout">
-                    <div class="bp-request-card__primary">
-                        <div class="bp-request-card__top">
-                            <div class="bp-request-card__identity">
-                                <span class="bp-request-card__avatar">
-                                    <img
-                                        src="{{ req.icon_url }}"
-                                        alt="{{ req.type_name }}"
-                                        loading="lazy"
-                                        onerror="this.onerror=null;this.src='https://images.evetech.net/types/{{ req.type_id }}/icon?size=64'"
-                                    >
-                                </span>
-                                <div class="bp-request-card__identity-body">
-                                    <h2 class="h5 mb-1 bp-request-card__title text-break" title="{{ req.type_name }}">{{ req.type_name }}</h2>
-                                    <div class="bp-request-card__identity-meta text-muted small">
-                                        <i class="fas fa-clock me-1"></i>
-                                        <time datetime="{{ req.created_at|date:'c' }}" title="{{ req.created_at|date:'Y-m-d H:i' }}">{{ req.created_at|naturaltime }}</time>
-                                    </div>
-                                </div>
-                            </div>
-                            <span class="badge bp-request-card__status {{ req.status_class }} fw-semibold text-uppercase px-3 py-2">
-                                {{ req.status_label }}
-                            </span>
-                        </div>
-
-                        <div class="bp-request-card__meta-grid">
-                            <div class="bp-request-card__meta-entry">
-                                <span class="bp-request-card__meta-label text-uppercase small fw-semibold text-secondary">
-                                    <i class="fas fa-user-astronaut me-1"></i>{% trans "Requester" %}
-                                </span>
-                                <div class="bp-request-card__meta-value">
-                                    <span class="bp-request-card__requester-name">{{ req.requester_character|default:req.requester }}</span>
-                                    {% with corp_label=req.requester_corporation_ticker|default:req.requester_corporation %}
-                                    {% if corp_label %}
-                                    <span class="bp-request-card__requester-corp text-muted">({{ corp_label }})</span>
-                                    {% endif %}
-                                    {% endwith %}
-                                    {% if req.requester_character %}
-                                    <button
-                                        type="button"
-                                        class="bp-request-card__copy-button"
-                                        data-copy-value="{{ req.requester_character }}"
-                                        data-copy-success-label="{% trans "Copied" %}!"
-                                        data-copy-error-label="{% trans "Copy failed" %}"
-                                        aria-label="{% blocktrans trimmed with name=req.requester_character %}Copy {{ name }}{% endblocktrans %}"
-                                    >
-                                        <i class="fas fa-copy"></i>
-                                    </button>
-                                    {% endif %}
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="bp-request-card__metrics-panel" role="group" aria-label="{% trans 'Blueprint copy request details' %}">
-                            <ul class="bp-request-card__metrics">
-                                <li class="bp-request-card__metric bp-request-card__metric--copies">
-                                    <span class="bp-request-card__metric-label">
-                                        <i class="fas fa-clone"></i>{% trans "Copies" %}
-                                    </span>
-                                    <span class="bp-request-card__metric-value">{{ req.copies_requested|default_if_none:"—" }}</span>
-                                </li>
-                                <li class="bp-request-card__metric bp-request-card__metric--runs">
-                                    <span class="bp-request-card__metric-label">
-                                        <i class="fas fa-cogs"></i>{% trans "Runs" %}
-                                    </span>
-                                    <span class="bp-request-card__metric-value">{{ req.runs_requested|default_if_none:"—" }}</span>
-                                </li>
-                                <li class="bp-request-card__metric bp-request-card__metric--me">
-                                    <span class="bp-request-card__metric-label">
-                                        <i class="fas fa-industry"></i>{% trans "Material efficiency" %}
-                                    </span>
-                                    <span class="bp-request-card__metric-value">{{ req.material_efficiency }}</span>
-                                </li>
-                                <li class="bp-request-card__metric bp-request-card__metric--te">
-                                    <span class="bp-request-card__metric-label">
-                                        <i class="fas fa-stopwatch"></i>{% trans "Time efficiency" %}
-                                    </span>
-                                    <span class="bp-request-card__metric-value">{{ req.time_efficiency }}</span>
-                                </li>
-                                {% if req.personal_source_names or req.corporation_names %}
-                                <li class="bp-request-card__metric bp-request-card__metric--corp">
-                                    <span class="bp-request-card__metric-label">
-                                        <i class="fas fa-warehouse"></i>{% trans "BP Owner" %}
-                                    </span>
-                                    <div class="bp-request-card__metric-value bp-request-card__metric-value--list">
-                                        <ul class="bp-request-card__access-list">
-                                            {% if req.personal_source_names %}
-                                            <li class="bp-request-card__access-item">
-                                                <i class="fas fa-user-astronaut text-primary"></i>
-                                                <div class="bp-request-card__access-body">
-                                                    <span class="bp-request-card__access-label">
-                                                        {% blocktrans trimmed count count=req.personal_source_names|length %}
-                                                            Your char
-                                                        {% plural %}
-                                                            Your characters
-                                                        {% endblocktrans %}
-                                                    </span>
-                                                    <span class="bp-request-card__access-names">{{ req.personal_source_names|join:", " }}</span>
-                                                </div>
-                                            </li>
-                                            {% endif %}
-                                            {% if req.corporation_names %}
-                                            <li class="bp-request-card__access-item">
-                                                <i class="fas fa-building text-info"></i>
-                                                <div class="bp-request-card__access-body">
-                                                    <span class="bp-request-card__access-label">
-                                                        {% blocktrans trimmed count count=req.corporation_names|length %}
-                                                            Corp
-                                                        {% plural %}
-                                                            Corps
-                                                        {% endblocktrans %}
-                                                    </span>
-                                                    <span class="bp-request-card__access-names">
-                                                        {% if req.corporation_tickers %}
-                                                            {{ req.corporation_tickers|join:", " }}
-                                                        {% else %}
-                                                            {{ req.corporation_names|join:", " }}
-                                                        {% endif %}
-                                                    </span>
-                                                </div>
-                                            </li>
-                                            {% endif %}
-                                        </ul>
-                                    </div>
-                                </li>
-                                {% endif %}
-                            </ul>
-                        </div>
-                    </div>
-
-                    <div class="bp-request-card__secondary">
-                        <p class="bp-request-card__status-hint text-muted small mb-0">{{ req.status_hint }}</p>
-                        {% if req.is_self_request %}
-                        <div class="alert alert-secondary d-flex align-items-center gap-2 py-2 px-3 mb-3">
-                            <i class="fas fa-eye"></i>
-                            <span class="small">{% trans "Simulation mode: you can view your own request here, but actions are disabled." %}</span>
-                        </div>
-                        {% endif %}
-
-                        {% if req.all_copies_busy %}
-                        <div class="alert bg-danger border-danger text-white py-2 px-3 small mb-0">
-                            <i class="fas fa-stopwatch me-1"></i>
-                            {% if req.busy_until %}
-                                {% if req.busy_overdue %}
-                                    {% blocktrans trimmed with busy=req.busy_until|naturaltime %}
-                                    The latest copy job finished {{ busy }}, but it's still marked active in game. Deliver it to free this original.
-                                    {% endblocktrans %}
-                                {% else %}
-                                    {% blocktrans trimmed with busy=req.busy_until|naturaltime %}
-                                    All matching originals are busy. Next copy slot frees {{ busy }}.
-                                    {% endblocktrans %}
-                                {% endif %}
-                                <span class="d-block text-muted fw-semibold mt-1">{{ req.busy_until|date:"Y-m-d H:i" }} {% trans "EVE time" %}</span>
-                            {% else %}
-                                {% trans "All matching originals are currently running copy jobs." %}
-                            {% endif %}
-                        </div>
-                        {% endif %}
-
-                        {% if req.my_offer_status and req.status_key != 'waiting_on_buyer' %}
-                        <div class="alert alert-light border d-flex flex-column gap-1 mb-0">
-                            <span class="small text-uppercase text-secondary fw-semibold">{% trans "Your latest offer" %}</span>
-                            <div class="d-flex align-items-center gap-2">
-                                <span class="badge bg-secondary text-white">{{ req.my_offer_status_label }}</span>
-                                {% if req.my_offer_accepted_by_buyer %}
-                                <span class="badge bg-success text-white">{% trans "Buyer accepted" %}</span>
-                                {% endif %}
-                                {% if req.my_offer_accepted_by_seller and not req.my_offer_accepted_by_buyer %}
-                                <span class="badge bg-warning text-dark">{% trans "Waiting on buyer" %}</span>
-                                {% endif %}
-                            </div>
-                            {% if req.my_offer_message %}
-                            <p class="mb-0 small text-muted">“{{ req.my_offer_message }}”</p>
-                            {% endif %}
-                        </div>
-                        {% endif %}
-
-                        {% if req.handshake %}
-                            {% if req.handshake.state == 'waiting_on_you' %}
-                            <div class="alert alert-warning mb-0">
-                                <i class="fas fa-hourglass-half me-1"></i>{% trans "The buyer accepted your terms. Confirm in chat to finalise the agreement." %}
-                            </div>
-                            {% elif req.handshake.state == 'waiting_on_buyer' and req.show_offer_actions %}
-                            <div class="alert alert-info mb-0 d-flex flex-wrap align-items-center gap-2">
-                                <span>
-                                    <i class="fas fa-user-clock me-1"></i>{% trans "Waiting for the buyer to accept your conditions." %}
-                                </span>
-                                {% if req.chat %}
-                                <button
-                                    type="button"
-                                    class="bp-btn bp-chat-pill btn-sm bp-chat-trigger"
-                                    data-chat-fetch-url="{{ req.chat.fetch_url }}"
-                                    data-chat-send-url="{{ req.chat.send_url }}"
-                                    data-chat-role="seller"
-                                    data-chat-type-name="{{ req.type_name }}"
-                                    data-chat-type-id="{{ req.type_id }}"
-                                    data-chat-has-unread="{{ req.chat.has_unread|yesno:'true,false' }}"
-                                    data-chat-id="{{ req.chat.id }}"
-                                    aria-haspopup="dialog"
-                                >
-                                    <i class="fas fa-comments"></i>
-                                    <span>{% trans "Open chat" %}</span>
-                                    {% if req.chat.has_unread %}
-                                    <span class="bp-chat-trigger__badge" aria-hidden="true">
-                                        <i class="fas fa-circle-dot"></i>
-                                    </span>
-                                    {% endif %}
-                                </button>
-                                {% endif %}
-                            </div>
-                            {% elif req.handshake.state == 'ready_to_deliver' %}
-                            <div class="alert alert-success mb-0">
-                                <i class="fas fa-check-circle me-1"></i>{% trans "Both sides confirmed. Proceed with delivery." %}
-                            </div>
-                            {% endif %}
-                        {% endif %}
-
-                        <div class="mt-auto">
-                            {% if req.status_key == 'waiting_on_buyer' and not req.show_offer_actions %}
-                                <div class="alert alert-info w-100 mb-3 d-flex flex-wrap align-items-center gap-2">
-                                    <span>
-                                        <i class="fas fa-info-circle me-1"></i>
-                                        {% trans "Waiting for the requester to respond to your conditions." %}
-                                    </span>
-                                    {% if req.chat %}
-                                    <button
-                                        type="button"
-                                        class="bp-btn bp-chat-pill btn-sm bp-chat-trigger"
-                                        data-chat-fetch-url="{{ req.chat.fetch_url }}"
-                                        data-chat-send-url="{{ req.chat.send_url }}"
-                                        data-chat-role="seller"
-                                        data-chat-type-name="{{ req.type_name }}"
-                                        data-chat-type-id="{{ req.type_id }}"
-                                        data-chat-has-unread="{{ req.chat.has_unread|yesno:'true,false' }}"
-                                        data-chat-id="{{ req.chat.id }}"
-                                        aria-haspopup="dialog"
-                                    >
-                                        <i class="fas fa-comments"></i>
-                                        <span>{% trans "Open chat" %}</span>
-                                        {% if req.chat.has_unread %}
-                                        <span class="bp-chat-trigger__badge" aria-hidden="true">
-                                            <i class="fas fa-circle-dot"></i>
-                                        </span>
-                                        {% endif %}
-                                    </button>
-                                    {% endif %}
-                                </div>
-                                {% include "indy_hub/includes/chat_preview.html" with preview=req.chat_preview %}
-                            {% else %}
-                                {% if req.show_offer_actions or req.can_mark_delivered or req.chat %}
-                                <div class="bp-card-toolbar">
-                                    {% if req.show_offer_actions %}
-                                        {% if req.has_dual_sources %}
-                                            {% with req_id=req.id|stringformat:"s" %}
-                                                {% with scope_script_id="bp-scope-options-"|add:req_id %}
-                                                    {{ req.scope_modal_payload|json_script:scope_script_id }}
-                                                {% endwith %}
-                                            {% endwith %}
-                                            <div class="bp-card-toolbar__group mt-3" role="group" aria-label="{% trans 'Primary decision actions' %}">
-                                                <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}" class="bp-card-toolbar__form" data-scope-form data-request-id="{{ req.id }}">
-                                                    {% csrf_token %}
-                                                    <input type="hidden" name="action" value="accept">
-                                                    <input type="hidden" name="scope" value="{{ req.default_scope }}" data-scope-input data-scope-default="{{ req.default_scope }}" data-request-id="{{ req.id }}">
-                                                    <button
-                                                        type="submit"
-                                                        class="bp-btn bp-btn-soft-success btn-sm"
-                                                        data-scope-trigger
-                                                        data-request-id="{{ req.id }}"
-                                                        data-scope-required="true"
-                                                        data-scope-script-id="bp-scope-options-{{ req.id }}"
-                                                        data-scope-action="accept"
-                                                        data-scope-action-label="{% trans 'Accept for free' %}"
-                                                    >
-                                                        <i class="fas fa-hand-holding-heart"></i>
-                                                        <span>{% trans "Accept for free" %}</span>
-                                                        <span class="badge bg-light text-dark ms-2 d-none" data-scope-display data-request-id="{{ req.id }}"></span>
-                                                    </button>
-                                                </form>
-                                                <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}" class="bp-card-toolbar__form">
-                                                    {% csrf_token %}
-                                                    <input type="hidden" name="action" value="reject">
-                                                    <button type="submit" class="bp-btn bp-btn-soft-danger btn-sm" onclick="return confirm('{% trans "Decline this request?" %}')">
-                                                        <i class="fas fa-ban"></i>
-                                                        <span>{% trans "Decline" %}</span>
-                                                    </button>
-                                                </form>
-                                            </div>
-                                            <div class="bp-card-toolbar__group" role="group" aria-label="{% trans 'Conditional decision actions' %}">
-                                                <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}" class="bp-card-toolbar__form" data-scope-form data-request-id="{{ req.id }}">
-                                                    {% csrf_token %}
-                                                    <input type="hidden" name="action" value="conditional">
-                                                    <input type="hidden" name="scope" value="{{ req.default_scope }}" data-scope-input data-scope-default="{{ req.default_scope }}" data-request-id="{{ req.id }}">
-                                                    <button
-                                                        type="submit"
-                                                        class="bp-btn bp-btn-soft-info btn-sm"
-                                                        data-scope-trigger
-                                                        data-request-id="{{ req.id }}"
-                                                        data-scope-required="true"
-                                                        data-scope-script-id="bp-scope-options-{{ req.id }}"
-                                                        data-scope-action="conditional"
-                                                        data-scope-action-label="{% trans 'Send conditions' %}"
-                                                        data-scope-open-collapse="{{ req.conditional_collapse_id }}"
-                                                    >
-                                                        <i class="fas fa-comment-dots"></i>
-                                                        <span>{% trans "Send conditions" %}</span>
-                                                        <span class="badge bg-light text-dark ms-2 d-none" data-scope-display data-request-id="{{ req.id }}"></span>
-                                                    </button>
-                                                </form>
-                                            </div>
-                                        {% else %}
-                                            <div class="bp-card-toolbar__group" role="group" aria-label="{% trans 'Primary decision actions' %}">
-                                                <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}" class="bp-card-toolbar__form">
-                                                    {% csrf_token %}
-                                                    <input type="hidden" name="action" value="accept">
-                                                    {% if req.default_scope %}
-                                                    <input type="hidden" name="scope" value="{{ req.default_scope }}">
-                                                    {% endif %}
-                                                    <button type="submit" class="bp-btn bp-btn-soft-success btn-sm">
-                                                        <i class="fas fa-hand-holding-heart"></i>
-                                                        <span>{% trans "Accept for free" %}</span>
-                                                    </button>
-                                                </form>
-                                                <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}" class="bp-card-toolbar__form">
-                                                    {% csrf_token %}
-                                                    <input type="hidden" name="action" value="reject">
-                                                    {% if req.default_scope %}
-                                                    <input type="hidden" name="scope" value="{{ req.default_scope }}">
-                                                    {% endif %}
-                                                    <button type="submit" class="bp-btn bp-btn-soft-danger btn-sm" onclick="return confirm('{% trans "Decline this request?" %}')">
-                                                        <i class="fas fa-ban"></i>
-                                                        <span>{% trans "Decline" %}</span>
-                                                    </button>
-                                                </form>
-                                            </div>
-                                            <div class="bp-card-toolbar__group" role="group" aria-label="{% trans 'Conditional decision actions' %}">
-                                                <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}" class="bp-card-toolbar__form">
-                                                    {% csrf_token %}
-                                                    <input type="hidden" name="action" value="conditional">
-                                                    {% if req.default_scope %}
-                                                    <input type="hidden" name="scope" value="{{ req.default_scope }}">
-                                                    {% endif %}
-                                                    <button
-                                                        type="button"
-                                                        class="bp-btn bp-btn-soft-info btn-sm"
-                                                        data-conditional-toggle
-                                                        data-conditional-target="{{ req.conditional_collapse_id }}"
-                                                        data-request-id="{{ req.id }}"
-                                                    >
-                                                        <i class="fas fa-comment-dots"></i>
-                                                        <span>{% trans "Send conditions" %}</span>
-                                                    </button>
-                                                </form>
-                                            </div>
-                                        {% endif %}
-                                    {% endif %}
-
-                                    {% if req.can_mark_delivered %}
-                                    <div class="bp-card-toolbar__group">
-                                        <form method="post" action="{% url 'indy_hub:bp_mark_copy_delivered' req.id %}" class="bp-card-toolbar__form">
-                                            {% csrf_token %}
-                                            <button type="submit" class="bp-btn bp-btn-soft-primary btn-sm">
-                                                <i class="fas fa-box-check"></i>
-                                                <span>{% trans "Mark as delivered" %}</span>
-                                            </button>
-                                        </form>
-                                    </div>
-                                    {% endif %}
-
-                                    {% if req.chat %}
-                                    <div class="bp-card-toolbar__group bp-card-toolbar__group--stacked bp-card-toolbar__group--push">
-                                        <button
-                                            type="button"
-                                            class="bp-btn bp-chat-pill btn-sm bp-chat-trigger"
-                                            data-chat-fetch-url="{{ req.chat.fetch_url }}"
-                                            data-chat-send-url="{{ req.chat.send_url }}"
-                                            data-chat-role="seller"
-                                            data-chat-type-name="{{ req.type_name }}"
-                                            data-chat-type-id="{{ req.type_id }}"
-                                            data-chat-has-unread="{{ req.chat.has_unread|yesno:'true,false' }}"
-                                            data-chat-id="{{ req.chat.id }}"
-                                            aria-haspopup="dialog"
-                                        >
-                                            <i class="fas fa-comments"></i>
-                                            <span>{% trans "Open chat" %}</span>
-                                            {% if req.chat.has_unread %}
-                                            <span class="bp-chat-trigger__badge" aria-hidden="true">
-                                                <i class="fas fa-circle-dot"></i>
-                                            </span>
-                                            {% endif %}
-                                        </button>
-                                        {% if req.chat.last_message_display %}
-                                        <span class="bp-card-toolbar__timestamp">
-                                            {% blocktrans with timestamp=req.chat.last_message_display %}Last message {{ timestamp }}{% endblocktrans %}
-                                        </span>
-                                        {% endif %}
-                                        {% include "indy_hub/includes/chat_preview.html" with preview=req.chat_preview %}
-                                    </div>
-                                    {% endif %}
-                                </div>
-                                {% endif %}
-
-                                {% if req.show_offer_actions %}
-                                <div class="collapse bp-card-toolbar__collapse" id="{{ req.conditional_collapse_id }}">
-                                    <form method="post" class="bp-card-toolbar__form" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}">
-                                        {% csrf_token %}
-                                        <input type="hidden" name="action" value="conditional">
-                                        <input type="hidden" name="scope" value="{{ req.default_scope }}" data-scope-input data-scope-default="{{ req.default_scope }}" data-request-id="{{ req.id }}">
-                                        <div class="input-group input-group-sm">
-                                            <span class="input-group-text"><i class="fas fa-pen"></i></span>
-                                            <textarea
-                                                name="message"
-                                                class="form-control"
-                                                rows="2"
-                                                placeholder="{% trans 'Describe your terms (amount, price, location...)' %}"
-                                                required
-                                            ></textarea>
-                                            <button type="submit" class="btn btn-primary btn-sm">{% trans "Send" %}</button>
-                                        </div>
-                                    </form>
-                                </div>
-                                {% endif %}
-                            {% endif %}
-                        </div>
-                    </div>
-                </div>
-            </article>
-            {% endfor %}
-        </section>
-
-        {% else %}
-        <section class="bp-request-empty card border-0 shadow-sm">
-            <div class="card-body text-center py-5">
-                <span class="bp-request-empty__icon"><i class="fas fa-smile"></i></span>
-                <h2 class="h4 mt-3">{% trans "You're all caught up" %}</h2>
-                <p class="text-muted small mb-4">
-                    {% if include_self_requests %}
-                        {% trans "There are no copy requests matching your shared originals or your own asks right now." %}
-                    {% else %}
-                        {% trans "There are no copy requests matching your shared originals right now." %}
                     {% endif %}
-                </p>
-                <div class="d-flex justify-content-center gap-2">
-                    <a href="{% url 'indy_hub:bp_copy_request_page' %}" class="btn btn-outline-primary btn-sm">
-                        <i class="fas fa-copy me-1"></i>{% trans "Browse community requests" %}
-                    </a>
-                    {% if not include_self_requests %}
-                    <a href="{% url 'indy_hub:bp_copy_fulfill_requests' %}?include_self=1" class="btn btn-primary btn-sm">
-                        <i class="fas fa-eye me-1"></i>{% trans "Show my requests too" %}
-                    </a>
-                    {% endif %}
-                </div>
-            </div>
-        </section>
-        {% endif %}
-    </div>
-</main>
-{% block indy_hub_global_modals %}
-    {{ block.super }}
-    <div class="modal fade" id="bpScopeSelectModal" tabindex="-1" aria-hidden="true" data-scope-modal>
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h6 class="modal-title mb-0" data-scope-title data-default-title="{% trans 'Select a fulfillment source' %}">{% trans "Select a fulfillment source" %}</h6>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
-                </div>
-                <div class="modal-body">
-                    <p class="text-muted small mb-3" data-scope-helper data-default-helper="{% trans 'Pick the character or corporation that will handle this request.' %}">{% trans "Pick the character or corporation that will handle this request." %}</p>
-                    <div
-                        data-scope-options
-                        data-heading-characters="{% trans 'Characters' %}"
-                        data-heading-corporations="{% trans 'Corporations' %}"
-                        data-label-character="{% trans 'Character' %}"
-                        data-label-corporation="{% trans 'Corporation' %}"
-                        data-badge-you="{% trans 'You' %}"
-                        data-badge-access="{% trans 'Your access' %}"
-                        data-warning-message="{% trans 'Please select an option before continuing.' %}"
-                    ></div>
-                    <div class="alert alert-warning d-none mt-3" role="status" data-scope-warning></div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal" data-scope-cancel>{% trans "Cancel" %}</button>
-                    <button type="button" class="btn btn-primary btn-sm" data-scope-confirm disabled>{% trans "Continue" %}</button>
                 </div>
             </div>
         </div>
+        {% endfor %}
     </div>
-    {% include "indy_hub/includes/bp_chat_modal.html" %}
-{% endblock %}
+    {% else %}
+    {# Empty State #}
+    <div class="empty-state">
+        <i class="fas fa-inbox"></i>
+        <h3>{% trans "No copy requests" %}</h3>
+        <p class="text-muted">{% trans "Check back soon for new requests to fulfill." %}</p>
+    </div>
+    {% endif %}
+</div>
+
+{% include "indy_hub/includes/bp_chat_modal.html" %}
 {% endblock %}
 
 {% block extra_javascript %}
@@ -690,93 +297,5 @@
         }
     });
 </script>
-<script>
-    document.addEventListener('DOMContentLoaded', function () {
-        if (typeof bootstrap === 'undefined') {
-            return;
-        }
-
-        var toggles = document.querySelectorAll('.collapse-toggle[data-bs-target]');
-
-        toggles.forEach(function (toggle) {
-            var targetSelector = toggle.getAttribute('data-bs-target');
-            if (!targetSelector) {
-                return;
-            }
-
-            var target = document.querySelector(targetSelector);
-            if (!target) {
-                return;
-            }
-
-            var collapse = bootstrap.Collapse.getOrCreateInstance(target, { toggle: false });
-            var storageKey = toggle.getAttribute('data-collapse-storage-key');
-            var labelEl = toggle.querySelector('.collapse-toggle__label') || toggle;
-            var iconEl = toggle.querySelector('i');
-            var expandedLabel = toggle.getAttribute('data-collapse-label-expanded') || '';
-            var collapsedLabel = toggle.getAttribute('data-collapse-label-collapsed') || expandedLabel;
-            var expandedIcon = toggle.getAttribute('data-collapse-icon-expanded');
-            var collapsedIcon = toggle.getAttribute('data-collapse-icon-collapsed');
-
-            if (storageKey) {
-                try {
-                    var storedState = localStorage.getItem(storageKey);
-                    if (storedState === 'collapsed') {
-                        collapse.hide();
-                    } else if (storedState === 'expanded') {
-                        collapse.show();
-                    }
-                } catch (error) {
-                    if (window.INDY_HUB_DEBUG) {
-                        console.warn('Unable to access localStorage for collapse toggle.', error);
-                    }
-                }
-            }
-
-            var syncState = function () {
-                var isShown = target.classList.contains('show');
-                if (labelEl && expandedLabel) {
-                    labelEl.textContent = isShown ? expandedLabel : collapsedLabel;
-                }
-
-                if (iconEl && expandedIcon && collapsedIcon) {
-                    iconEl.classList.remove(expandedIcon, collapsedIcon);
-                    iconEl.classList.add(isShown ? expandedIcon : collapsedIcon);
-                }
-
-                toggle.setAttribute('aria-expanded', isShown ? 'true' : 'false');
-            };
-
-            target.addEventListener('shown.bs.collapse', function () {
-                if (storageKey) {
-                    try {
-                        localStorage.setItem(storageKey, 'expanded');
-                    } catch (error) {
-                        if (window.INDY_HUB_DEBUG) {
-                            console.warn('Unable to persist collapse state.', error);
-                        }
-                    }
-                }
-                syncState();
-            });
-
-            target.addEventListener('hidden.bs.collapse', function () {
-                if (storageKey) {
-                    try {
-                        localStorage.setItem(storageKey, 'collapsed');
-                    } catch (error) {
-                        if (window.INDY_HUB_DEBUG) {
-                            console.warn('Unable to persist collapse state.', error);
-                        }
-                    }
-                }
-                syncState();
-            });
-
-            syncState();
-        });
-    });
-</script>
 <script src="{% static 'indy_hub/js/bp_copy_chat.js' %}?v=20251021"></script>
-<script src="{% static 'indy_hub/js/bp_copy_fulfill.js' %}?v=20251021"></script>
 {% endblock %}

@@ -16,11 +16,9 @@ from django.db import transaction
 from django.db.models import (
     Case,
     Count,
-    Exists,
     F,
     IntegerField,
     Max,
-    OuterRef,
     Q,
     Sum,
     When,
@@ -299,7 +297,7 @@ def _collect_corporation_scope_status(
         corp_name = get_corporation_name(corp_id) or str(corp_id)
         setting = settings_map.get(corp_id)
         if setting is None:
-            setting, _ = CorporationSharingSetting.objects.get_or_create(
+            setting, _created = CorporationSharingSetting.objects.get_or_create(
                 user=user,
                 corporation_id=corp_id,
                 defaults={
@@ -525,24 +523,65 @@ def build_corporation_sharing_context(user) -> dict[str, Any] | None:
     if not user.has_perm("indy_hub.can_manage_corp_bp_requests"):
         return None
 
+    member_corp_ids = list(
+        CharacterOwnership.objects.filter(user=user)
+        .exclude(character__corporation_id__isnull=True)
+        .values_list("character__corporation_id", flat=True)
+        .distinct()
+    )
+    if not member_corp_ids:
+        profile = getattr(user, "profile", None)
+        main_character = getattr(profile, "main_character", None)
+        main_corp_id = getattr(main_character, "corporation_id", None)
+        if main_corp_id:
+            member_corp_ids = [main_corp_id]
+
+    summary: dict[int, dict[str, Any]] = {
+        corp_id: _default_corporation_summary_entry(
+            corp_id, get_corporation_name(corp_id) or str(corp_id)
+        )
+        for corp_id in member_corp_ids
+        if corp_id
+    }
+
     corp_scope_status = _collect_corporation_scope_status(user)
-    summary: dict[int, dict[str, Any]] = {}
+    settings_map = {
+        setting.corporation_id: setting
+        for setting in CorporationSharingSetting.objects.filter(
+            user=user, corporation_id__in=member_corp_ids
+        )
+    }
+
+    for corp_id in member_corp_ids:
+        if not corp_id:
+            continue
+        setting = settings_map.get(corp_id)
+        if setting:
+            entry = summary.setdefault(
+                corp_id,
+                _default_corporation_summary_entry(
+                    corp_id, setting.corporation_name or get_corporation_name(corp_id)
+                ),
+            )
+            entry["authorization"] = _build_corporation_authorization_summary(setting)
 
     for entry in corp_scope_status:
         corp_id = entry.get("corporation_id")
         if not corp_id:
             continue
         corp_name = entry.get("corporation_name")
-        summary_entry = _default_corporation_summary_entry(corp_id, corp_name)
+        summary_entry = summary.setdefault(
+            corp_id, _default_corporation_summary_entry(corp_id, corp_name)
+        )
         summary_entry["blueprints"]["token"] = dict(entry.get("blueprint", {}) or {})
         summary_entry["jobs"]["token"] = dict(entry.get("jobs", {}) or {})
-        summary_entry["authorization"] = dict(entry.get("authorization", {}) or {})
-        summary[corp_id] = summary_entry
+        if entry.get("authorization"):
+            summary_entry["authorization"] = dict(entry.get("authorization", {}) or {})
 
     blueprint_rows = (
         Blueprint.objects.filter(
-            owner_user=user,
             owner_kind=Blueprint.OwnerKind.CORPORATION,
+            corporation_id__in=member_corp_ids,
         )
         .values("corporation_id", "corporation_name")
         .annotate(
@@ -581,8 +620,8 @@ def build_corporation_sharing_context(user) -> dict[str, Any] | None:
     now = timezone.now()
     jobs_rows = (
         IndustryJob.objects.filter(
-            owner_user=user,
             owner_kind=Blueprint.OwnerKind.CORPORATION,
+            corporation_id__in=member_corp_ids,
         )
         .values("corporation_id", "corporation_name")
         .annotate(
@@ -749,7 +788,7 @@ def get_copy_sharing_states() -> dict[str, dict[str, object]]:
             "status_hint": _(
                 "Blueprint requests stay hidden until you enable sharing."
             ),
-            "badge_class": "bg-secondary-subtle text-secondary",
+            "badge_class": "bg-danger-subtle text-danger",
             "popup_message": _("Blueprint sharing disabled."),
             "fulfill_hint": _(
                 "Enable sharing to see requests that match your originals."
@@ -760,6 +799,7 @@ def get_copy_sharing_states() -> dict[str, dict[str, object]]:
             "explanation": _(
                 "Only you can view or request copies; other pilots cannot see your originals."
             ),
+            "scope_display": _("Private"),
         },
         CharacterSettings.SCOPE_CORPORATION: {
             "enabled": True,
@@ -774,6 +814,7 @@ def get_copy_sharing_states() -> dict[str, dict[str, object]]:
             "explanation": _(
                 "Pilots in your corporation can see your originals and submit copy requests."
             ),
+            "scope_display": _("Corporation"),
         },
         CharacterSettings.SCOPE_ALLIANCE: {
             "enabled": True,
@@ -781,13 +822,14 @@ def get_copy_sharing_states() -> dict[str, dict[str, object]]:
             "button_hint": _("Alliance pilots can request copies of your originals."),
             "status_label": _("Shared with alliance"),
             "status_hint": _("Blueprint requests are visible to your alliance."),
-            "badge_class": "bg-primary-subtle text-primary",
+            "badge_class": "bg-info-subtle text-info",
             "popup_message": _("Blueprint sharing enabled for the entire alliance."),
             "fulfill_hint": _("Alliance pilots may be waiting on you."),
             "subtitle": _("Coordinate duplicate production across your alliance."),
             "explanation": _(
                 "Everyone in your alliance can browse your originals and ask for copies."
             ),
+            "scope_display": _("Alliance"),
         },
         CharacterSettings.SCOPE_EVERYONE: {
             "enabled": True,
@@ -810,6 +852,7 @@ def get_copy_sharing_states() -> dict[str, dict[str, object]]:
             "explanation": _(
                 "Any Indy Hub pilot with the copy permission can see your originals and request copies."
             ),
+            "scope_display": _("Everyone"),
         },
     }
 
@@ -1058,22 +1101,6 @@ def _build_dashboard_context(request):
         except Exception:
             blueprint_char_ids = jobs_char_ids = []
 
-    blueprint_char_id_set = set(blueprint_char_ids)
-    jobs_char_id_set = set(jobs_char_ids)
-
-    user_chars = []
-    ownerships = CharacterOwnership.objects.filter(user=request.user)
-    for ownership in ownerships:
-        cid = ownership.character.character_id
-        user_chars.append(
-            {
-                "character_id": cid,
-                "name": get_character_name(cid),
-                "bp_enabled": cid in blueprint_char_id_set,
-                "jobs_enabled": cid in jobs_char_id_set,
-            }
-        )
-
     blueprints_qs = Blueprint.objects.filter(owner_user=request.user)
 
     # Optimize: Use SQL aggregation instead of Python loop
@@ -1131,19 +1158,14 @@ def _build_dashboard_context(request):
     # Optimize: Consolidate 3 count() queries into 1 aggregate()
     jobs_qs = IndustryJob.objects.filter(owner_user=request.user)
     now = timezone.now()
-    today = now.date()
 
     job_stats = jobs_qs.aggregate(
         active=Count(Case(When(status="active", end_date__gt=now, then=1))),
         completed=Count(Case(When(end_date__lte=now, then=1))),
-        completed_today=Count(
-            Case(When(end_date__date=today, end_date__lte=now, then=1))
-        ),
     )
 
     active_jobs_count = job_stats["active"]
     completed_jobs_count = job_stats["completed"]
-    completed_jobs_today = job_stats["completed_today"]
 
     settings_obj, _created = CharacterSettings.objects.get_or_create(
         user=request.user, character_id=0
@@ -1190,6 +1212,9 @@ def _build_dashboard_context(request):
     job_notification_hint = _describe_job_notification_hint(
         jobs_notify_frequency, job_notification_custom_days
     )
+
+    # Per-corporation job notification controls will be built below after corporation_share_controls
+    corp_job_notification_controls = []
     copy_sharing_scope = settings_obj.copy_sharing_scope
     if copy_sharing_scope not in dict(CharacterSettings.COPY_SHARING_SCOPE_CHOICES):
         copy_sharing_scope = CharacterSettings.SCOPE_NONE
@@ -1207,51 +1232,58 @@ def _build_dashboard_context(request):
         settings_obj.allow_copy_requests = allow_copy_requests
         settings_obj.save(update_fields=["allow_copy_requests"])
 
-    copy_fulfill_count = 0
-
-    my_open_requests_qs = BlueprintCopyRequest.objects.filter(
-        requested_by=request.user, fulfilled=False
-    )
-    copy_my_requests_open = my_open_requests_qs.count()
-
-    copy_my_requests_pending_delivery = BlueprintCopyRequest.objects.filter(
-        requested_by=request.user,
+    # My requests counts
+    my_requests_qs = BlueprintCopyRequest.objects.filter(requested_by=request.user)
+    copy_my_requests_open = my_requests_qs.filter(fulfilled=False).count()
+    copy_my_requests_pending_delivery = my_requests_qs.filter(
         fulfilled=True,
         delivered=False,
     ).count()
-
-    if sharing_state["enabled"]:
-        # Optimize: Use Exists subquery instead of building giant OR
-        originals_for_fulfill = blueprints_qs.filter(
-            bp_type__in=[Blueprint.BPType.ORIGINAL, Blueprint.BPType.REACTION]
-        )
-
-        # Create a subquery that checks if a request matches any of user's blueprints
-        matching_bp_subquery = originals_for_fulfill.filter(
-            type_id=OuterRef("type_id"),
-            material_efficiency=OuterRef("material_efficiency"),
-            time_efficiency=OuterRef("time_efficiency"),
-        )
-
-        fulfill_qs = (
-            BlueprintCopyRequest.objects.filter(Exists(matching_bp_subquery))
-            .filter(
-                Q(fulfilled=False)
-                | Q(
-                    fulfilled=True,
-                    delivered=False,
-                    offers__owner=request.user,
-                )
-            )
-            .exclude(requested_by=request.user)
-            .exclude(offers__owner=request.user, offers__status="rejected")
-        )
-
-        copy_fulfill_count = fulfill_qs.distinct().count()
-    else:
-        copy_fulfill_count = 0
-
     copy_my_requests_total = copy_my_requests_open + copy_my_requests_pending_delivery
+
+    # Fulfill queue count (requests I can help with)
+    fulfill_count = 0
+    try:
+        my_keys = list(
+            Blueprint.objects.filter(
+                owner_user=request.user,
+                owner_kind=Blueprint.OwnerKind.CHARACTER,
+                bp_type=Blueprint.BPType.ORIGINAL,
+            ).values_list("type_id", "material_efficiency", "time_efficiency")
+        )
+
+        if my_keys:
+            key_filter = Q()
+            for type_id, me, te in my_keys:
+                key_filter |= Q(
+                    type_id=type_id,
+                    material_efficiency=me,
+                    time_efficiency=te,
+                )
+
+            eligible = (
+                BlueprintCopyRequest.objects.exclude(requested_by=request.user)
+                .filter(key_filter)
+                .exclude(offers__owner=request.user, offers__status="rejected")
+            )
+
+            fulfill_count = (
+                eligible.filter(
+                    Q(fulfilled=False)
+                    | Q(
+                        fulfilled=True,
+                        delivered=False,
+                        offers__owner=request.user,
+                        offers__status="accepted",
+                        offers__accepted_by_buyer=True,
+                        offers__accepted_by_seller=True,
+                    )
+                )
+                .distinct()
+                .count()
+            )
+    except Exception:
+        fulfill_count = 0
 
     unread_chats_base = BlueprintCopyChat.objects.filter(
         is_open=True,
@@ -1305,6 +1337,12 @@ def _build_dashboard_context(request):
         aa_unread_notifications_count = None
 
     copy_chat_alerts: list[dict[str, Any]] = []
+    # Batch fetch type names to avoid N queries
+    type_ids_to_fetch = {chat.request.type_id for chat in unread_chat_cards}
+    type_names_cache = {
+        type_id: get_type_name(type_id) for type_id in type_ids_to_fetch
+    }
+
     for chat in unread_chat_cards:
         request_obj = chat.request
         viewer_role = "buyer" if chat.buyer_id == request.user.id else "seller"
@@ -1314,7 +1352,7 @@ def _build_dashboard_context(request):
             {
                 "chat_id": chat.id,
                 "type_id": request_obj.type_id,
-                "type_name": get_type_name(request_obj.type_id),
+                "type_name": type_names_cache.get(request_obj.type_id, "Unknown"),
                 "viewer_role": viewer_role,
                 "fetch_url": reverse("indy_hub:bp_chat_history", args=[chat.id]),
                 "send_url": reverse("indy_hub:bp_chat_send", args=[chat.id]),
@@ -1385,10 +1423,84 @@ def _build_dashboard_context(request):
     onboarding_show = bool(pending_tasks) and not onboarding_progress.dismissed
 
     can_manage_corp = request.user.has_perm("indy_hub.can_manage_corp_bp_requests")
-    corp_scope_status = _collect_corporation_scope_status(request.user)
+    corp_scope_status = (
+        _collect_corporation_scope_status(request.user) if can_manage_corp else []
+    )
     corporation_share_controls, corporation_share_summary = (
         _build_corporation_share_controls(request.user, corp_scope_status)
     )
+
+    # Build per-corporation job notification controls from CorporationSharingSetting
+    if can_manage_corp and corporation_share_controls:
+        for corp_ctrl in corporation_share_controls:
+            corp_id = corp_ctrl["corporation_id"]
+            corp_name = corp_ctrl["corporation_name"]
+
+            # Get or create CorporationSharingSetting for this corp
+            corp_setting, _created = CorporationSharingSetting.objects.get_or_create(
+                user=request.user,
+                corporation_id=corp_id,
+                defaults={
+                    "corporation_name": corp_name,
+                    "corp_jobs_notify_frequency": CharacterSettings.NOTIFY_DISABLED,
+                    "corp_jobs_notify_custom_days": 3,
+                },
+            )
+
+            freq = (
+                corp_setting.corp_jobs_notify_frequency
+                or CharacterSettings.NOTIFY_DISABLED
+            )
+            if freq not in valid_frequencies:
+                freq = CharacterSettings.NOTIFY_DISABLED
+                if corp_setting.corp_jobs_notify_frequency != freq:
+                    corp_setting.corp_jobs_notify_frequency = freq
+                    corp_setting.save(update_fields=["corp_jobs_notify_frequency"])
+
+            custom_days = max(1, corp_setting.corp_jobs_notify_custom_days or 1)
+            if custom_days != corp_setting.corp_jobs_notify_custom_days:
+                corp_setting.corp_jobs_notify_custom_days = custom_days
+                corp_setting.save(update_fields=["corp_jobs_notify_custom_days"])
+
+            hint = _describe_job_notification_hint(freq, custom_days)
+
+            corp_job_notification_controls.append(
+                {
+                    "corporation_id": corp_id,
+                    "corporation_name": corp_name,
+                    "frequency": freq,
+                    "custom_days": custom_days,
+                    "hint": hint,
+                }
+            )
+
+    # Merge corp sharing + corp job alerts so the template can render one aligned row per corporation
+    corporation_settings_controls: list[dict[str, object]] = []
+    if can_manage_corp and corporation_share_controls:
+        job_by_corp_id = {
+            int(entry.get("corporation_id")): entry
+            for entry in corp_job_notification_controls
+            if isinstance(entry, dict) and entry.get("corporation_id") is not None
+        }
+        for corp_ctrl in corporation_share_controls:
+            corp_id = int(corp_ctrl["corporation_id"])
+            job_ctrl = job_by_corp_id.get(corp_id, {})
+            corporation_settings_controls.append(
+                {
+                    "corporation_id": corp_id,
+                    "corporation_name": corp_ctrl.get("corporation_name"),
+                    "has_blueprint_scope": corp_ctrl.get("has_blueprint_scope"),
+                    "share_scope": corp_ctrl.get("share_scope"),
+                    "status_label": corp_ctrl.get("status_label"),
+                    "status_hint": corp_ctrl.get("status_hint"),
+                    "badge_class": corp_ctrl.get("badge_class"),
+                    "jobs_frequency": job_ctrl.get(
+                        "frequency", CharacterSettings.NOTIFY_DISABLED
+                    ),
+                    "jobs_custom_days": job_ctrl.get("custom_days", 3),
+                    "jobs_hint": job_ctrl.get("hint", ""),
+                }
+            )
     corporation_share_controls_json = json.dumps(corporation_share_controls)
     corp_blueprint_scope_count = sum(
         1 for status in corp_scope_status if status["blueprint"]["has_scope"]
@@ -1397,7 +1509,9 @@ def _build_dashboard_context(request):
         1 for status in corp_scope_status if status["jobs"]["has_scope"]
     )
 
-    corporation_overview = build_corporation_sharing_context(request.user)
+    corporation_overview = (
+        build_corporation_sharing_context(request.user) if can_manage_corp else None
+    )
     corp_blueprint_count = 0
     corp_original_blueprints = 0
     corp_copy_blueprints = 0
@@ -1422,28 +1536,29 @@ def _build_dashboard_context(request):
     context = {
         "has_blueprint_tokens": bool(blueprint_char_ids),
         "has_jobs_tokens": bool(jobs_char_ids),
-        "blueprint_token_count": len(blueprint_char_ids),
-        "jobs_token_count": len(jobs_char_ids),
-        "characters": user_chars,
         "blueprint_count": blueprint_count,
         "original_blueprints": original_blueprints,
         "copy_blueprints": copy_blueprints,
         "active_jobs_count": active_jobs_count,
         "completed_jobs_count": completed_jobs_count,
-        "completed_jobs_today": completed_jobs_today,
-        "jobs_notify_completed": jobs_notify_completed,
-        "job_notification_frequency": jobs_notify_frequency,
-        "job_notification_custom_days": job_notification_custom_days,
-        "job_notification_hint": job_notification_hint,
-        "job_notification_next_digest": settings_obj.jobs_next_digest_at,
         "allow_copy_requests": sharing_state["enabled"],
         "copy_sharing_scope": copy_sharing_scope,
         "copy_sharing_state": sharing_state,
+        "copy_sharing_states": copy_sharing_states_with_scope,
         "copy_sharing_states_json": json.dumps(copy_sharing_states_with_scope),
-        "copy_fulfill_count": copy_fulfill_count,
+        "job_notification_frequency": jobs_notify_frequency,
+        "job_notification_custom_days": job_notification_custom_days,
+        "job_notification_hint": job_notification_hint,
+        "corp_job_notification_controls": corp_job_notification_controls,
+        "corp_job_notification_controls_json": json.dumps(
+            corp_job_notification_controls
+        ),
+        "corporation_settings_controls": corporation_settings_controls,
+        "corporation_settings_controls_json": json.dumps(corporation_settings_controls),
+        "copy_my_requests_total": copy_my_requests_total,
         "copy_my_requests_open": copy_my_requests_open,
         "copy_my_requests_pending_delivery": copy_my_requests_pending_delivery,
-        "copy_my_requests_total": copy_my_requests_total,
+        "copy_fulfill_count": fulfill_count,
         "copy_chat_unread_count": copy_chat_unread_count,
         "job_digest_pending_count": job_digest_pending_count,
         "aa_unread_notifications_count": aa_unread_notifications_count,
@@ -2402,6 +2517,134 @@ def toggle_job_notifications(request):
     return JsonResponse(response_payload)
 
 
+@indy_hub_access_required
+@login_required
+@require_POST
+def toggle_corporation_job_notifications(request):
+    if not request.user.has_perm("indy_hub.can_manage_corp_bp_requests"):
+        return JsonResponse({"error": "forbidden"}, status=403)
+
+    payload: dict[str, object] = {}
+    if request.body:
+        try:
+            payload = json.loads(request.body.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
+            return JsonResponse({"error": "invalid_payload"}, status=400)
+
+    # Extract corporation_id from payload
+    corporation_id = None
+    if isinstance(payload, dict):
+        corporation_id = payload.get("corporation_id")
+
+    if corporation_id is None:
+        return JsonResponse({"error": "missing_corporation_id"}, status=400)
+
+    try:
+        corporation_id = int(corporation_id)
+    except (TypeError, ValueError):
+        return JsonResponse({"error": "invalid_corporation_id"}, status=400)
+
+    # Get or create CorporationSharingSetting for this user and corporation
+    corp_settings, _created = CorporationSharingSetting.objects.get_or_create(
+        user=request.user, corporation_id=corporation_id
+    )
+
+    frequency = None
+    custom_days = None
+    if isinstance(payload, dict):
+        frequency = payload.get("frequency")
+        custom_days = payload.get("custom_days")
+
+    valid_frequencies = dict(CharacterSettings.JOB_NOTIFICATION_FREQUENCY_CHOICES)
+
+    if frequency not in valid_frequencies:
+        return JsonResponse({"error": "invalid_frequency"}, status=400)
+
+    days_value = None
+    if frequency == CharacterSettings.NOTIFY_CUSTOM:
+        if custom_days is None:
+            custom_days = corp_settings.corp_jobs_notify_custom_days
+        try:
+            days_value = int(custom_days)
+        except (TypeError, ValueError):
+            return JsonResponse({"error": "invalid_custom_days"}, status=400)
+        if days_value < 1 or days_value > 365:
+            return JsonResponse({"error": "invalid_custom_days"}, status=400)
+
+    corp_settings.corp_jobs_notify_frequency = frequency
+    if days_value is not None:
+        corp_settings.corp_jobs_notify_custom_days = days_value
+
+    if frequency in {
+        CharacterSettings.NOTIFY_DAILY,
+        CharacterSettings.NOTIFY_WEEKLY,
+        CharacterSettings.NOTIFY_MONTHLY,
+        CharacterSettings.NOTIFY_CUSTOM,
+    }:
+        # Compute next digest time
+        # Standard Library
+        from datetime import timedelta
+
+        # Django
+        from django.utils import timezone
+
+        now = timezone.now()
+        if frequency == CharacterSettings.NOTIFY_DAILY:
+            next_digest = now.replace(hour=20, minute=0, second=0, microsecond=0)
+            if next_digest <= now:
+                next_digest += timedelta(days=1)
+        elif frequency == CharacterSettings.NOTIFY_WEEKLY:
+            next_digest = now + timedelta(days=7)
+        elif frequency == CharacterSettings.NOTIFY_MONTHLY:
+            next_digest = now + timedelta(days=30)
+        elif frequency == CharacterSettings.NOTIFY_CUSTOM:
+            next_digest = now + timedelta(days=days_value or 1)
+        else:
+            next_digest = None
+        corp_settings.corp_jobs_next_digest_at = next_digest
+    else:
+        corp_settings.corp_jobs_next_digest_at = None
+
+    corp_settings.save()
+
+    hint = _describe_job_notification_hint(
+        corp_settings.corp_jobs_notify_frequency,
+        corp_settings.corp_jobs_notify_custom_days,
+    )
+
+    message_map = {
+        CharacterSettings.NOTIFY_DISABLED: _("Corporation job alerts muted."),
+        CharacterSettings.NOTIFY_IMMEDIATE: _(
+            "You'll receive live corporation job alerts."
+        ),
+        CharacterSettings.NOTIFY_DAILY: _("Daily corporation job digest enabled."),
+        CharacterSettings.NOTIFY_WEEKLY: _("Weekly corporation job digest enabled."),
+        CharacterSettings.NOTIFY_MONTHLY: _("Monthly corporation job digest enabled."),
+        CharacterSettings.NOTIFY_CUSTOM: _(
+            "Custom corporation job digest every %(days)s day(s)."
+        )
+        % {"days": corp_settings.corp_jobs_notify_custom_days},
+    }
+
+    response_payload = {
+        "frequency": corp_settings.corp_jobs_notify_frequency,
+        "custom_days": corp_settings.corp_jobs_notify_custom_days,
+        "hint": hint,
+        "message": message_map.get(
+            corp_settings.corp_jobs_notify_frequency,
+            _("Corporation job notification preferences updated."),
+        ),
+        "enabled": corp_settings.corp_jobs_notify_frequency
+        != CharacterSettings.NOTIFY_DISABLED,
+    }
+    if corp_settings.corp_jobs_next_digest_at:
+        response_payload["next_digest_at"] = (
+            corp_settings.corp_jobs_next_digest_at.isoformat()
+        )
+
+    return JsonResponse(response_payload)
+
+
 # Toggle pooling de partage de copies
 @indy_hub_access_required
 @login_required
@@ -2629,7 +2872,7 @@ def toggle_corporation_copy_sharing(request):
         "corporation_name": corp_name,
         "scope": scope,
         "enabled": state.get("enabled", False),
-        "badge_class": state.get("badge_class", "bg-secondary-subtle text-secondary"),
+        "badge_class": state.get("badge_class", "bg-danger-subtle text-danger"),
         "status_label": state.get("status_label", _("Sharing disabled")),
         "status_hint": state.get(
             "status_hint",

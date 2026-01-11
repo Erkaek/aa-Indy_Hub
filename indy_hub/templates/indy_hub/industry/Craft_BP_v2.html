@@ -1,0 +1,1246 @@
+{% extends "indy_hub/base.html" %}
+{% load i18n %}
+{% load static %}
+{% load humanize %}
+
+{% block page_title %}{{ bp_name }} - {% trans "Crafting Requirements" %}{% endblock page_title %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
+<link rel="stylesheet" href="{% static 'indy_hub/css/blueprints.css' %}">
+<link rel="stylesheet" href="{% static 'indy_hub/css/craft_bp.css' %}">
+{% endblock extra_css %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="dev-alert alert alert-warning d-flex align-items-center gap-3 mb-4" role="alert">
+        <i class="fas fa-exclamation-triangle fa-lg"></i>
+        <div>
+            <h3 class="h6 fw-semibold mb-1 text-uppercase">{% trans "Active development" %}</h3>
+            <p class="mb-0 small">{% trans "This crafting workspace is under active development. Please don't rely on the displayed data for production decisions yet." %}</p>
+        </div>
+    </div>
+
+    {% include "indy_hub/partials/page_header.html" with icon_class="fas fa-tools" title=bp_name subtitle=_("Production workspace") back_url=back_url back_label=_("Back") header_controls=craft_header_controls %}
+
+    <div class="d-flex justify-content-end mb-3">
+        <span id="simulationStatus" class="badge bg-secondary d-none"></span>
+    </div>
+
+    <div id="bpTabs-loading" class="border border-warning-subtle bg-warning-subtle rounded-3 p-4 mb-4">
+        <div class="d-flex align-items-center gap-3">
+            <div class="spinner-border text-warning" role="status" style="width:2.5rem;height:2.5rem;">
+                <span class="visually-hidden">{% trans "Loading..." %}</span>
+            </div>
+            <div>
+                <h6 class="mb-1 text-warning fw-semibold">{% trans "Preparing simulation workspace" %}</h6>
+                <p class="mb-0 text-muted small">{% trans "We are synchronising materials, production tree and financial data." %}</p>
+            </div>
+        </div>
+    </div>
+
+    {% with current_tab=active_tab|default:'materials' %}
+
+    <!-- HIDDEN TAB SYSTEM FOR JS COMPATIBILITY -->
+    <div id="bpTabs" class="d-none nav nav-pills" role="tablist">
+        <button class="nav-link blueprint-tab {% if current_tab == 'materials' %}active{% endif %}" id="materials-tab" data-bs-toggle="tab" data-bs-target="#tab-materials" type="button" role="tab" aria-controls="tab-materials" aria-selected="{% if current_tab == 'materials' %}true{% else %}false{% endif %}"></button>
+        <button class="nav-link blueprint-tab {% if current_tab == 'tree' %}active{% endif %}" id="tree-tab" data-bs-toggle="tab" data-bs-target="#tab-tree" type="button" role="tab" aria-controls="tab-tree" aria-selected="{% if current_tab == 'tree' %}true{% else %}false{% endif %}"></button>
+        <button class="nav-link blueprint-tab {% if current_tab == 'cycles' %}active{% endif %}" id="cycles-tab" data-bs-toggle="tab" data-bs-target="#tab-cycles" type="button" role="tab" aria-controls="tab-cycles" aria-selected="{% if current_tab == 'cycles' %}true{% else %}false{% endif %}"></button>
+        <button class="nav-link blueprint-tab {% if current_tab == 'financial' %}active{% endif %}" id="financial-tab" data-bs-toggle="tab" data-bs-target="#tab-financial" type="button" role="tab" aria-controls="tab-financial" aria-selected="{% if current_tab == 'financial' %}true{% else %}false{% endif %}"></button>
+        <button class="nav-link blueprint-tab {% if current_tab == 'needed' %}active{% endif %}" id="needed-tab" data-bs-toggle="tab" data-bs-target="#tab-needed" type="button" role="tab" aria-controls="tab-needed" aria-selected="{% if current_tab == 'needed' %}true{% else %}false{% endif %}"></button>
+        <button class="nav-link blueprint-tab {% if current_tab == 'config' %}active{% endif %}" id="config-tab" data-bs-toggle="tab" data-bs-target="#tab-config" type="button" role="tab" aria-controls="tab-config" aria-selected="{% if current_tab == 'config' %}true{% else %}false{% endif %}"></button>
+    </div>
+    <div class="tab-content d-none" id="bpTabsContent"></div>
+
+    <div class="craft-tabs-modern">
+        <ul class="nav nav-tabs craft-nav-tabs" id="craftMainTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="plan-tab-btn" data-bs-toggle="tab" data-bs-target="#plan-pane" type="button" role="tab" aria-controls="plan-pane" data-tab-name="plan">
+                    <i class="fas fa-map"></i>
+                    <span>{% trans "Plan" %}</span>
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="buy-tab-btn" data-bs-toggle="tab" data-bs-target="#buy-pane" type="button" role="tab" aria-controls="buy-pane" data-tab-name="buy">
+                    <i class="fas fa-shopping-bag"></i>
+                    <span>{% trans "Buy" %}</span>
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="build-tab-btn" data-bs-toggle="tab" data-bs-target="#build-pane" type="button" role="tab" aria-controls="build-pane" data-tab-name="build">
+                    <i class="fas fa-hammer"></i>
+                    <span>{% trans "Build" %}</span>
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="configure-tab-btn" data-bs-toggle="tab" data-bs-target="#configure-pane" type="button" role="tab" aria-controls="configure-pane" data-tab-name="configure">
+                    <i class="fas fa-sliders-h"></i>
+                    <span>{% trans "Configure" %}</span>
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="run-optimized-tab-btn" data-bs-toggle="tab" data-bs-target="#run-optimized-pane" type="button" role="tab" aria-controls="run-optimized-pane" data-tab-name="run_optimized">
+                    <i class="fas fa-chart-line"></i>
+                    <span>{% trans "Run optimized" %}</span>
+                </button>
+            </li>
+        </ul>
+
+        <div class="tab-content craft-tab-content" id="craftMainTabsContent">
+            <!-- ========== PLAN TAB (V2) ========== -->
+            <div class="tab-pane fade show active" id="plan-pane" role="tabpanel" aria-labelledby="plan-tab-btn">
+                <div class="craft-quick-stats mb-4">
+                    <div class="craft-stat-card">
+                        <div class="craft-stat-icon bg-primary"><i class="fas fa-scroll"></i></div>
+                        <div class="craft-stat-content">
+                            <div class="craft-stat-label">{% trans "Blueprints" %}</div>
+                            <div class="craft-stat-value" id="totalBlueprintsCount">-</div>
+                        </div>
+                    </div>
+                    <div class="craft-stat-card">
+                        <div class="craft-stat-icon bg-info"><i class="fas fa-cubes"></i></div>
+                        <div class="craft-stat-content">
+                            <div class="craft-stat-label">{% trans "Unique Materials" %}</div>
+                            <div class="craft-stat-value" id="totalMaterialsCount">-</div>
+                        </div>
+                    </div>
+                    <div class="craft-stat-card">
+                        <div class="craft-stat-icon bg-success"><i class="fas fa-dollar-sign"></i></div>
+                        <div class="craft-stat-content">
+                            <div class="craft-stat-label">{% trans "Est. Profit" %}</div>
+                            <div class="craft-stat-value text-success" id="quickProfit">-</div>
+                        </div>
+                    </div>
+                    <div class="craft-stat-card">
+                        <div class="craft-stat-icon bg-warning"><i class="fas fa-percentage"></i></div>
+                        <div class="craft-stat-content">
+                            <div class="craft-stat-label">{% trans "Margin" %}</div>
+                            <div class="craft-stat-value" id="quickMargin">-</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="craft-kpi-row mb-3">
+                    <div class="craft-kpi craft-kpi-sm">
+                        <span class="craft-kpi-label">{% trans "Runs" %}</span>
+                        <span class="craft-kpi-value">{{ num_runs|default:1|intcomma }}</span>
+                    </div>
+                    <div class="craft-kpi craft-kpi-sm">
+                        <span class="craft-kpi-label">{% trans "Output" %}</span>
+                        <span class="craft-kpi-value text-success">{{ final_product_qty|default:num_runs|intcomma }}</span>
+                    </div>
+                    <div class="craft-kpi craft-kpi-sm">
+                        <span class="craft-kpi-label">ME</span>
+                        <span class="craft-kpi-value">{{ me|default:0 }}</span>
+                    </div>
+                    <div class="craft-kpi craft-kpi-sm">
+                        <span class="craft-kpi-label">TE</span>
+                        <span class="craft-kpi-value">{{ te|default:0 }}</span>
+                    </div>
+                </div>
+
+                <div class="craft-dashboard-columns">
+                    <div class="craft-dashboard-col">
+                        <section class="craft-section">
+                            <div class="craft-section-header-with-actions">
+                                <h3 class="craft-section-title">
+                                    <i class="fas fa-sitemap text-success"></i> {% trans "Production Tree" %}
+                                </h3>
+                                <div class="craft-section-controls">
+                                    <button class="btn btn-outline-secondary btn-sm" type="button" id="expand-tree" title="{% trans 'Expand all' %}">
+                                        <i class="fas fa-plus-square"></i>
+                                    </button>
+                                    <button class="btn btn-outline-secondary btn-sm" type="button" id="collapse-tree" title="{% trans 'Collapse all' %}">
+                                        <i class="fas fa-minus-square"></i>
+                                    </button>
+                                    <button class="btn btn-outline-success btn-sm" type="button" id="set-tree-prod" title="{% trans 'All prod' %}">
+                                        <i class="fas fa-industry"></i>
+                                    </button>
+                                    <button class="btn btn-outline-danger btn-sm" type="button" id="set-tree-buy" title="{% trans 'All buy' %}">
+                                        <i class="fas fa-shopping-cart"></i>
+                                    </button>
+                                    <button class="btn btn-outline-primary btn-sm" type="button" id="optimize-profit" title="{% trans 'Optimize profitability (buy vs prod)' %}">
+                                        <i class="fas fa-magic me-1"></i>{% trans "Optimize" %}
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="craft-tree-container" id="tab-tree">
+                                {% if materials_tree %}
+                                    {% include "indy_hub/industry/material_tree.html" with materials=materials_tree level=0 %}
+                                {% else %}
+                                    <div class="alert alert-info mb-0">{% trans "No sub-productions detected for this blueprint." %}</div>
+                                {% endif %}
+                            </div>
+                        </section>
+                    </div>
+
+                    <div class="craft-dashboard-col">
+                        <section class="craft-section">
+                            <div class="craft-section-header-with-actions">
+                                <h3 class="craft-section-title">
+                                    <i class="fas fa-cubes text-primary"></i> {% trans "Materials" %}
+                                </h3>
+                                <div class="craft-section-controls">
+                                    <button class="btn btn-outline-secondary btn-sm" type="button" id="expand-materials" title="{% trans 'Expand all' %}">
+                                        <i class="fas fa-chevron-down"></i>
+                                    </button>
+                                    <button class="btn btn-outline-secondary btn-sm" type="button" id="collapse-materials" title="{% trans 'Collapse all' %}">
+                                        <i class="fas fa-chevron-up"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="materialsGroupsContainer" class="craft-materials-list">
+                                {% if materials_by_group %}
+                                    {% for group_id, group in materials_by_group.items %}
+                                    <div class="craft-group-card collapsed">
+                                        <div class="craft-group-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                                            <span>
+                                                <i class="fas fa-chevron-down craft-group-toggle me-2"></i>
+                                                <i class="fas fa-layer-group text-primary me-2"></i>{{ group.group_name|default:_("Other") }}
+                                            </span>
+                                            <span class="badge bg-primary-subtle text-primary fw-semibold">{{ group.items|length }}</span>
+                                        </div>
+                                        <div class="craft-group-items">
+                                            {% for item in group.items %}
+                                            <div class="craft-item-row" data-type-id="{{ item.type_id }}">
+                                                <div class="craft-item-name">
+                                                    <img src="https://images.evetech.net/types/{{ item.type_id }}/icon?size=32" alt="{{ item.type_name }}" class="rounded eve-type-icon eve-type-icon--30" onerror="this.style.display='none';">
+                                                    <span class="badge bg-info-subtle text-info-emphasis px-2 py-1">{{ item.type_name }}</span>
+                                                </div>
+                                                <span class="badge bg-primary text-white" data-qty="{{ item.quantity }}">{{ item.quantity|intcomma }}</span>
+                                            </div>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                    {% endfor %}
+                                {% endif %}
+                            </div>
+                            <div id="materialsEmptyState" class="alert alert-info"{% if materials_by_group %} style="display:none;"{% endif %}>
+                                <i class="fas fa-info-circle me-2"></i>{% trans "No material requirements have been detected for this blueprint." %}
+                            </div>
+                        </section>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ========== BUY TAB (V2) ========== -->
+            <div class="tab-pane fade" id="buy-pane" role="tabpanel" aria-labelledby="buy-tab-btn">
+                <div class="alert alert-warning d-flex align-items-center mb-4" id="missingPricesAlert" style="display: none !important;">
+                    <i class="fas fa-exclamation-triangle fa-lg me-3"></i>
+                    <div class="flex-grow-1">
+                        <strong>{% trans "Missing Prices" %}</strong>
+                        <p class="mb-0 small">
+                            <span id="missingPricesCount">0</span> {% trans "items are missing price data. Load Fuzzwork prices or enter them manually." %}
+                        </p>
+                    </div>
+                    <button class="btn btn-sm btn-warning" id="loadFuzzworkFromAlert">
+                        <i class="fas fa-cloud-download-alt me-1"></i>{% trans "Load Prices" %}
+                    </button>
+                </div>
+
+                <div class="craft-financial-hero mb-4">
+                    <div class="craft-kpi-row">
+                        <div class="craft-kpi craft-kpi-lg">
+                            <span class="craft-kpi-label">{% trans "Total Cost" %}</span>
+                            <span class="craft-kpi-value text-danger" id="financialSummaryCost">0 ISK</span>
+                        </div>
+                        <div class="craft-kpi craft-kpi-lg">
+                            <span class="craft-kpi-label">{% trans "Total Revenue" %}</span>
+                            <span class="craft-kpi-value text-success" id="financialSummaryRevenue">0 ISK</span>
+                        </div>
+                        <div class="craft-kpi craft-kpi-lg">
+                            <span class="craft-kpi-label">{% trans "Net Profit" %}</span>
+                            <span class="craft-kpi-value" id="financialSummaryProfit">0 ISK</span>
+
+                            <div id="financialSurplusWrapper" class="mt-2 d-none">
+                                <div class="craft-kpi-label mb-1">{% trans "Surplus Value" %}</div>
+                                <div class="fw-semibold" id="financialSummarySurplus">0 ISK</div>
+                            </div>
+                        </div>
+                        <div class="craft-kpi craft-kpi-lg">
+                            <span class="craft-kpi-label">{% trans "Margin" %}</span>
+                            <span class="craft-kpi-value" id="financialSummaryMargin">0%</span>
+                        </div>
+                    </div>
+                </div>
+
+                <section class="craft-section mb-4">
+                    <div class="craft-financial-table-header">
+                        <h4 class="text-sm fw-semibold mb-0">
+                            <i class="fas fa-list-ul me-2"></i>{% trans "Purchase Planner" %}
+                        </h4>
+                        <div class="craft-financial-actions">
+                            <button id="exportPurchaseCSV" type="button" class="btn btn-outline-success btn-sm" title="{% trans 'Export to CSV' %}">
+                                <i class="fas fa-file-csv me-1"></i>{% trans "Export" %}
+                            </button>
+                            <button id="resetManualPricesBtn" type="button" class="btn btn-outline-secondary btn-sm" title="{% trans 'Reset overrides' %}">
+                                <i class="fas fa-undo-alt"></i>
+                            </button>
+                            <button id="loadFuzzworkBtn" type="button" class="btn btn-outline-info btn-sm" title="{% trans 'Load Fuzzwork prices' %}">
+                                <i class="fas fa-cloud-download-alt me-1"></i>{% trans "Fuzzwork" %}
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="table-responsive craft-financial-table craft-table-text-120 mt-2">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th class="col-item">{% trans "Item" %}</th>
+                                    <th class="text-end col-qty">{% trans "Qty" %}</th>
+                                    <th class="text-end col-fuzzwork">{% trans "Fuzzwork" %}</th>
+                                    <th class="text-end col-real">{% trans "Real Price" %}</th>
+                                    <th class="text-end col-total">{% trans "Total Cost" %}</th>
+                                    <th class="text-end col-margin">{% trans "Margin" %}</th>
+                                </tr>
+                            </thead>
+                            <tbody id="financialItemsBody">
+                                {% for mat in materials %}
+                                <tr data-type-id="{{ mat.type_id }}">
+                                    <td class="fw-semibold" data-manual-label="{% trans 'Manual' %}">
+                                        <div class="d-flex align-items-center gap-2 craft-planner-item-flex">
+                                            <img src="https://images.evetech.net/types/{{ mat.type_id }}/icon?size=32" alt="{{ mat.type_name }}" class="rounded eve-type-icon eve-type-icon--28" onerror="this.style.display='none';">
+                                            <span class="craft-planner-item-name-wrap">
+                                                <span class="badge bg-info-subtle text-info-emphasis px-2 py-1 text-xs craft-planner-item-name">{{ mat.type_name }}</span>
+                                            </span>
+                                        </div>
+                                    </td>
+                                    <td class="text-end text-xs" data-qty="{{ mat.quantity }}">
+                                        <span class="badge bg-primary text-white">{{ mat.quantity|intcomma }}</span>
+                                    </td>
+                                    <td class="text-end">
+                                        <input type="number" min="0" step="0.01" class="form-control form-control-sm fuzzwork-price text-end bg-light text-xs" data-type-id="{{ mat.type_id }}" value="0" readonly>
+                                    </td>
+                                    <td class="text-end">
+                                        <input type="number" min="0" step="0.01" class="form-control form-control-sm real-price text-end text-xs" data-type-id="{{ mat.type_id }}" value="0">
+                                    </td>
+                                    <td class="text-end text-xs total-cost fw-semibold">0</td>
+                                    <td class="text-end text-xs item-margin">-</td>
+                                </tr>
+                                {% endfor %}
+                                <tr id="finalProductRow" class="table-success fw-semibold" data-type-id="{{ product_type_id|default:0 }}">
+                                    <td data-manual-label="{% trans 'Manual' %}">
+                                        <div class="d-flex align-items-center gap-2 craft-planner-item-flex">
+                                            <img src="https://images.evetech.net/types/{{ product_type_id }}/icon?size=32" alt="{% trans 'Final product' %}" class="rounded eve-type-icon eve-type-icon--28" onerror="this.style.display='none';">
+                                            <span class="craft-planner-item-name-wrap">
+                                                <span class="text-xs fw-bold craft-planner-item-name">{% trans "Final product" %}</span>
+                                            </span>
+                                        </div>
+                                    </td>
+                                    <td class="text-end text-xs" data-qty="{{ final_product_qty|default:num_runs }}">
+                                        <span class="badge bg-success text-white">{{ final_product_qty|default:num_runs|intcomma }}</span>
+                                    </td>
+                                    <td class="text-end">
+                                        <input type="number" min="0" step="0.01" class="form-control form-control-sm fuzzwork-price text-end bg-light text-xs" data-type-id="{{ product_type_id|default:0 }}" value="0" readonly>
+                                    </td>
+                                    <td class="text-end">
+                                        <input type="number" min="0" step="0.01" class="form-control form-control-sm sale-price-unit text-end text-xs" data-type-id="{{ product_type_id|default:0 }}" value="0">
+                                    </td>
+                                    <td class="text-end text-xs total-revenue fw-semibold">0</td>
+                                    <td class="text-end text-xs">-</td>
+                                </tr>
+                            </tbody>
+                            <tfoot class="table-light">
+                                <tr>
+                                    <th colspan="4" class="text-end text-xs">{% trans "Total Material Cost" %}</th>
+                                    <th class="text-end text-xs grand-total-cost fw-semibold text-danger" colspan="2">0</th>
+                                </tr>
+                                <tr>
+                                    <th colspan="4" class="text-end text-xs">{% trans "Total Revenue" %}</th>
+                                    <th class="text-end text-xs grand-total-rev fw-semibold text-success" colspan="2">0</th>
+                                </tr>
+                                <tr class="table-primary">
+                                    <th colspan="4" class="text-end text-xs">{% trans "Net Profit" %}</th>
+                                    <th class="text-end text-xs profit fw-bold" colspan="2">0 <span class="profit-pct">(0%)</span></th>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </section>
+
+                <section class="craft-section">
+                    <div class="craft-section-header-with-actions">
+                        <h3 class="craft-section-title">
+                            <i class="fas fa-shopping-cart text-warning"></i> {% trans "Shopping List" %}
+                        </h3>
+                        <div>
+                            <button id="exportShoppingCSV" class="btn btn-outline-success btn-sm me-2">
+                                <i class="fas fa-file-csv me-1"></i>{% trans "Export" %}
+                            </button>
+                            <button id="compute-needed" class="btn btn-outline-warning btn-sm">
+                                <i class="fas fa-calculator me-1"></i>{% trans "Compute" %}
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="table-responsive craft-needed-table mt-2">
+                        <table class="table table-sm align-middle mb-0" id="needed-table">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>{% trans "Item" %}</th>
+                                    <th class="text-end">{% trans "Qty" %}</th>
+                                    <th class="text-end">{% trans "Unit Price" %}</th>
+                                    <th class="text-end">{% trans "Total" %}</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                            <tfoot class="table-light">
+                                <tr>
+                                    <th colspan="3" class="text-end text-xs">{% trans "Total Shopping Cost" %}</th>
+                                    <th class="text-end text-xs purchase-total fw-semibold">0</th>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </section>
+            </div>
+
+            <!-- ========== RUN OPTIMIZED TAB (V2) ========== -->
+            <div class="tab-pane fade" id="run-optimized-pane" role="tabpanel" aria-labelledby="run-optimized-tab-btn">
+                <section class="craft-section">
+                    <div class="craft-section-header-with-actions">
+                        <h3 class="craft-section-title">
+                            <i class="fas fa-chart-line text-primary"></i> {% trans "Optimized profitability by runs" %}
+                        </h3>
+                    </div>
+
+                    <div class="alert alert-info mb-3" id="run-optimized-status">{% trans "Open this tab to compute profitability across runs." %}</div>
+
+                    <div class="bg-body border rounded-3 p-3">
+                        <canvas id="runOptimizedChart" height="240" style="width: 100%;"></canvas>
+                    </div>
+                </section>
+            </div>
+
+            <!-- ========== BUILD TAB (V2) ========== -->
+            <div class="tab-pane fade" id="build-pane" role="tabpanel" aria-labelledby="build-tab-btn">
+                {% if craft_cycles_summary %}
+                <section class="craft-section">
+                    <h3 class="craft-section-title">
+                        <i class="fas fa-sync text-info"></i> {% trans "Cycles" %}
+                        <span class="badge bg-info-subtle text-info fw-semibold ms-2">{{ craft_cycles_summary|length }}</span>
+                    </h3>
+                    <div class="table-responsive craft-cycles-table craft-table-text-120">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>{% trans "Item" %}</th>
+                                    <th class="text-end">{% trans "Needed" %}</th>
+                                    <th class="text-end">{% trans "Per cycle" %}</th>
+                                    <th class="text-end">{% trans "Cycles" %}</th>
+                                    <th class="text-end">{% trans "Produced" %}</th>
+                                    <th class="text-end">{% trans "Surplus" %}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% if product_type_id and final_product_qty %}
+                                <tr class="table-primary" data-type-id="{{ product_type_id }}">
+                                    <td>
+                                        <div class="d-flex align-items-center gap-2">
+                                            <img src="https://images.evetech.net/types/{{ product_type_id }}/icon?size=32" alt="{{ bp_name }}" class="rounded eve-type-icon eve-type-icon--30" onerror="this.style.display='none';">
+                                            <div class="flex-grow-1">
+                                                <span class="small fw-bold d-block"><i class="fas fa-star text-warning me-1"></i>{{ bp_name }}</span>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td class="text-end text-xs fw-bold">{{ final_product_qty|intcomma }}</td>
+                                    <td class="text-end text-xs">{{ final_product_qty|floatformat:0|intcomma }}</td>
+                                    <td class="text-end text-xs fw-bold">{{ num_runs|intcomma }}</td>
+                                    <td class="text-end text-success text-xs fw-bold">{{ final_product_qty|intcomma }}</td>
+                                    <td class="text-end text-xs"><span class="badge bg-secondary-subtle text-secondary">0</span></td>
+                                </tr>
+                                {% endif %}
+
+                                {% for type_id, data in craft_cycles_summary.items %}
+                                <tr data-type-id="{{ type_id }}">
+                                    <td>
+                                        <div class="d-flex align-items-center gap-2">
+                                            <img src="https://images.evetech.net/types/{{ type_id }}/icon?size=32" alt="{{ data.type_name }}" class="rounded eve-type-icon eve-type-icon--30" onerror="this.style.display='none';">
+                                            <span class="small fw-semibold">{{ data.type_name }}</span>
+                                        </div>
+                                    </td>
+                                    <td class="text-end text-xs">{{ data.total_needed|intcomma }}</td>
+                                    <td class="text-end text-xs">{{ data.produced_per_cycle|intcomma }}</td>
+                                    <td class="text-end text-xs">{{ data.cycles|intcomma }}</td>
+                                    <td class="text-end text-success text-xs fw-semibold">{{ data.total_produced|intcomma }}</td>
+                                    <td class="text-end text-xs">
+                                        {% if data.surplus > 0 %}
+                                            <span class="badge bg-success-subtle text-success fw-semibold">+{{ data.surplus|intcomma }}</span>
+                                        {% elif data.surplus < 0 %}
+                                            <span class="badge bg-danger-subtle text-danger fw-semibold">{{ data.surplus|intcomma }}</span>
+                                        {% else %}
+                                            <span class="badge bg-secondary-subtle text-secondary">0</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+                {% else %}
+                <div class="alert alert-info">{% trans "No cycles data available." %}</div>
+                {% endif %}
+            </div>
+
+            <!-- ========== CONFIGURE TAB (V2) ========== -->
+            <div class="tab-pane fade" id="configure-pane" role="tabpanel" aria-labelledby="configure-tab-btn">
+                <section class="craft-section mb-4">
+                    <h3 class="craft-section-title"><i class="fas fa-magic text-primary"></i> {% trans "Quick Presets" %}</h3>
+                    <div class="btn-group btn-group-sm w-100" role="group">
+                        <button class="btn btn-outline-success" type="button" id="presetMaxEfficiency" title="{% trans 'ME: 10, TE: 20' %}">
+                            <i class="fas fa-star me-1"></i>{% trans "Max" %}
+                        </button>
+                        <button class="btn btn-outline-info" type="button" id="presetOwnedEfficiency" title="{% trans 'Apply parameters from owned blueprints' %}">
+                            <i class="fas fa-cube me-1"></i>{% trans "From Owned BP" %}
+                        </button>
+                        <button class="btn btn-outline-secondary" type="button" id="presetResetEfficiency" title="{% trans 'ME: 0, TE: 0' %}">
+                            <i class="fas fa-undo me-1"></i>{% trans "Reset" %}
+                        </button>
+                    </div>
+                </section>
+
+                <section class="craft-section">
+                    <div class="craft-section-header-with-actions mb-3">
+                        <h3 class="craft-section-title mb-0">
+                            <i class="fas fa-sliders-h text-danger"></i> {% trans "Blueprint Configuration" %}
+                        </h3>
+                        <div class="d-flex gap-2 align-items-center">
+                            <div class="input-group input-group-sm" style="max-width: 250px;">
+                                <span class="input-group-text bg-white"><i class="fas fa-search text-muted"></i></span>
+                                <input type="text" class="form-control" id="blueprintSearchInput" placeholder="{% trans 'Search blueprints...' %}">
+                                <button class="btn btn-outline-secondary" type="button" id="clearSearch" title="{% trans 'Clear search' %}">
+                                    <i class="fas fa-times"></i>
+                                </button>
+                            </div>
+                            <div class="btn-group btn-group-sm" role="group" style="display: none;">
+                                <button type="button" class="btn btn-outline-secondary" id="expandAllConfig" title="{% trans 'Expand all groups' %}">
+                                    <i class="fas fa-plus-square"></i>
+                                </button>
+                                <button type="button" class="btn btn-outline-secondary" id="collapseAllConfig" title="{% trans 'Collapse all groups' %}">
+                                    <i class="fas fa-minus-square"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    {% if blueprint_configs_grouped %}
+                    <div class="accordion" id="blueprintConfigAccordion">
+                        {% for group in blueprint_configs_grouped %}
+                        <div class="accordion-item">
+                            <h4 class="accordion-header" id="heading-group-{{ forloop.counter }}">
+                                <div class="px-3 py-2 fw-bold" style="cursor: default; background-color: transparent;">
+                                    <i class="fas fa-scroll me-2 text-primary"></i>{{ group.group_name }}
+                                </div>
+                            </h4>
+                            <div id="collapse-group-{{ forloop.counter }}" class="accordion-collapse show" aria-labelledby="heading-group-{{ forloop.counter }}">
+                                <div class="accordion-body p-2">
+                                    {% for level in group.levels %}
+                                    <div class="craft-config-level">
+                                        <div class="craft-config-items-grid">
+                                            {% for bc in level.blueprints %}
+                                            <div class="craft-bp-card card h-100" data-blueprint-type-id="{{ bc.type_id }}" {% if not bc.user_owns %}data-blueprint-not-owned="true"{% endif %}>
+                                                <div class="card-header text-center py-1 {% if bc.user_owns %}bg-success bg-opacity-10{% elif bc.shared_copies_available %}bg-warning bg-opacity-10{% else %}bg-danger bg-opacity-10{% endif %}">
+                                                    <img src="https://images.evetech.net/types/{{ bc.type_id }}/bp?size=128"
+                                                         alt="{{ bc.type_name }}"
+                                                         class="craft-bp-icon mx-auto d-block mb-1"
+                                                         onerror="this.style.display='none';">
+                                                    {% if bc.user_owns %}
+                                                        {% if bc.is_copy %}
+                                                        <span class="badge bg-info w-100 mb-1" style="font-size: 0.7rem;">
+                                                            <i class="fas fa-copy me-1"></i>COPY OWNED - {{ bc.runs_available|default:"0" }} runs
+                                                        </span>
+                                                        {% else %}
+                                                        <span class="badge bg-success w-100 mb-1" style="font-size: 0.7rem;">
+                                                            <i class="fas fa-star me-1"></i>ORIGINAL OWNED
+                                                        </span>
+                                                        {% endif %}
+                                                    {% elif bc.shared_copies_available %}
+                                                    <span class="badge bg-warning w-100 mb-1" style="font-size: 0.75rem;">
+                                                        <i class="fas fa-share-alt me-1"></i>{% trans "Available" %}
+                                                    </span>
+                                                    {% else %}
+                                                    <span class="badge bg-danger w-100 mb-1" style="font-size: 0.75rem;">
+                                                        <i class="fas fa-times-circle me-1"></i>{% trans "Not available" %}
+                                                    </span>
+                                                    {% endif %}
+                                                </div>
+                                                <div class="card-body p-2">
+                                                    <h6 class="card-title text-center fw-bold mb-2" style="min-height: 2rem; font-size: 0.95rem;">{{ bc.type_name }}</h6>
+
+                                                    <div class="runs-validation-alert" data-bp-type-id="{{ bc.type_id }}"></div>
+
+                                                    <div class="craft-efficiency-controls mb-2">
+                                                        <div class="d-flex gap-1" style="align-items: flex-start;">
+                                                            <div style="flex: 1; min-width: 0;">
+                                                                <label class="form-label small fw-bold text-uppercase text-muted" style="font-size: 0.65rem; margin-bottom: 0.25rem;">
+                                                                    <i class="fas fa-cubes me-1"></i>ME
+                                                                </label>
+                                                                <input type="number"
+                                                                       name="me_{{ bc.type_id }}"
+                                                                       value="{{ bc.material_efficiency }}"
+                                                                       min="0"
+                                                                       max="10"
+                                                                       class="form-control form-control-sm text-center fw-bold bp-me-input" style="font-size: 0.9rem; padding: 0.3rem;">
+                                                            </div>
+                                                            <div style="flex: 1; min-width: 0;">
+                                                                <label class="form-label small fw-bold text-uppercase text-muted" style="font-size: 0.65rem; margin-bottom: 0.25rem;">
+                                                                    <i class="fas fa-clock me-1"></i>TE
+                                                                </label>
+                                                                <input type="number"
+                                                                       name="te_{{ bc.type_id }}"
+                                                                       value="{{ bc.time_efficiency }}"
+                                                                       min="0"
+                                                                       max="20"
+                                                                       class="form-control form-control-sm text-center fw-bold bp-te-input" style="font-size: 0.9rem; padding: 0.3rem;">
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    {% if not bc.user_owns %}
+                                                    <div class="blueprint-sharing-section">
+                                                        {% if bc.shared_copies_available %}
+                                                        <div class="alert alert-info py-1 px-2 mb-0" style="font-size: 0.8rem;">
+                                                            <div class="d-flex align-items-center justify-content-between gap-1 mb-1">
+                                                                <small class="fw-bold" style="flex-shrink: 0;"><i class="fas fa-share-alt me-1"></i>Copies</small>
+                                                                <span class="badge bg-primary" style="font-size: 0.65rem;">{{ bc.shared_copies_available|length }}</span>
+                                                            </div>
+                                                            {% if bc.shared_copies_available|length == 1 %}
+                                                            <form method="post" action="{% url 'indy_hub:bp_copy_request_create' %}" class="d-inline w-100">
+                                                                {% csrf_token %}
+                                                                <input type="hidden" name="type_id" value="{{ bc.type_id }}">
+                                                                <input type="hidden" name="material_efficiency" value="{{ bc.shared_copies_available.0.me }}">
+                                                                <input type="hidden" name="time_efficiency" value="{{ bc.shared_copies_available.0.te }}">
+                                                                <input type="hidden" name="runs_requested" value="300">
+                                                                <input type="hidden" name="copies_requested" value="1">
+                                                                <button type="submit" class="btn btn-sm btn-primary w-100" style="font-size: 0.8rem; padding: 0.25rem;">
+                                                                    <i class="fas fa-paper-plane me-1"></i>ME{{ bc.shared_copies_available.0.me }}/TE{{ bc.shared_copies_available.0.te }}
+                                                                </button>
+                                                            </form>
+                                                            {% else %}
+                                                            <select class="form-select form-select-sm mb-1" id="bpCopySelect{{ bc.type_id }}" style="font-size: 0.8rem; padding: 0.25rem;">
+                                                                {% for copy in bc.shared_copies_available %}
+                                                                <option value="{{ copy.me }},{{ copy.te }}">ME{{ copy.me }}/TE{{ copy.te }}</option>
+                                                                {% endfor %}
+                                                            </select>
+                                                            <button type="button" class="btn btn-sm btn-primary w-100" onclick="requestBlueprintCopy({{ bc.type_id }}, this)" style="font-size: 0.8rem; padding: 0.25rem;">
+                                                                <i class="fas fa-paper-plane me-1"></i>{% trans "Request" %}
+                                                            </button>
+                                                            {% endif %}
+                                                        </div>
+                                                        {% else %}
+                                                        <div class="alert alert-danger py-1 px-2 mb-0" style="font-size: 0.8rem;">
+                                                            <small class="text-muted"><i class="fas fa-times-circle me-1"></i>{% trans "No copies" %}</small>
+                                                        </div>
+                                                        {% endif %}
+                                                    </div>
+                                                    {% endif %}
+                                                </div>
+                                            </div>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="alert alert-info"><i class="fas fa-info-circle me-2"></i>{% trans "No child blueprints require configuration tweaks for this item." %}</div>
+                    {% endif %}
+                </section>
+            </div>
+        </div>
+    </div>
+
+    {% endwith %}
+</div>
+
+<!-- MODALS -->
+<div class="modal fade" id="saveSimulationModal" tabindex="-1" aria-labelledby="saveSimulationModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="saveSimulationModalLabel">{% trans "Save Simulation" %}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
+            </div>
+            <div class="modal-body">
+                <form id="saveSimulationForm">
+                    <div class="mb-3">
+                        <label for="simulationName" class="form-label">{% trans "Simulation Name" %}</label>
+                        <input type="text" class="form-control" id="simulationName" required placeholder="{% trans 'Enter a name for this simulation' %}">
+                    </div>
+                    <div class="mb-3">
+                        <label for="simulationNotes" class="form-label">{% trans "Notes (optional)" %}</label>
+                        <textarea class="form-control" id="simulationNotes" rows="3" placeholder="{% trans 'Add any notes about this simulation' %}"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans "Cancel" %}</button>
+                <button type="button" class="btn btn-primary" id="confirmSaveSimulation">{% trans "Save" %}</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="loadSimulationModal" tabindex="-1" aria-labelledby="loadSimulationModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="loadSimulationModalLabel">{% trans "Load Simulation" %}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
+            </div>
+            <div class="modal-body">
+                <div id="simulationsList">
+                    <p class="text-muted">{% trans "Loading saved simulations..." %}</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock content %}
+
+{% block extra_javascript %}
+{{ blueprint_payload|json_script:"blueprint-payload" }}
+
+<script>
+(function() {
+    const payloadEl = document.getElementById('blueprint-payload');
+    if (payloadEl) {
+        try {
+            const data = JSON.parse(payloadEl.textContent);
+            window.BLUEPRINT_DATA = Object.assign({}, data, {
+                save_url: data.urls ? data.urls.save : undefined,
+                load_url: data.urls ? data.urls.load_list : undefined,
+                load_config_url: data.urls ? data.urls.load_config : undefined,
+                fuzzwork_price_url: data.urls ? data.urls.fuzzwork_price : undefined
+            });
+        } catch (error) {
+            console.error('Failed to parse blueprint payload:', error);
+            window.BLUEPRINT_DATA = window.BLUEPRINT_DATA || {};
+        }
+    } else {
+        window.BLUEPRINT_DATA = window.BLUEPRINT_DATA || {};
+    }
+})();
+</script>
+
+<script src="{% static 'indy_hub/js/craft_bp_simulation_api.js' %}"></script>
+<script src="{% static 'indy_hub/js/craft_bp_active_tab.js' %}"></script>
+<script src="{% static 'indy_hub/js/craft_bp.js' %}"></script>
+<script src="{% static 'indy_hub/js/craft_bp_inline.js' %}"></script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Blueprint copy request function
+    window.requestBlueprintCopy = function(typeId, button) {
+        const select = document.getElementById(`bpCopySelect${typeId}`);
+        if (!select) return;
+
+        const [me, te] = select.value.split(',');
+
+        // Create and submit form
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = '{% url "indy_hub:bp_copy_request_create" %}';
+
+        // CSRF token
+        const csrfInput = document.createElement('input');
+        csrfInput.type = 'hidden';
+        csrfInput.name = 'csrfmiddlewaretoken';
+        csrfInput.value = '{{ csrf_token }}';
+        form.appendChild(csrfInput);
+
+        // Type ID
+        const typeIdInput = document.createElement('input');
+        typeIdInput.type = 'hidden';
+        typeIdInput.name = 'type_id';
+        typeIdInput.value = typeId;
+        form.appendChild(typeIdInput);
+
+        // ME
+        const meInput = document.createElement('input');
+        meInput.type = 'hidden';
+        meInput.name = 'material_efficiency';
+        meInput.value = me;
+        form.appendChild(meInput);
+
+        // TE
+        const teInput = document.createElement('input');
+        teInput.type = 'hidden';
+        teInput.name = 'time_efficiency';
+        teInput.value = te;
+        form.appendChild(teInput);
+
+        // Runs
+        const runsInput = document.createElement('input');
+        runsInput.type = 'hidden';
+        runsInput.name = 'runs_requested';
+        runsInput.value = '300';
+        form.appendChild(runsInput);
+
+        // Copies
+        const copiesInput = document.createElement('input');
+        copiesInput.type = 'hidden';
+        copiesInput.name = 'copies_requested';
+        copiesInput.value = '1';
+        form.appendChild(copiesInput);
+
+        document.body.appendChild(form);
+        form.submit();
+    };
+
+    // Active tab tracking for form submission
+    const controlForm = document.getElementById('blueprint-control-form');
+    const activeTabInput = document.getElementById('activeTabInput');
+
+    if (controlForm && activeTabInput) {
+        controlForm.addEventListener('submit', function() {
+            const activeTab = document.querySelector('#bpTabs .nav-link.active');
+            if (activeTab) {
+                const target = activeTab.getAttribute('data-bs-target');
+                if (target) {
+                    activeTabInput.value = target.replace('#tab-', '');
+                }
+            }
+        });
+    }
+
+    // Materials group expand/collapse controls
+    const expandMaterialsBtn = document.getElementById('expand-materials');
+    const collapseMaterialsBtn = document.getElementById('collapse-materials');
+
+    if (expandMaterialsBtn) {
+        expandMaterialsBtn.addEventListener('click', function() {
+            document.querySelectorAll('.craft-group-card').forEach(card => {
+                card.classList.remove('collapsed');
+            });
+        });
+    }
+
+    if (collapseMaterialsBtn) {
+        collapseMaterialsBtn.addEventListener('click', function() {
+            document.querySelectorAll('.craft-group-card').forEach(card => {
+                card.classList.add('collapsed');
+            });
+        });
+    }
+
+    // Bulk ME/TE actions with toast feedback
+    const applyBulkMEBtn = document.getElementById('applyBulkME');
+    const applyBulkTEBtn = document.getElementById('applyBulkTE');
+    const bulkToast = document.getElementById('bulkActionToast');
+    const toastMessage = document.getElementById('toastMessage');
+
+    function showToast(message, isSuccess = true) {
+        if (bulkToast && toastMessage) {
+            toastMessage.textContent = message;
+            bulkToast.classList.remove('bg-success', 'bg-danger');
+            bulkToast.classList.add(isSuccess ? 'bg-success' : 'bg-danger');
+            const toast = new window.bootstrap.Toast(bulkToast);
+            toast.show();
+        }
+    }
+
+    if (applyBulkMEBtn) {
+        applyBulkMEBtn.addEventListener('click', function() {
+            const value = document.getElementById('bulkMEValue').value;
+            if (value < 0 || value > 10) {
+                showToast('{% trans "ME must be between 0 and 10" %}', false);
+                return;
+            }
+            let count = 0;
+            document.querySelectorAll('.bp-me-input').forEach(input => {
+                input.value = value;
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+                count++;
+            });
+            showToast(`{% trans "Applied ME" %} ${value} {% trans "to" %} ${count} {% trans "blueprints" %}`);
+        });
+    }
+
+    if (applyBulkTEBtn) {
+        applyBulkTEBtn.addEventListener('click', function() {
+            const value = document.getElementById('bulkTEValue').value;
+            if (value < 0 || value > 20) {
+                showToast('{% trans "TE must be between 0 and 20" %}', false);
+                return;
+            }
+            let count = 0;
+            document.querySelectorAll('.bp-te-input').forEach(input => {
+                input.value = value;
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+                count++;
+            });
+            showToast(`{% trans "Applied TE" %} ${value} {% trans "to" %} ${count} {% trans "blueprints" %}`);
+        });
+    }
+
+    // Preset buttons
+    const presetMaxBtn = document.getElementById('presetMaxEfficiency');
+    const presetOwnedBtn = document.getElementById('presetOwnedEfficiency');
+    const presetResetBtn = document.getElementById('presetResetEfficiency');
+
+    const blueprintConfigs = {{ blueprint_configs_json|safe }};
+    const blueprintConfigsByTypeId = new Map(
+        (Array.isArray(blueprintConfigs) ? blueprintConfigs : []).map(bc => [Number(bc.type_id), bc])
+    );
+
+    if (presetMaxBtn) {
+        presetMaxBtn.addEventListener('click', function() {
+            let count = 0;
+            document.querySelectorAll('.bp-me-input').forEach(input => {
+                input.value = 10;
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+                count++;
+            });
+            document.querySelectorAll('.bp-te-input').forEach(input => {
+                input.value = 20;
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+            });
+            showToast(`{% trans "Max efficiency applied to" %} ${count} {% trans "blueprints" %}`);
+        });
+    }
+
+    if (presetOwnedBtn) {
+        presetOwnedBtn.addEventListener('click', function() {
+            let count = 0;
+            document.querySelectorAll('.bp-me-input').forEach(input => {
+                const card = input.closest('.craft-bp-card');
+                const typeId = card.getAttribute('data-blueprint-type-id');
+                const bp = blueprintConfigsByTypeId.get(Number(typeId));
+                if (bp && bp.is_owned && bp.user_material_efficiency != null) {
+                    input.value = bp.user_material_efficiency;
+                } else {
+                    input.value = 0;
+                }
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+                count++;
+            });
+            document.querySelectorAll('.bp-te-input').forEach(input => {
+                const card = input.closest('.craft-bp-card');
+                const typeId = card.getAttribute('data-blueprint-type-id');
+                const bp = blueprintConfigsByTypeId.get(Number(typeId));
+                if (bp && bp.is_owned && bp.user_time_efficiency != null) {
+                    input.value = bp.user_time_efficiency;
+                } else {
+                    input.value = 0;
+                }
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+            });
+            showToast(`{% trans "Applied owned BP parameters to" %} ${count} {% trans "blueprints" %}`);
+        });
+    }
+
+    if (presetResetBtn) {
+        presetResetBtn.addEventListener('click', function() {
+            let count = 0;
+            document.querySelectorAll('.bp-me-input').forEach(input => {
+                input.value = 0;
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+                count++;
+            });
+            document.querySelectorAll('.bp-te-input').forEach(input => {
+                input.value = 0;
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+            });
+            showToast(`{% trans "Reset" %} ${count} {% trans "blueprints to default values" %}`);
+        });
+    }
+
+    // Expand/Collapse all config (safe with Bootstrap 5)
+    const expandAllConfigBtn = document.getElementById('expandAllConfig');
+    const collapseAllConfigBtn = document.getElementById('collapseAllConfig');
+
+    if (expandAllConfigBtn) {
+        expandAllConfigBtn.addEventListener('click', function() {
+            if (!window.bootstrap || !window.bootstrap.Collapse) {
+                return;
+            }
+            document.querySelectorAll('#blueprintConfigAccordion .accordion-collapse').forEach(el => {
+                window.bootstrap.Collapse.getOrCreateInstance(el, { toggle: false }).show();
+            });
+        });
+    }
+
+    if (collapseAllConfigBtn) {
+        collapseAllConfigBtn.addEventListener('click', function() {
+            if (!window.bootstrap || !window.bootstrap.Collapse) {
+                return;
+            }
+            document.querySelectorAll('#blueprintConfigAccordion .accordion-collapse.show').forEach(el => {
+                window.bootstrap.Collapse.getOrCreateInstance(el, { toggle: false }).hide();
+            });
+        });
+    }
+
+    // Blueprint search and filter
+    const searchInput = document.getElementById('blueprintSearchInput');
+    const clearSearchBtn = document.getElementById('clearSearch');
+
+    if (searchInput) {
+        function filterBlueprints(query) {
+            const searchTerm = query.toLowerCase();
+            let totalVisible = 0;
+
+            document.querySelectorAll('#blueprintConfigAccordion .accordion-item').forEach(item => {
+                const groupName = item.querySelector('.accordion-button')?.textContent?.toLowerCase() || '';
+                const configs = item.querySelectorAll('.craft-bp-card, .craft-config-item');
+                let visibleInGroup = 0;
+
+                configs.forEach(config => {
+                    const itemName = (
+                        config.querySelector('.card-title')?.textContent?.toLowerCase() ||
+                        config.querySelector('.craft-config-name')?.textContent?.toLowerCase() ||
+                        ''
+                    );
+                    const matches = searchTerm === '' || groupName.includes(searchTerm) || itemName.includes(searchTerm);
+                    config.style.display = matches ? '' : 'none';
+                    if (matches) visibleInGroup++;
+                    totalVisible += matches ? 1 : 0;
+                });
+
+                const showGroup = visibleInGroup > 0;
+                item.style.display = showGroup ? '' : 'none';
+            });
+
+            const noResultsMsg = document.getElementById('blueprintNoResults');
+            if (totalVisible === 0 && searchTerm !== '') {
+                if (!noResultsMsg) {
+                    const msg = document.createElement('div');
+                    msg.id = 'blueprintNoResults';
+                    msg.className = 'alert alert-info mt-3';
+                    msg.innerHTML = '<i class="fas fa-search me-2"></i>{% trans "No blueprints match your search" %}';
+                    document.querySelector('#blueprintConfigAccordion')?.parentElement?.appendChild(msg);
+                }
+            } else if (noResultsMsg) {
+                noResultsMsg.remove();
+            }
+        }
+
+        searchInput.addEventListener('input', function() {
+            filterBlueprints(this.value);
+        });
+
+        if (clearSearchBtn) {
+            clearSearchBtn.addEventListener('click', function() {
+                searchInput.value = '';
+                filterBlueprints('');
+                searchInput.focus();
+            });
+        }
+    }
+
+    // CSV Export functionality
+    const exportPurchaseBtn = document.getElementById('exportPurchaseCSV');
+    const exportShoppingBtn = document.getElementById('exportShoppingCSV');
+
+    function exportTableToCSV(tableId, filename) {
+        const table = document.querySelector(tableId);
+        if (!table) return;
+
+        const rows = Array.from(table.querySelectorAll('tr'));
+        const csv = rows.map(row => {
+            const cells = Array.from(row.querySelectorAll('th, td'));
+            return cells.map(cell => {
+                const text = cell.textContent.trim().replace(/"/g, '""');
+                return `"${text}"`;
+            }).join(',');
+        }).join('\n');
+
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = filename;
+        link.click();
+    }
+
+    if (exportPurchaseBtn) {
+        exportPurchaseBtn.addEventListener('click', function() {
+            exportTableToCSV('#financialItemsBody', 'purchase_planner.csv');
+        });
+    }
+
+    if (exportShoppingBtn) {
+        exportShoppingBtn.addEventListener('click', function() {
+            exportTableToCSV('#needed-table', 'shopping_list.csv');
+        });
+    }
+
+    // Load Fuzzwork from alert
+    const loadFuzzworkFromAlert = document.getElementById('loadFuzzworkFromAlert');
+    if (loadFuzzworkFromAlert) {
+        loadFuzzworkFromAlert.addEventListener('click', function() {
+            document.getElementById('loadFuzzworkBtn')?.click();
+        });
+    }
+
+    // Calculate quick stats
+    function updateQuickStats() {
+        const bpCount = document.querySelectorAll('.craft-bp-card, .craft-config-item').length;
+        document.getElementById('totalBlueprintsCount').textContent = bpCount || '-';
+
+        const matCount = document.querySelectorAll('.craft-item-row').length;
+        document.getElementById('totalMaterialsCount').textContent = matCount || '-';
+    }
+
+    updateQuickStats();
+
+    // ========== RUNS VALIDATION ==========
+    function validateBlueprintRuns() {
+        const blueprintConfigs = {{ blueprint_configs_json|safe }};
+        const cyclesSummary = {{ craft_cycles_summary_json|safe }} || {};
+        const mainBpInfo = {{ main_bp_info|safe }};
+        const mainBpTypeId = (() => {
+            const fromInfo = mainBpInfo ? Number(mainBpInfo.type_id) : 0;
+            if (fromInfo) return fromInfo;
+            const fromContext = Number({{ bp_type_id|default:"0" }});
+            if (fromContext) return fromContext;
+            const match = window.location.pathname.match(/\/(\d+)\/?$/);
+            return match ? Number(match[1]) : 0;
+        })();
+        const runsInputEl = document.getElementById('runsInput');
+        const mainNumRuns = runsInputEl ? Number(runsInputEl.value) || 0 : Number({{ num_runs|default:0 }});
+
+        const mainAvailableRuns = mainBpInfo && mainBpInfo.is_copy && mainBpInfo.runs_available != null
+            ? Number(mainBpInfo.runs_available) || 0
+            : null;
+
+        document.querySelectorAll('.runs-validation-alert').forEach(el => el.innerHTML = '');
+
+        blueprintConfigs.forEach(bp => {
+            if (!bp.is_copy || bp.runs_available == null) return;
+
+            const productId = bp.product_type_id || bp.type_id;
+            let cyclesData = cyclesSummary[productId] || cyclesSummary[String(productId)];
+            let calculatedCycles = cyclesData ? (Number(cyclesData.cycles) || 0) : null;
+            let availableRuns = Number(bp.runs_available) || 0;
+
+            if (!cyclesData && mainBpInfo && Number(bp.type_id) === mainBpTypeId) {
+                calculatedCycles = mainNumRuns;
+                if (mainAvailableRuns !== null) {
+                    availableRuns = mainAvailableRuns;
+                }
+            }
+
+            if (calculatedCycles === null) return;
+
+            if (calculatedCycles > availableRuns) {
+                const shortfallRuns = calculatedCycles - availableRuns;
+                const alertContainer = document.querySelector(`.runs-validation-alert[data-bp-type-id="${bp.type_id}"]`);
+
+                if (alertContainer) {
+                    alertContainer.innerHTML = `
+                        <div class="alert alert-warning py-1 px-2 mb-2 text-center" style="font-size: 0.8rem;">
+                            <i class="fas fa-exclamation-triangle me-1"></i>
+                            <strong>Missing ${shortfallRuns} run(s)</strong>
+                        </div>
+                    `;
+                }
+            }
+        });
+    }
+
+    validateBlueprintRuns();
+
+    const runsInputControl = document.getElementById('runsInput');
+    if (runsInputControl) {
+        runsInputControl.addEventListener('change', () => {
+            if (window.CraftBP && typeof window.CraftBP.recalculate === 'function') {
+                window.CraftBP.recalculate()
+                    .finally(() => {
+                        validateBlueprintRuns();
+                    });
+            } else {
+                validateBlueprintRuns();
+            }
+        });
+    }
+
+    document.addEventListener('change', function(e) {
+        if (e.target.classList.contains('bp-me-input') || e.target.classList.contains('bp-te-input')) {
+            if (window.CraftBP && typeof window.CraftBP.recalculate === 'function') {
+                window.CraftBP.recalculate().then(() => {
+                    validateBlueprintRuns();
+                }).catch(() => {
+                    validateBlueprintRuns();
+                });
+            }
+        }
+    }, true);
+
+    if (window.CraftBP && typeof window.CraftBP.init === 'function') {
+        window.CraftBP.init({
+            productTypeId: '{{ product_type_id|default:0 }}',
+            fuzzworkPriceUrl: '{% url "indy_hub:fuzzwork_price" %}'
+        });
+    }
+
+    const recalcBtn = document.getElementById('recalcNowBtn');
+    if (recalcBtn) {
+        recalcBtn.addEventListener('click', function() {
+            if (window.CraftBP && typeof window.CraftBP.recalculate === 'function') {
+                window.CraftBP.recalculate().then(() => {
+                    validateBlueprintRuns();
+                }).catch(() => {
+                    validateBlueprintRuns();
+                });
+            } else {
+                setTimeout(validateBlueprintRuns, 300);
+            }
+        });
+    }
+
+    // ========== TAB PERSISTENCE ==========
+    const STORAGE_KEY = 'craftBP_{{ ui_version|default:"v2" }}_activeTab_{{ bp_type_id|default:"default" }}';
+    const tabButtons = document.querySelectorAll('#craftMainTabs .nav-link');
+    const tabPanes = document.querySelectorAll('#craftMainTabsContent .tab-pane');
+
+    function restoreActiveTab() {
+        const savedTab = localStorage.getItem(STORAGE_KEY);
+        if (!savedTab) {
+            if (tabButtons.length > 0) {
+                tabButtons[0].classList.add('active');
+                tabPanes[0].classList.add('show', 'active');
+            }
+            return;
+        }
+
+        const tabBtn = document.querySelector(`#craftMainTabs .nav-link[data-tab-name="${savedTab}"]`);
+        if (tabBtn) {
+            tabButtons.forEach(btn => btn.classList.remove('active'));
+            tabPanes.forEach(pane => pane.classList.remove('show', 'active'));
+
+            tabBtn.classList.add('active');
+            const targetId = tabBtn.getAttribute('data-bs-target');
+            if (targetId) {
+                const targetPane = document.querySelector(targetId);
+                if (targetPane) {
+                    targetPane.classList.add('show', 'active');
+                }
+            }
+        } else {
+            if (tabButtons.length > 0) {
+                tabButtons[0].classList.add('active');
+                tabPanes[0].classList.add('show', 'active');
+            }
+        }
+    }
+
+    tabButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            const tabName = this.getAttribute('data-tab-name');
+            if (tabName) {
+                localStorage.setItem(STORAGE_KEY, tabName);
+            }
+        });
+    });
+
+    restoreActiveTab();
+});
+</script>
+{% endblock extra_javascript %}
