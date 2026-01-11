@@ -398,7 +398,10 @@ def validate_material_exchange_sell_orders():
 
     pending_orders = MaterialExchangeSellOrder.objects.filter(
         config=config,
-        status=MaterialExchangeSellOrder.Status.DRAFT,
+        status__in=[
+            MaterialExchangeSellOrder.Status.DRAFT,
+            MaterialExchangeSellOrder.Status.AWAITING_VALIDATION,
+        ],
     )
 
     if not pending_orders.exists():
@@ -476,29 +479,38 @@ def validate_material_exchange_buy_orders():
 
     pending_orders = MaterialExchangeBuyOrder.objects.filter(
         config=config,
-        status=MaterialExchangeBuyOrder.Status.AWAITING_VALIDATION,
+        status__in=[
+            MaterialExchangeBuyOrder.Status.DRAFT,
+            MaterialExchangeBuyOrder.Status.AWAITING_VALIDATION,
+        ],
     )
 
     if not pending_orders.exists():
         logger.debug("No pending buy orders to validate")
         return
 
-    # Notify buyers of awaiting validation orders on first processing
+    # Notify buyers of awaiting validation orders on first processing.
+    # Draft orders are intentionally not pinged: they may still be awaiting
+    # an admin decision, but can still be auto-validated if a matching contract
+    # already exists.
     for order in pending_orders:
-        if not order.notes or "Pending contract" not in order.notes:
-            items_str = ", ".join(item.type_name for item in order.items.all())
-            notify_user(
-                order.buyer,
-                _("⏳ Buy Order Awaiting Validation"),
-                _(
-                    f"Your buy order {order.order_reference} is awaiting validation.\n"
-                    f"Items: {items_str}\n"
-                    f"Total cost: {order.total_price:,.2f} ISK\n\n"
-                    f"The corporation is preparing your contract. Stand by."
-                ),
-                level="info",
-                link=f"/indy_hub/material-exchange/buy-orders/{order.id}/",
-            )
+        if order.status != MaterialExchangeBuyOrder.Status.AWAITING_VALIDATION:
+            continue
+        if order.notes and "Pending contract" in order.notes:
+            continue
+        items_str = ", ".join(item.type_name for item in order.items.all())
+        notify_user(
+            order.buyer,
+            _("⏳ Buy Order Awaiting Validation"),
+            _(
+                f"Your buy order {order.order_reference} is awaiting validation.\n"
+                f"Items: {items_str}\n"
+                f"Total cost: {order.total_price:,.2f} ISK\n\n"
+                f"The corporation is preparing your contract. Stand by."
+            ),
+            level="info",
+            link=f"/indy_hub/material-exchange/buy-orders/{order.id}/",
+        )
 
     contracts = ESIContract.objects.filter(
         corporation_id=config.corporation_id,
@@ -832,6 +844,15 @@ def _validate_buy_order_from_db(config, order, contracts, esi_client=None):
     for contract in contracts:
         title = contract.title or ""
         has_correct_ref = order_ref in title
+
+        # Draft buy orders may not have been explicitly approved in Auth yet.
+        # To avoid accidental matches, only auto-validate draft orders when the
+        # contract title clearly references the order.
+        if (
+            order.status == MaterialExchangeBuyOrder.Status.DRAFT
+            and not has_correct_ref
+        ):
+            continue
 
         criteria_match = _matches_buy_order_criteria_db(
             contract, order, config, buyer_character_ids, esi_client

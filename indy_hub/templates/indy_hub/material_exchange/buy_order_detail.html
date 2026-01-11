@@ -93,19 +93,63 @@
                             </h5>
                         </div>
                         <div class="card-body">
-                            <div class="info-box">
-                                <p class="mb-3">
-                                    <i class="fas fa-building me-2 text-info"></i>
-                                    <strong>{% trans "The corporation" %}</strong> {% trans "will create an" %} <strong>{% trans "Item Exchange contract" %}</strong> {% trans "with the items listed below." %}
-                                </p>
-                                <p class="mb-3">
-                                    {% trans "You will receive a notification when the contract is created. Review the items and accept the contract to complete the transaction." %}
-                                </p>
-                                <div class="alert alert-info mb-0">
-                                    <i class="fas fa-lightbulb me-2"></i>
-                                        {% trans "No action is required from you at this moment. Wait for the in-game contract notification." %}
+                            {% if perms.indy_hub.can_manage_material_hub %}
+                                <div class="contract-instructions">
+                                    <p class="mb-3">
+                                        <i class="fas fa-handshake me-2 text-info"></i>
+                                        {% trans "You create an Item Exchange contract to the buyer with the details below. The system auto-validates the contract once it matches." %}
+                                    </p>
+                                    <ol class="mb-3">
+                                        <li>
+                                            <strong>{% trans "Type:" %}</strong> {% trans "Item Exchange" %}
+                                        </li>
+                                        <li>
+                                            <strong>{% trans "Assign to:" %}</strong>
+                                            {{ order.buyer.username }}
+                                            <small class="text-muted">({% trans "AA user" %} #{{ order.buyer.id }})</small>
+                                            <div class="text-muted small">
+                                                {% trans "Use one of the buyer's in-game characters linked to this account." %}
+                                            </div>
+                                        </li>
+                                        <li>
+                                            <strong>{% trans "Location:" %}</strong>
+                                            {{ config.structure_name }}
+                                            <small class="text-muted">(ID: {{ config.structure_id }})</small>
+                                        </li>
+                                        <li>
+                                            <strong>{% trans "Price:" %}</strong>
+                                            <span class="text-info fw-bold">{{ order.total_price|floatformat:2|intcomma }} ISK</span>
+                                        </li>
+                                        <li>
+                                            <strong class="text-danger">{% trans "Title/Description:" %}</strong>
+                                            <span class="text-info fw-bold">{{ order.order_reference }}</span>
+                                            <span class="text-danger">({% trans "REQUIRED!" %})</span>
+                                        </li>
+                                        <li>
+                                            <strong>{% trans "Duration:" %}</strong> {% trans "4 weeks" %}
+                                        </li>
+                                    </ol>
+                                    <div class="alert alert-warning mt-3 mb-0">
+                                        <i class="fas fa-exclamation-triangle me-2"></i>
+                                        <strong>{% trans "Important:" %}</strong>
+                                        {% trans "Include the exact order reference in the contract title. Once the contract matches these details, validation happens automatically within a few minutes." %}
+                                    </div>
                                 </div>
-                            </div>
+                            {% else %}
+                                <div class="info-box">
+                                    <p class="mb-3">
+                                        <i class="fas fa-building me-2 text-info"></i>
+                                        <strong>{% trans "The corporation" %}</strong> {% trans "will create an" %} <strong>{% trans "Item Exchange contract" %}</strong> {% trans "with the items listed below." %}
+                                    </p>
+                                    <p class="mb-3">
+                                        {% trans "You will receive a notification when the contract is created. Review the items and accept the contract to complete the transaction." %}
+                                    </p>
+                                    <div class="alert alert-info mb-0">
+                                        <i class="fas fa-lightbulb me-2"></i>
+                                            {% trans "No action is required from you at this moment. Wait for the in-game contract notification." %}
+                                    </div>
+                                </div>
+                            {% endif %}
                         </div>
                     </div>
                 {% endif %}

@@ -20,6 +20,7 @@ from indy_hub.models import (
 )
 from indy_hub.tasks.material_exchange_contracts import (
     _extract_contract_id,
+    validate_material_exchange_buy_orders,
     validate_material_exchange_sell_orders,
 )
 
@@ -263,6 +264,91 @@ class ContractValidationTaskTest(TestCase):
         mock_notify_user.assert_not_called()
 
 
+class BuyOrderValidationTaskTest(TestCase):
+    """Tests for buy order validation task behavior."""
+
+    def setUp(self):
+        self.config = MaterialExchangeConfig.objects.create(
+            corporation_id=123456789,
+            structure_id=60001234,
+            structure_name="Test Structure",
+            is_active=True,
+        )
+        self.buyer = User.objects.create_user(username="test_buyer")
+
+        self.buy_order = MaterialExchangeBuyOrder.objects.create(
+            config=self.config,
+            buyer=self.buyer,
+            status=MaterialExchangeBuyOrder.Status.DRAFT,
+            order_reference="INDY-9380811210",
+        )
+        self.buy_item = MaterialExchangeBuyOrderItem.objects.create(
+            order=self.buy_order,
+            type_id=34,
+            type_name="Tritanium",
+            quantity=500,
+            unit_price=6.0,
+            total_price=3000,
+            stock_available_at_creation=1000,
+        )
+
+    @patch("indy_hub.tasks.material_exchange_contracts.notify_user")
+    @patch("indy_hub.tasks.material_exchange_contracts.notify_multi")
+    def test_validate_buy_order_in_draft_with_matching_contract(
+        self, mock_multi, mock_user
+    ):
+        """Draft buy orders should be auto-validated when a matching cached contract exists."""
+        # Standard Library
+        from datetime import timedelta
+
+        # Django
+        from django.utils import timezone
+
+        # AA Example App
+        from indy_hub.models import ESIContract, ESIContractItem
+
+        buyer_char_id = 999999999
+
+        contract = ESIContract.objects.create(
+            contract_id=227079044,
+            corporation_id=self.config.corporation_id,
+            contract_type="item_exchange",
+            issuer_id=0,
+            issuer_corporation_id=self.config.corporation_id,
+            assignee_id=buyer_char_id,
+            start_location_id=self.config.structure_id,
+            end_location_id=self.config.structure_id,
+            status="outstanding",
+            title=self.buy_order.order_reference,
+            price=self.buy_order.total_price,
+            date_issued=timezone.now(),
+            date_expired=timezone.now() + timedelta(days=30),
+        )
+        ESIContractItem.objects.create(
+            contract=contract,
+            record_id=1,
+            type_id=self.buy_item.type_id,
+            quantity=self.buy_item.quantity,
+            is_included=True,
+        )
+
+        with patch(
+            "indy_hub.tasks.material_exchange_contracts._get_user_character_ids",
+            return_value=[buyer_char_id],
+        ):
+            validate_material_exchange_buy_orders()
+
+        self.buy_order.refresh_from_db()
+        self.assertEqual(
+            self.buy_order.status, MaterialExchangeBuyOrder.Status.VALIDATED
+        )
+        self.assertEqual(self.buy_order.esi_contract_id, contract.contract_id)
+        self.assertIn("Contract validated", self.buy_order.notes)
+
+        mock_user.assert_called()
+        mock_multi.assert_called()
+
+
 class StructureNameMatchingTest(TestCase):
     """Tests for structure name-based matching instead of ID-only"""
 
@@ -296,7 +382,10 @@ class StructureNameMatchingTest(TestCase):
     ):
         """Test that contract with different structure ID matches by name"""
         # Standard Library
-        from datetime import datetime, timedelta
+        from datetime import timedelta
+
+        # Django
+        from django.utils import timezone
 
         # AA Example App
         from indy_hub.models import ESIContract, ESIContractItem
@@ -317,8 +406,8 @@ class StructureNameMatchingTest(TestCase):
             end_location_id=1045722708748,
             price=5500,
             title="INDY-3",
-            date_issued=datetime.now(),
-            date_expired=datetime.now() + timedelta(days=30),
+            date_issued=timezone.now(),
+            date_expired=timezone.now() + timedelta(days=30),
         )
         ESIContractItem.objects.create(
             contract=contract,
@@ -355,7 +444,10 @@ class StructureNameMatchingTest(TestCase):
     def test_contract_falls_back_to_id_matching(self, mock_get_char_ids):
         """Test that ID matching still works if ESI lookup fails"""
         # Standard Library
-        from datetime import datetime, timedelta
+        from datetime import timedelta
+
+        # Django
+        from django.utils import timezone
 
         # AA Example App
         from indy_hub.models import ESIContract, ESIContractItem
@@ -375,8 +467,8 @@ class StructureNameMatchingTest(TestCase):
             end_location_id=self.config.structure_id,
             price=5500,
             title="INDY-3",
-            date_issued=datetime.now(),
-            date_expired=datetime.now() + timedelta(days=30),
+            date_issued=timezone.now(),
+            date_expired=timezone.now() + timedelta(days=30),
         )
         ESIContractItem.objects.create(
             contract=contract,
