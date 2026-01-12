@@ -916,7 +916,15 @@ def personnal_bp_list(request, scope="character"):
             effective_location_id = container_root_map.get(
                 bp.location_id, bp.location_id
             )
-            location_path = location_map.get(effective_location_id)
+            resolved_name = location_map.get(effective_location_id)
+
+            # IMPORTANT: the template prefers bp.location_name over bp.location_path.
+            # Some blueprints may have a persisted location_name that is just an ID
+            # (e.g. a container item_id). Override it per-request so we display the
+            # resolved structure/station name when available.
+            bp.location_name = resolved_name
+
+            location_path = resolved_name
             if not location_path and effective_location_id != bp.location_id:
                 location_path = str(effective_location_id)
             bp.location_path = location_path or bp.location_flag
