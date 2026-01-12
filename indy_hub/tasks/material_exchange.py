@@ -30,6 +30,7 @@ from indy_hub.services.asset_cache import (
     force_refresh_corp_assets,
     get_corp_assets_cached,
     get_office_folder_item_id_from_assets,
+    resolve_structure_names,
     resolve_asset_root_location_id,
 )
 from indy_hub.services.esi_client import (
@@ -275,6 +276,7 @@ def refresh_material_exchange_sell_user_assets(user_id: int) -> None:
     done = 0
     failed = 0
     all_rows: list[CachedCharacterAsset] = []
+    structure_ids_by_character: dict[int, set[int]] = {}
 
     for character_id in character_ids:
         if not character_id:
@@ -329,6 +331,11 @@ def refresh_material_exchange_sell_user_assets(user_id: int) -> None:
 
         index_by_item_id = build_asset_index_by_item_id(assets or [])
 
+        character_structure_ids = structure_ids_by_character.setdefault(
+            int(character_id),
+            set(),
+        )
+
         rows: list[CachedCharacterAsset] = []
         for asset in assets or []:
             item_id = asset.get("item_id")
@@ -363,6 +370,16 @@ def refresh_material_exchange_sell_user_assets(user_id: int) -> None:
                     synced_at=now,
                 )
             )
+
+            location_flag = str(asset.get("location_flag", "") or "")
+            if "hangar" in location_flag.lower():
+                # Best-effort cache warming: if the user has the structures scope,
+                # resolve any station/structure ids we encounter for hangar assets.
+                # This helps downstream pages show proper location names.
+                if resolved_location_id:
+                    character_structure_ids.add(int(resolved_location_id))
+                if raw_location_id:
+                    character_structure_ids.add(int(raw_location_id))
 
         if rows:
             all_rows.extend(rows)
@@ -415,6 +432,25 @@ def refresh_material_exchange_sell_user_assets(user_id: int) -> None:
     with transaction.atomic():
         CachedCharacterAsset.objects.filter(user=user).delete()
         CachedCharacterAsset.objects.bulk_create(all_rows, batch_size=1000)
+
+    # Warm structure/station names after updating the cache.
+    # Do not fail the refresh if name resolution is forbidden or errors.
+    for character_id, structure_ids in structure_ids_by_character.items():
+        if not structure_ids:
+            continue
+        try:
+            resolve_structure_names(
+                list(structure_ids),
+                character_id=int(character_id),
+                user=user,
+            )
+        except Exception as exc:
+            logger.info(
+                "Skipping structure name resolution for user=%s character=%s: %s",
+                user.id,
+                character_id,
+                exc,
+            )
 
     cache.set(
         me_user_assets_cache_version_key(int(user.id)),

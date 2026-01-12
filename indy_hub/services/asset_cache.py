@@ -837,6 +837,7 @@ def _refresh_character_assets(user) -> tuple[list[dict], bool]:
     now = timezone.now()
 
     corp_ids: set[int] = set()
+    structure_ids_by_character: dict[int, set[int]] = {}
 
     for token in tokens:
         character_id = getattr(token, "character_id", None)
@@ -897,6 +898,17 @@ def _refresh_character_assets(user) -> tuple[list[dict], bool]:
                 synced_at=now,
             )
             rows.append(row)
+
+            # Best-effort: if the asset (often a container) sits in a hangar, its raw/root location
+            # is typically a structure/station id. Cache that name so UI can display it.
+            flag_lower = (row.location_flag or "").lower()
+            if "hangar" in flag_lower:
+                bucket = structure_ids_by_character.setdefault(int(character_id), set())
+                if row.location_id:
+                    bucket.add(int(row.location_id))
+                if row.raw_location_id:
+                    bucket.add(int(row.raw_location_id))
+
             all_assets.append(
                 {
                     "character_id": int(character_id),
@@ -916,6 +928,25 @@ def _refresh_character_assets(user) -> tuple[list[dict], bool]:
         CachedCharacterAsset.objects.filter(user=user).delete()
         if rows:
             CachedCharacterAsset.objects.bulk_create(rows, batch_size=1000)
+
+    # Populate CachedStructureName for any newly observed hangar structure ids.
+    # This is intentionally best-effort: lack of scope or 403s should not break asset refresh.
+    for char_id, structure_ids in structure_ids_by_character.items():
+        if not structure_ids:
+            continue
+        try:
+            resolve_structure_names(
+                list(structure_ids),
+                character_id=int(char_id),
+                user=user,
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.debug(
+                "Failed to cache structure names for user %s via %s: %s",
+                getattr(user, "id", None),
+                char_id,
+                exc,
+            )
 
     return all_assets, assets_scope_missing
 
