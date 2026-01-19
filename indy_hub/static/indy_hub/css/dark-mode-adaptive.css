@@ -3,6 +3,15 @@
 /* This file ensures ALL colors (text, buttons, backgrounds, borders) work correctly in both light and dark modes */
 /* Using Bootstrap CSS variables for complete theme compatibility */
 
+/* Force form controls to follow Alliance Auth theme, not browser dark mode */
+html {
+    color-scheme: light;
+}
+
+html[data-theme="darkly"] {
+    color-scheme: dark;
+}
+
 /* ===== TEXT COLORS ===== */
 /* All text elements should use body color for proper contrast */
 *:not(code):not(pre):not([class*="btn-"]) {
@@ -51,6 +60,16 @@ h1, h2, h3, h4, h5, h6,
     color: var(--bs-body-color) !important;
 }
 
+html[data-theme="darkly"] .badge.bg-light.text-dark {
+    background-color: rgba(255, 255, 255, 0.10) !important;
+    color: var(--bs-light, #f8f9fa) !important;
+    border-color: rgba(255, 255, 255, 0.22) !important;
+}
+
+html[data-theme="darkly"] .badge.text-dark {
+    color: var(--bs-light, #f8f9fa) !important;
+}
+
 /* Table and list text */
 table td,
 table th,
@@ -78,6 +97,13 @@ table th,
 [style*="background-color:#ffffff"] {
     background-color: var(--bs-body-bg) !important;
     color: var(--bs-body-color) !important;
+}
+
+html[data-theme="darkly"] .badge.bg-light.text-dark,
+html[data-theme="darkly"] .badge.bg-light.text-dark.border {
+    background-color: rgba(255, 255, 255, 0.18) !important;
+    color: #ffffff !important;
+    border-color: rgba(255, 255, 255, 0.35) !important;
 }
 
 /* Light background containers */
@@ -409,8 +435,6 @@ html[data-theme="darkly"] .bg-body-tertiary {
 }
 
 /* Alert/badge backgrounds that are white */
-html[data-theme="darkly"] .chat-alert-item__action .bp-chat-trigger__badge,
-html[data-theme="darkly"] .chat-alert-toggle__count,
 html[data-theme="darkly"] .badge-white,
 html[data-theme="darkly"] [style*="background: #fff"],
 html[data-theme="darkly"] [style*="background:#fff"],

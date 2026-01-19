@@ -9,15 +9,20 @@ import logging
 from bravado.exception import HTTPBadGateway, HTTPGatewayTimeout, HTTPServiceUnavailable
 from celery import group, shared_task
 
+# Django
+# Indy Hub
+from django.utils import timezone
+
 # Alliance Auth
 from allianceauth.services.tasks import QueueOnce
 
 # AA Example App
-# Indy Hub
+from indy_hub.models import CachedStructureName
 from indy_hub.services.location_population import (
     DEFAULT_TASK_PRIORITY,
     populate_location_names,
 )
+from indy_hub.utils.eve import PLACEHOLDER_PREFIX, resolve_location_name
 
 logger = logging.getLogger(__name__)
 
@@ -124,3 +129,98 @@ def refresh_multiple_structure_locations(structure_ids):
         "group_id": str(result.id),
         "results": structure_ids,
     }
+
+
+@shared_task(
+    **{
+        **_TASK_ESI_KWARGS,
+        **{
+            "bind": True,
+            "base": QueueOnce,
+            "once": {"keys": ["structure_id"], "graceful": True},
+            # Keep this conservative: this endpoint is easy to rate-limit.
+            "rate_limit": "100/m",
+            "max_retries": None,
+        },
+    }
+)
+def cache_structure_name(
+    self,
+    structure_id: int,
+    character_id: int | None = None,
+    owner_user_id: int | None = None,
+) -> dict[str, object]:
+    """Resolve and store a structure/station name in CachedStructureName.
+
+    This is designed to be fire-and-forget: it will store a placeholder on failure
+    so subsequent callers don't repeatedly hammer ESI.
+    """
+
+    structure_id = int(structure_id)
+    now = timezone.now()
+
+    try:
+        name = resolve_location_name(
+            structure_id,
+            character_id=int(character_id) if character_id else None,
+            owner_user_id=int(owner_user_id) if owner_user_id else None,
+            force_refresh=True,
+            allow_public=True,
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.exception("Failed to resolve structure name for %s", structure_id)
+        raise self.retry(exc=exc, countdown=DEFAULT_TASK_PRIORITY * 10) from exc
+
+    if not name:
+        name = f"{PLACEHOLDER_PREFIX}{structure_id}"
+
+    CachedStructureName.objects.update_or_create(
+        structure_id=structure_id,
+        defaults={"name": str(name), "last_resolved": now},
+    )
+
+    return {
+        "structure_id": structure_id,
+        "name": str(name),
+        "is_placeholder": str(name).startswith(PLACEHOLDER_PREFIX),
+    }
+
+
+@shared_task(
+    autoretry_for=(Exception,),
+    retry_kwargs={"max_retries": 3, "countdown": 10},
+    time_limit=300,
+    soft_time_limit=280,
+)
+def cache_structure_names_bulk(
+    structure_ids, character_id: int | None = None, owner_user_id: int | None = None
+):
+    """Queue many CachedStructureName resolutions without waiting for results.
+
+    Uses QueueOnce de-duplication in `cache_structure_name` and staggers countdowns
+    to avoid bursts.
+    """
+
+    if not structure_ids:
+        return {"total": 0, "queued": 0}
+
+    # Normalize and deduplicate
+    normalized = [int(sid) for sid in structure_ids if sid]
+    normalized = list(dict.fromkeys(normalized))
+    if not normalized:
+        return {"total": 0, "queued": 0}
+
+    sigs = []
+    for idx, sid in enumerate(normalized):
+        # Stagger scheduling to reduce burstiness across workers.
+        countdown = int(idx // 3)
+        sigs.append(
+            cache_structure_name.s(
+                int(sid),
+                character_id=int(character_id) if character_id else None,
+                owner_user_id=int(owner_user_id) if owner_user_id else None,
+            ).set(countdown=countdown, priority=DEFAULT_TASK_PRIORITY)
+        )
+
+    group(sigs).apply_async()
+    return {"total": len(normalized), "queued": len(sigs)}

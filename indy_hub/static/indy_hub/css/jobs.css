@@ -752,13 +752,11 @@ html[data-theme="darkly"] .item-info strong {
     }
 }
 
-@media (prefers-color-scheme: dark) {
-    .activity-badge,
-    .status-badge {
-        background: #343a40 !important;
-        color: #fff;
-        border: 1px solid #495057;
-    }
+html[data-theme="darkly"] .activity-badge,
+html[data-theme="darkly"] .status-badge {
+    background: #343a40 !important;
+    color: #fff;
+    border: 1px solid #495057;
 }
 
 /* Bootstrap utility classes overrides */
@@ -767,6 +765,13 @@ html[data-theme="darkly"] .bg-body-secondary,
 html[data-theme="darkly"] .bg-light,
 html[data-theme="darkly"] .bg-white {
     background-color: #303030 !important;
+}
+
+html[data-theme="darkly"] .badge.bg-light.text-dark,
+html[data-theme="darkly"] .badge.bg-light.text-dark.border {
+    background-color: rgba(255, 255, 255, 0.18) !important;
+    color: #ffffff !important;
+    border-color: rgba(255, 255, 255, 0.35) !important;
 }
 
 html[data-theme="darkly"] [class*="subtle"] {

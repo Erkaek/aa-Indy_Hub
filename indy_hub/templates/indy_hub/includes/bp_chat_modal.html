@@ -1,21 +1,24 @@
 {% load i18n %}
-<div class="modal fade" id="bpChatModal" tabindex="-1" aria-hidden="true" data-chat-modal>
-    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h6 class="modal-title mb-0">
-                    <i class="fas fa-comments me-2"></i>{% trans "Conditional offer chat" %}
-                </h6>
+<div class="modal fade bp-chat-modal" id="bpChatModal" tabindex="-1" aria-hidden="true" data-chat-modal>
+    <div class="modal-dialog modal-dialog-scrollable modal-fullscreen-sm-down bp-chat-dialog">
+        <div class="modal-content bp-chat-surface">
+            <div class="modal-header bp-chat-header">
+                <div class="bp-chat-header__title">
+                    <span class="bp-chat-header__icon" aria-hidden="true"><i class="fas fa-comments"></i></span>
+                    <span class="bp-chat-header__text">{% trans "Conditional offer chat" %}</span>
+                </div>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
             </div>
-            <div class="modal-body">
-                <div class="bp-chat-summary small text-muted mb-3" data-chat-summary></div>
-                <div class="alert alert-warning d-none" role="status" data-chat-status></div>
-                <div class="bp-chat-message-list" data-chat-messages></div>
-                <div class="bp-chat-actions alert alert-secondary d-none mt-3" data-chat-actions>
+
+            <div class="modal-body bp-chat-body">
+                <div class="bp-chat-summary" data-chat-summary></div>
+
+                <div class="alert alert-warning d-none bp-chat-status" role="status" data-chat-status></div>
+
+                <div class="bp-chat-actions alert alert-secondary d-none" data-chat-actions>
                     <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2">
                         <div class="small" data-chat-action-status></div>
-                        <div class="d-flex flex-wrap gap-2">
+                        <div class="bp-chat-action-buttons">
                             <button type="button" class="btn btn-success btn-sm" data-chat-accept>
                                 <i class="fas fa-check me-1"></i>{% trans "Accept" %}
                             </button>
@@ -25,24 +28,26 @@
                         </div>
                     </div>
                 </div>
+
+                <div class="bp-chat-message-list" data-chat-messages></div>
             </div>
-            <div class="modal-footer">
-                <form class="bp-chat-form d-flex w-100 gap-2" data-chat-form>
+
+            <div class="modal-footer bp-chat-footer">
+                <form class="bp-chat-form" data-chat-form>
                     {% csrf_token %}
-                    <div class="flex-grow-1">
-                        <label for="bpChatInput" class="visually-hidden">{% trans "Message" %}</label>
-                        <textarea
-                            id="bpChatInput"
-                            class="form-control"
-                            rows="2"
-                            maxlength="2000"
-                            data-chat-input
-                            placeholder="{% trans 'Type your message...' %}"
-                            required
-                        ></textarea>
-                    </div>
-                    <button type="submit" class="btn btn-primary">
-                        <i class="fas fa-paper-plane me-1"></i>{% trans "Send" %}
+                    <label for="bpChatInput" class="visually-hidden">{% trans "Message" %}</label>
+                    <textarea
+                        id="bpChatInput"
+                        class="form-control bp-chat-input"
+                        rows="2"
+                        maxlength="2000"
+                        data-chat-input
+                        placeholder="{% trans 'Type your message...' %}"
+                        required
+                    ></textarea>
+                    <button type="submit" class="btn btn-primary bp-chat-send">
+                        <i class="fas fa-paper-plane"></i>
+                        <span class="d-none d-sm-inline ms-1">{% trans "Send" %}</span>
                     </button>
                 </form>
             </div>

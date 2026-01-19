@@ -30,8 +30,8 @@ from indy_hub.services.asset_cache import (
     force_refresh_corp_assets,
     get_corp_assets_cached,
     get_office_folder_item_id_from_assets,
-    resolve_structure_names,
     resolve_asset_root_location_id,
+    resolve_structure_names,
 )
 from indy_hub.services.esi_client import (
     ESIClientError,
@@ -166,6 +166,7 @@ def refresh_corp_assets_cached(
                 ),
                 corporation_id=int(corporation_id),
                 task=current_task,  # Pass task for progress updates
+                schedule_async=True,
             )
             logger.info(
                 "Successfully resolved structure names for corporation %s",
@@ -443,6 +444,7 @@ def refresh_material_exchange_sell_user_assets(user_id: int) -> None:
                 list(structure_ids),
                 character_id=int(character_id),
                 user=user,
+                schedule_async=True,
             )
         except Exception as exc:
             logger.info(

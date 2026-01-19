@@ -1814,9 +1814,10 @@ def craft_bp(request, type_id):
                     )
                     mats = []
                     for row in cursor.fetchall():
-                        base_qty = row[2] * runs
-                        # Apply blueprint-specific ME and round up to the next whole number
-                        qty = ceil(base_qty * (100 - blueprint_me) / 100)
+                        # IMPORTANT: Apply ME rounding per-run (per job/cycle), then multiply.
+                        # Doing ceil((base_qty * runs) * (1 - ME)) underestimates for small quantities.
+                        per_run_qty = ceil((row[2] or 0) * (100 - blueprint_me) / 100)
+                        qty = int(per_run_qty) * int(runs)
                         mat = {
                             "type_id": row[0],
                             "type_name": row[1],
@@ -2270,12 +2271,12 @@ def craft_bp(request, type_id):
             shared_bp_map = dd(list)
             shared_bp_seen = dd(set)
             for bp in available_shared_bps:
-                type_id = bp["type_id"]
+                shared_type_id = bp["type_id"]
                 key = (bp["material_efficiency"], bp["time_efficiency"])
-                if key in shared_bp_seen[type_id]:
+                if key in shared_bp_seen[shared_type_id]:
                     continue
-                shared_bp_seen[type_id].add(key)
-                shared_bp_map[type_id].append({"me": key[0], "te": key[1]})
+                shared_bp_seen[shared_type_id].add(key)
+                shared_bp_map[shared_type_id].append({"me": key[0], "te": key[1]})
 
             # Enrich blueprint_configs with user's data and sharing availability
             for bc in blueprint_configs:
@@ -2562,8 +2563,8 @@ def craft_bp(request, type_id):
             return "Other"
 
         group_ids_used = set()
-        for type_id in all_type_ids:
-            eve_type = next((et for et in eve_types if et.id == type_id), None)
+        for item_type_id in all_type_ids:
+            eve_type = next((et for et in eve_types if et.id == item_type_id), None)
             if eve_type and getattr(eve_type, "eve_market_group", None):
                 group_ids_used.add(eve_type.eve_market_group.id)
             elif eve_type and eve_type.eve_group:
@@ -4917,12 +4918,24 @@ def bp_chat_history(request, chat_id: int):
             "labels": role_labels,
             "type_id": chat.request.type_id,
             "type_name": get_type_name(chat.request.type_id),
+            "material_efficiency": chat.request.material_efficiency,
+            "time_efficiency": chat.request.time_efficiency,
+            "runs_requested": chat.request.runs_requested,
+            "copies_requested": chat.request.copies_requested,
             "can_send": chat.is_open and viewer_role in {"buyer", "seller"},
             "decision": decision_payload,
         },
         "messages": messages_payload,
     }
-    chat.mark_seen(viewer_role)
+    if chat.buyer_id == chat.seller_id == request.user.id:
+        now = timezone.now()
+        chat.buyer_last_seen_at = now
+        chat.seller_last_seen_at = now
+        chat.save(
+            update_fields=["buyer_last_seen_at", "seller_last_seen_at", "updated_at"]
+        )
+    else:
+        chat.mark_seen(viewer_role, force=True)
     return JsonResponse(data)
 
 

@@ -588,13 +588,19 @@ class BlueprintCopyChat(models.Model):
 
         self.save(update_fields=list(updates.keys()))
 
-    def mark_seen(self, role: str) -> None:
+    def mark_seen(self, role: str, *, force: bool = False) -> None:
         if role not in {"buyer", "seller"}:
             return
 
         field = "buyer_last_seen_at" if role == "buyer" else "seller_last_seen_at"
         last_seen = getattr(self, field)
         target_timestamp = self.last_message_at
+
+        if force:
+            now = timezone.now()
+            setattr(self, field, now)
+            self.save(update_fields=[field, "updated_at"])
+            return
 
         if not target_timestamp:
             if not last_seen:
@@ -1362,6 +1368,30 @@ class MaterialExchangeConfig(models.Model):
         help_text=_("Base price to apply buy markup on (Jita Buy or Jita Sell)"),
     )
 
+    enforce_jita_price_bounds = models.BooleanField(
+        default=False,
+        help_text=_(
+            "Optional safety clamp: Jita Sell + negative % will not go below Jita Buy, "
+            "and Jita Buy + positive % will not go above Jita Sell."
+        ),
+    )
+
+    # Market group filters
+    allowed_market_groups_buy = models.JSONField(
+        blank=True,
+        default=list,
+        help_text=_(
+            "List of market group IDs allowed for buying. Empty = all industry market groups allowed."
+        ),
+    )
+    allowed_market_groups_sell = models.JSONField(
+        blank=True,
+        default=list,
+        help_text=_(
+            "List of market group IDs allowed for selling. Empty = all industry market groups allowed."
+        ),
+    )
+
     # Stock sync
     last_stock_sync = models.DateTimeField(blank=True, null=True)
     last_price_sync = models.DateTimeField(blank=True, null=True)
@@ -1400,6 +1430,7 @@ class CachedCorporationAsset(models.Model):
         verbose_name = "Cached Corporation Asset"
         verbose_name_plural = "Cached Corporation Assets"
         default_permissions = ()
+        db_table = "indy_hub_corp_assets"
         indexes = [
             models.Index(
                 fields=["corporation_id", "location_id"], name="cca_corp_loc_idx"
@@ -1458,6 +1489,7 @@ class CachedCharacterAsset(models.Model):
         verbose_name = "Cached Character Asset"
         verbose_name_plural = "Cached Character Assets"
         default_permissions = ()
+        db_table = "indy_hub_char_assets"
         indexes = [
             models.Index(fields=["user", "character_id"], name="cca_user_char_idx"),
             models.Index(fields=["user", "location_id"], name="cca_user_loc_idx"),
@@ -1540,12 +1572,24 @@ class MaterialExchangeStock(models.Model):
         if not self.config:
             return 0
         # Choose base price according to config
-        if self.config.buy_markup_base == "sell":
+        base_choice = self.config.buy_markup_base
+        if base_choice == "sell":
             base = self.jita_sell_price or 0
         else:
             base = self.jita_buy_price or 0
-        markup = self.config.buy_markup_percent / 100
-        return base * (1 + markup)
+        percent = self.config.buy_markup_percent
+        markup = percent / 100
+        price = base * (1 + markup)
+
+        if self.config.enforce_jita_price_bounds:
+            jita_buy = self.jita_buy_price or 0
+            jita_sell = self.jita_sell_price or 0
+            if base_choice == "sell" and percent < 0 and jita_buy:
+                price = max(price, jita_buy)
+            if base_choice == "buy" and percent > 0 and jita_sell:
+                price = min(price, jita_sell)
+
+        return price
 
     @property
     def buy_price_from_member(self):
@@ -1553,12 +1597,24 @@ class MaterialExchangeStock(models.Model):
         if not self.config:
             return 0
         # Choose base price according to config
-        if self.config.sell_markup_base == "sell":
+        base_choice = self.config.sell_markup_base
+        if base_choice == "sell":
             base = self.jita_sell_price or 0
         else:
             base = self.jita_buy_price or 0
-        markup = self.config.sell_markup_percent / 100
-        return base * (1 + markup)
+        percent = self.config.sell_markup_percent
+        markup = percent / 100
+        price = base * (1 + markup)
+
+        if self.config.enforce_jita_price_bounds:
+            jita_buy = self.jita_buy_price or 0
+            jita_sell = self.jita_sell_price or 0
+            if base_choice == "sell" and percent < 0 and jita_buy:
+                price = max(price, jita_buy)
+            if base_choice == "buy" and percent > 0 and jita_sell:
+                price = min(price, jita_sell)
+
+        return price
 
 
 class MaterialExchangeSellOrder(models.Model):

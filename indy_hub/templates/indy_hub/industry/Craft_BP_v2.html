@@ -405,10 +405,43 @@
                         </h3>
                     </div>
 
+                    <div class="d-flex flex-wrap gap-2 align-items-end mb-2">
+                        <div class="form-check form-switch me-2">
+                            <input class="form-check-input" type="checkbox" id="runOptimizedUseDashboardDecisions" checked>
+                            <label class="form-check-label small" for="runOptimizedUseDashboardDecisions">
+                                {% trans "Use current Buy/Prod switches (dashboard-aligned)" %}
+                            </label>
+                        </div>
+
+                        <div class="input-group input-group-sm" style="max-width: 260px;">
+                            <span class="input-group-text">{% trans "Search up to" %}</span>
+                            <input type="number" class="form-control" id="runOptimizedSearchMaxRuns" min="1" step="1">
+                            <span class="input-group-text">{% trans "runs" %}</span>
+                        </div>
+
+                        <button class="btn btn-sm btn-outline-primary" type="button" id="runOptimizedFindBestBtn">
+                            <i class="fas fa-bullseye me-1"></i>{% trans "Find optimal runs" %}
+                        </button>
+
+                        <div class="small text-muted ms-auto" id="runOptimizedBestResult"></div>
+                    </div>
+
+                    <details class="border rounded-3 bg-body p-2 mb-2" id="runOptimizedBestConfigDetails" style="display:none;">
+                        <summary class="small fw-semibold">{% trans "Best configuration details" %}</summary>
+                        <div class="mt-2 d-flex flex-wrap gap-2 align-items-center">
+                            <button class="btn btn-sm btn-outline-secondary" type="button" id="runOptimizedCopyBestConfig">
+                                <i class="fas fa-copy me-1"></i>{% trans "Copy" %}
+                            </button>
+                            <span class="small text-muted" id="runOptimizedBestConfigHint"></span>
+                        </div>
+                        <pre class="small mt-2 mb-0" id="runOptimizedBestConfigPre" style="white-space: pre-wrap;"></pre>
+                    </details>
+
                     <div class="alert alert-info mb-3" id="run-optimized-status">{% trans "Open this tab to compute profitability across runs." %}</div>
 
                     <div class="bg-body border rounded-3 p-3">
                         <canvas id="runOptimizedChart" height="240" style="width: 100%;"></canvas>
+                        <div class="mt-2 small text-muted" id="runOptimizedPointsList"></div>
                     </div>
                 </section>
             </div>
@@ -743,6 +776,28 @@
         }
     } else {
         window.BLUEPRINT_DATA = window.BLUEPRINT_DATA || {};
+    }
+
+    // Optional debug mode for verbose console logging (used by Craft BP + Run optimized).
+    // Enable by appending &indy_debug=1 (or &debug=1) to the URL.
+    // Note: be tolerant of malformed URLs (e.g. a second '?indy_debug=1' appended).
+    try {
+        const params = new URLSearchParams(window.location.search);
+        const href = String(window.location && window.location.href ? window.location.href : '');
+        const enabled =
+            params.get('indy_debug') === '1' ||
+            params.get('debug') === '1' ||
+            href.includes('indy_debug=1') ||
+            href.includes('debug=1');
+
+        if (enabled) {
+            window.INDY_HUB_DEBUG = true;
+            if (typeof console !== 'undefined' && typeof console.log === 'function') {
+                console.log('[IndyHub] Debug enabled (INDY_HUB_DEBUG=true)');
+            }
+        }
+    } catch (e) {
+        // ignore
     }
 })();
 </script>
@@ -1239,34 +1294,41 @@ document.addEventListener('DOMContentLoaded', function() {
     const tabButtons = document.querySelectorAll('#craftMainTabs .nav-link');
     const tabPanes = document.querySelectorAll('#craftMainTabsContent .tab-pane');
 
+    function showTab(tabBtn) {
+        if (!tabBtn) return;
+
+        // Prefer Bootstrap's Tab API so that shown.bs.tab events fire (needed by other JS like Run optimized)
+        if (window.bootstrap && window.bootstrap.Tab && typeof window.bootstrap.Tab.getOrCreateInstance === 'function') {
+            window.bootstrap.Tab.getOrCreateInstance(tabBtn).show();
+            return;
+        }
+
+        // Fallback: manual class toggle
+        tabButtons.forEach(btn => btn.classList.remove('active'));
+        tabPanes.forEach(pane => pane.classList.remove('show', 'active'));
+
+        tabBtn.classList.add('active');
+        const targetId = tabBtn.getAttribute('data-bs-target');
+        if (targetId) {
+            const targetPane = document.querySelector(targetId);
+            if (targetPane) {
+                targetPane.classList.add('show', 'active');
+            }
+        }
+    }
+
     function restoreActiveTab() {
         const savedTab = localStorage.getItem(STORAGE_KEY);
         if (!savedTab) {
-            if (tabButtons.length > 0) {
-                tabButtons[0].classList.add('active');
-                tabPanes[0].classList.add('show', 'active');
-            }
+            showTab(tabButtons.length > 0 ? tabButtons[0] : null);
             return;
         }
 
         const tabBtn = document.querySelector(`#craftMainTabs .nav-link[data-tab-name="${savedTab}"]`);
         if (tabBtn) {
-            tabButtons.forEach(btn => btn.classList.remove('active'));
-            tabPanes.forEach(pane => pane.classList.remove('show', 'active'));
-
-            tabBtn.classList.add('active');
-            const targetId = tabBtn.getAttribute('data-bs-target');
-            if (targetId) {
-                const targetPane = document.querySelector(targetId);
-                if (targetPane) {
-                    targetPane.classList.add('show', 'active');
-                }
-            }
+            showTab(tabBtn);
         } else {
-            if (tabButtons.length > 0) {
-                tabButtons[0].classList.add('active');
-                tabPanes[0].classList.add('show', 'active');
-            }
+            showTab(tabButtons.length > 0 ? tabButtons[0] : null);
         }
     }
 

@@ -20,7 +20,7 @@ class _FakeToken:
 
 
 class _FakeTokenQuerySet(list):
-    def require_scopes(self, scopes):  # noqa: ARG002
+    def require_scopes(self, scopes):
         return self
 
     def require_valid(self):
@@ -52,7 +52,7 @@ class CharacterAssetRefreshStructureNameTests(TestCase):
             }
         ]
 
-        def resolve_side_effect(structure_ids, character_id=None, user=None, **kwargs):  # noqa: ARG001
+        def resolve_side_effect(structure_ids, character_id=None, user=None, **kwargs):
             now = timezone.now()
             for sid in structure_ids:
                 CachedStructureName.objects.update_or_create(
@@ -61,16 +61,22 @@ class CharacterAssetRefreshStructureNameTests(TestCase):
                 )
             return {int(sid): f"Structure {sid}" for sid in structure_ids}
 
-        with patch.object(asset_cache.Token.objects, "filter", return_value=fake_tokens), patch.object(
-            asset_cache.shared_client,
-            "fetch_character_assets",
-            return_value=assets_payload,
-        ), patch.object(
-            asset_cache,
-            "resolve_structure_names",
-            side_effect=resolve_side_effect,
-        ) as mocked_resolve:
-            refreshed_assets, scope_missing = asset_cache._refresh_character_assets(user)
+        with (
+            patch.object(asset_cache.Token.objects, "filter", return_value=fake_tokens),
+            patch.object(
+                asset_cache.shared_client,
+                "fetch_character_assets",
+                return_value=assets_payload,
+            ),
+            patch.object(
+                asset_cache,
+                "resolve_structure_names",
+                side_effect=resolve_side_effect,
+            ) as mocked_resolve,
+        ):
+            refreshed_assets, scope_missing = asset_cache._refresh_character_assets(
+                user
+            )
 
         self.assertFalse(scope_missing)
         self.assertEqual(len(refreshed_assets), 1)
@@ -83,4 +89,6 @@ class CharacterAssetRefreshStructureNameTests(TestCase):
 
         # Ensure we attempted to resolve/cache the structure name.
         self.assertTrue(mocked_resolve.called)
-        self.assertTrue(CachedStructureName.objects.filter(structure_id=structure_id).exists())
+        self.assertTrue(
+            CachedStructureName.objects.filter(structure_id=structure_id).exists()
+        )

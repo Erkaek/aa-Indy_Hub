@@ -44,6 +44,33 @@
         container.scrollTop = container.scrollHeight;
     }
 
+    function scrollMessagesToBottom(container) {
+        if (!container) {
+            return;
+        }
+        if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+            window.requestAnimationFrame(function () {
+                window.requestAnimationFrame(function () {
+                    scrollToBottom(container);
+                });
+            });
+        } else {
+            scrollToBottom(container);
+        }
+    }
+
+    function scrollMessagesToBottomNow(container) {
+        if (!container) {
+            return;
+        }
+        scrollToBottom(container);
+        if (typeof window !== 'undefined') {
+            window.setTimeout(function () {
+                scrollToBottom(container);
+            }, 50);
+        }
+    }
+
     function withViewerRole(url, viewerRole) {
         if (!url || !viewerRole) {
             return url;
@@ -108,15 +135,6 @@
             }
         }
 
-        var dropdownCtor = null;
-        if (typeof window !== 'undefined') {
-            if (window.bootstrap && window.bootstrap.Dropdown) {
-                dropdownCtor = window.bootstrap.Dropdown;
-            } else if (window.bootstrap5 && window.bootstrap5.Dropdown) {
-                dropdownCtor = window.bootstrap5.Dropdown;
-            }
-        }
-
         var useBootstrap = Boolean(bootstrapModalCtor);
         var modal = useBootstrap ? bootstrapModalCtor.getOrCreateInstance(modalEl) : null;
         var backdropEl = null;
@@ -141,42 +159,6 @@
             backdropEl = null;
         }
 
-        function closeChatDropdown() {
-            var toggle = document.getElementById('chat-alert-toggle');
-            if (!toggle) {
-                return;
-            }
-            if (dropdownCtor) {
-                var dropdownInstance = null;
-                if (typeof dropdownCtor.getOrCreateInstance === 'function') {
-                    dropdownInstance = dropdownCtor.getOrCreateInstance(toggle);
-                }
-                if (!dropdownInstance && typeof dropdownCtor.getInstance === 'function') {
-                    dropdownInstance = dropdownCtor.getInstance(toggle);
-                }
-                if (!dropdownInstance) {
-                    try {
-                        dropdownInstance = new dropdownCtor(toggle);
-                    } catch (err) {
-                        dropdownInstance = null;
-                    }
-                }
-                if (dropdownInstance && typeof dropdownInstance.hide === 'function') {
-                    dropdownInstance.hide();
-                    return;
-                }
-            }
-
-            var menu = toggle.nextElementSibling;
-            if (menu) {
-                menu.classList.remove('show');
-            }
-            toggle.setAttribute('aria-expanded', 'false');
-            var wrapper = toggle.closest('.dropdown');
-            if (wrapper) {
-                wrapper.classList.remove('show');
-            }
-        }
 
         function showModal() {
             if (useBootstrap) {
@@ -192,6 +174,9 @@
             document.body.classList.add('modal-open');
             previousBodyOverflow = document.body.style.overflow || '';
             document.body.style.overflow = 'hidden';
+            if (state.pendingInitialScroll) {
+                scrollMessagesToBottom(messageContainer);
+            }
         }
 
         function hideModal() {
@@ -290,7 +275,7 @@
                 labels[otherRole] = otherRole;
             }
 
-            var messages = (payload.messages || []).slice().reverse();
+            var messages = payload.messages || [];
             messages.forEach(function (item) {
                 var bubble = createEl('div', 'bp-chat-message');
                 if (item.role === viewerRole) {
@@ -317,8 +302,8 @@
                 bubble.appendChild(content);
                 messageContainer.appendChild(bubble);
             });
-            if (messages.length) {
-                messageContainer.scrollTop = 0;
+            if (messages.length && state.pendingInitialScroll) {
+                scrollMessagesToBottomNow(messageContainer);
             }
         }
 
@@ -365,6 +350,28 @@
             var otherBadge = createEl('span', 'bp-chat-summary__role badge rounded-pill bg-secondary-subtle text-secondary fw-semibold', otherLabel);
             roles.appendChild(otherBadge);
             panel.appendChild(roles);
+
+            var me = payload.chat.material_efficiency;
+            var te = payload.chat.time_efficiency;
+            var runs = payload.chat.runs_requested;
+            var copies = payload.chat.copies_requested;
+            var detailParts = [];
+            if (typeof me === 'number') {
+                detailParts.push('ME ' + me);
+            }
+            if (typeof te === 'number') {
+                detailParts.push('TE ' + te);
+            }
+            if (typeof runs === 'number') {
+                detailParts.push(runs + ' ' + __('runs'));
+            }
+            if (typeof copies === 'number') {
+                detailParts.push(copies + ' ' + __('copies'));
+            }
+            if (detailParts.length) {
+                var detailRow = createEl('div', 'bp-chat-summary__meta text-muted small', detailParts.join(' · '));
+                panel.appendChild(detailRow);
+            }
 
             if (typeId) {
                 var idRow = createEl('div', 'bp-chat-summary__meta text-muted small', '#' + typeId);
@@ -538,7 +545,51 @@
                 });
         }
 
+        function loadSeenChatIds() {
+            if (typeof window === 'undefined' || !window.localStorage) {
+                return [];
+            }
+            try {
+                var raw = window.localStorage.getItem('indyhub_seen_chats');
+                if (!raw) {
+                    return [];
+                }
+                var parsed = JSON.parse(raw);
+                if (!Array.isArray(parsed)) {
+                    return [];
+                }
+                return parsed.map(function (value) {
+                    return String(value);
+                });
+            } catch (err) {
+                return [];
+            }
+        }
+
+        function storeSeenChatId(chatId) {
+            if (!chatId || typeof window === 'undefined' || !window.localStorage) {
+                return;
+            }
+            var stringId = String(chatId);
+            var seen = loadSeenChatIds();
+            if (seen.indexOf(stringId) !== -1) {
+                return;
+            }
+            seen.unshift(stringId);
+            if (seen.length > 100) {
+                seen = seen.slice(0, 100);
+            }
+            try {
+                window.localStorage.setItem('indyhub_seen_chats', JSON.stringify(seen));
+            } catch (err) {
+                return;
+            }
+        }
+
         function applyChatState(payload) {
+            if (payload && payload.chat && payload.chat.id) {
+                storeSeenChatId(payload.chat.id);
+            }
             state.isOpen = Boolean(payload.chat.is_open);
             if (payload.chat && payload.chat.viewer_role) {
                 state.viewerRole = payload.chat.viewer_role;
@@ -546,6 +597,10 @@
             updateSummary(payload);
             renderMessages(payload);
             updateActions(payload.chat && payload.chat.decision ? payload.chat.decision : null);
+            if (!useBootstrap && state.pendingInitialScroll) {
+                scrollMessagesToBottomNow(messageContainer);
+                state.pendingInitialScroll = false;
+            }
             if (!payload.chat.can_send) {
                 toggleForm(false);
                 if (!payload.chat.is_open) {
@@ -566,6 +621,7 @@
             state.decisionUrl = null;
             state.lastDecision = null;
             state.actionSubmitting = false;
+            state.pendingInitialScroll = false;
         }
 
         function fetchChat() {
@@ -623,14 +679,7 @@
             if (trigger.dataset.chatRole) {
                 state.viewerRole = trigger.dataset.chatRole;
             }
-
-            if (trigger.dataset.chatHasUnread === 'true') {
-                trigger.dataset.chatHasUnread = 'false';
-                var badge = trigger.querySelector('.bp-chat-trigger__badge');
-                if (badge && badge.parentNode) {
-                    badge.parentNode.removeChild(badge);
-                }
-            }
+            state.pendingInitialScroll = true;
 
             showStatus(__('Loading conversation...'), 'info');
             toggleForm(false);
@@ -638,7 +687,6 @@
             updateActions(null);
             state.actionSubmitting = false;
             stopPolling();
-            closeChatDropdown();
             showModal();
 
             fetchChat()
@@ -652,6 +700,12 @@
 
         if (useBootstrap) {
             modalEl.addEventListener('hidden.bs.modal', onModalClosed);
+            modalEl.addEventListener('shown.bs.modal', function () {
+                if (state.pendingInitialScroll) {
+                    scrollMessagesToBottom(messageContainer);
+                    state.pendingInitialScroll = false;
+                }
+            });
         } else {
             modalEl.addEventListener('click', function (event) {
                 var dismissTrigger = event.target.closest('[data-bs-dismiss="modal"]');

@@ -18,7 +18,7 @@ from indy_hub.tasks import material_exchange
 
 
 class _FakeTokenQuerySet(list):
-    def require_scopes(self, scopes):  # noqa: ARG002
+    def require_scopes(self, scopes):
         return self
 
     def exists(self):
@@ -63,7 +63,7 @@ class MaterialExchangeSellAssetsStructureCacheTests(TestCase):
             }
         ]
 
-        def resolve_side_effect(structure_ids, character_id=None, user=None, **kwargs):  # noqa: ARG001
+        def resolve_side_effect(structure_ids, character_id=None, user=None, **kwargs):
             now = timezone.now()
             for sid in structure_ids:
                 CachedStructureName.objects.update_or_create(
@@ -74,19 +74,23 @@ class MaterialExchangeSellAssetsStructureCacheTests(TestCase):
 
         fake_tokens = _FakeTokenQuerySet([object()])
 
-        with patch.object(
-            material_exchange.Token.objects,
-            "filter",
-            return_value=fake_tokens,
-        ), patch.object(
-            material_exchange.shared_client,
-            "fetch_character_assets",
-            return_value=assets_payload,
-        ), patch.object(
-            material_exchange,
-            "resolve_structure_names",
-            side_effect=resolve_side_effect,
-        ) as mocked_resolve:
+        with (
+            patch.object(
+                material_exchange.Token.objects,
+                "filter",
+                return_value=fake_tokens,
+            ),
+            patch.object(
+                material_exchange.shared_client,
+                "fetch_character_assets",
+                return_value=assets_payload,
+            ),
+            patch.object(
+                material_exchange,
+                "resolve_structure_names",
+                side_effect=resolve_side_effect,
+            ) as mocked_resolve,
+        ):
             material_exchange.refresh_material_exchange_sell_user_assets(int(user.id))
 
         # Ensure the cached assets were replaced and contain the new location fields.
@@ -97,4 +101,6 @@ class MaterialExchangeSellAssetsStructureCacheTests(TestCase):
 
         # Ensure we attempted to resolve/cache the structure name.
         self.assertTrue(mocked_resolve.called)
-        self.assertTrue(CachedStructureName.objects.filter(structure_id=structure_id).exists())
+        self.assertTrue(
+            CachedStructureName.objects.filter(structure_id=structure_id).exists()
+        )

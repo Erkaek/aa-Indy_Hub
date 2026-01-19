@@ -1356,10 +1356,13 @@ def _build_dashboard_context(request):
                 "viewer_role": viewer_role,
                 "fetch_url": reverse("indy_hub:bp_chat_history", args=[chat.id]),
                 "send_url": reverse("indy_hub:bp_chat_send", args=[chat.id]),
-                "source_url": reverse(
-                    "indy_hub:bp_copy_my_requests"
-                    if viewer_role == "buyer"
-                    else "indy_hub:bp_copy_fulfill_requests"
+                "source_url": (
+                    reverse(
+                        "indy_hub:bp_copy_my_requests"
+                        if viewer_role == "buyer"
+                        else "indy_hub:bp_copy_fulfill_requests"
+                    )
+                    + f"?open_chat={chat.id}"
                 ),
                 "source_label": (
                     _("View my requests")
@@ -2645,7 +2648,7 @@ def toggle_corporation_job_notifications(request):
     return JsonResponse(response_payload)
 
 
-# Toggle pooling de partage de copies
+# Toggle copy sharing pooling
 @indy_hub_access_required
 @login_required
 @require_POST

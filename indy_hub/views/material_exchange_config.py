@@ -180,22 +180,80 @@ def material_exchange_config(request):
     hangar_divisions = {}
     division_scope_missing = False
     assets_scope_missing = False
+    current_corp_ticker = ""
+    current_hangar_name = ""
+
+    if config and getattr(config, "corporation_id", None):
+        try:
+            hangar_divisions, division_scope_missing = _get_corp_hangar_divisions(
+                request.user, config.corporation_id
+            )
+            current_hangar_name = hangar_divisions.get(
+                int(config.hangar_division),
+                f"Hangar Division {config.hangar_division}",
+            )
+        except Exception:
+            current_hangar_name = f"Hangar Division {config.hangar_division}"
+
+        for corp in available_corps:
+            if corp.get("id") == config.corporation_id:
+                current_corp_ticker = corp.get("ticker", "")
+                break
 
     if request.method == "POST":
         return _handle_config_save(request, config)
+
+    market_group_choices: list[dict[str, str | int]] = []
+    try:
+        market_group_choices = _get_industry_market_group_choices(depth_from_root=2)
+    except Exception as exc:
+        logger.warning("Failed to build market group choices: %s", exc)
+
+    allowed_choice_ids = set(_get_industry_market_group_choice_ids(depth_from_root=2))
+    selected_market_groups_buy = (
+        [
+            gid
+            for gid in (list(getattr(config, "allowed_market_groups_buy", []) or []))
+            if not allowed_choice_ids or int(gid) in allowed_choice_ids
+        ]
+        if config
+        else []
+    )
+    selected_market_groups_sell = (
+        [
+            gid
+            for gid in (list(getattr(config, "allowed_market_groups_sell", []) or []))
+            if not allowed_choice_ids or int(gid) in allowed_choice_ids
+        ]
+        if config
+        else []
+    )
+
+    market_group_search_index = {}
+    try:
+        market_group_search_index = _get_industry_market_group_search_index(
+            depth_from_root=2
+        )
+    except Exception as exc:
+        logger.warning("Failed to build market group search index: %s", exc)
 
     context = {
         "config": config,
         "available_corps": available_corps,
         "available_structures": available_structures,
         "assets_scope_missing": assets_scope_missing,
+        "current_corp_ticker": current_corp_ticker,
+        "current_hangar_name": current_hangar_name,
         "hangar_divisions": (
             hangar_divisions
             if (hangar_divisions or division_scope_missing)
             else {i: f"Hangar Division {i}" for i in range(1, 8)}
         ),
         "division_scope_missing": division_scope_missing,
-        # Market groups selection removed
+        "market_group_choices": market_group_choices,
+        "selected_market_groups_buy": selected_market_groups_buy,
+        "selected_market_groups_sell": selected_market_groups_sell,
+        "market_group_search_index": market_group_search_index,
     }
 
     from .navigation import build_nav_context
@@ -849,6 +907,217 @@ def _get_corp_hangar_divisions(user, corp_id):
     return default_divisions, scope_missing
 
 
+def _get_industry_market_group_ids() -> set[int]:
+    """Return market group IDs used by industry materials (cached)."""
+
+    cache_key = "indy_hub:material_exchange:industry_market_group_ids:v1"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        try:
+            return {int(x) for x in cached}
+        except Exception:
+            return set()
+
+    try:
+        # Alliance Auth (External Libs)
+        from eveuniverse.models import EveIndustryActivityMaterial
+
+        ids = set(
+            EveIndustryActivityMaterial.objects.exclude(
+                material_eve_type__eve_market_group_id__isnull=True
+            )
+            .values_list("material_eve_type__eve_market_group_id", flat=True)
+            .distinct()
+        )
+    except Exception as exc:
+        logger.warning("Failed to load industry market group IDs: %s", exc)
+        ids = set()
+
+    cache.set(cache_key, list(ids), 3600)
+    return ids
+
+
+def _build_market_group_index() -> dict[int, dict[str, str | int | None]]:
+    """Return a dict of market group metadata keyed by id."""
+
+    try:
+        # Alliance Auth (External Libs)
+        from eveuniverse.models import EveMarketGroup
+
+        return {
+            g["id"]: {
+                "id": g["id"],
+                "name": g["name"],
+                "parent_market_group_id": g["parent_market_group_id"],
+            }
+            for g in EveMarketGroup.objects.values(
+                "id", "name", "parent_market_group_id"
+            )
+        }
+    except Exception as exc:
+        logger.warning("Failed to load market group choices: %s", exc)
+        return {}
+
+
+def _get_market_group_path_ids(
+    group_id: int, all_groups: dict[int, dict[str, str | int | None]]
+) -> list[int]:
+    """Return path of IDs from root to the group (inclusive)."""
+
+    path: list[int] = []
+    seen: set[int] = set()
+    current_id = group_id
+    while current_id and current_id in all_groups and current_id not in seen:
+        seen.add(current_id)
+        path.append(current_id)
+        current_id = all_groups[current_id]["parent_market_group_id"]
+    return list(reversed(path))
+
+
+def _get_industry_market_group_choice_ids(depth_from_root: int = 2) -> set[int]:
+    """Return grouped market group IDs at the given depth for industry items."""
+
+    cache_key = (
+        "indy_hub:material_exchange:industry_market_group_choice_ids:v2:"
+        f"depth:{depth_from_root}"
+    )
+    cached = cache.get(cache_key)
+    if cached is not None:
+        try:
+            return {int(x) for x in cached}
+        except Exception:
+            return set()
+
+    used_ids = _get_industry_market_group_ids()
+    if not used_ids:
+        return set()
+
+    all_groups = _build_market_group_index()
+    if not all_groups:
+        return set()
+
+    grouped_ids: set[int] = set()
+    for group_id in used_ids:
+        path_ids = _get_market_group_path_ids(int(group_id), all_groups)
+        if not path_ids:
+            continue
+        if len(path_ids) <= depth_from_root:
+            grouped_ids.add(path_ids[-1])
+        else:
+            grouped_ids.add(path_ids[depth_from_root])
+
+    cache.set(cache_key, list(grouped_ids), 3600)
+    return grouped_ids
+
+
+def _get_industry_market_group_choices(
+    depth_from_root: int = 2,
+) -> list[dict[str, str | int]]:
+    """Return sorted market group choices (id + label) for industry items."""
+
+    cache_key = (
+        "indy_hub:material_exchange:industry_market_group_choices:v2:"
+        f"depth:{depth_from_root}"
+    )
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    grouped_ids = _get_industry_market_group_choice_ids(depth_from_root)
+    if not grouped_ids:
+        return []
+
+    all_groups = _build_market_group_index()
+    if not all_groups:
+        return []
+
+    choices = [
+        {"id": int(group_id), "label": all_groups[int(group_id)]["name"]}
+        for group_id in grouped_ids
+        if int(group_id) in all_groups
+    ]
+    choices.sort(key=lambda x: (str(x["label"]).lower()))
+
+    cache.set(cache_key, choices, 3600)
+    return choices
+
+
+def _get_industry_market_group_search_index(
+    depth_from_root: int = 2,
+) -> dict[int, dict[str, object]]:
+    """Return market group labels and item names for search."""
+
+    cache_key = (
+        "indy_hub:material_exchange:industry_market_group_search_index:v1:"
+        f"depth:{depth_from_root}"
+    )
+    cached = cache.get(cache_key)
+    if cached is not None:
+        try:
+            return {int(k): v for k, v in cached.items()}
+        except Exception:
+            return {}
+
+    grouped_ids = _get_industry_market_group_choice_ids(depth_from_root)
+    if not grouped_ids:
+        return {}
+
+    all_groups = _build_market_group_index()
+    if not all_groups:
+        return {}
+
+    try:
+        # Alliance Auth (External Libs)
+        from eveuniverse.models import EveIndustryActivityMaterial
+
+        rows = (
+            EveIndustryActivityMaterial.objects.exclude(
+                material_eve_type__eve_market_group_id__isnull=True
+            )
+            .values_list(
+                "material_eve_type__eve_market_group_id",
+                "material_eve_type__name",
+            )
+            .distinct()
+        )
+    except Exception as exc:
+        logger.warning("Failed to load industry item names: %s", exc)
+        return {}
+
+    index: dict[int, dict[str, object]] = {
+        int(group_id): {
+            "label": str(all_groups[int(group_id)]["name"]),
+            "items": set(),
+        }
+        for group_id in grouped_ids
+        if int(group_id) in all_groups
+    }
+
+    for market_group_id, type_name in rows:
+        if not market_group_id:
+            continue
+        path_ids = _get_market_group_path_ids(int(market_group_id), all_groups)
+        if not path_ids:
+            continue
+        if len(path_ids) <= depth_from_root:
+            grouped_id = path_ids[-1]
+        else:
+            grouped_id = path_ids[depth_from_root]
+        if grouped_id in index and type_name:
+            index[grouped_id]["items"].add(str(type_name))
+
+    for group_id, payload in index.items():
+        items = sorted(payload["items"], key=lambda x: x.lower())
+        payload["items"] = items
+
+    cache.set(
+        cache_key,
+        {str(k): v for k, v in index.items()},
+        3600,
+    )
+    return index
+
+
 def _handle_config_save(request, existing_config):
     """Handle POST request to save Material Exchange configuration."""
 
@@ -860,7 +1129,15 @@ def _handle_config_save(request, existing_config):
     sell_markup_base = request.POST.get("sell_markup_base", "buy")
     buy_markup_percent = request.POST.get("buy_markup_percent", "5")
     buy_markup_base = request.POST.get("buy_markup_base", "buy")
-    # Market group selections removed; filtering is hardcoded
+    allowed_market_groups_buy_raw = request.POST.getlist("allowed_market_groups_buy")
+    allowed_market_groups_sell_raw = request.POST.getlist("allowed_market_groups_sell")
+
+    raw_enforce_bounds = request.POST.get("enforce_jita_price_bounds")
+    if raw_enforce_bounds is None and existing_config is not None:
+        enforce_jita_price_bounds = existing_config.enforce_jita_price_bounds
+    else:
+        enforce_jita_price_bounds = raw_enforce_bounds == "on"
+
     raw_is_active = request.POST.get("is_active")
     if raw_is_active is None and existing_config is not None:
         is_active = existing_config.is_active
@@ -883,7 +1160,23 @@ def _handle_config_save(request, existing_config):
         hangar_division = int(hangar_division)
         sell_markup_percent = Decimal(sell_markup_percent)
         buy_markup_percent = Decimal(buy_markup_percent)
-        # No market group parsing required
+
+        allowed_ids = _get_industry_market_group_choice_ids(depth_from_root=2)
+
+        def _parse_group_ids(raw_list: list[str]) -> list[int]:
+            parsed: set[int] = set()
+            for raw in raw_list:
+                try:
+                    group_id = int(raw)
+                except (TypeError, ValueError):
+                    continue
+                if allowed_ids and group_id not in allowed_ids:
+                    continue
+                parsed.add(group_id)
+            return sorted(parsed)
+
+        allowed_market_groups_buy = _parse_group_ids(allowed_market_groups_buy_raw)
+        allowed_market_groups_sell = _parse_group_ids(allowed_market_groups_sell_raw)
 
         if not (1 <= hangar_division <= 7):
             raise ValueError("Hangar division must be between 1 and 7")
@@ -925,7 +1218,9 @@ def _handle_config_save(request, existing_config):
             existing_config.sell_markup_base = sell_markup_base
             existing_config.buy_markup_percent = buy_markup_percent
             existing_config.buy_markup_base = buy_markup_base
-            # Market group filters removed
+            existing_config.enforce_jita_price_bounds = enforce_jita_price_bounds
+            existing_config.allowed_market_groups_buy = allowed_market_groups_buy
+            existing_config.allowed_market_groups_sell = allowed_market_groups_sell
             existing_config.is_active = is_active
             existing_config.save()
             messages.success(
@@ -941,7 +1236,9 @@ def _handle_config_save(request, existing_config):
                 sell_markup_base=sell_markup_base,
                 buy_markup_percent=buy_markup_percent,
                 buy_markup_base=buy_markup_base,
-                # Market group filters removed
+                enforce_jita_price_bounds=enforce_jita_price_bounds,
+                allowed_market_groups_buy=allowed_market_groups_buy,
+                allowed_market_groups_sell=allowed_market_groups_sell,
                 is_active=is_active,
             )
             messages.success(

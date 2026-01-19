@@ -386,7 +386,8 @@ def notify_admins_on_buy_order_created(sender, instance, created, **kwargs):
         handle_material_exchange_buy_order_created.apply_async(
             args=(instance.id,),
             countdown=2,  # Wait 2 seconds to batch with other orders
-            expires=30,  # Expire after 30 seconds if not processed
+            # Keep an expiry to avoid very late processing, but allow for queue lag / clock skew.
+            expires=300,
         )
     except Exception as exc:
         logger.error(

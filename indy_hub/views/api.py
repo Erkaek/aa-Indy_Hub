@@ -55,6 +55,12 @@ def craft_bp_payload(request, type_id: int):
     while allowing buy/prod decisions to change with cycle rounding effects.
     """
 
+    debug_enabled = str(request.GET.get("indy_debug", "")).strip() in {
+        "1",
+        "true",
+        "yes",
+    } or str(request.GET.get("debug", "")).strip() in {"1", "true", "yes"}
+
     try:
         num_runs = max(1, int(request.GET.get("runs", 1)))
     except (TypeError, ValueError):
@@ -105,6 +111,36 @@ def craft_bp_payload(request, type_id: int):
     product_type_id = product_row[0] if product_row else None
     output_qty_per_run = product_row[1] if product_row and len(product_row) > 1 else 1
     final_product_qty = (output_qty_per_run or 1) * num_runs
+
+    debug_info: dict[str, object] = {}
+    if debug_enabled:
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM eveuniverse_eveindustryactivitymaterial
+                    WHERE eve_type_id = %s AND activity_id IN (1, 11)
+                    """,
+                    [type_id],
+                )
+                mats_count = int(cursor.fetchone()[0])
+            debug_info = {
+                "db_vendor": connection.vendor,
+                "requested_type_id": int(type_id),
+                "num_runs": int(num_runs),
+                "me": int(me),
+                "te": int(te),
+                "me_te_configs_count": int(len(me_te_configs)),
+                "product_row_found": bool(product_row),
+                "product_type_id": int(product_type_id) if product_type_id else None,
+                "output_qty_per_run": int(output_qty_per_run or 1),
+                "top_level_material_rows": mats_count,
+            }
+        except Exception as e:
+            debug_info = {
+                "debug_error": f"{type(e).__name__}: {str(e)}",
+            }
 
     # Exact per-cycle recipes for craftable items (keyed by product type_id).
     # This avoids approximating recipes from tree occurrences in the frontend.
@@ -262,6 +298,9 @@ def craft_bp_payload(request, type_id: int):
         "materials_tree": _to_serializable(materials_tree),
         "recipe_map": _to_serializable(recipe_map),
     }
+
+    if debug_enabled:
+        payload["_debug"] = _to_serializable(debug_info)
 
     return JsonResponse(payload)
 

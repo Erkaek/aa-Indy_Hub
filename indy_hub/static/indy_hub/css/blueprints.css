@@ -1425,7 +1425,7 @@ html[data-theme="darkly"] .bp-card-toolbar__collapse .input-group {
     font-size: 0.95rem;
 }
 
-.bp-btn span:not(.bp-chat-trigger__badge) {
+.bp-btn span {
     white-space: normal;
     overflow-wrap: break-word;
     word-break: keep-all;

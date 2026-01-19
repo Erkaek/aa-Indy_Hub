@@ -117,3 +117,28 @@ class MaterialExchangePricingTests(TestCase):
 
         self.assertEqual(new_config.sell_markup_base, "buy")
         self.assertEqual(new_config.buy_markup_base, "buy")
+        self.assertFalse(new_config.enforce_jita_price_bounds)
+
+    def test_bounds_clamp_sell_base_negative_floors_at_buy(self):
+        """When enabled, Jita Sell + negative % cannot go below Jita Buy."""
+        self.config.enforce_jita_price_bounds = True
+        self.config.buy_markup_base = "sell"
+        self.config.buy_markup_percent = Decimal("-50.00")
+        self.config.save()
+
+        # Base sell is 6.00; -50% would be 3.00, but floor is Jita Buy (5.00)
+        expected = Decimal("5.00")
+        actual = self.stock.sell_price_to_member
+        self.assertAlmostEqual(float(actual), float(expected), places=2)
+
+    def test_bounds_clamp_buy_base_positive_caps_at_sell(self):
+        """When enabled, Jita Buy + positive % cannot go above Jita Sell."""
+        self.config.enforce_jita_price_bounds = True
+        self.config.sell_markup_base = "buy"
+        self.config.sell_markup_percent = Decimal("50.00")
+        self.config.save()
+
+        # Base buy is 5.00; +50% would be 7.50, but cap is Jita Sell (6.00)
+        expected = Decimal("6.00")
+        actual = self.stock.buy_price_from_member
+        self.assertAlmostEqual(float(actual), float(expected), places=2)

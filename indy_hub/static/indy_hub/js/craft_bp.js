@@ -11,13 +11,23 @@ const CRAFT_BP = {
 
 const __ = (typeof window !== 'undefined' && typeof window.gettext === 'function') ? window.gettext.bind(window) : (msg => msg);
 
-const craftBPDebugEnabled = (typeof window !== 'undefined' && window.INDY_HUB_DEBUG === true);
+function craftBPIsDebugEnabled() {
+    return (typeof window !== 'undefined' && window.INDY_HUB_DEBUG === true);
+}
+
 function craftBPDebugLog() {
-    if (!craftBPDebugEnabled || typeof console === 'undefined') {
+    // Use console.log/info instead of console.debug so messages show up
+    // in default Chrome/Firefox console filters.
+    if (!craftBPIsDebugEnabled() || typeof console === 'undefined') {
         return;
     }
-    if (typeof console.debug === 'function') {
-        console.debug.apply(console, arguments);
+
+    if (typeof console.log === 'function') {
+        console.log.apply(console, arguments);
+        return;
+    }
+    if (typeof console.info === 'function') {
+        console.info.apply(console, arguments);
     }
 }
 
@@ -1113,14 +1123,14 @@ async function optimizeProfitabilityConfig() {
 // Run optimized tab (profitability vs runs)
 // ==============================
 
-function getPriceSnapshotFromSimulation() {
+function getPriceSnapshotFromSimulation(typeIds) {
     const state = (window.SimulationAPI && typeof window.SimulationAPI.getState === 'function')
         ? window.SimulationAPI.getState()
         : null;
     const prices = state && state.prices ? state.prices : null;
     const snapshot = new Map();
 
-    if (prices instanceof Map) {
+    if (prices instanceof Map && prices.size > 0) {
         prices.forEach((value, key) => {
             snapshot.set(Number(key), {
                 fuzzwork: Number(value?.fuzzwork) || 0,
@@ -1131,7 +1141,7 @@ function getPriceSnapshotFromSimulation() {
         return snapshot;
     }
 
-    if (prices && typeof prices === 'object') {
+    if (prices && typeof prices === 'object' && Object.keys(prices).length > 0) {
         Object.keys(prices).forEach((key) => {
             const id = Number(key);
             if (!id) return;
@@ -1140,6 +1150,27 @@ function getPriceSnapshotFromSimulation() {
                 fuzzwork: Number(value?.fuzzwork) || 0,
                 real: Number(value?.real) || 0,
                 sale: Number(value?.sale) || 0,
+            });
+        });
+        return snapshot;
+    }
+
+    // Fallback: some pages keep prices in SimulationAPI internals without exposing state.prices.
+    // Build a minimal snapshot from getPrice() for the typeIds we care about.
+    const ids = Array.isArray(typeIds) ? typeIds : [];
+    const api = window.SimulationAPI;
+    if (api && typeof api.getPrice === 'function') {
+        ids.forEach((tid) => {
+            const id = Number(tid);
+            if (!Number.isFinite(id) || id <= 0) return;
+            const buyInfo = api.getPrice(id, 'buy');
+            const saleInfo = api.getPrice(id, 'sale');
+            const buy = buyInfo && typeof buyInfo.value === 'number' ? buyInfo.value : 0;
+            const sale = saleInfo && typeof saleInfo.value === 'number' ? saleInfo.value : 0;
+            snapshot.set(id, {
+                fuzzwork: Number(buy) || 0,
+                real: Number(buy) || 0,
+                sale: Number(sale) || 0,
             });
         });
     }
@@ -1159,81 +1190,206 @@ function collectTypeIdsFromMaterialsTree(nodes, out = new Set()) {
     return out;
 }
 
+function getCurrentDecisionsFromDom() {
+    const decisions = new Map();
+    const treeTab = document.getElementById('tab-tree');
+    if (!treeTab) return decisions;
+
+    treeTab.querySelectorAll('input.mat-switch[data-type-id]').forEach((sw) => {
+        const id = Number(sw.getAttribute('data-type-id')) || 0;
+        if (!id) return;
+        if (sw.dataset.fixedMode === 'useless' || sw.dataset.userState === 'useless') return;
+        decisions.set(id, sw.checked ? 'prod' : 'buy');
+    });
+    return decisions;
+}
+
+function syncSimulationSwitchStatesFromDom() {
+    const api = window.SimulationAPI;
+    if (!api || typeof api.setSwitchState !== 'function') return;
+
+    const treeTab = document.getElementById('tab-tree');
+    if (!treeTab) return;
+
+    treeTab.querySelectorAll('input.mat-switch[data-type-id]').forEach((sw) => {
+        const id = Number(sw.getAttribute('data-type-id')) || 0;
+        if (!id) return;
+        if (sw.dataset.fixedMode === 'useless' || sw.dataset.userState === 'useless') {
+            api.setSwitchState(id, 'useless');
+            return;
+        }
+        api.setSwitchState(id, sw.checked ? 'prod' : 'buy');
+    });
+}
+
+function getCurrentDecisionsFromSimulationOrDom() {
+    const api = window.SimulationAPI;
+    if (api && typeof api.getSwitchState === 'function') {
+        const decisions = new Map();
+        const treeTab = document.getElementById('tab-tree');
+        if (!treeTab) return getCurrentDecisionsFromDom();
+
+        treeTab.querySelectorAll('input.mat-switch[data-type-id]').forEach((sw) => {
+            const id = Number(sw.getAttribute('data-type-id')) || 0;
+            if (!id) return;
+            const state = api.getSwitchState(id);
+            if (state === 'buy' || state === 'prod' || state === 'useless') {
+                decisions.set(id, state);
+            }
+        });
+
+        // If SimulationAPI doesn't have any states yet, fall back to DOM.
+        if (decisions.size > 0) return decisions;
+    }
+
+    return getCurrentDecisionsFromDom();
+}
+
 function generateRunScenarios(maxRuns) {
     const maxValue = Math.max(1, Number(maxRuns) || 1);
-    const runs = [];
-    const early = Math.min(10, maxValue);
-    for (let i = 1; i <= early; i += 1) {
-        runs.push(i);
-    }
-    for (let v = 1; v <= maxValue; v *= 2) {
+
+    // Evenly spaced scenarios:
+    // - Target ~10 points across the range
+    // - Examples: 100 -> step 10, 1000 -> step 100
+    const targetPoints = 10;
+    const step = Math.max(1, Math.round(maxValue / targetPoints));
+    const runs = [1];
+    for (let v = step; v < maxValue; v += step) {
         runs.push(v);
     }
     if (!runs.includes(maxValue)) {
         runs.push(maxValue);
     }
-    return Array.from(new Set(runs)).sort((a, b) => a - b);
+
+    return Array.from(new Set(runs))
+        .map((v) => Math.max(1, Math.floor(Number(v) || 1)))
+        .sort((a, b) => a - b);
 }
 
 function buildCraftPayloadUrlForRuns(testRuns) {
-    const base = window.BLUEPRINT_DATA?.urls?.craft_bp_payload;
+    let base = window.BLUEPRINT_DATA?.urls?.craft_bp_payload;
+    let bpTypeId = Number(window.BLUEPRINT_DATA?.bp_type_id || window.BLUEPRINT_DATA?.bpTypeId || window.BLUEPRINT_DATA?.type_id || window.BLUEPRINT_DATA?.typeId || 0);
+
+    // If the backend provided a craft_bp_payload URL, it is the most reliable source of the
+    // blueprint type id; parse it so we don't depend on potentially mutated JS state.
+    if (base) {
+        const match = String(base).match(/\/craft-bp-payload\/(\d+)\//);
+        if (match && match[1]) {
+            const parsed = Number(match[1]);
+            if (Number.isFinite(parsed) && parsed > 0) {
+                bpTypeId = parsed;
+            }
+        }
+    }
+
+    // Fallback: construct endpoint if missing.
+    if (!base && bpTypeId > 0) {
+        base = `/indy_hub/api/craft-bp-payload/${bpTypeId}/`;
+    }
+
     if (!base) {
+        craftBPDebugLog('[RunOptimized] Missing craft_bp_payload base URL (urls.craft_bp_payload). bpTypeId=', bpTypeId);
         return null;
     }
 
     const url = new URL(base, window.location.origin);
-    const config = (typeof getCurrentMETEConfig === 'function') ? getCurrentMETEConfig() : null;
+    // IMPORTANT:
+    // Run optimized must use the same ME/TE configuration that the server used to render
+    // the current dashboard payload. Otherwise we can end up with a mismatch where
+    // localStorage-restored per-blueprint ME/TE inputs (not yet applied) affect Run optimized
+    // API payloads but not the dashboard totals.
+    const currentParams = new URLSearchParams(window.location.search || '');
+
+    const rootME = currentParams.has('me')
+        ? Number(currentParams.get('me'))
+        : (window.BLUEPRINT_DATA?.me ?? 0);
+    const rootTE = currentParams.has('te')
+        ? Number(currentParams.get('te'))
+        : (window.BLUEPRINT_DATA?.te ?? 0);
 
     url.searchParams.set('runs', String(Math.max(1, Number(testRuns) || 1)));
-    url.searchParams.set('me', String(config?.mainME ?? (window.BLUEPRINT_DATA?.me ?? 0)));
-    url.searchParams.set('te', String(config?.mainTE ?? (window.BLUEPRINT_DATA?.te ?? 0)));
+    url.searchParams.set('me', String(rootME));
+    url.searchParams.set('te', String(rootTE));
 
-    if (config && config.blueprintConfigs) {
-        Object.entries(config.blueprintConfigs).forEach(([typeId, bpConfig]) => {
-            if (bpConfig && bpConfig.me !== undefined) {
-                url.searchParams.set(`me_${typeId}`, String(bpConfig.me));
-            }
-            if (bpConfig && bpConfig.te !== undefined) {
-                url.searchParams.set(`te_${typeId}`, String(bpConfig.te));
-            }
-        });
+    // Propagate debug flag to backend so it can include _debug info in the JSON.
+    if (window.INDY_HUB_DEBUG) {
+        url.searchParams.set('indy_debug', '1');
     }
 
-    return url.toString();
+    // Only propagate per-blueprint overrides if they are already part of the page URL.
+    // (Those are the overrides the backend actually applied to compute window.BLUEPRINT_DATA.)
+    for (const [key, value] of currentParams.entries()) {
+        if (key.startsWith('me_') || key.startsWith('te_')) {
+            url.searchParams.set(key, String(value));
+        }
+    }
+
+    const finalUrl = url.toString();
+    craftBPDebugLog('[RunOptimized] craft_bp_payload URL built', finalUrl);
+    return finalUrl;
 }
 
 async function fetchBlueprintPayloadForRuns(testRuns) {
     window.__indyHubRunOptimizedCache = window.__indyHubRunOptimizedCache || {};
     const cache = window.__indyHubRunOptimizedCache;
-    const key = String(testRuns);
-    if (cache[key]) {
-        return cache[key];
-    }
-
     const url = buildCraftPayloadUrlForRuns(testRuns);
     if (!url) {
         throw new Error('Missing craft_bp_payload URL');
     }
 
-    const response = await fetch(url, { headers: { 'Accept': 'application/json' } });
+    // Cache by full URL (runs + ME/TE + blueprint configs + debug flag), not only by runs.
+    const key = String(url);
+    if (cache[key]) {
+        return cache[key];
+    }
+
+    const response = await fetch(url, {
+        headers: { 'Accept': 'application/json' },
+        credentials: 'same-origin',
+    });
     if (!response.ok) {
         throw new Error(`craft_bp_payload failed: ${response.status}`);
     }
     const json = await response.json();
+
+    craftBPDebugLog('[RunOptimized] craft_bp_payload response', {
+        requestUrl: url,
+        responseUrl: response.url,
+        type_id: json?.type_id,
+        bp_type_id: json?.bp_type_id,
+        product_type_id: json?.product_type_id,
+        me: json?.me,
+        te: json?.te,
+        num_runs: json?.num_runs,
+        final_product_qty: json?.final_product_qty,
+        materials_tree_roots: Array.isArray(json?.materials_tree) ? json.materials_tree.length : null,
+        recipe_map_keys: (json?.recipe_map && typeof json.recipe_map === 'object') ? Object.keys(json.recipe_map).length : null,
+        _debug: json?._debug ?? null,
+    });
+
     cache[key] = json;
     return json;
 }
 
-function computeOptimizedProfitabilityForPayload(payload, pricesSnapshot) {
+function computeOptimizedProfitabilityForPayload(payload, pricesSnapshot, options = {}) {
     const tree = Array.isArray(payload?.materials_tree) ? payload.materials_tree : [];
     const productTypeId = Number(payload?.product_type_id) || 0;
     const finalProductQty = Math.max(0, Math.ceil(Number(payload?.final_product_qty) || 0));
+
+    // Prefer live SimulationAPI prices when available so Run optimized uses
+    // the same buy/sale logic as the dashboard (real/fuzzwork overrides).
+    const simulationApi = window.SimulationAPI;
 
     function getPriceRecord(typeId) {
         return pricesSnapshot.get(Number(typeId)) || { fuzzwork: 0, real: 0, sale: 0 };
     }
 
     function getBuyUnitPrice(typeId) {
+        if (simulationApi && typeof simulationApi.getPrice === 'function') {
+            const info = simulationApi.getPrice(typeId, 'buy');
+            const v = info && typeof info.value === 'number' ? info.value : 0;
+            if (v > 0) return v;
+        }
         const record = getPriceRecord(typeId);
         const real = Number(record.real) || 0;
         if (real > 0) return real;
@@ -1243,6 +1399,11 @@ function computeOptimizedProfitabilityForPayload(payload, pricesSnapshot) {
     }
 
     function getSellUnitPrice(typeId) {
+        if (simulationApi && typeof simulationApi.getPrice === 'function') {
+            const info = simulationApi.getPrice(typeId, 'sale');
+            const v = info && typeof info.value === 'number' ? info.value : 0;
+            if (v > 0) return v;
+        }
         const record = getPriceRecord(typeId);
         const sale = Number(record.sale) || 0;
         if (sale > 0) return sale;
@@ -1275,6 +1436,96 @@ function computeOptimizedProfitabilityForPayload(payload, pricesSnapshot) {
     function readProducedPerCycle(node) {
         const p = Number(node?.produced_per_cycle ?? node?.producedPerCycle ?? 0);
         return Number.isFinite(p) ? Math.max(0, Math.ceil(p)) : 0;
+    }
+
+    // Dashboard-aligned model: cost = bought items (leaf + craftables switched to BUY)
+    // revenue = final product sale + surplus credit computed from pooled cycles per craftable type.
+    function computeDisplayedMarginFromTreeTraversal(currentDecisions) {
+        const leafNeeds = new Map();
+        const buyCraftables = new Map();
+        const prodCraftables = new Map();
+        const producedPerCycleByType = new Map();
+
+        function addToCounter(map, typeId, qty) {
+            if (!typeId || qty <= 0) return;
+            map.set(typeId, (map.get(typeId) || 0) + qty);
+        }
+
+        const walk = (nodes, blockedByBuyAncestor = false) => {
+            (Array.isArray(nodes) ? nodes : []).forEach((node) => {
+                if (blockedByBuyAncestor) return;
+                const typeId = readTypeId(node);
+                if (!typeId) return;
+
+                const qty = readQty(node);
+                const children = readChildren(node);
+                const craftable = children.length > 0;
+
+                const ppc = readProducedPerCycle(node);
+                if (ppc > 0 && !producedPerCycleByType.has(typeId)) {
+                    producedPerCycleByType.set(typeId, ppc);
+                }
+
+                if (craftable) {
+                    const state = currentDecisions.get(typeId) || 'prod';
+                    if (state === 'useless') return;
+                    if (state === 'buy') {
+                        addToCounter(buyCraftables, typeId, qty);
+                        return;
+                    }
+                    addToCounter(prodCraftables, typeId, qty);
+                    walk(children, false);
+                    return;
+                }
+
+                addToCounter(leafNeeds, typeId, qty);
+            });
+        };
+
+        walk(tree, false);
+
+        let cost = 0;
+        leafNeeds.forEach((qty, typeId) => {
+            const unit = getBuyUnitPrice(typeId);
+            if (unit > 0) cost += unit * qty;
+        });
+        buyCraftables.forEach((qty, typeId) => {
+            const unit = getBuyUnitPrice(typeId);
+            if (unit > 0) cost += unit * qty;
+        });
+
+        let surplusRevenue = 0;
+        prodCraftables.forEach((totalNeeded, typeId) => {
+            const ppc = producedPerCycleByType.get(typeId) || 0;
+            if (!(ppc > 0) || !(totalNeeded > 0)) return;
+            const cycles = Math.max(1, Math.ceil(totalNeeded / ppc));
+            const totalProduced = cycles * ppc;
+            const surplus = Math.max(0, totalProduced - totalNeeded);
+            if (surplus <= 0) return;
+            const unit = getSellUnitPrice(typeId);
+            if (unit > 0) surplusRevenue += unit * surplus;
+        });
+
+        const productUnitSale = productTypeId ? getSellUnitPrice(productTypeId) : 0;
+        const finalRev = (productUnitSale > 0 && finalProductQty > 0) ? (productUnitSale * finalProductQty) : 0;
+        const revenue = finalRev + surplusRevenue;
+        const profit = revenue - cost;
+        const margin = revenue > 0 ? (profit / revenue) : Number.NEGATIVE_INFINITY;
+        return { margin, profit, revenue, cost, surplusRevenue };
+    }
+
+    // If we were provided explicit decisions (e.g. current dashboard switches),
+    // skip optimization and just compute the displayed margin for those decisions.
+    if (options && options.decisions instanceof Map) {
+        const snap = computeDisplayedMarginFromTreeTraversal(options.decisions);
+        const marginPct = Number.isFinite(snap.margin) ? (snap.margin * 100) : 0;
+        return {
+            runs: Number(payload?.num_runs) || 1,
+            cost: snap.cost,
+            revenue: snap.revenue,
+            profit: snap.profit,
+            margin: marginPct,
+        };
     }
 
     const occurrencesByType = new Map();
@@ -1357,6 +1608,36 @@ function computeOptimizedProfitabilityForPayload(payload, pricesSnapshot) {
     const craftables = new Set(recipes.keys());
     const decisions = new Map();
     craftables.forEach((id) => decisions.set(id, 'prod'));
+
+    function summarizeDecisions(decisionsMap) {
+        const buy = [];
+        const prod = [];
+
+        if (!(decisionsMap instanceof Map)) {
+            return { craftablesCount: 0, buyCount: 0, prodCount: 0, buy, prod };
+        }
+
+        decisionsMap.forEach((state, typeId) => {
+            const id = Number(typeId) || 0;
+            if (!id) return;
+            const name = nameByType.get(id) || '';
+            const entry = { typeId: id, typeName: name };
+            if (state === 'buy') buy.push(entry);
+            else prod.push(entry);
+        });
+
+        const byName = (a, b) => String(a.typeName || '').localeCompare(String(b.typeName || ''), undefined, { sensitivity: 'base' });
+        buy.sort(byName);
+        prod.sort(byName);
+
+        return {
+            craftablesCount: decisionsMap.size,
+            buyCount: buy.length,
+            prodCount: prod.length,
+            buy,
+            prod,
+        };
+    }
 
     const rootDemand = new Map();
     tree.forEach((rootNode) => {
@@ -1493,7 +1774,7 @@ function computeOptimizedProfitabilityForPayload(payload, pricesSnapshot) {
         return totalChanged;
     }
 
-    // Helper: calcule la marge "affichée" (comme KPI dashboard) pour un set de décisions donné
+    // Helper: compute the "displayed" margin (as in the KPI dashboard) for a given decision set
     function computeDisplayedMargin(currentDecisions) {
         const demand = computeDemand(currentDecisions);
 
@@ -1539,7 +1820,7 @@ function computeOptimizedProfitabilityForPayload(payload, pricesSnapshot) {
         return { margin, profit, revenue, cost, surplusRevenue: surplusRev };
     }
 
-    // Raffinement margin-first : flip switches greedy (plus d'itérations) pour maximiser la marge affichée
+    // Margin-first refinement: greedily flip switches (more iterations) to maximize displayed margin
     function greedyImproveMargin(decisionsMap, startingSnap) {
         const candidates = Array.from(craftables.keys());
         let best = startingSnap;
@@ -1582,25 +1863,29 @@ function computeOptimizedProfitabilityForPayload(payload, pricesSnapshot) {
         return { best, improved };
     }
 
-    // Multi-pass : bottom-up puis greedy, jusqu'à stabilisation ou max passes
+    // Multi-pass: bottom-up then greedy, until stable or max passes
     let bestSnapshot = computeDisplayedMargin(decisions);
+    let bestDecisions = new Map(decisions);
     for (let pass = 0; pass < 5; pass += 1) {
         const changedBottomUp = stabilizeBottomUp(decisions);
         const snapAfterBottomUp = computeDisplayedMargin(decisions);
         const { best, improved } = greedyImproveMargin(decisions, snapAfterBottomUp);
         bestSnapshot = best;
+        bestDecisions = new Map(decisions);
         if (changedBottomUp === 0 && !improved) {
             break;
         }
     }
 
-    // Utiliser le meilleur résultat margin-first après passes
+    // Use the best margin-first result after passes
+    const marginPct = Number.isFinite(bestSnapshot.margin) ? (bestSnapshot.margin * 100) : 0;
     return {
         runs: Number(payload?.num_runs) || 1,
         cost: bestSnapshot.cost,
         revenue: bestSnapshot.revenue,
         profit: bestSnapshot.profit,
-        margin: bestSnapshot.margin * 100, // Convert to percentage
+        margin: marginPct, // Convert to percentage (clamped for display)
+        config: summarizeDecisions(bestDecisions),
     };
 }
 
@@ -1608,6 +1893,15 @@ function renderRunOptimizedChart(canvas, points) {
     if (!canvas || !canvas.getContext || !Array.isArray(points) || points.length === 0) {
         return;
     }
+
+    const normalizedPoints = points
+        .map((p) => {
+            const runs = Math.max(1, Number(p?.runs) || 1);
+            const rawMargin = Number(p?.margin);
+            const margin = Number.isFinite(rawMargin) ? rawMargin : 0;
+            return { runs, margin };
+        })
+        .sort((a, b) => a.runs - b.runs);
 
     const dpr = window.devicePixelRatio || 1;
     const cssWidth = canvas.clientWidth || 600;
@@ -1621,33 +1915,25 @@ function renderRunOptimizedChart(canvas, points) {
     const w = cssWidth;
     const h = cssHeight;
 
-    const xs = points.map((p) => Math.max(1, Number(p.runs) || 1));
-    const ys = points.map((p) => Number(p.margin) || 0);
+    const xs = normalizedPoints.map((p) => p.runs);
+    const ys = normalizedPoints.map((p) => p.margin);
     const minX = Math.min.apply(null, xs);
     const maxX = Math.max.apply(null, xs);
-    const logMin = Math.log2(Math.max(1, minX));
-    const logMax = Math.log2(Math.max(1, maxX));
 
-    let minY = Math.min.apply(null, ys);
-    let maxY = Math.max.apply(null, ys);
-    if (!Number.isFinite(minY)) minY = 0;
-    if (!Number.isFinite(maxY)) maxY = 0;
-    if (minY === maxY) {
-        minY -= 1;
-        maxY += 1;
-    }
-    const yPad = (maxY - minY) * 0.1;
-    minY -= yPad;
-    maxY += yPad;
+    // Force margin axis to 0–100% for consistent readability.
+    // (Negative or >100% margins will be clipped to the chart bounds.)
+    const minY = 0;
+    const maxY = 100;
 
     function xToPx(x) {
-        const lx = Math.log2(Math.max(1, x));
-        const t = (logMax - logMin) > 0 ? ((lx - logMin) / (logMax - logMin)) : 0.5;
+        const safeX = Math.max(1, Number(x) || 1);
+        const t = (maxX - minX) > 0 ? ((safeX - minX) / (maxX - minX)) : 0.5;
         return padding + t * (w - padding * 2);
     }
 
     function yToPx(y) {
-        const t = (maxY - minY) > 0 ? ((y - minY) / (maxY - minY)) : 0.5;
+        const safeY = Math.max(minY, Math.min(maxY, Number(y) || 0));
+        const t = (maxY - minY) > 0 ? ((safeY - minY) / (maxY - minY)) : 0.5;
         return (h - padding) - t * (h - padding * 2);
     }
 
@@ -1678,11 +1964,56 @@ function renderRunOptimizedChart(canvas, points) {
         ctx.fillText(`${v.toFixed(1)}%`, 6, y + 4);
     }
 
+    // X ticks (evenly spaced)
+    const xTickSet = new Set();
+    xTickSet.add(minX);
+    xTickSet.add(maxX);
+
+    const targetXTicks = 10;
+    const xStep = Math.max(1, Math.round(maxX / targetXTicks));
+    for (let v = xStep; v < maxX; v += xStep) {
+        if (v >= minX) {
+            xTickSet.add(v);
+        }
+    }
+    // Always label scenario points so users see what was computed.
+    normalizedPoints.forEach((p) => xTickSet.add(p.runs));
+
+    const xTicks = Array.from(xTickSet).sort((a, b) => a - b);
+    ctx.font = '11px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif';
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    let lastLabelX = -Infinity;
+    xTicks.forEach((v) => {
+        const x = xToPx(v);
+
+        // Vertical grid line
+        ctx.strokeStyle = 'rgba(0,0,0,0.06)';
+        ctx.beginPath();
+        ctx.moveTo(x, padding);
+        ctx.lineTo(x, h - padding);
+        ctx.stroke();
+
+        // Tick mark
+        ctx.strokeStyle = 'rgba(0,0,0,0.18)';
+        ctx.beginPath();
+        ctx.moveTo(x, h - padding);
+        ctx.lineTo(x, h - padding + 5);
+        ctx.stroke();
+
+        // Label (skip if too close to previous to avoid clutter)
+        if ((x - lastLabelX) >= 28 || v === minX || v === maxX) {
+            const label = String(v);
+            const tw = ctx.measureText(label).width;
+            ctx.fillText(label, x - (tw / 2), h - 12);
+            lastLabelX = x;
+        }
+    });
+
     // Line
     ctx.strokeStyle = '#0d6efd';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    points.forEach((p, idx) => {
+    normalizedPoints.forEach((p, idx) => {
         const x = xToPx(p.runs);
         const y = yToPx(p.margin);
         if (idx === 0) ctx.moveTo(x, y);
@@ -1692,7 +2023,7 @@ function renderRunOptimizedChart(canvas, points) {
 
     // Points
     ctx.fillStyle = '#0d6efd';
-    points.forEach((p) => {
+    normalizedPoints.forEach((p) => {
         const x = xToPx(p.runs);
         const y = yToPx(p.margin);
         ctx.beginPath();
@@ -1700,12 +2031,230 @@ function renderRunOptimizedChart(canvas, points) {
         ctx.fill();
     });
 
-    // X labels (min/max)
+    // Margin labels per computed point
+    ctx.font = '10px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif';
+    ctx.textBaseline = 'middle';
+    normalizedPoints.forEach((p) => {
+        const x = xToPx(p.runs);
+        const y = yToPx(p.margin);
+        const label = `${Number(p.margin).toFixed(1)}%`;
+        // Simple outline for readability
+        ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+        ctx.lineWidth = 3;
+        ctx.strokeText(label, x + 6, y - 10);
+        ctx.fillStyle = 'rgba(13,110,253,0.95)';
+        ctx.fillText(label, x + 6, y - 10);
+        ctx.fillStyle = '#0d6efd';
+    });
+
+    // X axis label
     ctx.fillStyle = 'rgba(0,0,0,0.7)';
-    ctx.fillText(`runs ${minX}`, padding, h - 12);
-    const maxLabel = `runs ${maxX}`;
-    const textWidth = ctx.measureText(maxLabel).width;
-    ctx.fillText(maxLabel, w - padding - textWidth, h - 12);
+    ctx.font = '12px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif';
+    ctx.fillText('runs', padding, padding - 10);
+}
+
+function pickBestRunPoint(points) {
+    if (!Array.isArray(points) || points.length === 0) return null;
+    let best = null;
+    points.forEach((p) => {
+        const runs = Number(p?.runs) || 0;
+        const margin = Number(p?.margin);
+        const revenue = Number(p?.revenue);
+        const profit = Number(p?.profit);
+        if (!(runs > 0)) return;
+        if (!Number.isFinite(margin)) return;
+        if (!Number.isFinite(revenue) || revenue <= 0) return;
+        if (!best) {
+            best = p;
+            return;
+        }
+        const bestMargin = Number(best?.margin);
+        if (margin > bestMargin + 1e-9) {
+            best = p;
+            return;
+        }
+        // Tie-break: prefer higher profit if margins are equal-ish.
+        if (Math.abs(margin - bestMargin) <= 1e-6) {
+            const bestProfit = Number(best?.profit);
+            if (Number.isFinite(profit) && Number.isFinite(bestProfit) && profit > bestProfit) {
+                best = p;
+            }
+        }
+    });
+    return best;
+}
+
+function buildRunSearchCandidates(maxRuns) {
+    const maxValue = Math.max(1, Number(maxRuns) || 1);
+    const set = new Set();
+
+    const addRange = (start, end, step) => {
+        const s = Math.max(1, Math.floor(Number(start) || 1));
+        const e = Math.max(1, Math.floor(Number(end) || 1));
+        const st = Math.max(1, Math.floor(Number(step) || 1));
+        for (let r = s; r <= e; r += st) {
+            set.add(r);
+        }
+    };
+
+    // Dense sampling for small run counts (rounding effects are strongest here).
+    if (maxValue <= 250) {
+        addRange(1, maxValue, 1);
+        return Array.from(set).sort((a, b) => a - b);
+    }
+
+    addRange(1, Math.min(50, maxValue), 1);
+    addRange(60, Math.min(500, maxValue), 10);
+    addRange(600, Math.min(2000, maxValue), 50);
+
+    if (maxValue > 2000) {
+        const step = Math.max(100, Math.round(maxValue / 60));
+        addRange(2500, maxValue, step);
+    }
+
+    set.add(maxValue);
+    return Array.from(set).sort((a, b) => a - b);
+}
+
+function renderBestRunSummary(bestEl, bestPoint, label) {
+    if (!bestEl) return;
+    if (!bestPoint) {
+        bestEl.textContent = '';
+        return;
+    }
+    const runs = Number(bestPoint?.runs) || 0;
+    const margin = Number(bestPoint?.margin);
+    const profit = Number(bestPoint?.profit);
+    const revenue = Number(bestPoint?.revenue);
+
+    if (!(runs > 0) || !Number.isFinite(margin)) {
+        bestEl.textContent = '';
+        return;
+    }
+
+    const parts = [];
+    if (label) parts.push(`<span class="text-muted">${label}:</span>`);
+    parts.push(`<span class="badge text-bg-primary">${__('Best')} ${margin.toFixed(1)}% @ ${runs} runs</span>`);
+    if (Number.isFinite(profit) && Number.isFinite(revenue) && revenue > 0) {
+        parts.push(`<span class="text-muted">${__('Profit')} ${formatPrice(profit)}</span>`);
+    }
+    bestEl.innerHTML = parts.join(' ');
+}
+
+function renderBestRunConfigDetails(bestPoint) {
+    const detailsEl = document.getElementById('runOptimizedBestConfigDetails');
+    const preEl = document.getElementById('runOptimizedBestConfigPre');
+    const hintEl = document.getElementById('runOptimizedBestConfigHint');
+    const copyBtn = document.getElementById('runOptimizedCopyBestConfig');
+
+    if (!detailsEl || !preEl) return;
+
+    const cfg = bestPoint && bestPoint.config;
+    if (!cfg || typeof cfg !== 'object' || !Array.isArray(cfg.buy)) {
+        detailsEl.style.display = 'none';
+        preEl.textContent = '';
+        if (hintEl) hintEl.textContent = '';
+        return;
+    }
+
+    const runs = Number(bestPoint?.runs) || 0;
+    const margin = Number(bestPoint?.margin);
+
+    const lines = [];
+    lines.push(`runs: ${runs}`);
+    if (Number.isFinite(margin)) lines.push(`margin_pct: ${margin.toFixed(4)}`);
+    lines.push(`craftables_total: ${Number(cfg.craftablesCount) || 0}`);
+    lines.push(`buy_count: ${Number(cfg.buyCount) || 0}`);
+    lines.push(`prod_count: ${Number(cfg.prodCount) || 0}`);
+    lines.push('');
+    lines.push('BUY:');
+    cfg.buy.forEach((e) => {
+        const id = Number(e?.typeId) || 0;
+        const name = String(e?.typeName || '').trim();
+        lines.push(`- ${id}${name ? `  ${name}` : ''}`);
+    });
+
+    preEl.textContent = lines.join('\n');
+    detailsEl.style.display = '';
+    if (hintEl) {
+        hintEl.textContent = __('This is the best per-run optimized Buy/Prod configuration for the selected runs value.');
+    }
+
+    if (copyBtn && !copyBtn.__indyHubBound) {
+        copyBtn.__indyHubBound = true;
+        copyBtn.addEventListener('click', async () => {
+            const text = preEl.textContent || '';
+            try {
+                if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+                    await navigator.clipboard.writeText(text);
+                    return;
+                }
+            } catch (e) {
+                // ignore
+            }
+            try {
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                ta.remove();
+            } catch (e) {
+                // ignore
+            }
+        });
+    }
+}
+
+async function findOptimalRuns({
+    searchMaxRuns,
+    pricesSnapshot,
+    mode,
+    decisions,
+    statusEl,
+}) {
+    const maxValue = Math.max(1, Math.floor(Number(searchMaxRuns) || 1));
+    const candidates = buildRunSearchCandidates(maxValue);
+    const results = [];
+
+    const computeForPayload = (payload) => {
+        if (mode === 'dashboard' && decisions instanceof Map) {
+            return computeOptimizedProfitabilityForPayload(payload, pricesSnapshot, { decisions });
+        }
+        return computeOptimizedProfitabilityForPayload(payload, pricesSnapshot);
+    };
+
+    for (let i = 0; i < candidates.length; i += 1) {
+        const runs = candidates[i];
+        if (statusEl) {
+            statusEl.textContent = __(`Searching best runs: ${i + 1}/${candidates.length} (runs=${runs})…`);
+        }
+        const payload = await fetchBlueprintPayloadForRuns(runs);
+        const snap = computeForPayload(payload);
+        results.push(snap);
+    }
+
+    // Local refinement around the best candidate (±50 runs) when the range is large.
+    const bestCoarse = pickBestRunPoint(results);
+    if (bestCoarse && maxValue > 250) {
+        const center = Math.max(1, Math.floor(Number(bestCoarse.runs) || 1));
+        const start = Math.max(1, center - 50);
+        const end = Math.min(maxValue, center + 50);
+        const refineRuns = [];
+        for (let r = start; r <= end; r += 1) refineRuns.push(r);
+
+        for (let i = 0; i < refineRuns.length; i += 1) {
+            const runs = refineRuns[i];
+            if (statusEl) {
+                statusEl.textContent = __(`Refining: ${i + 1}/${refineRuns.length} (runs=${runs})…`);
+            }
+            const payload = await fetchBlueprintPayloadForRuns(runs);
+            const snap = computeForPayload(payload);
+            results.push(snap);
+        }
+    }
+
+    return { best: pickBestRunPoint(results), samples: results.length };
 }
 
 function initializeRunOptimizedTab() {
@@ -1713,77 +2262,379 @@ function initializeRunOptimizedTab() {
     if (!tabBtn) return;
 
     let inFlight = false;
+    let initialized = false;
+
+    // Persist state across tab shows so click handlers can reuse it.
+    const state = {
+        pricesSnapshot: null,
+        ids: null,
+        decisions: null,
+        mode: 'dashboard',
+        ui: {},
+        computeAndRenderCurve: null,
+    };
     tabBtn.addEventListener('shown.bs.tab', async function () {
-        if (inFlight) return;
-        inFlight = true;
 
-        const statusEl = document.getElementById('run-optimized-status');
-        const canvas = document.getElementById('runOptimizedChart');
+        const modeToggleEl = document.getElementById('runOptimizedUseDashboardDecisions');
+        const searchMaxRunsEl = document.getElementById('runOptimizedSearchMaxRuns');
+        const findBestBtn = document.getElementById('runOptimizedFindBestBtn');
+        const bestResultEl = document.getElementById('runOptimizedBestResult');
 
-        try {
-            if (statusEl) {
-                statusEl.className = 'alert alert-info mb-3';
-                statusEl.textContent = __('Loading prices and computing profitability curve…');
+        state.ui = { modeToggleEl, searchMaxRunsEl, findBestBtn, bestResultEl };
+
+        function getRunOptimizedMode() {
+            return (modeToggleEl && modeToggleEl.checked) ? 'dashboard' : 'optimize';
+        }
+
+        async function computeAndRenderCurve() {
+            if (inFlight) return;
+            inFlight = true;
+
+            const statusEl = document.getElementById('run-optimized-status');
+            const canvas = document.getElementById('runOptimizedChart');
+
+            craftBPDebugLog('[RunOptimized] Tab shown');
+            craftBPDebugLog('[RunOptimized] URL', window.location && window.location.href);
+            craftBPDebugLog('[RunOptimized] SimulationAPI available?', Boolean(window.SimulationAPI));
+            craftBPDebugLog('[RunOptimized] SimulationAPI methods', {
+                getPrice: typeof window.SimulationAPI?.getPrice,
+                setPrice: typeof window.SimulationAPI?.setPrice,
+                refreshFromDom: typeof window.SimulationAPI?.refreshFromDom,
+                getState: typeof window.SimulationAPI?.getState,
+                getFinancialItems: typeof window.SimulationAPI?.getFinancialItems,
+            });
+
+            const mode = getRunOptimizedMode();
+            state.mode = mode;
+
+            try {
+                if (statusEl) {
+                    statusEl.className = 'alert alert-info mb-3';
+                    statusEl.textContent = __('Loading prices and computing profitability curve…');
+                }
+
+                // Ensure we have fuzzwork buy prices available.
+                const currentTree = window.BLUEPRINT_DATA?.materials_tree;
+                const productTypeId = Number(window.BLUEPRINT_DATA?.product_type_id || window.BLUEPRINT_DATA?.productTypeId || CRAFT_BP?.productTypeId) || 0;
+
+                const ids = Array.from(collectTypeIdsFromMaterialsTree(currentTree || []));
+                if (productTypeId) ids.push(String(productTypeId));
+                state.ids = ids;
+
+                craftBPDebugLog('[RunOptimized] productTypeId', productTypeId);
+                craftBPDebugLog('[RunOptimized] IDs count', ids.length);
+                craftBPDebugLog('[RunOptimized] IDs sample (first 25)', ids.slice(0, 25));
+                craftBPDebugLog('[RunOptimized] fuzzworkUrl (CRAFT_BP)', CRAFT_BP.fuzzworkUrl);
+                craftBPDebugLog('[RunOptimized] fuzzworkUrl (BLUEPRINT_DATA)', window.BLUEPRINT_DATA?.urls?.fuzzwork_price || window.BLUEPRINT_DATA?.fuzzwork_price_url);
+
+                if (typeof fetchAllPrices === 'function' && ids.length > 0 && window.SimulationAPI && typeof window.SimulationAPI.setPrice === 'function') {
+                    craftBPDebugLog('[RunOptimized] Fetching Fuzzwork prices…');
+                    const prices = await fetchAllPrices(ids);
+
+                    const priceKeys = prices && typeof prices === 'object' ? Object.keys(prices) : [];
+                    craftBPDebugLog('[RunOptimized] Fuzzwork prices keys', priceKeys.length);
+                    if (productTypeId) {
+                        const k = String(productTypeId);
+                        craftBPDebugLog('[RunOptimized] Fuzzwork product raw price', prices[k] ?? prices[String(parseInt(k, 10))]);
+                    }
+
+                    let missingCount = 0;
+                    let zeroCount = 0;
+                    ids.forEach((tid) => {
+                        const raw = prices[tid] ?? prices[String(parseInt(tid, 10))];
+                        if (raw === undefined || raw === null) {
+                            missingCount += 1;
+                            return;
+                        }
+                        const p = parseFloat(raw);
+                        if (!(p > 0)) {
+                            zeroCount += 1;
+                        }
+                    });
+                    craftBPDebugLog('[RunOptimized] Fuzzwork missing count', missingCount, 'zero/non-positive count', zeroCount);
+
+                    ids.forEach((tid) => {
+                        const raw = prices[tid] ?? prices[String(parseInt(tid, 10))];
+                        const price = raw != null ? (parseFloat(raw) || 0) : 0;
+                        if (price > 0) {
+                            window.SimulationAPI.setPrice(tid, 'fuzzwork', price);
+                        }
+                    });
+
+                    // Ensure final product has a sell price fallback when not explicitly set.
+                    if (productTypeId) {
+                        const finalKey = String(productTypeId);
+                        const rawFinal = prices[finalKey] ?? prices[String(parseInt(finalKey, 10))];
+                        const finalPrice = rawFinal != null ? (parseFloat(rawFinal) || 0) : 0;
+                        if (finalPrice > 0 && typeof window.SimulationAPI.getPrice === 'function') {
+                            const existingSale = window.SimulationAPI.getPrice(productTypeId, 'sale');
+                            const existingSaleValue = existingSale && typeof existingSale.value === 'number' ? existingSale.value : 0;
+                            if (!(existingSaleValue > 0)) {
+                                window.SimulationAPI.setPrice(productTypeId, 'sale', finalPrice);
+                            }
+                        }
+                    }
+                }
+
+                const pricesSnapshot = getPriceSnapshotFromSimulation(ids);
+                state.pricesSnapshot = pricesSnapshot;
+
+                craftBPDebugLog('[RunOptimized] Snapshot size', pricesSnapshot instanceof Map ? pricesSnapshot.size : null);
+                if (productTypeId) {
+                    craftBPDebugLog('[RunOptimized] Snapshot product record', pricesSnapshot.get(Number(productTypeId)));
+                    if (window.SimulationAPI && typeof window.SimulationAPI.getPrice === 'function') {
+                        craftBPDebugLog('[RunOptimized] SimulationAPI product buy/sale', {
+                            buy: window.SimulationAPI.getPrice(productTypeId, 'buy'),
+                            sale: window.SimulationAPI.getPrice(productTypeId, 'sale'),
+                        });
+                    }
+                }
+
+                const maxRuns = Number(document.getElementById('runsInput')?.value || window.BLUEPRINT_DATA?.num_runs || 1);
+                const scenarios = generateRunScenarios(maxRuns);
+
+                craftBPDebugLog('[RunOptimized] maxRuns', maxRuns);
+                craftBPDebugLog('[RunOptimized] scenarios', scenarios);
+
+                // Default search upper bound.
+                if (searchMaxRunsEl && !String(searchMaxRunsEl.value || '').trim()) {
+                    const suggested = Math.min(10000, Math.max(maxRuns, maxRuns * 10));
+                    searchMaxRunsEl.value = String(suggested);
+                }
+
+                // Keep SimulationAPI switch state aligned with the DOM without touching prices.
+                syncSimulationSwitchStatesFromDom();
+                const decisions = getCurrentDecisionsFromSimulationOrDom();
+                state.decisions = decisions;
+
+                const results = [];
+                for (let i = 0; i < scenarios.length; i += 1) {
+                    const runs = scenarios[i];
+                    if (statusEl) {
+                        statusEl.textContent = __(`Computing ${i + 1}/${scenarios.length} (runs=${runs})…`);
+                    }
+
+                    const payload = await fetchBlueprintPayloadForRuns(runs);
+                    craftBPDebugLog('[RunOptimized] payload received', {
+                        type_id: payload?.type_id,
+                        bp_type_id: payload?.bp_type_id,
+                        runs: payload?.num_runs,
+                        product_type_id: payload?.product_type_id,
+                        final_product_qty: payload?.final_product_qty,
+                        recipe_map_keys: payload?.recipe_map ? Object.keys(payload.recipe_map).length : 0,
+                        materials_tree_roots: Array.isArray(payload?.materials_tree) ? payload.materials_tree.length : 0,
+                    });
+
+                    const snap = (mode === 'dashboard')
+                        ? computeOptimizedProfitabilityForPayload(payload, pricesSnapshot, { decisions })
+                        : computeOptimizedProfitabilityForPayload(payload, pricesSnapshot);
+                    results.push(snap);
+
+                    craftBPDebugLog('[RunOptimized] scenario result', {
+                        runs: snap?.runs,
+                        cost: snap?.cost,
+                        revenue: snap?.revenue,
+                        profit: snap?.profit,
+                        marginPct: snap?.margin,
+                    });
+                }
+
+                // Debug: compare dashboard margin vs maxRuns point margin only in dashboard-aligned mode.
+                if (mode === 'dashboard' && window.INDY_HUB_DEBUG && window.SimulationAPI && typeof window.SimulationAPI.getFinancialItems === 'function') {
+                    try {
+                        const api = window.SimulationAPI;
+                        const productTypeIdDbg = Number(window.BLUEPRINT_DATA?.product_type_id || window.BLUEPRINT_DATA?.productTypeId || CRAFT_BP?.productTypeId) || 0;
+
+                        let costTotal = 0;
+                        const items = api.getFinancialItems() || [];
+                        items.forEach((item) => {
+                            const typeId = Number(item.typeId ?? item.type_id) || 0;
+                            if (!typeId || (productTypeIdDbg && typeId === productTypeIdDbg)) return;
+                            const qty = Math.max(0, Math.ceil(Number(item.quantity ?? item.qty ?? 0))) || 0;
+                            if (!qty) return;
+                            const unit = api.getPrice(typeId, 'buy');
+                            const unitPrice = unit && typeof unit.value === 'number' ? unit.value : 0;
+                            if (unitPrice > 0) costTotal += unitPrice * qty;
+                        });
+
+                        let revenueTotal = 0;
+                        try {
+                            const finalRow = document.getElementById('finalProductRow');
+                            const finalQtyEl = finalRow ? finalRow.querySelector('[data-qty]') : null;
+                            const rawFinalQty = finalQtyEl ? (finalQtyEl.getAttribute('data-qty') || finalQtyEl.dataset?.qty) : null;
+                            const finalQty = Math.max(0, Math.ceil(Number(rawFinalQty))) || 0;
+                            if (productTypeIdDbg && finalQty > 0) {
+                                const unit = api.getPrice(productTypeIdDbg, 'sale');
+                                const unitPrice = unit && typeof unit.value === 'number' ? unit.value : 0;
+                                if (unitPrice > 0) revenueTotal += unitPrice * finalQty;
+                            }
+                        } catch (e) {
+                            // ignore
+                        }
+
+                        let surplusRevenue = 0;
+                        const cycles = (typeof api.getProductionCycles === 'function') ? (api.getProductionCycles() || []) : [];
+                        if (Array.isArray(cycles) && cycles.length) {
+                            cycles.forEach((entry) => {
+                                const typeId = Number(entry.typeId || entry.type_id || 0) || 0;
+                                const surplusQty = Number(entry.surplus) || 0;
+                                if (!typeId || surplusQty <= 0) return;
+                                if (productTypeIdDbg && typeId === productTypeIdDbg) return;
+                                const unit = api.getPrice(typeId, 'sale');
+                                const unitPrice = unit && typeof unit.value === 'number' ? unit.value : 0;
+                                if (unitPrice > 0) surplusRevenue += unitPrice * surplusQty;
+                            });
+                        }
+                        revenueTotal += surplusRevenue;
+
+                        const dashboardMargin = revenueTotal > 0 ? ((revenueTotal - costTotal) / revenueTotal) * 100 : 0;
+                        const maxRunsPoint = results.find((r) => Number(r?.runs) === Number(maxRuns));
+
+                        const domSummaryMargin = document.getElementById('financialSummaryMargin')?.textContent || null;
+                        const domQuickMargin = document.getElementById('quickMargin')?.textContent || null;
+                        const domHeroMargin = document.getElementById('heroMargin')?.textContent || null;
+                        craftBPDebugLog('[RunOptimized] dashboard vs maxRuns point', {
+                            maxRuns,
+                            dashboard: { marginPct: dashboardMargin, revenue: revenueTotal, cost: costTotal, surplusRevenue },
+                            point: maxRunsPoint || null,
+                            dom: { financialSummaryMargin: domSummaryMargin, quickMargin: domQuickMargin, heroMargin: domHeroMargin },
+                        });
+
+                        try {
+                            // eslint-disable-next-line no-console
+                            console.log('[RunOptimized] dashboard vs maxRuns point JSON', JSON.stringify({
+                                maxRuns,
+                                dashboard: { marginPct: dashboardMargin, revenue: revenueTotal, cost: costTotal, surplusRevenue },
+                                point: maxRunsPoint || null,
+                                dom: { financialSummaryMargin: domSummaryMargin, quickMargin: domQuickMargin, heroMargin: domHeroMargin },
+                            }));
+                        } catch (e) {
+                            // ignore
+                        }
+                    } catch (e) {
+                        craftBPDebugLog('[RunOptimized] dashboard compare failed', e);
+                    }
+                }
+
+                renderRunOptimizedChart(canvas, results);
+
+                // Render a compact list of computed points (runs -> margin %)
+                const pointsListEl = document.getElementById('runOptimizedPointsList');
+                if (pointsListEl) {
+                    const items = results
+                        .slice()
+                        .sort((a, b) => (Number(a?.runs) || 0) - (Number(b?.runs) || 0))
+                        .map((r) => {
+                            const runs = Number(r?.runs) || 0;
+                            const margin = Number.isFinite(Number(r?.margin)) ? Number(r.margin) : 0;
+                            return `<span class="badge text-bg-light border me-1 mb-1">${runs}: ${margin.toFixed(1)}%</span>`;
+                        })
+                        .join('');
+
+                    pointsListEl.innerHTML = items || '';
+                }
+
+                // Show best run within displayed points.
+                renderBestRunSummary(bestResultEl, pickBestRunPoint(results), __('Best within chart'));
+
+                // Hint if flat 0.
+                const productTypeIdForHint = Number(window.BLUEPRINT_DATA?.product_type_id || window.BLUEPRINT_DATA?.productTypeId || CRAFT_BP?.productTypeId) || 0;
+                const api = window.SimulationAPI;
+                const unitSale = (api && typeof api.getPrice === 'function') ? api.getPrice(productTypeIdForHint, 'sale') : null;
+                const unitSaleValue = unitSale && typeof unitSale.value === 'number' ? unitSale.value : 0;
+                const anyNonZero = results.some(r => Number(r?.margin) !== 0);
+
+                if (statusEl) {
+                    if (!anyNonZero && productTypeIdForHint && unitSaleValue <= 0) {
+                        statusEl.className = 'alert alert-warning mb-3';
+                        statusEl.textContent = __('Profitability curve is flat because the final product sell price is 0. Set a Sale price (or load prices) and retry.');
+                    } else {
+                        statusEl.className = 'alert alert-success mb-3';
+                        statusEl.textContent = (mode === 'dashboard')
+                            ? __('Profitability curve computed (dashboard-aligned).')
+                            : __('Profitability curve computed (re-optimized per run).');
+                    }
+                }
+            } catch (e) {
+                console.error('[IndyHub] Run optimized failed', e);
+                const statusEl = document.getElementById('run-optimized-status');
+                if (statusEl) {
+                    statusEl.className = 'alert alert-warning mb-3';
+                    statusEl.textContent = __('Failed to compute profitability curve.');
+                }
+            } finally {
+                inFlight = false;
+            }
+        }
+
+        // Keep a reference to the latest compute function so one-time handlers can call it.
+        state.computeAndRenderCurve = computeAndRenderCurve;
+
+        if (!initialized) {
+            // Recompute curve when the mode toggle changes.
+            if (modeToggleEl) {
+                modeToggleEl.addEventListener('change', () => {
+                    state.computeAndRenderCurve?.();
+                });
             }
 
-            // Ensure we have fuzzwork buy prices available.
-            const currentTree = window.BLUEPRINT_DATA?.materials_tree;
-            const productTypeId = Number(window.BLUEPRINT_DATA?.product_type_id || window.BLUEPRINT_DATA?.productTypeId || CRAFT_BP?.productTypeId) || 0;
+            // Find optimal runs beyond the chart range.
+            if (findBestBtn) {
+                findBestBtn.addEventListener('click', async () => {
+                    if (inFlight) return;
 
-            const ids = Array.from(collectTypeIdsFromMaterialsTree(currentTree || []));
-            if (productTypeId) ids.push(String(productTypeId));
+                    const statusEl = document.getElementById('run-optimized-status');
+                    const modeToggle = state.ui?.modeToggleEl;
+                    const mode = (modeToggle && modeToggle.checked) ? 'dashboard' : 'optimize';
 
-            if (typeof fetchAllPrices === 'function' && ids.length > 0 && window.SimulationAPI && typeof window.SimulationAPI.setPrice === 'function') {
-                const prices = await fetchAllPrices(ids);
-                ids.forEach((tid) => {
-                    const raw = prices[tid] ?? prices[String(parseInt(tid, 10))];
-                    const price = raw != null ? (parseFloat(raw) || 0) : 0;
-                    if (price > 0) {
-                        window.SimulationAPI.setPrice(tid, 'fuzzwork', price);
+                    // Make sure we have a price snapshot.
+                    if (!state.pricesSnapshot) {
+                        await state.computeAndRenderCurve?.();
+                    }
+
+                    const maxValue = Math.max(1, Math.floor(Number(state.ui?.searchMaxRunsEl?.value || 0) || 1));
+                    const decisions = (mode === 'dashboard')
+                        ? (state.decisions || getCurrentDecisionsFromSimulationOrDom())
+                        : null;
+
+                    try {
+                        if (statusEl) {
+                            statusEl.className = 'alert alert-info mb-3';
+                            statusEl.textContent = __(`Searching optimal runs up to ${maxValue}…`);
+                        }
+
+                        const res = await findOptimalRuns({
+                            searchMaxRuns: maxValue,
+                            pricesSnapshot: state.pricesSnapshot,
+                            mode,
+                            decisions,
+                            statusEl,
+                        });
+
+                        renderBestRunSummary(state.ui?.bestResultEl, res.best, __(`Best up to ${maxValue}`));
+                        renderBestRunConfigDetails(res.best);
+                        if (statusEl) {
+                            statusEl.className = 'alert alert-success mb-3';
+                            statusEl.textContent = __(`Optimal runs found (samples=${res.samples}).`);
+                        }
+                    } catch (e) {
+                        console.error('[IndyHub] Run optimized best-runs search failed', e);
+                        if (statusEl) {
+                            statusEl.className = 'alert alert-warning mb-3';
+                            statusEl.textContent = __('Failed to search optimal runs.');
+                        }
                     }
                 });
-
-                if (typeof window.SimulationAPI.refreshFromDom === 'function') {
-                    window.SimulationAPI.refreshFromDom();
-                }
             }
 
-            const pricesSnapshot = getPriceSnapshotFromSimulation();
-
-            const maxRuns = Number(document.getElementById('runsInput')?.value || window.BLUEPRINT_DATA?.num_runs || 1);
-            const scenarios = generateRunScenarios(maxRuns);
-
-            const results = [];
-            for (let i = 0; i < scenarios.length; i += 1) {
-                const runs = scenarios[i];
-                if (statusEl) {
-                    statusEl.textContent = __(`Computing ${i + 1}/${scenarios.length} (runs=${runs})…`);
-                }
-
-                const payload = await fetchBlueprintPayloadForRuns(runs);
-                const snap = computeOptimizedProfitabilityForPayload(payload, pricesSnapshot);
-                results.push(snap);
-            }
-
-            renderRunOptimizedChart(canvas, results);
-
-            if (statusEl) {
-                statusEl.className = 'alert alert-success mb-3';
-                statusEl.textContent = __('Profitability curve computed.');
-            }
-        } catch (e) {
-            console.error('[IndyHub] Run optimized failed', e);
-            if (statusEl) {
-                statusEl.className = 'alert alert-warning mb-3';
-                statusEl.textContent = __('Failed to compute profitability curve.');
-            }
-        } finally {
-            inFlight = false;
+            initialized = true;
         }
-    });
-}
 
-/**
+            await computeAndRenderCurve();
+        });
+    }
+
+    /**
  * Collect current buy/craft decisions from the tree
  */
 function getCurrentBuyCraftDecisions() {
@@ -3109,7 +3960,7 @@ function updateFinancialTabFromState() {
                 if (window.SimulationAPI && typeof window.SimulationAPI.setPrice === 'function') {
                     window.SimulationAPI.setPrice(typeId, 'fuzzwork', priceValue);
                 }
-                // Real Price reste à 0 par défaut; ne pas copier Fuzzwork
+                // Real Price stays at 0 by default; do not copy Fuzzwork
             });
             if (typeof recalcFinancials === 'function') {
                 recalcFinancials();

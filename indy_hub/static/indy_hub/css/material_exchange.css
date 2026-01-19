@@ -253,6 +253,12 @@ html[data-theme="darkly"] .empty-invoice {
     overflow: hidden;
 }
 
+html[data-theme="darkly"] .admin-ledger {
+    border-color: rgba(148, 163, 184, 0.25);
+    background: linear-gradient(120deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.98));
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+}
+
 .admin-ledger .ledger-head {
     padding: 12px 16px;
     background: rgba(15, 23, 42, 0.04);
@@ -262,10 +268,18 @@ html[data-theme="darkly"] .empty-invoice {
     gap: 12px;
 }
 
+html[data-theme="darkly"] .admin-ledger .ledger-head {
+    background: rgba(148, 163, 184, 0.12);
+}
+
 .ledger-head .title {
     font-weight: 700;
     letter-spacing: 0.3px;
     color: #0f172a;
+}
+
+html[data-theme="darkly"] .ledger-head .title {
+    color: #f8fafc;
 }
 
 .ledger-list {
@@ -282,6 +296,10 @@ html[data-theme="darkly"] .empty-invoice {
     transition: background 0.2s ease, transform 0.2s ease;
 }
 
+html[data-theme="darkly"] .ledger-row {
+    border-top-color: rgba(148, 163, 184, 0.18);
+}
+
 .ledger-row:first-of-type {
     border-top: 0;
 }
@@ -291,9 +309,17 @@ html[data-theme="darkly"] .empty-invoice {
     transform: translateY(-1px);
 }
 
+html[data-theme="darkly"] .ledger-row:hover {
+    background: rgba(99, 102, 241, 0.18);
+}
+
 .ledger-row .ref {
     font-weight: 800;
     color: #0f172a;
+}
+
+html[data-theme="darkly"] .ledger-row .ref {
+    color: #e2e8f0;
 }
 
 .ledger-row .identity {
@@ -302,6 +328,10 @@ html[data-theme="darkly"] .empty-invoice {
     display: flex;
     gap: 8px;
     flex-wrap: wrap;
+}
+
+html[data-theme="darkly"] .ledger-row .identity {
+    color: rgba(226, 232, 240, 0.82);
 }
 
 .ledger-stats {
@@ -317,6 +347,11 @@ html[data-theme="darkly"] .empty-invoice {
     background: rgba(255, 255, 255, 0.65);
 }
 
+html[data-theme="darkly"] .stat-chip {
+    border-color: rgba(148, 163, 184, 0.25);
+    background: rgba(30, 41, 59, 0.75);
+}
+
 .stat-chip .label {
     color: #475569;
     font-size: 12px;
@@ -324,14 +359,26 @@ html[data-theme="darkly"] .empty-invoice {
     letter-spacing: 0.5px;
 }
 
+html[data-theme="darkly"] .stat-chip .label {
+    color: rgba(226, 232, 240, 0.7);
+}
+
 .stat-chip .value {
     color: #0f172a;
     font-weight: 700;
 }
 
+html[data-theme="darkly"] .stat-chip .value {
+    color: #f8fafc;
+}
+
 .preview {
     color: #1f2937;
     font-size: 13px;
+}
+
+html[data-theme="darkly"] .preview {
+    color: rgba(226, 232, 240, 0.82);
 }
 
 .ledger-actions {
@@ -347,6 +394,10 @@ html[data-theme="darkly"] .empty-invoice {
     height: 100%;
     border-radius: 10px;
     background: #cbd5e1;
+}
+
+html[data-theme="darkly"] .status-rail {
+    background: rgba(148, 163, 184, 0.6);
 }
 
 .ledger-row.status-draft .status-rail {
@@ -403,9 +454,19 @@ html[data-theme="darkly"] .empty-invoice {
     border-color: rgba(15, 23, 42, 0.12) !important;
 }
 
+html[data-theme="darkly"] .admin-divider-line {
+    border-color: rgba(148, 163, 184, 0.35) !important;
+}
+
 .admin-divider-chip {
     background: rgba(15, 23, 42, 0.05);
     border: 1px solid rgba(15, 23, 42, 0.12);
+}
+
+html[data-theme="darkly"] .admin-divider-chip {
+    background: rgba(148, 163, 184, 0.14);
+    border-color: rgba(148, 163, 184, 0.35);
+    color: #f8fafc;
 }
 
 /* Info panels icon + body flex handling */

@@ -86,7 +86,7 @@
                                     <p class="text-muted small mb-0">{% trans "Requests and unread chats." %}</p>
                                 </div>
                                 <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
-                                    <span class="badge rounded-pill bg-warning-subtle text-warning">{% trans "Unread" %}: {{ copy_chat_unread_count|default:0 }}</span>
+                                    <span id="copy-chat-unread-badge" class="badge rounded-pill bg-warning-subtle text-warning">{% trans "Unread" %}: {{ copy_chat_unread_count|default:0 }}</span>
                                     <span class="badge rounded-pill bg-warning-subtle text-warning">{% trans "My requests" %}: {{ copy_my_requests_total|default:0 }}</span>
                                     <a class="btn btn-sm btn-outline-warning" href="{% url 'indy_hub:bp_copy_request_page' %}">
                                         {% trans "Open" %}
@@ -167,7 +167,7 @@
                                     <span class="share-metric-label">{% trans "Copy chats" %}</span>
                                     <p class="text-muted small mb-0">{% trans "Unread conversation threads." %}</p>
                                 </div>
-                                <span class="share-metric-value">{{ copy_chat_unread_count|default:0 }}</span>
+                                <span id="copy-chat-unread-value" class="share-metric-value">{{ copy_chat_unread_count|default:0 }}</span>
                             </div>
                             <div class="share-metric">
                                 <div>
@@ -188,28 +188,26 @@
                         </div>
 
                         {% if copy_chat_alerts %}
-                        <h6 class="mb-3">{% trans "Latest unread copy chats" %}</h6>
-                        <div class="share-metrics">
+                        <h6 id="copy-chat-alerts-header" class="mb-3">{% trans "Latest unread copy chats" %}</h6>
+                        <div id="copy-chat-alerts" class="share-metrics">
                             {% for alert in copy_chat_alerts %}
-                            <div class="share-metric">
+                            <a class="share-metric share-metric--alert text-decoration-none" href="{{ alert.source_url }}" data-chat-id="{{ alert.chat_id }}" aria-label="{% trans 'Open chat' %}: {{ alert.type_name }}">
                                 <div>
                                     <span class="share-metric-label">{{ alert.type_name }}</span>
                                     <p class="text-muted small mb-0">{{ alert.other_label }} · {{ alert.last_message_display }}</p>
                                 </div>
                                 <div class="d-flex align-items-center gap-2">
                                     <span class="badge rounded-pill bg-warning-subtle text-warning">{% trans "Unread" %}</span>
-                                    <a class="btn btn-sm btn-outline-warning" href="{{ alert.source_url }}">
-                                        {% trans "Open" %}
-                                    </a>
                                 </div>
-                            </div>
+                            </a>
                             {% endfor %}
                         </div>
+                        <p id="copy-chat-alerts-empty" class="text-muted small mb-0 mt-auto d-none">{% trans "No unread items right now." %}</p>
                         {% if copy_chat_alerts_has_more %}
-                        <p class="text-muted small mt-3 mb-0">{% trans "More unread chats are available in Blueprint Sharing." %}</p>
+                        <p id="copy-chat-alerts-more" class="text-muted small mt-3 mb-0">{% trans "More unread chats are available in Blueprint Sharing." %}</p>
                         {% endif %}
                         {% else %}
-                        <p class="text-muted small mb-0 mt-auto">{% trans "No unread items right now." %}</p>
+                        <p id="copy-chat-alerts-empty" class="text-muted small mb-0 mt-auto">{% trans "No unread items right now." %}</p>
                         {% endif %}
                     </div>
                 </div>

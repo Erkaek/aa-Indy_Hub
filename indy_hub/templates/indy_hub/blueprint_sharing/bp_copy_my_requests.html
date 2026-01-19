@@ -8,7 +8,7 @@
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
 <link rel="stylesheet" href="{% static 'indy_hub/css/bp_copy_list.css' %}">
-<link rel="stylesheet" href="{% static 'indy_hub/css/chat.css' %}">
+<link rel="stylesheet" href="{% static 'indy_hub/css/chat.css' %}?v=20260118-2040">
 {% endblock %}
 
 {% block content %}
@@ -370,8 +370,7 @@
 {% block extra_javascript %}
 {{ block.super }}
 <script>
-    window.indyChatDefaults = Object.assign({}, window.indyChatDefaults || {}, {
-        viewerRole: 'buyer',
+<script src="{% static 'indy_hub/js/bp_copy_chat.js' %}?v=20260118-2230"></script>
         labels: {
             buyer: '{% trans "You" %}',
             seller: '{% trans "Builder" %}',
@@ -379,5 +378,5 @@
         }
     });
 </script>
-<script src="{% static 'indy_hub/js/bp_copy_chat.js' %}?v=20251021"></script>
+<script src="{% static 'indy_hub/js/bp_copy_chat.js' %}?v=20260118-2230"></script>
 {% endblock %}

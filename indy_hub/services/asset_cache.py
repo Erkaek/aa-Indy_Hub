@@ -34,6 +34,12 @@ from indy_hub.services.esi_client import (
     shared_client,
 )
 
+PLACEHOLDER_PREFIX = "Structure "
+
+# How long we keep placeholder results before retrying a fresh lookup.
+# This prevents hammering ESI for private/forbidden structures.
+STRUCTURE_PLACEHOLDER_TTL = timedelta(hours=6)
+
 logger = logging.getLogger(__name__)
 esi = EsiClientProvider()
 
@@ -415,6 +421,8 @@ def resolve_structure_names(
     corporation_id: int | None = None,
     user=None,
     task=None,
+    *,
+    schedule_async: bool = False,
 ) -> dict[int, str]:
     """Return a mapping of structure_id -> name using cache, corp structures, and ESI lookups.
 
@@ -462,13 +470,35 @@ def resolve_structure_names(
                     managed_base_structure_ids.add(int(structure_id))
 
     all_ids_for_cache = list(set(requested_ids + list(managed_base_structure_ids)))
-    known = {
-        obj.structure_id: obj.name
-        for obj in CachedStructureName.objects.filter(
-            structure_id__in=all_ids_for_cache
+    now = timezone.now()
+    known_rows = list(
+        CachedStructureName.objects.filter(structure_id__in=all_ids_for_cache).values(
+            "structure_id",
+            "name",
+            "last_resolved",
         )
+    )
+    known: dict[int, str] = {
+        int(row["structure_id"]): str(row["name"]) for row in known_rows
     }
-    missing = [sid for sid in all_ids_for_cache if sid not in known]
+    known_last_resolved: dict[int, timezone.datetime | None] = {
+        int(row["structure_id"]): row.get("last_resolved") for row in known_rows
+    }
+
+    def _is_stale_placeholder(structure_id: int) -> bool:
+        name = str(known.get(structure_id, ""))
+        if not name.startswith(PLACEHOLDER_PREFIX):
+            return False
+        last = known_last_resolved.get(structure_id)
+        if not last:
+            return True
+        return (now - last) >= STRUCTURE_PLACEHOLDER_TTL
+
+    missing = [
+        sid
+        for sid in all_ids_for_cache
+        if sid not in known or _is_stale_placeholder(int(sid))
+    ]
 
     # Try corporation structures endpoint first (returns names) when corp_id is available
     # Only applies to real (positive) structure ids.
@@ -480,7 +510,7 @@ def resolve_structure_names(
         missing = [
             sid
             for sid in all_ids_for_cache
-            if sid not in known or str(known.get(sid, "")).startswith("Structure ")
+            if sid not in known or _is_stale_placeholder(int(sid))
         ]
 
     # Try direct structure lookups with the provided character first, then fall back to any corp token with the universe scope
@@ -576,7 +606,6 @@ def resolve_structure_names(
         except Exception as exc:  # pragma: no cover - defensive
             logger.warning("Failed to filter user characters: %s", exc)
 
-    # Only attempt direct structure lookups for positive ids.
     # Batch DB writes to optimize performance
     structures_to_cache = []
     # Standard Library
@@ -585,9 +614,18 @@ def resolve_structure_names(
     missing_positive = [sid for sid in list(missing) if sid > 0]
     total_to_resolve = len(missing_positive)
 
+    forbidden_attempts = 0
+    token_failure_attempts = 0
+    direct_resolved = 0
+
     # NPC stations have IDs < 61000 and cannot be fetched via /universe/structures/
     # They should only be resolved via /universe/names/ (public endpoint)
     npc_station_threshold = 61000
+
+    # If async scheduling is enabled and Celery is not eager, avoid doing
+    # synchronous per-structure authenticated lookups (these are slow).
+    celery_eager = bool(getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False))
+    do_sync_esi = (not schedule_async) or celery_eager
 
     for idx, structure_id in enumerate(missing_positive):
         # Update task progress if task is provided
@@ -609,42 +647,76 @@ def resolve_structure_names(
         if structure_id < npc_station_threshold:
             continue
 
-        resolved = False
-        for cid in candidate_characters:
-            try:
-                # Add small delay to avoid ESI rate limit (100 requests per 30 seconds ~= 3.3 per second)
-                time.sleep(0.3)
-                name = shared_client.fetch_structure_name(structure_id, cid)
-            except ESIForbiddenError:
-                logger.info(
-                    "Structure lookup forbidden for %s with character %s",
-                    structure_id,
-                    cid,
-                )
-                continue
-            except ESITokenError:
-                logger.info(
-                    "Structure lookup missing/invalid token for %s with character %s",
-                    structure_id,
-                    cid,
-                )
-                continue
+        if do_sync_esi:
+            resolved = False
+            for cid in candidate_characters:
+                try:
+                    # Add small delay to avoid ESI rate limit (100 requests per 30 seconds ~= 3.3 per second)
+                    time.sleep(0.3)
+                    name = shared_client.fetch_structure_name(structure_id, cid)
+                except ESIForbiddenError:
+                    forbidden_attempts += 1
+                    continue
+                except ESITokenError:
+                    token_failure_attempts += 1
+                    continue
 
-            if not name:
-                continue
-            known[structure_id] = name
-            structures_to_cache.append(
-                {
-                    "structure_id": structure_id,
-                    "name": name,
-                    "last_resolved": timezone.now(),
-                }
+                if not name:
+                    continue
+                known[structure_id] = name
+                structures_to_cache.append(
+                    {
+                        "structure_id": structure_id,
+                        "name": name,
+                        "last_resolved": timezone.now(),
+                    }
+                )
+                resolved = True
+                direct_resolved += 1
+                break
+
+            if resolved:
+                missing.remove(structure_id)
+
+    if total_to_resolve and (forbidden_attempts or token_failure_attempts):
+        logger.info(
+            "Structure name resolution summary: resolved=%s/%s (direct ESI), forbidden=%s, token_failures=%s",
+            direct_resolved,
+            total_to_resolve,
+            forbidden_attempts,
+            token_failure_attempts,
+        )
+
+    # In async mode, prevent immediate re-queueing by caching placeholders now,
+    # and queue background tasks to attempt authenticated resolution.
+    if schedule_async and not celery_eager and missing_positive:
+        try:
+            # AA Example App
+            from indy_hub.tasks.location import cache_structure_names_bulk
+
+            # Cache placeholders for any remaining missing IDs (including stale placeholders)
+            # so subsequent calls won't schedule again for a while.
+            for sid in list(missing_positive):
+                if sid not in known or _is_stale_placeholder(int(sid)):
+                    placeholder = f"{PLACEHOLDER_PREFIX}{int(sid)}"
+                    known[int(sid)] = placeholder
+                    structures_to_cache.append(
+                        {
+                            "structure_id": int(sid),
+                            "name": placeholder,
+                            "last_resolved": now,
+                        }
+                    )
+
+            cache_structure_names_bulk.delay(
+                list({int(sid) for sid in missing_positive}),
+                character_id=int(character_id) if character_id else None,
+                owner_user_id=int(getattr(user, "id", 0) or 0) if user else None,
             )
-            resolved = True
-            break
-
-        if resolved:
-            missing.remove(structure_id)
+        except Exception:  # pragma: no cover - best-effort scheduling
+            logger.debug(
+                "Unable to schedule async structure name caching", exc_info=True
+            )
 
     # For any remaining unresolved structures, try the public /universe/names/ endpoint
     # This can resolve stations, citadels visible to the user, etc.
@@ -939,6 +1011,7 @@ def _refresh_character_assets(user) -> tuple[list[dict], bool]:
                 list(structure_ids),
                 character_id=int(char_id),
                 user=user,
+                schedule_async=True,
             )
         except Exception as exc:  # pragma: no cover - defensive
             logger.debug(

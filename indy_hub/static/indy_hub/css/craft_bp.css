@@ -1709,28 +1709,26 @@ div[id="bpTabs"] {
 }
 
 /* Bootstrap overrides for dark theme compatibility */
-@media (prefers-color-scheme: dark) {
-    .craft-section {
-        background: #1a1a1a;
-        border-color: #333;
-    }
+html[data-theme="darkly"] .craft-section {
+    background: #1a1a1a;
+    border-color: #333;
+}
 
-    .craft-kpi {
-        background: #2a2a2a;
-        border-color: #333;
-    }
+html[data-theme="darkly"] .craft-kpi {
+    background: #2a2a2a;
+    border-color: #333;
+}
 
-    .craft-group-header {
-        background: #2a2a2a;
-    }
+html[data-theme="darkly"] .craft-group-header {
+    background: #2a2a2a;
+}
 
-    .craft-item-row:hover {
-        background: #2a2a2a;
-    }
+html[data-theme="darkly"] .craft-item-row:hover {
+    background: #2a2a2a;
+}
 
-    .craft-header-icon {
-        background: #2a2a2a;
-    }
+html[data-theme="darkly"] .craft-header-icon {
+    background: #2a2a2a;
 }
 
 /* ==========================================================================
@@ -2381,16 +2379,14 @@ div[id="bpTabs"] {
     border-color: rgba(255, 193, 7, 0.4) !important;
 }
 
-@media (prefers-color-scheme: dark) {
-    .craft-bp-card[data-blueprint-not-owned="true"] .efficiency-group input {
-        background-color: rgba(255, 193, 7, 0.1);
-        border-color: rgba(255, 193, 7, 0.5) !important;
-    }
+html[data-theme="darkly"] .craft-bp-card[data-blueprint-not-owned="true"] .efficiency-group input {
+    background-color: rgba(255, 193, 7, 0.1);
+    border-color: rgba(255, 193, 7, 0.5) !important;
+}
 
-    .craft-config-item[data-blueprint-not-owned="true"] .craft-config-inputs input {
-        background-color: rgba(255, 193, 7, 0.1);
-        border-color: rgba(255, 193, 7, 0.5) !important;
-    }
+html[data-theme="darkly"] .craft-config-item[data-blueprint-not-owned="true"] .craft-config-inputs input {
+    background-color: rgba(255, 193, 7, 0.1);
+    border-color: rgba(255, 193, 7, 0.5) !important;
 }
 
 .craft-section-header-with-actions {
@@ -2419,23 +2415,21 @@ div[id="bpTabs"] {
 }
 
 /* ========== DARK THEME ADJUSTMENTS ========== */
-@media (prefers-color-scheme: dark) {
-    .craft-stat-card:hover {
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-    }
+html[data-theme="darkly"] .craft-stat-card:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
 
-    .craft-search-section .input-group-text {
-        background: var(--bs-tertiary-bg);
-    }
+html[data-theme="darkly"] .craft-search-section .input-group-text {
+    background: var(--bs-tertiary-bg);
+}
 
-    .craft-bulk-actions {
-        background: var(--bs-secondary-bg);
-        padding: 1.5rem;
-        border-radius: 0.375rem;
-    }
+html[data-theme="darkly"] .craft-bulk-actions {
+    background: var(--bs-secondary-bg);
+    padding: 1.5rem;
+    border-radius: 0.375rem;
+}
 
-    #blueprintSearchInput {
-        background: var(--bs-body-bg);
-        border-color: var(--bs-border-color);
-    }
+html[data-theme="darkly"] #blueprintSearchInput {
+    background: var(--bs-body-bg);
+    border-color: var(--bs-border-color);
 }

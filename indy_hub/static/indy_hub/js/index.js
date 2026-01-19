@@ -14,6 +14,106 @@ function n__(singular, plural, count) {
     return Number(count) === 1 ? singular : plural;
 }
 
+function loadSeenChatIds() {
+    if (typeof window === 'undefined' || !window.localStorage) {
+        return [];
+    }
+    try {
+        var raw = window.localStorage.getItem('indyhub_seen_chats');
+        if (!raw) {
+            return [];
+        }
+        var parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) {
+            return [];
+        }
+        return parsed.map(function (value) {
+            return String(value);
+        });
+    } catch (err) {
+        return [];
+    }
+}
+
+function clearSeenChatIds() {
+    if (typeof window === 'undefined' || !window.localStorage) {
+        return;
+    }
+    try {
+        window.localStorage.removeItem('indyhub_seen_chats');
+    } catch (err) {
+        return;
+    }
+}
+
+function refreshCopyChatAlerts() {
+    var seenIds = loadSeenChatIds();
+    if (!seenIds.length) {
+        return;
+    }
+
+    var container = document.getElementById('copy-chat-alerts');
+    var header = document.getElementById('copy-chat-alerts-header');
+    var emptyState = document.getElementById('copy-chat-alerts-empty');
+    var moreHint = document.getElementById('copy-chat-alerts-more');
+    var unreadBadge = document.getElementById('copy-chat-unread-badge');
+    var unreadValue = document.getElementById('copy-chat-unread-value');
+    var removed = 0;
+
+    if (container) {
+        var alertNodes = Array.from(container.querySelectorAll('[data-chat-id]'));
+        alertNodes.forEach(function (node) {
+            var chatId = node.getAttribute('data-chat-id');
+            if (!chatId) {
+                return;
+            }
+            if (seenIds.indexOf(String(chatId)) !== -1) {
+                node.remove();
+                removed += 1;
+            }
+        });
+
+        if (alertNodes.length - removed <= 0) {
+            if (container) {
+                container.classList.add('d-none');
+            }
+            if (header) {
+                header.classList.add('d-none');
+            }
+            if (moreHint) {
+                moreHint.classList.add('d-none');
+            }
+            if (emptyState) {
+                emptyState.classList.remove('d-none');
+            }
+        }
+    }
+
+    if (removed > 0) {
+        var updateCount = function (node) {
+            if (!node) {
+                return;
+            }
+            var text = String(node.textContent || '');
+            var match = text.match(/(\d+)/);
+            if (!match) {
+                return;
+            }
+            var current = parseInt(match[1], 10);
+            if (isNaN(current)) {
+                return;
+            }
+            var next = Math.max(0, current - removed);
+            node.textContent = text.replace(match[1], String(next));
+        };
+
+        updateCount(unreadBadge);
+        updateCount(unreadValue);
+    }
+
+    clearSeenChatIds();
+}
+
 var indyHubPopupTimer = null;
 
 function hideIndyHubPopup() {
@@ -77,6 +177,7 @@ function showIndyHubPopup(message, type) {
 
 // Initialize index page functionality
 document.addEventListener('DOMContentLoaded', function() {
+    refreshCopyChatAlerts();
     var popupElement = document.getElementById('indy-hub-popup');
     if (popupElement) {
         var dismissButton = popupElement.querySelector('.indy-hub-popup-dismiss');
@@ -84,6 +185,7 @@ document.addEventListener('DOMContentLoaded', function() {
             dismissButton.addEventListener('click', hideIndyHubPopup);
         }
     }
+    refreshCopyChatAlerts();
 
     var jobNotificationState = Object.assign({
         frequency: 'disabled',
@@ -1082,4 +1184,8 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         });
     }
+});
+
+window.addEventListener('pageshow', function () {
+    refreshCopyChatAlerts();
 });

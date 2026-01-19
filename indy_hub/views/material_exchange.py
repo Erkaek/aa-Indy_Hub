@@ -1,6 +1,7 @@
 """Material Exchange views for Indy Hub."""
 
 # Standard Library
+import hashlib
 import logging
 from decimal import Decimal
 
@@ -50,6 +51,143 @@ logger = logging.getLogger(__name__)
 User = get_user_model()
 
 _PRODUCTION_IDS_CACHE: set[int] | None = None
+_INDUSTRY_MARKET_GROUP_IDS_CACHE: set[int] | None = None
+
+
+def _get_industry_market_group_ids() -> set[int]:
+    """Return market group IDs used by EVE industry materials (cached)."""
+
+    global _INDUSTRY_MARKET_GROUP_IDS_CACHE
+    if _INDUSTRY_MARKET_GROUP_IDS_CACHE is not None:
+        return _INDUSTRY_MARKET_GROUP_IDS_CACHE
+
+    cache_key = "indy_hub:material_exchange:industry_market_group_ids:v1"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        try:
+            _INDUSTRY_MARKET_GROUP_IDS_CACHE = {int(x) for x in cached}
+            return _INDUSTRY_MARKET_GROUP_IDS_CACHE
+        except Exception:
+            _INDUSTRY_MARKET_GROUP_IDS_CACHE = set()
+            return _INDUSTRY_MARKET_GROUP_IDS_CACHE
+
+    try:
+        # Alliance Auth (External Libs)
+        from eveuniverse.models import EveIndustryActivityMaterial
+
+        ids = set(
+            EveIndustryActivityMaterial.objects.exclude(
+                material_eve_type__eve_market_group_id__isnull=True
+            )
+            .values_list("material_eve_type__eve_market_group_id", flat=True)
+            .distinct()
+        )
+    except Exception as exc:
+        logger.warning("Failed to load industry market group IDs: %s", exc)
+        ids = set()
+
+    cache.set(cache_key, list(ids), 3600)
+    _INDUSTRY_MARKET_GROUP_IDS_CACHE = ids
+    return ids
+
+
+def _get_market_group_children_map() -> dict[int | None, set[int]]:
+    """Return a mapping of parent_id -> child_ids (cached)."""
+
+    cache_key = "indy_hub:material_exchange:market_group_children_map:v1"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        try:
+            return {int(k) if k != "None" else None: set(v) for k, v in cached.items()}
+        except Exception:
+            pass
+
+    try:
+        # Alliance Auth (External Libs)
+        from eveuniverse.models import EveMarketGroup
+
+        children_map: dict[int | None, set[int]] = {}
+        for group_id, parent_id in EveMarketGroup.objects.values_list(
+            "id", "parent_market_group_id"
+        ):
+            children_map.setdefault(parent_id, set()).add(group_id)
+    except Exception as exc:
+        logger.warning("Failed to load market group tree: %s", exc)
+        return {}
+
+    cache.set(
+        cache_key,
+        {"None" if k is None else str(k): list(v) for k, v in children_map.items()},
+        3600,
+    )
+    return children_map
+
+
+def _expand_market_group_ids(group_ids: set[int]) -> set[int]:
+    """Expand market group IDs to include all descendants."""
+
+    if not group_ids:
+        return set()
+
+    children_map = _get_market_group_children_map()
+    expanded = set(group_ids)
+    stack = list(group_ids)
+    while stack:
+        current = stack.pop()
+        for child_id in children_map.get(current, set()):
+            if child_id in expanded:
+                continue
+            expanded.add(child_id)
+            stack.append(child_id)
+    return expanded
+
+
+def _get_allowed_type_ids_for_config(
+    config: MaterialExchangeConfig, mode: str
+) -> set[int] | None:
+    """Resolve allowed EveType IDs for the given mode (sell/buy)."""
+
+    if mode not in {"sell", "buy"}:
+        return None
+
+    try:
+        raw_group_ids = (
+            config.allowed_market_groups_sell
+            if mode == "sell"
+            else config.allowed_market_groups_buy
+        )
+        group_ids = {int(x) for x in (raw_group_ids or [])}
+        if not group_ids:
+            group_ids = _get_industry_market_group_ids()
+
+        if not group_ids:
+            return None
+
+        expanded_group_ids = _expand_market_group_ids(group_ids)
+        groups_key = ",".join(map(str, sorted(expanded_group_ids)))
+        groups_hash = hashlib.md5(
+            groups_key.encode("utf-8"), usedforsecurity=False
+        ).hexdigest()
+        cache_key = (
+            "indy_hub:material_exchange:allowed_type_ids:v1:" f"{mode}:{groups_hash}"
+        )
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return {int(x) for x in cached}
+
+        # Alliance Auth (External Libs)
+        from eveuniverse.models import EveType
+
+        allowed_type_ids = set(
+            EveType.objects.filter(
+                eve_market_group_id__in=expanded_group_ids
+            ).values_list("id", flat=True)
+        )
+        cache.set(cache_key, list(allowed_type_ids), 3600)
+        return allowed_type_ids
+    except Exception as exc:
+        logger.warning("Failed to resolve market group filter (%s): %s", mode, exc)
+        return None
 
 
 def _get_material_exchange_admins() -> list[User]:
@@ -365,9 +503,6 @@ def material_exchange_index(request):
     total_stock_value = 0
 
     try:
-        # Alliance Auth (External Libs)
-        from eveuniverse.models import EveType
-
         # Avoid blocking ESI calls on index page; use cached data only
         user_assets, scope_missing = _fetch_user_assets_for_structure(
             request.user, int(config.structure_id), allow_refresh=False
@@ -381,19 +516,11 @@ def material_exchange_index(request):
                 ),
             )
 
-        allowed_type_ids = set(
-            EveType.objects.filter(
-                eve_market_group__parent_market_group_id__in=[
-                    533,
-                    1031,
-                    1034,
-                    2395,
-                ]
-            ).values_list("id", flat=True)
-        )
-        user_assets = {
-            tid: qty for tid, qty in user_assets.items() if tid in allowed_type_ids
-        }
+        allowed_type_ids = _get_allowed_type_ids_for_config(config, "sell")
+        if allowed_type_ids:
+            user_assets = {
+                tid: qty for tid, qty in user_assets.items() if tid in allowed_type_ids
+            }
 
         if user_assets:
             price_data = _fetch_fuzzwork_prices(list(user_assets.keys()))
@@ -595,33 +722,36 @@ def material_exchange_sell(request):
             return redirect("indy_hub:material_exchange_sell")
 
         if not user_assets:
-            messages.error(request, _("You have no items to sell at this location."))
+            messages.error(
+                request,
+                _("No items available to sell at this location."),
+            )
             return redirect("indy_hub:material_exchange_sell")
 
-        # Apply market group filter if configured
-        # Always apply parent market group filter (Materials hierarchy)
-        try:
-            # Alliance Auth (External Libs)
-            from eveuniverse.models import EveType
+        pre_filter_count = len(user_assets)
 
-            allowed_type_ids = set(
-                EveType.objects.filter(
-                    eve_market_group__parent_market_group_id__in=[
-                        533,
-                        1031,
-                        1034,
-                        2395,
-                    ]
-                ).values_list("id", flat=True)
-            )
-            user_assets = {
-                tid: qty for tid, qty in user_assets.items() if tid in allowed_type_ids
-            }
+        # Apply market group filter if configured
+        try:
+            allowed_type_ids = _get_allowed_type_ids_for_config(config, "sell")
+            if allowed_type_ids:
+                user_assets = {
+                    tid: qty
+                    for tid, qty in user_assets.items()
+                    if tid in allowed_type_ids
+                }
         except Exception as exc:
             logger.warning("Failed to apply market group filter: %s", exc)
 
         if not user_assets:
-            messages.error(request, _("You have no items to sell at this location."))
+            if pre_filter_count > 0:
+                messages.error(
+                    request,
+                    _("No accepted items available to sell at this location."),
+                )
+            else:
+                messages.error(
+                    request, _("You have no items to sell at this location.")
+                )
             return redirect("indy_hub:material_exchange_sell")
 
         items_to_create: list[dict] = []
@@ -786,31 +916,23 @@ def material_exchange_sell(request):
         allow_refresh=allow_refresh,
     )
     if user_assets:
+        pre_filter_count = len(user_assets)
         logger.info(
             f"SELL DEBUG: Found {len(user_assets)} unique items in assets before production filter (filter disabled)"
         )
 
         # Apply market group filter (same as POST + Index) to keep views consistent
         try:
-            # Alliance Auth (External Libs)
-            from eveuniverse.models import EveType
-
-            allowed_type_ids = set(
-                EveType.objects.filter(
-                    eve_market_group__parent_market_group_id__in=[
-                        533,
-                        1031,
-                        1034,
-                        2395,
-                    ]
-                ).values_list("id", flat=True)
-            )
-            user_assets = {
-                tid: qty for tid, qty in user_assets.items() if tid in allowed_type_ids
-            }
-            logger.info(
-                f"SELL DEBUG: {len(user_assets)} items after market group filter"
-            )
+            allowed_type_ids = _get_allowed_type_ids_for_config(config, "sell")
+            if allowed_type_ids:
+                user_assets = {
+                    tid: qty
+                    for tid, qty in user_assets.items()
+                    if tid in allowed_type_ids
+                }
+                logger.info(
+                    f"SELL DEBUG: {len(user_assets)} items after market group filter"
+                )
         except Exception as exc:
             logger.warning("Failed to apply market group filter (GET): %s", exc)
 
@@ -843,6 +965,12 @@ def material_exchange_sell(request):
             f"SELL DEBUG: Final materials_with_qty count: {len(materials_with_qty)}"
         )
         materials_with_qty.sort(key=lambda x: x["type_name"])
+
+        if pre_filter_count > 0 and not materials_with_qty and not message_shown:
+            messages.info(
+                request,
+                _("No accepted items available to sell at this location."),
+            )
     else:
         if scope_missing and not message_shown:
             messages.info(
@@ -854,9 +982,7 @@ def material_exchange_sell(request):
         elif not message_shown:
             messages.info(
                 request,
-                _(
-                    "No assets found at this structure. Check the assets scope on at least one character."
-                ),
+                _("No items available to sell at this location."),
             )
 
     # Show loading spinner if either Celery task is running OR stock sync just happened
@@ -919,25 +1045,15 @@ def material_exchange_buy(request):
             config.stock_items.filter(quantity__gt=0, jita_buy_price__gt=0)
         )
 
-        # Apply market group filter if configured
-        # Always apply parent market group filter (Materials hierarchy)
-        try:
-            # Alliance Auth (External Libs)
-            from eveuniverse.models import EveType
+        pre_filter_stock_count = len(stock_items)
 
-            allowed_type_ids = set(
-                EveType.objects.filter(
-                    eve_market_group__parent_market_group_id__in=[
-                        533,
-                        1031,
-                        1034,
-                        2395,
-                    ]
-                ).values_list("id", flat=True)
-            )
-            stock_items = [
-                item for item in stock_items if item.type_id in allowed_type_ids
-            ]
+        # Apply market group filter if configured
+        try:
+            allowed_type_ids = _get_allowed_type_ids_for_config(config, "buy")
+            if allowed_type_ids:
+                stock_items = [
+                    item for item in stock_items if item.type_id in allowed_type_ids
+                ]
         except Exception as exc:
             logger.warning("Failed to apply market group filter: %s", exc)
 
@@ -949,7 +1065,15 @@ def material_exchange_buy(request):
             )
         )
         if not stock_items:
-            messages.error(request, _("No stock available."))
+            if pre_filter_stock_count > 0:
+                messages.error(
+                    request,
+                    _(
+                        "No stock available in the allowed Market Groups based on the current configuration."
+                    ),
+                )
+            else:
+                messages.error(request, _("No stock available."))
             return redirect("indy_hub:material_exchange_buy")
 
         items_to_create = []
@@ -1108,24 +1232,15 @@ def material_exchange_buy(request):
 
     # Show available stock (quantity > 0 and price available)
     stock_items = list(config.stock_items.filter(quantity__gt=0, jita_buy_price__gt=0))
+    pre_filter_stock_count = len(stock_items)
 
     # Apply market group filter if configured
-    # Always apply parent market group filter (Materials hierarchy)
     try:
-        # Alliance Auth (External Libs)
-        from eveuniverse.models import EveType
-
-        allowed_type_ids = set(
-            EveType.objects.filter(
-                eve_market_group__parent_market_group_id__in=[
-                    533,
-                    1031,
-                    1034,
-                    2395,
-                ]
-            ).values_list("id", flat=True)
-        )
-        stock_items = [item for item in stock_items if item.type_id in allowed_type_ids]
+        allowed_type_ids = _get_allowed_type_ids_for_config(config, "buy")
+        if allowed_type_ids:
+            stock_items = [
+                item for item in stock_items if item.type_id in allowed_type_ids
+            ]
     except Exception as exc:
         logger.warning("Failed to apply market group filter: %s", exc)
 
@@ -1136,6 +1251,14 @@ def material_exchange_buy(request):
             (i.type_name or "").lower(),
         )
     )
+
+    if pre_filter_stock_count > 0 and not stock_items:
+        messages.info(
+            request,
+            _(
+                "Stock exists, but none of it matches the allowed Market Groups based on the current configuration."
+            ),
+        )
 
     buy_last_update = None
     try:
@@ -1556,6 +1679,8 @@ def material_exchange_transactions(request):
     context = {
         "config": config,
         "page_obj": page_obj,
+        "transactions": page_obj.object_list,
+        "is_paginated": page_obj.has_other_pages(),
         "transaction_type": transaction_type,
         "user_filter": user_filter,
         "month_stats": month_stats,

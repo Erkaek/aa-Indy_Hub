@@ -1,5 +1,107 @@
 /* Material Exchange Configuration Styles */
 
+/* --- Page theming (reduce “too white”) --- */
+
+.me-config {
+    /* Light theme surfaces */
+    --me-bg: linear-gradient(180deg, #f4f6f9 0%, #eef2f7 100%);
+    --me-card-bg: rgba(255, 255, 255, 0.86);
+    --me-card-bg-strong: rgba(255, 255, 255, 0.94);
+    --me-border: rgba(0, 0, 0, 0.07);
+    --me-border-strong: rgba(0, 0, 0, 0.12);
+    --me-shadow: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.06);
+
+    background: transparent;
+}
+
+html[data-theme="darkly"] .me-config {
+    /* Dark theme surfaces */
+    --me-bg: linear-gradient(180deg, #23262d 0%, #1e2127 100%);
+    --me-card-bg: rgba(40, 44, 52, 0.72);
+    --me-card-bg-strong: rgba(40, 44, 52, 0.85);
+    --me-border: rgba(255, 255, 255, 0.10);
+    --me-border-strong: rgba(255, 255, 255, 0.16);
+    --me-shadow: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.35);
+}
+
+.me-config .card.focus-card {
+    background: var(--me-card-bg);
+    border-color: var(--me-border-strong);
+    border-width: 1px;
+    background-clip: padding-box;
+}
+
+.me-config .me-step-card {
+    background: var(--me-card-bg-strong);
+}
+
+/* --- Inline help (blue info icon + popover) --- */
+
+.me-config .me-help-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.15rem;
+    height: 1.15rem;
+    margin-left: 0.35rem;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--bs-primary);
+    cursor: help;
+    line-height: 1;
+}
+
+.me-config .me-help-icon:hover {
+    color: #0a58ca;
+    background: rgba(13, 110, 253, 0.12);
+}
+
+.me-config .me-help-icon:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 0.22rem rgba(13, 110, 253, 0.25);
+}
+
+/* Make section headers feel like distinct blocks (better visual separation) */
+.me-config .section-heading {
+    position: relative;
+    padding: 0.65rem 0.9rem;
+    border: 1px solid var(--me-border-strong);
+    border-radius: 0.85rem;
+    background: linear-gradient(
+        180deg,
+        rgba(255, 255, 255, 0.70) 0%,
+        rgba(255, 255, 255, 0.45) 100%
+    );
+    box-shadow: 0 0.15rem 0.45rem rgba(0, 0, 0, 0.04);
+}
+
+.me-config .section-heading::before {
+    content: "";
+    position: absolute;
+    top: 0.55rem;
+    bottom: 0.55rem;
+    left: 0.6rem;
+    width: 0.25rem;
+    border-radius: 999px;
+    background: linear-gradient(
+        180deg,
+        rgba(13, 110, 253, 0.85) 0%,
+        rgba(25, 135, 84, 0.75) 100%
+    );
+    opacity: 0.9;
+}
+
+html[data-theme="darkly"] .me-config .section-heading {
+    background: linear-gradient(
+        180deg,
+        rgba(255, 255, 255, 0.06) 0%,
+        rgba(255, 255, 255, 0.035) 100%
+    );
+    box-shadow: 0 0.15rem 0.55rem rgba(0, 0, 0, 0.35);
+}
+
 .border-info {
     border-left: 4px solid #0d6efd !important;
 }
@@ -18,4 +120,505 @@ html[data-theme="darkly"] .bg-white {
 
 html[data-theme="darkly"] [class*="subtle"] {
     background-color: #303030 !important;
+}
+
+/* --- Compact, modern config layout --- */
+
+.me-config .section-title {
+    letter-spacing: 0.2px;
+    font-weight: 800;
+    font-size: 1.05rem;
+    line-height: 1.15;
+    color: var(--bs-body-color);
+    margin: 0;
+    padding-left: 0.6rem;
+    text-decoration: none !important;
+}
+
+.me-config .section-heading .text-muted.small {
+    padding-left: 0.6rem;
+    opacity: 0.85;
+}
+
+/* Slightly tighter form rhythm */
+.me-config .form-label {
+    margin-bottom: 0.25rem;
+}
+
+.me-config .form-text {
+    margin-top: 0.25rem;
+}
+
+.me-config .input-group {
+    margin-bottom: 0.25rem;
+}
+
+/* --- Header sync line (Stock sync / Price sync) --- */
+
+.me-config .page-header {
+    display: flex;
+    flex-direction: column;
+}
+
+.me-config .page-header .me-header-sync {
+    margin-top: auto;
+    color: rgba(255, 255, 255, 0.96) !important;
+    font-weight: 800;
+}
+
+.me-config .page-header .me-header-sync strong {
+    color: #fff;
+    font-weight: 900;
+}
+
+.me-config .page-header .me-header-sync .text-muted {
+    color: rgba(255, 255, 255, 0.9) !important;
+    opacity: 1;
+}
+
+/* --- Header action buttons (Back / Scopes / Tokens) --- */
+
+.me-config .page-header .me-header-actions .me-header-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 0.45rem;
+    line-height: 1.1;
+    border-radius: 999px;
+    font-weight: 700;
+    letter-spacing: 0.1px;
+    box-shadow: 0 0.25rem 0.85rem rgba(0, 0, 0, 0.14);
+    border-width: 1px;
+    transition: transform 120ms ease, box-shadow 120ms ease, background-color 120ms ease,
+        border-color 120ms ease, color 120ms ease;
+}
+
+.me-config .page-header .me-header-actions .me-header-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 0.45rem 1.1rem rgba(0, 0, 0, 0.18);
+}
+
+.me-config .page-header .me-header-actions .me-header-btn:active {
+    transform: translateY(0);
+    box-shadow: 0 0.25rem 0.9rem rgba(0, 0, 0, 0.16);
+}
+
+.me-config .page-header .me-header-actions .me-header-btn:focus-visible {
+    outline: none;
+    box-shadow:
+    0 0.45rem 1.1rem rgba(0, 0, 0, 0.18),
+        0 0 0 0.22rem rgba(255, 255, 255, 0.28);
+}
+
+.me-config .page-header .me-header-actions .me-header-btn i {
+    opacity: 0.95;
+}
+
+/* Back to Hub: make it feel like a primary header action */
+.me-config .page-header .me-header-actions .me-header-btn--back {
+    padding: 0.55rem 1.05rem;
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.40) !important;
+    width: 100%;
+}
+
+.me-config .page-header .me-header-actions .me-header-btn--back:hover {
+    background: rgba(255, 255, 255, 0.14);
+    border-color: rgba(255, 255, 255, 0.55) !important;
+}
+
+/* Add All Scopes: keep green but add polish */
+.me-config .page-header .me-header-actions .me-header-btn--scopes {
+    padding: 0.38rem 0.85rem;
+    background-image: linear-gradient(
+        135deg,
+        rgba(var(--bs-success-rgb), 0.98) 0%,
+        rgba(var(--bs-success-rgb), 0.82) 100%
+    );
+    border-color: rgba(var(--bs-success-rgb), 0.25) !important;
+}
+
+.me-config .page-header .me-header-actions .me-header-btn--scopes:hover {
+    filter: brightness(1.03);
+}
+
+/* Manage Tokens: soften outline so it looks intentional in the header */
+.me-config .page-header .me-header-actions .me-header-btn--tokens {
+    padding: 0.38rem 0.85rem;
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.26) !important;
+    color: rgba(255, 255, 255, 0.92) !important;
+}
+
+.me-config .page-header .me-header-actions .me-header-btn--tokens:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.38) !important;
+    color: #fff !important;
+}
+
+.me-config .page-header .me-header-actions > .d-flex.flex-wrap {
+    justify-content: flex-end;
+}
+
+@media (max-width: 575.98px) {
+    .me-config .page-header .me-header-actions > .d-flex.flex-wrap {
+        justify-content: flex-start;
+    }
+}
+
+@media (min-width: 768px) {
+    .me-config .page-header .me-header-actions .me-header-btn--back {
+        min-width: 12.25rem;
+        width: auto;
+    }
+}
+
+.me-config .me-current-bar {
+    border: 1px solid var(--me-border-strong);
+    background: var(--me-card-bg-strong);
+}
+
+/* Make the “Current” summary readable (it was too small) */
+.me-config .me-current-bar .me-current-content {
+    font-size: 0.95rem;
+    line-height: 1.2;
+}
+
+@media (min-width: 992px) {
+    .me-config .me-current-bar .me-current-content {
+        font-size: 1rem;
+    }
+}
+
+.me-config .me-current-bar .badge {
+    font-size: 0.85rem;
+    padding: 0.35rem 0.55rem;
+    font-weight: 600;
+}
+
+.me-config .me-current-bar .text-muted {
+    font-size: 0.9rem;
+}
+
+@media (min-width: 992px) {
+    .me-config .me-current-bar {
+        position: sticky;
+        top: 0.75rem;
+        z-index: 10;
+    }
+}
+
+html[data-theme="darkly"] .me-config .me-current-bar {
+    border-color: rgba(255, 255, 255, 0.08);
+}
+
+.me-config .me-step-badge {
+    min-width: 1.6rem;
+    text-align: center;
+    border-radius: 999px;
+    font-weight: 700;
+
+    /* Make step markers feel less “flat/white” and more like UI tokens */
+    background-color: rgba(var(--bs-primary-rgb), 0.14) !important;
+    border: 1px solid rgba(var(--bs-primary-rgb), 0.22);
+    color: var(--bs-primary) !important;
+}
+
+html[data-theme="darkly"] .me-config .me-step-badge {
+    background-color: rgba(var(--bs-primary-rgb), 0.22) !important;
+    border-color: rgba(var(--bs-primary-rgb), 0.35);
+}
+
+/* Muted “Current config” pills (avoid bright solid badges) */
+.me-config .me-current-bar .badge {
+    border: 1px solid transparent;
+}
+
+.me-config .me-current-bar .badge.bg-primary {
+    background-color: rgba(var(--bs-primary-rgb), 0.16) !important;
+    border-color: rgba(var(--bs-primary-rgb), 0.26);
+    color: var(--bs-primary) !important;
+}
+
+.me-config .me-current-bar .badge.bg-info {
+    background-color: rgba(var(--bs-info-rgb), 0.16) !important;
+    border-color: rgba(var(--bs-info-rgb), 0.26);
+    color: var(--bs-info) !important;
+}
+
+.me-config .me-current-bar .badge.bg-success {
+    background-color: rgba(var(--bs-success-rgb), 0.16) !important;
+    border-color: rgba(var(--bs-success-rgb), 0.26);
+    color: var(--bs-success) !important;
+}
+
+.me-config .me-current-bar .badge.bg-secondary {
+    background-color: rgba(var(--bs-secondary-rgb), 0.16) !important;
+    border-color: rgba(var(--bs-secondary-rgb), 0.24);
+    color: var(--bs-body-color) !important;
+}
+
+html[data-theme="darkly"] .me-config .me-current-bar .badge.bg-primary,
+html[data-theme="darkly"] .me-config .me-current-bar .badge.bg-info,
+html[data-theme="darkly"] .me-config .me-current-bar .badge.bg-success,
+html[data-theme="darkly"] .me-config .me-current-bar .badge.bg-secondary,
+html[data-theme="darkly"] .me-config .me-current-bar .badge.bg-warning {
+    background-color: rgba(255, 255, 255, 0.06) !important;
+    border-color: rgba(255, 255, 255, 0.10);
+    color: rgba(255, 255, 255, 0.85) !important;
+}
+
+.me-config .me-current-bar .badge.bg-warning {
+    background-color: rgba(var(--bs-warning-rgb), 0.16) !important;
+    border-color: rgba(var(--bs-warning-rgb), 0.26);
+    color: var(--bs-warning) !important;
+}
+
+/* Full-width details sections (Sync + ESI) */
+.me-config details.me-details.me-details-block {
+    width: 100%;
+}
+
+/* Refresh progress should be shown only when a task starts */
+.me-config #refreshStatus {
+    display: none;
+}
+
+/* Keep the progress bar hidden until we have progress to show */
+.me-config #progressBar {
+    display: none;
+}
+
+.me-config .me-steps-header {
+    user-select: none;
+}
+
+.me-config .me-step-card {
+    border: 1px solid var(--me-border);
+    transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.me-config .me-step-card:hover {
+    border-color: rgba(13, 110, 253, 0.35);
+    box-shadow: var(--me-shadow);
+}
+
+html[data-theme="darkly"] .me-config .me-step-card {
+    border-color: var(--me-border);
+}
+
+html[data-theme="darkly"] .me-config .me-step-card:hover {
+    border-color: rgba(13, 110, 253, 0.6);
+    box-shadow: var(--me-shadow);
+}
+
+.me-config .me-details {
+    width: fit-content;
+    max-width: 100%;
+}
+
+/* In some places (examples, bottom sections) we want details to fill width */
+.me-config .me-example-details {
+    width: 100%;
+}
+
+.me-config details.me-details > summary {
+    list-style: none;
+}
+
+.me-config details.me-details > summary::-webkit-details-marker {
+    display: none;
+}
+
+.me-config .me-details-summary {
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.15rem 0.45rem;
+    border-radius: 0.55rem;
+    background: rgba(0, 0, 0, 0.04);
+}
+
+html[data-theme="darkly"] .me-config .me-details-summary {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.me-config .me-details-summary:focus {
+    outline: none;
+}
+
+.me-config .me-details-summary:focus-visible {
+    outline: 2px solid rgba(13, 110, 253, 0.35);
+    outline-offset: 2px;
+    border-radius: 0.4rem;
+}
+
+.me-config .me-details-chevron {
+    display: inline-flex;
+    align-items: center;
+    transition: transform 120ms ease;
+}
+
+.me-config details[open] > summary .me-details-chevron {
+    transform: rotate(180deg);
+}
+
+/* Example blocks inside markup cards */
+.me-config .me-example-box {
+    background: rgba(0, 0, 0, 0.035) !important;
+    border: 1px solid var(--me-border);
+}
+
+html[data-theme="darkly"] .me-config .me-example-box {
+    background: rgba(255, 255, 255, 0.05) !important;
+}
+
+/* When summary is also a block header (ESI section), make it fill width */
+.me-config summary.section-heading.me-details-summary {
+    display: block;
+}
+
+.me-config summary.section-heading.me-details-summary > div {
+    width: 100%;
+}
+
+/* Dual list picker styling (Market Groups) */
+.me-config .me-dual-list {
+    padding: 0.5rem;
+    border: 1px solid var(--me-border);
+    border-radius: 0.6rem;
+    background: rgba(0, 0, 0, 0.02);
+}
+
+html[data-theme="darkly"] .me-config .me-dual-list {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.me-config .me-dual-list-select {
+    min-height: 14rem;
+    background: var(--me-card-bg-strong);
+    border: 1px solid var(--me-border-strong);
+}
+
+.me-config .me-dual-list-select option {
+    padding: 0.15rem 0.35rem;
+}
+
+.me-config .me-dual-list-controls .btn {
+    min-width: 2.2rem;
+}
+
+.me-config .me-dual-list-controls {
+    gap: 0.25rem !important;
+    padding: 0;
+}
+
+.me-config .me-dual-list-block + .me-dual-list-block {
+    margin-top: 0.75rem;
+}
+
+.me-config .me-dual-list .small.text-muted {
+    font-weight: 600;
+}
+
+/* SELL vs BUY accenting for dual lists */
+.me-config .me-dual-list-sell .me-dual-list-select {
+    border-color: rgba(var(--bs-info-rgb), 0.35);
+}
+.me-config .me-dual-list-buy .me-dual-list-select {
+    border-color: rgba(var(--bs-success-rgb), 0.35);
+}
+
+.me-config .me-dual-list-sell .small.text-muted {
+    color: rgba(var(--bs-info-rgb), 0.9) !important;
+}
+.me-config .me-dual-list-buy .small.text-muted {
+    color: rgba(var(--bs-success-rgb), 0.9) !important;
+}
+
+.me-config .me-dual-list-select option:hover {
+    background-color: rgba(13, 110, 253, 0.12);
+}
+html[data-theme="darkly"] .me-config .me-dual-list-select option:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+/* SELL/BUY label pills */
+.me-config .me-pill-info {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 999px;
+    background-color: rgba(var(--bs-info-rgb), 0.15);
+    border: 1px solid rgba(var(--bs-info-rgb), 0.28);
+    color: var(--bs-info);
+}
+.me-config .me-pill-success {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 999px;
+    background-color: rgba(var(--bs-success-rgb), 0.15);
+    border: 1px solid rgba(var(--bs-success-rgb), 0.28);
+    color: var(--bs-success);
+}
+html[data-theme="darkly"] .me-config .me-pill-info,
+html[data-theme="darkly"] .me-config .me-pill-success {
+    background-color: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.85);
+}
+
+/* SELL vs BUY accenting for dual lists */
+.me-config .me-dual-list-sell .me-dual-list-select {
+    border-color: rgba(var(--bs-info-rgb), 0.35);
+}
+.me-config .me-dual-list-buy .me-dual-list-select {
+    border-color: rgba(var(--bs-success-rgb), 0.35);
+}
+
+.me-config .me-dual-list-sell .small.text-muted {
+    color: rgba(var(--bs-info-rgb), 0.9) !important;
+}
+.me-config .me-dual-list-buy .small.text-muted {
+    color: rgba(var(--bs-success-rgb), 0.9) !important;
+}
+
+.me-config .me-dual-list-select option:hover {
+    background-color: rgba(13, 110, 253, 0.12);
+}
+html[data-theme="darkly"] .me-config .me-dual-list-select option:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+/* SELL/BUY label pills */
+.me-config .me-pill-info {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 999px;
+    background-color: rgba(var(--bs-info-rgb), 0.15);
+    border: 1px solid rgba(var(--bs-info-rgb), 0.28);
+    color: var(--bs-info);
+}
+.me-config .me-pill-success {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 999px;
+    background-color: rgba(var(--bs-success-rgb), 0.15);
+    border: 1px solid rgba(var(--bs-success-rgb), 0.28);
+    color: var(--bs-success);
+}
+html[data-theme="darkly"] .me-config .me-pill-info,
+html[data-theme="darkly"] .me-config .me-pill-success {
+    background-color: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.85);
 }

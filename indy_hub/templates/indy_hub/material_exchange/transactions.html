@@ -34,29 +34,27 @@
         <div class="glass-panel p-4 mb-4">
             <h5 class="mb-3">{% trans "Monthly Financial Summary" %}</h5>
             <div class="row g-3">
-                {% for month in monthly_stats %}
                 <div class="col-md-4">
                     <div class="card bg-dark border-secondary">
                         <div class="card-body">
-                            <h6 class="card-title">{{ month.month|date:"F Y" }}</h6>
+                            <h6 class="card-title">{% trans "This Month" %}</h6>
                             <div class="mt-2">
                                 <div class="d-flex justify-content-between">
                                     <span class="text-success">{% trans "Materials Bought:" %}</span>
-                                    <strong>{{ month.total_buy_volume|floatformat:0|intcomma }} ISK</strong>
+                                    <strong>{{ month_stats.total_buy_volume|floatformat:0|intcomma }} ISK</strong>
                                 </div>
                                 <div class="d-flex justify-content-between mt-1">
                                     <span class="text-info">{% trans "Materials Sold:" %}</span>
-                                    <strong>{{ month.total_sell_volume|floatformat:0|intcomma }} ISK</strong>
+                                    <strong>{{ month_stats.total_sell_volume|floatformat:0|intcomma }} ISK</strong>
                                 </div>
                                 <div class="d-flex justify-content-between mt-2 pt-2 border-top">
                                     <span>{% trans "Total Transactions:" %}</span>
-                                    <strong>{{ month.sell_count|add:month.buy_count }}</strong>
+                                    <strong>{{ month_stats.sell_count|add:month_stats.buy_count }}</strong>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
-                {% endfor %}
             </div>
         </div>
 
@@ -96,7 +94,7 @@
                             <td>{{ tx.type_name }}</td>
                             <td>{{ tx.quantity|intcomma }}</td>
                             <td>{{ tx.unit_price|floatformat:2|intcomma }} ISK</td>
-                            <td>{{ tx.total_amount|floatformat:0|intcomma }} ISK</td>
+                            <td>{{ tx.total_price|floatformat:0|intcomma }} ISK</td>
                         </tr>
                         {% endfor %}
                     </tbody>
