@@ -13,6 +13,7 @@ ______________________________________________________________________
 - **Blueprint Copy Sharing**: Request, offer, and deliver blueprint copies (BPCs) with collapsible fulfillment cards, inline access list summaries, signed Discord quick-action links, and notifications for each step.
 - **Flexible Sharing Scopes**: Expose blueprint libraries per character, per corporation, or to everyone at once.
 - **Conditional Offer Chat**: Negotiate blueprint copy terms directly in Indy Hub with persistent history and status tracking.
+- **Material Exchange**: Create buy/sell orders with order references, validate ESI contracts, and review transaction history.
 - **ESI Integration**: Secure OAuth2-based sync for blueprints and jobs with director-level corporation scopes.
 - **Notifications**: In-app alerts for job completions, copy offers, chat messages, and deliveries, with configurable immediate or digest cadences.
 - **Modern UI**: Responsive Bootstrap 5 interface with theme compatibility and full i18n support.
@@ -164,6 +165,7 @@ ______________________________________________________________________
 - Personal blueprints and industry jobs
 - Corporation blueprints (if director)
 - Pending blueprint copy requests
+- Material Exchange buy/sell orders and transaction history
 
 1. **Share Blueprints**: Set sharing scopes and send copy offers to alliance members
 1. **Receive Notifications**: View job completions and copy request updates in the notification feed
