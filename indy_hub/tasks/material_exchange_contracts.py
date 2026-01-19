@@ -5,6 +5,7 @@ Handles ESI contract checking, validation, and PM notifications for sell/buy ord
 
 # Standard Library
 import logging
+import re
 from decimal import Decimal, InvalidOperation
 
 # Third Party
@@ -27,6 +28,8 @@ from indy_hub.models import (
     MaterialExchangeBuyOrder,
     MaterialExchangeConfig,
     MaterialExchangeSellOrder,
+    MaterialExchangeStock,
+    MaterialExchangeTransaction,
 )
 from indy_hub.notifications import notify_multi, notify_user
 from indy_hub.services.asset_cache import resolve_structure_names
@@ -42,6 +45,57 @@ logger = logging.getLogger(__name__)
 
 # Cache for structure names to avoid repeated ESI lookups
 _structure_name_cache: dict[int, str] = {}
+
+
+def _log_sell_order_transactions(order: MaterialExchangeSellOrder) -> None:
+    if MaterialExchangeTransaction.objects.filter(sell_order=order).exists():
+        return
+
+    for item in order.items.all():
+        MaterialExchangeTransaction.objects.create(
+            config=order.config,
+            transaction_type="sell",
+            sell_order=order,
+            user=order.seller,
+            type_id=item.type_id,
+            type_name=item.type_name,
+            quantity=item.quantity,
+            unit_price=item.unit_price,
+            total_price=item.total_price,
+        )
+
+        stock_item, _created = MaterialExchangeStock.objects.get_or_create(
+            config=order.config,
+            type_id=item.type_id,
+            defaults={"type_name": item.type_name},
+        )
+        stock_item.quantity += item.quantity
+        stock_item.save()
+
+
+def _log_buy_order_transactions(order: MaterialExchangeBuyOrder) -> None:
+    if MaterialExchangeTransaction.objects.filter(buy_order=order).exists():
+        return
+
+    for item in order.items.all():
+        MaterialExchangeTransaction.objects.create(
+            config=order.config,
+            transaction_type="buy",
+            buy_order=order,
+            user=order.buyer,
+            type_id=item.type_id,
+            type_name=item.type_name,
+            quantity=item.quantity,
+            unit_price=item.unit_price,
+            total_price=item.total_price,
+        )
+
+        try:
+            stock_item = order.config.stock_items.get(type_id=item.type_id)
+            stock_item.quantity = max(stock_item.quantity - item.quantity, 0)
+            stock_item.save()
+        except MaterialExchangeStock.DoesNotExist:
+            continue
 
 
 def _get_location_name(
@@ -586,7 +640,6 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
     )
 
     matching_contract = None
-    ref_missing = False
     last_price_issue: str | None = None
     last_reason: str | None = None
     contract_with_correct_ref_wrong_structure: dict | None = None
@@ -596,6 +649,10 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
         # Track contracts with correct order reference in title (for better diagnostics)
         title = contract.title or ""
         has_correct_ref = order_ref in title
+
+        # Require title reference before further checks
+        if not has_correct_ref:
+            continue
 
         # Basic criteria
         criteria_match = _matches_sell_order_criteria_db(
@@ -631,9 +688,6 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
                 }
             continue
 
-        # Title reference check (optional)
-        ref_missing = not has_correct_ref
-
         matching_contract = contract
         break
 
@@ -645,8 +699,6 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
             f"Contract validated: {matching_contract.contract_id} @ "
             f"{matching_contract.price:,.2f} ISK"
         )
-        if ref_missing:
-            order.notes += f" (title missing {order_ref})"
         order.save(
             update_fields=[
                 "status",
@@ -665,11 +717,6 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
                 f"Contract #{matching_contract.contract_id} for {order.total_price:,.2f} ISK verified.\n\n"
                 f"Status: Awaiting corporation to accept the contract.\n"
                 f"Once accepted, you will receive payment."
-                + (
-                    f"\n\nNote: Your contract title is missing the reference {order_ref}."
-                    if ref_missing
-                    else ""
-                )
             ),
             level="success",
             link=f"/indy_hub/material-exchange/sell-orders/{order.id}/",
@@ -684,11 +731,6 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
                 f"Total: {order.total_price:,.2f} ISK\n"
                 f"Contract #{matching_contract.contract_id} at {matching_contract.price:,.2f} ISK verified from database.\n\n"
                 f"Awaiting corporation to accept the contract."
-                + (
-                    f"\nNote: Contract title missing reference {order_ref}."
-                    if ref_missing
-                    else ""
-                )
             ),
             level="success",
             link=f"/indy_hub/material-exchange/sell-orders/{order.id}/",
@@ -837,7 +879,6 @@ def _validate_buy_order_from_db(config, order, contracts, esi_client=None):
     )
 
     matching_contract = None
-    ref_missing = False
     last_price_issue: str | None = None
     last_reason: str | None = None
 
@@ -845,13 +886,8 @@ def _validate_buy_order_from_db(config, order, contracts, esi_client=None):
         title = contract.title or ""
         has_correct_ref = order_ref in title
 
-        # Draft buy orders may not have been explicitly approved in Auth yet.
-        # To avoid accidental matches, only auto-validate draft orders when the
-        # contract title clearly references the order.
-        if (
-            order.status == MaterialExchangeBuyOrder.Status.DRAFT
-            and not has_correct_ref
-        ):
+        # Require title reference before further checks.
+        if not has_correct_ref:
             continue
 
         criteria_match = _matches_buy_order_criteria_db(
@@ -870,7 +906,6 @@ def _validate_buy_order_from_db(config, order, contracts, esi_client=None):
             last_reason = price_msg
             continue
 
-        ref_missing = not has_correct_ref
         matching_contract = contract
         break
 
@@ -883,7 +918,6 @@ def _validate_buy_order_from_db(config, order, contracts, esi_client=None):
         order.notes = (
             f"Contract validated: {matching_contract.contract_id} @ "
             f"{matching_contract.price:,.2f} ISK"
-            + (f" (title missing {order_ref})" if ref_missing else "")
         )
         order.save(
             update_fields=[
@@ -920,11 +954,6 @@ def _validate_buy_order_from_db(config, order, contracts, esi_client=None):
                 f"{order.buyer.username} will receive:\n{items_list}\n\n"
                 f"Total: {order.total_price:,.2f} ISK\n"
                 f"Contract #{matching_contract.contract_id} verified from database."
-                + (
-                    f"\nNote: Contract title missing reference {order_ref}."
-                    if ref_missing
-                    else ""
-                )
             ),
             level="success",
             link=f"/indy_hub/material-exchange/buy-orders/{order.id}/",
@@ -1168,8 +1197,8 @@ def check_completed_material_exchange_contracts():
         return
 
     for order in approved_orders:
-        # Extract contract ID from notes if present
-        contract_id = _extract_contract_id(order.notes)
+        # Extract contract ID from stored field or notes
+        contract_id = order.esi_contract_id or _extract_contract_id(order.notes)
         if not contract_id:
             continue
 
@@ -1194,6 +1223,8 @@ def check_completed_material_exchange_contracts():
                     "updated_at",
                 ]
             )
+
+            _log_sell_order_transactions(order)
 
             logger.info(
                 "Sell order %s completed: contract %s accepted (status: %s)",
@@ -1281,6 +1312,8 @@ def check_completed_material_exchange_contracts():
                 ]
             )
 
+            _log_buy_order_transactions(order)
+
             logger.info(
                 "Buy order %s completed: contract %s accepted (status: %s)",
                 order.id,
@@ -1333,15 +1366,18 @@ def check_completed_material_exchange_contracts():
 
 
 def _extract_contract_id(notes: str) -> int | None:
-    """Extract contract ID from order notes (format: "Contract validated: 12345")"""
+    """Extract contract ID from order notes (format: "Contract validated: 12345")."""
     if not notes:
         return None
-    try:
-        parts = notes.split(":")
-        if len(parts) >= 2:
-            return int(parts[-1].strip())
-    except (IndexError, ValueError):
-        pass
+
+    match = re.search(r"Contract validated:\s*(\d+)", notes)
+    if match:
+        return int(match.group(1))
+
+    match = re.search(r"\b(\d{6,})\b", notes)
+    if match:
+        return int(match.group(1))
+
     return None
 
 
