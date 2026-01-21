@@ -190,13 +190,15 @@ document.addEventListener('DOMContentLoaded', function() {
     var jobNotificationState = Object.assign({
         frequency: 'disabled',
         customDays: 3,
+        customHours: 6,
         hint: ''
     }, window.jobNotificationState || {});
 
     var notifyGroup = document.getElementById('job-notification-group');
     var notifyButtons = notifyGroup ? Array.from(notifyGroup.querySelectorAll('[data-frequency]')) : [];
     var customWrapper = document.getElementById('job-notification-custom-wrapper');
-    var customDaysInput = document.getElementById('job-notification-custom-days');
+    var customIntervalInput = document.getElementById('job-notification-custom-interval');
+    var customUnitSelect = document.getElementById('job-notification-custom-unit');
     var applyBtn = document.getElementById('job-notification-apply');
     var applyWrapper = document.getElementById('job-notification-apply-wrapper');
     var notifyHint = document.getElementById('notify-hint');
@@ -207,11 +209,22 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    function normalizeCustomFrequency(value) {
+        return value === 'custom_hours' ? 'custom' : value;
+    }
+
+    function getCustomUnit() {
+        if (customUnitSelect && customUnitSelect.value === 'hours') {
+            return 'hours';
+        }
+        return 'days';
+    }
+
     function toggleCustomVisibility(value) {
         if (!customWrapper) {
             return;
         }
-        if (value === 'custom') {
+        if (value === 'custom' || value === 'custom_hours') {
             customWrapper.classList.remove('d-none');
             if (applyWrapper) {
                 applyWrapper.classList.remove('d-none');
@@ -228,7 +241,8 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!notifyGroup) {
             return null;
         }
-        return notifyGroup.querySelector('[data-frequency="' + frequency + '"]');
+        var normalized = normalizeCustomFrequency(frequency);
+        return notifyGroup.querySelector('[data-frequency="' + normalized + '"]');
     }
 
     function getFrequencyHint(frequency) {
@@ -237,13 +251,36 @@ document.addEventListener('DOMContentLoaded', function() {
             return null;
         }
 
-        if (frequency === 'custom') {
-            var template = button.getAttribute('data-hint-template');
+        if (frequency === 'custom' || frequency === 'custom_hours') {
+            var unit = getCustomUnit();
+            var templateDays = button.getAttribute('data-hint-template-days');
+            var templateHours = button.getAttribute('data-hint-template-hours');
+            var template = unit === 'hours' ? templateHours : templateDays;
             if (template) {
-                var placeholder = button.getAttribute('data-hint-placeholder') || '__days__';
+                if (unit === 'hours') {
+                    var hours = null;
+                    if (customIntervalInput) {
+                        hours = parseCustomHours(customIntervalInput.value);
+                    }
+                    if (hours == null) {
+                        if (typeof jobNotificationState.customHours === 'number') {
+                            hours = jobNotificationState.customHours;
+                        } else {
+                            var defaultHours = parseInt(button.getAttribute('data-hint-default-hours'), 10);
+                            if (!isNaN(defaultHours)) {
+                                hours = defaultHours;
+                            }
+                        }
+                    }
+                    if (hours == null) {
+                        hours = 1;
+                    }
+                    return template.split('__hours__').join(String(hours));
+                }
+
                 var days = null;
-                if (customDaysInput) {
-                    days = parseCustomDays(customDaysInput.value);
+                if (customIntervalInput) {
+                    days = parseCustomDays(customIntervalInput.value);
                 }
                 if (days == null) {
                     if (typeof jobNotificationState.customDays === 'number') {
@@ -258,8 +295,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (days == null) {
                     days = 1;
                 }
-                var stringDays = String(days);
-                return template.split(placeholder).join(stringDays);
+                return template.split('__days__').join(String(days));
             }
         }
 
@@ -279,9 +315,10 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!notifyGroup) {
             return;
         }
-        notifyGroup.dataset.currentFrequency = frequency || 'disabled';
+        var normalized = normalizeCustomFrequency(frequency || 'disabled');
+        notifyGroup.dataset.currentFrequency = normalized;
         notifyButtons.forEach(function(btn) {
-            var isActive = btn.dataset.frequency === frequency;
+            var isActive = btn.dataset.frequency === normalized;
             btn.classList.toggle('is-active', isActive);
             btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
         });
@@ -291,10 +328,10 @@ document.addEventListener('DOMContentLoaded', function() {
         if (notifyGroup) {
             var current = notifyGroup.dataset.currentFrequency;
             if (current) {
-                return current;
+                return normalizeCustomFrequency(current);
             }
         }
-        return jobNotificationState.frequency || 'disabled';
+        return normalizeCustomFrequency(jobNotificationState.frequency || 'disabled');
     }
 
     function parseCustomDays(value) {
@@ -305,19 +342,31 @@ document.addEventListener('DOMContentLoaded', function() {
         return Math.min(parsed, 365);
     }
 
-    function submitNotificationPreference(frequency, customDays) {
+    function parseCustomHours(value) {
+        var parsed = parseInt(value, 10);
+        if (isNaN(parsed) || parsed < 1) {
+            return null;
+        }
+        return Math.min(parsed, 168);
+    }
+
+    function submitNotificationPreference(frequency, intervalValue) {
         if (!window.updateJobNotificationsUrl) {
             return;
         }
 
         var payload = { frequency: frequency };
         if (frequency === 'custom') {
-            payload.custom_days = customDays;
+            payload.custom_days = intervalValue;
+        } else if (frequency === 'custom_hours') {
+            payload.custom_hours = intervalValue;
         }
 
         var previousFrequency = jobNotificationState.frequency;
         var previousCustomDays = jobNotificationState.customDays;
+        var previousCustomHours = jobNotificationState.customHours;
         var previousHint = jobNotificationState.hint;
+        var previousApplyLabel = applyBtn ? applyBtn.textContent : null;
 
         if (applyBtn) {
             applyBtn.disabled = true;
@@ -345,8 +394,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 jobNotificationState.frequency = data.frequency || frequency;
                 if (typeof data.custom_days === 'number') {
                     jobNotificationState.customDays = data.custom_days;
-                } else if (frequency === 'custom' && typeof customDays === 'number') {
-                    jobNotificationState.customDays = customDays;
+                } else if (frequency === 'custom' && typeof intervalValue === 'number') {
+                    jobNotificationState.customDays = intervalValue;
+                }
+                if (typeof data.custom_hours === 'number') {
+                    jobNotificationState.customHours = data.custom_hours;
+                } else if (frequency === 'custom_hours' && typeof intervalValue === 'number') {
+                    jobNotificationState.customHours = intervalValue;
                 }
                 if (typeof data.hint === 'string' && data.hint.length) {
                     jobNotificationState.hint = data.hint;
@@ -355,26 +409,51 @@ document.addEventListener('DOMContentLoaded', function() {
                 setActiveFrequency(jobNotificationState.frequency);
                 toggleCustomVisibility(jobNotificationState.frequency);
 
-                if (customDaysInput && jobNotificationState.customDays) {
-                    customDaysInput.value = jobNotificationState.customDays;
+                if (customIntervalInput) {
+                    if (jobNotificationState.frequency === 'custom_hours') {
+                        customIntervalInput.value = jobNotificationState.customHours;
+                    } else if (jobNotificationState.customDays) {
+                        customIntervalInput.value = jobNotificationState.customDays;
+                    }
                 }
 
                 previewFrequencyHint(jobNotificationState.frequency);
 
                 var popupMessage = data.message || __('Job notification preferences updated.');
                 showIndyHubPopup(popupMessage, 'success');
+
+                if (applyBtn) {
+                    applyBtn.classList.add('btn-success');
+                    applyBtn.classList.remove('btn-primary');
+                    applyBtn.textContent = __('Saved');
+                    setTimeout(function() {
+                        applyBtn.classList.remove('btn-success');
+                        applyBtn.classList.add('btn-primary');
+                        if (previousApplyLabel) {
+                            applyBtn.textContent = previousApplyLabel;
+                        }
+                    }, 2000);
+                }
             })
             .catch(function() {
                 jobNotificationState.frequency = previousFrequency;
                 jobNotificationState.customDays = previousCustomDays;
+                jobNotificationState.customHours = previousCustomHours;
                 jobNotificationState.hint = previousHint;
                 setActiveFrequency(previousFrequency);
                 toggleCustomVisibility(previousFrequency);
-                if (customDaysInput && previousCustomDays) {
-                    customDaysInput.value = previousCustomDays;
+                if (customIntervalInput) {
+                    if (previousFrequency === 'custom_hours') {
+                        customIntervalInput.value = previousCustomHours;
+                    } else if (previousCustomDays) {
+                        customIntervalInput.value = previousCustomDays;
+                    }
                 }
                 previewFrequencyHint(previousFrequency);
                 showIndyHubPopup(__('Error updating job notification preferences.'), 'danger');
+                if (applyBtn && previousApplyLabel) {
+                    applyBtn.textContent = previousApplyLabel;
+                }
             })
             .finally(function() {
                 if (applyBtn) {
@@ -390,6 +469,16 @@ document.addEventListener('DOMContentLoaded', function() {
         var initialFrequency = jobNotificationState.frequency || notifyGroup.dataset.currentFrequency || 'disabled';
         setActiveFrequency(initialFrequency);
         toggleCustomVisibility(initialFrequency);
+
+        if (customUnitSelect && customIntervalInput) {
+            if (jobNotificationState.frequency === 'custom_hours') {
+                customUnitSelect.value = 'hours';
+                customIntervalInput.value = jobNotificationState.customHours;
+            } else if (jobNotificationState.frequency === 'custom') {
+                customUnitSelect.value = 'days';
+                customIntervalInput.value = jobNotificationState.customDays;
+            }
+        }
 
         var initialHint = getFrequencyHint(initialFrequency) || jobNotificationState.hint;
         setNotifyHint(initialHint);
@@ -415,15 +504,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 toggleCustomVisibility(desired);
 
                 if (desired === 'custom') {
-                    jobNotificationState.frequency = 'custom';
-                    if (customDaysInput) {
-                        customDaysInput.focus();
-                        customDaysInput.select();
+                    if (customIntervalInput) {
+                        customIntervalInput.focus();
+                        customIntervalInput.select();
                     }
                     return;
                 }
 
-                submitNotificationPreference(desired, jobNotificationState.customDays);
+                submitNotificationPreference(desired, null);
             });
         });
     } else {
@@ -434,30 +522,58 @@ document.addEventListener('DOMContentLoaded', function() {
     if (applyBtn) {
         applyBtn.addEventListener('click', function() {
             var selected = getActiveFrequency();
-            var customValue = customDaysInput ? parseCustomDays(customDaysInput.value) : null;
+            var unit = getCustomUnit();
+            var intervalValue = customIntervalInput ? (unit === 'hours' ? parseCustomHours(customIntervalInput.value) : parseCustomDays(customIntervalInput.value)) : null;
 
-            if (selected === 'custom' && !customValue) {
-                showIndyHubPopup(__('Please enter a valid number of days for the custom cadence.'), 'warning');
-                if (customDaysInput) {
-                    customDaysInput.focus();
+            if (selected === 'custom' && !intervalValue) {
+                var warningMessage = unit === 'hours'
+                    ? __('Please enter a valid number of hours for the custom cadence.')
+                    : __('Please enter a valid number of days for the custom cadence.');
+                showIndyHubPopup(warningMessage, 'warning');
+                if (customIntervalInput) {
+                    customIntervalInput.focus();
                 }
                 return;
             }
 
-            var cadenceDays = selected === 'custom' ? (customValue || jobNotificationState.customDays) : jobNotificationState.customDays;
-            if (selected === 'custom' && typeof cadenceDays === 'number') {
-                jobNotificationState.customDays = cadenceDays;
-                previewFrequencyHint('custom');
+            var frequencyToSubmit = unit === 'hours' ? 'custom_hours' : 'custom';
+            if (typeof intervalValue === 'number') {
+                if (unit === 'hours') {
+                    jobNotificationState.customHours = intervalValue;
+                } else {
+                    jobNotificationState.customDays = intervalValue;
+                }
+                jobNotificationState.frequency = frequencyToSubmit;
+                previewFrequencyHint(frequencyToSubmit);
             }
-            submitNotificationPreference(selected, cadenceDays);
+
+            submitNotificationPreference(frequencyToSubmit, intervalValue);
         });
     }
 
-    if (customDaysInput) {
-        customDaysInput.addEventListener('input', function() {
-            var parsed = parseCustomDays(customDaysInput.value);
+    if (customIntervalInput) {
+        customIntervalInput.addEventListener('input', function() {
+            var unit = getCustomUnit();
+            var parsed = unit === 'hours' ? parseCustomHours(customIntervalInput.value) : parseCustomDays(customIntervalInput.value);
             if (parsed) {
-                jobNotificationState.customDays = parsed;
+                if (unit === 'hours') {
+                    jobNotificationState.customHours = parsed;
+                } else {
+                    jobNotificationState.customDays = parsed;
+                }
+            }
+            if (getActiveFrequency() === 'custom') {
+                previewFrequencyHint('custom');
+            }
+        });
+    }
+
+    if (customUnitSelect && customIntervalInput) {
+        customUnitSelect.addEventListener('change', function() {
+            if (customUnitSelect.value === 'hours') {
+                customIntervalInput.value = jobNotificationState.customHours;
+            } else {
+                customIntervalInput.value = jobNotificationState.customDays;
             }
             if (getActiveFrequency() === 'custom') {
                 previewFrequencyHint('custom');
@@ -492,7 +608,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (frequency === 'monthly') {
             return 'bg-secondary-subtle text-secondary-emphasis';
         }
-        if (frequency === 'custom') {
+        if (frequency === 'custom' || frequency === 'custom_hours') {
             return 'bg-light-subtle text-body';
         }
         return 'bg-info-subtle text-info';
@@ -514,6 +630,10 @@ document.addEventListener('DOMContentLoaded', function() {
         if (frequency === 'monthly') {
             return __('Monthly');
         }
+        if (frequency === 'custom_hours') {
+            var hours = typeof customDays === 'number' ? customDays : 6;
+            return String(hours) + 'h';
+        }
         if (frequency === 'custom') {
             var days = typeof customDays === 'number' ? customDays : 3;
             return String(days) + 'd';
@@ -521,7 +641,7 @@ document.addEventListener('DOMContentLoaded', function() {
         return String(frequency || '');
     }
 
-    function updateCorpAccordionJobsHeader(corpId, frequency, customDays) {
+    function updateCorpAccordionJobsHeader(corpId, frequency, customDays, customHours) {
         var badge = getCorpJobsHeaderBadge(corpId);
         if (!badge) {
             return;
@@ -531,7 +651,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
         var label = badge.querySelector('.corp-header-jobs-label');
         if (label) {
-            label.textContent = getCorpJobsBadgeLabel(frequency, customDays);
+            var value = frequency === 'custom_hours' ? customHours : customDays;
+            label.textContent = getCorpJobsBadgeLabel(frequency, value);
         }
     }
 
@@ -556,6 +677,7 @@ document.addEventListener('DOMContentLoaded', function() {
             corpJobNotificationStates[corp.corporation_id] = {
                 frequency: corp.frequency || 'disabled',
                 customDays: corp.custom_days || 3,
+                customHours: corp.custom_hours || 6,
                 hint: corp.hint || ''
             };
         });
@@ -567,6 +689,7 @@ document.addEventListener('DOMContentLoaded', function() {
             corpJobNotificationStates[corpId] = {
                 frequency: 'disabled',
                 customDays: 3,
+                customHours: 6,
                 hint: ''
             };
         }
@@ -584,12 +707,23 @@ document.addEventListener('DOMContentLoaded', function() {
         var notifyGroup = controlDiv.querySelector('[data-corp-id="' + corpId + '"][role="group"]');
         var notifyButtons = notifyGroup ? Array.from(notifyGroup.querySelectorAll('[data-frequency]')) : [];
         var customWrapper = controlDiv.querySelector('#corp-job-notification-custom-wrapper-' + corpId);
-        var customDaysInput = customWrapper ? customWrapper.querySelector('input[type="number"]') : null;
+        var customIntervalInput = controlDiv.querySelector('input[type="number"][data-corp-id="' + corpId + '"]');
+        var customUnitSelect = controlDiv.querySelector('select[data-corp-id="' + corpId + '"]');
         var applyBtn = controlDiv.querySelector('[data-corp-id="' + corpId + '"].corp-job-notification-apply');
         var applyWrapper = controlDiv.querySelector('#corp-job-notification-apply-wrapper-' + corpId);
         var corpNotifyHint = controlDiv.querySelector('.corp-notify-hint');
 
         var corpState = getCorpState(corpId);
+
+        if (customUnitSelect && customIntervalInput) {
+            if (corpState.frequency === 'custom_hours') {
+                customUnitSelect.value = 'hours';
+                customIntervalInput.value = corpState.customHours;
+            } else if (corpState.frequency === 'custom') {
+                customUnitSelect.value = 'days';
+                customIntervalInput.value = corpState.customDays;
+            }
+        }
 
         function setCorpNotifyHint(text) {
             if (corpNotifyHint) {
@@ -601,7 +735,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!customWrapper) {
                 return;
             }
-            if (value === 'custom') {
+            if (value === 'custom' || value === 'custom_hours') {
                 customWrapper.classList.remove('d-none');
                 if (applyWrapper) {
                     applyWrapper.classList.remove('d-none');
@@ -614,11 +748,19 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
 
+        function getCorpCustomUnit() {
+            if (customUnitSelect && customUnitSelect.value === 'hours') {
+                return 'hours';
+            }
+            return 'days';
+        }
+
         function getCorpNotificationButton(frequency) {
             if (!notifyGroup) {
                 return null;
             }
-            return notifyGroup.querySelector('[data-frequency="' + frequency + '"]');
+            var normalized = normalizeCustomFrequency(frequency);
+            return notifyGroup.querySelector('[data-frequency="' + normalized + '"]');
         }
 
         function getCorpFrequencyHint(frequency) {
@@ -627,13 +769,36 @@ document.addEventListener('DOMContentLoaded', function() {
                 return null;
             }
 
-            if (frequency === 'custom') {
-                var template = button.getAttribute('data-hint-template');
+            if (frequency === 'custom' || frequency === 'custom_hours') {
+                var unit = getCorpCustomUnit();
+                var templateDays = button.getAttribute('data-hint-template-days');
+                var templateHours = button.getAttribute('data-hint-template-hours');
+                var template = unit === 'hours' ? templateHours : templateDays;
                 if (template) {
-                    var placeholder = button.getAttribute('data-hint-placeholder') || '__days__';
+                    if (unit === 'hours') {
+                        var hours = null;
+                        if (customIntervalInput) {
+                            hours = parseCustomHours(customIntervalInput.value);
+                        }
+                        if (hours == null) {
+                            if (typeof corpState.customHours === 'number') {
+                                hours = corpState.customHours;
+                            } else {
+                                var defaultHours = parseInt(button.getAttribute('data-hint-default-hours'), 10);
+                                if (!isNaN(defaultHours)) {
+                                    hours = defaultHours;
+                                }
+                            }
+                        }
+                        if (hours == null) {
+                            hours = 1;
+                        }
+                        return template.split('__hours__').join(String(hours));
+                    }
+
                     var days = null;
-                    if (customDaysInput) {
-                        days = parseCustomDays(customDaysInput.value);
+                    if (customIntervalInput) {
+                        days = parseCustomDays(customIntervalInput.value);
                     }
                     if (days == null) {
                         if (typeof corpState.customDays === 'number') {
@@ -648,8 +813,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     if (days == null) {
                         days = 1;
                     }
-                    var stringDays = String(days);
-                    return template.split(placeholder).join(stringDays);
+                    return template.split('__days__').join(String(days));
                 }
             }
 
@@ -669,9 +833,10 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!notifyGroup) {
                 return;
             }
-            notifyGroup.dataset.currentFrequency = frequency || 'disabled';
+            var normalized = normalizeCustomFrequency(frequency || 'disabled');
+            notifyGroup.dataset.currentFrequency = normalized;
             notifyButtons.forEach(function(btn) {
-                var isActive = btn.dataset.frequency === frequency;
+                var isActive = btn.dataset.frequency === normalized;
                 btn.classList.toggle('is-active', isActive);
                 btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
             });
@@ -681,13 +846,13 @@ document.addEventListener('DOMContentLoaded', function() {
             if (notifyGroup) {
                 var current = notifyGroup.dataset.currentFrequency;
                 if (current) {
-                    return current;
+                    return normalizeCustomFrequency(current);
                 }
             }
-            return corpState.frequency || 'disabled';
+            return normalizeCustomFrequency(corpState.frequency || 'disabled');
         }
 
-        function submitCorpNotificationPreference(frequency, customDays) {
+        function submitCorpNotificationPreference(frequency, intervalValue) {
             if (!window.updateCorporationJobNotificationsUrl) {
                 return;
             }
@@ -697,12 +862,16 @@ document.addEventListener('DOMContentLoaded', function() {
                 corporation_id: parseInt(corpId, 10)
             };
             if (frequency === 'custom') {
-                payload.custom_days = customDays;
+                payload.custom_days = intervalValue;
+            } else if (frequency === 'custom_hours') {
+                payload.custom_hours = intervalValue;
             }
 
             var previousFrequency = corpState.frequency;
             var previousCustomDays = corpState.customDays;
+            var previousCustomHours = corpState.customHours;
             var previousHint = corpState.hint;
+            var previousApplyLabel = applyBtn ? applyBtn.textContent : null;
 
             if (applyBtn) {
                 applyBtn.disabled = true;
@@ -730,8 +899,13 @@ document.addEventListener('DOMContentLoaded', function() {
                     corpState.frequency = data.frequency || frequency;
                     if (typeof data.custom_days === 'number') {
                         corpState.customDays = data.custom_days;
-                    } else if (frequency === 'custom' && typeof customDays === 'number') {
-                        corpState.customDays = customDays;
+                    } else if (frequency === 'custom' && typeof intervalValue === 'number') {
+                        corpState.customDays = intervalValue;
+                    }
+                    if (typeof data.custom_hours === 'number') {
+                        corpState.customHours = data.custom_hours;
+                    } else if (frequency === 'custom_hours' && typeof intervalValue === 'number') {
+                        corpState.customHours = intervalValue;
                     }
                     if (typeof data.hint === 'string' && data.hint.length) {
                         corpState.hint = data.hint;
@@ -740,28 +914,53 @@ document.addEventListener('DOMContentLoaded', function() {
                     setCorpActiveFrequency(corpState.frequency);
                     toggleCorpCustomVisibility(corpState.frequency);
 
-                    if (customDaysInput && corpState.customDays) {
-                        customDaysInput.value = corpState.customDays;
+                    if (customIntervalInput) {
+                        if (corpState.frequency === 'custom_hours') {
+                            customIntervalInput.value = corpState.customHours;
+                        } else if (corpState.customDays) {
+                            customIntervalInput.value = corpState.customDays;
+                        }
                     }
 
                     previewCorpFrequencyHint(corpState.frequency);
 
-                    updateCorpAccordionJobsHeader(corpId, corpState.frequency, corpState.customDays);
+                    updateCorpAccordionJobsHeader(corpId, corpState.frequency, corpState.customDays, corpState.customHours);
 
                     var popupMessage = data.message || __('Corporation job notification preferences updated.');
                     showIndyHubPopup(popupMessage, 'success');
+
+                    if (applyBtn) {
+                        applyBtn.classList.add('btn-success');
+                        applyBtn.classList.remove('btn-primary');
+                        applyBtn.textContent = __('Saved');
+                        setTimeout(function() {
+                            applyBtn.classList.remove('btn-success');
+                            applyBtn.classList.add('btn-primary');
+                            if (previousApplyLabel) {
+                                applyBtn.textContent = previousApplyLabel;
+                            }
+                        }, 2000);
+                    }
                 })
                 .catch(function() {
                     corpState.frequency = previousFrequency;
                     corpState.customDays = previousCustomDays;
+                    corpState.customHours = previousCustomHours;
                     corpState.hint = previousHint;
                     setCorpActiveFrequency(previousFrequency);
                     toggleCorpCustomVisibility(previousFrequency);
-                    if (customDaysInput && previousCustomDays) {
-                        customDaysInput.value = previousCustomDays;
+                    if (customIntervalInput) {
+                        if (previousFrequency === 'custom_hours') {
+                            customIntervalInput.value = previousCustomHours;
+                        } else if (previousCustomDays) {
+                            customIntervalInput.value = previousCustomDays;
+                        }
                     }
                     previewCorpFrequencyHint(previousFrequency);
                     showIndyHubPopup(__('Error updating corporation job notification preferences.'), 'danger');
+                    if (applyBtn && previousApplyLabel) {
+                        applyBtn.textContent = previousApplyLabel;
+                    }
                 })
                 .finally(function() {
                     if (applyBtn) {
@@ -793,12 +992,29 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         });
 
-        // Setup custom days input change listener
-        if (customDaysInput) {
-            customDaysInput.addEventListener('input', function() {
-                var parsed = parseCustomDays(customDaysInput.value);
+        if (customIntervalInput) {
+            customIntervalInput.addEventListener('input', function() {
+                var unit = getCorpCustomUnit();
+                var parsed = unit === 'hours' ? parseCustomHours(customIntervalInput.value) : parseCustomDays(customIntervalInput.value);
                 if (parsed) {
-                    corpState.customDays = parsed;
+                    if (unit === 'hours') {
+                        corpState.customHours = parsed;
+                    } else {
+                        corpState.customDays = parsed;
+                    }
+                }
+                if (getCorpActiveFrequency() === 'custom') {
+                    previewCorpFrequencyHint('custom');
+                }
+            });
+        }
+
+        if (customUnitSelect && customIntervalInput) {
+            customUnitSelect.addEventListener('change', function() {
+                if (customUnitSelect.value === 'hours') {
+                    customIntervalInput.value = corpState.customHours;
+                } else {
+                    customIntervalInput.value = corpState.customDays;
                 }
                 if (getCorpActiveFrequency() === 'custom') {
                     previewCorpFrequencyHint('custom');
@@ -810,19 +1026,29 @@ document.addEventListener('DOMContentLoaded', function() {
         if (applyBtn) {
             applyBtn.addEventListener('click', function() {
                 var selectedFrequency = getCorpActiveFrequency();
-                var customDays = customDaysInput ? parseCustomDays(customDaysInput.value) : corpState.customDays;
+                var unit = getCorpCustomUnit();
+                var intervalValue = customIntervalInput ? (unit === 'hours' ? parseCustomHours(customIntervalInput.value) : parseCustomDays(customIntervalInput.value)) : null;
 
-                if (selectedFrequency === 'custom' && !customDays) {
-                    showIndyHubPopup(__('Please enter a valid number of days for the custom cadence.'), 'warning');
-                    if (customDaysInput) {
-                        customDaysInput.focus();
+                if (selectedFrequency === 'custom' && !intervalValue) {
+                    var warningMessage = unit === 'hours'
+                        ? __('Please enter a valid number of hours for the custom cadence.')
+                        : __('Please enter a valid number of days for the custom cadence.');
+                    showIndyHubPopup(warningMessage, 'warning');
+                    if (customIntervalInput) {
+                        customIntervalInput.focus();
                     }
                     return;
                 }
 
-                if (selectedFrequency === 'custom' && typeof customDays === 'number') {
-                    corpState.customDays = customDays;
-                    submitCorpNotificationPreference('custom', customDays);
+                var frequencyToSubmit = unit === 'hours' ? 'custom_hours' : 'custom';
+                if (typeof intervalValue === 'number') {
+                    if (unit === 'hours') {
+                        corpState.customHours = intervalValue;
+                    } else {
+                        corpState.customDays = intervalValue;
+                    }
+                    corpState.frequency = frequencyToSubmit;
+                    submitCorpNotificationPreference(frequencyToSubmit, intervalValue);
                 }
             });
         }

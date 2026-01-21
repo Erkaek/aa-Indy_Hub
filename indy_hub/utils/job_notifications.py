@@ -388,7 +388,8 @@ def _enqueue_job_notification_digest(
         if (
             not settings.corp_jobs_next_digest_at
             or settings.corp_jobs_next_digest_at <= now
-            or settings.corp_jobs_notify_frequency == CharacterSettings.NOTIFY_CUSTOM
+            or settings.corp_jobs_notify_frequency
+            in {CharacterSettings.NOTIFY_CUSTOM, CharacterSettings.NOTIFY_CUSTOM_HOURS}
         ):
             settings.schedule_next_corp_digest(reference=now)
             settings.save(update_fields=["corp_jobs_next_digest_at", "updated_at"])
@@ -396,7 +397,8 @@ def _enqueue_job_notification_digest(
         if (
             not settings.jobs_next_digest_at
             or settings.jobs_next_digest_at <= now
-            or settings.jobs_notify_frequency == CharacterSettings.NOTIFY_CUSTOM
+            or settings.jobs_notify_frequency
+            in {CharacterSettings.NOTIFY_CUSTOM, CharacterSettings.NOTIFY_CUSTOM_HOURS}
         ):
             settings.schedule_next_digest(reference=now)
             settings.save(update_fields=["jobs_next_digest_at", "updated_at"])
@@ -484,6 +486,7 @@ def _compute_next_digest_at(
     *,
     frequency: str,
     custom_days: int | None,
+    custom_hours: int | None = None,
     reference: datetime | None = None,
 ) -> datetime | None:
     if reference is None:
@@ -501,6 +504,13 @@ def _compute_next_digest_at(
         return reference + timedelta(days=7)
     if frequency == CharacterSettings.NOTIFY_MONTHLY:
         return reference + timedelta(days=30)
+    if frequency == CharacterSettings.NOTIFY_CUSTOM_HOURS:
+        try:
+            hours = int(custom_hours or 1)
+        except (TypeError, ValueError):
+            hours = 1
+        hours = max(1, hours)
+        return reference + timedelta(hours=hours)
 
     try:
         days = int(custom_days or 1)
@@ -514,6 +524,7 @@ def compute_next_digest_at(
     *,
     frequency: str,
     custom_days: int | None = None,
+    custom_hours: int | None = None,
     reference: datetime | None = None,
 ) -> datetime | None:
     """Compute the next digest timestamp for the given cadence."""
@@ -521,6 +532,7 @@ def compute_next_digest_at(
     return _compute_next_digest_at(
         frequency=frequency,
         custom_days=custom_days,
+        custom_hours=custom_hours,
         reference=reference,
     )
 
@@ -558,11 +570,13 @@ def _enqueue_corp_job_notification_digest(
     if (
         not setting.corp_jobs_next_digest_at
         or setting.corp_jobs_next_digest_at <= now
-        or setting.corp_jobs_notify_frequency == CharacterSettings.NOTIFY_CUSTOM
+        or setting.corp_jobs_notify_frequency
+        in {CharacterSettings.NOTIFY_CUSTOM, CharacterSettings.NOTIFY_CUSTOM_HOURS}
     ):
         setting.corp_jobs_next_digest_at = _compute_next_digest_at(
             frequency=setting.corp_jobs_notify_frequency,
             custom_days=setting.corp_jobs_notify_custom_days,
+            custom_hours=setting.corp_jobs_notify_custom_hours,
             reference=now,
         )
         setting.save(update_fields=["corp_jobs_next_digest_at", "updated_at"])
