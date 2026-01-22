@@ -112,20 +112,23 @@
                                         <span class="notify-tile-icon digest"><i class="fas fa-calendar-days"></i></span>
                                         <div class="notify-tile-main"><span class="notify-tile-title">{% trans "Monthly" %}</span><span class="notify-tile-tag">{% trans "Digest" %}</span></div>
                                     </button>
-                                    <button type="button" class="notify-mode-tile {% if job_notification_frequency == 'custom' %}is-active{% endif %}" data-frequency="custom" data-hint="{% blocktrans with days=job_notification_custom_days|default:3 %}Custom cadence: grouped alert every {{ days }} day(s).{% endblocktrans %}" data-hint-template="{% trans 'Custom cadence: grouped alert every __days__ day(s).' %}" data-hint-placeholder="__days__" data-hint-default-days="{{ job_notification_custom_days|default:3 }}" aria-pressed="{% if job_notification_frequency == 'custom' %}true{% else %}false{% endif %}">
+                                    <button type="button" class="notify-mode-tile {% if job_notification_frequency == 'custom' or job_notification_frequency == 'custom_hours' %}is-active{% endif %}" data-frequency="custom" data-hint="{% blocktrans with days=job_notification_custom_days|default:3 %}Custom cadence: grouped alert every {{ days }} day(s).{% endblocktrans %}" data-hint-template-days="{% trans 'Custom cadence: grouped alert every __days__ day(s).' %}" data-hint-template-hours="{% trans 'Hourly digest: grouped alert every __hours__ hour(s).' %}" data-hint-placeholder="__unit__" data-hint-default-days="{{ job_notification_custom_days|default:3 }}" data-hint-default-hours="{{ job_notification_custom_hours|default:6 }}" aria-pressed="{% if job_notification_frequency == 'custom' or job_notification_frequency == 'custom_hours' %}true{% else %}false{% endif %}">
                                         <span class="notify-tile-icon custom"><i class="fas fa-sliders"></i></span>
                                         <div class="notify-tile-main"><span class="notify-tile-title">{% trans "Custom" %}</span><span class="notify-tile-tag">{% trans "Custom" %}</span></div>
                                     </button>
                                 </div>
-                                <div class="notification-custom mt-3{% if job_notification_frequency != 'custom' %} d-none{% endif %}" id="job-notification-custom-wrapper" aria-live="polite">
+                                <div class="notification-custom mt-3{% if job_notification_frequency != 'custom' and job_notification_frequency != 'custom_hours' %} d-none{% endif %}" id="job-notification-custom-wrapper" aria-live="polite">
                                     <div class="input-group input-group-sm">
                                         <span class="input-group-text">{% trans "Every" %}</span>
-                                        <input type="number" min="1" max="90" step="1" class="form-control" id="job-notification-custom-days" value="{{ job_notification_custom_days }}" aria-label="{% trans 'Custom digest cadence' %}">
-                                        <span class="input-group-text">{% trans "day(s)" %}</span>
+                                        <input type="number" min="1" max="365" step="1" class="form-control" id="job-notification-custom-interval" value="{% if job_notification_frequency == 'custom_hours' %}{{ job_notification_custom_hours|default:6 }}{% else %}{{ job_notification_custom_days|default:3 }}{% endif %}" aria-label="{% trans 'Custom digest cadence' %}">
+                                        <select class="form-select" id="job-notification-custom-unit" aria-label="{% trans 'Custom digest cadence unit' %}">
+                                            <option value="days" {% if job_notification_frequency != 'custom_hours' %}selected{% endif %}>{% trans "day(s)" %}</option>
+                                            <option value="hours" {% if job_notification_frequency == 'custom_hours' %}selected{% endif %}>{% trans "hour(s)" %}</option>
+                                        </select>
                                     </div>
-                                    <p class="text-muted small mt-2 mb-0" id="job-notification-help">{% trans "Set how many days should pass between grouped alerts." %}</p>
+                                    <p class="text-muted small mt-2 mb-0" id="job-notification-help">{% trans "Set how long should pass between grouped alerts." %}</p>
                                 </div>
-                                <div class="d-flex align-items-center gap-2 mt-3{% if job_notification_frequency != 'custom' %} d-none{% endif %}" id="job-notification-apply-wrapper">
+                                <div class="d-flex align-items-center gap-2 mt-3{% if job_notification_frequency != 'custom' and job_notification_frequency != 'custom_hours' %} d-none{% endif %}" id="job-notification-apply-wrapper">
                                     <button type="button" class="btn btn-primary btn-sm px-3 rounded-pill" id="job-notification-apply">
                                         <i class="fas fa-save me-1"></i>{% trans "Save cadence" %}
                                     </button>
@@ -204,7 +207,7 @@
                                 <div class="d-flex align-items-center gap-3 w-100">
                                     <div class="fw-semibold">{{ corp.corporation_name }}</div>
                                     <div class="d-flex align-items-center gap-2 flex-grow-1 justify-content-center">
-                                        <span class="badge rounded-pill corp-header-jobs-badge {% if corp.jobs_frequency == 'disabled' %}bg-danger-subtle text-danger{% elif corp.jobs_frequency == 'immediate' %}bg-success-subtle text-success{% elif corp.jobs_frequency == 'daily' %}bg-info-subtle text-info{% elif corp.jobs_frequency == 'weekly' %}bg-warning-subtle text-warning{% elif corp.jobs_frequency == 'monthly' %}bg-secondary-subtle text-secondary-emphasis{% elif corp.jobs_frequency == 'custom' %}bg-light-subtle text-body{% else %}bg-info-subtle text-info{% endif %}" data-corp-id="{{ corp.corporation_id }}">
+                                        <span class="badge rounded-pill corp-header-jobs-badge {% if corp.jobs_frequency == 'disabled' %}bg-danger-subtle text-danger{% elif corp.jobs_frequency == 'immediate' %}bg-success-subtle text-success{% elif corp.jobs_frequency == 'daily' %}bg-info-subtle text-info{% elif corp.jobs_frequency == 'weekly' %}bg-warning-subtle text-warning{% elif corp.jobs_frequency == 'monthly' %}bg-secondary-subtle text-secondary-emphasis{% elif corp.jobs_frequency == 'custom' or corp.jobs_frequency == 'custom_hours' %}bg-light-subtle text-body{% else %}bg-info-subtle text-info{% endif %}" data-corp-id="{{ corp.corporation_id }}">
                                             <i class="fas fa-bell fa-xs me-1"></i>
                                             <span class="corp-header-jobs-label">
                                             {% if corp.jobs_frequency == 'disabled' %}
@@ -217,6 +220,8 @@
                                                 {% trans "Weekly" %}
                                             {% elif corp.jobs_frequency == 'monthly' %}
                                                 {% trans "Monthly" %}
+                                            {% elif corp.jobs_frequency == 'custom_hours' %}
+                                                {{ corp.jobs_custom_hours }}h
                                             {% elif corp.jobs_frequency == 'custom' %}
                                                 {{ corp.jobs_custom_days }}d
                                             {% else %}
@@ -269,20 +274,23 @@
                                                         <span class="notify-tile-icon digest"><i class="fas fa-calendar-days"></i></span>
                                                         <div class="notify-tile-main"><span class="notify-tile-title">{% trans "Monthly" %}</span><span class="notify-tile-tag">{% trans "Digest" %}</span></div>
                                                     </button>
-                                                    <button type="button" class="notify-mode-tile {% if corp.jobs_frequency == 'custom' %}is-active{% endif %}" data-frequency="custom" data-hint="{% blocktrans with days=corp.jobs_custom_days|default:3 %}Custom cadence: grouped alert for corporation jobs every {{ days }} day(s).{% endblocktrans %}" data-hint-template="{% trans 'Custom cadence: grouped alert for corporation jobs every __days__ day(s).' %}" data-hint-placeholder="__days__" data-hint-default-days="{{ corp.jobs_custom_days|default:3 }}" aria-pressed="{% if corp.jobs_frequency == 'custom' %}true{% else %}false{% endif %}">
+                                                    <button type="button" class="notify-mode-tile {% if corp.jobs_frequency == 'custom' or corp.jobs_frequency == 'custom_hours' %}is-active{% endif %}" data-frequency="custom" data-hint="{% blocktrans with days=corp.jobs_custom_days|default:3 %}Custom cadence: grouped alert for corporation jobs every {{ days }} day(s).{% endblocktrans %}" data-hint-template-days="{% trans 'Custom cadence: grouped alert for corporation jobs every __days__ day(s).' %}" data-hint-template-hours="{% trans 'Hourly digest: grouped alert for corporation jobs every __hours__ hour(s).' %}" data-hint-placeholder="__unit__" data-hint-default-days="{{ corp.jobs_custom_days|default:3 }}" data-hint-default-hours="{{ corp.jobs_custom_hours|default:6 }}" aria-pressed="{% if corp.jobs_frequency == 'custom' or corp.jobs_frequency == 'custom_hours' %}true{% else %}false{% endif %}">
                                                         <span class="notify-tile-icon custom"><i class="fas fa-sliders"></i></span>
                                                         <div class="notify-tile-main"><span class="notify-tile-title">{% trans "Custom" %}</span><span class="notify-tile-tag">{% trans "Custom" %}</span></div>
                                                     </button>
                                                 </div>
-                                                <div class="notification-custom mt-3{% if corp.jobs_frequency != 'custom' %} d-none{% endif %}" id="corp-job-notification-custom-wrapper-{{ corp.corporation_id }}" aria-live="polite">
+                                                <div class="notification-custom mt-3{% if corp.jobs_frequency != 'custom' and corp.jobs_frequency != 'custom_hours' %} d-none{% endif %}" id="corp-job-notification-custom-wrapper-{{ corp.corporation_id }}" aria-live="polite">
                                                     <div class="input-group input-group-sm">
                                                         <span class="input-group-text">{% trans "Every" %}</span>
-                                                        <input type="number" min="1" max="90" step="1" class="form-control" data-corp-id="{{ corp.corporation_id }}" value="{{ corp.jobs_custom_days }}" aria-label="{% blocktrans with name=corp.corporation_name %}Custom {{ name }} digest cadence{% endblocktrans %}">
-                                                        <span class="input-group-text">{% trans "day(s)" %}</span>
+                                                        <input type="number" min="1" max="365" step="1" class="form-control" data-corp-id="{{ corp.corporation_id }}" value="{% if corp.jobs_frequency == 'custom_hours' %}{{ corp.jobs_custom_hours|default:6 }}{% else %}{{ corp.jobs_custom_days|default:3 }}{% endif %}" aria-label="{% blocktrans with name=corp.corporation_name %}Custom {{ name }} digest cadence{% endblocktrans %}">
+                                                        <select class="form-select" data-corp-id="{{ corp.corporation_id }}" aria-label="{% blocktrans with name=corp.corporation_name %}Custom {{ name }} digest cadence unit{% endblocktrans %}">
+                                                            <option value="days" {% if corp.jobs_frequency != 'custom_hours' %}selected{% endif %}>{% trans "day(s)" %}</option>
+                                                            <option value="hours" {% if corp.jobs_frequency == 'custom_hours' %}selected{% endif %}>{% trans "hour(s)" %}</option>
+                                                        </select>
                                                     </div>
-                                                    <p class="text-muted small mt-2 mb-0">{% trans "Set how many days should pass between grouped corporation alerts." %}</p>
+                                                    <p class="text-muted small mt-2 mb-0">{% trans "Set how long should pass between grouped corporation alerts." %}</p>
                                                 </div>
-                                                <div class="d-flex align-items-center gap-2 mt-3{% if corp.jobs_frequency != 'custom' %} d-none{% endif %}" id="corp-job-notification-apply-wrapper-{{ corp.corporation_id }}">
+                                                <div class="d-flex align-items-center gap-2 mt-3{% if corp.jobs_frequency != 'custom' and corp.jobs_frequency != 'custom_hours' %} d-none{% endif %}" id="corp-job-notification-apply-wrapper-{{ corp.corporation_id }}">
                                                     <button type="button" class="btn btn-primary btn-sm px-3 rounded-pill corp-job-notification-apply" data-corp-id="{{ corp.corporation_id }}">
                                                         <i class="fas fa-save me-1"></i>{% trans "Save cadence" %}
                                                     </button>
@@ -469,6 +477,7 @@ window.corporationJobNotificationControls = JSON.parse('{{ corp_job_notification
 window.jobNotificationState = {
     frequency: '{{ job_notification_frequency }}',
     customDays: {{ job_notification_custom_days|default:3 }},
+    customHours: {{ job_notification_custom_hours|default:6 }},
     hint: '{{ job_notification_hint|escapejs }}'
 };
 </script>

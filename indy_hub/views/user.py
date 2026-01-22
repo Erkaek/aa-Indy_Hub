@@ -756,8 +756,13 @@ def _build_corporation_share_controls(
     return controls, summary
 
 
-def _describe_job_notification_hint(frequency: str, custom_days: int) -> str:
+def _describe_job_notification_hint(
+    frequency: str,
+    custom_days: int,
+    custom_hours: int | None = None,
+) -> str:
     custom_days = max(1, custom_days or 1)
+    custom_hours = max(1, custom_hours or 1)
     hints = {
         CharacterSettings.NOTIFY_DISABLED: _(
             "Muted: we stay quiet until you re-enable alerts."
@@ -774,6 +779,10 @@ def _describe_job_notification_hint(frequency: str, custom_days: int) -> str:
             "Custom cadence: grouped alert every %(days)s day(s)."
         )
         % {"days": custom_days},
+        CharacterSettings.NOTIFY_CUSTOM_HOURS: _(
+            "Hourly digest: grouped alert every %(hours)s hour(s)."
+        )
+        % {"hours": custom_hours},
     }
     return hints.get(frequency, hints[CharacterSettings.NOTIFY_DISABLED])
 
@@ -1188,6 +1197,13 @@ def _build_dashboard_context(request):
         settings_obj.jobs_notify_custom_days = 3
         pending_updates.append("jobs_notify_custom_days")
 
+    if (
+        not getattr(settings_obj, "jobs_notify_custom_hours", None)
+        or settings_obj.jobs_notify_custom_hours < 1
+    ):
+        settings_obj.jobs_notify_custom_hours = 6
+        pending_updates.append("jobs_notify_custom_hours")
+
     if pending_updates:
         settings_obj.save(update_fields=pending_updates)
 
@@ -1209,8 +1225,17 @@ def _build_dashboard_context(request):
         settings_obj.jobs_notify_custom_days = job_notification_custom_days
         settings_obj.save(update_fields=["jobs_notify_custom_days"])
 
+    job_notification_custom_hours = max(
+        1, getattr(settings_obj, "jobs_notify_custom_hours", 1) or 1
+    )
+    if job_notification_custom_hours != settings_obj.jobs_notify_custom_hours:
+        settings_obj.jobs_notify_custom_hours = job_notification_custom_hours
+        settings_obj.save(update_fields=["jobs_notify_custom_hours"])
+
     job_notification_hint = _describe_job_notification_hint(
-        jobs_notify_frequency, job_notification_custom_days
+        jobs_notify_frequency,
+        job_notification_custom_days,
+        job_notification_custom_hours,
     )
 
     # Per-corporation job notification controls will be built below after corporation_share_controls
@@ -1447,6 +1472,7 @@ def _build_dashboard_context(request):
                     "corporation_name": corp_name,
                     "corp_jobs_notify_frequency": CharacterSettings.NOTIFY_DISABLED,
                     "corp_jobs_notify_custom_days": 3,
+                    "corp_jobs_notify_custom_hours": 6,
                 },
             )
 
@@ -1465,7 +1491,12 @@ def _build_dashboard_context(request):
                 corp_setting.corp_jobs_notify_custom_days = custom_days
                 corp_setting.save(update_fields=["corp_jobs_notify_custom_days"])
 
-            hint = _describe_job_notification_hint(freq, custom_days)
+            custom_hours = max(1, corp_setting.corp_jobs_notify_custom_hours or 1)
+            if custom_hours != corp_setting.corp_jobs_notify_custom_hours:
+                corp_setting.corp_jobs_notify_custom_hours = custom_hours
+                corp_setting.save(update_fields=["corp_jobs_notify_custom_hours"])
+
+            hint = _describe_job_notification_hint(freq, custom_days, custom_hours)
 
             corp_job_notification_controls.append(
                 {
@@ -1473,6 +1504,7 @@ def _build_dashboard_context(request):
                     "corporation_name": corp_name,
                     "frequency": freq,
                     "custom_days": custom_days,
+                    "custom_hours": custom_hours,
                     "hint": hint,
                 }
             )
@@ -1501,6 +1533,7 @@ def _build_dashboard_context(request):
                         "frequency", CharacterSettings.NOTIFY_DISABLED
                     ),
                     "jobs_custom_days": job_ctrl.get("custom_days", 3),
+                    "jobs_custom_hours": job_ctrl.get("custom_hours", 6),
                     "jobs_hint": job_ctrl.get("hint", ""),
                 }
             )
@@ -1551,6 +1584,7 @@ def _build_dashboard_context(request):
         "copy_sharing_states_json": json.dumps(copy_sharing_states_with_scope),
         "job_notification_frequency": jobs_notify_frequency,
         "job_notification_custom_days": job_notification_custom_days,
+        "job_notification_custom_hours": job_notification_custom_hours,
         "job_notification_hint": job_notification_hint,
         "corp_job_notification_controls": corp_job_notification_controls,
         "corp_job_notification_controls_json": json.dumps(
@@ -2438,9 +2472,11 @@ def toggle_job_notifications(request):
 
     frequency = None
     custom_days = None
+    custom_hours = None
     if isinstance(payload, dict):
         frequency = payload.get("frequency")
         custom_days = payload.get("custom_days")
+        custom_hours = payload.get("custom_hours")
 
     valid_frequencies = dict(CharacterSettings.JOB_NOTIFICATION_FREQUENCY_CHOICES)
 
@@ -2459,6 +2495,7 @@ def toggle_job_notifications(request):
         settings.set_job_notification_frequency(frequency)
     else:
         days_value = None
+        hours_value = None
         if frequency == CharacterSettings.NOTIFY_CUSTOM:
             if custom_days is None:
                 custom_days = settings.jobs_notify_custom_days
@@ -2468,13 +2505,27 @@ def toggle_job_notifications(request):
                 return JsonResponse({"error": "invalid_custom_days"}, status=400)
             if days_value < 1 or days_value > 365:
                 return JsonResponse({"error": "invalid_custom_days"}, status=400)
-        settings.set_job_notification_frequency(frequency, custom_days=days_value)
+        if frequency == CharacterSettings.NOTIFY_CUSTOM_HOURS:
+            if custom_hours is None:
+                custom_hours = settings.jobs_notify_custom_hours
+            try:
+                hours_value = int(custom_hours)
+            except (TypeError, ValueError):
+                return JsonResponse({"error": "invalid_custom_hours"}, status=400)
+            if hours_value < 1 or hours_value > 168:
+                return JsonResponse({"error": "invalid_custom_hours"}, status=400)
+        settings.set_job_notification_frequency(
+            frequency,
+            custom_days=days_value,
+            custom_hours=hours_value,
+        )
 
     if frequency in {
         CharacterSettings.NOTIFY_DAILY,
         CharacterSettings.NOTIFY_WEEKLY,
         CharacterSettings.NOTIFY_MONTHLY,
         CharacterSettings.NOTIFY_CUSTOM,
+        CharacterSettings.NOTIFY_CUSTOM_HOURS,
     }:
         settings.schedule_next_digest()
     else:
@@ -2484,6 +2535,7 @@ def toggle_job_notifications(request):
         update_fields=[
             "jobs_notify_frequency",
             "jobs_notify_custom_days",
+            "jobs_notify_custom_hours",
             "jobs_notify_completed",
             "jobs_next_digest_at",
             "updated_at",
@@ -2491,7 +2543,9 @@ def toggle_job_notifications(request):
     )
 
     hint = _describe_job_notification_hint(
-        settings.jobs_notify_frequency, settings.jobs_notify_custom_days
+        settings.jobs_notify_frequency,
+        settings.jobs_notify_custom_days,
+        settings.jobs_notify_custom_hours,
     )
 
     message_map = {
@@ -2502,11 +2556,16 @@ def toggle_job_notifications(request):
         CharacterSettings.NOTIFY_MONTHLY: _("Monthly job digest enabled."),
         CharacterSettings.NOTIFY_CUSTOM: _("Custom job digest every %(days)s day(s).")
         % {"days": settings.jobs_notify_custom_days},
+        CharacterSettings.NOTIFY_CUSTOM_HOURS: _(
+            "Hourly job digest every %(hours)s hour(s)."
+        )
+        % {"hours": settings.jobs_notify_custom_hours},
     }
 
     response_payload = {
         "frequency": settings.jobs_notify_frequency,
         "custom_days": settings.jobs_notify_custom_days,
+        "custom_hours": settings.jobs_notify_custom_hours,
         "hint": hint,
         "message": message_map.get(
             settings.jobs_notify_frequency,
@@ -2554,9 +2613,11 @@ def toggle_corporation_job_notifications(request):
 
     frequency = None
     custom_days = None
+    custom_hours = None
     if isinstance(payload, dict):
         frequency = payload.get("frequency")
         custom_days = payload.get("custom_days")
+        custom_hours = payload.get("custom_hours")
 
     valid_frequencies = dict(CharacterSettings.JOB_NOTIFICATION_FREQUENCY_CHOICES)
 
@@ -2564,6 +2625,7 @@ def toggle_corporation_job_notifications(request):
         return JsonResponse({"error": "invalid_frequency"}, status=400)
 
     days_value = None
+    hours_value = None
     if frequency == CharacterSettings.NOTIFY_CUSTOM:
         if custom_days is None:
             custom_days = corp_settings.corp_jobs_notify_custom_days
@@ -2574,15 +2636,28 @@ def toggle_corporation_job_notifications(request):
         if days_value < 1 or days_value > 365:
             return JsonResponse({"error": "invalid_custom_days"}, status=400)
 
+    if frequency == CharacterSettings.NOTIFY_CUSTOM_HOURS:
+        if custom_hours is None:
+            custom_hours = corp_settings.corp_jobs_notify_custom_hours
+        try:
+            hours_value = int(custom_hours)
+        except (TypeError, ValueError):
+            return JsonResponse({"error": "invalid_custom_hours"}, status=400)
+        if hours_value < 1 or hours_value > 168:
+            return JsonResponse({"error": "invalid_custom_hours"}, status=400)
+
     corp_settings.corp_jobs_notify_frequency = frequency
     if days_value is not None:
         corp_settings.corp_jobs_notify_custom_days = days_value
+    if hours_value is not None:
+        corp_settings.corp_jobs_notify_custom_hours = hours_value
 
     if frequency in {
         CharacterSettings.NOTIFY_DAILY,
         CharacterSettings.NOTIFY_WEEKLY,
         CharacterSettings.NOTIFY_MONTHLY,
         CharacterSettings.NOTIFY_CUSTOM,
+        CharacterSettings.NOTIFY_CUSTOM_HOURS,
     }:
         # Compute next digest time
         # Standard Library
@@ -2602,6 +2677,8 @@ def toggle_corporation_job_notifications(request):
             next_digest = now + timedelta(days=30)
         elif frequency == CharacterSettings.NOTIFY_CUSTOM:
             next_digest = now + timedelta(days=days_value or 1)
+        elif frequency == CharacterSettings.NOTIFY_CUSTOM_HOURS:
+            next_digest = now + timedelta(hours=hours_value or 1)
         else:
             next_digest = None
         corp_settings.corp_jobs_next_digest_at = next_digest
@@ -2613,6 +2690,7 @@ def toggle_corporation_job_notifications(request):
     hint = _describe_job_notification_hint(
         corp_settings.corp_jobs_notify_frequency,
         corp_settings.corp_jobs_notify_custom_days,
+        corp_settings.corp_jobs_notify_custom_hours,
     )
 
     message_map = {
@@ -2627,11 +2705,16 @@ def toggle_corporation_job_notifications(request):
             "Custom corporation job digest every %(days)s day(s)."
         )
         % {"days": corp_settings.corp_jobs_notify_custom_days},
+        CharacterSettings.NOTIFY_CUSTOM_HOURS: _(
+            "Hourly corporation job digest every %(hours)s hour(s)."
+        )
+        % {"hours": corp_settings.corp_jobs_notify_custom_hours},
     }
 
     response_payload = {
         "frequency": corp_settings.corp_jobs_notify_frequency,
         "custom_days": corp_settings.corp_jobs_notify_custom_days,
+        "custom_hours": corp_settings.corp_jobs_notify_custom_hours,
         "hint": hint,
         "message": message_map.get(
             corp_settings.corp_jobs_notify_frequency,

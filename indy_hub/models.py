@@ -746,6 +746,7 @@ class CharacterSettings(models.Model):
     NOTIFY_WEEKLY = "weekly"
     NOTIFY_MONTHLY = "monthly"
     NOTIFY_CUSTOM = "custom"
+    NOTIFY_CUSTOM_HOURS = "custom_hours"
 
     JOB_NOTIFICATION_FREQUENCY_CHOICES = [
         (NOTIFY_DISABLED, "Disabled"),
@@ -754,6 +755,7 @@ class CharacterSettings(models.Model):
         (NOTIFY_WEEKLY, "Weekly digest"),
         (NOTIFY_MONTHLY, "Monthly digest"),
         (NOTIFY_CUSTOM, "Custom cadence"),
+        (NOTIFY_CUSTOM_HOURS, "Hourly digest"),
     ]
 
     user = models.ForeignKey(User, on_delete=models.CASCADE)
@@ -765,6 +767,7 @@ class CharacterSettings(models.Model):
         default=NOTIFY_DISABLED,
     )
     jobs_notify_custom_days = models.PositiveSmallIntegerField(default=3)
+    jobs_notify_custom_hours = models.PositiveSmallIntegerField(default=6)
     jobs_next_digest_at = models.DateTimeField(null=True, blank=True)
     jobs_last_digest_at = models.DateTimeField(null=True, blank=True)
 
@@ -774,6 +777,7 @@ class CharacterSettings(models.Model):
         default=NOTIFY_DISABLED,
     )
     corp_jobs_notify_custom_days = models.PositiveSmallIntegerField(default=3)
+    corp_jobs_notify_custom_hours = models.PositiveSmallIntegerField(default=6)
     corp_jobs_next_digest_at = models.DateTimeField(null=True, blank=True)
     corp_jobs_last_digest_at = models.DateTimeField(null=True, blank=True)
     allow_copy_requests = models.BooleanField(default=False)
@@ -815,6 +819,7 @@ class CharacterSettings(models.Model):
         frequency: str,
         *,
         custom_days: int | None = None,
+        custom_hours: int | None = None,
     ) -> None:
         valid = dict(self.JOB_NOTIFICATION_FREQUENCY_CHOICES)
         if frequency not in valid:
@@ -836,11 +841,24 @@ class CharacterSettings(models.Model):
                 days_value = self.jobs_notify_custom_days or 1
             self.jobs_notify_custom_days = max(1, days_value)
 
+        if frequency == self.NOTIFY_CUSTOM_HOURS:
+            hours_value = (
+                custom_hours
+                if custom_hours is not None
+                else self.jobs_notify_custom_hours
+            )
+            try:
+                hours_value = int(hours_value)
+            except (TypeError, ValueError):
+                hours_value = self.jobs_notify_custom_hours or 1
+            self.jobs_notify_custom_hours = max(1, hours_value)
+
     def set_corp_job_notification_frequency(
         self,
         frequency: str,
         *,
         custom_days: int | None = None,
+        custom_hours: int | None = None,
     ) -> None:
         valid = dict(self.JOB_NOTIFICATION_FREQUENCY_CHOICES)
         if frequency not in valid:
@@ -860,13 +878,29 @@ class CharacterSettings(models.Model):
                 days_value = self.corp_jobs_notify_custom_days or 1
             self.corp_jobs_notify_custom_days = max(1, days_value)
 
+        if frequency == self.NOTIFY_CUSTOM_HOURS:
+            hours_value = (
+                custom_hours
+                if custom_hours is not None
+                else self.corp_jobs_notify_custom_hours
+            )
+            try:
+                hours_value = int(hours_value)
+            except (TypeError, ValueError):
+                hours_value = self.corp_jobs_notify_custom_hours or 1
+            self.corp_jobs_notify_custom_hours = max(1, hours_value)
+
         if frequency in {
             self.NOTIFY_DAILY,
             self.NOTIFY_WEEKLY,
             self.NOTIFY_MONTHLY,
             self.NOTIFY_CUSTOM,
+            self.NOTIFY_CUSTOM_HOURS,
         }:
-            if not self.corp_jobs_next_digest_at or frequency == self.NOTIFY_CUSTOM:
+            if not self.corp_jobs_next_digest_at or frequency in {
+                self.NOTIFY_CUSTOM,
+                self.NOTIFY_CUSTOM_HOURS,
+            }:
                 self.schedule_next_corp_digest(reference=timezone.now())
         else:
             self.corp_jobs_next_digest_at = None
@@ -876,6 +910,7 @@ class CharacterSettings(models.Model):
         *,
         frequency: str,
         custom_days: int | None = None,
+        custom_hours: int | None = None,
         reference=None,
     ):
         if reference is None:
@@ -891,6 +926,13 @@ class CharacterSettings(models.Model):
             delta = timedelta(days=7)
         elif freq == self.NOTIFY_MONTHLY:
             delta = timedelta(days=30)
+        elif freq == self.NOTIFY_CUSTOM_HOURS:
+            hours_source = custom_hours if custom_hours is not None else 1
+            try:
+                hours_source = int(hours_source)
+            except (TypeError, ValueError):
+                hours_source = 1
+            delta = timedelta(hours=max(1, hours_source))
         else:
             days_source = custom_days if custom_days is not None else 1
             try:
@@ -905,6 +947,7 @@ class CharacterSettings(models.Model):
         return self.compute_next_digest_for(
             frequency=self.jobs_notify_frequency,
             custom_days=self.jobs_notify_custom_days,
+            custom_hours=self.jobs_notify_custom_hours,
             reference=reference,
         )
 
@@ -912,6 +955,7 @@ class CharacterSettings(models.Model):
         return self.compute_next_digest_for(
             frequency=self.corp_jobs_notify_frequency,
             custom_days=self.corp_jobs_notify_custom_days,
+            custom_hours=self.corp_jobs_notify_custom_hours,
             reference=reference,
         )
 
@@ -1023,6 +1067,7 @@ class CorporationSharingSetting(models.Model):
         default=CharacterSettings.NOTIFY_DISABLED,
     )
     corp_jobs_notify_custom_days = models.PositiveSmallIntegerField(default=3)
+    corp_jobs_notify_custom_hours = models.PositiveSmallIntegerField(default=6)
     corp_jobs_next_digest_at = models.DateTimeField(null=True, blank=True)
     corp_jobs_last_digest_at = models.DateTimeField(null=True, blank=True)
 

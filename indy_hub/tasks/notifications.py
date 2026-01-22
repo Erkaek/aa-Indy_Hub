@@ -46,6 +46,7 @@ def dispatch_job_notification_digests() -> dict[str, int]:
                 CharacterSettings.NOTIFY_WEEKLY,
                 CharacterSettings.NOTIFY_MONTHLY,
                 CharacterSettings.NOTIFY_CUSTOM,
+                CharacterSettings.NOTIFY_CUSTOM_HOURS,
             ],
             jobs_next_digest_at__isnull=False,
             jobs_next_digest_at__lte=now,
@@ -63,6 +64,7 @@ def dispatch_job_notification_digests() -> dict[str, int]:
                 CharacterSettings.NOTIFY_WEEKLY,
                 CharacterSettings.NOTIFY_MONTHLY,
                 CharacterSettings.NOTIFY_CUSTOM,
+                CharacterSettings.NOTIFY_CUSTOM_HOURS,
             ],
             corp_jobs_next_digest_at__isnull=False,
             corp_jobs_next_digest_at__lte=now,
@@ -162,6 +164,7 @@ def dispatch_job_notification_digests() -> dict[str, int]:
             corp_setting.corp_jobs_next_digest_at = compute_next_digest_at(
                 frequency=corp_setting.corp_jobs_notify_frequency,
                 custom_days=corp_setting.corp_jobs_notify_custom_days,
+                custom_hours=corp_setting.corp_jobs_notify_custom_hours,
                 reference=now,
             )
             corp_setting.save(update_fields=["corp_jobs_next_digest_at", "updated_at"])
@@ -174,6 +177,7 @@ def dispatch_job_notification_digests() -> dict[str, int]:
             corp_setting.corp_jobs_next_digest_at = compute_next_digest_at(
                 frequency=corp_setting.corp_jobs_notify_frequency,
                 custom_days=corp_setting.corp_jobs_notify_custom_days,
+                custom_hours=corp_setting.corp_jobs_notify_custom_hours,
                 reference=now,
             )
             corp_setting.save(update_fields=["corp_jobs_next_digest_at", "updated_at"])
@@ -222,6 +226,7 @@ def dispatch_job_notification_digests() -> dict[str, int]:
         corp_setting.corp_jobs_next_digest_at = compute_next_digest_at(
             frequency=corp_setting.corp_jobs_notify_frequency,
             custom_days=corp_setting.corp_jobs_notify_custom_days,
+            custom_hours=corp_setting.corp_jobs_notify_custom_hours,
             reference=sent_at,
         )
         corp_setting.save(
