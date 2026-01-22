@@ -350,7 +350,7 @@
                                         min="-100"
                                         max="100"
                                         inputmode="decimal"
-                                        value="{{ config.sell_markup_percent|default:'0'|floatformat:'-2' }}">
+                                        value="{{ config.sell_markup_percent|default_if_none:'0'|floatformat:'-2' }}">
                                     <span class="input-group-text">%</span>
                                 </div>
                                 <div class="small text-muted mb-2">
@@ -397,7 +397,7 @@
                                         min="-100"
                                         max="1000"
                                         inputmode="decimal"
-                                        value="{{ config.buy_markup_percent|default:'5'|floatformat:'-2' }}">
+                                        value="{{ config.buy_markup_percent|default_if_none:'5'|floatformat:'-2' }}">
                                     <span class="input-group-text">%</span>
                                 </div>
                                 <div class="small text-muted mb-2">
