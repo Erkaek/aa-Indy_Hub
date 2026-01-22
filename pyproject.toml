@@ -6,8 +6,6 @@ requires = [
 
 [project]
 name = "indy-hub"
-version = "1.13.2"
-description = "Indy Hub Plugin for Alliance Auth"
 readme = "README.md"
 keywords = [
     "allianceauth",
@@ -40,17 +38,36 @@ classifiers = [
     "Topic :: Internet :: WWW/HTTP",
     "Topic :: Internet :: WWW/HTTP :: Dynamic Content",
 ]
+dynamic = [
+    "description",
+    "version",
+]
 dependencies = [
     "aa-discordnotify>=2",
     "allianceauth>=4,<5",
     "django-eveuniverse>=1.5.7",
 ]
-urls.Home = "https://github.com/Erkaek/aa-Indy_Hub"
+urls.Homepage = "https://github.com/Erkaek/aa-Indy_Hub"
 urls.Source = "https://github.com/Erkaek/aa-Indy_Hub"
 urls.Tracker = "https://github.com/Erkaek/aa-Indy_Hub/issues"
 
 [tool.flit.module]
 name = "indy_hub"
+skip_gitignore = true
+
+[tool.isort]
+profile = "django"
+sections = [
+    "FUTURE",
+    "STDLIB",
+    "THIRDPARTY",
+    "DJANGO",
+    "ALLIANCEAUTH",
+    "FIRSTPARTY",
+    "LOCALFOLDER",
+]
+known_allianceauth = [ "allianceauth", "esi" ]
+known_django = [ "django" ]
 skip_gitignore = true
 
 [tool.flake8]

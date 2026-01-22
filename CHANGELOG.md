@@ -13,6 +13,28 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### Fixed
 
+## [1.13.3] - 2026-01-22
+
+### Changed
+
+- Documentation updates (README structure, permissions, and install commands).
+
+## [1.13.2] - 2026-01-22
+
+### Fixed
+
+- Material Exchange: ensure sell/buy markup percent falls back to defaults when unset.
+
+## [1.13.1] - 2026-01-21
+
+### Added
+
+- Industry job notifications: support custom hourly digests.
+
+### Changed
+
+- Industry job notification frequency options were expanded and migrations consolidated.
+
 ## [1.13.0] - 2026-01-19
 
 ### Added

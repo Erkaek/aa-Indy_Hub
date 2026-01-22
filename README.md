@@ -1,12 +1,31 @@
 # Indy Hub for Alliance Auth
 
-A modern industry management module for [Alliance Auth](https://allianceauth.org/), focused on blueprint and job tracking for EVE Online alliances and corporations.
+A modern industry and material‑exchange management module for [Alliance Auth](https://allianceauth.org/), focused on blueprint sharing, job tracking, and corp trading workflows for EVE Online alliances and corporations.
 
 ______________________________________________________________________
 
-## ✨ Features
+## Table of Contents
 
-### Core Features
+- [About](#about)
+  - [Features](#features)
+- [Requirements](#requirements)
+- [Installation](#installation)
+  - [Bare Metal](#bare-metal)
+  - [Common](#common)
+- [Permissions](#permissions)
+  - [Base Access (Required for all users)](#base-access-required-for-all-users)
+  - [Corporation Management (Optional)](#corporation-management-optional)
+  - [Material Exchange Administration (Optional)](#material-exchange-administration-optional)
+- [Settings](#settings)
+- [Updating](#updating)
+- [Usage](#usage)
+- [Contributing](#contributing)
+
+______________________________________________________________________
+
+## About
+
+### Features
 
 - **Blueprint Library**: View, filter, and search all your EVE Online blueprints by character, corporation, type, and efficiency.
 - **Industry Job Tracking**: Monitor and filter your manufacturing, research, and invention jobs in real time.
@@ -28,19 +47,17 @@ ______________________________________________________________________
 - **django-eveuniverse** (populated with industry data)
 - **Celery** (for background sync and notifications)
 - *(Optional)* Director characters for corporate dashboards
-- *(Optional)* aa-discordnotify for Discord notifications
+- *(Optional)* aadiscordbot (recommended) or discordnotify for Discord notifications
 
 ______________________________________________________________________
 
-## Installation & Setup
+## Installation
 
-### 1. Install Dependencies
+### Bare Metal
 
 ```bash
-pip install django-eveuniverse indy_hub
+pip install django-eveuniverse indy-hub
 ```
-
-### 2. Configure Alliance Auth Settings
 
 Add to your `local.py`:
 
@@ -56,52 +73,25 @@ EVEUNIVERSE_LOAD_TYPE_MATERIALS = True
 EVEUNIVERSE_LOAD_MARKET_GROUPS = True
 ```
 
-### 3. Run Migrations & Collect Static Files
+Run migrations and collect static files:
 
 ```bash
 python manage.py migrate
 python manage.py collectstatic --noinput
 ```
 
-### 4. Populate Industry Data
+Populate industry data:
 
 ```bash
 python manage.py eveuniverse_load_data types --types-enabled-sections industry_activities type_materials
 ```
 
-### 5. Set Permissions
+### Common
 
-Assign permissions in Alliance Auth to control access levels:
+- Set permissions in Alliance Auth (see [Permissions](#permissions)).
+- Authorize ESI tokens for blueprints and industry jobs.
 
-#### Base Access (Required for all users)
-
-- **`indy_hub.can_access_indy_hub`** → "Can access Indy Hub"
-  - View and manage personal blueprints
-  - Create and manage blueprint copy requests
-  - Use Material Exchange (buy/sell orders)
-  - View personal industry jobs
-  - Configure personal settings and notifications
-
-#### Corporation Management (Optional)
-
-- **`indy_hub.can_manage_corp_bp_requests`** → "Can manage corporation indy"
-  - View and manage corporation blueprints (director only)
-  - Handle corporation blueprint copy requests
-  - Access corporation industry jobs
-  - Configure corporation sharing settings
-  - Requires ESI director roles for the corporation
-
-#### Material Exchange Administration (Optional)
-
-- **`indy_hub.can_manage_material_hub`** → "Can manage Mat Exchange"
-  - Configure Material Exchange settings
-  - Manage stock availability
-  - View all transactions
-  - Admin panel access
-
-**Note**: Permissions are independent and can be combined. Most users only need `can_access_indy_hub`.
-
-### 6. Restart Services
+Restart services:
 
 ```bash
 # Restart Alliance Auth
@@ -110,7 +100,43 @@ systemctl restart allianceauth
 
 ______________________________________________________________________
 
-## Configuration (Optional)
+## Permissions
+
+Assign permissions in Alliance Auth to control access levels:
+
+### Base Access (Required for all users)
+
+- **`indy_hub.can_access_indy_hub`** → "Can access Indy Hub"
+  - View and manage personal blueprints
+  - Create and manage blueprint copy requests
+  - Use Material Exchange (buy/sell orders)
+  - View personal industry jobs
+  - Configure personal settings and notifications
+
+### Corporation Management (Optional)
+
+- **`indy_hub.can_manage_corp_bp_requests`** → "Can manage corporation indy"
+  - View and manage corporation blueprints (director only)
+  - Handle corporation blueprint copy requests (accept/reject corp BP copy sharing)
+  - Access corporation industry jobs
+  - Configure corporation sharing settings
+  - This role is **not** meant for everyone — only for people who manage corp BPs (they can handle contracts for corpmates)
+  - Requires ESI director roles for the corporation
+
+### Material Exchange Administration (Optional)
+
+- **`indy_hub.can_manage_material_hub`** → "Can manage Mat Exchange"
+  - Configure Material Exchange settings
+  - Manage stock availability
+  - View all transactions
+  - This role is **not** meant for everyone — only for people who manage the hub (they accept/reject buy and sell orders made to the corp)
+  - Admin panel access
+
+**Note**: Permissions are independent and can be combined. Most users only need `can_access_indy_hub`.
+
+______________________________________________________________________
+
+## Settings
 
 Customize Indy Hub behavior in `local.py`:
 
@@ -136,11 +162,9 @@ ______________________________________________________________________
 ## Updating
 
 ```bash
-# Backup your database
-python manage.py dumpdata >backup.json
 
 # Update the package
-pip install --upgrade indy_hub
+pip install --upgrade indy-hub
 
 # Apply migrations
 python manage.py migrate
@@ -150,8 +174,6 @@ python manage.py collectstatic --noinput
 
 # Restart services
 systemctl restart allianceauth
-systemctl restart allianceauth-celery
-systemctl restart allianceauth-celery-beat
 ```
 
 ______________________________________________________________________
@@ -172,7 +194,7 @@ ______________________________________________________________________
 
 ______________________________________________________________________
 
-## Support & Contributing
+## Contributing
 
 - Open an issue or pull request on GitHub for help or to contribute
 
