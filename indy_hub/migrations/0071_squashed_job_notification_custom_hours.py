@@ -39,6 +39,7 @@ def _add_field_if_missing(
         )
     )
 
+
 def add_missing_columns(apps, schema_editor):
     _add_field_if_missing(
         apps,
