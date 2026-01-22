@@ -162,7 +162,6 @@ ______________________________________________________________________
 ## Updating
 
 ```bash
-
 # Update the package
 pip install --upgrade indy-hub
 
