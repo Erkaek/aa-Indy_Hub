@@ -165,6 +165,65 @@ def _build_discord_content(title: str, body: str) -> str:
     return f"{title}: {body}" if title not in body else body
 
 
+def send_discord_webhook(
+    webhook_url: str,
+    title: str,
+    message: str,
+    level: str = "info",
+    *,
+    link: str | None = None,
+    thumbnail_url: str | None = None,
+) -> bool:
+    """Send a notification to a Discord webhook URL.
+
+    Returns True when the webhook call succeeds.
+    """
+    if not webhook_url:
+        return False
+
+    normalized_link = link
+    if link:
+        parsed = urlparse(link)
+        if not parsed.scheme:
+            normalized_link = build_site_url(link) or link
+
+    cta_line = None
+    if normalized_link:
+        cta_line = build_cta(normalized_link, DEFAULT_LINK_LABEL)
+
+    content = _build_discord_content(title, message or "")
+    if cta_line:
+        content = f"{content}\n\n{cta_line}" if content else cta_line
+
+    payload = {"content": content}
+    if thumbnail_url:
+        payload["embeds"] = [
+            {
+                "title": title,
+                "description": message,
+                "color": DISCORD_EMBED_COLORS.get(level, DISCORD_EMBED_COLORS["info"]),
+                "timestamp": timezone.now().isoformat(),
+                "thumbnail": {"url": thumbnail_url},
+            }
+        ]
+
+    try:
+        # Third Party
+        import requests
+
+        response = requests.post(webhook_url, json=payload, timeout=10)
+        if response.status_code >= 400:
+            logger.warning(
+                "Discord webhook failed (%s): %s", response.status_code, response.text
+            )
+            return False
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.warning("Discord webhook failed: %s", exc, exc_info=True)
+        return False
+
+    return True
+
+
 def _send_via_aadiscordbot(
     user,
     title: str,
@@ -369,5 +428,13 @@ def notify_multi(users, title, message, level="info", **kwargs):
         users = list(users)
     if not isinstance(users, (list, tuple)):
         users = [users]
+    seen_ids = set()
     for user in users:
+        if not user:
+            continue
+        user_id = getattr(user, "id", None)
+        if user_id in seen_ids:
+            continue
+        if user_id is not None:
+            seen_ids.add(user_id)
         notify_user(user, title, message, level=level, **kwargs)

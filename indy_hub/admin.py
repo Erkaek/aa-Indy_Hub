@@ -1,8 +1,7 @@
-"""
-Django admin configuration for indy_hub models
-"""
+"""Django admin configuration for indy_hub models."""
 
 # Django
+from django import forms
 from django.contrib import admin
 
 from .models import (
@@ -17,6 +16,7 @@ from .models import (
     MaterialExchangeSellOrderItem,
     MaterialExchangeStock,
     MaterialExchangeTransaction,
+    NotificationWebhook,
     UserOnboardingProgress,
 )
 
@@ -85,7 +85,6 @@ class IndustryJobAdmin(admin.ModelAdmin):
         "job_id",
     ]
     readonly_fields = ["job_id", "last_updated", "created_at", "start_date", "end_date"]
-
     fieldsets = (
         (
             "Job Information",
@@ -232,6 +231,164 @@ class CorporationSharingSettingAdmin(admin.ModelAdmin):
     @admin.display(boolean=True, description="Whitelisted")
     def has_manual_whitelist(self, obj: CorporationSharingSetting) -> bool:
         return obj.restricts_characters
+
+
+@admin.register(NotificationWebhook)
+class NotificationWebhookAdmin(admin.ModelAdmin):
+    class NotificationWebhookForm(forms.ModelForm):
+        corporations = forms.MultipleChoiceField(
+            required=False,
+            choices=[],
+            widget=forms.SelectMultiple(attrs={"size": "10"}),
+            label="Corporations",
+            help_text="Select one or more corporations for blueprint sharing webhooks.",
+        )
+
+        class Meta:
+            model = NotificationWebhook
+            fields = (
+                "name",
+                "webhook_type",
+                "webhook_url",
+                "is_active",
+                "corporations",
+            )
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            corp_choices = list(
+                CorporationSharingSetting.objects.values_list(
+                    "corporation_id", "corporation_name"
+                )
+                .distinct()
+                .order_by("corporation_name")
+            )
+            self.fields["corporations"].choices = [
+                (str(corp_id), corp_name or str(corp_id))
+                for corp_id, corp_name in corp_choices
+            ]
+
+            instance = getattr(self, "instance", None)
+            if instance and instance.pk and instance.corporation_ids:
+                self.fields["corporations"].initial = [
+                    str(corp_id) for corp_id in instance.corporation_ids
+                ]
+
+            selected_type = self.data.get("webhook_type") or (
+                instance.webhook_type if instance else None
+            )
+            if selected_type == NotificationWebhook.TYPE_MATERIAL_EXCHANGE:
+                self.fields["corporations"].disabled = True
+
+        def clean(self):
+            cleaned = super().clean()
+            webhook_type = cleaned.get("webhook_type")
+            corp_values = cleaned.get("corporations") or []
+
+            if webhook_type == NotificationWebhook.TYPE_BLUEPRINT_SHARING:
+                if not corp_values:
+                    self.add_error(
+                        "corporations",
+                        "At least one corporation is required for blueprint sharing webhooks.",
+                    )
+            elif webhook_type == NotificationWebhook.TYPE_MATERIAL_EXCHANGE:
+                cleaned["corporations"] = []
+
+            corp_map = {
+                str(corp_id): (corp_id, corp_name)
+                for corp_id, corp_name in CorporationSharingSetting.objects.values_list(
+                    "corporation_id", "corporation_name"
+                ).distinct()
+            }
+
+            corp_ids: list[int] = []
+            corp_names: list[str] = []
+            for corp_id_str in corp_values:
+                corp_id, corp_name = corp_map.get(
+                    str(corp_id_str),
+                    (int(corp_id_str), str(corp_id_str)),
+                )
+                corp_ids.append(int(corp_id))
+                corp_names.append(corp_name or str(corp_id))
+
+            self.instance.corporation_ids = corp_ids
+            self.instance.corporation_names = corp_names
+
+            return cleaned
+
+        def save(self, commit=True):
+            instance = super().save(commit=False)
+            corp_values = self.cleaned_data.get("corporations") or []
+
+            corp_map = {
+                str(corp_id): (corp_id, corp_name)
+                for corp_id, corp_name in CorporationSharingSetting.objects.values_list(
+                    "corporation_id", "corporation_name"
+                ).distinct()
+            }
+
+            corp_ids: list[int] = []
+            corp_names: list[str] = []
+            for corp_id_str in corp_values:
+                corp_id, corp_name = corp_map.get(
+                    str(corp_id_str),
+                    (int(corp_id_str), str(corp_id_str)),
+                )
+                corp_ids.append(int(corp_id))
+                corp_names.append(corp_name or str(corp_id))
+
+            instance.corporation_ids = corp_ids
+            instance.corporation_names = corp_names
+
+            if instance.webhook_type == NotificationWebhook.TYPE_MATERIAL_EXCHANGE:
+                instance.corporation_ids = []
+                instance.corporation_names = []
+
+            if commit:
+                instance.save()
+            return instance
+
+    form = NotificationWebhookForm
+    list_display = [
+        "name",
+        "webhook_type",
+        "corporation_list",
+        "is_active",
+        "updated_at",
+    ]
+    list_filter = ["webhook_type", "is_active"]
+    search_fields = ["name", "webhook_url", "corporation_names"]
+    readonly_fields = ["created_at", "updated_at"]
+    fieldsets = (
+        (
+            None,
+            {
+                "fields": (
+                    "name",
+                    "webhook_type",
+                    "webhook_url",
+                    "is_active",
+                    "corporations",
+                )
+            },
+        ),
+        (
+            "Audit",
+            {
+                "fields": (
+                    "created_at",
+                    "updated_at",
+                )
+            },
+        ),
+    )
+
+    @admin.display(description="Corporations")
+    def corporation_list(self, obj: NotificationWebhook) -> str:
+        return ", ".join(obj.corporation_names or [])
+
+    class Media:
+        js = ("indy_hub/js/admin_notification_webhook.js",)
 
 
 @admin.register(MaterialExchangeConfig)

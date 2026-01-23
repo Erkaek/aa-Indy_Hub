@@ -14,10 +14,14 @@ from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.translation import gettext as _
 
+# Alliance Auth
+from allianceauth.authentication.models import UserProfile
+
 from ..models import (
     MaterialExchangeBuyOrder,
     MaterialExchangeSellOrder,
 )
+from ..utils.eve import get_corporation_name
 
 # Local
 from .navigation import build_nav_context
@@ -135,6 +139,8 @@ def sell_order_detail(request, order_id):
 
     config = order.config
 
+    corporation_name = get_corporation_name(getattr(config, "corporation_id", None))
+
     # Get all items with their details
     items = order.items.all()
 
@@ -145,6 +151,7 @@ def sell_order_detail(request, order_id):
     context = {
         "order": order,
         "config": config,
+        "corporation_name": corporation_name,
         "items": items,
         "timeline": timeline,
         "timeline_breadcrumb": timeline_breadcrumb,
@@ -179,12 +186,15 @@ def buy_order_detail(request, order_id):
     timeline = _build_status_timeline(order, "buy")
     timeline_breadcrumb = _build_timeline_breadcrumb(order, "buy")
 
+    buyer_main_character = _resolve_main_character_name(order.buyer)
+
     context = {
         "order": order,
         "config": config,
         "items": items,
         "timeline": timeline,
         "timeline_breadcrumb": timeline_breadcrumb,
+        "buyer_main_character": buyer_main_character,
         "can_cancel": order.status not in ["completed", "rejected", "cancelled"],
     }
 
@@ -204,6 +214,24 @@ def _get_status_class(status):
         "cancelled": "secondary",
     }
     return status_classes.get(status, "secondary")
+
+
+def _resolve_main_character_name(user) -> str:
+    """Return a user's main character name if available, fallback to username."""
+    if not user:
+        return ""
+
+    try:
+        profile = UserProfile.objects.select_related("main_character").get(user=user)
+        main_character = getattr(profile, "main_character", None)
+        if main_character and getattr(main_character, "character_name", None):
+            return str(main_character.character_name)
+    except UserProfile.DoesNotExist:
+        pass
+    except Exception:
+        pass
+
+    return str(getattr(user, "username", ""))
 
 
 def _build_timeline_breadcrumb(order, order_type):
@@ -404,7 +432,6 @@ def _build_status_timeline(order, order_type):
                     "color": "danger",
                 }
             )
-
     else:  # buy order
         timeline.append(
             {

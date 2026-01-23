@@ -30,8 +30,9 @@ from indy_hub.models import (
     MaterialExchangeSellOrder,
     MaterialExchangeStock,
     MaterialExchangeTransaction,
+    NotificationWebhook,
 )
-from indy_hub.notifications import notify_multi, notify_user
+from indy_hub.notifications import notify_multi, notify_user, send_discord_webhook
 from indy_hub.services.asset_cache import resolve_structure_names
 from indy_hub.services.esi_client import (
     ESIClientError,
@@ -722,9 +723,8 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
             link=f"/indy_hub/material-exchange/sell-orders/{order.id}/",
         )
 
-        admins = _get_admins_for_config(config)
-        notify_multi(
-            admins,
+        _notify_material_exchange_admins(
+            config,
             _("Sell Order Validated"),
             _(
                 f"{order.seller.username} wants to sell:\n{items_list}\n\n"
@@ -946,9 +946,8 @@ def _validate_buy_order_from_db(config, order, contracts, esi_client=None):
             level="success",
         )
 
-        admins = _get_admins_for_config(config)
-        notify_multi(
-            admins,
+        _notify_material_exchange_admins(
+            config,
             _("Buy Order Validated"),
             _(
                 f"{order.buyer.username} will receive:\n{items_list}\n\n"
@@ -967,18 +966,44 @@ def _validate_buy_order_from_db(config, order, contracts, esi_client=None):
         return
 
     # No matching contract found yet
+    issues: list[str] = []
+    for issue in [last_price_issue, last_reason]:
+        if issue and issue not in issues:
+            issues.append(issue)
+
+    issue_line = f"Issue(s): {'; '.join(issues)}" if issues else ""
+
     new_notes = "\n".join(
         [
             f"Pending contract for {order_ref}.",
-            "Ensure corp issues item exchange contract to buyer",
-            f"Price: {order.total_price:,.2f} ISK",
-            (last_price_issue or ""),
-            (last_reason or ""),
+            "Ensure corp issues item exchange contract to buyer.",
+            f"Expected price: {order.total_price:,.2f} ISK",
+            issue_line,
         ]
     ).strip()
 
+    notes_changed = order.notes != new_notes
     order.notes = new_notes
     order.save(update_fields=["notes", "updated_at"])
+
+    reminder_key = f"material_exchange:buy_order:{order.id}:contract_reminder"
+    reminder_set = cache.add(reminder_key, timezone.now().timestamp(), 60 * 60 * 24)
+    if notes_changed:
+        cache.set(reminder_key, timezone.now().timestamp(), 60 * 60 * 24)
+
+    if notes_changed or reminder_set:
+        _notify_material_exchange_admins(
+            config,
+            _("Buy Order Pending: contract mismatch"),
+            _(
+                f"Buy order {order.order_reference} has no matching contract yet.\n"
+                f"Buyer: {order.buyer.username}\n"
+                f"Expected price: {order.total_price:,.2f} ISK"
+                + (f"\nIssue(s): {'; '.join(issues)}" if issues else "")
+            ),
+            level="warning",
+            link=f"/indy_hub/material-exchange/buy-orders/{order.id}/",
+        )
 
     logger.info("Buy order %s pending: no matching contract yet", order.id)
 
@@ -1127,7 +1152,6 @@ def handle_material_exchange_buy_order_created(order_id):
         return
 
     config = order.config
-    admins = _get_admins_for_config(config)
 
     items = list(order.items.all())
     total_qty = order.total_quantity
@@ -1143,8 +1167,8 @@ def handle_material_exchange_buy_order_created(order_id):
 
     preview = "\n".join(preview_lines) if preview_lines else _("(no items)")
 
-    notify_multi(
-        admins,
+    _notify_material_exchange_admins(
+        config,
         _("New Buy Order"),
         _(
             f"{order.buyer.username} created a buy order {order.order_reference}.\n"
@@ -1483,18 +1507,48 @@ def _get_user_character_ids(user: User) -> list[int]:
         return []
 
 
+def _notify_material_exchange_admins(
+    config: MaterialExchangeConfig,
+    title: str,
+    message: str,
+    *,
+    level: str = "info",
+    link: str | None = None,
+    thumbnail_url: str | None = None,
+) -> None:
+    """Notify Material Exchange admins or send to webhook if configured."""
+
+    webhook_url = NotificationWebhook.get_material_exchange_url()
+    if webhook_url:
+        send_discord_webhook(
+            webhook_url,
+            title,
+            message,
+            level=level,
+            link=link,
+            thumbnail_url=thumbnail_url,
+        )
+        return
+
+    admins = _get_admins_for_config(config)
+    notify_multi(
+        admins,
+        title,
+        message,
+        level=level,
+        link=link,
+        thumbnail_url=thumbnail_url,
+    )
+
+
 def _get_admins_for_config(config: MaterialExchangeConfig) -> list[User]:
     """
     Get users to notify about material exchange orders.
-    Includes: staff (admin panel access), superusers, and users with explicit permission.
+    Includes: users with explicit can_manage_material_hub permission only.
     """
     # Django
     from django.contrib.auth.models import Permission
 
-    # Start with staff members and superusers (all have admin panel access)
-    admins = list(User.objects.filter(is_staff=True, is_active=True).distinct())
-
-    # Add users with explicit can_manage_material_hub permission (via groups or user)
     try:
         perm = Permission.objects.get(
             codename="can_manage_material_hub",
@@ -1506,19 +1560,10 @@ def _get_admins_for_config(config: MaterialExchangeConfig) -> list[User]:
                 is_active=True,
             ).distinct()
         )
-        admins.extend(perm_users)
     except Permission.DoesNotExist:
-        pass
+        return []
 
-    # Remove duplicates while preserving order
-    seen = set()
-    unique_admins = []
-    for user in admins:
-        if user.id not in seen:
-            seen.add(user.id)
-            unique_admins.append(user)
-
-    return unique_admins
+    return perm_users
 
 
 def _get_corp_name(corporation_id: int) -> str:
