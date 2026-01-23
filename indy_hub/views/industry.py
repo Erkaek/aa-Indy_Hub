@@ -42,10 +42,11 @@ from ..models import (
     BlueprintCopyOffer,
     BlueprintCopyRequest,
     IndustryJob,
+    NotificationWebhook,
     ProductionConfig,
     ProductionSimulation,
 )
-from ..notifications import build_site_url, notify_user
+from ..notifications import build_site_url, notify_user, send_discord_webhook
 from ..services.simulations import summarize_simulations
 from ..tasks.industry import (
     MANUAL_REFRESH_KIND_BLUEPRINTS,
@@ -182,6 +183,18 @@ def _resolve_user_identity(user: User | None) -> UserIdentity:
     )
 
 
+def _get_explicit_corp_bp_manager_ids() -> set[int]:
+    """Return active users with explicit corp BP manager permission (no superuser override)."""
+
+    return set(
+        User.objects.filter(
+            Q(user_permissions__codename="can_manage_corp_bp_requests")
+            | Q(groups__permissions__codename="can_manage_corp_bp_requests"),
+            is_active=True,
+        ).values_list("id", flat=True)
+    )
+
+
 def _eligible_owner_details_for_request(
     req: BlueprintCopyRequest,
 ):
@@ -244,6 +257,8 @@ def _eligible_owner_details_for_request(
     corporate_members_by_corp: dict[int, set[int]] = defaultdict(set)
     user_to_corp: dict[int, int] = {}
 
+    explicit_corp_manager_ids = _get_explicit_corp_bp_manager_ids()
+
     if corporation_ids:
         corporate_settings = list(
             CorporationSharingSetting.objects.filter(
@@ -265,7 +280,7 @@ def _eligible_owner_details_for_request(
         corporate_owner_ids = {setting.user_id for setting in corporate_settings}
 
     additional_corp_manager_ids: set[int] = set()
-    if corporation_ids and corporate_settings:
+    if corporation_ids and corporate_settings and explicit_corp_manager_ids:
         settings_by_corp: dict[int, list[CorporationSharingSetting]] = defaultdict(list)
         for setting_obj in corporate_settings:
             settings_by_corp[setting_obj.corporation_id].append(setting_obj)
@@ -287,13 +302,8 @@ def _eligible_owner_details_for_request(
                 corp_member_user_ids.add(user_id)
 
         if corp_member_user_ids:
-            corp_manager_ids = set(
-                User.objects.filter(id__in=corp_member_user_ids)
-                .filter(
-                    Q(user_permissions__codename="can_manage_corp_bp_requests")
-                    | Q(groups__permissions__codename="can_manage_corp_bp_requests")
-                )
-                .values_list("id", flat=True)
+            corp_manager_ids = explicit_corp_manager_ids.intersection(
+                corp_member_user_ids
             )
 
             for corp_id, users in corp_user_chars.items():
@@ -2860,7 +2870,11 @@ def bp_copy_request_create(request):
     )
     fulfill_label = _("Review copy requests")
 
-    for owner in User.objects.filter(id__in=owner_ids):
+    sent_to: set[int] = set()
+    for owner in User.objects.filter(id__in=owner_ids, is_active=True):
+        if owner.id in sent_to:
+            continue
+        sent_to.add(owner.id)
         notify_user(
             owner,
             notification_title,
@@ -3091,7 +3105,8 @@ def bp_copy_request_page(request):
         # Django
         from django.contrib.auth.models import User
 
-        eligible_owner_ids = _eligible_owner_ids_for_request(new_request)
+        eligible_details = _eligible_owner_details_for_request(new_request)
+        eligible_owner_ids = set(eligible_details.owner_ids)
         notification_context = {
             "username": request.user.username,
             "type_name": get_type_name(type_id),
@@ -3143,8 +3158,45 @@ def bp_copy_request_page(request):
             )
             fulfill_label = _("Review copy requests")
 
-            provider_users = User.objects.filter(id__in=eligible_owner_ids)
+            owner_to_corp = dict(eligible_details.user_to_corporation)
+            corp_to_users: dict[int, list[int]] = defaultdict(list)
+            direct_user_ids: set[int] = set()
+
+            for owner_id in eligible_owner_ids:
+                corp_id = owner_to_corp.get(owner_id)
+                if corp_id:
+                    corp_to_users[corp_id].append(owner_id)
+                else:
+                    direct_user_ids.add(owner_id)
+
+            # Send one webhook per corporation when configured and exclude those users from DMs
+            muted_user_ids: set[int] = set()
+            for corp_id, corp_user_ids in corp_to_users.items():
+                webhook_urls = NotificationWebhook.get_blueprint_sharing_urls(corp_id)
+                if webhook_urls:
+                    provider_body = notification_body
+                    if corporate_source_line:
+                        provider_body = f"{provider_body}\n\n{corporate_source_line}"
+                    for webhook_url in webhook_urls:
+                        send_discord_webhook(
+                            webhook_url,
+                            notification_title,
+                            provider_body,
+                            level="info",
+                            link=fulfill_queue_url,
+                            thumbnail_url=None,
+                        )
+                    muted_user_ids.update(corp_user_ids)
+
+            provider_users = User.objects.filter(
+                id__in=(direct_user_ids | (eligible_owner_ids - muted_user_ids)),
+                is_active=True,
+            )
+            sent_to: set[int] = set()
             for owner in provider_users:
+                if owner.id in sent_to:
+                    continue
+                sent_to.add(owner.id)
                 provider_body = notification_body
                 if corporate_source_line:
                     provider_body = f"{provider_body}\n\n{corporate_source_line}"
@@ -4508,7 +4560,11 @@ def bp_update_copy_request(request, request_id):
     )
     fulfill_label = _("Review copy requests")
 
-    for owner in User.objects.filter(id__in=owner_ids):
+    sent_to: set[int] = set()
+    for owner in User.objects.filter(id__in=owner_ids, is_active=True):
+        if owner.id in sent_to:
+            continue
+        sent_to.add(owner.id)
         notify_user(
             owner,
             notification_title,

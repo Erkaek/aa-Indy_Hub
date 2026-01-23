@@ -1147,6 +1147,119 @@ class CorporationSharingSetting(models.Model):
         return normalized in allowed
 
 
+class NotificationWebhook(models.Model):
+    """Webhook configuration for Indy Hub notifications."""
+
+    TYPE_MATERIAL_EXCHANGE = "material_exchange"
+    TYPE_BLUEPRINT_SHARING = "blueprint_sharing"
+
+    TYPE_CHOICES = [
+        (TYPE_MATERIAL_EXCHANGE, "Material Exchange"),
+        (TYPE_BLUEPRINT_SHARING, "Blueprint sharing"),
+    ]
+
+    name = models.CharField(max_length=120, blank=True)
+    webhook_type = models.CharField(max_length=32, choices=TYPE_CHOICES)
+    corporation_ids = models.JSONField(default=list, blank=True)
+    corporation_names = models.JSONField(default=list, blank=True)
+    webhook_url = models.URLField(max_length=500)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Notification Webhook"
+        verbose_name_plural = "Notification Webhooks"
+        default_permissions = ()
+        indexes = [
+            models.Index(fields=["webhook_type"], name="indy_hub_webhook_type_idx"),
+            models.Index(fields=["is_active"], name="indy_hub_webhook_active_idx"),
+        ]
+
+    def __str__(self):
+        label = self.name or "Webhook"
+        if self.webhook_type == self.TYPE_BLUEPRINT_SHARING:
+            corp_label = ", ".join(self.corporation_names or []) or "(no corp)"
+            return f"{label} - Blueprint sharing ({corp_label})"
+        return f"{label} - Material Exchange"
+
+    def clean(self):
+        # Django
+        from django.core.exceptions import NON_FIELD_ERRORS, ValidationError
+
+        if self.webhook_type == self.TYPE_MATERIAL_EXCHANGE:
+            if self.corporation_ids:
+                raise ValidationError(
+                    {
+                        NON_FIELD_ERRORS: [
+                            "Corporations must be empty for Material Exchange webhooks."
+                        ]
+                    }
+                )
+        elif self.webhook_type == self.TYPE_BLUEPRINT_SHARING:
+            if not self.corporation_ids:
+                raise ValidationError(
+                    {
+                        NON_FIELD_ERRORS: [
+                            "At least one corporation is required for blueprint sharing webhooks."
+                        ]
+                    }
+                )
+
+    @classmethod
+    def get_material_exchange_url(cls) -> str | None:
+        return (
+            cls.objects.filter(
+                webhook_type=cls.TYPE_MATERIAL_EXCHANGE,
+                is_active=True,
+            )
+            .values_list("webhook_url", flat=True)
+            .first()
+        )
+
+    @classmethod
+    def get_blueprint_sharing_url(cls, corporation_id: int | None) -> str | None:
+        if not corporation_id:
+            return None
+        return (
+            cls.objects.filter(
+                webhook_type=cls.TYPE_BLUEPRINT_SHARING,
+                corporation_ids__contains=[corporation_id],
+                is_active=True,
+            )
+            .values_list("webhook_url", flat=True)
+            .first()
+        )
+
+    @classmethod
+    def get_blueprint_sharing_urls(cls, corporation_id: int | None) -> list[str]:
+        if not corporation_id:
+            return []
+        # Django
+        from django.db import NotSupportedError
+
+        try:
+            return list(
+                cls.objects.filter(
+                    webhook_type=cls.TYPE_BLUEPRINT_SHARING,
+                    corporation_ids__contains=[corporation_id],
+                    is_active=True,
+                ).values_list("webhook_url", flat=True)
+            )
+        except NotSupportedError:
+            # Fallback for backends without JSON contains support (e.g. SQLite)
+            urls: list[str] = []
+            for webhook in cls.objects.filter(
+                webhook_type=cls.TYPE_BLUEPRINT_SHARING,
+                is_active=True,
+            ):
+                corp_ids = list(getattr(webhook, "corporation_ids", []) or [])
+                if corporation_id in corp_ids:
+                    if webhook.webhook_url:
+                        urls.append(webhook.webhook_url)
+            return urls
+
+
 class ProductionConfig(models.Model):
     PRODUCTION_CHOICES = [
         ("prod", "Produce"),

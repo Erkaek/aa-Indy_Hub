@@ -13,6 +13,24 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### Fixed
 
+## [1.13.4] - 2026-01-23
+
+### Added
+
+- Notifications: Discord webhook support via Notification Webhooks (Django admin configurable).
+- Blueprint Sharing: optional corporation-scoped Discord webhooks for copy request notifications.
+
+### Changed
+
+- Material Exchange: redesigned buy/sell order detail headers with a compact summary card (reference / buyer or corporation / total) and quick-copy actions.
+- Material Exchange: order detail pages now hide raw IDs in contract instructions and item tables, and show notes under the timeline for a cleaner layout.
+- Notifications: Material Exchange admin notifications can now be routed to a Discord webhook when configured.
+- Notifications: admin recipient selection for Material Exchange and corp blueprint copy requests is now based on explicit permissions (instead of including staff/superusers).
+
+### Fixed
+
+- Material Exchange: copying the total amount now uses an EVE-friendly numeric format (e.g. `34002000.00`) while keeping localized display formatting on screen.
+
 ## [1.13.3] - 2026-01-22
 
 ### Changed

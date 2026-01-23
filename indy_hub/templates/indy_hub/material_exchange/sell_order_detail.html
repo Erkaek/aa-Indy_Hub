@@ -11,7 +11,7 @@
 {% endblock extra_css %}
 
 {% block content %}
-<main class="bg-body p-4">
+<main class="bg-body p-4 sell-order-detail">
     <div class="container-fluid my-0 bg-body">
         <!-- Header -->
         <div class="page-header mb-4">
@@ -36,22 +36,53 @@
         </div>
 
         <!-- Order Reference Display -->
-        <div class="order-reference-display">
-            <div class="mb-2">
-                <i class="fas fa-qrcode fa-2x text-warning"></i>
-            </div>
-            <h5 class="text-muted mb-2">{% trans "Your Order Reference" %}</h5>
-            <h1 id="orderReference">{{ order.order_reference }}</h1>
-            <p class="text-muted mb-3">{% trans "Include this in your contract title/description" %}</p>
-            <div class="d-flex gap-2">
-                <button class="btn btn-warning btn-lg copy-button" onclick="copyOrderReference(this)">
-                    <i class="fas fa-copy me-2"></i>{% trans "Copy to Clipboard" %}
-                </button>
-                {% if order.status != 'completed' and order.status != 'rejected' and order.status != 'cancelled' %}
-                    <a href="{% url 'indy_hub:sell_order_delete' order.id %}" class="btn btn-outline-danger btn-lg">
-                        <i class="fas fa-trash me-2"></i>{% trans "Delete Order" %}
-                    </a>
-                {% endif %}
+        <div class="order-reference-display order-summary">
+            <div class="order-summary-grid">
+                <div class="order-summary-icon" aria-hidden="true">
+                    <i class="fas fa-qrcode"></i>
+                </div>
+
+                <div class="order-summary-main">
+                    <div class="order-summary-label">{% trans "Order Reference" %}</div>
+                    <div class="order-summary-ref-row">
+                        <div id="orderReference" class="order-summary-ref">{{ order.order_reference }}</div>
+                        <button type="button" class="btn btn-warning btn-sm copy-button" onclick="copyOrderReference(this)" title="{% trans "Copy" %}">
+                            <i class="fas fa-copy"></i>
+                        </button>
+                    </div>
+
+                    <div class="order-summary-meta">
+                        <span class="order-summary-chip">
+                            <i class="fas fa-building me-1" aria-hidden="true"></i>
+                            <span class="order-summary-chip-label">{% trans "Corporation" %}:</span>
+                            <span id="corporationName" class="order-summary-chip-value">{{ corporation_name }}</span>
+                            <button type="button" class="btn btn-link p-0 ms-2 order-summary-chip-copy" onclick="copyCorporationName(this)" title="{% trans "Copy" %}">
+                                <i class="fas fa-copy" aria-hidden="true"></i>
+                            </button>
+                        </span>
+
+                        <span class="order-summary-sep" aria-hidden="true">•</span>
+
+                        <span class="order-summary-chip">
+                            <i class="fas fa-coins me-1" aria-hidden="true"></i>
+                            <span class="order-summary-chip-label">{% trans "Total" %}:</span>
+                            <span class="order-summary-chip-value text-warning fw-bold">
+                                <span id="orderTotalFormatted" data-raw="{{ order.total_price|floatformat:2 }}"></span> ISK
+                            </span>
+                            <button type="button" class="btn btn-link p-0 ms-2 order-summary-chip-copy" onclick="copyOrderTotal(this)" title="{% trans "Copy" %}">
+                                <i class="fas fa-copy" aria-hidden="true"></i>
+                            </button>
+                        </span>
+                    </div>
+                </div>
+
+                <div class="order-summary-actions">
+                    {% if order.status != 'completed' and order.status != 'rejected' and order.status != 'cancelled' %}
+                        <a href="{% url 'indy_hub:sell_order_delete' order.id %}" class="btn btn-outline-danger btn-sm">
+                            <i class="fas fa-trash me-1"></i>{% trans "Delete" %}
+                        </a>
+                    {% endif %}
+                </div>
             </div>
         </div>
 
@@ -104,13 +135,11 @@
                                     </li>
                                     <li>
                                         <strong>{% trans "Assign to:" %}</strong>
-                                        {{ config.corporation_name|default:"Corporation" }}
-                                        <small class="text-muted">(ID: {{ config.corporation_id }})</small>
+                                        {{ corporation_name }}
                                     </li>
                                     <li>
                                         <strong>{% trans "Location:" %}</strong>
                                         {{ config.structure_name }}
-                                        <small class="text-muted">(ID: {{ config.structure_id }})</small>
                                     </li>
                                     <li>
                                         <strong>{% trans "Price:" %}</strong>
@@ -161,8 +190,6 @@
                                         <tr>
                                             <td>
                                                 <strong>{{ item.type_name }}</strong>
-                                                <br>
-                                                <small class="text-muted">ID: {{ item.type_id }}</small>
                                             </td>
                                             <td class="text-end">{{ item.quantity|intcomma }}</td>
                                             <td class="text-end">{{ item.unit_price|floatformat:2|intcomma }} ISK</td>
@@ -197,24 +224,11 @@
                     </div>
                 </div>
 
-                <!-- Notes (if any) -->
-                {% if order.notes %}
-                    <div class="card mb-4">
-                        <div class="card-header">
-                            <h5 class="mb-0">
-                                <i class="fas fa-sticky-note me-2"></i>{% trans "Notes" %}
-                            </h5>
-                        </div>
-                        <div class="card-body">
-                            <p class="mb-0">{{ order.notes }}</p>
-                        </div>
-                    </div>
-                {% endif %}
             </div>
 
             <!-- Right Column: Timeline -->
             <div class="col-lg-4">
-                <div class="card">
+                <div class="card mb-4">
                     <div class="card-header bg-primary bg-opacity-10">
                         <h5 class="mb-0">
                             <i class="fas fa-history me-2"></i>{% trans "Timeline" %}
@@ -249,23 +263,113 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Notes (if any) -->
+                {% if order.notes %}
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">
+                                <i class="fas fa-sticky-note me-2"></i>{% trans "Notes" %}
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <p class="mb-0">{{ order.notes }}</p>
+                        </div>
+                    </div>
+                {% endif %}
             </div>
         </div>
     </div>
 </main>
 
 <script>
+function flashCopied(btn) {
+    const originalHTML = btn.innerHTML;
+    const originalClass = btn.className;
+
+    btn.innerHTML = '<i class="fas fa-check" aria-hidden="true"></i>';
+    btn.className = `${originalClass} text-success`;
+
+    setTimeout(() => {
+        btn.innerHTML = originalHTML;
+        btn.className = originalClass;
+    }, 1200);
+}
+
+function formatOrderTotalForEve(rawValue) {
+    if (!rawValue) {
+        return '';
+    }
+
+    const normalized = String(rawValue).trim().replace(/\s+/g, '').replace(',', '.');
+    const match = normalized.match(/^(-?\d+)(?:\.(\d+))?$/);
+    if (!match) {
+        return normalized;
+    }
+
+    const intPart = match[1];
+    const decPart = (match[2] || '').padEnd(2, '0').slice(0, 2);
+    return `${intPart}.${decPart}`;
+}
+
+function formatOrderTotal(rawValue) {
+    if (!rawValue) {
+        return '';
+    }
+
+    const normalized = String(rawValue).replace(',', '.');
+    const numeric = Number(normalized);
+    if (Number.isNaN(numeric)) {
+        return String(rawValue);
+    }
+
+    return new Intl.NumberFormat('fr-FR', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+    }).format(numeric);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const totalEl = document.getElementById('orderTotalFormatted');
+    if (totalEl) {
+        totalEl.textContent = formatOrderTotal(totalEl.dataset.raw);
+    }
+});
+
 function copyOrderReference(btn) {
     const reference = document.getElementById('orderReference').textContent;
     navigator.clipboard.writeText(reference).then(() => {
         const originalHTML = btn.innerHTML;
-        btn.innerHTML = '<i class="fas fa-check me-2"></i>{% trans "Copied!" %}';
-        btn.className = 'btn btn-success btn-lg copy-button';
+        const originalClass = btn.className;
+        btn.innerHTML = '<i class="fas fa-check me-2" aria-hidden="true"></i>{% trans "Copied!" %}';
+        btn.className = originalClass.replace('btn-warning', 'btn-success');
 
         setTimeout(() => {
             btn.innerHTML = originalHTML;
-            btn.className = 'btn btn-warning btn-lg copy-button';
-        }, 2000);
+            btn.className = originalClass;
+        }, 1600);
+    }).catch(err => {
+        console.error('Failed to copy:', err);
+        alert('Failed to copy to clipboard');
+    });
+}
+
+function copyCorporationName(btn) {
+    const name = document.getElementById('corporationName').textContent;
+    navigator.clipboard.writeText(name).then(() => {
+        flashCopied(btn);
+    }).catch(err => {
+        console.error('Failed to copy:', err);
+        alert('Failed to copy to clipboard');
+    });
+}
+
+function copyOrderTotal(btn) {
+    const totalEl = document.getElementById('orderTotalFormatted');
+    const totalRaw = totalEl ? totalEl.dataset.raw : '';
+    const totalForEve = formatOrderTotalForEve(totalRaw);
+    navigator.clipboard.writeText(totalForEve).then(() => {
+        flashCopied(btn);
     }).catch(err => {
         console.error('Failed to copy:', err);
         alert('Failed to copy to clipboard');

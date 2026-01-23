@@ -18,6 +18,147 @@
     font-size: 1.1rem;
 }
 
+/* Modern summary header (Buy order) */
+.order-reference-display.order-summary {
+    text-align: left;
+    padding: 1.1rem 1.25rem;
+}
+
+.order-summary-grid {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 1rem;
+    align-items: center;
+}
+
+.order-summary-icon {
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+    display: grid;
+    place-items: center;
+    background: rgba(var(--bs-info-rgb), 0.12);
+    color: rgba(var(--bs-info-rgb), 0.95);
+    flex: 0 0 auto;
+}
+
+html[data-theme="darkly"] .order-summary-icon {
+    background: rgba(var(--bs-info-rgb), 0.18);
+}
+
+.order-summary-label {
+    font-size: 0.85rem;
+    color: rgba(var(--bs-body-color-rgb), 0.65);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 0.15rem;
+}
+
+.order-summary-ref-row {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+}
+
+.order-summary-ref {
+    font-family: 'Courier New', monospace;
+    font-weight: 800;
+    line-height: 1.05;
+    font-size: clamp(1.35rem, 2.2vw, 2rem);
+    user-select: all;
+    color: rgba(var(--bs-primary-rgb), 0.92);
+}
+
+.sell-order-detail .order-summary-icon {
+    background: rgba(var(--bs-warning-rgb), 0.14);
+    color: rgba(var(--bs-warning-rgb), 0.95);
+}
+
+html[data-theme="darkly"] .sell-order-detail .order-summary-icon {
+    background: rgba(var(--bs-warning-rgb), 0.18);
+}
+
+.sell-order-detail .order-summary-ref {
+    color: rgba(var(--bs-warning-rgb), 0.92);
+}
+
+.sell-order-detail .order-summary-chip-copy {
+    color: rgba(var(--bs-warning-rgb), 0.9);
+}
+
+.sell-order-detail .order-summary-chip-copy:hover {
+    color: rgba(var(--bs-warning-rgb), 1);
+}
+
+.order-summary-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.6rem;
+    margin-top: 0.35rem;
+}
+
+.order-summary-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: rgba(var(--bs-body-color-rgb), 0.85);
+    font-size: 0.95rem;
+}
+
+.order-summary-chip-label {
+    font-size: 0.85rem;
+    color: rgba(var(--bs-body-color-rgb), 0.65);
+}
+
+.order-summary-chip-copy {
+    color: rgba(var(--bs-info-rgb), 0.9);
+    text-decoration: none;
+}
+
+.order-summary-chip-copy:hover {
+    color: rgba(var(--bs-primary-rgb), 0.95);
+}
+
+.order-summary-sep {
+    color: rgba(var(--bs-body-color-rgb), 0.35);
+}
+
+.order-summary-actions {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
+    align-items: center;
+}
+
+@media (max-width: 767.98px) {
+    .order-reference-display.order-summary {
+        padding: 1rem;
+    }
+
+    .order-summary-grid {
+        grid-template-columns: auto 1fr;
+        grid-template-areas:
+            "icon main"
+            "actions actions";
+        align-items: start;
+    }
+
+    .order-summary-icon {
+        grid-area: icon;
+    }
+
+    .order-summary-main {
+        grid-area: main;
+    }
+
+    .order-summary-actions {
+        grid-area: actions;
+        justify-content: flex-start;
+        padding-top: 0.25rem;
+    }
+}
+
 /* Buy Order Details */
 .buy-order-detail .order-reference-display {
     background: linear-gradient(135deg, #eef2ff, #e0f2fe);

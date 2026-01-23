@@ -33,6 +33,7 @@ ______________________________________________________________________
 - **Flexible Sharing Scopes**: Expose blueprint libraries per character, per corporation, or to everyone at once.
 - **Conditional Offer Chat**: Negotiate blueprint copy terms directly in Indy Hub with persistent history and status tracking.
 - **Material Exchange**: Create buy/sell orders with order references, validate ESI contracts, and review transaction history.
+- **Material Exchange UX**: Compact order detail headers with quick-copy helpers (order reference, buyer/corporation, EVE-friendly totals).
 - **ESI Integration**: Secure OAuth2-based sync for blueprints and jobs with director-level corporation scopes.
 - **Notifications**: In-app alerts for job completions, copy offers, chat messages, and deliveries, with configurable immediate or digest cadences.
 - **Modern UI**: Responsive Bootstrap 5 interface with theme compatibility and full i18n support.

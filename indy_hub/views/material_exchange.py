@@ -32,7 +32,6 @@ from ..models import (
     MaterialExchangeStock,
     MaterialExchangeTransaction,
 )
-from ..notifications import notify_multi
 from ..services.asset_cache import get_corp_divisions_cached, get_user_assets_cached
 from ..tasks.material_exchange import (
     ME_STOCK_SYNC_CACHE_VERSION,
@@ -191,9 +190,7 @@ def _get_allowed_type_ids_for_config(
 
 
 def _get_material_exchange_admins() -> list[User]:
-    """Return active admins for Material Exchange (staff + permission holders)."""
-
-    admins = list(User.objects.filter(is_staff=True, is_active=True))
+    """Return active admins for Material Exchange (explicit permission holders only)."""
 
     try:
         perm = Permission.objects.get(
@@ -202,19 +199,9 @@ def _get_material_exchange_admins() -> list[User]:
         perm_users = User.objects.filter(
             Q(groups__permissions=perm) | Q(user_permissions=perm), is_active=True
         ).distinct()
-        admins.extend(list(perm_users))
+        return list(perm_users)
     except Permission.DoesNotExist:
-        pass
-
-    seen: set[int] = set()
-    unique_admins: list[User] = []
-    for admin in admins:
-        if admin.id in seen:
-            continue
-        seen.add(admin.id)
-        unique_admins.append(admin)
-
-    return unique_admins
+        return []
 
 
 def _fetch_user_assets_for_structure(
@@ -1142,33 +1129,7 @@ def material_exchange_buy(request):
             for item_data in items_to_create:
                 MaterialExchangeBuyOrderItem.objects.create(order=order, **item_data)
 
-            admins = _get_material_exchange_admins()
-            if admins:
-                preview_lines = []
-                for item in order.items.all()[:5]:
-                    preview_lines.append(
-                        f"- {item.type_name}: {item.quantity:,} @ {item.unit_price:,.2f} ISK"
-                    )
-                if order.items.count() > 5:
-                    preview_lines.append("…")
-
-                notify_multi(
-                    admins,
-                    _("New Buy Order"),
-                    _(
-                        f"{request.user.username} created buy order {order.order_reference}.\n"
-                        f"Items: {order.items.count()}  |  Total qty: {order.total_quantity:,}\n"
-                        f"Total: {total_cost:,.2f} ISK\n\n"
-                        f"Action: create/validate the contract."
-                        + (
-                            "\n\nPreview:\n" + "\n".join(preview_lines)
-                            if preview_lines
-                            else ""
-                        )
-                    ),
-                    level="info",
-                    link=f"/indy_hub/material-exchange/my-orders/buy/{order.id}/",
-                )
+            # Admin notifications are handled by the post_save signal + async task
 
             messages.success(
                 request,
