@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### Fixed
 
+## [1.13.8] - 2026-01-24
+
+### Internal
+
+- Notifications: add missing database indexes for Notification Webhooks.
+
 ## [1.13.7] - 2026-01-24
 
 ### Changed
