@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### Fixed
 
+## [1.13.5] - 2026-01-23
+
+### Internal
+
+- Version metadata bump to 1.13.5 (post-release fix after 1.13.4).
+
 ## [1.13.4] - 2026-01-23
 
 ### Added
