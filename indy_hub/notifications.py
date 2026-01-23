@@ -162,7 +162,13 @@ def _build_discord_content(title: str, body: str) -> str:
         return ""
     if not body:
         return title
-    return f"{title}: {body}" if title not in body else body
+        title_text = str(title or "")
+        body_text = str(body or "")
+        if not body_text:
+            return title_text
+        if title_text and title_text not in body_text:
+            return f"{title_text}\n\n{body_text}"
+        return body_text
 
 
 def send_discord_webhook(
@@ -173,6 +179,7 @@ def send_discord_webhook(
     *,
     link: str | None = None,
     thumbnail_url: str | None = None,
+    retries: int = 3,
 ) -> bool:
     """Send a notification to a Discord webhook URL.
 
@@ -207,21 +214,28 @@ def send_discord_webhook(
             }
         ]
 
-    try:
-        # Third Party
-        import requests
+    # Third Party
+    import requests
 
-        response = requests.post(webhook_url, json=payload, timeout=10)
-        if response.status_code >= 400:
+    attempt_count = max(1, retries)
+    for attempt in range(1, attempt_count + 1):
+        try:
+            response = requests.post(webhook_url, json=payload, timeout=10)
+            if response.status_code >= 400:
+                logger.warning(
+                    "Discord webhook failed (%s): %s",
+                    response.status_code,
+                    response.text,
+                )
+                continue
+            return True
+        except Exception as exc:  # pragma: no cover - defensive logging
             logger.warning(
-                "Discord webhook failed (%s): %s", response.status_code, response.text
+                "Discord webhook failed (attempt %s): %s", attempt, exc, exc_info=True
             )
-            return False
-    except Exception as exc:  # pragma: no cover - defensive logging
-        logger.warning("Discord webhook failed: %s", exc, exc_info=True)
-        return False
+            continue
 
-    return True
+    return False
 
 
 def _send_via_aadiscordbot(

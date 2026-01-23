@@ -1525,7 +1525,7 @@ def _notify_material_exchange_admins(
 
     webhook_url = NotificationWebhook.get_material_exchange_url()
     if webhook_url:
-        send_discord_webhook(
+        sent = send_discord_webhook(
             webhook_url,
             title,
             message,
@@ -1533,7 +1533,8 @@ def _notify_material_exchange_admins(
             link=link,
             thumbnail_url=thumbnail_url,
         )
-        return
+        if sent:
+            return
 
     admins = _get_admins_for_config(config)
     notify_multi(

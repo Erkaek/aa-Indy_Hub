@@ -3177,16 +3177,19 @@ def bp_copy_request_page(request):
                     provider_body = notification_body
                     if corporate_source_line:
                         provider_body = f"{provider_body}\n\n{corporate_source_line}"
+                    sent_any = False
                     for webhook_url in webhook_urls:
-                        send_discord_webhook(
+                        if send_discord_webhook(
                             webhook_url,
                             notification_title,
                             provider_body,
                             level="info",
                             link=fulfill_queue_url,
                             thumbnail_url=None,
-                        )
-                    muted_user_ids.update(corp_user_ids)
+                        ):
+                            sent_any = True
+                    if sent_any:
+                        muted_user_ids.update(corp_user_ids)
 
             provider_users = User.objects.filter(
                 id__in=(direct_user_ids | (eligible_owner_ids - muted_user_ids)),

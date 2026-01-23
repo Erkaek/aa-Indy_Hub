@@ -13,6 +13,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### Fixed
 
+## [1.13.7] - 2026-01-24
+
+### Changed
+
+- Notifications: Discord webhook delivery now retries up to 3 times before falling back to in-app messages.
+
+### Fixed
+
+- Notifications: webhook payloads now handle lazy translation titles without raising `TypeError`.
+- Blueprint Sharing: webhook failures now fall back to MP notifications after retries.
+
 ## [1.13.6] - 2026-01-23
 
 ### Changed
