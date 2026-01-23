@@ -505,7 +505,7 @@ class MaterialExchangeSellOrderAdmin(admin.ModelAdmin):
 
     @admin.display(description="Total Price")
     def total_price_display(self, obj):
-        return f"{obj.total_price:,.2f} ISK"
+        return f"{obj.total_price:,.0f} ISK"
 
 
 @admin.register(MaterialExchangeBuyOrder)
@@ -548,7 +548,7 @@ class MaterialExchangeBuyOrderAdmin(admin.ModelAdmin):
 
     @admin.display(description="Total Price")
     def total_price_display(self, obj):
-        return f"{obj.total_price:,.2f} ISK"
+        return f"{obj.total_price:,.0f} ISK"
 
 
 @admin.register(MaterialExchangeTransaction)

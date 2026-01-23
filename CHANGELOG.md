@@ -13,6 +13,23 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### Fixed
 
+## [1.13.6] - 2026-01-23
+
+### Changed
+
+- Material Exchange: buy/sell order totals are now rounded up to whole ISK for contract matching and display.
+- Material Exchange: admin lists, order details, and contract instructions now show integer totals.
+
+### Fixed
+
+- Material Exchange: ESI contract validation now matches the rounded totals consistently for both buy and sell orders.
+- Material Exchange: buy orders are now validated even when the contract is already finished before the next sync.
+- Material Exchange: buy orders now refresh status on rejected/cancelled contracts even when no sell orders are pending.
+
+### Internal
+
+- Added migrations to backfill rounded totals on existing buy/sell orders.
+
 ## [1.13.5] - 2026-01-23
 
 ### Internal

@@ -3,7 +3,7 @@
 # Standard Library
 import hashlib
 import logging
-from decimal import Decimal
+from decimal import ROUND_CEILING, Decimal
 
 # Django
 from django.contrib import messages
@@ -743,7 +743,7 @@ def material_exchange_sell(request):
 
         items_to_create: list[dict] = []
         errors: list[str] = []
-        total_payout = 0
+        total_payout = Decimal("0")
 
         price_data = _fetch_fuzzwork_prices(list(user_assets.keys()))
 
@@ -815,6 +815,12 @@ def material_exchange_sell(request):
             )
             for item_data in items_to_create:
                 MaterialExchangeSellOrderItem.objects.create(order=order, **item_data)
+
+            rounded_total_payout = total_payout.quantize(
+                Decimal("1"), rounding=ROUND_CEILING
+            )
+            order.rounded_total_price = rounded_total_payout
+            order.save(update_fields=["rounded_total_price", "updated_at"])
 
             messages.success(
                 request,
@@ -1065,7 +1071,7 @@ def material_exchange_buy(request):
 
         items_to_create = []
         errors = []
-        total_cost = 0
+        total_cost = Decimal("0")
 
         for stock_item in stock_items:
             type_id = stock_item.type_id
@@ -1129,12 +1135,18 @@ def material_exchange_buy(request):
             for item_data in items_to_create:
                 MaterialExchangeBuyOrderItem.objects.create(order=order, **item_data)
 
+            rounded_total_cost = total_cost.quantize(
+                Decimal("1"), rounding=ROUND_CEILING
+            )
+            order.rounded_total_price = rounded_total_cost
+            order.save(update_fields=["rounded_total_price", "updated_at"])
+
             # Admin notifications are handled by the post_save signal + async task
 
             messages.success(
                 request,
                 _(
-                    f"Created buy order #{order.id} with {len(items_to_create)} item(s). Total cost: {total_cost:,.2f} ISK. Awaiting admin approval."
+                    f"Created buy order #{order.id} with {len(items_to_create)} item(s). Total cost: {rounded_total_cost:,.0f} ISK. Awaiting admin approval."
                 ),
             )
             return redirect("indy_hub:material_exchange_index")

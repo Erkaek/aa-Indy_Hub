@@ -560,7 +560,7 @@ def validate_material_exchange_buy_orders():
             _(
                 f"Your buy order {order.order_reference} is awaiting validation.\n"
                 f"Items: {items_str}\n"
-                f"Total cost: {order.total_price:,.2f} ISK\n\n"
+                f"Total cost: {order.total_price:,.0f} ISK\n\n"
                 f"The corporation is preparing your contract. Stand by."
             ),
             level="info",
@@ -698,7 +698,7 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
         order.esi_contract_id = matching_contract.contract_id
         order.notes = (
             f"Contract validated: {matching_contract.contract_id} @ "
-            f"{matching_contract.price:,.2f} ISK"
+            f"{matching_contract.price:,.0f} ISK"
         )
         order.save(
             update_fields=[
@@ -715,7 +715,7 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
             _("✅ Sell Order Validated"),
             _(
                 f"Your sell order {order.order_reference} has been validated!\n"
-                f"Contract #{matching_contract.contract_id} for {order.total_price:,.2f} ISK verified.\n\n"
+                f"Contract #{matching_contract.contract_id} for {order.total_price:,.0f} ISK verified.\n\n"
                 f"Status: Awaiting corporation to accept the contract.\n"
                 f"Once accepted, you will receive payment."
             ),
@@ -728,8 +728,8 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
             _("Sell Order Validated"),
             _(
                 f"{order.seller.username} wants to sell:\n{items_list}\n\n"
-                f"Total: {order.total_price:,.2f} ISK\n"
-                f"Contract #{matching_contract.contract_id} at {matching_contract.price:,.2f} ISK verified from database.\n\n"
+                f"Total: {order.total_price:,.0f} ISK\n"
+                f"Contract #{matching_contract.contract_id} at {matching_contract.price:,.0f} ISK verified from database.\n\n"
                 f"Awaiting corporation to accept the contract."
             ),
             level="success",
@@ -782,14 +782,14 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
         contract_value = contract_with_correct_ref_wrong_price.get("contract_price")
         try:
             expected_price = (
-                f"{Decimal(str(expected_value)).quantize(Decimal('0.01')):,.2f} ISK"
+                f"{Decimal(str(expected_value)).quantize(Decimal('1')):,.0f} ISK"
             )
         except (InvalidOperation, TypeError):
             expected_price = str(expected_value)
 
         try:
             contract_price = (
-                f"{Decimal(str(contract_value)).quantize(Decimal('0.01')):,.2f} ISK"
+                f"{Decimal(str(contract_value)).quantize(Decimal('1')):,.0f} ISK"
             )
         except (InvalidOperation, TypeError):
             contract_price = str(contract_value)
@@ -820,7 +820,7 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
             f"- Title including {order_ref}\n"
             f"- Recipient (assignee): {_get_corp_name(config.corporation_id)}\n"
             f"- Location: {config.structure_name or f'Structure {config.structure_id}'}\n"
-            f"- Price: {order.total_price:,.2f} ISK\n"
+            f"- Price: {order.total_price:,.0f} ISK\n"
             f"- Items: {', '.join(item.type_name for item in order.items.all())}"
             + (f"\nLast checked issue: {last_price_issue}" if last_price_issue else "")
         )
@@ -917,7 +917,7 @@ def _validate_buy_order_from_db(config, order, contracts, esi_client=None):
         order.esi_contract_id = matching_contract.contract_id
         order.notes = (
             f"Contract validated: {matching_contract.contract_id} @ "
-            f"{matching_contract.price:,.2f} ISK"
+            f"{matching_contract.price:,.0f} ISK"
         )
         order.save(
             update_fields=[
@@ -940,7 +940,7 @@ def _validate_buy_order_from_db(config, order, contracts, esi_client=None):
             _("Buy Order Ready"),
             _(
                 f"Your buy order {order.order_reference} is ready.\n"
-                f"Contract #{matching_contract.contract_id} for {order.total_price:,.2f} ISK has been validated.\n\n"
+                f"Contract #{matching_contract.contract_id} for {order.total_price:,.0f} ISK has been validated.\n\n"
                 f"Please accept the in-game contract to receive your items."
             ),
             level="success",
@@ -951,7 +951,7 @@ def _validate_buy_order_from_db(config, order, contracts, esi_client=None):
             _("Buy Order Validated"),
             _(
                 f"{order.buyer.username} will receive:\n{items_list}\n\n"
-                f"Total: {order.total_price:,.2f} ISK\n"
+                f"Total: {order.total_price:,.0f} ISK\n"
                 f"Contract #{matching_contract.contract_id} verified from database."
             ),
             level="success",
@@ -977,7 +977,7 @@ def _validate_buy_order_from_db(config, order, contracts, esi_client=None):
         [
             f"Pending contract for {order_ref}.",
             "Ensure corp issues item exchange contract to buyer.",
-            f"Expected price: {order.total_price:,.2f} ISK",
+            f"Expected price: {order.total_price:,.0f} ISK",
             issue_line,
         ]
     ).strip()
@@ -998,7 +998,7 @@ def _validate_buy_order_from_db(config, order, contracts, esi_client=None):
             _(
                 f"Buy order {order.order_reference} has no matching contract yet.\n"
                 f"Buyer: {order.buyer.username}\n"
-                f"Expected price: {order.total_price:,.2f} ISK"
+                f"Expected price: {order.total_price:,.0f} ISK"
                 + (f"\nIssue(s): {'; '.join(issues)}" if issues else "")
             ),
             level="warning",
@@ -1093,9 +1093,17 @@ def _matches_buy_order_criteria_db(
 
 
 def _contract_items_match_order_db(contract, order):
-    """Check if database contract items exactly match the sell order items."""
+    """Check if database contract items exactly match the order items."""
     # Only validate included items (not requested)
     included_items = contract.items.filter(is_included=True)
+    if not included_items.exists():
+        # Finished contracts may no longer expose items via ESI; allow match
+        # based on other criteria (title/location/price) in that case.
+        return contract.status in [
+            "finished",
+            "finished_issuer",
+            "finished_contractor",
+        ]
 
     order_items = list(order.items.all())
 
@@ -1123,10 +1131,10 @@ def _contract_price_matches_db(contract, order) -> tuple[bool, str]:
 
     if contract_price != expected_price:
         return False, (
-            f"price {contract_price:,.2f} ISK vs expected {expected_price:,.2f} ISK"
+            f"price {contract_price:,.0f} ISK vs expected {expected_price:,.0f} ISK"
         )
 
-    return True, f"price {contract_price:,.2f} ISK OK"
+    return True, f"price {contract_price:,.0f} ISK OK"
 
 
 @shared_task(
@@ -1204,9 +1212,6 @@ def check_completed_material_exchange_contracts():
         config=config,
         status=MaterialExchangeSellOrder.Status.VALIDATED,
     )
-
-    if not approved_orders.exists():
-        return
 
     try:
         contracts = shared_client.fetch_corporation_contracts(

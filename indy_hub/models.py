@@ -1,6 +1,7 @@
 # Standard Library
 import random
 from datetime import timedelta
+from decimal import ROUND_CEILING, Decimal
 
 # Django
 from django.contrib.auth.models import User
@@ -1853,6 +1854,14 @@ class MaterialExchangeSellOrder(models.Model):
         help_text=_("Unique order reference (INDY-{id}) for contract matching"),
     )
 
+    rounded_total_price = models.DecimalField(
+        max_digits=20,
+        decimal_places=0,
+        null=True,
+        blank=True,
+        help_text=_("Rounded total price for contract (ceil to whole ISK)"),
+    )
+
     notes = models.TextField(blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -1895,8 +1904,30 @@ class MaterialExchangeSellOrder(models.Model):
 
     @property
     def total_price(self):
-        """Sum of all item prices"""
-        return sum(item.total_price for item in self.items.all())
+        """Rounded total price (ceil to whole ISK) for contract matching."""
+        if self.rounded_total_price is not None:
+            return self.rounded_total_price
+        total = sum(
+            (item.total_price for item in self.items.all()),
+            Decimal("0"),
+        )
+        return total.quantize(Decimal("1"), rounding=ROUND_CEILING)
+
+    @property
+    def raw_total_price(self):
+        """Unrounded total price based on items."""
+        return sum(
+            (item.total_price for item in self.items.all()),
+            Decimal("0"),
+        )
+
+    def update_rounded_total_price(self, save: bool = True) -> Decimal:
+        """Recalculate and optionally persist the rounded total price."""
+        rounded = self.raw_total_price.quantize(Decimal("1"), rounding=ROUND_CEILING)
+        self.rounded_total_price = rounded
+        if save:
+            self.save(update_fields=["rounded_total_price", "updated_at"])
+        return rounded
 
     @property
     def total_quantity(self):
@@ -2055,6 +2086,14 @@ class MaterialExchangeBuyOrder(models.Model):
         help_text=_("Unique order reference (INDY-{id}) for contract matching"),
     )
 
+    rounded_total_price = models.DecimalField(
+        max_digits=20,
+        decimal_places=0,
+        null=True,
+        blank=True,
+        help_text=_("Rounded total price for contract (ceil to whole ISK)"),
+    )
+
     notes = models.TextField(blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -2097,8 +2136,30 @@ class MaterialExchangeBuyOrder(models.Model):
 
     @property
     def total_price(self):
-        """Sum of all item prices"""
-        return sum(item.total_price for item in self.items.all())
+        """Rounded total price (ceil to whole ISK) for contract matching."""
+        if self.rounded_total_price is not None:
+            return self.rounded_total_price
+        total = sum(
+            (item.total_price for item in self.items.all()),
+            Decimal("0"),
+        )
+        return total.quantize(Decimal("1"), rounding=ROUND_CEILING)
+
+    @property
+    def raw_total_price(self):
+        """Unrounded total price based on items."""
+        return sum(
+            (item.total_price for item in self.items.all()),
+            Decimal("0"),
+        )
+
+    def update_rounded_total_price(self, save: bool = True) -> Decimal:
+        """Recalculate and optionally persist the rounded total price."""
+        rounded = self.raw_total_price.quantize(Decimal("1"), rounding=ROUND_CEILING)
+        self.rounded_total_price = rounded
+        if save:
+            self.save(update_fields=["rounded_total_price", "updated_at"])
+        return rounded
 
     @property
     def total_quantity(self):

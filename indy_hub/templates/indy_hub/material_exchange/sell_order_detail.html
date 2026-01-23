@@ -67,7 +67,7 @@
                             <i class="fas fa-coins me-1" aria-hidden="true"></i>
                             <span class="order-summary-chip-label">{% trans "Total" %}:</span>
                             <span class="order-summary-chip-value text-warning fw-bold">
-                                <span id="orderTotalFormatted" data-raw="{{ order.total_price|floatformat:2 }}"></span> ISK
+                                <span id="orderTotalFormatted" data-raw="{{ order.total_price|floatformat:0 }}"></span> ISK
                             </span>
                             <button type="button" class="btn btn-link p-0 ms-2 order-summary-chip-copy" onclick="copyOrderTotal(this)" title="{% trans "Copy" %}">
                                 <i class="fas fa-copy" aria-hidden="true"></i>
@@ -143,7 +143,7 @@
                                     </li>
                                     <li>
                                         <strong>{% trans "Price:" %}</strong>
-                                        <span class="text-warning fw-bold">{{ order.total_price|floatformat:2|intcomma }} ISK</span>
+                                        <span class="text-warning fw-bold">{{ order.total_price|floatformat:0|intcomma }} ISK</span>
                                     </li>
                                     <li>
                                         <strong class="text-danger">{% trans "Title/Description:" %}</strong>
@@ -212,7 +212,7 @@
                                     <tr class="table-active fw-bold">
                                         <td colspan="3" class="text-end">{% trans "TOTAL PAYOUT:" %}</td>
                                         <td class="text-end text-success fs-5">
-                                            {{ order.total_price|floatformat:2|intcomma }} ISK
+                                            {{ order.total_price|floatformat:0|intcomma }} ISK
                                         </td>
                                         {% if order.status != 'draft' %}
                                             <td></td>
@@ -302,14 +302,11 @@ function formatOrderTotalForEve(rawValue) {
     }
 
     const normalized = String(rawValue).trim().replace(/\s+/g, '').replace(',', '.');
-    const match = normalized.match(/^(-?\d+)(?:\.(\d+))?$/);
-    if (!match) {
-        return normalized;
+    const value = Number(normalized);
+    if (!Number.isFinite(value)) {
+        return '';
     }
-
-    const intPart = match[1];
-    const decPart = (match[2] || '').padEnd(2, '0').slice(0, 2);
-    return `${intPart}.${decPart}`;
+    return String(Math.ceil(value));
 }
 
 function formatOrderTotal(rawValue) {
@@ -319,14 +316,14 @@ function formatOrderTotal(rawValue) {
 
     const normalized = String(rawValue).replace(',', '.');
     const numeric = Number(normalized);
-    if (Number.isNaN(numeric)) {
+    if (!Number.isFinite(numeric)) {
         return String(rawValue);
     }
 
     return new Intl.NumberFormat('fr-FR', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2
-    }).format(numeric);
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0
+    }).format(Math.ceil(numeric));
 }
 
 document.addEventListener('DOMContentLoaded', () => {

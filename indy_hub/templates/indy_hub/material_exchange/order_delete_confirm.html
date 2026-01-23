@@ -28,10 +28,10 @@
                             <strong>{% trans "Order Reference:" %}</strong> {{ order.order_reference }}<br>
                             {% if order_type == 'sell' %}
                                 <strong>{% trans "Items to sell:" %}</strong> {{ order.items.count }}<br>
-                                <strong>{% trans "Total:" %}</strong> {{ order.total_price|floatformat:2|intcomma }} ISK
+                                <strong>{% trans "Total:" %}</strong> {{ order.total_price|floatformat:0|intcomma }} ISK
                             {% else %}
                                 <strong>{% trans "Items to buy:" %}</strong> {{ order.items.count }}<br>
-                                <strong>{% trans "Total:" %}</strong> {{ order.total_price|floatformat:2|intcomma }} ISK
+                                <strong>{% trans "Total:" %}</strong> {{ order.total_price|floatformat:0|intcomma }} ISK
                             {% endif %}
                         </div>
 
