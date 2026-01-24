@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### Fixed
 
+- Notifications: Discord webhook payload content now matches the in-app message content.
+
 ## [1.13.8] - 2026-01-24
 
 ### Internal

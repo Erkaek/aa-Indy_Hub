@@ -158,17 +158,15 @@ def _build_discord_embed(
 
 
 def _build_discord_content(title: str, body: str) -> str:
-    if not title and not body:
+    title_text = str(title or "")
+    body_text = str(body or "")
+    if not title_text and not body_text:
         return ""
-    if not body:
-        return title
-        title_text = str(title or "")
-        body_text = str(body or "")
-        if not body_text:
-            return title_text
-        if title_text and title_text not in body_text:
-            return f"{title_text}\n\n{body_text}"
-        return body_text
+    if not body_text:
+        return title_text
+    if title_text and title_text not in body_text:
+        return f"{title_text}\n\n{body_text}"
+    return body_text
 
 
 def send_discord_webhook(
@@ -198,7 +196,9 @@ def send_discord_webhook(
     if normalized_link:
         cta_line = build_cta(normalized_link, DEFAULT_LINK_LABEL)
 
-    content = _build_discord_content(title, message or "")
+    title_text = str(title or "")
+    message_text = str(message or "")
+    content = _build_discord_content(title_text, message_text)
     if cta_line:
         content = f"{content}\n\n{cta_line}" if content else cta_line
 
@@ -206,8 +206,8 @@ def send_discord_webhook(
     if thumbnail_url:
         payload["embeds"] = [
             {
-                "title": title,
-                "description": message,
+                "title": title_text,
+                "description": message_text,
                 "color": DISCORD_EMBED_COLORS.get(level, DISCORD_EMBED_COLORS["info"]),
                 "timestamp": timezone.now().isoformat(),
                 "thumbnail": {"url": thumbnail_url},
