@@ -47,7 +47,13 @@ def build_site_url(path: str | None) -> str | None:
     if not path:
         return None
 
-    base_url = getattr(settings, "SITE_URL", "")
+    parsed = urlparse(path)
+    if parsed.scheme:
+        return path
+
+    base_url = getattr(settings, "INDY_HUB_SITE_URL", "") or getattr(
+        settings, "SITE_URL", ""
+    )
     if not base_url:
         return None
 

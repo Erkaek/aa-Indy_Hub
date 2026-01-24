@@ -3184,10 +3184,12 @@ def bp_copy_request_page(request):
                     provider_body = notification_body
                     if corporate_source_line:
                         provider_body = f"{provider_body}\n\n{corporate_source_line}"
+                    base_url = request.build_absolute_uri("/")
                     action_buttons = []
                     accept_link = build_action_link_any(
                         action="accept",
                         request_id=new_request.id,
+                        base_url=base_url,
                     )
                     if accept_link:
                         action_buttons.append(
@@ -3202,6 +3204,7 @@ def bp_copy_request_page(request):
                     conditional_link = build_action_link_any(
                         action="conditional",
                         request_id=new_request.id,
+                        base_url=base_url,
                     )
                     if conditional_link:
                         action_buttons.append(
@@ -3216,6 +3219,7 @@ def bp_copy_request_page(request):
                     reject_link = build_action_link_any(
                         action="reject",
                         request_id=new_request.id,
+                        base_url=base_url,
                     )
                     if reject_link:
                         action_buttons.append(
@@ -3261,6 +3265,7 @@ def bp_copy_request_page(request):
                 id__in=(direct_user_ids | (eligible_owner_ids - muted_user_ids)),
                 is_active=True,
             )
+            base_url = request.build_absolute_uri("/")
             sent_to: set[int] = set()
             for owner in provider_users:
                 if owner.id in sent_to:
@@ -3276,6 +3281,7 @@ def bp_copy_request_page(request):
                     action="accept",
                     request_id=new_request.id,
                     user_id=owner.id,
+                    base_url=base_url,
                 )
                 if accept_link:
                     quick_actions.append(
@@ -3286,6 +3292,7 @@ def bp_copy_request_page(request):
                     action="conditional",
                     request_id=new_request.id,
                     user_id=owner.id,
+                    base_url=base_url,
                 )
                 if conditional_link:
                     quick_actions.append(
@@ -3297,6 +3304,7 @@ def bp_copy_request_page(request):
                     action="reject",
                     request_id=new_request.id,
                     user_id=owner.id,
+                    base_url=base_url,
                 )
                 if reject_link:
                     quick_actions.append(

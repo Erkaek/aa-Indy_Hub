@@ -2,7 +2,7 @@
 
 # Standard Library
 import json
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urljoin
 
 # Django
 from django.conf import settings
@@ -51,17 +51,32 @@ def decode_action_token(token: str, *, max_age: int | None = None) -> dict:
     return json.loads(raw)
 
 
-def build_action_link(*, action: str, request_id: int, user_id: int) -> str | None:
+def build_action_link(
+    *,
+    action: str,
+    request_id: int,
+    user_id: int,
+    base_url: str | None = None,
+) -> str | None:
     token = generate_action_token(user_id=user_id, request_id=request_id, action=action)
     query = urlencode({"token": token})
     path = f"{reverse('indy_hub:bp_discord_action')}?{query}"
+    if base_url:
+        return urljoin(base_url.rstrip("/") + "/", path.lstrip("/"))
     return build_site_url(path)
 
 
-def build_action_link_any(*, action: str, request_id: int) -> str | None:
+def build_action_link_any(
+    *,
+    action: str,
+    request_id: int,
+    base_url: str | None = None,
+) -> str | None:
     token = generate_action_token(user_id=None, request_id=request_id, action=action)
     query = urlencode({"token": token})
     path = f"{reverse('indy_hub:bp_discord_action')}?{query}"
+    if base_url:
+        return urljoin(base_url.rstrip("/") + "/", path.lstrip("/"))
     return build_site_url(path)
 
 
@@ -91,6 +106,7 @@ def build_material_exchange_action_link_any(
     *,
     action: str,
     order_id: int,
+    base_url: str | None = None,
 ) -> str | None:
     token = generate_material_exchange_action_token(
         user_id=None,
@@ -99,6 +115,8 @@ def build_material_exchange_action_link_any(
     )
     query = urlencode({"token": token})
     path = f"{reverse('indy_hub:material_exchange_discord_action')}?{query}"
+    if base_url:
+        return urljoin(base_url.rstrip("/") + "/", path.lstrip("/"))
     return build_site_url(path)
 
 
