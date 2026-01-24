@@ -6,6 +6,7 @@ Handles ESI contract checking, validation, and PM notifications for sell/buy ord
 # Standard Library
 import logging
 import re
+from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 
 # Third Party
@@ -570,7 +571,7 @@ def validate_material_exchange_buy_orders():
                 f"The corporation is preparing your contract. Stand by."
             ),
             level="info",
-            link=f"/indy_hub/material-exchange/buy-orders/{order.id}/",
+            link=f"/indy_hub/material-exchange/my-orders/buy/{order.id}/",
         )
 
     contracts = ESIContract.objects.filter(
@@ -726,7 +727,7 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
                 f"Once accepted, you will receive payment."
             ),
             level="success",
-            link=f"/indy_hub/material-exchange/sell-orders/{order.id}/",
+            link=f"/indy_hub/material-exchange/my-orders/sell/{order.id}/",
         )
 
         _notify_material_exchange_admins(
@@ -739,7 +740,10 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
                 f"Awaiting corporation to accept the contract."
             ),
             level="success",
-            link=f"/indy_hub/material-exchange/sell-orders/{order.id}/",
+            link=(
+                f"/indy_hub/material-exchange/my-orders/sell/{order.id}/"
+                f"?next=/indy_hub/material-exchange/%23admin-panel"
+            ),
         )
 
         logger.info(
@@ -961,7 +965,10 @@ def _validate_buy_order_from_db(config, order, contracts, esi_client=None):
                 f"Contract #{matching_contract.contract_id} verified from database."
             ),
             level="success",
-            link=f"/indy_hub/material-exchange/buy-orders/{order.id}/",
+            link=(
+                f"/indy_hub/material-exchange/my-orders/buy/{order.id}/"
+                f"?next=/indy_hub/material-exchange/%23admin-panel"
+            ),
         )
 
         logger.info(
@@ -993,11 +1000,20 @@ def _validate_buy_order_from_db(config, order, contracts, esi_client=None):
     order.save(update_fields=["notes", "updated_at"])
 
     reminder_key = f"material_exchange:buy_order:{order.id}:contract_reminder"
-    reminder_set = cache.add(reminder_key, timezone.now().timestamp(), 60 * 60 * 24)
+    now = timezone.now()
+    reminder_set = cache.add(reminder_key, now.timestamp(), 60 * 60 * 24)
     if notes_changed:
-        cache.set(reminder_key, timezone.now().timestamp(), 60 * 60 * 24)
+        cache.set(reminder_key, now.timestamp(), 60 * 60 * 24)
 
-    if notes_changed or reminder_set:
+    should_notify = False
+    if reminder_set:
+        created_at = getattr(order, "created_at", None)
+        if created_at:
+            should_notify = now - created_at >= timedelta(hours=24)
+        else:
+            should_notify = True
+
+    if should_notify:
         _notify_material_exchange_admins(
             config,
             _("Buy Order Pending: contract mismatch"),
@@ -1008,7 +1024,10 @@ def _validate_buy_order_from_db(config, order, contracts, esi_client=None):
                 + (f"\nIssue(s): {'; '.join(issues)}" if issues else "")
             ),
             level="warning",
-            link=f"/indy_hub/material-exchange/buy-orders/{order.id}/",
+            link=(
+                f"/indy_hub/material-exchange/my-orders/buy/{order.id}/"
+                f"?next=/indy_hub/material-exchange/%23admin-panel"
+            ),
         )
 
     logger.info("Buy order %s pending: no matching contract yet", order.id)
@@ -1189,24 +1208,28 @@ def handle_material_exchange_buy_order_created(order_id):
         f"Preview:\n{preview}\n\n"
         f"Review and approve to proceed with delivery."
     )
-    link = f"/indy_hub/material-exchange/buy-orders/{order.id}/"
+    link = (
+        f"/indy_hub/material-exchange/my-orders/buy/{order.id}/"
+        f"?next=/indy_hub/material-exchange/%23admin-panel"
+    )
 
-    webhook_url = NotificationWebhook.get_material_exchange_url()
-    if webhook_url:
+    webhook = NotificationWebhook.get_material_exchange_webhook()
+    if webhook and webhook.webhook_url:
         sent, message_id = send_discord_webhook_with_message_id(
-            webhook_url,
+            webhook.webhook_url,
             title,
             message,
             level="info",
             link=link,
             embed_title=f"🛒 {title}",
             embed_color=0xF39C12,
+            mention_everyone=bool(getattr(webhook, "ping_here", False)),
         )
         if sent:
             if message_id:
                 NotificationWebhookMessage.objects.create(
                     webhook_type=NotificationWebhook.TYPE_MATERIAL_EXCHANGE,
-                    webhook_url=webhook_url,
+                    webhook_url=webhook.webhook_url,
                     message_id=message_id,
                     buy_order=order,
                 )
@@ -1287,7 +1310,6 @@ def check_completed_material_exchange_contracts():
             )
 
             _log_sell_order_transactions(order)
-
             logger.info(
                 "Sell order %s completed: contract %s accepted (status: %s)",
                 order.id,
@@ -1556,10 +1578,10 @@ def _notify_material_exchange_admins(
 ) -> None:
     """Notify Material Exchange admins or send to webhook if configured."""
 
-    webhook_url = NotificationWebhook.get_material_exchange_url()
-    if webhook_url:
+    webhook = NotificationWebhook.get_material_exchange_webhook()
+    if webhook and webhook.webhook_url:
         sent = send_discord_webhook(
-            webhook_url,
+            webhook.webhook_url,
             title,
             message,
             level=level,
@@ -1567,6 +1589,7 @@ def _notify_material_exchange_admins(
             thumbnail_url=thumbnail_url,
             embed_title=f"🛒 {title}",
             embed_color=0xF39C12,
+            mention_everyone=bool(getattr(webhook, "ping_here", False)),
         )
         if sent:
             return

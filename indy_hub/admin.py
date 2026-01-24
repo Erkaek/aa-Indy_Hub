@@ -250,6 +250,7 @@ class NotificationWebhookAdmin(admin.ModelAdmin):
                 "name",
                 "webhook_type",
                 "webhook_url",
+                "ping_here",
                 "is_active",
                 "corporations",
             )
@@ -267,6 +268,10 @@ class NotificationWebhookAdmin(admin.ModelAdmin):
                 (str(corp_id), corp_name or str(corp_id))
                 for corp_id, corp_name in corp_choices
             ]
+            if "ping_here" in self.fields:
+                self.fields["ping_here"].help_text = (
+                    "Send an @here mention with webhook notifications."
+                )
 
             instance = getattr(self, "instance", None)
             if instance and instance.pk and instance.corporation_ids:
@@ -353,6 +358,7 @@ class NotificationWebhookAdmin(admin.ModelAdmin):
         "name",
         "webhook_type",
         "corporation_list",
+        "ping_here",
         "is_active",
         "updated_at",
     ]
@@ -367,6 +373,7 @@ class NotificationWebhookAdmin(admin.ModelAdmin):
                     "name",
                     "webhook_type",
                     "webhook_url",
+                    "ping_here",
                     "is_active",
                     "corporations",
                 )

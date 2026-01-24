@@ -2164,6 +2164,7 @@ class NotificationRoutingTests(TestCase):
         link_label = "Open queue"
         expected_cta = f"{link_label}: {link}"
         expected_message = f"Message body\n\n{expected_cta}"
+        expected_dm_message = f"Message body\n\n[clic here]({link})"
 
         notify_user(
             self.user,
@@ -2176,7 +2177,7 @@ class NotificationRoutingTests(TestCase):
 
         mock_bot.assert_called_once()
         bot_args, bot_kwargs = mock_bot.call_args
-        self.assertEqual(bot_args[2], expected_message)
+        self.assertEqual(bot_args[2], expected_dm_message)
         self.assertEqual(bot_kwargs.get("link"), link)
         self.assertIsNone(bot_kwargs.get("thumbnail_url"))
 

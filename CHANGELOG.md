@@ -7,17 +7,23 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
 
+## [1.13.9] - 2026-01-24
+
 ### Added
 
 - Notifications: Discord webhook messages are now tracked so they can be deleted when buy orders or blueprint copy requests are cancelled.
+- Notifications: webhook configuration can optionally ping @here per webhook.
 
 ### Changed
 
 - Notifications: Discord webhook embeds now use type-specific styling (title and color).
+- Notifications: MP and webhook embeds now show a short "clic here" CTA instead of full URLs.
+- Material Exchange: pending buy order reminders now trigger after 24 hours instead of immediately.
 
 ### Fixed
 
 - Notifications: Discord webhook payload content now matches the in-app message content.
+- Material Exchange: webhook/admin links now route to my-orders detail pages with admin panel return.
 
 ## [1.13.8] - 2026-01-24
 

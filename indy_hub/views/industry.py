@@ -3178,15 +3178,15 @@ def bp_copy_request_page(request):
             # Send one webhook per corporation when configured and exclude those users from DMs
             muted_user_ids: set[int] = set()
             for corp_id, corp_user_ids in corp_to_users.items():
-                webhook_urls = NotificationWebhook.get_blueprint_sharing_urls(corp_id)
-                if webhook_urls:
+                webhooks = NotificationWebhook.get_blueprint_sharing_webhooks(corp_id)
+                if webhooks:
                     provider_body = notification_body
                     if corporate_source_line:
                         provider_body = f"{provider_body}\n\n{corporate_source_line}"
                     sent_any = False
-                    for webhook_url in webhook_urls:
+                    for webhook in webhooks:
                         sent, message_id = send_discord_webhook_with_message_id(
-                            webhook_url,
+                            webhook.webhook_url,
                             notification_title,
                             provider_body,
                             level="info",
@@ -3194,13 +3194,14 @@ def bp_copy_request_page(request):
                             thumbnail_url=None,
                             embed_title=f"📘 {notification_title}",
                             embed_color=0x5865F2,
+                            mention_everyone=bool(getattr(webhook, "ping_here", False)),
                         )
                         if sent:
                             sent_any = True
                             if message_id:
                                 NotificationWebhookMessage.objects.create(
                                     webhook_type=NotificationWebhook.TYPE_BLUEPRINT_SHARING,
-                                    webhook_url=webhook_url,
+                                    webhook_url=webhook.webhook_url,
                                     message_id=message_id,
                                     copy_request=new_request,
                                 )

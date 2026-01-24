@@ -39,6 +39,7 @@ EMBED_FOOTER_TEXT = getattr(
     getattr(settings, "Indy_Hub", "Alliance Auth"),
 )
 DEFAULT_LINK_LABEL = _("View details")
+SHORT_LINK_LABEL = _("clic here")
 
 
 def build_site_url(path: str | None) -> str | None:
@@ -85,11 +86,24 @@ def build_site_url(path: str | None) -> str | None:
     return urljoin(normalized_base, normalized_path)
 
 
-def build_cta(url: str, label: str, *, icon: str | None = None) -> str:
+def build_cta(
+    url: str,
+    label: str,
+    *,
+    icon: str | None = None,
+    include_url: bool = True,
+    markdown: bool = False,
+) -> str:
     """Return a short call-to-action line with an optional icon."""
 
     prefix = f"{icon} " if icon else ""
-    return f"{prefix}{label}: {url}".strip()
+    if markdown:
+        if url:
+            return f"{prefix}[{label}]({url})".strip()
+        return f"{prefix}{label}".strip()
+    if include_url:
+        return f"{prefix}{label}: {url}".strip()
+    return f"{prefix}{label}".strip()
 
 
 def build_notification_card(
@@ -207,6 +221,7 @@ def _build_discord_webhook_payload(
     thumbnail_url: str | None = None,
     embed_title: str | None = None,
     embed_color: int | None = None,
+    mention_everyone: bool = False,
 ) -> dict:
     normalized_link = link
     if link:
@@ -216,7 +231,12 @@ def _build_discord_webhook_payload(
 
     cta_line = None
     if normalized_link:
-        cta_line = build_cta(normalized_link, DEFAULT_LINK_LABEL)
+        cta_line = build_cta(
+            normalized_link,
+            SHORT_LINK_LABEL,
+            include_url=False,
+            markdown=True,
+        )
 
     title_text = str(title or "")
     message_text = str(message or "")
@@ -224,7 +244,9 @@ def _build_discord_webhook_payload(
     if cta_line:
         description = f"{description}\n\n{cta_line}" if description else cta_line
 
-    payload = {"content": ""}
+    payload = {"content": "@here" if mention_everyone else ""}
+    if mention_everyone:
+        payload["allowed_mentions"] = {"parse": ["everyone"]}
     embed = {
         "title": embed_title or title_text,
         "description": description,
@@ -254,6 +276,7 @@ def send_discord_webhook(
     thumbnail_url: str | None = None,
     embed_title: str | None = None,
     embed_color: int | None = None,
+    mention_everyone: bool = False,
     retries: int = 3,
 ) -> bool:
     """Send a notification to a Discord webhook URL.
@@ -271,6 +294,7 @@ def send_discord_webhook(
         thumbnail_url=thumbnail_url,
         embed_title=embed_title,
         embed_color=embed_color,
+        mention_everyone=mention_everyone,
     )
 
     # Third Party
@@ -307,6 +331,7 @@ def send_discord_webhook_with_message_id(
     thumbnail_url: str | None = None,
     embed_title: str | None = None,
     embed_color: int | None = None,
+    mention_everyone: bool = False,
     retries: int = 3,
 ) -> tuple[bool, str | None]:
     """Send a Discord webhook message and return its message ID when available."""
@@ -321,6 +346,7 @@ def send_discord_webhook_with_message_id(
         thumbnail_url=thumbnail_url,
         embed_title=embed_title,
         embed_color=embed_color,
+        mention_everyone=mention_everyone,
     )
 
     # Third Party
@@ -419,7 +445,9 @@ def _send_via_aadiscordbot(
     return True
 
 
-def _send_via_discordnotify(notification: Notification, level: str) -> bool:
+def _send_via_discordnotify(
+    notification: Notification, level: str, *, message_override: str | None = None
+) -> bool:
     if not apps.is_installed("discordnotify"):
         return False
 
@@ -444,7 +472,7 @@ def _send_via_discordnotify(notification: Notification, level: str) -> bool:
         notification_id=notification.id,
         discord_uid=discord_profile.uid,
         title=notification.title,
-        message=notification.message,
+        message=message_override or notification.message,
         level=level,
         timestamp=notification.timestamp.isoformat(),
     )
@@ -485,7 +513,7 @@ def _dispatch_discord_dm(
         return
 
     try:
-        if _send_via_discordnotify(notification, level):
+        if _send_via_discordnotify(notification, level, message_override=body):
             sent = True
     except Exception as exc:  # pragma: no cover - defensive logging
         logger.warning(
@@ -523,16 +551,24 @@ def notify_user(
             normalized_link = build_site_url(link) or link
 
     cta_line = None
+    dm_cta_line = None
     if normalized_link:
         cta_label = (link_label or DEFAULT_LINK_LABEL).strip()
         if cta_label:
             cta_line = build_cta(normalized_link, cta_label)
+        dm_cta_line = build_cta(
+            normalized_link,
+            SHORT_LINK_LABEL,
+            include_url=False,
+            markdown=True,
+        )
 
     if cta_line:
         stored_message = (
             f"{stored_message}\n\n{cta_line}" if stored_message else cta_line
         )
-        dm_body = f"{dm_body}\n\n{cta_line}" if dm_body else cta_line
+    if dm_cta_line:
+        dm_body = f"{dm_body}\n\n{dm_cta_line}" if dm_body else dm_cta_line
 
     effective_link = normalized_link
 

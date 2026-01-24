@@ -1164,6 +1164,7 @@ class NotificationWebhook(models.Model):
     corporation_ids = models.JSONField(default=list, blank=True)
     corporation_names = models.JSONField(default=list, blank=True)
     webhook_url = models.URLField(max_length=500)
+    ping_here = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -1219,6 +1220,17 @@ class NotificationWebhook(models.Model):
         )
 
     @classmethod
+    def get_material_exchange_webhook(cls) -> "NotificationWebhook | None":
+        return (
+            cls.objects.filter(
+                webhook_type=cls.TYPE_MATERIAL_EXCHANGE,
+                is_active=True,
+            )
+            .only("webhook_url", "ping_here")
+            .first()
+        )
+
+    @classmethod
     def get_blueprint_sharing_url(cls, corporation_id: int | None) -> str | None:
         if not corporation_id:
             return None
@@ -1259,6 +1271,35 @@ class NotificationWebhook(models.Model):
                     if webhook.webhook_url:
                         urls.append(webhook.webhook_url)
             return urls
+
+    @classmethod
+    def get_blueprint_sharing_webhooks(
+        cls, corporation_id: int | None
+    ) -> list["NotificationWebhook"]:
+        if not corporation_id:
+            return []
+        # Django
+        from django.db import NotSupportedError
+
+        try:
+            return list(
+                cls.objects.filter(
+                    webhook_type=cls.TYPE_BLUEPRINT_SHARING,
+                    corporation_ids__contains=[corporation_id],
+                    is_active=True,
+                ).only("webhook_url", "ping_here")
+            )
+        except NotSupportedError:
+            webhooks: list[NotificationWebhook] = []
+            for webhook in cls.objects.filter(
+                webhook_type=cls.TYPE_BLUEPRINT_SHARING,
+                is_active=True,
+            ).only("webhook_url", "ping_here", "corporation_ids"):
+                corp_ids = list(getattr(webhook, "corporation_ids", []) or [])
+                if corporation_id in corp_ids:
+                    if webhook.webhook_url:
+                        webhooks.append(webhook)
+            return webhooks
 
 
 class NotificationWebhookMessage(models.Model):
