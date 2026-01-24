@@ -55,6 +55,29 @@ def build_site_url(path: str | None) -> str | None:
         settings, "SITE_URL", ""
     )
     if not base_url:
+        origins = list(getattr(settings, "CSRF_TRUSTED_ORIGINS", []) or [])
+        base_url = next(
+            (
+                origin
+                for origin in origins
+                if isinstance(origin, str)
+                and origin.startswith(("http://", "https://"))
+            ),
+            "",
+        )
+    if not base_url:
+        allowed_hosts = list(getattr(settings, "ALLOWED_HOSTS", []) or [])
+        host = next(
+            (
+                value
+                for value in allowed_hosts
+                if isinstance(value, str) and value and value != "*"
+            ),
+            "",
+        )
+        if host:
+            base_url = f"https://{host}"
+    if not base_url:
         return None
 
     normalized_base = base_url.rstrip("/") + "/"
