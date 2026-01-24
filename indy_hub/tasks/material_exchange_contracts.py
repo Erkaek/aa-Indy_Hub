@@ -1230,6 +1230,8 @@ def handle_material_exchange_buy_order_created(order_id):
             level="info",
             link=link,
             components=webhook_components,
+            embed_title=f"🛒 {title}",
+            embed_color=0xF39C12,
         )
         if sent:
             if message_id:
@@ -1594,6 +1596,8 @@ def _notify_material_exchange_admins(
             level=level,
             link=link,
             thumbnail_url=thumbnail_url,
+            embed_title=f"🛒 {title}",
+            embed_color=0xF39C12,
         )
         if sent:
             return

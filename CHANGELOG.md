@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### Changed
 
+- Notifications: Discord webhook embeds now use type-specific styling (title and color).
+
 ### Fixed
 
 - Notifications: Discord webhook payload content now matches the in-app message content.

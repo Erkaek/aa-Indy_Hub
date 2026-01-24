@@ -3242,6 +3242,8 @@ def bp_copy_request_page(request):
                             link=fulfill_queue_url,
                             thumbnail_url=None,
                             components=webhook_components,
+                            embed_title=f"📘 {notification_title}",
+                            embed_color=0x5865F2,
                         )
                         if sent:
                             sent_any = True

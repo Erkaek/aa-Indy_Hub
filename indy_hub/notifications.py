@@ -177,6 +177,8 @@ def _build_discord_webhook_payload(
     link: str | None = None,
     thumbnail_url: str | None = None,
     components: list[dict] | None = None,
+    embed_title: str | None = None,
+    embed_color: int | None = None,
 ) -> dict:
     normalized_link = link
     if link:
@@ -190,21 +192,26 @@ def _build_discord_webhook_payload(
 
     title_text = str(title or "")
     message_text = str(message or "")
-    content = _build_discord_content(title_text, message_text)
+    description = message_text
     if cta_line:
-        content = f"{content}\n\n{cta_line}" if content else cta_line
+        description = f"{description}\n\n{cta_line}" if description else cta_line
 
-    payload = {"content": content}
+    payload = {"content": ""}
+    embed = {
+        "title": embed_title or title_text,
+        "description": description,
+        "color": (
+            embed_color
+            if embed_color is not None
+            else DISCORD_EMBED_COLORS.get(level, DISCORD_EMBED_COLORS["info"])
+        ),
+        "timestamp": timezone.now().isoformat(),
+    }
+    if normalized_link:
+        embed["url"] = normalized_link
     if thumbnail_url:
-        payload["embeds"] = [
-            {
-                "title": title_text,
-                "description": message_text,
-                "color": DISCORD_EMBED_COLORS.get(level, DISCORD_EMBED_COLORS["info"]),
-                "timestamp": timezone.now().isoformat(),
-                "thumbnail": {"url": thumbnail_url},
-            }
-        ]
+        embed["thumbnail"] = {"url": thumbnail_url}
+    payload["embeds"] = [embed]
 
     if components:
         payload["components"] = components
@@ -221,6 +228,8 @@ def send_discord_webhook(
     link: str | None = None,
     thumbnail_url: str | None = None,
     components: list[dict] | None = None,
+    embed_title: str | None = None,
+    embed_color: int | None = None,
     retries: int = 3,
 ) -> bool:
     """Send a notification to a Discord webhook URL.
@@ -237,6 +246,8 @@ def send_discord_webhook(
         link=link,
         thumbnail_url=thumbnail_url,
         components=components,
+        embed_title=embed_title,
+        embed_color=embed_color,
     )
 
     # Third Party
@@ -272,6 +283,8 @@ def send_discord_webhook_with_message_id(
     link: str | None = None,
     thumbnail_url: str | None = None,
     components: list[dict] | None = None,
+    embed_title: str | None = None,
+    embed_color: int | None = None,
     retries: int = 3,
 ) -> tuple[bool, str | None]:
     """Send a Discord webhook message and return its message ID when available."""
@@ -285,6 +298,8 @@ def send_discord_webhook_with_message_id(
         link=link,
         thumbnail_url=thumbnail_url,
         components=components,
+        embed_title=embed_title,
+        embed_color=embed_color,
     )
 
     # Third Party
