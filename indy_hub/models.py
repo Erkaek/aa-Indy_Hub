@@ -1261,6 +1261,44 @@ class NotificationWebhook(models.Model):
             return urls
 
 
+class NotificationWebhookMessage(models.Model):
+    """Track Discord webhook message IDs for cleanup."""
+
+    webhook_type = models.CharField(
+        max_length=32,
+        choices=NotificationWebhook.TYPE_CHOICES,
+    )
+    webhook_url = models.URLField(max_length=500)
+    message_id = models.CharField(max_length=32)
+    buy_order = models.ForeignKey(
+        "MaterialExchangeBuyOrder",
+        on_delete=models.CASCADE,
+        related_name="webhook_messages",
+        null=True,
+        blank=True,
+    )
+    copy_request = models.ForeignKey(
+        "BlueprintCopyRequest",
+        on_delete=models.CASCADE,
+        related_name="webhook_messages",
+        null=True,
+        blank=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        default_permissions = ()
+        indexes = [
+            models.Index(fields=["webhook_type"], name="indy_webhook_msg_type"),
+            models.Index(fields=["message_id"], name="indy_webhook_msg_id"),
+            models.Index(fields=["buy_order"], name="indy_webhook_msg_buy"),
+            models.Index(fields=["copy_request"], name="indy_webhook_msg_copy"),
+        ]
+
+    def __str__(self):
+        return f"Webhook message {self.message_id}"
+
+
 class ProductionConfig(models.Model):
     PRODUCTION_CHOICES = [
         ("prod", "Produce"),

@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### Added
 
+- Notifications: Discord webhook messages are now tracked so they can be deleted when buy orders or blueprint copy requests are cancelled.
+- Blueprint Sharing: Discord webhook embeds now include quick-action buttons (accept, send conditions, decline).
+- Material Exchange: Discord webhook notifications for new buy orders include quick-action buttons (view order, reject).
+
 ### Changed
 
 ### Fixed

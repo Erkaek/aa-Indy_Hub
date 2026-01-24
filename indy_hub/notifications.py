@@ -169,23 +169,15 @@ def _build_discord_content(title: str, body: str) -> str:
     return body_text
 
 
-def send_discord_webhook(
-    webhook_url: str,
+def _build_discord_webhook_payload(
     title: str,
     message: str,
-    level: str = "info",
+    level: str,
     *,
     link: str | None = None,
     thumbnail_url: str | None = None,
-    retries: int = 3,
-) -> bool:
-    """Send a notification to a Discord webhook URL.
-
-    Returns True when the webhook call succeeds.
-    """
-    if not webhook_url:
-        return False
-
+    components: list[dict] | None = None,
+) -> dict:
     normalized_link = link
     if link:
         parsed = urlparse(link)
@@ -214,6 +206,39 @@ def send_discord_webhook(
             }
         ]
 
+    if components:
+        payload["components"] = components
+
+    return payload
+
+
+def send_discord_webhook(
+    webhook_url: str,
+    title: str,
+    message: str,
+    level: str = "info",
+    *,
+    link: str | None = None,
+    thumbnail_url: str | None = None,
+    components: list[dict] | None = None,
+    retries: int = 3,
+) -> bool:
+    """Send a notification to a Discord webhook URL.
+
+    Returns True when the webhook call succeeds.
+    """
+    if not webhook_url:
+        return False
+
+    payload = _build_discord_webhook_payload(
+        title,
+        message,
+        level,
+        link=link,
+        thumbnail_url=thumbnail_url,
+        components=components,
+    )
+
     # Third Party
     import requests
 
@@ -236,6 +261,92 @@ def send_discord_webhook(
             continue
 
     return False
+
+
+def send_discord_webhook_with_message_id(
+    webhook_url: str,
+    title: str,
+    message: str,
+    level: str = "info",
+    *,
+    link: str | None = None,
+    thumbnail_url: str | None = None,
+    components: list[dict] | None = None,
+    retries: int = 3,
+) -> tuple[bool, str | None]:
+    """Send a Discord webhook message and return its message ID when available."""
+    if not webhook_url:
+        return False, None
+
+    payload = _build_discord_webhook_payload(
+        title,
+        message,
+        level,
+        link=link,
+        thumbnail_url=thumbnail_url,
+        components=components,
+    )
+
+    # Third Party
+    import requests
+
+    attempt_count = max(1, retries)
+    parsed = urlparse(webhook_url)
+    if parsed.query:
+        webhook_url_wait = f"{webhook_url}&wait=true"
+    else:
+        webhook_url_wait = f"{webhook_url}?wait=true"
+    for attempt in range(1, attempt_count + 1):
+        try:
+            response = requests.post(webhook_url_wait, json=payload, timeout=10)
+            if response.status_code >= 400:
+                logger.warning(
+                    "Discord webhook failed (%s): %s",
+                    response.status_code,
+                    response.text,
+                )
+                continue
+            try:
+                data = response.json()
+            except ValueError:
+                logger.warning("Discord webhook response JSON parse failed.")
+                return True, None
+            message_id = data.get("id") if isinstance(data, dict) else None
+            return True, str(message_id) if message_id else None
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.warning(
+                "Discord webhook failed (attempt %s): %s", attempt, exc, exc_info=True
+            )
+            continue
+
+    return False, None
+
+
+def delete_discord_webhook_message(webhook_url: str, message_id: str) -> bool:
+    """Delete a previously sent Discord webhook message by ID."""
+    if not webhook_url or not message_id:
+        return False
+
+    parsed = urlparse(webhook_url)
+    base_url = parsed._replace(query="", fragment="").geturl()
+    delete_url = f"{base_url}/messages/{message_id}"
+
+    # Third Party
+    import requests
+
+    try:
+        response = requests.delete(delete_url, timeout=10)
+        if response.status_code >= 400:
+            logger.warning(
+                "Discord webhook delete failed (%s): %s",
+                response.status_code,
+                response.text,
+            )
+            return False
+        return True
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.warning("Discord webhook delete failed: %s", exc, exc_info=True)
+        return False
 
 
 def _send_via_aadiscordbot(

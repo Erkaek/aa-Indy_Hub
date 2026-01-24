@@ -20,7 +20,9 @@ from allianceauth.authentication.models import UserProfile
 from ..models import (
     MaterialExchangeBuyOrder,
     MaterialExchangeSellOrder,
+    NotificationWebhookMessage,
 )
+from ..notifications import delete_discord_webhook_message
 from ..utils.eve import get_corporation_name
 
 # Local
@@ -595,6 +597,13 @@ def buy_order_delete(request, order_id):
 
     if request.method == "POST":
         order_ref = order.order_reference
+        webhook_messages = NotificationWebhookMessage.objects.filter(buy_order=order)
+        for webhook_message in webhook_messages:
+            delete_discord_webhook_message(
+                webhook_message.webhook_url,
+                webhook_message.message_id,
+            )
+        webhook_messages.delete()
         order.delete()
         messages.success(
             request,

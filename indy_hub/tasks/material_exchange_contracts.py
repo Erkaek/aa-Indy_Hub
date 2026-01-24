@@ -31,8 +31,15 @@ from indy_hub.models import (
     MaterialExchangeStock,
     MaterialExchangeTransaction,
     NotificationWebhook,
+    NotificationWebhookMessage,
 )
-from indy_hub.notifications import notify_multi, notify_user, send_discord_webhook
+from indy_hub.notifications import (
+    build_site_url,
+    notify_multi,
+    notify_user,
+    send_discord_webhook,
+    send_discord_webhook_with_message_id,
+)
 from indy_hub.services.asset_cache import resolve_structure_names
 from indy_hub.services.esi_client import (
     ESIClientError,
@@ -41,6 +48,7 @@ from indy_hub.services.esi_client import (
     ESITokenError,
     shared_client,
 )
+from indy_hub.utils.discord_actions import build_material_exchange_action_link_any
 
 logger = logging.getLogger(__name__)
 
@@ -1175,18 +1183,72 @@ def handle_material_exchange_buy_order_created(order_id):
 
     preview = "\n".join(preview_lines) if preview_lines else _("(no items)")
 
-    _notify_material_exchange_admins(
-        config,
-        _("New Buy Order"),
-        _(
-            f"{order.buyer.username} created a buy order {order.order_reference}.\n"
-            f"Items: {len(items)} (qty: {total_qty:,})\n"
-            f"Total: {total_price:,.2f} ISK\n\n"
-            f"Preview:\n{preview}\n\n"
-            f"Review and approve to proceed with delivery."
-        ),
+    title = _("New Buy Order")
+    message = _(
+        f"{order.buyer.username} created a buy order {order.order_reference}.\n"
+        f"Items: {len(items)} (qty: {total_qty:,})\n"
+        f"Total: {total_price:,.2f} ISK\n\n"
+        f"Preview:\n{preview}\n\n"
+        f"Review and approve to proceed with delivery."
+    )
+    link = f"/indy_hub/material-exchange/buy-orders/{order.id}/"
+    view_link = build_site_url(link) or link
+    reject_link = build_material_exchange_action_link_any(
+        action="reject",
+        order_id=order.id,
+    )
+    webhook_components = None
+    if view_link or reject_link:
+        action_buttons = []
+        if view_link:
+            action_buttons.append(
+                {
+                    "type": 2,
+                    "style": 5,
+                    "label": str(_("View order")),
+                    "url": view_link,
+                }
+            )
+        if reject_link:
+            action_buttons.append(
+                {
+                    "type": 2,
+                    "style": 5,
+                    "label": str(_("Reject")),
+                    "url": reject_link,
+                }
+            )
+        if action_buttons:
+            webhook_components = [{"type": 1, "components": action_buttons}]
+
+    webhook_url = NotificationWebhook.get_material_exchange_url()
+    if webhook_url:
+        sent, message_id = send_discord_webhook_with_message_id(
+            webhook_url,
+            title,
+            message,
+            level="info",
+            link=link,
+            components=webhook_components,
+        )
+        if sent:
+            if message_id:
+                NotificationWebhookMessage.objects.create(
+                    webhook_type=NotificationWebhook.TYPE_MATERIAL_EXCHANGE,
+                    webhook_url=webhook_url,
+                    message_id=message_id,
+                    buy_order=order,
+                )
+            logger.info("Buy order %s notification sent to webhook", order_id)
+            return
+
+    admins = _get_admins_for_config(config)
+    notify_multi(
+        admins,
+        title,
+        message,
         level="info",
-        link=f"/indy_hub/material-exchange/buy-orders/{order.id}/",
+        link=link,
     )
 
     logger.info("Buy order %s notification sent to admins", order_id)

@@ -16,6 +16,7 @@ from django.db import transaction
 from django.db.models import Count, Q, Sum
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.views.decorators.http import require_http_methods
@@ -42,6 +43,11 @@ from ..tasks.material_exchange import (
     refresh_material_exchange_sell_user_assets,
     sync_material_exchange_prices,
     sync_material_exchange_stock,
+)
+from ..utils.discord_actions import (
+    BadSignature,
+    SignatureExpired,
+    decode_material_exchange_action_token,
 )
 from ..utils.eve import get_type_name
 from .navigation import build_nav_context
@@ -1508,6 +1514,13 @@ def material_exchange_reject_buy(request, order_id):
 
     order = get_object_or_404(MaterialExchangeBuyOrder, id=order_id, status="draft")
 
+    _reject_buy_order(order)
+
+    messages.warning(request, _(f"Buy order #{order.id} rejected and buyer notified."))
+    return redirect("indy_hub:material_exchange_index")
+
+
+def _reject_buy_order(order: MaterialExchangeBuyOrder) -> None:
     from ..notifications import notify_user
 
     notify_user(
@@ -1525,8 +1538,55 @@ def material_exchange_reject_buy(request, order_id):
     order.status = "rejected"
     order.save()
 
-    messages.warning(request, _(f"Buy order #{order.id} rejected and buyer notified."))
-    return redirect("indy_hub:material_exchange_index")
+
+@login_required
+def material_exchange_discord_action(request):
+    """Handle quick actions triggered from Discord webhook buttons."""
+    redirect_url = reverse("indy_hub:material_exchange_index")
+    token = (request.GET.get("token") or "").strip()
+    if not token:
+        messages.error(request, _("Missing action token."))
+        return redirect(redirect_url)
+
+    try:
+        payload = decode_material_exchange_action_token(token)
+    except SignatureExpired:
+        messages.error(request, _("This action link has expired."))
+        return redirect(redirect_url)
+    except BadSignature:
+        messages.error(request, _("Invalid action token."))
+        return redirect(redirect_url)
+
+    expected_user_id = payload.get("u")
+    order_id = payload.get("o")
+    action = payload.get("a")
+
+    if expected_user_id is not None and expected_user_id != request.user.id:
+        messages.error(request, _("This action link is not for your account."))
+        return redirect(redirect_url)
+
+    if not order_id or not action:
+        messages.error(request, _("Incomplete action token."))
+        return redirect(redirect_url)
+
+    if not request.user.has_perm("indy_hub.can_manage_material_hub"):
+        messages.error(request, _("Permission denied."))
+        return redirect(redirect_url)
+
+    order = get_object_or_404(MaterialExchangeBuyOrder, id=order_id)
+
+    if action == "reject":
+        if order.status != "draft":
+            messages.warning(request, _("This buy order is no longer pending."))
+            return redirect(redirect_url)
+        _reject_buy_order(order)
+        messages.warning(
+            request, _(f"Buy order #{order.id} rejected and buyer notified.")
+        )
+        return redirect(redirect_url)
+
+    messages.error(request, _("Unsupported action."))
+    return redirect(redirect_url)
 
 
 @login_required

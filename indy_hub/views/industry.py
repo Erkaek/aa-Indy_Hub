@@ -43,10 +43,16 @@ from ..models import (
     BlueprintCopyRequest,
     IndustryJob,
     NotificationWebhook,
+    NotificationWebhookMessage,
     ProductionConfig,
     ProductionSimulation,
 )
-from ..notifications import build_site_url, notify_user, send_discord_webhook
+from ..notifications import (
+    build_site_url,
+    delete_discord_webhook_message,
+    notify_user,
+    send_discord_webhook_with_message_id,
+)
 from ..services.simulations import summarize_simulations
 from ..tasks.industry import (
     MANUAL_REFRESH_KIND_BLUEPRINTS,
@@ -58,6 +64,7 @@ from ..utils.discord_actions import (
     BadSignature,
     SignatureExpired,
     build_action_link,
+    build_action_link_any,
     decode_action_token,
 )
 from ..utils.eve import (
@@ -3177,17 +3184,74 @@ def bp_copy_request_page(request):
                     provider_body = notification_body
                     if corporate_source_line:
                         provider_body = f"{provider_body}\n\n{corporate_source_line}"
+                    action_buttons = []
+                    accept_link = build_action_link_any(
+                        action="accept",
+                        request_id=new_request.id,
+                    )
+                    if accept_link:
+                        action_buttons.append(
+                            {
+                                "type": 2,
+                                "style": 5,
+                                "label": str(_("Accept")),
+                                "url": accept_link,
+                            }
+                        )
+
+                    conditional_link = build_action_link_any(
+                        action="conditional",
+                        request_id=new_request.id,
+                    )
+                    if conditional_link:
+                        action_buttons.append(
+                            {
+                                "type": 2,
+                                "style": 5,
+                                "label": str(_("Send conditions")),
+                                "url": conditional_link,
+                            }
+                        )
+
+                    reject_link = build_action_link_any(
+                        action="reject",
+                        request_id=new_request.id,
+                    )
+                    if reject_link:
+                        action_buttons.append(
+                            {
+                                "type": 2,
+                                "style": 5,
+                                "label": str(_("Decline")),
+                                "url": reject_link,
+                            }
+                        )
+
+                    webhook_components = (
+                        [{"type": 1, "components": action_buttons}]
+                        if action_buttons
+                        else None
+                    )
                     sent_any = False
                     for webhook_url in webhook_urls:
-                        if send_discord_webhook(
+                        sent, message_id = send_discord_webhook_with_message_id(
                             webhook_url,
                             notification_title,
                             provider_body,
                             level="info",
                             link=fulfill_queue_url,
                             thumbnail_url=None,
-                        ):
+                            components=webhook_components,
+                        )
+                        if sent:
                             sent_any = True
+                            if message_id:
+                                NotificationWebhookMessage.objects.create(
+                                    webhook_type=NotificationWebhook.TYPE_BLUEPRINT_SHARING,
+                                    webhook_url=webhook_url,
+                                    message_id=message_id,
+                                    copy_request=new_request,
+                                )
                     if sent_any:
                         muted_user_ids.update(corp_user_ids)
 
@@ -4189,7 +4253,7 @@ def bp_discord_action(request):
     request_id = payload.get("r")
     action = payload.get("a")
 
-    if expected_user_id != request.user.id:
+    if expected_user_id is not None and expected_user_id != request.user.id:
         messages.error(request, _("This action link is not for your account."))
         return redirect(redirect_url)
 
@@ -4412,6 +4476,13 @@ def bp_reject_copy_request(request, request_id):
         link_label=_("Review your requests"),
     )
     _close_request_chats(req, BlueprintCopyChat.CloseReason.OFFER_REJECTED)
+    webhook_messages = NotificationWebhookMessage.objects.filter(copy_request=req)
+    for webhook_message in webhook_messages:
+        delete_discord_webhook_message(
+            webhook_message.webhook_url,
+            webhook_message.message_id,
+        )
+    webhook_messages.delete()
     req.delete()
     messages.success(request, "Copy request rejected.")
     return redirect("indy_hub:bp_copy_fulfill_requests")
@@ -4442,6 +4513,13 @@ def bp_cancel_copy_request(request, request_id):
             link=fulfill_queue_url,
             link_label=_("Open fulfill queue"),
         )
+    webhook_messages = NotificationWebhookMessage.objects.filter(copy_request=req)
+    for webhook_message in webhook_messages:
+        delete_discord_webhook_message(
+            webhook_message.webhook_url,
+            webhook_message.message_id,
+        )
+    webhook_messages.delete()
     offers.delete()
     req.delete()
     messages.success(request, "Copy request cancelled.")
