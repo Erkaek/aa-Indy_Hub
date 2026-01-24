@@ -205,7 +205,6 @@ def _build_discord_webhook_payload(
     *,
     link: str | None = None,
     thumbnail_url: str | None = None,
-    components: list[dict] | None = None,
     embed_title: str | None = None,
     embed_color: int | None = None,
 ) -> dict:
@@ -242,9 +241,6 @@ def _build_discord_webhook_payload(
         embed["thumbnail"] = {"url": thumbnail_url}
     payload["embeds"] = [embed]
 
-    if components:
-        payload["components"] = components
-
     return payload
 
 
@@ -256,7 +252,6 @@ def send_discord_webhook(
     *,
     link: str | None = None,
     thumbnail_url: str | None = None,
-    components: list[dict] | None = None,
     embed_title: str | None = None,
     embed_color: int | None = None,
     retries: int = 3,
@@ -274,7 +269,6 @@ def send_discord_webhook(
         level,
         link=link,
         thumbnail_url=thumbnail_url,
-        components=components,
         embed_title=embed_title,
         embed_color=embed_color,
     )
@@ -311,7 +305,6 @@ def send_discord_webhook_with_message_id(
     *,
     link: str | None = None,
     thumbnail_url: str | None = None,
-    components: list[dict] | None = None,
     embed_title: str | None = None,
     embed_color: int | None = None,
     retries: int = 3,
@@ -326,7 +319,6 @@ def send_discord_webhook_with_message_id(
         level,
         link=link,
         thumbnail_url=thumbnail_url,
-        components=components,
         embed_title=embed_title,
         embed_color=embed_color,
     )

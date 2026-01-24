@@ -64,7 +64,6 @@ from ..utils.discord_actions import (
     BadSignature,
     SignatureExpired,
     build_action_link,
-    build_action_link_any,
     decode_action_token,
 )
 from ..utils.eve import (
@@ -3184,58 +3183,6 @@ def bp_copy_request_page(request):
                     provider_body = notification_body
                     if corporate_source_line:
                         provider_body = f"{provider_body}\n\n{corporate_source_line}"
-                    base_url = request.build_absolute_uri("/")
-                    action_buttons = []
-                    accept_link = build_action_link_any(
-                        action="accept",
-                        request_id=new_request.id,
-                        base_url=base_url,
-                    )
-                    if accept_link:
-                        action_buttons.append(
-                            {
-                                "type": 2,
-                                "style": 5,
-                                "label": str(_("Accept")),
-                                "url": accept_link,
-                            }
-                        )
-
-                    conditional_link = build_action_link_any(
-                        action="conditional",
-                        request_id=new_request.id,
-                        base_url=base_url,
-                    )
-                    if conditional_link:
-                        action_buttons.append(
-                            {
-                                "type": 2,
-                                "style": 5,
-                                "label": str(_("Send conditions")),
-                                "url": conditional_link,
-                            }
-                        )
-
-                    reject_link = build_action_link_any(
-                        action="reject",
-                        request_id=new_request.id,
-                        base_url=base_url,
-                    )
-                    if reject_link:
-                        action_buttons.append(
-                            {
-                                "type": 2,
-                                "style": 5,
-                                "label": str(_("Decline")),
-                                "url": reject_link,
-                            }
-                        )
-
-                    webhook_components = (
-                        [{"type": 1, "components": action_buttons}]
-                        if action_buttons
-                        else None
-                    )
                     sent_any = False
                     for webhook_url in webhook_urls:
                         sent, message_id = send_discord_webhook_with_message_id(
@@ -3245,7 +3192,6 @@ def bp_copy_request_page(request):
                             level="info",
                             link=fulfill_queue_url,
                             thumbnail_url=None,
-                            components=webhook_components,
                             embed_title=f"📘 {notification_title}",
                             embed_color=0x5865F2,
                         )

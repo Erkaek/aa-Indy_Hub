@@ -34,7 +34,6 @@ from indy_hub.models import (
     NotificationWebhookMessage,
 )
 from indy_hub.notifications import (
-    build_site_url,
     notify_multi,
     notify_user,
     send_discord_webhook,
@@ -48,7 +47,6 @@ from indy_hub.services.esi_client import (
     ESITokenError,
     shared_client,
 )
-from indy_hub.utils.discord_actions import build_material_exchange_action_link_any
 
 logger = logging.getLogger(__name__)
 
@@ -1192,34 +1190,6 @@ def handle_material_exchange_buy_order_created(order_id):
         f"Review and approve to proceed with delivery."
     )
     link = f"/indy_hub/material-exchange/buy-orders/{order.id}/"
-    view_link = build_site_url(link) or link
-    reject_link = build_material_exchange_action_link_any(
-        action="reject",
-        order_id=order.id,
-    )
-    webhook_components = None
-    if view_link or reject_link:
-        action_buttons = []
-        if view_link:
-            action_buttons.append(
-                {
-                    "type": 2,
-                    "style": 5,
-                    "label": str(_("View order")),
-                    "url": view_link,
-                }
-            )
-        if reject_link:
-            action_buttons.append(
-                {
-                    "type": 2,
-                    "style": 5,
-                    "label": str(_("Reject")),
-                    "url": reject_link,
-                }
-            )
-        if action_buttons:
-            webhook_components = [{"type": 1, "components": action_buttons}]
 
     webhook_url = NotificationWebhook.get_material_exchange_url()
     if webhook_url:
@@ -1229,7 +1199,6 @@ def handle_material_exchange_buy_order_created(order_id):
             message,
             level="info",
             link=link,
-            components=webhook_components,
             embed_title=f"🛒 {title}",
             embed_color=0xF39C12,
         )
