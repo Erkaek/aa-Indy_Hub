@@ -87,17 +87,68 @@ Populate industry data:
 python manage.py eveuniverse_load_data types --types-enabled-sections industry_activities type_materials
 ```
 
-### Common
-
-- Set permissions in Alliance Auth (see [Permissions](#permissions)).
-- Authorize ESI tokens for blueprints and industry jobs.
-
 Restart services:
 
 ```bash
 # Restart Alliance Auth
 systemctl restart allianceauth
 ```
+### Docker
+
+```bash
+docker compose exec allianceauth_gunicorn bash
+pip install django-eveuniverse indy-hub
+exit
+```
+
+Add to your `conf\local.py`:
+
+```python
+# Add to INSTALLED_APPS
+INSTALLED_APPS = [
+    "eveuniverse",
+    "indy_hub",
+]
+
+# EveUniverse configuration
+EVEUNIVERSE_LOAD_TYPE_MATERIALS = True
+EVEUNIVERSE_LOAD_MARKET_GROUPS = True
+```
+
+Add to your `conf/requirements.txt`
+```bash
+django-eveuniverse==1.6.0
+indy_hub==1.13.9
+```
+
+Run migrations and collect static files:
+
+```bash
+docker compose exec allianceauth_gunicorn bash
+auth migrate
+auth collectstatic --noinput
+exit
+```
+
+Populate industry data:
+
+```bash
+docker compose exec allianceauth_gunicorn bash
+auth eveuniverse_load_data types --types-enabled-sections industry_activities type_materials
+exit
+```
+
+Restart Auth:
+```bash
+docker compose build
+docker compose down
+docker compose up -d 
+```
+
+### Common
+
+- Set permissions in Alliance Auth (see [Permissions](#permissions)).
+- Authorize ESI tokens for blueprints and industry jobs.
 
 ______________________________________________________________________
 
