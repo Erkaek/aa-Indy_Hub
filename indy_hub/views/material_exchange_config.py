@@ -2,7 +2,7 @@
 
 # Standard Library
 import logging
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 # Django
 from django.contrib import messages
@@ -1144,6 +1144,12 @@ def _handle_config_save(request, existing_config):
     else:
         is_active = raw_is_active == "on"
 
+    def _parse_decimal(raw_value: str, fallback: str) -> Decimal:
+        normalized = (raw_value or "").strip().replace(",", ".")
+        if not normalized:
+            normalized = fallback
+        return Decimal(normalized)
+
     # Validation
     try:
         if not corporation_id:
@@ -1158,8 +1164,8 @@ def _handle_config_save(request, existing_config):
         corporation_id = int(corporation_id)
         structure_id = int(structure_id)
         hangar_division = int(hangar_division)
-        sell_markup_percent = Decimal(sell_markup_percent)
-        buy_markup_percent = Decimal(buy_markup_percent)
+        sell_markup_percent = _parse_decimal(sell_markup_percent, "0")
+        buy_markup_percent = _parse_decimal(buy_markup_percent, "5")
 
         allowed_ids = _get_industry_market_group_choice_ids(depth_from_root=2)
 
@@ -1181,7 +1187,7 @@ def _handle_config_save(request, existing_config):
         if not (1 <= hangar_division <= 7):
             raise ValueError("Hangar division must be between 1 and 7")
 
-    except (ValueError, TypeError) as e:
+    except (ValueError, TypeError, InvalidOperation) as e:
         messages.error(request, _("Invalid configuration values: {}").format(e))
         return redirect("indy_hub:material_exchange_config")
 

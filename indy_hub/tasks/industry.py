@@ -312,8 +312,9 @@ def _get_bulk_window_minutes(kind: str) -> int:
     return max(minutes, 0)
 
 
-def _manual_refresh_cache_key(kind: str, user_id: int) -> str:
-    return f"{_MANUAL_REFRESH_CACHE_PREFIX}:{kind}:{user_id}"
+def _manual_refresh_cache_key(kind: str, user_id: int, scope: str | None = None) -> str:
+    scope_key = (scope or "").lower() or "default"
+    return f"{_MANUAL_REFRESH_CACHE_PREFIX}:{kind}:{user_id}:{scope_key}"
 
 
 def _queue_staggered_user_tasks(
@@ -337,7 +338,7 @@ def _queue_staggered_user_tasks(
     return total
 
 
-def _record_manual_refresh(kind: str, user_id: int) -> None:
+def _record_manual_refresh(kind: str, user_id: int, scope: str | None = None) -> None:
     if user_id is None:
         return
     cooldown = _get_manual_refresh_cooldown_seconds()
@@ -345,14 +346,16 @@ def _record_manual_refresh(kind: str, user_id: int) -> None:
         return
     now = timezone.now()
     cache.set(
-        _manual_refresh_cache_key(kind, user_id),
+        _manual_refresh_cache_key(kind, user_id, scope),
         now.timestamp(),
         timeout=cooldown,
     )
 
 
-def _remaining_manual_cooldown(kind: str, user_id: int) -> timedelta | None:
-    cached = cache.get(_manual_refresh_cache_key(kind, user_id))
+def _remaining_manual_cooldown(
+    kind: str, user_id: int, scope: str | None = None
+) -> timedelta | None:
+    cached = cache.get(_manual_refresh_cache_key(kind, user_id, scope))
     if cached is None:
         return None
     try:
@@ -369,15 +372,19 @@ def _remaining_manual_cooldown(kind: str, user_id: int) -> timedelta | None:
     return remaining
 
 
-def manual_refresh_allowed(kind: str, user_id: int) -> tuple[bool, timedelta | None]:
-    remaining = _remaining_manual_cooldown(kind, user_id)
+def manual_refresh_allowed(
+    kind: str, user_id: int, scope: str | None = None
+) -> tuple[bool, timedelta | None]:
+    remaining = _remaining_manual_cooldown(kind, user_id, scope)
     if remaining is None:
         return True, None
     return False, remaining
 
 
-def reset_manual_refresh_cooldown(kind: str, user_id: int) -> None:
-    cache.delete(_manual_refresh_cache_key(kind, user_id))
+def reset_manual_refresh_cooldown(
+    kind: str, user_id: int, scope: str | None = None
+) -> None:
+    cache.delete(_manual_refresh_cache_key(kind, user_id, scope))
 
 
 def queue_blueprint_update_for_user(
@@ -417,7 +424,7 @@ def request_manual_refresh(
     priority: int | None = None,
     scope: str | None = None,
 ) -> tuple[bool, timedelta | None]:
-    allowed, remaining = manual_refresh_allowed(kind, user_id)
+    allowed, remaining = manual_refresh_allowed(kind, user_id, scope)
     if not allowed:
         return False, remaining
 
@@ -428,7 +435,7 @@ def request_manual_refresh(
     else:
         raise ValueError(f"Unknown manual refresh kind: {kind}")
 
-    _record_manual_refresh(kind, user_id)
+    _record_manual_refresh(kind, user_id, scope)
     return True, None
 
 

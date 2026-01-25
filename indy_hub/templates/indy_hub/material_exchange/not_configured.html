@@ -32,12 +32,20 @@
             <div class="col-md-8">
                 <div class="card border-0 shadow-sm">
                     <div class="card-body text-center py-5">
+                        {% if material_exchange_disabled %}
+                        <i class="fas fa-toggle-off fa-4x text-muted mb-4"></i>
+                        <h3 class="h4">{% trans "Material Exchange Disabled" %}</h3>
+                        <p class="text-muted mb-4">
+                            {% trans "The Material Exchange hub is configured but currently disabled in settings." %}
+                        </p>
+                        {% else %}
                         <i class="fas fa-wrench fa-4x text-muted mb-4"></i>
                         <h3 class="h4">{% trans "Material Exchange Not Configured" %}</h3>
                         <p class="text-muted mb-4">
                             {% trans "The Material Exchange hub is not yet configured. Please contact an administrator to set up the corp hangar, structure location, and pricing rules." %}
                         </p>
-                        {% if perms.indy_hub.can_manage_material_hub %}
+                        {% endif %}
+                        {% if perms.indy_hub.can_manage_material_hub and not material_exchange_disabled %}
                         <a href="{% url 'indy_hub:material_exchange_config' %}" class="btn btn-primary">
                             <i class="fas fa-cog me-2"></i>{% trans "Configure Material Exchange" %}
                         </a>

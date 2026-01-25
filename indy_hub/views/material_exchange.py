@@ -20,7 +20,6 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.views.decorators.http import require_http_methods
 
-# Local
 from ..decorators import indy_hub_permission_required
 from ..models import (
     CachedCharacterAsset,
@@ -454,7 +453,11 @@ def material_exchange_index(request):
         config = None
 
     if not config:
-        context = {"nav_context": _build_nav_context(request.user)}
+        any_config = MaterialExchangeConfig.objects.first()
+        context = {
+            "nav_context": _build_nav_context(request.user),
+            "material_exchange_disabled": bool(any_config),
+        }
         context.update(
             build_nav_context(
                 request.user,
