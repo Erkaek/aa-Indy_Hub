@@ -121,7 +121,7 @@ Add to your `conf/requirements.txt`
 
 ```bash
 django-eveuniverse==1.6.0
-indy_hub==1.13.9
+indy-hub==1.13.9
 ```
 
 Run migrations and collect static files:
@@ -216,6 +216,8 @@ ______________________________________________________________________
 
 ## Updating
 
+### Bare Metal Update
+
 ```bash
 # Update the package
 pip install --upgrade indy-hub
@@ -230,6 +232,36 @@ python manage.py collectstatic --noinput
 systemctl restart allianceauth
 ```
 
+### Docker Update
+
+Update Versions in `conf/requirements.txt`
+
+```bash
+indy-hub==1.13.9
+```
+
+Update the Package:
+
+```bash
+# Exec Into the Container
+docker compose exec allianceauth_gunicorn bash
+
+# Update the package
+pip install -U indy-hub
+
+# Apply Migrations
+auth migrate
+
+# Collect static files
+auth collectstatic --no-input
+
+# Restart Services
+exit
+docker compose build
+docker compose down
+docker compose up -d
+
+```
 ______________________________________________________________________
 
 ## Usage
