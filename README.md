@@ -117,7 +117,7 @@ EVEUNIVERSE_LOAD_TYPE_MATERIALS = True
 EVEUNIVERSE_LOAD_MARKET_GROUPS = True
 ```
 
-Add to your `conf/requirements.txt`
+Add to your `conf/requirements.txt` (Always use current versions)
 
 ```bash
 django-eveuniverse==1.6.0
@@ -234,7 +234,7 @@ systemctl restart allianceauth
 
 ### Docker Update
 
-Update Versions in `conf/requirements.txt`
+Update Versions in `conf/requirements.txt` (Always use current versions)
 
 ```bash
 indy-hub==1.13.9
