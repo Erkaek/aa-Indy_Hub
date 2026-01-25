@@ -11,6 +11,7 @@ ______________________________________________________________________
 - [Requirements](#requirements)
 - [Installation](#installation)
   - [Bare Metal](#bare-metal)
+  - [Docker](#docker)
   - [Common](#common)
 - [Permissions](#permissions)
   - [Base Access (Required for all users)](#base-access-required-for-all-users)
