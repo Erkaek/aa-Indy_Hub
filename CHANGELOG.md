@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Material Exchange: manual refresh cooldowns now respect scope (personal vs corporation) to avoid cross-scope throttling.
+- Material Exchange: when configured but disabled, the hub page now shows a disabled state and hides the configuration CTA.
+
+### Fixed
+
+- Migrations: hardened blueprint copy request dedupe and unique constraint handling (including SQLite-compatible drops).
+- Migrations: corporation asset fields now add safely on fresh databases when historical model state lacks the fields.
+- Material Exchange: config save now tolerates empty/locale decimal inputs for markup percentages.
+
 ## [1.13.9] - 2026-01-24
 
 ### Added

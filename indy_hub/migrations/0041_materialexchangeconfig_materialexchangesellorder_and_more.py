@@ -6,6 +6,79 @@ import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
 
+SELL_STATUS_INDEX = models.Index(
+    fields=["status", "-created_at"], name="indy_hub_ma_status_cfa62a_idx"
+)
+SELLER_INDEX = models.Index(
+    fields=["seller", "-created_at"], name="indy_hub_ma_seller__c5b878_idx"
+)
+BUY_STATUS_INDEX = models.Index(
+    fields=["status", "-created_at"], name="indy_hub_ma_status_c3e4f4_idx"
+)
+BUYER_INDEX = models.Index(
+    fields=["buyer", "-created_at"], name="indy_hub_ma_buyer_i_6e10d2_idx"
+)
+
+
+def _index_exists(schema_editor, table_name: str, index_name: str) -> bool:
+    with schema_editor.connection.cursor() as cursor:
+        constraints = schema_editor.connection.introspection.get_constraints(
+            cursor, table_name
+        )
+    return index_name in constraints
+
+
+def _add_index_if_missing(model, index, schema_editor):
+    table = model._meta.db_table
+    if not _index_exists(schema_editor, table, index.name):
+        schema_editor.add_index(model, index)
+
+
+def _remove_index_if_exists(model, index, schema_editor):
+    table = model._meta.db_table
+    if _index_exists(schema_editor, table, index.name):
+        schema_editor.remove_index(model, index)
+
+
+def _add_sell_status_index(apps, schema_editor):
+    model = apps.get_model("indy_hub", "MaterialExchangeSellOrder")
+    _add_index_if_missing(model, SELL_STATUS_INDEX, schema_editor)
+
+
+def _remove_sell_status_index(apps, schema_editor):
+    model = apps.get_model("indy_hub", "MaterialExchangeSellOrder")
+    _remove_index_if_exists(model, SELL_STATUS_INDEX, schema_editor)
+
+
+def _add_seller_index(apps, schema_editor):
+    model = apps.get_model("indy_hub", "MaterialExchangeSellOrder")
+    _add_index_if_missing(model, SELLER_INDEX, schema_editor)
+
+
+def _remove_seller_index(apps, schema_editor):
+    model = apps.get_model("indy_hub", "MaterialExchangeSellOrder")
+    _remove_index_if_exists(model, SELLER_INDEX, schema_editor)
+
+
+def _add_buy_status_index(apps, schema_editor):
+    model = apps.get_model("indy_hub", "MaterialExchangeBuyOrder")
+    _add_index_if_missing(model, BUY_STATUS_INDEX, schema_editor)
+
+
+def _remove_buy_status_index(apps, schema_editor):
+    model = apps.get_model("indy_hub", "MaterialExchangeBuyOrder")
+    _remove_index_if_exists(model, BUY_STATUS_INDEX, schema_editor)
+
+
+def _add_buyer_index(apps, schema_editor):
+    model = apps.get_model("indy_hub", "MaterialExchangeBuyOrder")
+    _add_index_if_missing(model, BUYER_INDEX, schema_editor)
+
+
+def _remove_buyer_index(apps, schema_editor):
+    model = apps.get_model("indy_hub", "MaterialExchangeBuyOrder")
+    _remove_index_if_exists(model, BUYER_INDEX, schema_editor)
+
 
 class Migration(migrations.Migration):
 
@@ -451,28 +524,60 @@ class Migration(migrations.Migration):
                 "unique_together": {("config", "type_id")},
             },
         ),
-        migrations.AddIndex(
-            model_name="materialexchangesellorder",
-            index=models.Index(
-                fields=["status", "-created_at"], name="indy_hub_ma_status_cfa62a_idx"
-            ),
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                migrations.RunPython(
+                    _add_sell_status_index,
+                    reverse_code=_remove_sell_status_index,
+                )
+            ],
+            state_operations=[
+                migrations.AddIndex(
+                    model_name="materialexchangesellorder",
+                    index=SELL_STATUS_INDEX,
+                )
+            ],
         ),
-        migrations.AddIndex(
-            model_name="materialexchangesellorder",
-            index=models.Index(
-                fields=["seller", "-created_at"], name="indy_hub_ma_seller__c5b878_idx"
-            ),
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                migrations.RunPython(
+                    _add_seller_index,
+                    reverse_code=_remove_seller_index,
+                )
+            ],
+            state_operations=[
+                migrations.AddIndex(
+                    model_name="materialexchangesellorder",
+                    index=SELLER_INDEX,
+                )
+            ],
         ),
-        migrations.AddIndex(
-            model_name="materialexchangebuyorder",
-            index=models.Index(
-                fields=["status", "-created_at"], name="indy_hub_ma_status_c3e4f4_idx"
-            ),
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                migrations.RunPython(
+                    _add_buy_status_index,
+                    reverse_code=_remove_buy_status_index,
+                )
+            ],
+            state_operations=[
+                migrations.AddIndex(
+                    model_name="materialexchangebuyorder",
+                    index=BUY_STATUS_INDEX,
+                )
+            ],
         ),
-        migrations.AddIndex(
-            model_name="materialexchangebuyorder",
-            index=models.Index(
-                fields=["buyer", "-created_at"], name="indy_hub_ma_buyer_i_6e10d2_idx"
-            ),
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                migrations.RunPython(
+                    _add_buyer_index,
+                    reverse_code=_remove_buyer_index,
+                )
+            ],
+            state_operations=[
+                migrations.AddIndex(
+                    model_name="materialexchangebuyorder",
+                    index=BUYER_INDEX,
+                )
+            ],
         ),
     ]
