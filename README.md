@@ -138,7 +138,7 @@ Restart Auth:
 ```bash
 docker compose build
 docker compose down
-docker compose up -d 
+docker compose up -d
 ```
 
 Populate industry data:
@@ -148,6 +148,7 @@ docker compose exec allianceauth_gunicorn bash
 auth eveuniverse_load_data types --types-enabled-sections industry_activities type_materials
 exit
 ```
+
 ### Common
 
 - Set permissions in Alliance Auth (see [Permissions](#permissions)).
@@ -262,6 +263,7 @@ docker compose down
 docker compose up -d
 
 ```
+
 ______________________________________________________________________
 
 ## Usage
