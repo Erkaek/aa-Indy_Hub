@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 - Material Exchange: manual refresh cooldowns now respect scope (personal vs corporation) to avoid cross-scope throttling.
 - Material Exchange: when configured but disabled, the hub page now shows a disabled state and hides the configuration CTA.
+- Documentation: expanded Docker installation and update steps in README.
 
 ### Fixed
 
