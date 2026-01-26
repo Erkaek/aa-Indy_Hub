@@ -11,6 +11,7 @@ ______________________________________________________________________
 - [Requirements](#requirements)
 - [Installation](#installation)
   - [Bare Metal](#bare-metal)
+  - [Docker](#docker)
   - [Common](#common)
 - [Permissions](#permissions)
   - [Base Access (Required for all users)](#base-access-required-for-all-users)
@@ -87,17 +88,71 @@ Populate industry data:
 python manage.py eveuniverse_load_data types --types-enabled-sections industry_activities type_materials
 ```
 
-### Common
-
-- Set permissions in Alliance Auth (see [Permissions](#permissions)).
-- Authorize ESI tokens for blueprints and industry jobs.
-
 Restart services:
 
 ```bash
 # Restart Alliance Auth
 systemctl restart allianceauth
 ```
+
+### Docker
+
+```bash
+docker compose exec allianceauth_gunicorn bash
+pip install django-eveuniverse indy-hub
+exit
+```
+
+Add to your `conf/local.py`:
+
+```python
+# Add to INSTALLED_APPS
+INSTALLED_APPS = [
+    "eveuniverse",
+    "indy_hub",
+]
+
+# EveUniverse configuration
+EVEUNIVERSE_LOAD_TYPE_MATERIALS = True
+EVEUNIVERSE_LOAD_MARKET_GROUPS = True
+```
+
+Add to your `conf/requirements.txt` (Always use current versions)
+
+```bash
+django-eveuniverse==1.6.0
+indy-hub==1.13.9
+```
+
+Run migrations and collect static files:
+
+```bash
+docker compose exec allianceauth_gunicorn bash
+auth migrate
+auth collectstatic --noinput
+exit
+```
+
+Restart Auth:
+
+```bash
+docker compose build
+docker compose down
+docker compose up -d
+```
+
+Populate industry data:
+
+```bash
+docker compose exec allianceauth_gunicorn bash
+auth eveuniverse_load_data types --types-enabled-sections industry_activities type_materials
+exit
+```
+
+### Common
+
+- Set permissions in Alliance Auth (see [Permissions](#permissions)).
+- Authorize ESI tokens for blueprints and industry jobs.
 
 ______________________________________________________________________
 
@@ -162,6 +217,8 @@ ______________________________________________________________________
 
 ## Updating
 
+### Bare Metal Update
+
 ```bash
 # Update the package
 pip install --upgrade indy-hub
@@ -174,6 +231,36 @@ python manage.py collectstatic --noinput
 
 # Restart services
 systemctl restart allianceauth
+```
+
+### Docker Update
+
+Update Versions in `conf/requirements.txt` (Always use current versions)
+
+```bash
+indy-hub==1.13.9
+```
+
+Update the Package:
+
+```bash
+# Exec Into the Container
+docker compose exec allianceauth_gunicorn bash
+
+# Update the package
+pip install -U indy-hub
+
+# Apply Migrations
+auth migrate
+
+# Collect static files
+auth collectstatic --no-input
+
+# Restart Services
+exit
+docker compose build
+docker compose down
+docker compose up -d
 ```
 
 ______________________________________________________________________
