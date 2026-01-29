@@ -114,6 +114,7 @@ def _update_or_create_with_deadlock_retry(
             time.sleep(delay)
     raise RuntimeError("Unreachable: deadlock retry loop exhausted")
 
+
 MANUAL_REFRESH_KIND_BLUEPRINTS = "blueprints"
 MANUAL_REFRESH_KIND_JOBS = "jobs"
 
@@ -993,9 +994,7 @@ def update_industry_jobs_for_user(self, user_id, scope: str | None = None):
                             "end_date": end_date,
                             "pause_date": pause_date,
                             "completed_date": completed_date,
-                            "completed_character_id": job.get(
-                                "completed_character_id"
-                            ),
+                            "completed_character_id": job.get("completed_character_id"),
                             "successful_runs": job.get("successful_runs"),
                             "blueprint_type_name": get_type_name(
                                 job.get("blueprint_type_id")
