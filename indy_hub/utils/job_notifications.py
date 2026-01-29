@@ -13,6 +13,8 @@ from django.contrib.auth.models import User
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
+from django.utils.encoding import force_str
+from django.utils.functional import Promise
 from django.utils.translation import gettext_lazy as _
 
 # Indy Hub
@@ -291,6 +293,16 @@ def _coalesce(*values: int | None) -> int | None:
     return None
 
 
+def _coerce_json_value(value: Any) -> Any:
+    if isinstance(value, Promise):
+        return force_str(value)
+    if isinstance(value, dict):
+        return {key: _coerce_json_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_coerce_json_value(item) for item in value]
+    return value
+
+
 def serialize_job_notification_for_digest(
     job,
     payload: JobNotificationPayload,
@@ -299,13 +311,13 @@ def serialize_job_notification_for_digest(
 
     data: dict[str, Any] = {
         "job_id": getattr(job, "job_id", None),
-        "summary": payload.summary,
-        "message": payload.message,
-        "thumbnail_url": payload.thumbnail_url,
+        "summary": _coerce_json_value(payload.summary),
+        "message": _coerce_json_value(payload.message),
+        "thumbnail_url": _coerce_json_value(payload.thumbnail_url),
         "recorded_at": timezone.now().isoformat(),
     }
     if payload.metadata:
-        data["metadata"] = payload.metadata
+        data["metadata"] = _coerce_json_value(payload.metadata)
     return data
 
 
