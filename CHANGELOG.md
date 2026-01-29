@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Migrations: hardened blueprint copy request dedupe and unique constraint handling (including SQLite-compatible drops).
 - Migrations: corporation asset fields now add safely on fresh databases when historical model state lacks the fields.
 - Material Exchange: config save now tolerates empty/locale decimal inputs for markup percentages.
+- Industry jobs: coerce lazy translation values in digest payloads so JSON serialization does not fail.
+- Industry jobs: retry writes on MySQL deadlocks during job sync to reduce task failures.
 
 ## [1.13.9] - 2026-01-24
 

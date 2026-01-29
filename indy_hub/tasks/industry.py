@@ -5,6 +5,7 @@
 # Standard Library
 import logging
 import random
+import time
 from datetime import datetime, timedelta
 
 # Third Party
@@ -15,6 +16,7 @@ from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.cache import cache
 from django.db import transaction
+from django.db.utils import OperationalError
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
@@ -78,6 +80,39 @@ MATERIAL_EXCHANGE_SCOPE_SET = [
     CORP_ASSETS_SCOPE,
     CORP_WALLET_SCOPE,
 ]
+
+
+def _is_deadlock_error(exc: Exception) -> bool:
+    if getattr(exc, "args", None):
+        code = exc.args[0]
+        if code == 1213:
+            return True
+    return "Deadlock found" in str(exc)
+
+
+def _update_or_create_with_deadlock_retry(
+    model,
+    *,
+    lookup: dict[str, object],
+    defaults: dict[str, object],
+    max_attempts: int = 3,
+) -> tuple[object, bool]:
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return model.objects.update_or_create(**lookup, defaults=defaults)
+        except OperationalError as exc:
+            if not _is_deadlock_error(exc) or attempt >= max_attempts:
+                raise
+            delay = 0.2 * attempt + random.random() * 0.2
+            logger.warning(
+                "Deadlock while writing %s; retrying (%s/%s) in %.2fs",
+                model.__name__,
+                attempt,
+                max_attempts,
+                delay,
+            )
+            time.sleep(delay)
+    raise RuntimeError("Unreachable: deadlock retry loop exhausted")
 
 MANUAL_REFRESH_KIND_BLUEPRINTS = "blueprints"
 MANUAL_REFRESH_KIND_JOBS = "jobs"
@@ -932,8 +967,9 @@ def update_industry_jobs_for_user(self, user_id, scope: str | None = None):
                         )
                         end_date = start_date
 
-                    IndustryJob.objects.update_or_create(
-                        job_id=job_id,
+                    _update_or_create_with_deadlock_retry(
+                        IndustryJob,
+                        lookup={"job_id": job_id},
                         defaults={
                             "owner_user": user,
                             "owner_kind": Blueprint.OwnerKind.CHARACTER,
@@ -957,7 +993,9 @@ def update_industry_jobs_for_user(self, user_id, scope: str | None = None):
                             "end_date": end_date,
                             "pause_date": pause_date,
                             "completed_date": completed_date,
-                            "completed_character_id": job.get("completed_character_id"),
+                            "completed_character_id": job.get(
+                                "completed_character_id"
+                            ),
                             "successful_runs": job.get("successful_runs"),
                             "blueprint_type_name": get_type_name(
                                 job.get("blueprint_type_id")
@@ -1103,8 +1141,9 @@ def update_industry_jobs_for_user(self, user_id, scope: str | None = None):
                             )
                             end_date = start_date
 
-                        IndustryJob.objects.update_or_create(
-                            job_id=job_id,
+                        _update_or_create_with_deadlock_retry(
+                            IndustryJob,
+                            lookup={"job_id": job_id},
                             defaults={
                                 "owner_user": user,
                                 "owner_kind": Blueprint.OwnerKind.CORPORATION,
