@@ -3653,33 +3653,7 @@ def bp_copy_fulfill_requests(request):
         requester_identity = _identity_for(req.requested_by)
 
         eligible_character_entries: list[dict[str, Any]] = []
-        for owner_id in sorted(eligible_details.character_owner_ids):
-            identity = _identity_for(user_id=owner_id)
-            display_name = identity.character_name or identity.username
-            eligible_character_entries.append(
-                {
-                    "name": display_name,
-                    "corporation": identity.corporation_name,
-                    "is_self": owner_id == request.user.id,
-                }
-            )
-        eligible_character_entries.sort(key=lambda item: item["name"].lower())
-
         eligible_corporation_entries: list[dict[str, Any]] = []
-        for corp_id, members in eligible_details.corporate_members_by_corp.items():
-            corp_name = _corporation_display(corp_id)
-            eligible_corporation_entries.append(
-                {
-                    "id": corp_id,
-                    "name": corp_name,
-                    "member_count": len(members),
-                    "includes_self": request.user.id in members,
-                }
-            )
-        eligible_corporation_entries.sort(key=lambda item: item["name"].lower())
-        eligible_total = len(eligible_character_entries) + len(
-            eligible_corporation_entries
-        )
 
         # Temporarily set, will be refined after determining source types
         is_self_request_preliminary = req.requested_by_id == request.user.id
@@ -3779,11 +3753,34 @@ def bp_copy_fulfill_requests(request):
                 continue
 
         if personal_sources:
-            eligible_character_entries = [
-                entry
-                for entry in eligible_character_entries
-                if not entry.get("is_self")
-            ]
+            identity = _identity_for(user_id=request.user.id)
+            display_name = identity.character_name or identity.username
+            eligible_character_entries.append(
+                {
+                    "name": display_name,
+                    "corporation": identity.corporation_name,
+                    "is_self": True,
+                }
+            )
+
+        for corp_id, members in eligible_details.corporate_members_by_corp.items():
+            if request.user.id not in members:
+                continue
+            corp_name = _corporation_display(corp_id)
+            eligible_corporation_entries.append(
+                {
+                    "id": corp_id,
+                    "name": corp_name,
+                    "member_count": len(members),
+                    "includes_self": True,
+                }
+            )
+
+        eligible_character_entries.sort(key=lambda item: item["name"].lower())
+        eligible_corporation_entries.sort(key=lambda item: item["name"].lower())
+        eligible_total = len(eligible_character_entries) + len(
+            eligible_corporation_entries
+        )
 
         if corporate_count == 0:
             if (
