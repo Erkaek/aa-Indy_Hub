@@ -11,15 +11,19 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 - Logging: added operational logs for management commands, hub views, simulations, Discord action tokens, and material exchange order views.
 - Logging: added error-focused logging around cache preloads, location population, permission cleanup, ESI status checks, and simulation aggregation.
+- Notifications: added Discord webhook message edit support.
 
 ### Changed
 
 - Logging: aligned app logging to Alliance Auth extension logger conventions.
+- Notifications: blueprint copy request webhooks are now edited (strikethrough) when accepted by a non-corporate owner.
+- Notifications: edited blueprint copy request webhooks now show a gray embed with a "request closed" footer line.
 
 ### Fixed
 
 - URLs: removed duplicate `esi_hub` route registration.
 - Navigation: set an explicit menu order for the Indy Hub menu hook.
+- Notifications: personal owners now still receive notifications when a corporation webhook is configured for a blueprint they own.
 
 ## [1.13.10] - 2026-01-29
 

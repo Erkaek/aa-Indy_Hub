@@ -411,6 +411,66 @@ def delete_discord_webhook_message(webhook_url: str, message_id: str) -> bool:
         return False
 
 
+def edit_discord_webhook_message(
+    webhook_url: str,
+    message_id: str,
+    title: str,
+    message: str,
+    level: str = "info",
+    *,
+    link: str | None = None,
+    thumbnail_url: str | None = None,
+    embed_title: str | None = None,
+    embed_color: int | None = None,
+    mention_everyone: bool = False,
+    retries: int = 3,
+) -> bool:
+    """Edit a previously sent Discord webhook message by ID."""
+    if not webhook_url or not message_id:
+        return False
+
+    payload = _build_discord_webhook_payload(
+        title,
+        message,
+        level,
+        link=link,
+        thumbnail_url=thumbnail_url,
+        embed_title=embed_title,
+        embed_color=embed_color,
+        mention_everyone=mention_everyone,
+    )
+
+    parsed = urlparse(webhook_url)
+    base_url = parsed._replace(query="", fragment="").geturl()
+    edit_url = f"{base_url}/messages/{message_id}"
+
+    # Third Party
+    import requests
+
+    attempt_count = max(1, retries)
+    for attempt in range(1, attempt_count + 1):
+        try:
+            response = requests.patch(edit_url, json=payload, timeout=10)
+            if response.status_code >= 400:
+                logger.warning(
+                    "Discord webhook edit failed (%s): %s",
+                    response.status_code,
+                    response.text,
+                )
+                continue
+            return True
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.warning(
+                "Discord webhook edit failed (attempt %s): %s",
+                attempt,
+                exc,
+                exc_info=True,
+            )
+            continue
+
+    return False
+
+
 def _send_via_aadiscordbot(
     user,
     title: str,
