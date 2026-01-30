@@ -348,13 +348,6 @@
                     {% endif %}
                 </div>
                 {% if req.has_dual_sources %}
-                <small class="text-muted d-block mt-2" data-scope-display data-request-id="{{ req.id }}">
-                    {% if req.default_scope == "personal" %}
-                    {% trans "Source: Personal" %}
-                    {% else %}
-                    {% trans "Source: Corporation" %}
-                    {% endif %}
-                </small>
                 {% with req_id=req.id|stringformat:"s" %}
                 {% with scope_script_id="bp-scope-options-"|add:req_id %}
                 {{ req.scope_modal_payload|json_script:scope_script_id }}
