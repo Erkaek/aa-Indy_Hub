@@ -185,6 +185,41 @@ class NavbarBlueprintSharingTests(TestCase):
         self.assertContains(response, reverse("indy_hub:bp_copy_fulfill_requests"))
 
 
+class BlueprintCopyHistoryAccessTests(TestCase):
+    def setUp(self) -> None:
+        self.viewer = User.objects.create_user("historyviewer", password="secret123")
+        assign_main_character(self.viewer, character_id=7003101)
+        grant_indy_permissions(self.viewer, "can_manage_corp_bp_requests")
+
+        self.base_user = User.objects.create_user("historybase", password="secret123")
+        assign_main_character(self.base_user, character_id=7003102)
+        grant_indy_permissions(self.base_user)
+
+    def test_history_requires_manage_permission(self) -> None:
+        self.client.force_login(self.base_user)
+        response = self.client.get(reverse("indy_hub:bp_copy_history"))
+        self.assertEqual(response.status_code, 302)
+
+    def test_history_page_renders_for_authorized_user(self) -> None:
+        self.client.force_login(self.viewer)
+        response = self.client.get(reverse("indy_hub:bp_copy_history"))
+        self.assertEqual(response.status_code, 200)
+
+    def test_fulfill_header_shows_history_link_only_for_authorized(self) -> None:
+        fulfill_url = reverse("indy_hub:bp_copy_fulfill_requests")
+        history_url = reverse("indy_hub:bp_copy_history")
+
+        self.client.force_login(self.base_user)
+        response = self.client.get(fulfill_url)
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, history_url)
+
+        self.client.force_login(self.viewer)
+        response = self.client.get(fulfill_url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, history_url)
+
+
 class NavbarMaterialExchangeMyOrdersTests(TestCase):
     def setUp(self) -> None:
         self.user = User.objects.create_user("materialorders", password="secret123")
@@ -953,8 +988,8 @@ class BlueprintCopyFulfillViewTests(TestCase):
         requests = response.context["requests"]
         self.assertEqual(len(requests), 1)
         entry = requests[0]
-        self.assertFalse(entry["has_dual_sources"])
-        self.assertEqual(entry["personal_blueprints"], 0)
+        self.assertTrue(entry["has_dual_sources"])
+        self.assertEqual(entry["personal_blueprints"], 1)
         self.assertEqual(entry["corporate_blueprints"], 1)
         self.assertEqual(entry["default_scope"], "corporation")
         self.assertIn("Dual Source Corp", entry["corporation_names"])
@@ -962,8 +997,8 @@ class BlueprintCopyFulfillViewTests(TestCase):
 
         html = response.content.decode()
         scope_script_id = f"bp-scope-options-{entry['id']}"
-        self.assertNotIn(scope_script_id, html)
-        self.assertNotIn("data-scope-trigger", html)
+        self.assertIn(scope_script_id, html)
+        self.assertIn("data-scope-trigger", html)
 
     @skip(
         "Pre-existing test failure: personal_provider not seeing corporation-scoped requests after rejection"

@@ -1,0 +1,243 @@
+{% extends "indy_hub/base.html" %}
+{% load i18n %}
+{% load static %}
+{% load humanize %}
+
+{% block page_title %}{% trans "Copy Request History" %}{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
+<link rel="stylesheet" href="{% static 'indy_hub/css/bp_copy_list.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    {# Page Header #}
+    <div class="page-header mb-4">
+        <i class="fas fa-history header-bg"></i>
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+            <div>
+                <h2 class="h3 mb-1">
+                    <i class="fas fa-history me-2"></i>
+                    {% trans "Copy Request History" %}
+                </h2>
+                <p class="description mb-0">{% trans "Review recent requests and who accepted them." %}</p>
+            </div>
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                <a href="{% url 'indy_hub:bp_copy_fulfill_requests' %}" class="btn btn-outline-light">
+                    <i class="fas fa-handshake me-1"></i>{% trans "Back to Fulfill" %}
+                </a>
+            </div>
+        </div>
+    </div>
+
+    {# Metric Tiles #}
+    <div class="row g-3 mb-4">
+        <div class="col-md-3">
+            <a href="?status=all" class="metric-tile-link">
+                <div class="metric-tile bg-gradient-primary">
+                    <div>
+                        <p class="label text-primary mb-1">
+                            <i class="fas fa-list me-2"></i>{% trans "Total" %}
+                        </p>
+                        <div class="metric-value text-primary">{{ metrics.total|default:0 }}</div>
+                    </div>
+                    <div class="metric-icon text-primary"><i class="fas fa-database"></i></div>
+                </div>
+            </a>
+        </div>
+        <div class="col-md-3">
+            <a href="?status=open" class="metric-tile-link">
+                <div class="metric-tile bg-gradient-warning">
+                    <div>
+                        <p class="label text-warning mb-1">
+                            <i class="fas fa-hourglass-half me-2"></i>{% trans "Open" %}
+                        </p>
+                        <div class="metric-value text-warning">{{ metrics.open|default:0 }}</div>
+                    </div>
+                    <div class="metric-icon text-warning"><i class="fas fa-clock"></i></div>
+                </div>
+            </a>
+        </div>
+        <div class="col-md-3">
+            <a href="?status=fulfilled" class="metric-tile-link">
+                <div class="metric-tile bg-gradient-info">
+                    <div>
+                        <p class="label text-info mb-1">
+                            <i class="fas fa-check-circle me-2"></i>{% trans "Fulfilled" %}
+                        </p>
+                        <div class="metric-value text-info">{{ metrics.fulfilled|default:0 }}</div>
+                    </div>
+                    <div class="metric-icon text-info"><i class="fas fa-check"></i></div>
+                </div>
+            </a>
+        </div>
+        <div class="col-md-3">
+            <a href="?status=delivered" class="metric-tile-link">
+                <div class="metric-tile bg-gradient-secondary">
+                    <div>
+                        <p class="label text-secondary mb-1">
+                            <i class="fas fa-truck me-2"></i>{% trans "Delivered" %}
+                        </p>
+                        <div class="metric-value text-secondary">{{ metrics.delivered|default:0 }}</div>
+                    </div>
+                    <div class="metric-icon text-secondary"><i class="fas fa-inbox"></i></div>
+                </div>
+            </a>
+        </div>
+    </div>
+
+    {# Filters #}
+    <form method="get" class="d-flex flex-wrap align-items-end gap-2 mb-3">
+        <div>
+            <label for="bp-history-status" class="form-label small text-muted mb-1">{% trans "Status" %}</label>
+            <select id="bp-history-status" name="status" class="form-select form-select-sm" onchange="this.form.submit()">
+                <option value="all" {% if status == 'all' %}selected{% endif %}>{% trans "All" %}</option>
+                <option value="open" {% if status == 'open' %}selected{% endif %}>{% trans "Open" %}</option>
+                <option value="fulfilled" {% if status == 'fulfilled' %}selected{% endif %}>{% trans "Fulfilled" %}</option>
+                <option value="delivered" {% if status == 'delivered' %}selected{% endif %}>{% trans "Delivered" %}</option>
+            </select>
+        </div>
+        <div>
+            <label for="bp-history-search" class="form-label small text-muted mb-1">{% trans "Search" %}</label>
+            <input id="bp-history-search" name="search" value="{{ search }}" class="form-control form-control-sm" placeholder="{% trans 'Username or type ID' %}">
+        </div>
+        <div>
+            <label for="bp-history-per-page" class="form-label small text-muted mb-1">{% trans "Per page" %}</label>
+            <select id="bp-history-per-page" name="per_page" class="form-select form-select-sm" onchange="this.form.submit()">
+                {% for pp in per_page_options %}
+                <option value="{{ pp }}" {% if per_page|stringformat:'s' == pp|stringformat:'s' %}selected{% endif %}>{{ pp }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="ms-auto">
+            <button type="submit" class="btn btn-sm btn-primary">
+                <i class="fas fa-filter me-1"></i>{% trans "Apply" %}
+            </button>
+        </div>
+    </form>
+
+    <div class="card shadow-sm">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th style="width: 90px;">{% trans "Request" %}</th>
+                        <th>{% trans "Blueprint" %}</th>
+                        <th>{% trans "Requester" %}</th>
+                        <th>{% trans "Acceptor" %}</th>
+                        <th>{% trans "Fulfilled" %}</th>
+                        <th>{% trans "Delivered" %}</th>
+                        <th>{% trans "Scope" %}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in rows %}
+                    <tr>
+                        <td>
+                            <div class="small text-muted">#{{ row.id }}</div>
+                            <div class="small">{{ row.created_at|naturaltime }}</div>
+                        </td>
+                        <td>
+                            <div class="d-flex align-items-center gap-2">
+                                <img src="{{ row.icon_url }}" width="24" height="24" alt="">
+                                <div>
+                                    <div class="fw-semibold">{{ row.type_name }}</div>
+                                    <div class="small text-muted">ME{{ row.material_efficiency }} · TE{{ row.time_efficiency }} · {{ row.runs_requested }} run(s) · {{ row.copies_requested }} copie(s)</div>
+                                </div>
+                            </div>
+                        </td>
+                        <td>{{ row.requested_by.username }}</td>
+                        <td>
+                            {% if row.acceptor %}
+                                {{ row.acceptor.username }}
+                            {% else %}
+                                <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if row.fulfilled %}
+                                <span class="badge bg-success">{% trans "Yes" %}</span>
+                                {% if row.fulfilled_at %}
+                                    <div class="small text-muted">{{ row.fulfilled_at|date:'Y-m-d H:i' }}</div>
+                                {% endif %}
+                            {% else %}
+                                <span class="badge bg-warning text-dark">{% trans "No" %}</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if row.delivered %}
+                                <span class="badge bg-secondary">{% trans "Yes" %}</span>
+                                {% if row.delivered_at %}
+                                    <div class="small text-muted">{{ row.delivered_at|date:'Y-m-d H:i' }}</div>
+                                {% endif %}
+                            {% else %}
+                                <span class="badge bg-light text-dark">{% trans "No" %}</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if row.source_scope == 'personal' %}
+                                <span class="badge bg-primary">{% trans "Personal" %}</span>
+                            {% elif row.source_scope == 'corporation' %}
+                                <span class="badge bg-info text-white">{% trans "Corporation" %}</span>
+                            {% else %}
+                                <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="7" class="text-center text-muted py-4">
+                            <i class="fas fa-search me-1"></i>{% trans "No requests found." %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    {# Pagination #}
+    {% if page_obj.has_other_pages %}
+    <nav aria-label="{% trans 'History pagination' %}" class="mt-4">
+        <div class="d-flex justify-content-center">
+            <ul class="pagination mb-0">
+                {% if page_obj.number == 1 %}
+                <li class="page-item disabled"><span class="page-link">{% trans "First" %}</span></li>
+                {% else %}
+                <li class="page-item"><a class="page-link" href="?page=1&status={{ status }}&search={{ search }}&per_page={{ per_page }}">{% trans "First" %}</a></li>
+                {% endif %}
+
+                {% if page_obj.has_previous %}
+                <li class="page-item"><a class="page-link" href="?page={{ page_obj.previous_page_number }}&status={{ status }}&search={{ search }}&per_page={{ per_page }}">{% trans "Previous" %}</a></li>
+                {% else %}
+                <li class="page-item disabled"><span class="page-link">{% trans "Previous" %}</span></li>
+                {% endif %}
+
+                {% for item in page_range %}
+                    {% if item == "…" %}
+                    <li class="page-item disabled"><span class="page-link">…</span></li>
+                    {% else %}
+                    <li class="page-item {% if page_obj.number == item %}active{% endif %}">
+                        <a class="page-link" href="?page={{ item }}&status={{ status }}&search={{ search }}&per_page={{ per_page }}">{{ item }}</a>
+                    </li>
+                    {% endif %}
+                {% endfor %}
+
+                {% if page_obj.has_next %}
+                <li class="page-item"><a class="page-link" href="?page={{ page_obj.next_page_number }}&status={{ status }}&search={{ search }}&per_page={{ per_page }}">{% trans "Next" %}</a></li>
+                {% else %}
+                <li class="page-item disabled"><span class="page-link">{% trans "Next" %}</span></li>
+                {% endif %}
+
+                {% if page_obj.number == page_obj.paginator.num_pages %}
+                <li class="page-item disabled"><span class="page-link">{% trans "Last" %}</span></li>
+                {% else %}
+                <li class="page-item"><a class="page-link" href="?page={{ page_obj.paginator.num_pages }}&status={{ status }}&search={{ search }}&per_page={{ per_page }}">{% trans "Last" %}</a></li>
+                {% endif %}
+            </ul>
+        </div>
+    </nav>
+    {% endif %}
+</div>
+{% endblock %}

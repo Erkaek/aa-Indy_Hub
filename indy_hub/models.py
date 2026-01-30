@@ -422,6 +422,13 @@ class BlueprintCopyRequest(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     fulfilled = models.BooleanField(default=False)
     fulfilled_at = models.DateTimeField(null=True, blank=True)
+    fulfilled_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="bp_copy_requests_fulfilled",
+    )
     delivered = models.BooleanField(default=False)
     delivered_at = models.DateTimeField(null=True, blank=True)
     # No direct link to owner(s) to preserve anonymity
@@ -468,6 +475,15 @@ class BlueprintCopyOffer(models.Model):
     accepted_by_buyer = models.BooleanField(default=False)
     accepted_at = models.DateTimeField(null=True, blank=True)
     accepted_by_seller = models.BooleanField(default=False)
+    source_scope = models.CharField(
+        max_length=16,
+        choices=[
+            ("personal", "Personal"),
+            ("corporation", "Corporation"),
+        ],
+        blank=True,
+        null=True,
+    )
 
     class Meta:
         unique_together = ("request", "owner")

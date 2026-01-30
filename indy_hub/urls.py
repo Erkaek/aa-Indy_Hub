@@ -21,6 +21,7 @@ from .views.industry import (
     bp_chat_send,
     bp_cond_copy_request,
     bp_copy_fulfill_requests,
+    bp_copy_history,
     bp_copy_my_requests,
     bp_copy_request_create,
     bp_copy_request_page,
@@ -192,6 +193,7 @@ urlpatterns = [
         "bp-copy/request/create/", bp_copy_request_create, name="bp_copy_request_create"
     ),
     path("bp-copy/fulfill/", bp_copy_fulfill_requests, name="bp_copy_fulfill_requests"),
+    path("bp-copy/history/", bp_copy_history, name="bp_copy_history"),
     path(
         "bp-copy/my-requests/", bp_copy_my_requests, name="bp_copy_my_requests"
     ),  # my requests

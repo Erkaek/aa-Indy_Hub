@@ -12,18 +12,24 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Logging: added operational logs for management commands, hub views, simulations, Discord action tokens, and material exchange order views.
 - Logging: added error-focused logging around cache preloads, location population, permission cleanup, ESI status checks, and simulation aggregation.
 - Notifications: added Discord webhook message edit support.
+- Blueprint Sharing: added a manager-only history page for copy requests (with filters, metrics, and acceptor display).
 
 ### Changed
 
 - Logging: aligned app logging to Alliance Auth extension logger conventions.
 - Notifications: blueprint copy request webhooks are now edited (strikethrough) when accepted by a non-corporate owner.
 - Notifications: edited blueprint copy request webhooks now show a gray embed with a "request closed" footer line.
+- Blueprint Sharing: fulfill queue now shows personal ownership alongside corporation sources and prompts for personal vs corporation actions when both apply.
+- Blueprint Sharing: history access is restricted to users with the manage BP permission.
+- Blueprint Sharing: history button moved out of the fulfill header and styled as a primary action.
 
 ### Fixed
 
 - URLs: removed duplicate `esi_hub` route registration.
 - Navigation: set an explicit menu order for the Indy Hub menu hook.
 - Notifications: personal owners now still receive notifications when a corporation webhook is configured for a blueprint they own.
+- Blueprint Sharing: webhook edits now run for accept actions from the fulfill queue and no longer skip corporate members.
+- Migrations: merged blueprint copy request acceptor tracking into the existing source-scope migration and removed the redundant migration file.
 
 ## [1.13.10] - 2026-01-29
 

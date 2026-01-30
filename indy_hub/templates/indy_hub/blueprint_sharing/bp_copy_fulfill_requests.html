@@ -25,11 +25,21 @@
                 </h2>
                 <p class="description mb-0">{% trans "Review outstanding requests, respond with offers, and manage deliveries." %}</p>
             </div>
-            <a href="{% url 'indy_hub:index' %}" class="btn btn-outline-light">
-                <i class="fas fa-arrow-left me-1"></i>{% trans "Back to Overview" %}
-            </a>
+            <div class="d-flex flex-column align-items-end gap-1">
+                <a href="{% url 'indy_hub:index' %}" class="btn btn-outline-light">
+                    <i class="fas fa-arrow-left me-1"></i>{% trans "Back to Overview" %}
+                </a>
+            </div>
         </div>
     </div>
+
+    {% if perms.indy_hub.can_manage_corp_bp_requests %}
+    <div class="bp-request-filters__actions justify-content-end mb-3">
+        <a href="{% url 'indy_hub:bp_copy_history' %}" class="btn btn-primary">
+            <i class="fas fa-history me-1"></i>{% trans "History" %}
+        </a>
+    </div>
+    {% endif %}
 
     {% if has_requests %}
     {# Metric Tiles #}
@@ -237,21 +247,79 @@
                     <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}" class="d-inline">
                         {% csrf_token %}
                         <input type="hidden" name="action" value="accept">
-                        <button type="submit" class="btn btn-sm bp-action bp-action--accept-free">
+                        <input
+                            type="hidden"
+                            name="source_scope"
+                            value="{{ req.default_scope }}"
+                            data-scope-input
+                            data-request-id="{{ req.id }}"
+                            data-scope-default="{{ req.default_scope }}"
+                        >
+                        <button
+                            type="submit"
+                            class="btn btn-sm bp-action bp-action--accept-free"
+                            {% if req.has_dual_sources %}
+                            data-scope-trigger="true"
+                            data-scope-required="true"
+                            data-request-id="{{ req.id }}"
+                            data-scope-script-id="bp-scope-options-{{ req.id }}"
+                            data-scope-action="accept"
+                            data-scope-action-label="{% trans "Accept for free" %}"
+                            {% endif %}
+                        >
                             <i class="fas fa-gift me-1"></i>{% trans "Accept for free" %}
                         </button>
                     </form>
                     <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}" class="d-inline">
                         {% csrf_token %}
                         <input type="hidden" name="action" value="reject">
-                        <button type="submit" class="btn btn-sm bp-action bp-action--decline" onclick="return confirm('{% trans "Decline this request?" %}')">
+                        <input
+                            type="hidden"
+                            name="source_scope"
+                            value="{{ req.default_scope }}"
+                            data-scope-input
+                            data-request-id="{{ req.id }}"
+                            data-scope-default="{{ req.default_scope }}"
+                        >
+                        <button
+                            type="submit"
+                            class="btn btn-sm bp-action bp-action--decline"
+                            onclick="return confirm('{% trans "Decline this request?" %}')"
+                            {% if req.has_dual_sources %}
+                            data-scope-trigger="true"
+                            data-scope-required="true"
+                            data-request-id="{{ req.id }}"
+                            data-scope-script-id="bp-scope-options-{{ req.id }}"
+                            data-scope-action="reject"
+                            data-scope-action-label="{% trans "Decline" %}"
+                            {% endif %}
+                        >
                             <i class="fas fa-times me-1"></i>{% trans "Decline" %}
                         </button>
                     </form>
                     <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}" class="d-inline">
                         {% csrf_token %}
                         <input type="hidden" name="action" value="conditional">
-                        <button type="submit" class="btn btn-sm bp-action bp-action--conditions">
+                        <input
+                            type="hidden"
+                            name="source_scope"
+                            value="{{ req.default_scope }}"
+                            data-scope-input
+                            data-request-id="{{ req.id }}"
+                            data-scope-default="{{ req.default_scope }}"
+                        >
+                        <button
+                            type="submit"
+                            class="btn btn-sm bp-action bp-action--conditions"
+                            {% if req.has_dual_sources %}
+                            data-scope-trigger="true"
+                            data-scope-required="true"
+                            data-request-id="{{ req.id }}"
+                            data-scope-script-id="bp-scope-options-{{ req.id }}"
+                            data-scope-action="conditional"
+                            data-scope-action-label="{% trans "Accept with conditions" %}"
+                            {% endif %}
+                        >
                             <i class="fas fa-file-signature me-1"></i>{% trans "Accept with conditions" %}
                         </button>
                     </form>
@@ -279,6 +347,20 @@
                     </button>
                     {% endif %}
                 </div>
+                {% if req.has_dual_sources %}
+                <small class="text-muted d-block mt-2" data-scope-display data-request-id="{{ req.id }}">
+                    {% if req.default_scope == "personal" %}
+                    {% trans "Source: Personal" %}
+                    {% else %}
+                    {% trans "Source: Corporation" %}
+                    {% endif %}
+                </small>
+                {% with req_id=req.id|stringformat:"s" %}
+                {% with scope_script_id="bp-scope-options-"|add:req_id %}
+                {{ req.scope_modal_payload|json_script:scope_script_id }}
+                {% endwith %}
+                {% endwith %}
+                {% endif %}
             </div>
         </div>
         {% endfor %}
@@ -291,6 +373,43 @@
         <p class="text-muted">{% trans "Check back soon for new requests to fulfill." %}</p>
     </div>
     {% endif %}
+</div>
+
+<div class="modal fade" id="bpScopeSelectModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" data-scope-title data-default-title="{% trans "Select fulfilment source" %}">
+                    {% trans "Select fulfilment source" %}
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans "Close" %}"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted mb-3" data-scope-helper data-default-helper="{% trans "Choose whether to fulfil with your character or a corporation blueprint." %}">
+                    {% trans "Choose whether to fulfil with your character or a corporation blueprint." %}
+                </p>
+                <div class="alert alert-warning d-none" data-scope-warning></div>
+                <div
+                    data-scope-options
+                    data-label-character="{% trans "Character" %}"
+                    data-label-corporation="{% trans "Corporation" %}"
+                    data-badge-you="{% trans "You" %}"
+                    data-badge-access="{% trans "Your access" %}"
+                    data-warning-message="{% trans "Please select a source before continuing." %}"
+                    data-heading-characters="{% trans "Characters" %}"
+                    data-heading-corporations="{% trans "Corporations" %}"
+                ></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-scope-cancel data-bs-dismiss="modal">
+                    {% trans "Cancel" %}
+                </button>
+                <button type="button" class="btn btn-primary" data-scope-confirm disabled>
+                    {% trans "Confirm" %}
+                </button>
+            </div>
+        </div>
+    </div>
 </div>
 
 {% include "indy_hub/includes/bp_chat_modal.html" %}

@@ -17,7 +17,7 @@ from django.contrib.auth.models import User
 from django.core.exceptions import FieldDoesNotExist, ValidationError
 from django.core.paginator import Paginator
 from django.db import connection
-from django.db.models import Case, Count, Q, When
+from django.db.models import Case, Count, Prefetch, Q, When
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -413,14 +413,6 @@ def _strike_discord_webhook_messages_for_request(
     *,
     actor: User,
 ) -> None:
-    eligible_details = _eligible_owner_details_for_request(req)
-    corp_member_ids: set[int] = set()
-    for members in eligible_details.corporate_members_by_corp.values():
-        corp_member_ids.update(members)
-
-    if actor.id in corp_member_ids:
-        return
-
     webhook_messages = NotificationWebhookMessage.objects.filter(copy_request=req)
     if not webhook_messages.exists():
         return
@@ -778,7 +770,8 @@ def _finalize_conditional_offer(offer: BlueprintCopyOffer) -> None:
 
     req.fulfilled = True
     req.fulfilled_at = timezone.now()
-    req.save(update_fields=["fulfilled", "fulfilled_at"])
+    req.fulfilled_by = offer.owner
+    req.save(update_fields=["fulfilled", "fulfilled_at", "fulfilled_by"])
 
     _close_request_chats(req, BlueprintCopyChat.CloseReason.OFFER_ACCEPTED)
     _strike_discord_webhook_messages_for_request(None, req, actor=offer.owner)
@@ -3801,7 +3794,7 @@ def bp_copy_fulfill_requests(request):
                 continue
             show_personal_sources = True
         else:
-            show_personal_sources = not can_manage_corporate
+            show_personal_sources = personal_count > 0
 
         if not show_personal_sources and corporate_count == 0:
             continue
@@ -4041,6 +4034,130 @@ def bp_copy_fulfill_requests(request):
     )
 
 
+@indy_hub_access_required
+@indy_hub_permission_required("can_manage_corp_bp_requests")
+@login_required
+def bp_copy_history(request):
+    """Show a simple history of copy requests and their acceptor (when known).
+
+    Visibility is restricted to users with the `can_manage_corp_bp_requests` permission.
+    """
+
+    status = (request.GET.get("status") or "all").strip().lower()
+    search = (request.GET.get("search") or "").strip()
+    per_page = request.GET.get("per_page")
+    page = request.GET.get("page")
+
+    try:
+        per_page_val = int(per_page or 50)
+    except (TypeError, ValueError):
+        per_page_val = 50
+    per_page_val = max(10, min(200, per_page_val))
+
+    qs = (
+        BlueprintCopyRequest.objects.select_related("requested_by", "fulfilled_by")
+        .prefetch_related(
+            Prefetch(
+                "offers",
+                queryset=BlueprintCopyOffer.objects.select_related("owner").order_by(
+                    "-accepted_at", "-created_at", "-id"
+                ),
+            )
+        )
+        .order_by("-created_at", "-id")
+    )
+
+    if status == "open":
+        qs = qs.filter(fulfilled=False)
+    elif status == "fulfilled":
+        qs = qs.filter(fulfilled=True, delivered=False)
+    elif status == "delivered":
+        qs = qs.filter(delivered=True)
+    else:
+        status = "all"
+
+    if search:
+        if search.isdigit():
+            qs = qs.filter(type_id=int(search))
+        else:
+            qs = qs.filter(requested_by__username__icontains=search)
+
+    metrics = {
+        "total": BlueprintCopyRequest.objects.count(),
+        "open": BlueprintCopyRequest.objects.filter(fulfilled=False).count(),
+        "fulfilled": BlueprintCopyRequest.objects.filter(
+            fulfilled=True, delivered=False
+        ).count(),
+        "delivered": BlueprintCopyRequest.objects.filter(delivered=True).count(),
+    }
+
+    paginator = Paginator(qs, per_page_val)
+    page_obj = paginator.get_page(page)
+    page_range = paginator.get_elided_page_range(
+        number=page_obj.number, on_each_side=3, on_ends=1
+    )
+
+    rows = []
+    for req in page_obj:
+        offers = list(req.offers.all())
+        accepted_offer = next(
+            (
+                offer
+                for offer in offers
+                if offer.status == "accepted"
+                and offer.accepted_by_buyer
+                and offer.accepted_by_seller
+            ),
+            None,
+        )
+        if accepted_offer is None:
+            accepted_offer = next(
+                (offer for offer in offers if offer.status == "accepted"), None
+            )
+
+        acceptor = req.fulfilled_by or (
+            accepted_offer.owner if accepted_offer else None
+        )
+        rows.append(
+            {
+                "id": req.id,
+                "type_id": req.type_id,
+                "type_name": get_type_name(req.type_id),
+                "icon_url": f"https://images.evetech.net/types/{req.type_id}/bp?size=32",
+                "material_efficiency": req.material_efficiency,
+                "time_efficiency": req.time_efficiency,
+                "runs_requested": req.runs_requested,
+                "copies_requested": req.copies_requested,
+                "requested_by": req.requested_by,
+                "created_at": req.created_at,
+                "fulfilled": req.fulfilled,
+                "fulfilled_at": req.fulfilled_at,
+                "delivered": req.delivered,
+                "delivered_at": req.delivered_at,
+                "acceptor": acceptor,
+                "source_scope": (
+                    getattr(accepted_offer, "source_scope", None)
+                    if accepted_offer
+                    else None
+                ),
+            }
+        )
+
+    context = {
+        "status": status,
+        "search": search,
+        "per_page": per_page_val,
+        "per_page_options": [25, 50, 100, 200],
+        "metrics": metrics,
+        "page_obj": page_obj,
+        "page_range": page_range,
+        "rows": rows,
+    }
+    context.update(build_nav_context(request.user, active_tab="blueprint_sharing"))
+
+    return render(request, "indy_hub/blueprint_sharing/bp_copy_history.html", context)
+
+
 def _process_offer_action(
     *,
     request_obj,
@@ -4048,11 +4165,20 @@ def _process_offer_action(
     owner,
     action: str | None,
     message: str = "",
+    source_scope: str | None = None,
 ) -> bool:
     if not action:
         return False
 
+    normalized_scope = None
+    if source_scope is not None:
+        candidate = str(source_scope).strip().lower()
+        if candidate in {"personal", "corporation"}:
+            normalized_scope = candidate
+
     offer, _created = BlueprintCopyOffer.objects.get_or_create(request=req, owner=owner)
+    if normalized_scope:
+        offer.source_scope = normalized_scope
     my_requests_url = request_obj.build_absolute_uri(
         reverse("indy_hub:bp_copy_my_requests")
     )
@@ -4063,13 +4189,18 @@ def _process_offer_action(
         offer.accepted_by_buyer = True
         offer.accepted_by_seller = True
         offer.accepted_at = timezone.now()
+        update_fields = [
+            "status",
+            "message",
+            "accepted_by_buyer",
+            "accepted_by_seller",
+            "accepted_at",
+        ]
+        if normalized_scope:
+            update_fields.append("source_scope")
         offer.save(
             update_fields=[
-                "status",
-                "message",
-                "accepted_by_buyer",
-                "accepted_by_seller",
-                "accepted_at",
+                *update_fields,
             ]
         )
         _close_offer_chat_if_exists(offer, BlueprintCopyChat.CloseReason.OFFER_ACCEPTED)
@@ -4083,7 +4214,10 @@ def _process_offer_action(
         )
         req.fulfilled = True
         req.fulfilled_at = timezone.now()
-        req.save(update_fields=["fulfilled", "fulfilled_at"])
+        req.fulfilled_by = owner
+        req.save(update_fields=["fulfilled", "fulfilled_at", "fulfilled_by"])
+        _close_request_chats(req, BlueprintCopyChat.CloseReason.OFFER_ACCEPTED)
+        _strike_discord_webhook_messages_for_request(request_obj, req, actor=owner)
         BlueprintCopyOffer.objects.filter(request=req).exclude(owner=owner).delete()
         messages.success(request_obj, _("Request accepted and requester notified."))
         return True
@@ -4094,13 +4228,18 @@ def _process_offer_action(
         offer.accepted_by_buyer = False
         offer.accepted_by_seller = False
         offer.accepted_at = None
+        update_fields = [
+            "status",
+            "message",
+            "accepted_by_buyer",
+            "accepted_by_seller",
+            "accepted_at",
+        ]
+        if normalized_scope:
+            update_fields.append("source_scope")
         offer.save(
             update_fields=[
-                "status",
-                "message",
-                "accepted_by_buyer",
-                "accepted_by_seller",
-                "accepted_at",
+                *update_fields,
             ]
         )
         chat = _ensure_offer_chat(offer)
@@ -4144,13 +4283,18 @@ def _process_offer_action(
         offer.accepted_by_buyer = False
         offer.accepted_by_seller = False
         offer.accepted_at = None
+        update_fields = [
+            "status",
+            "message",
+            "accepted_by_buyer",
+            "accepted_by_seller",
+            "accepted_at",
+        ]
+        if normalized_scope:
+            update_fields.append("source_scope")
         offer.save(
             update_fields=[
-                "status",
-                "message",
-                "accepted_by_buyer",
-                "accepted_by_seller",
-                "accepted_at",
+                *update_fields,
             ]
         )
         _close_offer_chat_if_exists(offer, BlueprintCopyChat.CloseReason.OFFER_REJECTED)
@@ -4180,6 +4324,7 @@ def bp_offer_copy_request(request, request_id):
         messages.error(request, _("You are not allowed to fulfill this request."))
         return redirect("indy_hub:bp_copy_fulfill_requests")
     action = request.POST.get("action")
+    source_scope = request.POST.get("source_scope") or request.POST.get("scope")
     message = request.POST.get("message", "").strip()
     handled = _process_offer_action(
         request_obj=request,
@@ -4187,6 +4332,7 @@ def bp_offer_copy_request(request, request_id):
         owner=request.user,
         action=action,
         message=message,
+        source_scope=source_scope,
     )
     redirect_url = reverse("indy_hub:bp_copy_fulfill_requests")
     if handled:
@@ -4232,6 +4378,7 @@ def bp_discord_action(request):
     expected_user_id = payload.get("u")
     request_id = payload.get("r")
     action = payload.get("a")
+    source_scope = request.GET.get("source_scope") or request.GET.get("scope")
 
     if expected_user_id is not None and expected_user_id != request.user.id:
         messages.error(request, _("This action link is not for your account."))
@@ -4280,6 +4427,7 @@ def bp_discord_action(request):
             owner=request.user,
             action=action,
             message="",
+            source_scope=source_scope,
         )
         if handled:
             offer = (
@@ -4298,6 +4446,7 @@ def bp_discord_action(request):
             req=req,
             owner=request.user,
             action=action,
+            source_scope=source_scope,
         )
 
     if not handled:
@@ -4379,7 +4528,8 @@ def bp_accept_copy_request(request, request_id):
         return redirect("indy_hub:bp_copy_fulfill_requests")
     req.fulfilled = True
     req.fulfilled_at = timezone.now()
-    req.save()
+    req.fulfilled_by = request.user
+    req.save(update_fields=["fulfilled", "fulfilled_at", "fulfilled_by"])
     _close_request_chats(req, BlueprintCopyChat.CloseReason.OFFER_ACCEPTED)
     _strike_discord_webhook_messages_for_request(request, req, actor=request.user)
     # Notify requester
