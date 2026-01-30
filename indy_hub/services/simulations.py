@@ -8,9 +8,14 @@ from decimal import Decimal
 # Django
 from django.db.models import QuerySet, Sum
 
+# Alliance Auth
+from allianceauth.services.hooks import get_extension_logger
+
 from ..models import ProductionSimulation
 
 SimulationStats = dict[str, object]
+
+logger = get_extension_logger(__name__)
 
 
 def summarize_simulations(
@@ -22,17 +27,21 @@ def summarize_simulations(
     apply additional filtering / ordering before passing it in.
     """
 
-    total_simulations = simulations.count()
+    try:
+        total_simulations = simulations.count()
 
-    stats_raw = simulations.aggregate(
-        total_runs=Sum("runs"),
-        total_items=Sum("total_items"),
-        total_buy_items=Sum("total_buy_items"),
-        total_prod_items=Sum("total_prod_items"),
-        total_cost=Sum("estimated_cost"),
-        total_revenue=Sum("estimated_revenue"),
-        total_profit=Sum("estimated_profit"),
-    )
+        stats_raw = simulations.aggregate(
+            total_runs=Sum("runs"),
+            total_items=Sum("total_items"),
+            total_buy_items=Sum("total_buy_items"),
+            total_prod_items=Sum("total_prod_items"),
+            total_cost=Sum("estimated_cost"),
+            total_revenue=Sum("estimated_revenue"),
+            total_profit=Sum("estimated_profit"),
+        )
+    except Exception as exc:
+        logger.exception("Failed to summarize simulations: %s", exc)
+        raise
 
     defaults: dict[str, Decimal | int] = {
         "total_runs": 0,
@@ -65,5 +74,13 @@ def summarize_simulations(
         else None
     )
     stats["latest_update"] = latest_update
+
+    logger.debug(
+        "Simulation summary computed (total=%s, runs=%s, items=%s, profit=%s)",
+        total_simulations,
+        stats.get("total_runs"),
+        stats.get("total_items"),
+        stats.get("total_profit"),
+    )
 
     return total_simulations, stats

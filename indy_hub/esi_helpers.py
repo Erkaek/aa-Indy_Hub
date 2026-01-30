@@ -1,9 +1,9 @@
-# Standard Library
-import logging
+# Alliance Auth
+from allianceauth.services.hooks import get_extension_logger
 
 from .services.esi_client import ESIClientError, ESITokenError, shared_client
 
-logger = logging.getLogger(__name__)
+logger = get_extension_logger(__name__)
 
 ESI_BASE_URL = "https://esi.evetech.net/latest"
 

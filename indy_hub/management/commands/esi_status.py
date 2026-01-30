@@ -4,8 +4,13 @@
 from django.core.cache import cache
 from django.core.management.base import BaseCommand
 
+# Alliance Auth
+from allianceauth.services.hooks import get_extension_logger
+
 # AA Example App
 from indy_hub.utils import clear_esi_cache, get_esi_status
+
+logger = get_extension_logger(__name__)
 
 
 class Command(BaseCommand):
@@ -27,6 +32,7 @@ class Command(BaseCommand):
         if options["clear_cache"]:
             clear_esi_cache()
             self.stdout.write(self.style.SUCCESS("ESI cache cleared successfully"))
+            logger.info("ESI cache cleared via esi_status command.")
             return
 
         if options["reset_circuit_breakers"]:
@@ -35,10 +41,24 @@ class Command(BaseCommand):
             cache.delete_pattern("esi_error_count_*")
             cache.delete_pattern("esi_backoff_*")
             self.stdout.write(self.style.SUCCESS("Circuit breakers reset successfully"))
+            logger.info("ESI circuit breakers reset via esi_status command.")
             return
 
         # Show current status
-        status = get_esi_status()
+        try:
+            status = get_esi_status()
+        except Exception as exc:
+            logger.exception("Failed to retrieve ESI status: %s", exc)
+            raise
+        logger.info(
+            "ESI status: type_cb=%s char_cb=%s type_backoff=%s char_backoff=%s type_errors=%s char_errors=%s",
+            status.get("type_circuit_breaker"),
+            status.get("character_circuit_breaker"),
+            status.get("type_backoff"),
+            status.get("character_backoff"),
+            status.get("type_errors"),
+            status.get("character_errors"),
+        )
 
         self.stdout.write("=== ESI Protection Status ===")
 

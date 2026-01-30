@@ -1,15 +1,17 @@
 """ESI contract validation helpers for Material Exchange."""
 
 # Standard Library
-import logging
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
+# Alliance Auth
+from allianceauth.services.hooks import get_extension_logger
+
 # Local
 from .esi_client import ESIClientError, shared_client
 
-logger = logging.getLogger(__name__)
+logger = get_extension_logger(__name__)
 
 
 @dataclass

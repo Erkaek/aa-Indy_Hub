@@ -7,11 +7,13 @@ These functions handle industry job calculations, production metrics, etc.
 from __future__ import annotations
 
 # Standard Library
-import logging
 from datetime import datetime, timedelta
 from typing import Any
 
-logger = logging.getLogger(__name__)
+# Alliance Auth
+from allianceauth.services.hooks import get_extension_logger
+
+logger = get_extension_logger(__name__)
 
 
 def _coerce_int(value: Any, *, default: int | None = None) -> int | None:

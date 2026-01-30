@@ -7,10 +7,11 @@ Tasks are organized in specialized modules under the tasks/ directory.
 """
 
 # Standard Library
-import logging
-
 # Django
 from django.contrib.auth.models import User  # noqa: F401
+
+# Alliance Auth
+from allianceauth.services.hooks import get_extension_logger
 
 # Indy Hub
 from .models import Blueprint, IndustryJob  # noqa: F401
@@ -34,7 +35,7 @@ from .tasks.notifications import (  # noqa: F401
 )
 from .tasks.user import *  # noqa: F401, F403
 
-logger = logging.getLogger(__name__)
+logger = get_extension_logger(__name__)
 
 # All tasks are imported above and available for use
 # The setup_periodic_tasks function is imported from tasks/__init__.py

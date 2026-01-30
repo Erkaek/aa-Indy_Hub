@@ -6,7 +6,6 @@ These views handle API calls, external data fetching, and service integrations.
 
 # Standard Library
 import json
-import logging
 from decimal import Decimal
 from math import ceil
 
@@ -21,6 +20,9 @@ from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
+# Alliance Auth
+from allianceauth.services.hooks import get_extension_logger
+
 from ..decorators import indy_hub_access_required, indy_hub_permission_required
 
 # Local
@@ -31,7 +33,7 @@ from ..models import (
     ProductionSimulation,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_extension_logger(__name__)
 
 
 def _to_serializable(value):

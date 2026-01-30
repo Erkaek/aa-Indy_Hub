@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-# Standard Library
-import logging
-
 # Django
 from django.db import migrations
 
-logger = logging.getLogger(__name__)
+# Alliance Auth
+from allianceauth.services.hooks import get_extension_logger
+
+logger = get_extension_logger(__name__)
 
 
 def _populate_location_names(apps, schema_editor):

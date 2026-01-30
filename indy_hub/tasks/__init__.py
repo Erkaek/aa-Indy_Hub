@@ -59,7 +59,11 @@ def setup_periodic_tasks():
     """Setup periodic tasks for IndyHub module."""
     # Standard Library
     import json
-    import logging
+
+    # Alliance Auth
+    from allianceauth.services.hooks import get_extension_logger
+
+    logger = get_extension_logger(__name__)
 
     try:
         # Third Party
@@ -100,16 +104,14 @@ def setup_periodic_tasks():
                     "enabled": True,
                 },
             )
-    logging.getLogger(__name__).info("IndyHub cron tasks registered.")
+    logger.info("IndyHub cron tasks registered.")
 
     # Clean up any legacy task entries that are no longer defined
     removed, _ = PeriodicTask.objects.filter(
         name="indy-hub-notify-completed-jobs"
     ).delete()
     if removed:
-        logging.getLogger(__name__).info(
-            "Removed legacy periodic task indy-hub-notify-completed-jobs"
-        )
+        logger.info("Removed legacy periodic task indy-hub-notify-completed-jobs")
 
 
 # ...import additional tasks here if needed...

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Logging: added operational logs for management commands, hub views, simulations, Discord action tokens, and material exchange order views.
+- Logging: added error-focused logging around cache preloads, location population, permission cleanup, ESI status checks, and simulation aggregation.
+
+### Changed
+
+- Logging: aligned app logging to Alliance Auth extension logger conventions.
+
+### Fixed
+
+- URLs: removed duplicate `esi_hub` route registration.
+- Navigation: set an explicit menu order for the Indy Hub menu hook.
+
 ## [1.13.10] - 2026-01-29
 
 ### Changed

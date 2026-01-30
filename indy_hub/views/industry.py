@@ -2,7 +2,6 @@
 
 # Standard Library
 import json
-import logging
 from collections import defaultdict
 from dataclasses import dataclass
 from decimal import Decimal
@@ -30,6 +29,7 @@ from django.views.decorators.http import require_http_methods
 
 # Alliance Auth
 from allianceauth.authentication.models import CharacterOwnership, UserProfile
+from allianceauth.services.hooks import get_extension_logger
 
 # AA Example App
 from indy_hub.models import CharacterSettings, CorporationSharingSetting
@@ -85,7 +85,7 @@ if "eveuniverse" in getattr(settings, "INSTALLED_APPS", ()):  # pragma: no branc
 else:  # pragma: no cover - EveUniverse not installed
     EveType = None
 
-logger = logging.getLogger(__name__)
+logger = get_extension_logger(__name__)
 
 
 @dataclass

@@ -3,7 +3,6 @@
 # Place any industry-specific asynchronous tasks from tasks.py here when needed.
 
 # Standard Library
-import logging
 import random
 import time
 from datetime import datetime, timedelta
@@ -22,6 +21,7 @@ from django.utils.dateparse import parse_datetime
 
 # Alliance Auth
 from allianceauth.authentication.models import CharacterOwnership
+from allianceauth.services.hooks import get_extension_logger
 
 from ..models import (
     Blueprint,
@@ -46,7 +46,7 @@ from ..utils.eve import (
     resolve_location_name,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_extension_logger(__name__)
 
 BLUEPRINT_SCOPE = "esi-characters.read_blueprints.v1"
 JOBS_SCOPE = "esi-industry.read_character_jobs.v1"

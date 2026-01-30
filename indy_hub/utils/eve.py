@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 # Standard Library
-import logging
 import time
 from collections.abc import Iterable, Mapping
 from typing import Any
@@ -18,6 +17,7 @@ from django.core.exceptions import AppRegistryNotReady
 
 # Alliance Auth
 from allianceauth.eveonline.models import EveCharacter, EveCorporationInfo
+from allianceauth.services.hooks import get_extension_logger
 from esi.models import Token
 
 from ..services.esi_client import (
@@ -43,7 +43,7 @@ else:  # pragma: no cover - EveUniverse app not installed
     EveType = None
     EveIndustryActivityProduct = None
 
-logger = logging.getLogger(__name__)
+logger = get_extension_logger(__name__)
 
 _TYPE_NAME_CACHE: dict[int, str] = {}
 _CHAR_NAME_CACHE: dict[int, str] = {}

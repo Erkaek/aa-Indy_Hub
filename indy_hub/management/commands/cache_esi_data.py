@@ -1,9 +1,9 @@
-# Standard Library
-import logging
-
 # Django
 from django.contrib.auth.models import User
 from django.core.management.base import BaseCommand
+
+# Alliance Auth
+from allianceauth.services.hooks import get_extension_logger
 
 from ...models import (
     Blueprint,
@@ -12,7 +12,7 @@ from ...models import (
     batch_cache_type_names,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_extension_logger(__name__)
 
 
 class Command(BaseCommand):
@@ -42,16 +42,25 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         self.stdout.write(self.style.SUCCESS("Starting ESI cache pre-loading..."))
+        logger.info(
+            "ESI cache pre-loading started (user=%s, all=%s, types_only=%s, characters_only=%s)",
+            options.get("user"),
+            options.get("all"),
+            options.get("types_only"),
+            options.get("characters_only"),
+        )
 
         # Determine which users to process
         if options["user"]:
             try:
                 users = [User.objects.get(username=options["user"])]
                 self.stdout.write(f"Processing user: {options['user']}")
+                logger.info("Processing cache pre-load for user %s.", options["user"])
             except User.DoesNotExist:
                 self.stdout.write(
                     self.style.ERROR(f"User '{options['user']}' not found")
                 )
+                logger.warning("User %s not found for cache pre-load.", options["user"])
                 return
         elif options["all"]:
             # Get all users who have blueprints or jobs
@@ -64,10 +73,12 @@ class Command(BaseCommand):
             )
             users = User.objects.filter(id__in=user_ids)
             self.stdout.write(f"Processing {users.count()} users with data")
+            logger.info("Processing cache pre-load for %s users.", users.count())
         else:
             self.stdout.write(
                 self.style.ERROR("Please specify --user <username> or --all")
             )
+            logger.warning("Cache pre-load aborted: no target user(s) specified.")
             return
 
         total_type_ids = set()
@@ -134,7 +145,12 @@ class Command(BaseCommand):
                     f"Caching {len(total_type_ids)} unique type names..."
                 )
             )
-            batch_cache_type_names(list(total_type_ids))
+            logger.info("Caching %s unique type names.", len(total_type_ids))
+            try:
+                batch_cache_type_names(list(total_type_ids))
+            except Exception as exc:
+                logger.exception("Failed to cache type names: %s", exc)
+                raise
 
         if total_character_ids and not options["types_only"]:
             self.stdout.write(
@@ -142,7 +158,12 @@ class Command(BaseCommand):
                     f"Caching {len(total_character_ids)} unique character names..."
                 )
             )
-            batch_cache_character_names(list(total_character_ids))
+            logger.info("Caching %s unique character names.", len(total_character_ids))
+            try:
+                batch_cache_character_names(list(total_character_ids))
+            except Exception as exc:
+                logger.exception("Failed to cache character names: %s", exc)
+                raise
 
         self.stdout.write(
             self.style.SUCCESS("ESI cache pre-loading completed successfully!")
@@ -151,4 +172,9 @@ class Command(BaseCommand):
             self.style.SUCCESS(
                 f"Cached {len(total_type_ids)} type names and {len(total_character_ids)} character names"
             )
+        )
+        logger.info(
+            "ESI cache pre-loading completed. Types=%s Characters=%s",
+            len(total_type_ids),
+            len(total_character_ids),
         )

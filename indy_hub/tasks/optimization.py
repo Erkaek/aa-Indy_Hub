@@ -11,7 +11,10 @@ from functools import wraps
 from django.core.cache import cache
 from django.utils import timezone
 
-logger = logging.getLogger(__name__)
+# Alliance Auth
+from allianceauth.services.hooks import get_extension_logger
+
+logger = get_extension_logger(__name__)
 
 
 def deduplicate_location_ids(cache_key="pending_location_ids", timeout=5):

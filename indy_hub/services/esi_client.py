@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 # Standard Library
-import logging
 import time
 
 # Third Party
@@ -19,9 +18,10 @@ except Exception:  # pragma: no cover - settings might be unavailable in tests
     settings = None
 
 # Alliance Auth
+from allianceauth.services.hooks import get_extension_logger
 from esi.models import Token
 
-logger = logging.getLogger(__name__)
+logger = get_extension_logger(__name__)
 
 ESI_BASE_URL = "https://esi.evetech.net/latest"
 DEFAULT_COMPATIBILITY_DATE = "2025-09-30"

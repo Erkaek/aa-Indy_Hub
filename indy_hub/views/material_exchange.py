@@ -2,7 +2,6 @@
 
 # Standard Library
 import hashlib
-import logging
 from decimal import ROUND_CEILING, Decimal
 
 # Django
@@ -19,6 +18,9 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.views.decorators.http import require_http_methods
+
+# Alliance Auth
+from allianceauth.services.hooks import get_extension_logger
 
 from ..decorators import indy_hub_permission_required
 from ..models import (
@@ -45,7 +47,7 @@ from ..tasks.material_exchange import (
 from ..utils.eve import get_type_name
 from .navigation import build_nav_context
 
-logger = logging.getLogger(__name__)
+logger = get_extension_logger(__name__)
 User = get_user_model()
 
 _PRODUCTION_IDS_CACHE: set[int] | None = None

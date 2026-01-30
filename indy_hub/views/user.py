@@ -1,7 +1,6 @@
 # User-related views
 # Standard Library
 import json
-import logging
 import secrets
 from collections.abc import Iterable
 from math import ceil
@@ -35,6 +34,7 @@ from django.views.decorators.http import require_POST
 # Alliance Auth
 from allianceauth.authentication.models import CharacterOwnership
 from allianceauth.eveonline.models import EveCharacter
+from allianceauth.services.hooks import get_extension_logger
 from esi.models import CallbackRedirect, Token
 
 # AA Example App
@@ -71,7 +71,7 @@ from ..tasks.industry import (
 from ..utils.eve import get_character_name, get_corporation_name, get_type_name
 from .navigation import build_nav_context
 
-logger = logging.getLogger(__name__)
+logger = get_extension_logger(__name__)
 
 
 ONBOARDING_TASK_CONFIG = [

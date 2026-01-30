@@ -1,9 +1,9 @@
-# Standard Library
-import logging
-
 # Django
 from django.db.models.signals import post_migrate, post_save, pre_save
 from django.dispatch import receiver
+
+# Alliance Auth
+from allianceauth.services.hooks import get_extension_logger
 
 from .models import (
     Blueprint,
@@ -38,7 +38,7 @@ from indy_hub.tasks.industry import (
 
 from .services.esi_client import ESITokenError
 
-logger = logging.getLogger(__name__)
+logger = get_extension_logger(__name__)
 
 
 def _normalize_int(value):
@@ -268,12 +268,7 @@ def setup_indyhub_periodic_tasks(sender, **kwargs):
 
         setup_periodic_tasks()
     except Exception as e:
-        # Standard Library
-        import logging
-
-        logging.getLogger(__name__).warning(
-            f"Could not setup indy_hub periodic tasks after migrate: {e}"
-        )
+        logger.warning(f"Could not setup indy_hub periodic tasks after migrate: {e}")
 
 
 # --- NEW: Combined token sync trigger ---

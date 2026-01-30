@@ -5,7 +5,6 @@ These tasks handle user profile management, preferences, cleanup, etc.
 """
 
 # Standard Library
-import logging
 from datetime import timedelta
 
 # Third Party
@@ -15,10 +14,13 @@ from celery import shared_task
 from django.contrib.auth.models import User
 from django.utils import timezone
 
+# Alliance Auth
+from allianceauth.services.hooks import get_extension_logger
+
 # Indy Hub
 from ..models import Blueprint, CharacterSettings, IndustryJob
 
-logger = logging.getLogger(__name__)
+logger = get_extension_logger(__name__)
 
 
 @shared_task

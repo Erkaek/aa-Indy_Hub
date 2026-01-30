@@ -4,10 +4,10 @@ User-specific utility functions for the Indy Hub module.
 These functions handle user preferences, character management, etc.
 """
 
-# Standard Library
-import logging
+# Alliance Auth
+from allianceauth.services.hooks import get_extension_logger
 
-logger = logging.getLogger(__name__)
+logger = get_extension_logger(__name__)
 
 
 def get_user_preferences(user):

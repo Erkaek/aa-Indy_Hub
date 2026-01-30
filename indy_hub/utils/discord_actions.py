@@ -9,6 +9,9 @@ from django.conf import settings
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.urls import reverse
 
+# Alliance Auth
+from allianceauth.services.hooks import get_extension_logger
+
 from ..notifications import build_site_url
 
 _ACTION_TOKEN_SALT = "indy_hub.discord_action"
@@ -17,6 +20,8 @@ _DEFAULT_TOKEN_MAX_AGE = getattr(
     "INDY_HUB_DISCORD_ACTION_TOKEN_MAX_AGE",
     72 * 60 * 60,  # three days
 )
+
+logger = get_extension_logger(__name__)
 
 
 def _get_signer() -> TimestampSigner:
@@ -29,6 +34,12 @@ def generate_action_token(
     request_id: int,
     action: str,
 ) -> str:
+    logger.debug(
+        "Generating discord action token (request_id=%s, action=%s, user_bound=%s)",
+        request_id,
+        action,
+        user_id is not None,
+    )
     payload = {"r": request_id, "a": action}
     if user_id is not None:
         payload["u"] = user_id
@@ -36,8 +47,18 @@ def generate_action_token(
 
 
 def decode_action_token(token: str, *, max_age: int | None = None) -> dict:
-    raw = _get_signer().unsign(token, max_age=max_age or _DEFAULT_TOKEN_MAX_AGE)
-    return json.loads(raw)
+    logger.debug(
+        "Decoding discord action token (max_age=%s)", max_age or _DEFAULT_TOKEN_MAX_AGE
+    )
+    try:
+        raw = _get_signer().unsign(token, max_age=max_age or _DEFAULT_TOKEN_MAX_AGE)
+        return json.loads(raw)
+    except (BadSignature, SignatureExpired) as exc:
+        logger.warning("Invalid or expired discord action token: %s", exc)
+        raise
+    except Exception as exc:
+        logger.exception("Failed to decode discord action token: %s", exc)
+        raise
 
 
 def build_action_link(
@@ -47,6 +68,12 @@ def build_action_link(
     user_id: int,
     base_url: str | None = None,
 ) -> str | None:
+    logger.debug(
+        "Building discord action link (request_id=%s, action=%s, base_url=%s)",
+        request_id,
+        action,
+        bool(base_url),
+    )
     token = generate_action_token(user_id=user_id, request_id=request_id, action=action)
     query = urlencode({"token": token})
     path = f"{reverse('indy_hub:bp_discord_action')}?{query}"

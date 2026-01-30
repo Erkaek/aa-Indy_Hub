@@ -18,6 +18,7 @@ class IndyHubMenu(MenuItemHook):
             "Indy Hub",
             "fas fa-industry fa-fw",
             "indy_hub:index",
+            1100,
             navactive=[
                 "indy_hub:",  # any view inside the Indy Hub namespace
                 "indy_hub:index",

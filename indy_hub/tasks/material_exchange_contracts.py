@@ -4,7 +4,6 @@ Handles ESI contract checking, validation, and PM notifications for sell/buy ord
 """
 
 # Standard Library
-import logging
 import re
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
@@ -19,6 +18,9 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
+
+# Alliance Auth
+from allianceauth.services.hooks import get_extension_logger
 
 # AA Example App
 # Local
@@ -49,7 +51,7 @@ from indy_hub.services.esi_client import (
     shared_client,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_extension_logger(__name__)
 
 # Cache for structure names to avoid repeated ESI lookups
 _structure_name_cache: dict[int, str] = {}

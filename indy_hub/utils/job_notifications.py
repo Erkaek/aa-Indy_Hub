@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 # Standard Library
-import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
@@ -17,6 +16,9 @@ from django.utils.encoding import force_str
 from django.utils.functional import Promise
 from django.utils.translation import gettext_lazy as _
 
+# Alliance Auth
+from allianceauth.services.hooks import get_extension_logger
+
 # Indy Hub
 from ..models import (
     Blueprint,
@@ -28,7 +30,7 @@ from ..models import (
 from ..notifications import build_site_url, notify_user
 from .eve import get_character_name
 
-logger = logging.getLogger(__name__)
+logger = get_extension_logger(__name__)
 
 
 @dataclass(frozen=True)

@@ -7,6 +7,9 @@ from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
 from django.utils.translation import gettext_lazy as _
 
+# Alliance Auth
+from allianceauth.services.hooks import get_extension_logger
+
 # Local
 from ..decorators import indy_hub_permission_required
 from ..models import (
@@ -15,12 +18,21 @@ from ..models import (
 from .navigation import build_nav_context
 from .user import _build_dashboard_context
 
+logger = get_extension_logger(__name__)
+
 
 @indy_hub_permission_required("can_access_indy_hub")
 @login_required
 def settings_hub(request):
     can_manage_corp = request.user.has_perm("indy_hub.can_manage_corp_bp_requests")
     can_manage_material_hub = request.user.has_perm("indy_hub.can_manage_material_hub")
+
+    logger.debug(
+        "Settings hub accessed (user_id=%s, can_manage_corp=%s, can_manage_material_hub=%s)",
+        request.user.id,
+        can_manage_corp,
+        can_manage_material_hub,
+    )
 
     context = _build_dashboard_context(request)
     context.update(
@@ -39,6 +51,12 @@ def settings_hub(request):
         context["material_exchange_config_active"]
     )
 
+    logger.debug(
+        "Material exchange configs (total=%s, active=%s)",
+        context["material_exchange_config_total"],
+        context["material_exchange_config_active"],
+    )
+
     context.update(
         build_nav_context(
             request.user,
@@ -55,4 +73,5 @@ def settings_hub(request):
 @login_required
 def test_darkly_theme(request):
     """Test page for darkly theme CSS overrides."""
+    logger.debug("Darkly theme test page accessed (user_id=%s)", request.user.id)
     return render(request, "indy_hub/test_darkly_theme.html")

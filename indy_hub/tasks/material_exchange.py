@@ -3,7 +3,6 @@ Material Exchange Celery tasks for stock sync, pricing, and payment verification
 """
 
 # Standard Library
-import logging
 from decimal import Decimal
 
 # Third Party
@@ -16,6 +15,7 @@ from django.db import transaction
 from django.utils import timezone
 
 # Alliance Auth
+from allianceauth.services.hooks import get_extension_logger
 from esi.models import Token
 
 # AA Example App
@@ -42,7 +42,7 @@ from indy_hub.services.esi_client import (
 )
 from indy_hub.utils.eve import get_type_name
 
-logger = logging.getLogger(__name__)
+logger = get_extension_logger(__name__)
 
 
 # Bump these when a deployment changes how caches are normalized/derived.

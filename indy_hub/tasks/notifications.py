@@ -1,8 +1,6 @@
 """Celery tasks related to job notifications."""
 
 # Standard Library
-import logging
-
 # Third Party
 from celery import shared_task
 
@@ -10,6 +8,9 @@ from celery import shared_task
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
+
+# Alliance Auth
+from allianceauth.services.hooks import get_extension_logger
 
 # Indy Hub
 from ..models import (
@@ -25,7 +26,7 @@ from ..utils.job_notifications import (
     process_job_completion_notification,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_extension_logger(__name__)
 
 
 @shared_task

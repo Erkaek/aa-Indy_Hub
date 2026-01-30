@@ -4,7 +4,6 @@ Notification helpers for Indy Hub.
 Supports Alliance Auth notifications and (future) Discord/webhook fallback.
 """
 # Standard Library
-import logging
 from urllib.parse import urljoin, urlparse
 
 # Django
@@ -15,8 +14,9 @@ from django.utils.translation import gettext_lazy as _
 
 # Alliance Auth
 from allianceauth.notifications.models import Notification
+from allianceauth.services.hooks import get_extension_logger
 
-logger = logging.getLogger(__name__)
+logger = get_extension_logger(__name__)
 
 LEVELS = {
     "info": "info",

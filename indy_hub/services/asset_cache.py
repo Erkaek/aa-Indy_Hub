@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 # Standard Library
-import logging
 from datetime import timedelta
 from typing import Any
 
@@ -15,6 +14,7 @@ from django.utils import timezone
 # Alliance Auth
 from allianceauth.authentication.models import CharacterOwnership
 from allianceauth.eveonline.models import EveCharacter
+from allianceauth.services.hooks import get_extension_logger
 from esi.clients import EsiClientProvider
 from esi.models import Token
 
@@ -40,7 +40,7 @@ PLACEHOLDER_PREFIX = "Structure "
 # This prevents hammering ESI for private/forbidden structures.
 STRUCTURE_PLACEHOLDER_TTL = timedelta(hours=6)
 
-logger = logging.getLogger(__name__)
+logger = get_extension_logger(__name__)
 esi = EsiClientProvider()
 
 ASSET_CACHE_MAX_AGE_MINUTES = getattr(

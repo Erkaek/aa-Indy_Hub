@@ -48,6 +48,13 @@ LOGGING = {
             "class": "logging.StreamHandler",
         },
     },
+    "loggers": {
+        "extensions": {
+            "handlers": ["console"],
+            "level": "DEBUG",
+            "propagate": False,
+        },
+    },
     "root": {
         "handlers": ["console"],
         "level": "WARNING",

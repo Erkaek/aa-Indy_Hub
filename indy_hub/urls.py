@@ -109,7 +109,6 @@ urlpatterns = [
     path("", index, name="index"),
     path("test-darkly/", test_darkly_theme, name="test_darkly_theme"),
     path("esi/", token_management, name="esi_hub"),
-    path("esi/", token_management, name="esi_hub"),
     path("settings/", settings_hub, name="settings_hub"),
     path("personnal-bp/", personnal_bp_list, name="personnal_bp_list"),
     path(

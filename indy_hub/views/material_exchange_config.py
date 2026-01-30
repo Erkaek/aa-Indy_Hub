@@ -1,7 +1,6 @@
 """Material Exchange Configuration views."""
 
 # Standard Library
-import logging
 from decimal import Decimal, InvalidOperation
 
 # Django
@@ -15,6 +14,7 @@ from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 
 # Alliance Auth
+from allianceauth.services.hooks import get_extension_logger
 from esi.clients import EsiClientProvider
 from esi.views import sso_redirect
 
@@ -27,7 +27,7 @@ from ..services.asset_cache import (
 )
 
 esi = EsiClientProvider()
-logger = logging.getLogger(__name__)
+logger = get_extension_logger(__name__)
 
 
 @login_required

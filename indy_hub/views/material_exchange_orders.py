@@ -3,19 +3,18 @@ Material Exchange - User Order Management Views.
 Handles user-facing order tracking, details, and history.
 """
 
-# Standard Library
-import logging
-
 # Django
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.db.models import Count, Q
+from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.translation import gettext as _
 
 # Alliance Auth
 from allianceauth.authentication.models import UserProfile
+from allianceauth.services.hooks import get_extension_logger
 
 from ..models import (
     MaterialExchangeBuyOrder,
@@ -28,7 +27,7 @@ from ..utils.eve import get_corporation_name
 # Local
 from .navigation import build_nav_context
 
-logger = logging.getLogger(__name__)
+logger = get_extension_logger(__name__)
 
 
 @login_required
@@ -37,6 +36,7 @@ def my_orders(request):
     Display all orders (sell + buy) for the current user.
     Shows order reference, status, items count, total price, timestamps.
     """
+    logger.debug("Material exchange orders list accessed (user_id=%s)", request.user.id)
     # Optimize: Annotate items_count to avoid N+1 queries
     # Get all sell orders for user with annotated count
     sell_orders = (
@@ -120,6 +120,13 @@ def my_orders(request):
         "total_buy": buy_stats["buy_count"],
     }
 
+    logger.debug(
+        "Material exchange orders summary (user_id=%s, sell=%s, buy=%s)",
+        request.user.id,
+        orders_stats["sell_count"],
+        buy_stats["buy_count"],
+    )
+
     context.update(build_nav_context(request.user, active_tab="material_hub"))
 
     return render(request, "indy_hub/material_exchange/my_orders.html", context)
@@ -134,10 +141,24 @@ def sell_order_detail(request, order_id):
     queryset = MaterialExchangeSellOrder.objects.prefetch_related("items")
 
     # Admins can inspect any order; regular users limited to their own
-    if request.user.has_perm("indy_hub.can_manage_material_hub"):
-        order = get_object_or_404(queryset, id=order_id)
-    else:
-        order = get_object_or_404(queryset, id=order_id, seller=request.user)
+    try:
+        if request.user.has_perm("indy_hub.can_manage_material_hub"):
+            order = get_object_or_404(queryset, id=order_id)
+        else:
+            order = get_object_or_404(queryset, id=order_id, seller=request.user)
+    except Http404:
+        logger.warning(
+            "Sell order not found or unauthorized (order_id=%s, user_id=%s)",
+            order_id,
+            request.user.id,
+        )
+        raise
+
+    logger.debug(
+        "Sell order detail accessed (order_id=%s, user_id=%s)",
+        order_id,
+        request.user.id,
+    )
 
     config = order.config
 
@@ -174,10 +195,24 @@ def buy_order_detail(request, order_id):
     queryset = MaterialExchangeBuyOrder.objects.prefetch_related("items")
 
     # Admins can inspect any order; regular users limited to their own
-    if request.user.has_perm("indy_hub.can_manage_material_hub"):
-        order = get_object_or_404(queryset, id=order_id)
-    else:
-        order = get_object_or_404(queryset, id=order_id, buyer=request.user)
+    try:
+        if request.user.has_perm("indy_hub.can_manage_material_hub"):
+            order = get_object_or_404(queryset, id=order_id)
+        else:
+            order = get_object_or_404(queryset, id=order_id, buyer=request.user)
+    except Http404:
+        logger.warning(
+            "Buy order not found or unauthorized (order_id=%s, user_id=%s)",
+            order_id,
+            request.user.id,
+        )
+        raise
+
+    logger.debug(
+        "Buy order detail accessed (order_id=%s, user_id=%s)",
+        order_id,
+        request.user.id,
+    )
 
     config = order.config
 

@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-# Standard Library
-import logging
-
 # Third Party
 from bravado.exception import HTTPBadGateway, HTTPGatewayTimeout, HTTPServiceUnavailable
 from celery import group, shared_task
@@ -14,6 +11,7 @@ from celery import group, shared_task
 from django.utils import timezone
 
 # Alliance Auth
+from allianceauth.services.hooks import get_extension_logger
 from allianceauth.services.tasks import QueueOnce
 
 # AA Example App
@@ -24,7 +22,7 @@ from indy_hub.services.location_population import (
 )
 from indy_hub.utils.eve import PLACEHOLDER_PREFIX, resolve_location_name
 
-logger = logging.getLogger(__name__)
+logger = get_extension_logger(__name__)
 
 _TASK_DEFAULT_KWARGS: dict[str, object] = {
     "time_limit": 300,

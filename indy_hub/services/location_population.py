@@ -12,11 +12,14 @@ from typing import Any
 from django.conf import settings
 from django.db import transaction
 
+# Alliance Auth
+from allianceauth.services.hooks import get_extension_logger
+
 # AA Example App
 from indy_hub.models import Blueprint, IndustryJob
 from indy_hub.utils.eve import PLACEHOLDER_PREFIX, is_station_id, resolve_location_name
 
-logger = logging.getLogger(__name__)
+logger = get_extension_logger(__name__)
 
 DEFAULT_TASK_PRIORITY = 6
 

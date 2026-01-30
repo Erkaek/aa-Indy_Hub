@@ -8,8 +8,6 @@ from django.apps import AppConfig, apps
 from django.conf import settings
 from django.db import connection
 
-logger = logging.getLogger(__name__)
-
 
 class IndyHubConfig(AppConfig):
     """
@@ -33,6 +31,14 @@ class IndyHubConfig(AppConfig):
         3. Injects beat schedule for compatibility
         """
         super().ready()
+
+        try:
+            # Alliance Auth
+            from allianceauth.services.hooks import get_extension_logger
+
+            logger = get_extension_logger(__name__)
+        except Exception:
+            logger = logging.getLogger(__name__)
 
         # Load signals
         try:
