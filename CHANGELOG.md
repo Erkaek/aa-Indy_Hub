@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Dependencies: moved Discord DM providers to optional extras (`aadiscordbot` preferred, `aa-discordnotify` fallback).
+- Documentation: linked the official Alliance Auth app pages for Discord bot and Discord notify.
+
+### Removed
+
+- Dependencies: removed unused `pytz` from requirements.
+
 ## [1.13.11] - 2026-01-31
 
 ### Added

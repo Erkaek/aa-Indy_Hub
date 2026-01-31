@@ -43,9 +43,15 @@ dynamic = [
     "version",
 ]
 dependencies = [
-    "aa-discordnotify>=2",
     "allianceauth>=4,<5",
     "django-eveuniverse>=1.5.7",
+]
+
+optional-dependencies.aadiscordbot = [
+    "aadiscordbot",
+]
+optional-dependencies.discordnotify = [
+    "aa-discordnotify>=2",
 ]
 urls.Homepage = "https://github.com/Erkaek/aa-Indy_Hub"
 urls.Source = "https://github.com/Erkaek/aa-Indy_Hub"

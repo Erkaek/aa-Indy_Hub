@@ -8,6 +8,7 @@ ______________________________________________________________________
 
 - [About](#about)
   - [Features](#features)
+- [Screenshots](#screenshots)
 - [Requirements](#requirements)
 - [Installation](#installation)
   - [Bare Metal](#bare-metal)
@@ -41,6 +42,18 @@ ______________________________________________________________________
 
 ______________________________________________________________________
 
+## Screenshots
+
+![Dashboard](docs/screenshots/Dashboard_1.13.11.png)
+![Blueprint Library](docs/screenshots/bp_all_1.13.11.png)
+![Blueprint Copy Request](docs/screenshots/bp-copy_request_1.13.11.png)
+![Material Exchange Hub](docs/screenshots/mat_hub_1.13.11.png)
+![Order Request](docs/screenshots/order_request_1.13.11.png)
+![Notification](docs/screenshots/notif_request_1.13.11.png)
+![User Settings](docs/screenshots/user_settings_1.13.11.png)
+
+______________________________________________________________________
+
 ## Requirements
 
 - **Alliance Auth v4+**
@@ -49,7 +62,7 @@ ______________________________________________________________________
 - **django-eveuniverse** (populated with industry data)
 - **Celery** (for background sync and notifications)
 - *(Optional)* Director characters for corporate dashboards
-- *(Optional)* aadiscordbot (recommended) or discordnotify for Discord notifications
+- *(Optional)* [`aadiscordbot`](https://apps.allianceauth.org/apps/detail/allianceauth-discordbot) (preferred) or [`discordnotify`](https://apps.allianceauth.org/apps/detail/aa-discordnotify) for Discord notifications
 
 ______________________________________________________________________
 

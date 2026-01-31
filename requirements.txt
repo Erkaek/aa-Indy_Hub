@@ -1,4 +1,7 @@
-aa-discordnotify>=2
 allianceauth>=4,<5
 django-eveuniverse>=1.5.7
-pytz>=2022.1
+
+# Optional Discord DM providers (aadiscordbot preferred):
+# aadiscordbot
+# Optional Discord DM fallback provider:
+# aa-discordnotify>=2
