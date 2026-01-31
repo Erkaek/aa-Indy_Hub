@@ -285,24 +285,31 @@ ______________________________________________________________________
 Below are a few UI highlights from the current release.
 
 ### Dashboard Overview
+
 ![Dashboard overview](docs/screenshots/Dashboard_1.13.11.png)
 
 ### Blueprint Library
+
 ![Blueprint library filters and list](docs/screenshots/bp_all_1.13.11.png)
 
 ### Blueprint Copy Requests
+
 ![Copy request workflow](docs/screenshots/bp-copy_request_1.13.11.png)
 
 ### Material Exchange Hub
+
 ![Material exchange overview](docs/screenshots/mat_hub_1.13.11.png)
 
 ### Order Requests
+
 ![Order request details](docs/screenshots/order_request_1.13.11.png)
 
 ### Discord Notifications
+
 ![Discord notification example](docs/screenshots/notif_request_1.13.11.png)
 
 ### User Settings
+
 ![User settings and preferences](docs/screenshots/user_settings_1.13.11.png)
 
 ______________________________________________________________________
