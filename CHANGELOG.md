@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
 
+## [1.13.11] - 2026-01-31
+
 ### Added
 
 - Logging: added operational logs for management commands, hub views, simulations, Discord action tokens, and material exchange order views.
