@@ -8,7 +8,6 @@ ______________________________________________________________________
 
 - [About](#about)
   - [Features](#features)
-- [Screenshots](#screenshots)
 - [Requirements](#requirements)
 - [Installation](#installation)
   - [Bare Metal](#bare-metal)
@@ -21,6 +20,7 @@ ______________________________________________________________________
 - [Settings](#settings)
 - [Updating](#updating)
 - [Usage](#usage)
+- [Screenshots](#screenshots)
 - [Contributing](#contributing)
 
 ______________________________________________________________________
@@ -39,20 +39,6 @@ ______________________________________________________________________
 - **ESI Integration**: Secure OAuth2-based sync for blueprints and jobs with director-level corporation scopes.
 - **Notifications**: In-app alerts for job completions, copy offers, chat messages, and deliveries, with configurable immediate or digest cadences.
 - **Modern UI**: Responsive Bootstrap 5 interface with theme compatibility and full i18n support.
-
-______________________________________________________________________
-
-## Screenshots
-
-![Dashboard](docs/screenshots/Dashboard_1.13.11.png)
-![Blueprint Library](docs/screenshots/bp_all_1.13.11.png)
-![Blueprint Copy Request](docs/screenshots/bp-copy_request_1.13.11.png)
-![Material Exchange Hub](docs/screenshots/mat_hub_1.13.11.png)
-![Order Request](docs/screenshots/order_request_1.13.11.png)
-![Notification](docs/screenshots/notif_request_1.13.11.png)
-![User Settings](docs/screenshots/user_settings_1.13.11.png)
-
-______________________________________________________________________
 
 ## Requirements
 
@@ -291,6 +277,33 @@ ______________________________________________________________________
 
 1. **Share Blueprints**: Set sharing scopes and send copy offers to alliance members
 1. **Receive Notifications**: View job completions and copy request updates in the notification feed
+
+______________________________________________________________________
+
+## Screenshots
+
+Below are a few UI highlights from the current release.
+
+### Dashboard Overview
+![Dashboard overview](docs/screenshots/Dashboard_1.13.11.png)
+
+### Blueprint Library
+![Blueprint library filters and list](docs/screenshots/bp_all_1.13.11.png)
+
+### Blueprint Copy Requests
+![Copy request workflow](docs/screenshots/bp-copy_request_1.13.11.png)
+
+### Material Exchange Hub
+![Material exchange overview](docs/screenshots/mat_hub_1.13.11.png)
+
+### Order Requests
+![Order request details](docs/screenshots/order_request_1.13.11.png)
+
+### Discord Notifications
+![Discord notification example](docs/screenshots/notif_request_1.13.11.png)
+
+### User Settings
+![User settings and preferences](docs/screenshots/user_settings_1.13.11.png)
 
 ______________________________________________________________________
 
