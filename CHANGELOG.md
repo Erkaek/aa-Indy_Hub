@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
 
+## [1.13.13] - 2026-02-01
+
+### Fixed
+
+- Material Exchange: totals are now consistent between buy/sell form pages and order detail pages (whole-ISK rounding).
+- Material Exchange: prevent partial order creation when submitted quantities don't match current assets/stock.
+- Material Exchange: enforce Jita price bounds consistently for sell/buy pricing and order totals (display + order creation).
+
 ## [1.13.12] - 2026-02-01
 
 ### Changed

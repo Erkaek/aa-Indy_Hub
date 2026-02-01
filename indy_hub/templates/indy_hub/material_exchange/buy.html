@@ -112,7 +112,7 @@
                                     <tr class="stock-row"
                                         data-type-id="{{ item.type_id }}"
                                         data-type-name="{{ item.type_name }}"
-                                        data-unit-price="{{ item.sell_price_to_member }}"
+                                        data-unit-price="{{ item.sell_price_to_member|floatformat:2 }}"
                                         data-max-qty="{{ item.quantity }}">
                                         <td>
                                             <img
@@ -220,6 +220,21 @@ document.addEventListener('DOMContentLoaded', function() {
         }).format(num);
     }
 
+    function formatWholeISK(num) {
+        return new Intl.NumberFormat('en-US', {
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0
+        }).format(num);
+    }
+
+    function toCents(value) {
+        const numeric = Number.parseFloat(value);
+        if (!Number.isFinite(numeric)) {
+            return 0;
+        }
+        return Math.round(numeric * 100);
+    }
+
     function checkQuantityLimit(input) {
         const qty = parseInt(input.value) || 0;
         const max = parseInt(input.dataset.max);
@@ -243,7 +258,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function updateInvoice() {
         const selectedItems = [];
-        let total = 0;
+        let totalCents = 0;
 
         qtyInputs.forEach(input => {
             const qty = parseInt(input.value) || 0;
@@ -260,7 +275,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 // Use actual qty or max, whichever is lower for calculation
                 const effectiveQty = Math.min(qty, max);
-                const subtotal = unitPrice * effectiveQty;
+                const unitPriceCents = toCents(row.dataset.unitPrice);
+                const subtotalCents = unitPriceCents * effectiveQty;
+                const subtotal = subtotalCents / 100;
 
                 selectedItems.push({
                     name: typeName,
@@ -269,12 +286,15 @@ document.addEventListener('DOMContentLoaded', function() {
                     subtotal: subtotal
                 });
 
-                total += subtotal;
+                totalCents += subtotalCents;
                 row.classList.add('selected');
             } else {
                 row.classList.remove('selected');
             }
         });
+
+        // Match backend `MaterialExchangeBuyOrder.total_price`: ceil to whole ISK.
+        const total = Math.ceil(totalCents / 100);
 
         const emptyInvoice = document.getElementById('invoiceContent');
         const invoiceItems = document.getElementById('invoiceItems');
@@ -312,7 +332,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 itemsList.innerHTML = itemsHTML;
             }
             if (totalAmount) {
-                totalAmount.textContent = formatNumber(total) + ' ISK';
+                totalAmount.textContent = formatWholeISK(total) + ' ISK';
             }
         }
     }

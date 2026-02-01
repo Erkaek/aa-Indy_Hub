@@ -45,6 +45,7 @@ from ..tasks.material_exchange import (
     sync_material_exchange_stock,
 )
 from ..utils.eve import get_type_name
+from ..utils.material_exchange_pricing import compute_buy_price_from_member
 from .navigation import build_nav_context
 
 logger = get_extension_logger(__name__)
@@ -746,22 +747,48 @@ def material_exchange_sell(request):
                 )
             return redirect("indy_hub:material_exchange_sell")
 
-        items_to_create: list[dict] = []
-        errors: list[str] = []
-        total_payout = Decimal("0")
-
-        price_data = _fetch_fuzzwork_prices(list(user_assets.keys()))
-
-        for type_id, user_qty in user_assets.items():
-            qty_raw = request.POST.get(f"qty_{type_id}")
+        # Parse submitted quantities from the form. Do not iterate over `user_assets` here:
+        # doing so can silently drop items if assets changed or a type was filtered out.
+        submitted_quantities: dict[int, int] = {}
+        for key, value in request.POST.items():
+            if not key.startswith("qty_"):
+                continue
+            type_id_str = key[4:]
+            if not type_id_str.isdigit():
+                continue
+            qty_raw = (value or "").strip()
             if not qty_raw:
                 continue
             try:
                 qty = int(qty_raw)
-                if qty <= 0:
-                    continue
             except Exception:
-                errors.append(_(f"Invalid quantity for type {type_id}"))
+                continue
+            if qty <= 0:
+                continue
+            submitted_quantities[int(type_id_str)] = qty
+
+        if not submitted_quantities:
+            messages.error(
+                request,
+                _("Please enter a quantity greater than 0 for at least one item."),
+            )
+            return redirect("indy_hub:material_exchange_sell")
+
+        items_to_create: list[dict] = []
+        errors: list[str] = []
+        total_payout = Decimal("0")
+
+        price_data = _fetch_fuzzwork_prices(list(submitted_quantities.keys()))
+
+        for type_id, qty in submitted_quantities.items():
+            user_qty = user_assets.get(type_id)
+            if user_qty is None:
+                type_name = get_type_name(type_id)
+                errors.append(
+                    _(
+                        f"{type_name} is no longer available at {config.structure_name}. Please refresh the page and try again."
+                    )
+                )
                 continue
 
             if qty > user_qty:
@@ -776,13 +803,20 @@ def material_exchange_sell(request):
             fuzz_prices = price_data.get(type_id, {})
             jita_buy = fuzz_prices.get("buy") or Decimal(0)
             jita_sell = fuzz_prices.get("sell") or Decimal(0)
-            base = jita_sell if config.sell_markup_base == "sell" else jita_buy
-            if base <= 0:
+            if jita_buy <= 0 and jita_sell <= 0:
                 type_name = get_type_name(type_id)
                 errors.append(_(f"{type_name} has no valid market price."))
                 continue
 
-            unit_price = base * (1 + (config.sell_markup_percent / Decimal(100)))
+            unit_price = compute_buy_price_from_member(
+                config=config,
+                jita_buy=jita_buy,
+                jita_sell=jita_sell,
+            )
+            if unit_price <= 0:
+                type_name = get_type_name(type_id)
+                errors.append(_(f"{type_name} has no valid market price."))
+                continue
             total_price = unit_price * qty
             total_payout += total_price
 
@@ -797,16 +831,12 @@ def material_exchange_sell(request):
                 }
             )
 
-        if not items_to_create and not errors:
-            messages.error(
-                request,
-                _("Please enter a quantity greater than 0 for at least one item."),
-            )
-            return redirect("indy_hub:material_exchange_sell")
-
         if errors:
             for err in errors:
                 messages.error(request, err)
+
+            # Prevent creating a partial order with an unexpected (lower) total.
+            return redirect("indy_hub:material_exchange_sell")
 
         if items_to_create:
             # Get order reference from client (generated in JavaScript)
@@ -941,14 +971,19 @@ def material_exchange_sell(request):
             fuzz_prices = price_data.get(type_id, {})
             jita_buy = fuzz_prices.get("buy") or Decimal(0)
             jita_sell = fuzz_prices.get("sell") or Decimal(0)
-            base = jita_sell if config.sell_markup_base == "sell" else jita_buy
-            if base <= 0:
+            if jita_buy <= 0 and jita_sell <= 0:
                 logger.debug(
-                    f"SELL DEBUG: Skipping type_id {type_id} - no valid price (buy={jita_buy}, sell={jita_sell}, base={base})"
+                    f"SELL DEBUG: Skipping type_id {type_id} - no valid price (buy={jita_buy}, sell={jita_sell})"
                 )
                 continue
 
-            buy_price = base * (1 + (config.sell_markup_percent / Decimal(100)))
+            buy_price = compute_buy_price_from_member(
+                config=config,
+                jita_buy=jita_buy,
+                jita_sell=jita_sell,
+            )
+            if buy_price <= 0:
+                continue
             type_name = get_type_name(type_id)
             materials_with_qty.append(
                 {
@@ -1074,21 +1109,49 @@ def material_exchange_buy(request):
                 messages.error(request, _("No stock available."))
             return redirect("indy_hub:material_exchange_buy")
 
-        items_to_create = []
-        errors = []
-        total_cost = Decimal("0")
-
-        for stock_item in stock_items:
-            type_id = stock_item.type_id
-            qty_raw = request.POST.get(f"qty_{type_id}")
+        # Parse submitted quantities from the form. Do not iterate over `stock_items` here:
+        # doing so can silently drop items if stock changed (quantity=0) or an item is no
+        # longer visible due to filters.
+        submitted_quantities: dict[int, int] = {}
+        for key, value in request.POST.items():
+            if not key.startswith("qty_"):
+                continue
+            type_id_str = key[4:]
+            if not type_id_str.isdigit():
+                continue
+            qty_raw = (value or "").strip()
             if not qty_raw:
                 continue
             try:
                 qty = int(qty_raw)
-                if qty <= 0:
-                    continue
             except Exception:
-                errors.append(_(f"Invalid quantity for {stock_item.type_name}"))
+                continue
+            if qty <= 0:
+                continue
+            submitted_quantities[int(type_id_str)] = qty
+
+        if not submitted_quantities:
+            messages.error(
+                request,
+                _("Please enter a quantity greater than 0 for at least one item."),
+            )
+            return redirect("indy_hub:material_exchange_buy")
+
+        stock_by_type_id = {item.type_id: item for item in stock_items}
+
+        items_to_create = []
+        errors = []
+        total_cost = Decimal("0")
+
+        for type_id, qty in submitted_quantities.items():
+            stock_item = stock_by_type_id.get(type_id)
+            if stock_item is None:
+                type_name = get_type_name(type_id)
+                errors.append(
+                    _(
+                        f"{type_name} is no longer available in stock. Please refresh the page and try again."
+                    )
+                )
                 continue
 
             if stock_item.quantity < qty:
@@ -1123,6 +1186,9 @@ def material_exchange_buy(request):
         if errors:
             for err in errors:
                 messages.error(request, err)
+
+            # Prevent creating a partial order with an unexpected (lower) total.
+            return redirect("indy_hub:material_exchange_buy")
 
         if items_to_create:
             # Get order reference from client (generated in JavaScript)

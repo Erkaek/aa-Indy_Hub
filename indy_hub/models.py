@@ -1825,50 +1825,26 @@ class MaterialExchangeStock(models.Model):
         """Price when member buys FROM hub (base price + buy_markup)."""
         if not self.config:
             return 0
-        # Choose base price according to config
-        base_choice = self.config.buy_markup_base
-        if base_choice == "sell":
-            base = self.jita_sell_price or 0
-        else:
-            base = self.jita_buy_price or 0
-        percent = self.config.buy_markup_percent
-        markup = percent / 100
-        price = base * (1 + markup)
+        from .utils.material_exchange_pricing import compute_sell_price_to_member
 
-        if self.config.enforce_jita_price_bounds:
-            jita_buy = self.jita_buy_price or 0
-            jita_sell = self.jita_sell_price or 0
-            if base_choice == "sell" and percent < 0 and jita_buy:
-                price = max(price, jita_buy)
-            if base_choice == "buy" and percent > 0 and jita_sell:
-                price = min(price, jita_sell)
-
-        return price
+        return compute_sell_price_to_member(
+            config=self.config,
+            jita_buy=self.jita_buy_price or 0,
+            jita_sell=self.jita_sell_price or 0,
+        )
 
     @property
     def buy_price_from_member(self):
         """Price when member sells TO hub (base price + sell_markup)."""
         if not self.config:
             return 0
-        # Choose base price according to config
-        base_choice = self.config.sell_markup_base
-        if base_choice == "sell":
-            base = self.jita_sell_price or 0
-        else:
-            base = self.jita_buy_price or 0
-        percent = self.config.sell_markup_percent
-        markup = percent / 100
-        price = base * (1 + markup)
+        from .utils.material_exchange_pricing import compute_buy_price_from_member
 
-        if self.config.enforce_jita_price_bounds:
-            jita_buy = self.jita_buy_price or 0
-            jita_sell = self.jita_sell_price or 0
-            if base_choice == "sell" and percent < 0 and jita_buy:
-                price = max(price, jita_buy)
-            if base_choice == "buy" and percent > 0 and jita_sell:
-                price = min(price, jita_sell)
-
-        return price
+        return compute_buy_price_from_member(
+            config=self.config,
+            jita_buy=self.jita_buy_price or 0,
+            jita_sell=self.jita_sell_price or 0,
+        )
 
 
 class MaterialExchangeSellOrder(models.Model):
