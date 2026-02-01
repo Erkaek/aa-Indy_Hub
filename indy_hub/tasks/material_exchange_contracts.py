@@ -625,7 +625,7 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
     - items match exactly
     - price matches
     """
-    order_ref = f"INDY-{order.id}"
+    order_ref = order.order_reference or f"INDY-{order.id}"
 
     # Find seller's characters
     seller_character_ids = _get_user_character_ids(order.seller)
@@ -843,13 +843,22 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
         order.save(update_fields=["notes", "updated_at"])
 
         reminder_key = f"material_exchange:sell_order:{order.id}:contract_reminder"
-        reminder_set = cache.add(reminder_key, timezone.now().timestamp(), 60 * 60 * 24)
+        now = timezone.now()
+        reminder_set = cache.add(reminder_key, now.timestamp(), 60 * 60 * 24)
         if notes_changed:
-            cache.set(reminder_key, timezone.now().timestamp(), 60 * 60 * 24)
+            cache.set(reminder_key, now.timestamp(), 60 * 60 * 24)
 
         delete_link = f"/indy_hub/material-exchange/my-orders/sell/{order.id}/delete/"
 
+        should_notify = False
         if notes_changed or reminder_set:
+            created_at = getattr(order, "created_at", None)
+            if created_at:
+                should_notify = now - created_at >= timedelta(hours=24)
+            else:
+                should_notify = True
+
+        if should_notify:
             notify_user(
                 order.seller,
                 _("Sell Order Pending: waiting for contract"),
@@ -1224,7 +1233,6 @@ def handle_material_exchange_buy_order_created(order_id):
             level="info",
             link=link,
             embed_title=f"🛒 {title}",
-            embed_color=0xF39C12,
             mention_everyone=bool(getattr(webhook, "ping_here", False)),
         )
         if sent:
@@ -1590,7 +1598,6 @@ def _notify_material_exchange_admins(
             link=link,
             thumbnail_url=thumbnail_url,
             embed_title=f"🛒 {title}",
-            embed_color=0xF39C12,
             mention_everyone=bool(getattr(webhook, "ping_here", False)),
         )
         if sent:

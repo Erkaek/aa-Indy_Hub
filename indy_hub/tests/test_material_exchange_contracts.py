@@ -202,7 +202,7 @@ class ContractValidationTaskTest(TestCase):
             end_location_id=self.config.structure_id,
             status="outstanding",
             price=self.sell_item.total_price,
-            title=f"INDY-{self.sell_order.id}",
+            title=self.sell_order.order_reference,
             date_issued="2024-01-01T00:00:00Z",
             date_expired="2024-12-31T23:59:59Z",
         )
@@ -406,7 +406,7 @@ class StructureNameMatchingTest(TestCase):
             start_location_id=1045722708748,  # Different ID, same structure
             end_location_id=1045722708748,
             price=5500,
-            title=f"INDY-{self.sell_order.id}",
+            title=self.sell_order.order_reference,
             date_issued=timezone.now(),
             date_expired=timezone.now() + timedelta(days=30),
         )
@@ -467,7 +467,7 @@ class StructureNameMatchingTest(TestCase):
             start_location_id=self.config.structure_id,
             end_location_id=self.config.structure_id,
             price=5500,
-            title=f"INDY-{self.sell_order.id}",
+            title=self.sell_order.order_reference,
             date_issued=timezone.now(),
             date_expired=timezone.now() + timedelta(days=30),
         )

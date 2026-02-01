@@ -120,7 +120,7 @@ Add to your `conf/requirements.txt` (Always use current versions)
 
 ```bash
 django-eveuniverse==1.6.0
-indy-hub==1.13.11
+indy-hub==1.13.12
 ```
 
 Run migrations and collect static files:
@@ -237,7 +237,7 @@ systemctl restart allianceauth
 Update Versions in `conf/requirements.txt` (Always use current versions)
 
 ```bash
-indy-hub==1.13.11
+indy-hub==1.13.12
 ```
 
 Update the Package:
