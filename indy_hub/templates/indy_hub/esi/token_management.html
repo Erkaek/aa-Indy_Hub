@@ -144,7 +144,10 @@
                                     </div>
                                 </td>
                                 <td class="text-center">
-                                    {% if corp.has_all_scopes %}
+                                    {% if corp.roles_unavailable %}
+                                        <span class="badge bg-warning-subtle text-warning"><i class="fas fa-exclamation-triangle me-1"></i>{% trans "Roles unavailable" %}</span>
+                                        <div class="small text-muted">{% trans "ESI roles check failed; scopes unverified." %}</div>
+                                    {% elif corp.has_all_scopes %}
                                         <span class="badge bg-success-subtle text-success"><i class="fas fa-check me-1"></i>{% trans "All active" %}</span>
                                         <div class="small text-muted">{% trans "Director token ready" %}</div>
                                     {% else %}

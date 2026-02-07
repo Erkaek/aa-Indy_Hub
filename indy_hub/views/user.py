@@ -359,6 +359,7 @@ def _collect_corporation_scope_status(
 
         # Use the selected token directly to avoid Token.get_token() finding wrong token
         token_to_use = blueprint_token or jobs_token or roles_token
+        roles_unavailable = False
         try:
             roles = _fetch_character_corporation_roles_with_token(token_to_use)
         except ESITokenError:
@@ -393,7 +394,8 @@ def _collect_corporation_scope_status(
                         "revoked_token_scopes": sorted(set(scopes_to_revoke)),
                     }
                 )
-            continue
+            roles_unavailable = True
+            roles = set()
         except ESIClientError as exc:
             logger.warning(
                 "Unable to load corporation roles for character %s (corporation %s): %s",
@@ -401,8 +403,19 @@ def _collect_corporation_scope_status(
                 corp_id,
                 exc,
             )
-            continue
-        if not roles.intersection(REQUIRED_CORPORATION_ROLES):
+            roles_unavailable = True
+            roles = set()
+            if include_warnings:
+                warnings.append(
+                    {
+                        "reason": "roles_unavailable",
+                        "character_id": character_id,
+                        "character_name": character_name,
+                        "corporation_id": corp_id,
+                        "corporation_name": corp_name,
+                    }
+                )
+        if not roles_unavailable and not roles.intersection(REQUIRED_CORPORATION_ROLES):
             logger.info(
                 "Character %s lacks required roles %s for corporation %s",
                 character_id,
@@ -478,6 +491,7 @@ def _collect_corporation_scope_status(
                 },
                 "authorization": _build_corporation_authorization_summary(setting),
                 "has_director_role": True,
+                "roles_unavailable": roles_unavailable,
             },
         )
 
@@ -486,6 +500,7 @@ def _collect_corporation_scope_status(
 
         entry["authorization"] = _build_corporation_authorization_summary(setting)
         entry["has_director_role"] = True
+        entry["roles_unavailable"] = entry.get("roles_unavailable") or roles_unavailable
 
         if blueprint_token and not entry["blueprint"]["has_scope"]:
             entry["blueprint"] = {
@@ -1859,6 +1874,7 @@ def token_management(request, tokens):
         if status.get("blueprint", {}).get("has_scope")
         or status.get("jobs", {}).get("has_scope")
         or status.get("has_director_role")
+        or status.get("roles_unavailable")
     ]
     corporation_sharing = build_corporation_sharing_context(request.user)
     can_manage_corp = request.user.has_perm("indy_hub.can_manage_corp_bp_requests")
@@ -2013,6 +2029,13 @@ def token_management(request, tokens):
                 else:
                     message += " " + _("Tokens remain restricted.")
                 level = "danger"
+            elif reason == "roles_unavailable":
+                message = _(
+                    "Indy Hub could not verify corporation roles for %(corporation)s. The corporation is still listed, but scopes remain unverified."
+                ) % {
+                    "corporation": corp_name,
+                }
+                level = "warning"
             else:
                 continue
 
