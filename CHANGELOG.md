@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### Added
 
+### Changed
+
+### Fixed
+
+### Internal
+
+## [1.14.0] - 2026-02-07
+
+### Added
+
 - Material Exchange: global enable/disable settings with UI toggle and task gating.
 - Notifications: in-app warnings when required ESI tokens/scopes go missing.
 - Material Exchange: quick-copy buttons for assign-to, price, and title/description in order details.
