@@ -319,6 +319,53 @@ class IndustryJob(models.Model):
             copy_type_id = self.product_type_id or self.blueprint_type_id
             return f"https://images.evetech.net/types/{copy_type_id}/bpc?size={size}"
 
+
+class IndustrySkillSnapshot(models.Model):
+    owner_user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="industry_skill_snapshots"
+    )
+    character_id = models.BigIntegerField(unique=True)
+    mass_production_level = models.PositiveSmallIntegerField(default=0)
+    advanced_mass_production_level = models.PositiveSmallIntegerField(default=0)
+    laboratory_operation_level = models.PositiveSmallIntegerField(default=0)
+    advanced_laboratory_operation_level = models.PositiveSmallIntegerField(default=0)
+    mass_reactions_level = models.PositiveSmallIntegerField(default=0)
+    advanced_mass_reactions_level = models.PositiveSmallIntegerField(default=0)
+    last_updated = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Industry Skill Snapshot"
+        verbose_name_plural = "Industry Skill Snapshots"
+        indexes = [
+            models.Index(
+                fields=["owner_user", "character_id"],
+                name="indy_hub_skill_user_char_idx",
+            ),
+        ]
+        default_permissions = ()
+
+    def __str__(self) -> str:
+        return f"Skills for {self.character_id}"
+
+    @property
+    def manufacturing_slots(self) -> int:
+        return (
+            1 + self.mass_production_level + self.advanced_mass_production_level
+        )
+
+    @property
+    def research_slots(self) -> int:
+        return (
+            1
+            + self.laboratory_operation_level
+            + self.advanced_laboratory_operation_level
+        )
+
+    @property
+    def reaction_slots(self) -> int:
+        return 1 + self.mass_reactions_level + self.advanced_mass_reactions_level
+
         # When blueprint and product IDs match, prefer the blueprint original artwork
         if self.product_type_id and self.blueprint_type_id == self.product_type_id:
             return f"https://images.evetech.net/types/{self.product_type_id}/bp?size={size}"

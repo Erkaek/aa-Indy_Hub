@@ -136,6 +136,7 @@ MANUAL_ONBOARDING_KEYS.add("overview_intro_seen")
 BLUEPRINT_SCOPE = "esi-characters.read_blueprints.v1"
 JOBS_SCOPE = "esi-industry.read_character_jobs.v1"
 STRUCTURE_SCOPE = "esi-universe.read_structures.v1"
+SKILLS_SCOPE = "esi-skills.read_skills.v1"
 BLUEPRINT_SCOPE_SET = [BLUEPRINT_SCOPE, STRUCTURE_SCOPE]
 JOBS_SCOPE_SET = [JOBS_SCOPE, STRUCTURE_SCOPE]
 ASSETS_SCOPE = "esi-assets.read_assets.v1"
@@ -1713,6 +1714,112 @@ def index(request):
         progress.save(update_fields=["manual_steps", "updated_at"])
         return render(request, "indy_hub/overview_intro.html", context)
 
+    # Cached slot recap (no ESI calls on the overview page).
+    try:
+        from django.db.models import Count
+        from django.utils import timezone
+
+        from allianceauth.authentication.models import CharacterOwnership
+
+        from .industry import (
+            MANUFACTURING_ACTIVITY_IDS,
+            REACTION_ACTIVITY_IDS,
+            RESEARCH_ACTIVITY_IDS,
+        )
+        from ..models import Blueprint, IndustryJob, IndustrySkillSnapshot
+
+        ownerships = CharacterOwnership.objects.filter(user=request.user).select_related(
+            "character"
+        )
+        character_ids = [
+            ownership.character.character_id
+            for ownership in ownerships
+            if ownership.character
+        ]
+        now = timezone.now()
+
+        snapshots = {
+            snapshot.character_id: snapshot
+            for snapshot in IndustrySkillSnapshot.objects.filter(
+                owner_user=request.user,
+                character_id__in=character_ids,
+            )
+        }
+
+        active_job_rows = (
+            IndustryJob.objects.filter(
+                owner_user=request.user,
+                owner_kind=Blueprint.OwnerKind.CHARACTER,
+                status="active",
+                end_date__gt=now,
+                character_id__in=character_ids,
+            )
+            .values("character_id", "activity_id")
+            .annotate(total=Count("id"))
+        )
+        used_counts: dict[int, dict[str, int]] = {
+            char_id: {"manufacturing": 0, "research": 0, "reactions": 0}
+            for char_id in character_ids
+        }
+        for row in active_job_rows:
+            char_id = int(row.get("character_id") or 0)
+            activity_id = int(row.get("activity_id") or 0)
+            total = int(row.get("total") or 0)
+            if char_id not in used_counts:
+                continue
+            if activity_id in MANUFACTURING_ACTIVITY_IDS:
+                used_counts[char_id]["manufacturing"] += total
+            elif activity_id in RESEARCH_ACTIVITY_IDS:
+                used_counts[char_id]["research"] += total
+            elif activity_id in REACTION_ACTIVITY_IDS:
+                used_counts[char_id]["reactions"] += total
+
+        unused_summary = {
+            "characters_total": len(character_ids),
+            "characters_with_data": 0,
+            "manufacturing": {"available": 0, "total": 0},
+            "research": {"available": 0, "total": 0},
+            "reactions": {"available": 0, "total": 0},
+        }
+
+        for char_id in character_ids:
+            snapshot = snapshots.get(char_id)
+            if not snapshot:
+                continue
+
+            totals = {
+                "manufacturing": snapshot.manufacturing_slots,
+                "research": snapshot.research_slots,
+                "reactions": snapshot.reaction_slots,
+            }
+            used = used_counts.get(char_id) or {
+                "manufacturing": 0,
+                "research": 0,
+                "reactions": 0,
+            }
+
+            has_any_total = False
+            for key in ("manufacturing", "research", "reactions"):
+                total_value = totals.get(key)
+                if total_value is None:
+                    continue
+                has_any_total = True
+                used_value = min(max(int(used.get(key) or 0), 0), int(total_value))
+                available = max(int(total_value) - used_value, 0)
+                unused_summary[key]["total"] += int(total_value)
+                unused_summary[key]["available"] += int(available)
+
+            if has_any_total:
+                unused_summary["characters_with_data"] += 1
+
+        context["unused_slots_summary"] = (
+            unused_summary
+            if any(unused_summary[k]["total"] for k in ("manufacturing", "research", "reactions"))
+            else None
+        )
+    except Exception:
+        context["unused_slots_summary"] = None
+
     return render(request, "indy_hub/index.html", context)
 
 
@@ -1808,6 +1915,7 @@ def token_management(request, tokens):
             *BLUEPRINT_SCOPE_SET,
             *JOBS_SCOPE_SET,
             *ASSETS_SCOPE_SET,
+            SKILLS_SCOPE,
         }
     )
     user_chars = []
@@ -2207,7 +2315,18 @@ def authorize_all(request):
         .require_valid()
         .values_list("character_id", flat=True)
     )
-    missing = set(all_chars) - (set(blueprint_auth) & set(jobs_auth) & set(assets_auth))
+    skills_auth = (
+        Token.objects.filter(user=request.user)
+        .require_scopes([SKILLS_SCOPE])
+        .require_valid()
+        .values_list("character_id", flat=True)
+    )
+    missing = set(all_chars) - (
+        set(blueprint_auth)
+        & set(jobs_auth)
+        & set(assets_auth)
+        & set(skills_auth)
+    )
     if not missing:
         messages.info(request, "All characters already authorized for all scopes.")
         return redirect("indy_hub:token_management")
@@ -2216,7 +2335,7 @@ def authorize_all(request):
         return redirect("indy_hub:token_management")
     try:
         combined_scopes = sorted(
-            {*BLUEPRINT_SCOPE_SET, *JOBS_SCOPE_SET, *ASSETS_SCOPE_SET}
+            {*BLUEPRINT_SCOPE_SET, *JOBS_SCOPE_SET, *ASSETS_SCOPE_SET, SKILLS_SCOPE}
         )
         return sso_redirect(
             request,

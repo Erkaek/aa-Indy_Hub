@@ -31,6 +31,7 @@ from .views.industry import (
     bp_reject_copy_request,
     bp_update_copy_request,
     craft_bp,
+    industry_slot_overview,
 )
 from .views.industry import (
     delete_production_simulation as delete_production_simulation_view,
@@ -120,6 +121,7 @@ urlpatterns = [
     ),
     path("all-bp/", all_bp_list, name="all_bp_list"),
     path("personnal-jobs/", personnal_job_list, name="personnal_job_list"),
+    path("industry/slots/", industry_slot_overview, name="industry_slot_overview"),
     path(
         "corporation-jobs/",
         personnal_job_list,

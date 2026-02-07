@@ -4,6 +4,7 @@
 import json
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import timedelta
 from decimal import Decimal
 from math import ceil
 from typing import Any
@@ -30,6 +31,7 @@ from django.views.decorators.http import require_http_methods
 # Alliance Auth
 from allianceauth.authentication.models import CharacterOwnership, UserProfile
 from allianceauth.services.hooks import get_extension_logger
+from esi.models import Token
 
 # AA Example App
 from indy_hub.models import CharacterSettings, CorporationSharingSetting
@@ -42,6 +44,7 @@ from ..models import (
     BlueprintCopyOffer,
     BlueprintCopyRequest,
     IndustryJob,
+    IndustrySkillSnapshot,
     NotificationWebhook,
     NotificationWebhookMessage,
     ProductionConfig,
@@ -54,6 +57,7 @@ from ..notifications import (
     notify_user,
     send_discord_webhook_with_message_id,
 )
+from ..services.esi_client import ESITokenError, shared_client
 from ..services.simulations import summarize_simulations
 from ..tasks.industry import (
     BLUEPRINT_SCOPE,
@@ -79,6 +83,21 @@ from ..utils.eve import (
     get_type_name,
 )
 
+# ESI skills scope + industry slot calculations
+SKILLS_SCOPE = "esi-skills.read_skills.v1"
+SKILL_CACHE_TTL = timedelta(hours=1)
+SKILL_TYPE_IDS = {
+    "mass_production": 3387,
+    "advanced_mass_production": 3388,
+    "laboratory_operation": 3406,
+    "advanced_laboratory_operation": 24624,
+    "mass_reactions": 45746,
+    "advanced_mass_reactions": 45748,
+}
+MANUFACTURING_ACTIVITY_IDS = {1}
+RESEARCH_ACTIVITY_IDS = {3, 4, 5, 8}
+REACTION_ACTIVITY_IDS = {9, 11}
+
 # Indy Hub
 from .navigation import build_nav_context
 
@@ -92,6 +111,203 @@ else:  # pragma: no cover - EveUniverse not installed
     EveType = None
 
 logger = get_extension_logger(__name__)
+
+
+def _fetch_character_skill_levels(character_id: int) -> dict[int, int]:
+    token = Token.get_token(character_id, SKILLS_SCOPE)
+    access_token = token.valid_access_token()
+    payload = shared_client.client.Skills.get_characters_character_id_skills(
+        character_id=character_id,
+        token=access_token,
+    ).results()
+    skills = payload.get("skills", []) if payload else []
+    return {
+        int(skill.get("skill_id")): int(
+            skill.get("active_skill_level")
+            or skill.get("trained_skill_level")
+            or 0
+        )
+        for skill in skills
+        if skill.get("skill_id")
+    }
+
+
+def _update_skill_snapshot(
+    user: User,
+    character_id: int,
+    levels: dict[int, int],
+) -> IndustrySkillSnapshot:
+    return IndustrySkillSnapshot.objects.update_or_create(
+        owner_user=user,
+        character_id=character_id,
+        defaults={
+            "mass_production_level": levels.get(
+                SKILL_TYPE_IDS["mass_production"], 0
+            ),
+            "advanced_mass_production_level": levels.get(
+                SKILL_TYPE_IDS["advanced_mass_production"], 0
+            ),
+            "laboratory_operation_level": levels.get(
+                SKILL_TYPE_IDS["laboratory_operation"], 0
+            ),
+            "advanced_laboratory_operation_level": levels.get(
+                SKILL_TYPE_IDS["advanced_laboratory_operation"], 0
+            ),
+            "mass_reactions_level": levels.get(
+                SKILL_TYPE_IDS["mass_reactions"], 0
+            ),
+            "advanced_mass_reactions_level": levels.get(
+                SKILL_TYPE_IDS["advanced_mass_reactions"], 0
+            ),
+        },
+    )[0]
+
+
+def _skill_snapshot_stale(snapshot: IndustrySkillSnapshot | None) -> bool:
+    if not snapshot:
+        return True
+    return timezone.now() - snapshot.last_updated > SKILL_CACHE_TTL
+
+
+def _build_slot_overview_rows(user: User) -> list[dict[str, object]]:
+    ownerships = CharacterOwnership.objects.filter(user=user).select_related(
+        "character"
+    )
+    character_ids = [
+        ownership.character.character_id for ownership in ownerships if ownership.character
+    ]
+    now = timezone.now()
+
+    snapshots = {
+        snapshot.character_id: snapshot
+        for snapshot in IndustrySkillSnapshot.objects.filter(
+            owner_user=user,
+            character_id__in=character_ids,
+        )
+    }
+    skill_token_ids = set(
+        Token.objects.filter(user=user, character_id__in=character_ids)
+        .require_scopes([SKILLS_SCOPE])
+        .require_valid()
+        .values_list("character_id", flat=True)
+    )
+
+    active_job_rows = (
+        IndustryJob.objects.filter(
+            owner_user=user,
+            owner_kind=Blueprint.OwnerKind.CHARACTER,
+            status="active",
+            end_date__gt=now,
+            character_id__in=character_ids,
+        )
+        .values("character_id", "activity_id")
+        .annotate(total=Count("id"))
+    )
+    used_counts: dict[int, dict[str, int]] = {
+        char_id: {"manufacturing": 0, "research": 0, "reactions": 0}
+        for char_id in character_ids
+    }
+    for row in active_job_rows:
+        char_id = int(row.get("character_id") or 0)
+        activity_id = int(row.get("activity_id") or 0)
+        total = int(row.get("total") or 0)
+        if char_id not in used_counts:
+            continue
+        if activity_id in MANUFACTURING_ACTIVITY_IDS:
+            used_counts[char_id]["manufacturing"] += total
+        elif activity_id in RESEARCH_ACTIVITY_IDS:
+            used_counts[char_id]["research"] += total
+        elif activity_id in REACTION_ACTIVITY_IDS:
+            used_counts[char_id]["reactions"] += total
+
+    def _slots_payload(total_value: int | None, used_value: int) -> dict[str, int | None]:
+        if total_value is None:
+            return {"total": None, "available": None, "used": None, "percent_used": 0}
+        used_clamped = min(max(used_value, 0), total_value)
+        available = max(total_value - used_clamped, 0)
+        percent_used = int(round((used_clamped / total_value) * 100)) if total_value else 0
+        return {
+            "total": total_value,
+            "available": available,
+            "used": used_clamped,
+            "percent_used": percent_used,
+        }
+
+    character_rows: list[dict[str, object]] = []
+    for ownership in ownerships:
+        char = ownership.character
+        if not char:
+            continue
+        character_id = char.character_id
+        snapshot = snapshots.get(character_id)
+        skills_missing = character_id not in skill_token_ids
+
+        if not skills_missing and _skill_snapshot_stale(snapshot):
+            try:
+                levels = _fetch_character_skill_levels(character_id)
+                snapshot = _update_skill_snapshot(user, character_id, levels)
+            except ESITokenError:
+                skills_missing = True
+            except Exception as exc:  # pragma: no cover - defensive logging
+                logger.warning("Failed to refresh skills for %s: %s", character_id, exc)
+                skills_missing = True
+
+        if skills_missing:
+            snapshot = None
+
+        totals = {
+            "manufacturing": snapshot.manufacturing_slots if snapshot else None,
+            "research": snapshot.research_slots if snapshot else None,
+            "reactions": snapshot.reaction_slots if snapshot else None,
+        }
+        used = used_counts.get(
+            character_id, {"manufacturing": 0, "research": 0, "reactions": 0}
+        )
+
+        character_rows.append(
+            {
+                "character_id": character_id,
+                "name": get_character_name(character_id),
+                "skills_missing": skills_missing,
+                "manufacturing": _slots_payload(totals["manufacturing"], used["manufacturing"]),
+                "research": _slots_payload(totals["research"], used["research"]),
+                "reactions": _slots_payload(totals["reactions"], used["reactions"]),
+            }
+        )
+
+    return character_rows
+
+
+def _build_slot_overview_summary(
+    rows: list[dict[str, object]],
+) -> dict[str, dict[str, int] | int]:
+    summary = {
+        "characters": len(rows),
+        "manufacturing": {"available": 0, "total": 0, "used": 0, "percent_used": 0},
+        "research": {"available": 0, "total": 0, "used": 0, "percent_used": 0},
+        "reactions": {"available": 0, "total": 0, "used": 0, "percent_used": 0},
+    }
+
+    for row in rows:
+        for key in ("manufacturing", "research", "reactions"):
+            payload = row.get(key) if isinstance(row, dict) else None
+            if not isinstance(payload, dict):
+                continue
+            total = payload.get("total")
+            available = payload.get("available")
+            used = payload.get("used")
+            if total is None or available is None or used is None:
+                continue
+            summary[key]["total"] += int(total)
+            summary[key]["available"] += int(available)
+            summary[key]["used"] += int(used)
+
+    for key in ("manufacturing", "research", "reactions"):
+        total = summary[key]["total"]
+        used = summary[key]["used"]
+        summary[key]["percent_used"] = int(round((used / total) * 100)) if total else 0
+
+    return summary
 
 
 def _has_required_scopes(user, scopes: list[str]) -> bool:
@@ -1241,6 +1457,8 @@ def personnal_bp_list(request, scope="character"):
             ("1", activity_labels[1]),
             ("9,11", activity_labels[9]),
         ]
+        slot_overview_rows = _build_slot_overview_rows(request.user)
+        slot_overview_rows = _build_slot_overview_rows(request.user)
         context = {
             "blueprints": blueprints_page,
             "statistics": {
@@ -1859,6 +2077,7 @@ def personnal_job_list(request, scope="character"):
             if grouped_jobs.get(meta["key"])
         ]
 
+        slot_overview_rows = _build_slot_overview_rows(request.user)
         context = {
             "jobs": jobs_page,
             "statistics": statistics,
@@ -1896,6 +2115,9 @@ def personnal_job_list(request, scope="character"):
                 "corporation": reverse("indy_hub:corporation_job_list"),
             },
             "can_manage_corp_bp_requests": has_corporate_perm,
+            "slot_overview_rows": slot_overview_rows,
+            "slot_overview_summary": _build_slot_overview_summary(slot_overview_rows),
+            "skills_scope": SKILLS_SCOPE,
         }
         context.update(
             build_nav_context(
@@ -5654,3 +5876,16 @@ def edit_simulation_name(request, simulation_id):
     }
 
     return render(request, "indy_hub/industry/edit_simulation_name.html", context)
+
+
+@indy_hub_access_required
+@login_required
+def industry_slot_overview(request):
+    character_rows = _build_slot_overview_rows(request.user)
+    context = {
+        "characters": character_rows,
+        "back_to_industry_url": reverse("indy_hub:personnal_job_list"),
+        "skills_scope": SKILLS_SCOPE,
+    }
+    context.update(build_nav_context(request.user, active_tab="industry"))
+    return render(request, "indy_hub/industry/slot_overview.html", context)

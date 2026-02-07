@@ -22,7 +22,7 @@
                 </h2>
                 <p class="description">{{ scope_description }}</p>
             </div>
-            <div class="d-flex gap-2">
+            <div class="d-flex flex-wrap align-items-center gap-2">
                 <a href="{{ back_to_overview_url }}" class="btn btn-outline-light">
                     <i class="fas fa-arrow-left me-1"></i>{% trans "Back to Overview" %}
                 </a>
@@ -31,8 +31,158 @@
                 </button>
             </div>
         </div>
-        <i class="fas fa-cogs header-bg"></i>
     </div>
+
+    {% if slot_overview_summary %}
+        <div class="slot-overview-card mb-4">
+            <div class="card-body">
+                <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 slot-overview-header">
+                    <div class="slot-overview-title">
+                        {% trans "Industry Slots Overview" %}
+                    </div>
+                    <button class="btn btn-outline-secondary btn-sm slot-overview-toggle"
+                            type="button"
+                            data-bs-toggle="collapse"
+                            data-bs-target="#slotOverviewPanel"
+                            aria-expanded="false"
+                            aria-controls="slotOverviewPanel">
+                        <i class="fas fa-bars me-1"></i>{% trans "Details" %}
+                    </button>
+                </div>
+
+                <div class="row g-3 slot-overview-summary">
+                    <div class="col-6 col-lg-3">
+                        <div class="slot-overview-summary-card">
+                            <div class="slot-overview-summary-value">{{ slot_overview_summary.characters }}</div>
+                            <div class="slot-overview-summary-label">{% trans "Characters" %}</div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-lg-3">
+                        <div class="slot-overview-summary-card">
+                            <div class="slot-overview-summary-value">
+                                {% if slot_overview_summary.manufacturing.total %}
+                                    {{ slot_overview_summary.manufacturing.available }} / {{ slot_overview_summary.manufacturing.total }}
+                                {% else %}
+                                    —
+                                {% endif %}
+                            </div>
+                            <div class="slot-overview-summary-label">{% trans "Mfg" %}</div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-lg-3">
+                        <div class="slot-overview-summary-card">
+                            <div class="slot-overview-summary-value">
+                                {% if slot_overview_summary.research.total %}
+                                    {{ slot_overview_summary.research.available }} / {{ slot_overview_summary.research.total }}
+                                {% else %}
+                                    —
+                                {% endif %}
+                            </div>
+                            <div class="slot-overview-summary-label">{% trans "Res" %}</div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-lg-3">
+                        <div class="slot-overview-summary-card">
+                            <div class="slot-overview-summary-value">
+                                {% if slot_overview_summary.reactions.total %}
+                                    {{ slot_overview_summary.reactions.available }} / {{ slot_overview_summary.reactions.total }}
+                                {% else %}
+                                    —
+                                {% endif %}
+                            </div>
+                            <div class="slot-overview-summary-label">{% trans "React" %}</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="collapse" id="slotOverviewPanel">
+                <div class="slot-overview-details">
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0 align-middle slot-overview-table">
+                            <thead class="table-light">
+                                <tr>
+                                    <th style="width: 64px;"></th>
+                                    <th>{% trans "Character" %}</th>
+                                    <th class="text-center">{% trans "Manufacturing" %}</th>
+                                    <th class="text-center">{% trans "Research" %}</th>
+                                    <th class="text-center">{% trans "Reactions" %}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for char in slot_overview_rows %}
+                                    <tr>
+                                        <td>
+                                            <img
+                                                src="https://images.evetech.net/characters/{{ char.character_id }}/portrait?size=64"
+                                                alt="{{ char.name }}"
+                                                class="rounded-circle"
+                                                width="40"
+                                                height="40"
+                                                loading="lazy"
+                                                onerror="this.style.display='none';">
+                                        </td>
+                                        <td class="fw-semibold">{{ char.name }}</td>
+                                        <td class="text-center">
+                                            {% if char.manufacturing.total is not None %}
+                                                <div class="slot-overview-cell">
+                                                    <div class="slot-overview-value">{{ char.manufacturing.available }} / {{ char.manufacturing.total }}</div>
+                                                    <div class="progress slot-overview-progress" role="progressbar" aria-valuenow="{{ char.manufacturing.percent_used }}" aria-valuemin="0" aria-valuemax="100">
+                                                        <div class="progress-bar" style="width: {{ char.manufacturing.percent_used }}%;"></div>
+                                                    </div>
+                                                </div>
+                                            {% else %}
+                                                <span class="text-muted">—</span>
+                                            {% endif %}
+                                        </td>
+                                        <td class="text-center">
+                                            {% if char.research.total is not None %}
+                                                <div class="slot-overview-cell">
+                                                    <div class="slot-overview-value">{{ char.research.available }} / {{ char.research.total }}</div>
+                                                    <div class="progress slot-overview-progress" role="progressbar" aria-valuenow="{{ char.research.percent_used }}" aria-valuemin="0" aria-valuemax="100">
+                                                        <div class="progress-bar" style="width: {{ char.research.percent_used }}%;"></div>
+                                                    </div>
+                                                </div>
+                                            {% else %}
+                                                <span class="text-muted">—</span>
+                                            {% endif %}
+                                        </td>
+                                        <td class="text-center">
+                                            {% if char.reactions.total is not None %}
+                                                <div class="slot-overview-cell">
+                                                    <div class="slot-overview-value">{{ char.reactions.available }} / {{ char.reactions.total }}</div>
+                                                    <div class="progress slot-overview-progress" role="progressbar" aria-valuenow="{{ char.reactions.percent_used }}" aria-valuemin="0" aria-valuemax="100">
+                                                        <div class="progress-bar" style="width: {{ char.reactions.percent_used }}%;"></div>
+                                                    </div>
+                                                </div>
+                                            {% else %}
+                                                <span class="text-muted">—</span>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                    {% if char.skills_missing %}
+                                        <tr class="table-light">
+                                            <td></td>
+                                            <td colspan="4" class="small text-muted">
+                                                {% blocktrans with scope=skills_scope %}Missing scope: {{ scope }}{% endblocktrans %}
+                                            </td>
+                                        </tr>
+                                    {% endif %}
+                                {% empty %}
+                                    <tr>
+                                        <td colspan="5" class="text-center text-muted py-4">{% trans "No characters found." %}</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="slot-overview-legend text-muted small">
+                        {% trans "Legend:" %} <span class="slot-overview-legend-label">{% trans "Available / Total" %}</span> · {% trans "Progress bar shows slots in use (filled = busy)." %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    {% endif %}
 
     <div class="row g-3 mb-4">
         <div class="col-12">

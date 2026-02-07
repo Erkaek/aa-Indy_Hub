@@ -1347,6 +1347,13 @@ html[data-theme="darkly"] a.share-metric:focus-visible {
     color: var(--bs-emphasis-color);
 }
 
+/* Overview: unused industry slots recap */
+.slot-chip {
+    font-size: 0.75rem;
+    font-weight: 700;
+    padding: 0.35rem 0.6rem;
+}
+
 html[data-theme="darkly"] .share-metric-value {
     color: var(--bs-body-color) !important;
 }
