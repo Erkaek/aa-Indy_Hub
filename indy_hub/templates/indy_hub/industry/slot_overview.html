@@ -1,0 +1,103 @@
+{% extends "indy_hub/base.html" %}
+{% load i18n %}
+{% load static %}
+
+{% block page_title %}{% trans "Industry Slots" %}{% endblock page_title %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
+<link rel="stylesheet" href="{% static 'indy_hub/css/components.css' %}">
+{% endblock extra_css %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="page-header mb-4">
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+            <div>
+                <h2 class="h3 mb-1">
+                    <i class="fas fa-industry me-2"></i>
+                    {% trans "Industry Slot Availability" %}
+                </h2>
+                <p class="description mb-0">{% trans "See total and available job slots per linked character." %}</p>
+            </div>
+            <div class="d-flex gap-2">
+                <a href="{{ back_to_industry_url }}" class="btn btn-outline-light">
+                    <i class="fas fa-arrow-left me-1"></i>{% trans "Back to Jobs" %}
+                </a>
+                <a href="{% url 'indy_hub:esi_hub' %}" class="btn btn-light text-primary">
+                    <i class="fas fa-key me-1"></i>{% trans "Manage ESI Tokens" %}
+                </a>
+            </div>
+        </div>
+        <i class="fas fa-chart-simple header-bg"></i>
+    </div>
+
+    <section class="dashboard-section mb-4">
+        <div class="card focus-card">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0 align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width: 64px;"></th>
+                            <th>{% trans "Character" %}</th>
+                            <th class="text-center">{% trans "Manufacturing" %}</th>
+                            <th class="text-center">{% trans "Research" %}</th>
+                            <th class="text-center">{% trans "Reactions" %}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for char in characters %}
+                            <tr>
+                                <td>
+                                    <img
+                                        src="https://images.evetech.net/characters/{{ char.character_id }}/portrait?size=64"
+                                        alt="{{ char.name }}"
+                                        class="rounded-circle"
+                                        width="40"
+                                        height="40"
+                                        loading="lazy"
+                                        onerror="this.style.display='none';">
+                                </td>
+                                <td class="fw-semibold">{{ char.name }}</td>
+                                <td class="text-center">
+                                    {% if char.manufacturing.total is not None %}
+                                        {{ char.manufacturing.available }} / {{ char.manufacturing.total }}
+                                    {% else %}
+                                        <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-center">
+                                    {% if char.research.total is not None %}
+                                        {{ char.research.available }} / {{ char.research.total }}
+                                    {% else %}
+                                        <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-center">
+                                    {% if char.reactions.total is not None %}
+                                        {{ char.reactions.available }} / {{ char.reactions.total }}
+                                    {% else %}
+                                        <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% if char.skills_missing %}
+                                <tr class="table-light">
+                                    <td></td>
+                                    <td colspan="4" class="small text-muted">
+                                        {% blocktrans with scope=skills_scope %}Missing scope: {{ scope }}{% endblocktrans %}
+                                    </td>
+                                </tr>
+                            {% endif %}
+                        {% empty %}
+                            <tr>
+                                <td colspan="5" class="text-center text-muted py-4">{% trans "No characters found." %}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+</div>
+{% endblock content %}

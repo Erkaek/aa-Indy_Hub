@@ -69,8 +69,15 @@
                                 </div>
                                 <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
                                     {% if has_jobs_tokens %}
-                                    <span class="badge rounded-pill bg-success-subtle text-success">{% trans "Active" %}: {{ active_jobs_count|default:0 }}</span>
                                     <span class="badge rounded-pill bg-success-subtle text-success">{% trans "Completed" %}: {{ completed_jobs_count|default:0 }}</span>
+                                    {% if unused_slots_summary %}
+                                    <span class="badge rounded-pill bg-primary-subtle text-primary slot-chip" title="{% trans 'Unused manufacturing slots' %}">{% trans "Mfg" %}: {{ unused_slots_summary.manufacturing.available }} / {{ unused_slots_summary.manufacturing.total }}</span>
+                                    <span class="badge rounded-pill bg-info-subtle text-info slot-chip" title="{% trans 'Unused research slots' %}">{% trans "Res" %}: {{ unused_slots_summary.research.available }} / {{ unused_slots_summary.research.total }}</span>
+                                    <span class="badge rounded-pill bg-warning-subtle text-warning slot-chip" title="{% trans 'Unused reaction slots' %}">{% trans "React" %}: {{ unused_slots_summary.reactions.available }} / {{ unused_slots_summary.reactions.total }}</span>
+                                    {% if unused_slots_summary.characters_with_data != unused_slots_summary.characters_total %}
+                                    <span class="badge rounded-pill bg-secondary-subtle text-secondary slot-chip" title="{% trans 'Characters with cached skill data' %}">{{ unused_slots_summary.characters_with_data }}/{{ unused_slots_summary.characters_total }} {% trans "chars" %}</span>
+                                    {% endif %}
+                                    {% endif %}
                                     {% else %}
                                     <span class="badge rounded-pill bg-secondary-subtle text-secondary">{% trans "No token" %}</span>
                                     {% endif %}

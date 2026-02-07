@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Material Exchange: quick-copy buttons for assign-to, price, and title/description in order details.
 - Services: Fuzzwork API helper module for aggregate pricing lookups.
 - ESI: show explicit missing ESI scopes per character and corporation on the token management page.
+- Industry: added a slot availability overview per linked character (manufacturing/research/reactions).
+- Overview: show a compact recap of unused industry slots (Mfg/Res/React) using cached skill snapshots.
 
 ### Changed
 
@@ -25,6 +27,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - ESI: token management UI now shows simplified status tables with per-section action buttons.
 - ESI: corporation authorization button now requests Material Exchange scopes as well.
 - Scopes: Material Exchange required scope set now includes corporation divisions and contracts.
+- Industry: skill snapshot cache refresh interval reduced to 1 hour.
+- Overview: Industry module chips now include unused slots recap alongside completion counters.
 
 ### Fixed
 
@@ -36,6 +40,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Fuzzwork: pricing updates and API endpoint use shared helper with clearer errors.
 - Scopes: removed unused corp wallet scope from required scope sets.
 - ESI: token management page now lists the corporation roles scope in required character scopes.
+- Industry: fixed personal jobs page layout issues in the slots overview header/collapse.
 
 ### Internal
 
