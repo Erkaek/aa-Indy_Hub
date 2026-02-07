@@ -11,6 +11,7 @@ from bravado.exception import HTTPError
 # Django
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.cache import cache
 from django.db import transaction
 from django.db.models import (
     Case,
@@ -145,21 +146,45 @@ ASSETS_SCOPE_SET = [ASSETS_SCOPE]
 
 def _fetch_character_corporation_roles_with_token(token_obj: Token) -> set[str]:
     """Fetch corporation roles using a specific token instead of Token.get_token()."""
+    cache_key = f"indy_hub:corp_roles:{token_obj.character_id}"
     try:
-        payload = esi_provider.client.Character.get_characters_character_id_roles(
-            character_id=token_obj.character_id,
-            token=token_obj,
-        ).results()
+        operation_fn = esi_provider.client.Character.get_characters_character_id_roles
+        try:
+            payload = operation_fn(
+                character_id=token_obj.character_id,
+                token=token_obj,
+            ).results()
+        except Exception as exc:
+            if "is not of type 'string'" not in str(exc):
+                raise
+            access_token = token_obj.valid_access_token()
+            payload = operation_fn(
+                character_id=token_obj.character_id,
+                token=access_token,
+            ).results()
     except HTTPError as exc:
         status_code = getattr(exc, "status_code", None) or getattr(
             exc.response, "status_code", None
         )
+        response_text = None
+        try:
+            response_text = getattr(exc.response, "text", None)
+        except Exception:
+            response_text = None
+        if status_code == 304:
+            cached_roles = cache.get(cache_key)
+            if cached_roles:
+                return {str(role).upper() for role in cached_roles if role}
+            raise ESIClientError(
+                f"ESI roles endpoint returned 304 without cache for character {token_obj.character_id}"
+            ) from exc
         if status_code in (401, 403):
             raise ESITokenError(
                 f"Token validation failed for character {token_obj.character_id}"
             ) from exc
         raise ESIClientError(
-            f"ESI request failed for character {token_obj.character_id} roles"
+            "ESI request failed for character "
+            f"{token_obj.character_id} roles (status {status_code}): {response_text or exc}"
         ) from exc
     except TokenError as exc:
         raise ESITokenError(
@@ -167,7 +192,7 @@ def _fetch_character_corporation_roles_with_token(token_obj: Token) -> set[str]:
         ) from exc
     except Exception as exc:
         raise ESIClientError(
-            f"ESI request failed for character {token_obj.character_id} roles"
+            f"ESI request failed for character {token_obj.character_id} roles: {exc}"
         ) from exc
 
     if not isinstance(payload, dict):
@@ -181,7 +206,7 @@ def _fetch_character_corporation_roles_with_token(token_obj: Token) -> set[str]:
         for role in role_list:
             if role:
                 collected.add(str(role).upper())
-
+    cache.set(cache_key, sorted(collected), timeout=600)
     return collected
 
 
@@ -240,6 +265,7 @@ def _collect_corporation_scope_status(
         }
     )
     corp_available_scopes: dict[int, set[str]] = {}
+    corp_role_state: dict[int, dict[str, bool]] = {}
     warnings: list[dict[str, Any]] = [] if include_warnings else []
 
     def _revoke_corporation_tokens(
@@ -351,18 +377,80 @@ def _collect_corporation_scope_status(
         if not blueprint_token and not jobs_token and not roles_token:
             continue
 
-        # Use the selected token directly to avoid Token.get_token() finding wrong token
-        token_to_use = blueprint_token or jobs_token or roles_token
+        role_state = corp_role_state.setdefault(
+            corp_id, {"verified": False, "unavailable": False}
+        )
         roles_unavailable = False
-        try:
-            roles = _fetch_character_corporation_roles_with_token(token_to_use)
-        except ESITokenError:
+        roles: set[str] = set()
+        if roles_token:
+            try:
+                roles = _fetch_character_corporation_roles_with_token(roles_token)
+                role_state["verified"] = True
+                role_state["unavailable"] = False
+            except ESITokenError:
+                logger.info(
+                    "Character %s lacks corporation roles scope for corporation %s",
+                    character_id,
+                    corp_id,
+                )
+                scopes_to_revoke: list[str] = []
+                if blueprint_token:
+                    scopes_to_revoke.append(CORP_BLUEPRINT_SCOPE)
+                if jobs_token:
+                    scopes_to_revoke.append(CORP_JOBS_SCOPE)
+                revoked_count = _revoke_corporation_tokens(
+                    token_qs,
+                    character_id,
+                    character_name,
+                    corp_id,
+                    corp_name,
+                    scopes_to_revoke=scopes_to_revoke,
+                )
+                if include_warnings:
+                    warnings.append(
+                        {
+                            "reason": "missing_roles_scope",
+                            "character_id": character_id,
+                            "character_name": character_name,
+                            "corporation_id": corp_id,
+                            "corporation_name": corp_name,
+                            "tokens_revoked": bool(revoked_count),
+                            "revoked_token_count": revoked_count,
+                            "revoked_token_scopes": sorted(set(scopes_to_revoke)),
+                        }
+                    )
+                roles_unavailable = True
+                if not role_state["verified"]:
+                    role_state["unavailable"] = True
+                roles = set()
+            except ESIClientError as exc:
+                logger.warning(
+                    "Unable to load corporation roles for character %s (corporation %s): %s",
+                    character_id,
+                    corp_id,
+                    exc,
+                )
+                roles_unavailable = True
+                if not role_state["verified"]:
+                    role_state["unavailable"] = True
+                roles = set()
+                if include_warnings:
+                    warnings.append(
+                        {
+                            "reason": "roles_unavailable",
+                            "character_id": character_id,
+                            "character_name": character_name,
+                            "corporation_id": corp_id,
+                            "corporation_name": corp_name,
+                        }
+                    )
+        else:
             logger.info(
                 "Character %s lacks corporation roles scope for corporation %s",
                 character_id,
                 corp_id,
             )
-            scopes_to_revoke: list[str] = []
+            scopes_to_revoke = []
             if blueprint_token:
                 scopes_to_revoke.append(CORP_BLUEPRINT_SCOPE)
             if jobs_token:
@@ -389,26 +477,8 @@ def _collect_corporation_scope_status(
                     }
                 )
             roles_unavailable = True
-            roles = set()
-        except ESIClientError as exc:
-            logger.warning(
-                "Unable to load corporation roles for character %s (corporation %s): %s",
-                character_id,
-                corp_id,
-                exc,
-            )
-            roles_unavailable = True
-            roles = set()
-            if include_warnings:
-                warnings.append(
-                    {
-                        "reason": "roles_unavailable",
-                        "character_id": character_id,
-                        "character_name": character_name,
-                        "corporation_id": corp_id,
-                        "corporation_name": corp_name,
-                    }
-                )
+            if not role_state["verified"]:
+                role_state["unavailable"] = True
         if not roles_unavailable and not roles.intersection(REQUIRED_CORPORATION_ROLES):
             logger.info(
                 "Character %s lacks required roles %s for corporation %s",
@@ -485,7 +555,7 @@ def _collect_corporation_scope_status(
                 },
                 "authorization": _build_corporation_authorization_summary(setting),
                 "has_director_role": True,
-                "roles_unavailable": roles_unavailable,
+                "roles_unavailable": role_state.get("unavailable", roles_unavailable),
             },
         )
 
@@ -494,7 +564,9 @@ def _collect_corporation_scope_status(
 
         entry["authorization"] = _build_corporation_authorization_summary(setting)
         entry["has_director_role"] = True
-        entry["roles_unavailable"] = entry.get("roles_unavailable") or roles_unavailable
+        entry["roles_unavailable"] = role_state.get(
+            "unavailable", entry.get("roles_unavailable") or roles_unavailable
+        )
 
         if blueprint_token and not entry["blueprint"]["has_scope"]:
             entry["blueprint"] = {
@@ -1940,6 +2012,7 @@ def token_management(request, tokens):
             *JOBS_SCOPE_SET,
             *ASSETS_SCOPE_SET,
             SKILLS_SCOPE,
+            *([CORP_ROLES_SCOPE] if can_manage_corp else []),
         }
     )
     user_chars = []
@@ -2325,6 +2398,7 @@ def authorize_material_exchange(request):
 @login_required
 def authorize_all(request):
     # Only skip if ALL characters have blueprint, jobs, and assets access
+    force = request.GET.get("force") == "1"
     all_chars = CharacterOwnership.objects.filter(user=request.user).values_list(
         "character__character_id", flat=True
     )
@@ -2355,7 +2429,7 @@ def authorize_all(request):
     missing = set(all_chars) - (
         set(blueprint_auth) & set(jobs_auth) & set(assets_auth) & set(skills_auth)
     )
-    if not missing:
+    if not missing and not force:
         messages.info(request, "All characters already authorized for all scopes.")
         return redirect("indy_hub:token_management")
     if not CallbackRedirect:
@@ -2363,7 +2437,13 @@ def authorize_all(request):
         return redirect("indy_hub:token_management")
     try:
         combined_scopes = sorted(
-            {*BLUEPRINT_SCOPE_SET, *JOBS_SCOPE_SET, *ASSETS_SCOPE_SET, SKILLS_SCOPE}
+            {
+                *BLUEPRINT_SCOPE_SET,
+                *JOBS_SCOPE_SET,
+                *ASSETS_SCOPE_SET,
+                SKILLS_SCOPE,
+                CORP_ROLES_SCOPE,
+            }
         )
         return sso_redirect(
             request,
