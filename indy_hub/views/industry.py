@@ -113,10 +113,33 @@ logger = get_extension_logger(__name__)
 
 def _fetch_character_skill_levels(character_id: int) -> dict[int, int]:
     token = Token.get_token(character_id, SKILLS_SCOPE)
-    payload = shared_client.client.Skills.get_characters_character_id_skills(
-        character_id=character_id,
-        token=token,
-    ).results()
+    client = shared_client.client
+    skills_resource = getattr(client, "Skills", None)
+    if skills_resource is not None and hasattr(
+        skills_resource, "get_characters_character_id_skills"
+    ):
+        operation_fn = skills_resource.get_characters_character_id_skills
+    else:
+        character_resource = client.Character
+        operation_fn = getattr(
+            character_resource,
+            "get_characters_character_id_skills",
+            None,
+        ) or getattr(character_resource, "GetCharactersCharacterIdSkills")
+    try:
+        payload = operation_fn(
+            character_id=character_id,
+            token=token,
+        ).results()
+    except Exception as exc:
+        if "is not of type 'string'" in str(exc):
+            access_token = token.valid_access_token()
+            payload = operation_fn(
+                character_id=character_id,
+                token=access_token,
+            ).results()
+        else:
+            raise
     skills = payload.get("skills", []) if payload else []
     return {
         int(skill.get("skill_id")): int(
@@ -239,7 +262,7 @@ def _build_slot_overview_rows(user: User) -> list[dict[str, object]]:
         snapshot = snapshots.get(character_id)
         skills_missing = character_id not in skill_token_ids
 
-        if not skills_missing and _skill_snapshot_stale(snapshot):
+        if not skills_missing and snapshot is None:
             try:
                 levels = _fetch_character_skill_levels(character_id)
                 snapshot = _update_skill_snapshot(user, character_id, levels)

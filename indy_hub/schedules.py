@@ -41,6 +41,18 @@ INDY_HUB_BEAT_SCHEDULE = {
         "options": {"priority": 8},  # Low priority for caching
         "apply_offset": True,
     },
+    "indy-hub-update-character-roles": {
+        "task": "indy_hub.tasks.user.update_character_roles_snapshots",
+        "schedule": crontab(hour=4, minute=0),  # Daily at 04:00
+        "options": {"priority": 7},
+        "apply_offset": True,
+    },
+    "indy-hub-update-skill-snapshots": {
+        "task": "indy_hub.tasks.industry.update_all_skill_snapshots",
+        "schedule": crontab(minute=15, hour="*"),  # Hourly at HH:15
+        "options": {"priority": 7},
+        "apply_offset": True,
+    },
     # Material Exchange combined cycle: sync -> validate -> check completed
     "indy-hub-material-exchange-cycle": {
         "task": "indy_hub.tasks.material_exchange_contracts.run_material_exchange_cycle",

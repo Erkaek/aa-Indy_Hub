@@ -461,6 +461,42 @@ class IndustrySkillSnapshot(models.Model):
         return _("Completed")
 
 
+class CharacterRoles(models.Model):
+    owner_user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="character_roles"
+    )
+    character_id = models.BigIntegerField(unique=True)
+    corporation_id = models.BigIntegerField(blank=True, null=True)
+    roles = models.JSONField(default=list, blank=True)
+    roles_at_hq = models.JSONField(default=list, blank=True)
+    roles_at_base = models.JSONField(default=list, blank=True)
+    roles_at_other = models.JSONField(default=list, blank=True)
+    last_updated = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Character Roles"
+        verbose_name_plural = "Character Roles"
+        indexes = [
+            models.Index(
+                fields=["owner_user", "character_id"],
+                name="indy_hub_roles_user_char_idx",
+            ),
+            models.Index(
+                fields=["corporation_id"],
+                name="indy_hub_roles_corp_idx",
+            ),
+            models.Index(
+                fields=["last_updated"],
+                name="indy_hub_roles_updated_idx",
+            ),
+        ]
+        default_permissions = ()
+
+    def __str__(self) -> str:
+        return f"Roles for {self.character_id}"
+
+
 class BlueprintCopyRequest(models.Model):
     # Blueprint identity (anonymized, deduped by type_id, ME, TE)
     type_id = models.IntegerField()

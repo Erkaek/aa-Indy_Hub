@@ -24,6 +24,7 @@ from indy_hub.models import (
     CachedCorporationAsset,
     CachedCorporationDivision,
     CachedStructureName,
+    CharacterRoles,
 )
 from indy_hub.services.esi_client import (
     ESIClientError,
@@ -52,6 +53,71 @@ CHAR_ASSET_CACHE_MAX_AGE_MINUTES = getattr(
 DIVISION_CACHE_MAX_AGE_MINUTES = getattr(
     settings, "INDY_HUB_DIVISION_CACHE_MAX_AGE_MINUTES", 1440
 )
+
+
+def _coerce_role_list(value: object) -> list[str]:
+    if isinstance(value, (list, tuple)):
+        return [str(item) for item in value if item]
+    return []
+
+
+def _get_or_fetch_character_roles(
+    character_id: int,
+    *,
+    owner_user=None,
+    corporation_id: int | None = None,
+) -> list[str]:
+    snapshot = CharacterRoles.objects.filter(character_id=character_id).first()
+    if snapshot:
+        return [str(role).upper() for role in (snapshot.roles or []) if role]
+
+    if owner_user is None or corporation_id is None:
+        ownership = (
+            CharacterOwnership.objects.filter(character__character_id=character_id)
+            .select_related("character", "user")
+            .first()
+        )
+        if ownership:
+            owner_user = owner_user or ownership.user
+            corporation_id = corporation_id or getattr(
+                ownership.character, "corporation_id", None
+            )
+
+    try:
+        payload = shared_client.fetch_character_corporation_roles(int(character_id))
+    except Exception as exc:
+        logger.warning(
+            "Failed to fetch roles for character %s: %s",
+            character_id,
+            exc,
+        )
+        return []
+
+    if not isinstance(payload, dict):
+        logger.warning(
+            "Unexpected roles payload for character %s: %s",
+            character_id,
+            type(payload),
+        )
+        return []
+
+    role_payload = {
+        "roles": _coerce_role_list(payload.get("roles")),
+        "roles_at_hq": _coerce_role_list(payload.get("roles_at_hq")),
+        "roles_at_base": _coerce_role_list(payload.get("roles_at_base")),
+        "roles_at_other": _coerce_role_list(payload.get("roles_at_other")),
+    }
+    if owner_user is not None:
+        CharacterRoles.objects.update_or_create(
+            character_id=character_id,
+            defaults={
+                "owner_user": owner_user,
+                "corporation_id": corporation_id,
+                **role_payload,
+            },
+        )
+
+    return [str(role).upper() for role in role_payload["roles"] if role]
 
 
 def build_asset_index_by_item_id(assets: list[dict]) -> dict[int, dict]:
@@ -601,11 +667,11 @@ def resolve_structure_names(
                     continue
 
                 try:
-                    # Check corporation roles via ESI
-                    roles_data = shared_client.fetch_character_corporation_roles(
-                        int(cid)
+                    corp_roles = _get_or_fetch_character_roles(
+                        int(cid),
+                        owner_user=user,
+                        corporation_id=corporation_id,
                     )
-                    corp_roles = roles_data.get("roles", [])
 
                     # Accept only DIRECTOR role
                     if "DIRECTOR" in corp_roles:

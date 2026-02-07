@@ -49,12 +49,15 @@ from django.utils.dateparse import parse_datetime
 # Alliance Auth
 from allianceauth.authentication.models import CharacterOwnership
 from allianceauth.services.hooks import get_extension_logger
+from esi.models import Token
 
 from ..models import (
     Blueprint,
+    CharacterRoles,
     CharacterSettings,
     CorporationSharingSetting,
     IndustryJob,
+    IndustrySkillSnapshot,
 )
 from ..services.esi_client import (
     ESIClientError,
@@ -85,6 +88,15 @@ CORP_ROLES_SCOPE = "esi-characters.read_corporation_roles.v1"
 CORP_STRUCTURES_SCOPE = "esi-corporations.read_structures.v1"
 CORP_ASSETS_SCOPE = "esi-assets.read_corporation_assets.v1"
 CORP_WALLET_SCOPE = "esi-wallet.read_corporation_wallets.v1"
+SKILLS_SCOPE = "esi-skills.read_skills.v1"
+SKILL_TYPE_IDS = {
+    "mass_production": 3387,
+    "advanced_mass_production": 3388,
+    "laboratory_operation": 3406,
+    "advanced_laboratory_operation": 24624,
+    "mass_reactions": 45746,
+    "advanced_mass_reactions": 45748,
+}
 CORP_BLUEPRINT_SCOPE_SET = [
     CORP_BLUEPRINT_SCOPE,
     STRUCTURE_SCOPE,
@@ -168,6 +180,66 @@ def _normalized_roles(roles: list[str] | tuple[str, ...] | None) -> set[str]:
     return {str(role).upper() for role in roles if role}
 
 
+def _fetch_character_skill_levels_with_token(token_obj: Token) -> dict[int, int]:
+    client = shared_client.client
+    skills_resource = getattr(client, "Skills", None)
+    if skills_resource is not None and hasattr(
+        skills_resource, "get_characters_character_id_skills"
+    ):
+        operation_fn = skills_resource.get_characters_character_id_skills
+    else:
+        character_resource = client.Character
+        operation_fn = getattr(
+            character_resource,
+            "get_characters_character_id_skills",
+            None,
+        ) or getattr(character_resource, "GetCharactersCharacterIdSkills")
+
+    try:
+        payload = operation_fn(
+            character_id=token_obj.character_id,
+            token=token_obj,
+        ).results()
+    except Exception as exc:
+        if "is not of type 'string'" not in str(exc):
+            raise
+        access_token = token_obj.valid_access_token()
+        payload = operation_fn(
+            character_id=token_obj.character_id,
+            token=access_token,
+        ).results()
+
+    skills = payload.get("skills", []) if payload else []
+    return {
+        int(skill.get("skill_id")): int(
+            skill.get("active_skill_level") or skill.get("trained_skill_level") or 0
+        )
+        for skill in skills
+        if skill.get("skill_id")
+    }
+
+
+def _extract_role_payload(payload: dict) -> dict[str, list[str]]:
+    def _coerce_list(value: object) -> list[str]:
+        if isinstance(value, (list, tuple)):
+            return [str(item) for item in value if item]
+        return []
+
+    return {
+        "roles": _coerce_list(payload.get("roles")),
+        "roles_at_hq": _coerce_list(payload.get("roles_at_hq")),
+        "roles_at_base": _coerce_list(payload.get("roles_at_base")),
+        "roles_at_other": _coerce_list(payload.get("roles_at_other")),
+    }
+
+
+def _roles_from_snapshot(snapshot: CharacterRoles) -> set[str]:
+    collected: set[str] = set()
+    for key in ("roles", "roles_at_hq", "roles_at_base", "roles_at_other"):
+        collected.update(_normalized_roles(getattr(snapshot, key, None)))
+    return collected
+
+
 def get_character_corporation_roles(character_id: int) -> set[str]:
     if character_id in _CORPORATION_ROLE_CACHE:
         return _CORPORATION_ROLE_CACHE[character_id]
@@ -178,6 +250,11 @@ def get_character_corporation_roles(character_id: int) -> set[str]:
         cached = _CORPORATION_ROLE_CACHE.get(character_id)
         if cached is not None:
             return cached
+        snapshot = CharacterRoles.objects.filter(character_id=character_id).first()
+        if snapshot:
+            roles = _roles_from_snapshot(snapshot)
+            _CORPORATION_ROLE_CACHE[character_id] = roles
+            return roles
         logger.debug(
             "Corporation roles not modified for character %s; no cache available",
             character_id,
@@ -190,6 +267,30 @@ def get_character_corporation_roles(character_id: int) -> set[str]:
             exc,
         )
         return set()  # Return empty set on error instead of crashing
+
+    if not isinstance(payload, dict):
+        logger.debug(
+            "Unexpected corporation roles payload type for character %s: %s",
+            character_id,
+            type(payload),
+        )
+        return set()
+
+    role_payload = _extract_role_payload(payload)
+    ownership = (
+        CharacterOwnership.objects.filter(character__character_id=character_id)
+        .select_related("character", "user")
+        .first()
+    )
+    if ownership:
+        CharacterRoles.objects.update_or_create(
+            character_id=character_id,
+            defaults={
+                "owner_user": ownership.user,
+                "corporation_id": getattr(ownership.character, "corporation_id", None),
+                **role_payload,
+            },
+        )
 
     collected: set[str] = set()
     for key in ("roles", "roles_at_hq", "roles_at_base", "roles_at_other"):
@@ -1529,3 +1630,79 @@ def update_all_industry_jobs():
         window_minutes,
     )
     return {"users_queued": queued, "window_minutes": window_minutes}
+
+
+@shared_task
+def update_all_skill_snapshots() -> dict[str, int]:
+    """Refresh skill snapshots for all characters with skills scope."""
+    updated = 0
+    skipped = 0
+    failures = 0
+    seen: set[int] = set()
+
+    tokens = (
+        Token.objects.require_scopes([SKILLS_SCOPE])
+        .require_valid()
+        .select_related("user")
+        .order_by("-created")
+    )
+    for token in tokens.iterator():
+        char_id = getattr(token, "character_id", None)
+        if not char_id or char_id in seen:
+            continue
+        seen.add(int(char_id))
+
+        try:
+            levels = _fetch_character_skill_levels_with_token(token)
+        except (
+            ESITokenError,
+            ESIForbiddenError,
+            ESIRateLimitError,
+            ESIClientError,
+        ) as exc:
+            failures += 1
+            logger.warning(
+                "Failed to refresh skills for character %s: %s",
+                char_id,
+                exc,
+            )
+            continue
+        except Exception as exc:  # pragma: no cover - defensive
+            failures += 1
+            logger.warning(
+                "Unexpected error refreshing skills for character %s: %s",
+                char_id,
+                exc,
+            )
+            continue
+
+        defaults = {
+            "mass_production_level": levels.get(SKILL_TYPE_IDS["mass_production"], 0),
+            "advanced_mass_production_level": levels.get(
+                SKILL_TYPE_IDS["advanced_mass_production"], 0
+            ),
+            "laboratory_operation_level": levels.get(
+                SKILL_TYPE_IDS["laboratory_operation"], 0
+            ),
+            "advanced_laboratory_operation_level": levels.get(
+                SKILL_TYPE_IDS["advanced_laboratory_operation"], 0
+            ),
+            "mass_reactions_level": levels.get(SKILL_TYPE_IDS["mass_reactions"], 0),
+            "advanced_mass_reactions_level": levels.get(
+                SKILL_TYPE_IDS["advanced_mass_reactions"], 0
+            ),
+        }
+        _update_or_create_with_deadlock_retry(
+            IndustrySkillSnapshot,
+            lookup={"owner_user": token.user, "character_id": int(char_id)},
+            defaults=defaults,
+        )
+        updated += 1
+
+    logger.info(
+        "Updated skill snapshots for %s characters (%s skipped, %s failures)",
+        updated,
+        skipped,
+        failures,
+    )
+    return {"updated": updated, "skipped": skipped, "failures": failures}

@@ -15,12 +15,24 @@ from django.contrib.auth.models import User
 from django.utils import timezone
 
 # Alliance Auth
+from allianceauth.authentication.models import CharacterOwnership
 from allianceauth.services.hooks import get_extension_logger
+from esi.models import Token
 
 # Indy Hub
-from ..models import Blueprint, CharacterSettings, IndustryJob
+from ..models import Blueprint, CharacterRoles, CharacterSettings, IndustryJob
+from ..services.esi_client import (
+    ESIClientError,
+    ESIForbiddenError,
+    ESIRateLimitError,
+    ESITokenError,
+    ESIUnmodifiedError,
+    shared_client,
+)
 
 logger = get_extension_logger(__name__)
+
+CORP_ROLES_SCOPE = "esi-characters.read_corporation_roles.v1"
 
 
 @shared_task
@@ -65,6 +77,7 @@ def update_user_preferences_defaults():
     Useful after adding new preference fields.
     """
     # Alternative: find users with no global settings (character_id=0)
+
     users_without_global_settings = User.objects.exclude(
         charactersettings__character_id=0
     )
@@ -192,3 +205,86 @@ def generate_user_activity_report():
 
     logger.info(f"Generated user activity report: {report}")
     return report
+
+
+@shared_task
+def update_character_roles_snapshots():
+    """Refresh stored corporation roles for characters once per day."""
+
+    def _coerce_list(value: object) -> list[str]:
+        if isinstance(value, (list, tuple)):
+            return [str(item) for item in value if item]
+        return []
+
+    ownerships = CharacterOwnership.objects.select_related("character", "user")
+    updated = 0
+    skipped = 0
+    failures = 0
+
+    for ownership in ownerships.iterator():
+        character_id = getattr(ownership.character, "character_id", None)
+        if not character_id:
+            continue
+
+        token = (
+            Token.objects.filter(user=ownership.user, character_id=character_id)
+            .require_scopes([CORP_ROLES_SCOPE])
+            .require_valid()
+            .order_by("-created")
+            .first()
+        )
+        if not token:
+            skipped += 1
+            continue
+
+        try:
+            payload = shared_client.fetch_character_corporation_roles(int(character_id))
+        except ESIUnmodifiedError:
+            continue
+        except (
+            ESITokenError,
+            ESIForbiddenError,
+            ESIRateLimitError,
+            ESIClientError,
+        ) as exc:
+            failures += 1
+            logger.warning(
+                "Failed to refresh corporation roles for character %s: %s",
+                character_id,
+                exc,
+            )
+            continue
+
+        if not isinstance(payload, dict):
+            logger.debug(
+                "Unexpected corporation roles payload type for character %s: %s",
+                character_id,
+                type(payload),
+            )
+            failures += 1
+            continue
+
+        CharacterRoles.objects.update_or_create(
+            character_id=character_id,
+            defaults={
+                "owner_user": ownership.user,
+                "corporation_id": getattr(ownership.character, "corporation_id", None),
+                "roles": _coerce_list(payload.get("roles")),
+                "roles_at_hq": _coerce_list(payload.get("roles_at_hq")),
+                "roles_at_base": _coerce_list(payload.get("roles_at_base")),
+                "roles_at_other": _coerce_list(payload.get("roles_at_other")),
+            },
+        )
+        updated += 1
+
+    logger.info(
+        "Updated corporation roles for %s characters (%s skipped, %s failures)",
+        updated,
+        skipped,
+        failures,
+    )
+    return {
+        "updated": updated,
+        "skipped": skipped,
+        "failures": failures,
+    }

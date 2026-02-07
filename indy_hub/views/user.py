@@ -11,6 +11,7 @@ from bravado.exception import HTTPError
 # Django
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.models import User
 from django.core.cache import cache
 from django.db import transaction
 from django.db.models import (
@@ -49,6 +50,7 @@ from ..models import (
     BlueprintCopyChat,
     BlueprintCopyOffer,
     BlueprintCopyRequest,
+    CharacterRoles,
     IndustryJob,
     JobNotificationDigestEntry,
     ProductionConfig,
@@ -144,9 +146,28 @@ ASSETS_SCOPE = "esi-assets.read_assets.v1"
 ASSETS_SCOPE_SET = [ASSETS_SCOPE]
 
 
-def _fetch_character_corporation_roles_with_token(token_obj: Token) -> set[str]:
+def _fetch_character_corporation_roles_with_token(
+    token_obj: Token,
+    *,
+    owner_user: User | None = None,
+    corporation_id: int | None = None,
+) -> set[str] | None:
     """Fetch corporation roles using a specific token instead of Token.get_token()."""
     cache_key = f"indy_hub:corp_roles:{token_obj.character_id}"
+
+    def _coerce_list(value: object) -> list[str]:
+        if isinstance(value, (list, tuple)):
+            return [str(item) for item in value if item]
+        return []
+
+    def _roles_from_snapshot(snapshot: CharacterRoles) -> set[str]:
+        collected: set[str] = set()
+        for key in ("roles", "roles_at_hq", "roles_at_base", "roles_at_other"):
+            collected.update(
+                {str(role).upper() for role in (getattr(snapshot, key, None) or [])}
+            )
+        return collected
+
     try:
         character_resource = esi_provider.client.Character
         operation_fn = getattr(
@@ -180,9 +201,16 @@ def _fetch_character_corporation_roles_with_token(token_obj: Token) -> set[str]:
             cached_roles = cache.get(cache_key)
             if cached_roles:
                 return {str(role).upper() for role in cached_roles if role}
-            raise ESIClientError(
-                f"ESI roles endpoint returned 304 without cache for character {token_obj.character_id}"
-            ) from exc
+            snapshot = CharacterRoles.objects.filter(
+                character_id=token_obj.character_id
+            ).first()
+            if snapshot:
+                return _roles_from_snapshot(snapshot)
+            logger.debug(
+                "ESI roles endpoint returned 304 without cache for character %s",
+                token_obj.character_id,
+            )
+            return None
         if status_code in (401, 403):
             raise ESITokenError(
                 f"Token validation failed for character {token_obj.character_id}"
@@ -201,9 +229,32 @@ def _fetch_character_corporation_roles_with_token(token_obj: Token) -> set[str]:
         ) from exc
 
     if not isinstance(payload, dict):
-        raise ESIClientError(
-            f"ESI roles endpoint returned unexpected payload type: {type(payload)}"
+        logger.debug(
+            "ESI roles endpoint returned unexpected payload type for %s: %s",
+            token_obj.character_id,
+            type(payload),
         )
+        snapshot = CharacterRoles.objects.filter(
+            character_id=token_obj.character_id
+        ).first()
+        if snapshot:
+            return _roles_from_snapshot(snapshot)
+        return None
+
+    role_payload = {
+        "roles": _coerce_list(payload.get("roles")),
+        "roles_at_hq": _coerce_list(payload.get("roles_at_hq")),
+        "roles_at_base": _coerce_list(payload.get("roles_at_base")),
+        "roles_at_other": _coerce_list(payload.get("roles_at_other")),
+    }
+    CharacterRoles.objects.update_or_create(
+        character_id=token_obj.character_id,
+        defaults={
+            "owner_user": owner_user or token_obj.user,
+            "corporation_id": corporation_id,
+            **role_payload,
+        },
+    )
 
     collected: set[str] = set()
     for key in ("roles", "roles_at_hq", "roles_at_base", "roles_at_other"):
@@ -389,9 +440,20 @@ def _collect_corporation_scope_status(
         roles: set[str] = set()
         if roles_token:
             try:
-                roles = _fetch_character_corporation_roles_with_token(roles_token)
-                role_state["verified"] = True
-                role_state["unavailable"] = False
+                fetched_roles = _fetch_character_corporation_roles_with_token(
+                    roles_token,
+                    owner_user=user,
+                    corporation_id=corp_id,
+                )
+                if fetched_roles is None:
+                    roles_unavailable = True
+                    if not role_state["verified"]:
+                        role_state["unavailable"] = True
+                    roles = set()
+                else:
+                    roles = fetched_roles
+                    role_state["verified"] = True
+                    role_state["unavailable"] = False
             except ESITokenError:
                 logger.info(
                     "Character %s lacks corporation roles scope for corporation %s",

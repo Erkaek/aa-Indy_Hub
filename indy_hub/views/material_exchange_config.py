@@ -20,7 +20,7 @@ from esi.views import sso_redirect
 from indy_hub.services.providers import esi_provider
 
 from ..decorators import indy_hub_permission_required, tokens_required
-from ..models import MaterialExchangeConfig, MaterialExchangeSettings
+from ..models import CharacterRoles, MaterialExchangeConfig, MaterialExchangeSettings
 from ..services.asset_cache import (
     get_corp_assets_cached,
     get_corp_divisions_cached,
@@ -88,6 +88,7 @@ def _get_token_for_corp(user, corp_id, scope, require_corporation_token: bool = 
     fall back to a character token that belongs to the corp.
     """
     # Alliance Auth
+    from allianceauth.eveonline.models import EveCharacter
     from esi.models import Token
 
     # Important: require_scopes expects an iterable of scopes
@@ -104,9 +105,6 @@ def _get_token_for_corp(user, corp_id, scope, require_corporation_token: bool = 
             f"found {len(tokens)} valid tokens with scope"
         )
 
-    # Cache character corp lookups to avoid extra ESI calls
-    char_corp_cache: dict[int, int] = {}
-
     def _character_matches(token) -> bool:
         char_id = getattr(token, "character_id", None)
         if not char_id:
@@ -118,14 +116,12 @@ def _get_token_for_corp(user, corp_id, scope, require_corporation_token: bool = 
                 return int(char_obj.corporation_id) == int(corp_id)
         except Exception:
             pass
-        if char_id in char_corp_cache:
-            return char_corp_cache[char_id] == int(corp_id)
         try:
-            char_info = esi.client.Character.get_characters_character_id(
-                character_id=char_id
-            ).results()
-            char_corp_cache[char_id] = int(char_info.get("corporation_id", 0))
-            return char_corp_cache[char_id] == int(corp_id)
+            stored = EveCharacter.objects.get_character_by_id(int(char_id))
+            if stored is None:
+                stored = EveCharacter.objects.create_character(int(char_id))
+            if stored and getattr(stored, "corporation_id", None) is not None:
+                return int(stored.corporation_id) == int(corp_id)
         except Exception:
             return False
 
@@ -406,6 +402,50 @@ def _find_director_character(user, corp_id):
         )
         scoped_tokens_list = []
 
+    def _coerce_list(value: object) -> list[str]:
+        if isinstance(value, (list, tuple)):
+            return [str(item) for item in value if item]
+        return []
+
+    def _load_roles(character_id: int) -> list[str]:
+        snapshot = CharacterRoles.objects.filter(character_id=character_id).first()
+        if snapshot:
+            return [str(role).upper() for role in (snapshot.roles or []) if role]
+
+        try:
+            payload = shared_client.fetch_character_corporation_roles(character_id)
+        except Exception as exc:
+            logger.warning(
+                "Failed to fetch roles for character %s: %s",
+                character_id,
+                exc,
+            )
+            return []
+
+        if not isinstance(payload, dict):
+            logger.warning(
+                "Unexpected roles payload for character %s: %s",
+                character_id,
+                type(payload),
+            )
+            return []
+
+        role_payload = {
+            "roles": _coerce_list(payload.get("roles")),
+            "roles_at_hq": _coerce_list(payload.get("roles_at_hq")),
+            "roles_at_base": _coerce_list(payload.get("roles_at_base")),
+            "roles_at_other": _coerce_list(payload.get("roles_at_other")),
+        }
+        CharacterRoles.objects.update_or_create(
+            character_id=character_id,
+            defaults={
+                "owner_user": user,
+                "corporation_id": int(corp_id) if corp_id else None,
+                **role_payload,
+            },
+        )
+        return [str(role).upper() for role in role_payload["roles"] if role]
+
     # Check scoped tokens first
     for token in scoped_tokens_list:
         try:
@@ -446,12 +486,10 @@ def _find_director_character(user, corp_id):
                 corp_id,
             )
 
-            # Check if character has DIRECTOR role
-            roles_data = shared_client.fetch_character_corporation_roles(character_id)
-            corp_roles = roles_data.get("roles", [])
+            corp_roles = _load_roles(character_id)
             logger.warning("Character %s roles: %s", character_id, corp_roles)
 
-            if "Director" in corp_roles:
+            if "DIRECTOR" in corp_roles:
                 logger.warning(
                     "Found DIRECTOR character %s for corporation %s",
                     character_id,
@@ -501,36 +539,24 @@ def _find_director_character(user, corp_id):
                 character_id,
             )
 
-            # Try to check roles anyway (might fail if no scope, but worth trying)
-            try:
-                roles_data = shared_client.fetch_character_corporation_roles(
-                    character_id
-                )
-                corp_roles = roles_data.get("roles", [])
-                logger.warning(
-                    "Character %s roles (second pass): %s", character_id, corp_roles
-                )
+            corp_roles = _load_roles(character_id)
+            logger.warning(
+                "Character %s roles (second pass): %s", character_id, corp_roles
+            )
 
-                if "Director" in corp_roles:
-                    logger.warning(
-                        "Found DIRECTOR character %s for corporation %s (second pass)",
-                        character_id,
-                        corp_id,
-                    )
-                    return character_id
-                else:
-                    logger.warning(
-                        "Character %s does NOT have Director role in second pass (has: %s)",
-                        character_id,
-                        corp_roles,
-                    )
-            except Exception as role_exc:
+            if "DIRECTOR" in corp_roles:
                 logger.warning(
-                    "Failed to get roles for character %s: %s",
+                    "Found DIRECTOR character %s for corporation %s (second pass)",
                     character_id,
-                    role_exc,
+                    corp_id,
                 )
-                continue
+                return character_id
+            else:
+                logger.warning(
+                    "Character %s does NOT have Director role in second pass (has: %s)",
+                    character_id,
+                    corp_roles,
+                )
         except Exception as exc:
             logger.warning(
                 "Unexpected error checking character %s: %s",
@@ -771,13 +797,12 @@ def _get_user_corporations(user):
     Returns list of dicts with corp_id and corp_name.
     """
     # Alliance Auth
+    from allianceauth.eveonline.models import EveCharacter, EveCorporationInfo
     from esi.models import Token
 
     corporations = []
     seen_corps = set()
 
-    # Only hit ESI once per unique character and cache corp lookups briefly.
-    cache_ttl = 10 * 60  # 10 minutes
     character_ids = set()
     try:
         tokens = Token.objects.filter(user=user)
@@ -790,34 +815,30 @@ def _get_user_corporations(user):
 
     for char_id in character_ids:
         try:
-            char_info = esi.client.Character.get_characters_character_id(
-                character_id=char_id
-            ).results()
+            char_obj = EveCharacter.objects.get_character_by_id(int(char_id))
+            if char_obj is None:
+                char_obj = EveCharacter.objects.create_character(int(char_id))
         except Exception as exc:
             logger.debug("Skip char %s (character lookup failed: %s)", char_id, exc)
             continue
 
-        corp_id = char_info.get("corporation_id")
+        corp_id = getattr(char_obj, "corporation_id", None)
         if not corp_id or corp_id in seen_corps:
             continue
 
-        cache_key = f"indy_hub:corp_info:{corp_id}"
-        corp_info = cache.get(cache_key)
-        if not corp_info:
-            try:
-                corp_info = esi.client.Corporation.get_corporations_corporation_id(
-                    corporation_id=corp_id
-                ).results()
-                cache.set(cache_key, corp_info, cache_ttl)
-            except Exception as exc:
-                logger.debug("Skip corp %s (lookup failed: %s)", corp_id, exc)
-                continue
+        try:
+            corp_obj = EveCorporationInfo.objects.filter(corporation_id=corp_id).first()
+            if corp_obj is None:
+                corp_obj = EveCorporationInfo.objects.create_corporation(int(corp_id))
+        except Exception as exc:
+            logger.debug("Skip corp %s (lookup failed: %s)", corp_id, exc)
+            continue
 
         corporations.append(
             {
                 "id": corp_id,
-                "name": corp_info.get("name", f"Corp {corp_id}"),
-                "ticker": corp_info.get("ticker", ""),
+                "name": getattr(corp_obj, "corporation_name", f"Corp {corp_id}"),
+                "ticker": getattr(corp_obj, "corporation_ticker", ""),
             }
         )
         seen_corps.add(corp_id)
