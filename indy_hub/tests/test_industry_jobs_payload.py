@@ -67,12 +67,15 @@ class IndustryJobsPayloadTests(TestCase):
                 "indy_hub.tasks.industry.shared_client.fetch_character_industry_jobs",
                 return_value="not-a-list",
             ),
+            patch("indy_hub.tasks.industry.logger.warning") as warning_logger,
         ):
-            with self.assertLogs("indy_hub.tasks.industry", level="WARNING") as logs:
-                update_industry_jobs_for_user(self.user.id)
+            update_industry_jobs_for_user(self.user.id)
 
         self.assertTrue(
-            any("unexpected payload type" in entry for entry in logs.output),
+            any(
+                "unexpected payload type" in (call.args[0] if call.args else "")
+                for call in warning_logger.call_args_list
+            ),
             "Expected warning about unexpected payload type",
         )
 
@@ -83,11 +86,14 @@ class IndustryJobsPayloadTests(TestCase):
                 "indy_hub.tasks.industry.shared_client.fetch_character_industry_jobs",
                 return_value=["bad-item"],
             ),
+            patch("indy_hub.tasks.industry.logger.warning") as warning_logger,
         ):
-            with self.assertLogs("indy_hub.tasks.industry", level="WARNING") as logs:
-                update_industry_jobs_for_user(self.user.id)
+            update_industry_jobs_for_user(self.user.id)
 
         self.assertTrue(
-            any("unexpected payload type" in entry for entry in logs.output),
+            any(
+                "unexpected payload type" in (call.args[0] if call.args else "")
+                for call in warning_logger.call_args_list
+            ),
             "Expected warning about unexpected job item type",
         )

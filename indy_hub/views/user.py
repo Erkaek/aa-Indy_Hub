@@ -148,7 +148,12 @@ def _fetch_character_corporation_roles_with_token(token_obj: Token) -> set[str]:
     """Fetch corporation roles using a specific token instead of Token.get_token()."""
     cache_key = f"indy_hub:corp_roles:{token_obj.character_id}"
     try:
-        operation_fn = esi_provider.client.Character.get_characters_character_id_roles
+        character_resource = esi_provider.client.Character
+        operation_fn = getattr(
+            character_resource,
+            "get_characters_character_id_roles",
+            None,
+        ) or getattr(character_resource, "GetCharactersCharacterIdRoles")
         try:
             payload = operation_fn(
                 character_id=token_obj.character_id,
