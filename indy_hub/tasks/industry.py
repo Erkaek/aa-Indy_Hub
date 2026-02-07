@@ -10,6 +10,33 @@ from datetime import datetime, timedelta
 # Third Party
 from celery import shared_task
 
+try:
+    try:
+        # Alliance Auth
+        from esi.decorators import rate_limit_retry_task, wait_for_esi_errorlimit_reset
+    except ImportError:  # pragma: no cover - older django-esi
+
+        def rate_limit_retry_task(func):
+            return func
+
+        def wait_for_esi_errorlimit_reset(*args, **kwargs):
+            def decorator(func):
+                return func
+
+            return decorator
+
+except ImportError:  # pragma: no cover - older django-esi
+
+    def rate_limit_retry_task(func):
+        return func
+
+    def wait_for_esi_errorlimit_reset(*args, **kwargs):
+        def decorator(func):
+            return func
+
+        return decorator
+
+
 # Django
 from django.conf import settings
 from django.contrib.auth.models import User
@@ -63,7 +90,6 @@ CORP_BLUEPRINT_SCOPE_SET = [
     CORP_ROLES_SCOPE,
     CORP_STRUCTURES_SCOPE,
     CORP_ASSETS_SCOPE,
-    CORP_WALLET_SCOPE,
 ]
 CORP_JOBS_SCOPE_SET = [
     CORP_JOBS_SCOPE,
@@ -71,14 +97,14 @@ CORP_JOBS_SCOPE_SET = [
     CORP_ROLES_SCOPE,
     CORP_STRUCTURES_SCOPE,
     CORP_ASSETS_SCOPE,
-    CORP_WALLET_SCOPE,
 ]
 MATERIAL_EXCHANGE_SCOPE_SET = [
     STRUCTURE_SCOPE,
     CORP_ROLES_SCOPE,
     CORP_STRUCTURES_SCOPE,
     CORP_ASSETS_SCOPE,
-    CORP_WALLET_SCOPE,
+    "esi-corporations.read_divisions.v1",
+    "esi-contracts.read_corporation_contracts.v1",
 ]
 
 
@@ -230,8 +256,10 @@ def _collect_corporation_contexts(
         setting = corp_settings.get(corp_id)
 
         char_id = ownership.character.character_id
-        base_qs = Token.objects.filter(character_id=char_id, user=user).order_by(
-            "-created"
+        base_qs = (
+            Token.objects.filter(character_id=char_id, user=user)
+            .require_valid()
+            .order_by("-created")
         )
 
         scope_groups: list[list[str]]
@@ -502,6 +530,7 @@ def _coerce_job_datetime(value):
 
 
 @shared_task(bind=True, max_retries=3)
+@rate_limit_retry_task
 def update_blueprints_for_user(self, user_id, scope: str | None = None):
     base_scopes = [BLUEPRINT_SCOPE]
     scope_preferences = [
@@ -563,8 +592,10 @@ def update_blueprints_for_user(self, user_id, scope: str | None = None):
             # Alliance Auth
             from esi.models import Token
 
-            token_qs = Token.objects.filter(character_id=char_id, user=user).order_by(
-                "-created"
+            token_qs = (
+                Token.objects.filter(character_id=char_id, user=user)
+                .require_valid()
+                .order_by("-created")
             )
 
             chosen_scopes: list[str] | None = None
@@ -597,7 +628,11 @@ def update_blueprints_for_user(self, user_id, scope: str | None = None):
             logger.warning(message)
             error_messages.append(message)
             continue
-        except (ESIForbiddenError, ESIRateLimitError, ESIClientError) as exc:
+        except ESIRateLimitError as exc:
+            message = f"ESI rate limit hit for {character_name} ({char_id}): {exc}"
+            logger.warning(message)
+            raise
+        except (ESIForbiddenError, ESIClientError) as exc:
             message = f"ESI error for {character_name} ({char_id}): {exc}"
             logger.error(message)
             error_messages.append(message)
@@ -688,7 +723,14 @@ def update_blueprints_for_user(self, user_id, scope: str | None = None):
                 logger.warning(message)
                 error_messages.append(message)
                 continue
-            except (ESIForbiddenError, ESIRateLimitError, ESIClientError) as exc:
+            except ESIRateLimitError as exc:
+                message = (
+                    "ESI rate limit hit for corporation "
+                    f"{corp_name} ({corp_id}) via {acting_character_name}: {exc}"
+                )
+                logger.warning(message)
+                raise
+            except (ESIForbiddenError, ESIClientError) as exc:
                 message = f"ESI error for corporation {corp_name} ({corp_id}) via {acting_character_name}: {exc}"
                 logger.error(message)
                 error_messages.append(message)
@@ -779,6 +821,7 @@ def update_blueprints_for_user(self, user_id, scope: str | None = None):
 
 
 @shared_task(bind=True, max_retries=3)
+@rate_limit_retry_task
 def update_industry_jobs_for_user(self, user_id, scope: str | None = None):
     try:
         user = User.objects.get(id=user_id)
@@ -843,9 +886,11 @@ def update_industry_jobs_for_user(self, user_id, scope: str | None = None):
                 # Alliance Auth
                 from esi.models import Token
 
-                token_qs = Token.objects.filter(
-                    character_id=char_id, user=user
-                ).order_by("-created")
+                token_qs = (
+                    Token.objects.filter(character_id=char_id, user=user)
+                    .require_valid()
+                    .order_by("-created")
+                )
 
                 chosen_scopes: list[str] | None = None
                 for scope_set in scope_preferences:
@@ -875,7 +920,11 @@ def update_industry_jobs_for_user(self, user_id, scope: str | None = None):
                 logger.warning(message)
                 error_messages.append(message)
                 continue
-            except (ESIForbiddenError, ESIRateLimitError, ESIClientError) as exc:
+            except ESIRateLimitError as exc:
+                message = f"ESI rate limit hit for {character_name} ({char_id}): {exc}"
+                logger.warning(message)
+                raise
+            except (ESIForbiddenError, ESIClientError) as exc:
                 message = f"ESI error for {character_name} ({char_id}): {exc}"
                 logger.error(message)
                 error_messages.append(message)
@@ -1047,7 +1096,14 @@ def update_industry_jobs_for_user(self, user_id, scope: str | None = None):
                     logger.warning(message)
                     error_messages.append(message)
                     continue
-                except (ESIForbiddenError, ESIRateLimitError, ESIClientError) as exc:
+                except ESIRateLimitError as exc:
+                    message = (
+                        "ESI rate limit hit for corporation "
+                        f"{corp_name} ({corp_id}) via {acting_character_name}: {exc}"
+                    )
+                    logger.warning(message)
+                    raise
+                except (ESIForbiddenError, ESIClientError) as exc:
                     message = f"ESI error for corporation {corp_name} ({corp_id}) via {acting_character_name}: {exc}"
                     logger.error(message)
                     error_messages.append(message)
@@ -1307,6 +1363,7 @@ def update_type_names():
 
 
 @shared_task(bind=True, max_retries=0)
+@rate_limit_retry_task
 def populate_location_names_async(
     self, location_ids=None, force_refresh=False, dry_run=False
 ):

@@ -15,7 +15,6 @@ from django.utils import timezone
 from allianceauth.authentication.models import CharacterOwnership
 from allianceauth.eveonline.models import EveCharacter
 from allianceauth.services.hooks import get_extension_logger
-from esi.clients import EsiClientProvider
 from esi.models import Token
 
 # AA Example App
@@ -33,6 +32,7 @@ from indy_hub.services.esi_client import (
     ESITokenError,
     shared_client,
 )
+from indy_hub.services.providers import esi_provider
 
 PLACEHOLDER_PREFIX = "Structure "
 
@@ -41,7 +41,7 @@ PLACEHOLDER_PREFIX = "Structure "
 STRUCTURE_PLACEHOLDER_TTL = timedelta(hours=6)
 
 logger = get_extension_logger(__name__)
-esi = EsiClientProvider()
+esi = esi_provider
 
 ASSET_CACHE_MAX_AGE_MINUTES = getattr(
     settings, "INDY_HUB_ASSET_CACHE_MAX_AGE_MINUTES", 60
@@ -243,30 +243,52 @@ def _cache_corp_structure_names(corporation_id: int) -> dict[int, str]:
 
 def _get_character_for_scope(corporation_id: int, scope: str) -> int:
     """Find a character in the corporation with the required ESI scope."""
-
+    tokens = Token.objects.none()
     character_ids = list(
         EveCharacter.objects.filter(corporation_id=corporation_id).values_list(
             "character_id", flat=True
         )
     )
-    if not character_ids:
-        raise ESITokenError(
-            f"No characters found for corporation {corporation_id}. "
-            "At least one corporation member must login to grant ESI scopes."
+    try:
+        tokens = Token.objects.all()
+        if character_ids:
+            tokens = tokens.filter(character_id__in=character_ids)
+        if hasattr(tokens, "require_valid"):
+            tokens = tokens.require_valid()
+    except Exception:
+        logger.debug(
+            "Unable to load tokens for corporation %s while checking scope %s",
+            corporation_id,
+            scope,
+            exc_info=True,
         )
 
-    tokens = Token.objects.filter(character_id__in=character_ids)
     if not tokens.exists():
         raise ESITokenError(
             f"No tokens found for corporation {corporation_id}. "
             "At least one corporation member must login to grant ESI scopes."
         )
 
+    def _character_matches_corp(token) -> bool:
+        try:
+            char_obj = getattr(token, "character", None)
+            if char_obj and getattr(char_obj, "corporation_id", None) is not None:
+                return int(char_obj.corporation_id) == int(corporation_id)
+        except Exception:
+            pass
+        try:
+            char_info = esi.client.Character.get_characters_character_id(
+                character_id=int(token.character_id)
+            ).results()
+            return int(char_info.get("corporation_id", 0)) == int(corporation_id)
+        except Exception:
+            return False
+
     for token in tokens:
         try:
             scope_names = list(token.scopes.values_list("name", flat=True))
-            if scope in scope_names:
-                return token.character_id
+            if scope in scope_names and _character_matches_corp(token):
+                return int(token.character_id)
         except Exception:
             continue
 

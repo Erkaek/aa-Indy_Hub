@@ -112,6 +112,7 @@ ESI_SSO_CLIENT_ID = "dummy"
 ESI_SSO_CLIENT_SECRET = "dummy"
 ESI_SSO_CALLBACK_URL = "http://localhost:8000"
 ESI_USER_CONTACT_EMAIL = "dummy@example.net"
+INDY_HUB_ESI_COMPATIBILITY_DATE = "2025-09-30"
 
 
 # ------------------------------------------------------------------------------------ #

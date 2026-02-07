@@ -66,12 +66,7 @@ class ESIContractValidator:
         Fetch contracts for a character.
         Returns list of contract dicts from ESI.
         """
-        endpoint = f"/characters/{character_id}/contracts/"
-        contracts = self.client._fetch_paginated(
-            character_id=character_id,
-            scope="esi-contracts.read_character_contracts.v1",
-            endpoint=endpoint,
-        )
+        contracts = self.client.fetch_character_contracts(character_id)
 
         if include_items:
             for contract in contracts:
@@ -95,11 +90,8 @@ class ESIContractValidator:
         Fetch contracts for a corporation.
         character_id must have esi-contracts.read_corporation_contracts.v1 scope.
         """
-        endpoint = f"/corporations/{corporation_id}/contracts/"
-        contracts = self.client._fetch_paginated(
-            character_id=character_id,
-            scope="esi-contracts.read_corporation_contracts.v1",
-            endpoint=endpoint,
+        contracts = self.client.fetch_corporation_contracts(
+            corporation_id, character_id
         )
 
         if include_items:
@@ -121,43 +113,15 @@ class ESIContractValidator:
 
     def fetch_contract_items(self, character_id: int, contract_id: int) -> list[dict]:
         """Fetch items for a specific character contract."""
-        access_token = self.client._get_access_token(
-            character_id, "esi-contracts.read_character_contracts.v1"
-        )
-        url = f"{self.client.base_url}/characters/{character_id}/contracts/{contract_id}/items/"
-        headers = {"Authorization": f"Bearer {access_token}"}
-        params = {"datasource": "tranquility"}
-
-        response = self.client._request("GET", url, headers=headers, params=params)
-        items = response.json()
-
-        if not isinstance(items, list):
-            raise ESIClientError(
-                f"ESI contract items endpoint returned non-list: {type(items)}"
-            )
-
-        return items
+        return self.client.fetch_character_contract_items(character_id, contract_id)
 
     def fetch_corporation_contract_items(
         self, corporation_id: int, contract_id: int, *, character_id: int
     ) -> list[dict]:
         """Fetch items for a specific corporation contract."""
-        access_token = self.client._get_access_token(
-            character_id, "esi-contracts.read_corporation_contracts.v1"
+        return self.client.fetch_corporation_contract_items(
+            corporation_id, contract_id, character_id=character_id
         )
-        url = f"{self.client.base_url}/corporations/{corporation_id}/contracts/{contract_id}/items/"
-        headers = {"Authorization": f"Bearer {access_token}"}
-        params = {"datasource": "tranquility"}
-
-        response = self.client._request("GET", url, headers=headers, params=params)
-        items = response.json()
-
-        if not isinstance(items, list):
-            raise ESIClientError(
-                f"ESI corp contract items endpoint returned non-list: {type(items)}"
-            )
-
-        return items
 
     def parse_contract_details(self, raw_contract: dict) -> ContractDetails | None:
         """Parse raw ESI contract dict into ContractDetails dataclass."""

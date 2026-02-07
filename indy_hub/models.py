@@ -1570,6 +1570,32 @@ class ProductionSimulation(models.Model):
 # ============================================================================
 
 
+class MaterialExchangeSettings(models.Model):
+    """Global settings for Material Exchange enable/disable state."""
+
+    is_enabled = models.BooleanField(
+        default=True,
+        help_text=_("Enable/disable the Material Exchange module"),
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = _("Material Exchange Settings")
+        verbose_name_plural = _("Material Exchange Settings")
+        default_permissions = ()
+
+    def __str__(self):
+        return f"Material Exchange Settings (enabled={self.is_enabled})"
+
+    @classmethod
+    def get_solo(cls) -> "MaterialExchangeSettings":
+        settings_obj = cls.objects.first()
+        if settings_obj:
+            return settings_obj
+        return cls.objects.create()
+
+
 class MaterialExchangeConfig(models.Model):
     """
     Global configuration for the Material Exchange hub.

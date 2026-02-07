@@ -27,7 +27,7 @@ class OrderReferenceTestCase(TestCase):
         cls.config = MaterialExchangeConfig.objects.create(
             is_active=True,
             corporation_id=98765432,
-            structure_id=60000001,
+            structure_id=60003760,
             structure_name="Test Station",
             buy_markup_percent=5,
             sell_markup_percent=5,

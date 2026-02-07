@@ -6,54 +6,33 @@ from functools import wraps
 from django.contrib import messages
 from django.shortcuts import redirect
 
-# Import ESI Token only when needed to avoid import issues
-try:
-    # Alliance Auth
-    from esi.models import Token
-except ImportError:
-    Token = None
+# Alliance Auth
+from esi.decorators import single_use_token as esi_single_use_token
+from esi.decorators import token_required as esi_token_required
+from esi.decorators import tokens_required as esi_tokens_required
 
 
-def token_required(scopes=None):
-    """
-    Decorator that checks if the user has valid ESI tokens with required scopes.
-    If not, redirects to token authorization page.
-    """
+def _normalize_scopes(scopes):
     if scopes is None:
-        scopes = []
+        return []
+    if isinstance(scopes, str):
+        return [scopes]
+    return list(scopes)
 
-    def decorator(view_func):
-        @wraps(view_func)
-        def _wrapped_view(request, *args, **kwargs):
-            if not request.user.is_authenticated:
-                return redirect("auth_login_user")
 
-            # Check if user has tokens with required scopes
-            if Token:
-                try:
-                    tokens = Token.objects.filter(user=request.user).require_scopes(
-                        scopes
-                    )
-                    if not tokens.exists():
-                        # User doesn't have tokens with required scopes
-                        scope_names = ", ".join(scopes)
-                        messages.warning(
-                            request,
-                            f"You need to authorize ESI access with the following scopes: {scope_names}",
-                        )
-                        return redirect("indy_hub:token_management")
-                except Exception as e:
-                    messages.error(request, f"Error checking ESI tokens: {e}")
-                    return redirect("indy_hub:token_management")
-            else:
-                messages.error(request, "ESI module not available")
-                return redirect("indy_hub:index")
+def token_required(scopes=None, new=False):
+    """Compatibility wrapper around django-esi's `token_required`."""
+    return esi_token_required(scopes=_normalize_scopes(scopes), new=new)
 
-            return view_func(request, *args, **kwargs)
 
-        return _wrapped_view
+def tokens_required(scopes=None, new=False):
+    """Compatibility wrapper around django-esi's `tokens_required`."""
+    return esi_tokens_required(scopes=_normalize_scopes(scopes), new=new)
 
-    return decorator
+
+def single_use_token(scopes=None, new=False):
+    """Compatibility wrapper around django-esi's `single_use_token`."""
+    return esi_single_use_token(scopes=_normalize_scopes(scopes), new=new)
 
 
 STRUCTURE_SCOPE = "esi-universe.read_structures.v1"

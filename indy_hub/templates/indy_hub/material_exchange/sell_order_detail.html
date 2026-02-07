@@ -135,7 +135,10 @@
                                     </li>
                                     <li>
                                         <strong>{% trans "Assign to:" %}</strong>
-                                        {{ corporation_name }}
+                                        <span id="orderAssignTo">{{ corporation_name }}</span>
+                                        <button type="button" class="btn btn-link p-0 ms-2" onclick="copyAssignTo(this)" title="{% trans "Copy" %}">
+                                            <i class="fas fa-copy" aria-hidden="true"></i>
+                                        </button>
                                     </li>
                                     <li>
                                         <strong>{% trans "Location:" %}</strong>
@@ -143,11 +146,17 @@
                                     </li>
                                     <li>
                                         <strong>{% trans "Price:" %}</strong>
-                                        <span class="text-warning fw-bold">{{ order.total_price|floatformat:0|intcomma }} ISK</span>
+                                        <span id="orderPrice" class="text-warning fw-bold">{{ order.total_price|floatformat:0|intcomma }} ISK</span>
+                                        <button type="button" class="btn btn-link p-0 ms-2" onclick="copyPrice(this)" title="{% trans "Copy" %}">
+                                            <i class="fas fa-copy" aria-hidden="true"></i>
+                                        </button>
                                     </li>
                                     <li>
                                         <strong class="text-danger">{% trans "Title/Description:" %}</strong>
-                                        <span class="text-warning fw-bold">{{ order.order_reference }}</span>
+                                        <span id="orderTitleDescription" class="text-warning fw-bold">{{ order.order_reference }}</span>
+                                        <button type="button" class="btn btn-link p-0 ms-2" onclick="copyTitleDescription(this)" title="{% trans "Copy" %}">
+                                            <i class="fas fa-copy" aria-hidden="true"></i>
+                                        </button>
                                         <span class="text-danger">({% trans "REQUIRED!" %})</span>
                                     </li>
                                     <li>
@@ -184,6 +193,7 @@
                                             <th class="text-center">{% trans "Validated" %}</th>
                                         {% endif %}
                                     </tr>
+
                                 </thead>
                                 <tbody>
                                     {% for item in items %}
@@ -366,6 +376,37 @@ function copyOrderTotal(btn) {
     const totalRaw = totalEl ? totalEl.dataset.raw : '';
     const totalForEve = formatOrderTotalForEve(totalRaw);
     navigator.clipboard.writeText(totalForEve).then(() => {
+        flashCopied(btn);
+    }).catch(err => {
+        console.error('Failed to copy:', err);
+        alert('Failed to copy to clipboard');
+    });
+}
+
+function copyAssignTo(btn) {
+    const value = document.getElementById('orderAssignTo')?.textContent?.trim() || '';
+    navigator.clipboard.writeText(value).then(() => {
+        flashCopied(btn);
+    }).catch(err => {
+        console.error('Failed to copy:', err);
+        alert('Failed to copy to clipboard');
+    });
+}
+
+function copyPrice(btn) {
+    const raw = document.getElementById('orderPrice')?.textContent?.trim() || '';
+    const numeric = raw.replace(/[^0-9]/g, '');
+    navigator.clipboard.writeText(numeric || raw).then(() => {
+        flashCopied(btn);
+    }).catch(err => {
+        console.error('Failed to copy:', err);
+        alert('Failed to copy to clipboard');
+    });
+}
+
+function copyTitleDescription(btn) {
+    const value = document.getElementById('orderTitleDescription')?.textContent?.trim() || '';
+    navigator.clipboard.writeText(value).then(() => {
         flashCopied(btn);
     }).catch(err => {
         console.error('Failed to copy:', err);

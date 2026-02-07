@@ -1,6 +1,8 @@
 # Django
-from django.db.models.signals import post_migrate, post_save, pre_save
+from django.core.cache import cache
+from django.db.models.signals import post_delete, post_migrate, post_save, pre_save
 from django.dispatch import receiver
+from django.urls import reverse
 
 # Alliance Auth
 from allianceauth.services.hooks import get_extension_logger
@@ -28,9 +30,16 @@ except ImportError:
 # AA Example App
 # Task imports
 from indy_hub.tasks.industry import (
+    BLUEPRINT_SCOPE,
+    CORP_ASSETS_SCOPE,
     CORP_BLUEPRINT_SCOPE,
+    CORP_BLUEPRINT_SCOPE_SET,
     CORP_JOBS_SCOPE,
+    CORP_JOBS_SCOPE_SET,
+    CORP_STRUCTURES_SCOPE,
+    JOBS_SCOPE,
     REQUIRED_CORPORATION_ROLES,
+    STRUCTURE_SCOPE,
     get_character_corporation_roles,
     update_blueprints_for_user,
     update_industry_jobs_for_user,
@@ -39,6 +48,107 @@ from indy_hub.tasks.industry import (
 from .services.esi_client import ESITokenError
 
 logger = get_extension_logger(__name__)
+
+_TOKEN_SCOPE_GROUPS = {
+    "blueprints": {
+        "scopes": [BLUEPRINT_SCOPE, STRUCTURE_SCOPE],
+        "label": "Blueprints",
+    },
+    "jobs": {
+        "scopes": [JOBS_SCOPE, STRUCTURE_SCOPE],
+        "label": "Industry jobs",
+    },
+    "assets": {
+        "scopes": ["esi-assets.read_assets.v1"],
+        "label": "Character assets",
+    },
+    "corp_blueprints": {
+        "scopes": list(CORP_BLUEPRINT_SCOPE_SET),
+        "label": "Corporation blueprints",
+    },
+    "corp_jobs": {
+        "scopes": list(CORP_JOBS_SCOPE_SET),
+        "label": "Corporation industry jobs",
+    },
+    "corp_assets": {
+        "scopes": [CORP_ASSETS_SCOPE],
+        "label": "Corporation assets",
+    },
+    "corp_structures": {
+        "scopes": [CORP_STRUCTURES_SCOPE],
+        "label": "Corporation structures",
+    },
+    "material_exchange": {
+        "scopes": [
+            "esi-assets.read_corporation_assets.v1",
+            "esi-corporations.read_divisions.v1",
+            "esi-contracts.read_corporation_contracts.v1",
+            "esi-universe.read_structures.v1",
+        ],
+        "label": "Material Exchange",
+    },
+}
+
+
+def _token_scope_cache_key(user_id: int, group: str) -> str:
+    return f"indy_hub:token_scope_ok:{int(user_id)}:{group}"
+
+
+def _has_valid_token_for_scopes(user, scopes: list[str]) -> bool:
+    if not user or not Token:
+        return False
+    try:
+        return (
+            Token.objects.filter(user=user)
+            .require_scopes(scopes)
+            .require_valid()
+            .exists()
+        )
+    except Exception:
+        return False
+
+
+def _update_scope_status_cache(user) -> None:
+    if not user:
+        return
+    for group, meta in _TOKEN_SCOPE_GROUPS.items():
+        ok = _has_valid_token_for_scopes(user, meta["scopes"])
+        cache.set(_token_scope_cache_key(user.id, group), ok, 3600)
+
+
+def _check_scope_loss_and_notify(user) -> None:
+    if not user:
+        return
+
+    for group, meta in _TOKEN_SCOPE_GROUPS.items():
+        cache_key = _token_scope_cache_key(user.id, group)
+        previous_ok = cache.get(cache_key)
+        current_ok = _has_valid_token_for_scopes(user, meta["scopes"])
+        cache.set(cache_key, current_ok, 3600)
+
+        if previous_ok is True and not current_ok:
+            try:
+                # AA Example App
+                from indy_hub.notifications import notify_user
+
+                notify_user(
+                    user,
+                    "ESI token missing",
+                    (
+                        f"Your {meta['label']} ESI token is missing. "
+                        "Please add a character in the ESI tab."
+                    ),
+                    level="warning",
+                    link=reverse("indy_hub:esi_hub"),
+                    link_label="Open ESI",
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to notify user %s about missing %s scopes",
+                    user,
+                    meta["label"],
+                    exc_info=True,
+                )
 
 
 def _normalize_int(value):
@@ -359,6 +469,20 @@ def remove_duplicate_tokens(sender, instance, created, **kwargs):
     for token in tokens:
         if set(token.scopes.values_list("id", flat=True)) == instance_scope_ids:
             token.delete()
+
+
+@receiver(post_save, sender=Token)
+def cache_scope_status_on_token_save(sender, instance, **kwargs):
+    if not instance.user_id:
+        return
+    _check_scope_loss_and_notify(instance.user)
+
+
+@receiver(post_delete, sender=Token)
+def notify_on_token_scope_loss(sender, instance, **kwargs):
+    if not instance.user_id:
+        return
+    _check_scope_loss_and_notify(instance.user)
 
 
 @receiver(post_save, sender=MaterialExchangeBuyOrder)

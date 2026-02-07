@@ -9,9 +9,6 @@ import json
 from decimal import Decimal
 from math import ceil
 
-# Third Party
-import requests
-
 # Django
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
@@ -307,6 +304,8 @@ def craft_bp_payload(request, type_id: int):
     return JsonResponse(payload)
 
 
+@indy_hub_access_required
+@indy_hub_permission_required("can_access_indy_hub")
 @login_required
 def fuzzwork_price(request):
     """
@@ -329,16 +328,11 @@ def fuzzwork_price(request):
 
         # Remove duplicates and join back
         unique_type_ids = list(set(type_ids))
-        type_ids_str = ",".join(unique_type_ids)
+        # Local
+        from ..services.fuzzwork import FuzzworkError, fetch_fuzzwork_aggregates
 
         # Fetch price data from Fuzzwork API
-        response = requests.get(
-            f"https://market.fuzzwork.co.uk/aggregates/?station=60003760&types={type_ids_str}",
-            timeout=10,
-        )
-        response.raise_for_status()
-
-        data = response.json()
+        data = fetch_fuzzwork_aggregates(unique_type_ids, timeout=10)
 
         # Optional: return the full Fuzzwork payload for each requested typeId.
         # This is used by the "Calcul" tab for deep inspection.
@@ -362,7 +356,7 @@ def fuzzwork_price(request):
 
         return JsonResponse(result)
 
-    except requests.RequestException as e:
+    except FuzzworkError as e:
         logger.error(f"Error fetching price data from Fuzzwork: {e}")
         return JsonResponse({"error": "Unable to fetch price data"}, status=503)
     except (ValueError, KeyError) as e:
@@ -370,6 +364,9 @@ def fuzzwork_price(request):
         return JsonResponse({"error": "Invalid data received"}, status=500)
 
 
+@indy_hub_access_required
+@indy_hub_permission_required("can_access_indy_hub")
+@login_required
 def health_check(request):
     """
     Simple health check endpoint for monitoring.
@@ -405,6 +402,8 @@ def health_check(request):
         return JsonResponse({"status": "unhealthy", "error": str(e)}, status=500)
 
 
+@indy_hub_access_required
+@indy_hub_permission_required("can_access_indy_hub")
 @login_required
 @require_http_methods(["POST"])
 def save_production_config(request):
@@ -567,6 +566,8 @@ def save_production_config(request):
         return JsonResponse({"error": "Internal server error"}, status=500)
 
 
+@indy_hub_access_required
+@indy_hub_permission_required("can_access_indy_hub")
 @login_required
 def load_production_config(request):
     """
@@ -695,6 +696,9 @@ def load_production_config(request):
         return JsonResponse({"error": "Internal server error"}, status=500)
 
 
+@indy_hub_access_required
+@indy_hub_permission_required("can_access_indy_hub")
+@login_required
 def api_info(request):
     """
     API information and documentation endpoint.

@@ -8,25 +8,26 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
 from django.db import transaction
-from django.db.models import Q
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 
 # Alliance Auth
 from allianceauth.services.hooks import get_extension_logger
-from esi.clients import EsiClientProvider
 from esi.views import sso_redirect
 
-from ..decorators import indy_hub_permission_required
-from ..models import MaterialExchangeConfig
+# AA Example App
+from indy_hub.services.providers import esi_provider
+
+from ..decorators import indy_hub_permission_required, tokens_required
+from ..models import MaterialExchangeConfig, MaterialExchangeSettings
 from ..services.asset_cache import (
     get_corp_assets_cached,
     get_corp_divisions_cached,
     resolve_structure_names,
 )
 
-esi = EsiClientProvider()
+esi = esi_provider
 logger = get_extension_logger(__name__)
 
 
@@ -165,7 +166,8 @@ def _get_token_for_corp(user, corp_id, scope, require_corporation_token: bool = 
 
 @login_required
 @indy_hub_permission_required("can_manage_material_hub")
-def material_exchange_config(request):
+@tokens_required(scopes="esi-characters.read_corporation_roles.v1")
+def material_exchange_config(request, tokens):
     """
     Material Exchange configuration page.
     Allows admins to configure corp, structure, and pricing.
@@ -268,9 +270,9 @@ def material_exchange_config(request):
         )
     )
     context["back_to_overview_url"] = reverse("indy_hub:index")
-    context["material_exchange_enabled"] = MaterialExchangeConfig.objects.filter(
-        is_active=True
-    ).exists()
+    context["material_exchange_enabled"] = (
+        MaterialExchangeSettings.get_solo().is_enabled
+    )
 
     return render(request, "indy_hub/material_exchange/config.html", context)
 
@@ -284,26 +286,37 @@ def material_exchange_toggle_active(request):
         return redirect("indy_hub:settings_hub")
 
     next_url = request.POST.get("next") or reverse("indy_hub:settings_hub")
-    config = MaterialExchangeConfig.objects.first()
-    if not config:
-        messages.error(
-            request,
-            _("Configure the Material Exchange before enabling or disabling it."),
-        )
-        return redirect(next_url)
+    settings_obj = MaterialExchangeSettings.get_solo()
 
     desired_active = request.POST.get("is_active") == "on"
-    if config.is_active == desired_active:
+    if settings_obj.is_enabled == desired_active:
         messages.info(
             request,
             _("No change: Material Exchange is already {state}.").format(
-                state=_("enabled") if config.is_active else _("disabled")
+                state=_("enabled") if settings_obj.is_enabled else _("disabled")
             ),
         )
         return redirect(next_url)
 
-    config.is_active = desired_active
-    config.save(update_fields=["is_active", "updated_at"])
+    settings_obj.is_enabled = desired_active
+    settings_obj.save(update_fields=["is_enabled", "updated_at"])
+    try:
+        config = MaterialExchangeConfig.objects.first()
+        if config and config.is_active != desired_active:
+            config.is_active = desired_active
+            config.save(update_fields=["is_active", "updated_at"])
+    except Exception:
+        pass
+    try:
+        # Third Party
+        from django_celery_beat.models import PeriodicTask
+
+        PeriodicTask.objects.filter(name="indy-hub-material-exchange-cycle").update(
+            enabled=desired_active
+        )
+    except Exception:
+        # Beat not installed or table missing; ignore
+        pass
     if desired_active:
         messages.success(request, _("Material Exchange enabled."))
     else:
@@ -314,7 +327,10 @@ def material_exchange_toggle_active(request):
 
 @login_required
 @indy_hub_permission_required("can_manage_material_hub")
-def material_exchange_get_structures(request, corp_id):
+@tokens_required(
+    scopes="esi-assets.read_corporation_assets.v1 esi-corporations.read_divisions.v1"
+)
+def material_exchange_get_structures(request, tokens, corp_id):
     """
     AJAX endpoint to get structures for a given corporation.
     Returns JSON list of structures.
@@ -533,7 +549,10 @@ def _find_director_character(user, corp_id):
 
 @login_required
 @indy_hub_permission_required("can_manage_material_hub")
-def material_exchange_refresh_corp_assets(request):
+@tokens_required(
+    scopes="esi-characters.read_corporation_roles.v1 esi-assets.read_corporation_assets.v1"
+)
+def material_exchange_refresh_corp_assets(request, tokens):
     """
     AJAX endpoint to refresh corporation assets and structures.
     Triggers background task to fetch latest ESI data.
@@ -809,10 +828,16 @@ def _get_user_corporations(user):
 def _get_corp_structures(user, corp_id):
     """Get list of player structures using lazy queryset and resolve names for user's DIRECTOR characters."""
 
-    cache_key = f"indy_hub:material_exchange:corp_structures:{int(corp_id)}"
+    cache_key = f"indy_hub:material_exchange:corp_structures:v2:{int(corp_id)}"
     cached = cache.get(cache_key)
     if cached is not None:
-        return cached
+        try:
+            cached_structures, cached_scope_missing = cached
+            cached_structures = list(cached_structures or [])
+            cached_structures.sort(key=lambda row: str(row.get("name", "")).lower())
+            return cached_structures, cached_scope_missing
+        except Exception:
+            return cached
 
     # Get structure IDs from corp assets
     assets_qs, assets_scope_missing = get_corp_assets_cached(
@@ -821,14 +846,47 @@ def _get_corp_structures(user, corp_id):
         as_queryset=True,
     )
 
-    # Get unique location IDs from corp assets (OfficeFolder or CorpSAG*)
-    loc_ids = list(
-        assets_qs.filter(
-            Q(location_flag="OfficeFolder") | Q(location_flag__startswith="CorpSAG")
-        )
-        .values_list("location_id", flat=True)
+    # Get unique structure IDs from corp assets.
+    # - OfficeFolder assets carry the structure_id directly in location_id.
+    # - CorpSAG* assets store the office folder item_id in location_id, so we
+    #   must map that to the OfficeFolder's location_id (structure_id).
+    resolvable_structure_flags = {
+        "OfficeFolder",
+        "StructureFuel",
+        "MoonMaterialBay",
+        "QuantumCoreRoom",
+        "ServiceSlot0",
+        "CorpDeliveries",
+    }
+
+    office_folder_map = {
+        int(item_id): int(location_id)
+        for item_id, location_id in assets_qs.filter(location_flag="OfficeFolder")
+        .exclude(item_id__isnull=True)
+        .values_list("item_id", "location_id")
         .distinct()
-    )
+    }
+
+    loc_ids_set: set[int] = set()
+    structure_flags: dict[int, set[str]] = {}
+
+    for loc_id in assets_qs.filter(
+        location_flag__in=resolvable_structure_flags
+    ).values_list("location_id", flat=True):
+        if loc_id:
+            loc_ids_set.add(int(loc_id))
+
+    for office_folder_item_id, flag in assets_qs.filter(
+        location_flag__startswith="CorpSAG"
+    ).values_list("location_id", "location_flag"):
+        if not office_folder_item_id:
+            continue
+        structure_id = office_folder_map.get(int(office_folder_item_id))
+        if structure_id:
+            loc_ids_set.add(int(structure_id))
+            structure_flags.setdefault(int(structure_id), set()).add(str(flag))
+
+    loc_ids = list(loc_ids_set)
 
     if not loc_ids:
         result = (
@@ -849,28 +907,18 @@ def _get_corp_structures(user, corp_id):
         sorted(loc_ids), character_id=None, corporation_id=int(corp_id), user=user
     )
 
-    # Only show structures that have been successfully resolved in CachedStructureName
-    # Structures that don't have a cached name will be skipped
-    # AA Example App
-    from indy_hub.models import CachedStructureName
-
-    resolved_structure_ids = set(
-        CachedStructureName.objects.filter(structure_id__in=loc_ids).values_list(
-            "structure_id", flat=True
-        )
-    )
-
     structures: list[dict] = []
     for loc_id in sorted(loc_ids):
-        # Only include structures that have been successfully resolved
-        if loc_id in resolved_structure_ids:
-            structures.append(
-                {
-                    "id": loc_id,
-                    "name": structure_names.get(loc_id) or f"Structure {loc_id}",
-                    "flags": [],
-                }
-            )
+        # Always include all asset-backed locations, even if name resolution failed.
+        structures.append(
+            {
+                "id": loc_id,
+                "name": structure_names.get(loc_id) or f"Structure {loc_id}",
+                "flags": sorted(structure_flags.get(int(loc_id), set())),
+            }
+        )
+
+    structures.sort(key=lambda row: str(row.get("name", "")).lower())
 
     result = (structures, assets_scope_missing)
     cache.set(cache_key, result, 300)
@@ -1256,7 +1304,8 @@ def _handle_config_save(request, existing_config):
 
 @login_required
 @indy_hub_permission_required("can_manage_material_hub")
-def material_exchange_debug_tokens(request, corp_id):
+@tokens_required(scopes="esi-characters.read_corporation_roles.v1")
+def material_exchange_debug_tokens(request, corp_id, tokens):
     """Debug endpoint: list user's tokens and scopes relevant to a corporation.
 
     Query params:

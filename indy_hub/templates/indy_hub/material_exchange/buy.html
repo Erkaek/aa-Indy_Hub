@@ -85,13 +85,21 @@
                     <h5 class="mb-4">
                         {% trans "Available Stock in" %} {{ config.structure_name }} - {{ hangar_division_label }} hangar division
                     </h5>
-                        <div class="text-muted small">
-                            {% trans "Last update" %}:
-                            {% if buy_last_update %}
-                                {{ buy_last_update|timezone:"UTC"|date:"Y-m-d H:i" }} EVE
-                            {% else %}
-                                {% trans "Never" %}
-                            {% endif %}
+                        <div class="alert alert-info d-flex align-items-start gap-2 mb-3" role="status">
+                            <i class="fas fa-clock mt-1" aria-hidden="true"></i>
+                            <div>
+                                <div class="fw-semibold">
+                                    {% trans "Last update" %}:
+                                    {% if buy_last_update %}
+                                        {{ buy_last_update|timezone:"UTC"|date:"Y-m-d H:i" }} EVE
+                                    {% else %}
+                                        {% trans "Never" %}
+                                    {% endif %}
+                                </div>
+                                <small class="text-muted">
+                                    {% trans "Data may be delayed; refresh later if values look outdated." %}
+                                </small>
+                            </div>
                         </div>
                     <form method="post" id="purchaseForm">
                         {% csrf_token %}

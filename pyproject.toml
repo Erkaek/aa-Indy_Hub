@@ -44,7 +44,9 @@ dynamic = [
 ]
 dependencies = [
     "allianceauth>=4,<5",
+    "django-esi>=3",
     "django-eveuniverse>=1.5.7",
+    "requests>=2.31",
 ]
 
 optional-dependencies.aadiscordbot = [

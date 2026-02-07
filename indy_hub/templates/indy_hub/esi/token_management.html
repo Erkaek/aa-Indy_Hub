@@ -26,59 +26,16 @@
 
     <section class="dashboard-section mb-4">
         <header class="section-heading">
-            <div>
-                <h3 class="section-title">{% trans "Overview" %}</h3>
-                <p class="text-muted small mb-0">{% trans "Token counts and the quickest actions to fix missing scopes." %}</p>
-            </div>
-        </header>
-        <div class="card focus-card">
-            <div class="card-body p-4">
-                <div class="row g-4 align-items-stretch">
-                    <div class="col-xl-6">
-                        <div class="p-3 bg-body-tertiary rounded-3 h-100 d-flex align-items-center justify-content-between gap-3 flex-wrap">
-                            <div>
-                                <h6 class="text-uppercase text-muted fw-bold mb-1">{% trans "Add a character" %}</h6>
-                                <p class="text-muted small mb-2">{% trans "Authorize blueprints, industry, and assets scopes in one step for your characters." %}</p>
-                                <p class="text-muted small mb-0">{% trans "Indy Hub will request every scope required by the module." %}</p>
-                            </div>
-                            <div class="text-end">
-                                <a href="{% url 'indy_hub:authorize_all' %}" class="btn btn-primary">
-                                    <i class="fas fa-user-plus me-1"></i>{% trans "Add character missing scope" %}
-                                </a>
-                            </div>
-                        </div>
-                    </div>
-
-                    {% if can_manage_corp_bp_requests %}
-                        <div class="col-xl-6">
-                            <div class="p-3 bg-body-tertiary rounded-3 h-100 d-flex align-items-center justify-content-between gap-3 flex-wrap">
-                                <div>
-                                    <h6 class="text-uppercase text-muted fw-bold mb-1">{% trans "Add a corporation" %}</h6>
-                                    <p class="text-muted small mb-2">{% trans "Authorize director scopes (blueprints, jobs, assets, wallets, structures) at once." %}</p>
-                                    <p class="text-muted small mb-0">{% trans "Covers Material Exchange and industry features." %}</p>
-                                </div>
-                                <div class="text-end">
-                                    {% if corp_all_auth_url %}
-                                        <a href="{{ corp_all_auth_url }}" class="btn btn-outline-primary">
-                                            <i class="fas fa-building me-1"></i>{% trans "Add corp missing scope" %}
-                                        </a>
-                                    {% else %}
-                                        <span class="badge bg-secondary-subtle text-secondary">{% trans "Unavailable" %}</span>
-                                    {% endif %}
-                                </div>
-                            </div>
-                        </div>
-                    {% endif %}
+            <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+                <div>
+                    <h3 class="section-title">{% trans "Characters" %}</h3>
+                    <p class="text-muted small mb-0">{% trans "Coverage per character." %}</p>
                 </div>
-            </div>
-        </div>
-    </section>
-
-    <section class="dashboard-section mb-4">
-        <header class="section-heading">
-            <div>
-                <h3 class="section-title">{% trans "Characters" %}</h3>
-                <p class="text-muted small mb-0">{% trans "Coverage per character." %}</p>
+                <div>
+                    <a href="{% url 'indy_hub:authorize_all' %}" class="btn btn-primary">
+                        <i class="fas fa-user-plus me-1"></i>{% trans "Add character" %}
+                    </a>
+                </div>
             </div>
         </header>
         <div class="card focus-card">
@@ -89,9 +46,6 @@
                         <th style="width: 64px;"></th>
                         <th>{% trans "Character" %}</th>
                         <th class="text-center">{% trans "Status" %}</th>
-                        <th class="text-center">{% trans "Blueprints" %}</th>
-                        <th class="text-center">{% trans "Industry" %}</th>
-                        <th class="text-center">{% trans "Assets" %}</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -111,7 +65,6 @@
                             <td class="text-center">
                                 {% if char.has_all_scopes %}
                                     <span class="badge bg-success-subtle text-success"><i class="fas fa-check me-1"></i>{% trans "All active" %}</span>
-                                    <div class="small text-muted">{% trans "Blueprints, industry, assets" %}</div>
                                 {% else %}
                                     <span class="badge bg-warning-subtle text-warning"><i class="fas fa-exclamation-triangle me-1"></i>{% trans "Missing scopes" %}</span>
                                     <div class="small text-muted">
@@ -119,31 +72,10 @@
                                     </div>
                                 {% endif %}
                             </td>
-                            <td class="text-center">
-                                {% if char.bp_enabled %}
-                                    <span class="badge bg-success-subtle text-success"><i class="fas fa-check me-1"></i>{% trans "OK" %}</span>
-                                {% else %}
-                                    <span class="badge bg-danger-subtle text-danger"><i class="fas fa-times me-1"></i>{% trans "Missing" %}</span>
-                                {% endif %}
-                            </td>
-                            <td class="text-center">
-                                {% if char.jobs_enabled %}
-                                    <span class="badge bg-success-subtle text-success"><i class="fas fa-check me-1"></i>{% trans "OK" %}</span>
-                                {% else %}
-                                    <span class="badge bg-danger-subtle text-danger"><i class="fas fa-times me-1"></i>{% trans "Missing" %}</span>
-                                {% endif %}
-                            </td>
-                            <td class="text-center">
-                                {% if char.assets_enabled %}
-                                    <span class="badge bg-success-subtle text-success"><i class="fas fa-check me-1"></i>{% trans "OK" %}</span>
-                                {% else %}
-                                    <span class="badge bg-danger-subtle text-danger"><i class="fas fa-times me-1"></i>{% trans "Missing" %}</span>
-                                {% endif %}
-                            </td>
                         </tr>
                     {% empty %}
                         <tr>
-                            <td colspan="6" class="text-center text-muted py-4">{% trans "No characters found." %}</td>
+                            <td colspan="3" class="text-center text-muted py-4">{% trans "No characters found." %}</td>
                         </tr>
                     {% endfor %}
                 </tbody>
@@ -155,7 +87,7 @@
             <div class="card-body p-4">
                 <h6 class="text-uppercase text-muted fw-bold mb-3">{% trans "Character scopes required by Indy Hub" %}</h6>
                 <div class="d-flex flex-wrap gap-2">
-                    {% for scope in required_character_scopes %}
+                    {% for scope in required_character_scopes_display %}
                         <span class="scope-badge">{{ scope }}</span>
                     {% empty %}
                         <span class="text-muted small">{% trans "No scopes defined." %}</span>
@@ -168,9 +100,20 @@
     {% if can_manage_corp_bp_requests %}
         <section class="dashboard-section mb-4">
             <header class="section-heading">
-                <div>
-                    <h3 class="section-title">{% trans "Corporations" %}</h3>
-                    <p class="text-muted small mb-0">{% trans "Coverage for director tokens." %}</p>
+                <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+                    <div>
+                        <h3 class="section-title">{% trans "Corporations" %}</h3>
+                        <p class="text-muted small mb-0">{% trans "Coverage for director tokens." %}</p>
+                    </div>
+                    <div>
+                        {% if corp_all_auth_url %}
+                            <a href="{{ corp_all_auth_url }}" class="btn btn-outline-primary">
+                                <i class="fas fa-building me-1"></i>{% trans "Add corp " %}
+                            </a>
+                        {% else %}
+                            <span class="badge bg-secondary-subtle text-secondary">{% trans "Unavailable" %}</span>
+                        {% endif %}
+                    </div>
                 </div>
             </header>
             <div class="card focus-card">
@@ -180,9 +123,6 @@
                         <tr>
                             <th>{% trans "Corporation" %}</th>
                             <th class="text-center">{% trans "Status" %}</th>
-                            <th class="text-center">{% trans "Blueprints" %}</th>
-                            <th class="text-center">{% trans "Industry" %}</th>
-                            <th class="text-center">{% trans "Assets" %}</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -203,51 +143,21 @@
                                         </div>
                                     </div>
                                 </td>
-                                    <td class="text-center">
-                                        {% if corp.has_all_scopes %}
-                                            <span class="badge bg-success-subtle text-success"><i class="fas fa-check me-1"></i>{% trans "All active" %}</span>
-                                            <div class="small text-muted">{% trans "Director token ready" %}</div>
-                                        {% else %}
-                                            <span class="badge bg-warning-subtle text-warning"><i class="fas fa-exclamation-triangle me-1"></i>{% trans "Missing scopes" %}</span>
-                                            <div class="small text-muted">
-                                                {% blocktrans with missing=corp.missing_scopes|join:", " %}Missing: {{ missing }}{% endblocktrans %}
-                                            </div>
-                                        {% endif %}
-                                    </td>
                                 <td class="text-center">
-                                    {% if corp.blueprint.has_scope %}
-                                        <span class="badge bg-success-subtle text-success"><i class="fas fa-check me-1"></i>{% trans "OK" %}</span>
-                                        {% if corp.blueprint.character_name %}
-                                            <div class="small text-muted">{{ corp.blueprint.character_name }}</div>
-                                        {% endif %}
+                                    {% if corp.has_all_scopes %}
+                                        <span class="badge bg-success-subtle text-success"><i class="fas fa-check me-1"></i>{% trans "All active" %}</span>
+                                        <div class="small text-muted">{% trans "Director token ready" %}</div>
                                     {% else %}
-                                        <span class="badge bg-danger-subtle text-danger"><i class="fas fa-times me-1"></i>{% trans "Missing" %}</span>
-                                    {% endif %}
-                                </td>
-                                <td class="text-center">
-                                    {% if corp.jobs.has_scope %}
-                                        <span class="badge bg-success-subtle text-success"><i class="fas fa-check me-1"></i>{% trans "OK" %}</span>
-                                        {% if corp.jobs.character_name %}
-                                            <div class="small text-muted">{{ corp.jobs.character_name }}</div>
-                                        {% endif %}
-                                    {% else %}
-                                        <span class="badge bg-danger-subtle text-danger"><i class="fas fa-times me-1"></i>{% trans "Missing" %}</span>
-                                    {% endif %}
-                                </td>
-                                <td class="text-center">
-                                    {% if corp.assets.has_scope %}
-                                        <span class="badge bg-success-subtle text-success"><i class="fas fa-check me-1"></i>{% trans "OK" %}</span>
-                                        {% if corp.assets.character_name %}
-                                            <div class="small text-muted">{{ corp.assets.character_name }}</div>
-                                        {% endif %}
-                                    {% else %}
-                                        <span class="badge bg-danger-subtle text-danger"><i class="fas fa-times me-1"></i>{% trans "Missing" %}</span>
+                                        <span class="badge bg-warning-subtle text-warning"><i class="fas fa-exclamation-triangle me-1"></i>{% trans "Missing scopes" %}</span>
+                                        <div class="small text-muted">
+                                            {% blocktrans with missing=corp.missing_scopes|join:", " %}Missing: {{ missing }}{% endblocktrans %}
+                                        </div>
                                     {% endif %}
                                 </td>
                             </tr>
                         {% empty %}
                             <tr>
-                                <td colspan="5" class="text-center text-muted py-4">{% trans "No corporation access detected." %}</td>
+                                <td colspan="2" class="text-center text-muted py-4">{% trans "No corporation access detected." %}</td>
                             </tr>
                         {% endfor %}
                     </tbody>

@@ -19,7 +19,7 @@ class MaterialExchangePricingTests(TestCase):
         """Create test config and stock item."""
         self.config = MaterialExchangeConfig.objects.create(
             corporation_id=123456,
-            structure_id=789012,
+            structure_id=60003760,
             structure_name="Test Structure",
             hangar_division=1,
             sell_markup_percent=Decimal("5.00"),
@@ -110,7 +110,7 @@ class MaterialExchangePricingTests(TestCase):
         """Test that default markup base is 'buy' for both settings."""
         new_config = MaterialExchangeConfig.objects.create(
             corporation_id=999999,
-            structure_id=888888,
+            structure_id=60003760,
             structure_name="New Test Structure",
             hangar_division=2,
         )

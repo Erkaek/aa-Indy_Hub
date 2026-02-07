@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Material Exchange: global enable/disable settings with UI toggle and task gating.
+- Notifications: in-app warnings when required ESI tokens/scopes go missing.
+- Material Exchange: quick-copy buttons for assign-to, price, and title/description in order details.
+- Services: Fuzzwork API helper module for aggregate pricing lookups.
+- ESI: show explicit missing ESI scopes per character and corporation on the token management page.
+
+### Changed
+
+- ESI: switched to shared django-esi provider with compatibility date and operation registry.
+- Material Exchange: nav entry hides when disabled; settings card reflects global state.
+- Material Exchange: sync/validation tasks now skip when disabled or not configured.
+- Celery: periodic task schedules can apply allianceauth cron offsets.
+- Auth: ESI authorization flows now use `sso_redirect` helpers.
+- ESI: token management UI now shows simplified status tables with per-section action buttons.
+- ESI: corporation authorization button now requests Material Exchange scopes as well.
+- Scopes: Material Exchange required scope set now includes corporation divisions and contracts.
+
+### Fixed
+
+- Material Exchange: structure dropdown includes all asset-backed locations and is sorted.
+- Material Exchange: hangar divisions resolve correctly and scope checks use valid tokens.
+- Blueprints/jobs: missing-scope warnings and location name overwrite guard.
+- ESI: corporation divisions operation uses correct snake_case name.
+- ESI: asset/structure fetches handle rate-limit errors consistently.
+- Fuzzwork: pricing updates and API endpoint use shared helper with clearer errors.
+- Scopes: removed unused corp wallet scope from required scope sets.
+- ESI: token management page now lists the corporation roles scope in required character scopes.
+
+### Internal
+
+- Added Material Exchange settings migration.
+- Test fixtures now use public station IDs for structure locations.
+
 ## [1.13.13] - 2026-02-01
 
 ### Fixed

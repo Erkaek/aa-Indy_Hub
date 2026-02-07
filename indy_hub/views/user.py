@@ -1,14 +1,14 @@
 # User-related views
 # Standard Library
 import json
-import secrets
 from collections.abc import Iterable
 from math import ceil
 from typing import Any
-from urllib.parse import urlencode
+
+# Third Party
+from bravado.exception import HTTPError
 
 # Django
-from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
@@ -35,12 +35,14 @@ from django.views.decorators.http import require_POST
 from allianceauth.authentication.models import CharacterOwnership
 from allianceauth.eveonline.models import EveCharacter
 from allianceauth.services.hooks import get_extension_logger
+from esi.errors import TokenError
 from esi.models import CallbackRedirect, Token
+from esi.views import sso_redirect
 
 # AA Example App
 from indy_hub.models import CharacterSettings, CorporationSharingSetting
 
-from ..decorators import indy_hub_access_required
+from ..decorators import indy_hub_access_required, tokens_required
 from ..models import (
     Blueprint,
     BlueprintCopyChat,
@@ -54,6 +56,7 @@ from ..models import (
 )
 from ..notifications import build_site_url, notify_user
 from ..services.esi_client import ESIClientError, ESITokenError
+from ..services.providers import esi_provider
 from ..services.simulations import summarize_simulations
 from ..tasks.industry import (
     CORP_ASSETS_SCOPE,
@@ -141,34 +144,37 @@ ASSETS_SCOPE_SET = [ASSETS_SCOPE]
 
 def _fetch_character_corporation_roles_with_token(token_obj: Token) -> set[str]:
     """Fetch corporation roles using a specific token instead of Token.get_token()."""
-    # Third Party
-    import requests
-
     try:
         access_token = token_obj.valid_access_token()
     except Exception as exc:
         raise ESITokenError(
             f"No valid access token for character {token_obj.character_id}"
         ) from exc
-
-    url = f"https://esi.evetech.net/latest/characters/{token_obj.character_id}/roles/"
-    headers = {"Authorization": f"Bearer {access_token}"}
-    params = {"datasource": "tranquility"}
-
-    response = None
     try:
-        response = requests.get(url, headers=headers, params=params, timeout=30)
-        response.raise_for_status()
-    except requests.RequestException as exc:
-        if response and response.status_code in (401, 403):
+        payload = esi_provider.client.Character.get_characters_character_id_roles(
+            character_id=token_obj.character_id,
+            token=access_token,
+        ).results()
+    except HTTPError as exc:
+        status_code = getattr(exc, "status_code", None) or getattr(
+            exc.response, "status_code", None
+        )
+        if status_code in (401, 403):
             raise ESITokenError(
                 f"Token validation failed for character {token_obj.character_id}"
             ) from exc
         raise ESIClientError(
             f"ESI request failed for character {token_obj.character_id} roles"
         ) from exc
+    except TokenError as exc:
+        raise ESITokenError(
+            f"Token validation failed for character {token_obj.character_id}"
+        ) from exc
+    except Exception as exc:
+        raise ESIClientError(
+            f"ESI request failed for character {token_obj.character_id} roles"
+        ) from exc
 
-    payload = response.json()
     if not isinstance(payload, dict):
         raise ESIClientError(
             f"ESI roles endpoint returned unexpected payload type: {type(payload)}"
@@ -231,6 +237,14 @@ def _collect_corporation_scope_status(
         for setting in CorporationSharingSetting.objects.filter(user=user)
     }
     corp_status: dict[int, dict[str, Any]] = {}
+    required_corporation_scopes = sorted(
+        {
+            *CORP_BLUEPRINT_SCOPE_SET,
+            *CORP_JOBS_SCOPE_SET,
+            *MATERIAL_EXCHANGE_SCOPE_SET,
+        }
+    )
+    corp_available_scopes: dict[int, set[str]] = {}
     warnings: list[dict[str, Any]] = [] if include_warnings else []
 
     def _revoke_corporation_tokens(
@@ -252,7 +266,9 @@ def _collect_corporation_scope_status(
         token_ids: set[int] = set()
         for scope in normalized_scopes:
             token_ids.update(
-                token_queryset.require_scopes([scope]).values_list("pk", flat=True)
+                token_queryset.require_scopes([scope])
+                .require_valid()
+                .values_list("pk", flat=True)
             )
 
         if not token_ids:
@@ -283,7 +299,7 @@ def _collect_corporation_scope_status(
             if normalized in seen:
                 continue
             seen.add(normalized)
-            candidate = token_qs.require_scopes(scope_list)
+            candidate = token_qs.require_scopes(scope_list).require_valid()
             token = candidate.order_by("-created").first()
             if token:
                 return token
@@ -416,6 +432,14 @@ def _collect_corporation_scope_status(
                 )
             continue
 
+        present_scopes = {
+            scope
+            for scope in required_corporation_scopes
+            if token_qs.require_scopes([scope]).require_valid().exists()
+        }
+        if present_scopes:
+            corp_available_scopes.setdefault(corp_id, set()).update(present_scopes)
+
         entry = corp_status.setdefault(
             corp_id,
             {
@@ -434,6 +458,12 @@ def _collect_corporation_scope_status(
                     "last_updated": None,
                 },
                 "assets": {
+                    "has_scope": False,
+                    "character_id": None,
+                    "character_name": None,
+                    "last_updated": None,
+                },
+                "material_exchange": {
                     "has_scope": False,
                     "character_id": None,
                     "character_name": None,
@@ -473,9 +503,40 @@ def _collect_corporation_scope_status(
                 "last_updated": getattr(assets_token, "created", None),
             }
 
+        material_exchange_token = (
+            token_qs.require_scopes(MATERIAL_EXCHANGE_SCOPE_SET)
+            .require_valid()
+            .order_by("-created")
+            .first()
+        )
+        if material_exchange_token and not entry["material_exchange"]["has_scope"]:
+            entry["material_exchange"] = {
+                "has_scope": True,
+                "character_id": character_id,
+                "character_name": character_name,
+                "last_updated": getattr(material_exchange_token, "created", None),
+            }
+
+        material_exchange_token = (
+            token_qs.require_scopes(MATERIAL_EXCHANGE_SCOPE_SET)
+            .require_valid()
+            .order_by("-created")
+            .first()
+        )
+        if material_exchange_token and not entry["material_exchange"]["has_scope"]:
+            entry["material_exchange"] = {
+                "has_scope": True,
+                "character_id": character_id,
+                "character_name": character_name,
+                "last_updated": getattr(material_exchange_token, "created", None),
+            }
+
     result = sorted(
         corp_status.values(), key=lambda item: (item["corporation_name"] or "")
     )
+    for entry in result:
+        corp_id = entry.get("corporation_id")
+        entry["available_scopes"] = sorted(corp_available_scopes.get(corp_id, set()))
     if include_warnings:
         return result, warnings
     return result
@@ -1098,12 +1159,14 @@ def _build_dashboard_context(request):
             blueprint_char_ids = list(
                 Token.objects.filter(user=request.user)
                 .require_scopes(BLUEPRINT_SCOPE_SET)
+                .require_valid()
                 .values_list("character_id", flat=True)
                 .distinct()
             )
             jobs_char_ids = list(
                 Token.objects.filter(user=request.user)
                 .require_scopes(JOBS_SCOPE_SET)
+                .require_valid()
                 .values_list("character_id", flat=True)
                 .distinct()
             )
@@ -1661,7 +1724,8 @@ def legacy_token_management_redirect(request):
 
 @indy_hub_access_required
 @login_required
-def token_management(request):
+@tokens_required(scopes="esi-characters.read_corporation_roles.v1")
+def token_management(request, tokens):
     blueprint_tokens = None
     jobs_tokens = None
     assets_tokens = None
@@ -1679,14 +1743,20 @@ def token_management(request):
     can_manage_corp = request.user.has_perm("indy_hub.can_manage_corp_bp_requests")
     if Token:
         try:
-            blueprint_tokens = Token.objects.filter(user=request.user).require_scopes(
-                BLUEPRINT_SCOPE_SET
+            blueprint_tokens = (
+                Token.objects.filter(user=request.user)
+                .require_scopes(BLUEPRINT_SCOPE_SET)
+                .require_valid()
             )
-            jobs_tokens = Token.objects.filter(user=request.user).require_scopes(
-                JOBS_SCOPE_SET
+            jobs_tokens = (
+                Token.objects.filter(user=request.user)
+                .require_scopes(JOBS_SCOPE_SET)
+                .require_valid()
             )
-            assets_tokens = Token.objects.filter(user=request.user).require_scopes(
-                ASSETS_SCOPE_SET
+            assets_tokens = (
+                Token.objects.filter(user=request.user)
+                .require_scopes(ASSETS_SCOPE_SET)
+                .require_valid()
             )
             # Deduplicate by character_id
             blueprint_char_ids = (
@@ -1733,6 +1803,13 @@ def token_management(request):
         if can_manage_material_hub and CallbackRedirect
         else None
     )
+    character_required_scopes = sorted(
+        {
+            *BLUEPRINT_SCOPE_SET,
+            *JOBS_SCOPE_SET,
+            *ASSETS_SCOPE_SET,
+        }
+    )
     user_chars = []
     ownerships = CharacterOwnership.objects.filter(user=request.user)
     for ownership in ownerships:
@@ -1749,13 +1826,16 @@ def token_management(request):
             assets_tokens.filter(character_id=cid).exists() if assets_tokens else False
         )
 
-        missing_scopes = []
-        if not bp_enabled:
-            missing_scopes.append(_("Blueprints"))
-        if not jobs_enabled:
-            missing_scopes.append(_("Industry"))
-        if not assets_enabled:
-            missing_scopes.append(_("Assets"))
+        missing_scopes: list[str] = []
+        if Token:
+            char_tokens = Token.objects.filter(
+                user=request.user, character_id=cid
+            ).require_valid()
+            for scope in character_required_scopes:
+                if not char_tokens.require_scopes([scope]).exists():
+                    missing_scopes.append(scope)
+        else:
+            missing_scopes = list(character_required_scopes)
 
         user_chars.append(
             {
@@ -1821,11 +1901,11 @@ def token_management(request):
 
     warning_payload_json = json.dumps(warning_payload) if warning_payload else ""
 
-    required_character_scopes = sorted(
+    required_character_scopes = character_required_scopes
+    required_character_scopes_display = sorted(
         {
-            *BLUEPRINT_SCOPE_SET,
-            *JOBS_SCOPE_SET,
-            *ASSETS_SCOPE_SET,
+            *character_required_scopes,
+            CORP_ROLES_SCOPE,
         }
     )
     required_corporation_scopes = sorted(
@@ -1835,16 +1915,26 @@ def token_management(request):
             *MATERIAL_EXCHANGE_SCOPE_SET,
         }
     )
+    required_character_scope_groups = [
+        _("Blueprints"),
+        _("Industry"),
+        _("Assets"),
+    ]
+    required_corporation_scope_groups = [
+        _("Blueprints"),
+        _("Industry"),
+        _("Assets"),
+        _("Material Exchange"),
+    ]
 
     enhanced_corp_scope_status: list[dict[str, Any]] = []
     for corp_entry in corp_scope_status:
-        missing_scopes = []
-        if not corp_entry.get("blueprint", {}).get("has_scope"):
-            missing_scopes.append(_("Blueprints"))
-        if not corp_entry.get("jobs", {}).get("has_scope"):
-            missing_scopes.append(_("Industry"))
-        if not corp_entry.get("assets", {}).get("has_scope"):
-            missing_scopes.append(_("Assets"))
+        available_scopes = set(corp_entry.get("available_scopes") or [])
+        missing_scopes = [
+            scope
+            for scope in required_corporation_scopes
+            if scope not in available_scopes
+        ]
 
         corp_entry["missing_scopes"] = missing_scopes
         corp_entry["has_all_scopes"] = not missing_scopes
@@ -1862,7 +1952,10 @@ def token_management(request):
         "jobs_auth_url": jobs_auth_url,
         "assets_auth_url": assets_auth_url,
         "required_character_scopes": required_character_scopes,
+        "required_character_scopes_display": required_character_scopes_display,
         "required_corporation_scopes": required_corporation_scopes,
+        "required_character_scope_groups": required_character_scope_groups,
+        "required_corporation_scope_groups": required_corporation_scope_groups,
         "characters": user_chars,
         "can_manage_corp_bp_requests": can_manage_corp,
         "corporation_sharing": corporation_sharing,
@@ -1901,6 +1994,7 @@ def authorize_assets(request):
     authorized = (
         Token.objects.filter(user=request.user)
         .require_scopes(ASSETS_SCOPE_SET)
+        .require_valid()
         .values_list("character_id", flat=True)
     )
     missing = set(all_chars) - set(authorized)
@@ -1911,32 +2005,11 @@ def authorize_assets(request):
         messages.error(request, "ESI module not available")
         return redirect("indy_hub:token_management")
     try:
-        if not request.session.session_key:
-            request.session.create()
-        CallbackRedirect.objects.filter(
-            session_key=request.session.session_key
-        ).delete()
-        assets_state = f"indy_hub_assets_{secrets.token_urlsafe(8)}"
-        CallbackRedirect.objects.create(
-            session_key=request.session.session_key,
-            url=reverse("indy_hub:token_management"),
-            state=assets_state,
+        return sso_redirect(
+            request,
+            scopes=" ".join(sorted(ASSETS_SCOPE_SET)),
+            return_to="indy_hub:token_management",
         )
-        callback_url = getattr(
-            settings, "ESI_SSO_CALLBACK_URL", "http://localhost:8000/sso/callback/"
-        )
-        client_id = getattr(settings, "ESI_SSO_CLIENT_ID", "")
-        params = {
-            "response_type": "code",
-            "redirect_uri": callback_url,
-            "client_id": client_id,
-            "scope": " ".join(sorted(ASSETS_SCOPE_SET)),
-            "state": assets_state,
-        }
-        auth_url = (
-            f"https://login.eveonline.com/v2/oauth/authorize/?{urlencode(params)}"
-        )
-        return redirect(auth_url)
     except Exception as e:
         logger.error(f"Error creating assets authorization: {e}")
         messages.error(request, f"Error setting up assets authorization: {e}")
@@ -1953,6 +2026,7 @@ def authorize_blueprints(request):
     authorized = (
         Token.objects.filter(user=request.user)
         .require_scopes(BLUEPRINT_SCOPE_SET)
+        .require_valid()
         .values_list("character_id", flat=True)
     )
     missing = set(all_chars) - set(authorized)
@@ -1963,30 +2037,11 @@ def authorize_blueprints(request):
         messages.error(request, "ESI module not available")
         return redirect("indy_hub:token_management")
     try:
-        if not request.session.session_key:
-            request.session.create()
-        CallbackRedirect.objects.filter(
-            session_key=request.session.session_key
-        ).delete()
-        blueprint_state = f"indy_hub_blueprints_{secrets.token_urlsafe(8)}"
-        CallbackRedirect.objects.create(
-            session_key=request.session.session_key,
-            url=reverse("indy_hub:token_management"),
-            state=blueprint_state,
+        return sso_redirect(
+            request,
+            scopes=" ".join(sorted(BLUEPRINT_SCOPE_SET)),
+            return_to="indy_hub:token_management",
         )
-        callback_url = getattr(
-            settings, "ESI_SSO_CALLBACK_URL", "http://localhost:8000/sso/callback/"
-        )
-        client_id = getattr(settings, "ESI_SSO_CLIENT_ID", "")
-        blueprint_params = {
-            "response_type": "code",
-            "redirect_uri": callback_url,
-            "client_id": client_id,
-            "scope": " ".join(BLUEPRINT_SCOPE_SET),
-            "state": blueprint_state,
-        }
-        blueprint_auth_url = f"https://login.eveonline.com/v2/oauth/authorize/?{urlencode(blueprint_params)}"
-        return redirect(blueprint_auth_url)
     except Exception as e:
         logger.error(f"Error creating blueprint authorization: {e}")
         messages.error(request, f"Error setting up ESI authorization: {e}")
@@ -2003,6 +2058,7 @@ def authorize_jobs(request):
     authorized = (
         Token.objects.filter(user=request.user)
         .require_scopes(JOBS_SCOPE_SET)
+        .require_valid()
         .values_list("character_id", flat=True)
     )
     missing = set(all_chars) - set(authorized)
@@ -2013,32 +2069,11 @@ def authorize_jobs(request):
         messages.error(request, "ESI module not available")
         return redirect("indy_hub:token_management")
     try:
-        if not request.session.session_key:
-            request.session.create()
-        CallbackRedirect.objects.filter(
-            session_key=request.session.session_key
-        ).delete()
-        jobs_state = f"indy_hub_jobs_{secrets.token_urlsafe(8)}"
-        CallbackRedirect.objects.create(
-            session_key=request.session.session_key,
-            url=reverse("indy_hub:token_management"),
-            state=jobs_state,
+        return sso_redirect(
+            request,
+            scopes=" ".join(sorted(JOBS_SCOPE_SET)),
+            return_to="indy_hub:token_management",
         )
-        callback_url = getattr(
-            settings, "ESI_SSO_CALLBACK_URL", "http://localhost:8000/sso/callback/"
-        )
-        client_id = getattr(settings, "ESI_SSO_CLIENT_ID", "")
-        jobs_params = {
-            "response_type": "code",
-            "redirect_uri": callback_url,
-            "client_id": client_id,
-            "scope": " ".join(JOBS_SCOPE_SET),
-            "state": jobs_state,
-        }
-        jobs_auth_url = (
-            f"https://login.eveonline.com/v2/oauth/authorize/?{urlencode(jobs_params)}"
-        )
-        return redirect(jobs_auth_url)
     except Exception as e:
         logger.error(f"Error creating jobs authorization: {e}")
         messages.error(request, f"Error setting up ESI authorization: {e}")
@@ -2057,32 +2092,11 @@ def authorize_corp_blueprints(request):
         messages.error(request, "ESI module not available")
         return redirect("indy_hub:token_management")
     try:
-        if not request.session.session_key:
-            request.session.create()
-        CallbackRedirect.objects.filter(
-            session_key=request.session.session_key
-        ).delete()
-        state = f"indy_hub_corp_blueprints_{secrets.token_urlsafe(8)}"
-        CallbackRedirect.objects.create(
-            session_key=request.session.session_key,
-            url=reverse("indy_hub:token_management"),
-            state=state,
+        return sso_redirect(
+            request,
+            scopes=" ".join(sorted(set(CORP_BLUEPRINT_SCOPE_SET))),
+            return_to="indy_hub:token_management",
         )
-        callback_url = getattr(
-            settings, "ESI_SSO_CALLBACK_URL", "http://localhost:8000/sso/callback/"
-        )
-        client_id = getattr(settings, "ESI_SSO_CLIENT_ID", "")
-        params = {
-            "response_type": "code",
-            "redirect_uri": callback_url,
-            "client_id": client_id,
-            "scope": " ".join(sorted(set(CORP_BLUEPRINT_SCOPE_SET))),
-            "state": state,
-        }
-        auth_url = (
-            f"https://login.eveonline.com/v2/oauth/authorize/?{urlencode(params)}"
-        )
-        return redirect(auth_url)
     except Exception as e:
         logger.error(f"Error creating corporation blueprint authorization: {e}")
         messages.error(request, f"Error setting up corporation authorization: {e}")
@@ -2101,32 +2115,11 @@ def authorize_corp_jobs(request):
         messages.error(request, "ESI module not available")
         return redirect("indy_hub:token_management")
     try:
-        if not request.session.session_key:
-            request.session.create()
-        CallbackRedirect.objects.filter(
-            session_key=request.session.session_key
-        ).delete()
-        state = f"indy_hub_corp_jobs_{secrets.token_urlsafe(8)}"
-        CallbackRedirect.objects.create(
-            session_key=request.session.session_key,
-            url=reverse("indy_hub:token_management"),
-            state=state,
+        return sso_redirect(
+            request,
+            scopes=" ".join(sorted(set(CORP_JOBS_SCOPE_SET))),
+            return_to="indy_hub:token_management",
         )
-        callback_url = getattr(
-            settings, "ESI_SSO_CALLBACK_URL", "http://localhost:8000/sso/callback/"
-        )
-        client_id = getattr(settings, "ESI_SSO_CLIENT_ID", "")
-        params = {
-            "response_type": "code",
-            "redirect_uri": callback_url,
-            "client_id": client_id,
-            "scope": " ".join(sorted(set(CORP_JOBS_SCOPE_SET))),
-            "state": state,
-        }
-        auth_url = (
-            f"https://login.eveonline.com/v2/oauth/authorize/?{urlencode(params)}"
-        )
-        return redirect(auth_url)
     except Exception as e:
         logger.error(f"Error creating corporation job authorization: {e}")
         messages.error(request, f"Error setting up corporation authorization: {e}")
@@ -2145,38 +2138,18 @@ def authorize_corp_all(request):
         messages.error(request, "ESI module not available")
         return redirect("indy_hub:token_management")
     try:
-        if not request.session.session_key:
-            request.session.create()
-        CallbackRedirect.objects.filter(
-            session_key=request.session.session_key
-        ).delete()
-        state = f"indy_hub_corp_all_{secrets.token_urlsafe(8)}"
-        CallbackRedirect.objects.create(
-            session_key=request.session.session_key,
-            url=reverse("indy_hub:token_management"),
-            state=state,
-        )
-        callback_url = getattr(
-            settings, "ESI_SSO_CALLBACK_URL", "http://localhost:8000/sso/callback/"
-        )
-        client_id = getattr(settings, "ESI_SSO_CLIENT_ID", "")
         scope_set = sorted(
             {
                 *CORP_BLUEPRINT_SCOPE_SET,
                 *CORP_JOBS_SCOPE_SET,
+                *MATERIAL_EXCHANGE_SCOPE_SET,
             }
         )
-        params = {
-            "response_type": "code",
-            "redirect_uri": callback_url,
-            "client_id": client_id,
-            "scope": " ".join(scope_set),
-            "state": state,
-        }
-        auth_url = (
-            f"https://login.eveonline.com/v2/oauth/authorize/?{urlencode(params)}"
+        return sso_redirect(
+            request,
+            scopes=" ".join(scope_set),
+            return_to="indy_hub:token_management",
         )
-        return redirect(auth_url)
     except Exception as e:
         logger.error(f"Error creating corporation authorization: {e}")
         messages.error(request, f"Error setting up corporation authorization: {e}")
@@ -2195,33 +2168,12 @@ def authorize_material_exchange(request):
         messages.error(request, "ESI module not available")
         return redirect("indy_hub:token_management")
     try:
-        if not request.session.session_key:
-            request.session.create()
-        CallbackRedirect.objects.filter(
-            session_key=request.session.session_key
-        ).delete()
-        state = f"indy_hub_material_exchange_{secrets.token_urlsafe(8)}"
-        CallbackRedirect.objects.create(
-            session_key=request.session.session_key,
-            url=reverse("indy_hub:token_management"),
-            state=state,
-        )
-        callback_url = getattr(
-            settings, "ESI_SSO_CALLBACK_URL", "http://localhost:8000/sso/callback/"
-        )
-        client_id = getattr(settings, "ESI_SSO_CLIENT_ID", "")
         scope_set = sorted(MATERIAL_EXCHANGE_SCOPE_SET)
-        params = {
-            "response_type": "code",
-            "redirect_uri": callback_url,
-            "client_id": client_id,
-            "scope": " ".join(scope_set),
-            "state": state,
-        }
-        auth_url = (
-            f"https://login.eveonline.com/v2/oauth/authorize/?{urlencode(params)}"
+        return sso_redirect(
+            request,
+            scopes=" ".join(scope_set),
+            return_to="indy_hub:token_management",
         )
-        return redirect(auth_url)
     except Exception as e:
         logger.error(f"Error creating Material Exchange authorization: {e}")
         messages.error(
@@ -2240,16 +2192,19 @@ def authorize_all(request):
     blueprint_auth = (
         Token.objects.filter(user=request.user)
         .require_scopes(BLUEPRINT_SCOPE_SET)
+        .require_valid()
         .values_list("character_id", flat=True)
     )
     jobs_auth = (
         Token.objects.filter(user=request.user)
         .require_scopes(JOBS_SCOPE_SET)
+        .require_valid()
         .values_list("character_id", flat=True)
     )
     assets_auth = (
         Token.objects.filter(user=request.user)
         .require_scopes(ASSETS_SCOPE_SET)
+        .require_valid()
         .values_list("character_id", flat=True)
     )
     missing = set(all_chars) - (set(blueprint_auth) & set(jobs_auth) & set(assets_auth))
@@ -2260,35 +2215,14 @@ def authorize_all(request):
         messages.error(request, "ESI module not available")
         return redirect("indy_hub:token_management")
     try:
-        if not request.session.session_key:
-            request.session.create()
-        CallbackRedirect.objects.filter(
-            session_key=request.session.session_key
-        ).delete()
-        state = f"indy_hub_all_{secrets.token_urlsafe(8)}"
-        CallbackRedirect.objects.create(
-            session_key=request.session.session_key,
-            url=reverse("indy_hub:token_management"),
-            state=state,
-        )
-        callback_url = getattr(
-            settings, "ESI_SSO_CALLBACK_URL", "http://localhost:8000/sso/callback/"
-        )
-        client_id = getattr(settings, "ESI_SSO_CLIENT_ID", "")
         combined_scopes = sorted(
             {*BLUEPRINT_SCOPE_SET, *JOBS_SCOPE_SET, *ASSETS_SCOPE_SET}
         )
-        params = {
-            "response_type": "code",
-            "redirect_uri": callback_url,
-            "client_id": client_id,
-            "scope": " ".join(combined_scopes),
-            "state": state,
-        }
-        auth_url = (
-            f"https://login.eveonline.com/v2/oauth/authorize/?{urlencode(params)}"
+        return sso_redirect(
+            request,
+            scopes=" ".join(combined_scopes),
+            return_to="indy_hub:token_management",
         )
-        return redirect(auth_url)
     except Exception as e:
         logger.error(f"Error creating combined authorization: {e}")
         messages.error(request, f"Error setting up ESI authorization: {e}")
@@ -2297,14 +2231,19 @@ def authorize_all(request):
 
 @indy_hub_access_required
 @login_required
-def sync_all_tokens(request):
+@tokens_required(scopes=sorted({*BLUEPRINT_SCOPE_SET, *JOBS_SCOPE_SET}))
+def sync_all_tokens(request, tokens):
     if Token:
         try:
-            blueprint_tokens = Token.objects.filter(user=request.user).require_scopes(
-                BLUEPRINT_SCOPE_SET
+            blueprint_tokens = (
+                Token.objects.filter(user=request.user)
+                .require_scopes(BLUEPRINT_SCOPE_SET)
+                .require_valid()
             )
-            jobs_tokens = Token.objects.filter(user=request.user).require_scopes(
-                JOBS_SCOPE_SET
+            jobs_tokens = (
+                Token.objects.filter(user=request.user)
+                .require_scopes(JOBS_SCOPE_SET)
+                .require_valid()
             )
             any_scheduled = False
             if blueprint_tokens.exists():
@@ -2376,11 +2315,14 @@ def sync_all_tokens(request):
 
 @indy_hub_access_required
 @login_required
-def sync_blueprints(request):
+@tokens_required(scopes=BLUEPRINT_SCOPE_SET)
+def sync_blueprints(request, tokens):
     if Token:
         try:
-            blueprint_tokens = Token.objects.filter(user=request.user).require_scopes(
-                BLUEPRINT_SCOPE_SET
+            blueprint_tokens = (
+                Token.objects.filter(user=request.user)
+                .require_scopes(BLUEPRINT_SCOPE_SET)
+                .require_valid()
             )
             if blueprint_tokens.exists():
                 scheduled, remaining = request_manual_refresh(
@@ -2416,11 +2358,14 @@ def sync_blueprints(request):
 
 @indy_hub_access_required
 @login_required
-def sync_jobs(request):
+@tokens_required(scopes=JOBS_SCOPE_SET)
+def sync_jobs(request, tokens):
     if Token:
         try:
-            jobs_tokens = Token.objects.filter(user=request.user).require_scopes(
-                JOBS_SCOPE_SET
+            jobs_tokens = (
+                Token.objects.filter(user=request.user)
+                .require_scopes(JOBS_SCOPE_SET)
+                .require_valid()
             )
             if jobs_tokens.exists():
                 scheduled, remaining = request_manual_refresh(

@@ -11,6 +11,33 @@ from decimal import Decimal, InvalidOperation
 # Third Party
 from celery import shared_task
 
+try:
+    try:
+        # Alliance Auth
+        from esi.decorators import rate_limit_retry_task, wait_for_esi_errorlimit_reset
+    except ImportError:  # pragma: no cover - older django-esi
+
+        def rate_limit_retry_task(func):
+            return func
+
+        def wait_for_esi_errorlimit_reset(*args, **kwargs):
+            def decorator(func):
+                return func
+
+            return decorator
+
+except ImportError:  # pragma: no cover - older django-esi
+
+    def rate_limit_retry_task(func):
+        return func
+
+    def wait_for_esi_errorlimit_reset(*args, **kwargs):
+        def decorator(func):
+            return func
+
+        return decorator
+
+
 # Django
 from django.contrib.auth.models import User
 from django.core.cache import cache
@@ -31,6 +58,7 @@ from indy_hub.models import (
     MaterialExchangeBuyOrder,
     MaterialExchangeConfig,
     MaterialExchangeSellOrder,
+    MaterialExchangeSettings,
     MaterialExchangeStock,
     MaterialExchangeTransaction,
     NotificationWebhook,
@@ -215,6 +243,7 @@ def _get_structure_name(
     time_limit=600,
     soft_time_limit=580,
 )
+@rate_limit_retry_task
 def sync_esi_contracts():
     """
     Fetch corporation contracts from ESI and store/update them in the database.
@@ -227,11 +256,23 @@ def sync_esi_contracts():
 
     Should be run periodically (e.g., every 5-15 minutes).
     """
-    configs = MaterialExchangeConfig.objects.filter(is_active=True)
+    try:
+        if not MaterialExchangeSettings.get_solo().is_enabled:
+            logger.info("Material Exchange disabled; skipping contract sync.")
+            return
+    except Exception:
+        pass
+
+    configs = MaterialExchangeConfig.objects.all()
+    if not configs.exists():
+        logger.info("Material Exchange not configured; skipping contract sync.")
+        return
 
     for config in configs:
         try:
             _sync_contracts_for_corporation(config.corporation_id)
+        except ESIRateLimitError:
+            raise
         except Exception as exc:
             logger.error(
                 "Failed to sync contracts for corporation %s: %s",
@@ -254,6 +295,17 @@ def run_material_exchange_cycle():
     validate pending buy orders, then check completion of approved orders.
     Intended to be scheduled in Celery Beat to simplify orchestration.
     """
+    try:
+        if not MaterialExchangeSettings.get_solo().is_enabled:
+            logger.info("Material Exchange disabled; skipping cycle.")
+            return
+    except Exception:
+        pass
+
+    if not MaterialExchangeConfig.objects.exists():
+        logger.info("Material Exchange not configured; skipping cycle.")
+        return
+
     # Step 1: sync cached contracts
     sync_esi_contracts()
 
@@ -297,7 +349,14 @@ def _sync_contracts_for_corporation(corporation_id: int):
             exc,
         )
         return
-    except (ESIRateLimitError, ESIClientError, ESIForbiddenError) as exc:
+    except ESIRateLimitError as exc:
+        logger.warning(
+            "ESI rate limit reached while syncing contracts for corporation %s: %s",
+            corporation_id,
+            exc,
+        )
+        raise
+    except (ESIClientError, ESIForbiddenError) as exc:
         logger.error(
             "Failed to fetch contracts from ESI for corporation %s: %s",
             corporation_id,
@@ -439,6 +498,7 @@ def _sync_contracts_for_corporation(corporation_id: int):
     time_limit=600,
     soft_time_limit=580,
 )
+@rate_limit_retry_task
 def validate_material_exchange_sell_orders():
     """
     Validate pending sell orders against cached ESI contracts in the database.
@@ -455,9 +515,16 @@ def validate_material_exchange_sell_orders():
 
     Note: Contracts are synced separately by sync_esi_contracts task.
     """
-    config = MaterialExchangeConfig.objects.filter(is_active=True).first()
+    try:
+        if not MaterialExchangeSettings.get_solo().is_enabled:
+            logger.info("Material Exchange disabled; skipping sell validation.")
+            return
+    except Exception:
+        pass
+
+    config = MaterialExchangeConfig.objects.first()
     if not config:
-        logger.warning("No active Material Exchange config found")
+        logger.warning("No Material Exchange config found")
         return
 
     pending_orders = MaterialExchangeSellOrder.objects.filter(
@@ -520,6 +587,7 @@ def validate_material_exchange_sell_orders():
     time_limit=600,
     soft_time_limit=580,
 )
+@rate_limit_retry_task
 def validate_material_exchange_buy_orders():
     """
     Validate pending buy orders against cached ESI contracts in the database.
@@ -536,9 +604,16 @@ def validate_material_exchange_buy_orders():
 
     Note: Contracts are synced separately by sync_esi_contracts task.
     """
-    config = MaterialExchangeConfig.objects.filter(is_active=True).first()
+    try:
+        if not MaterialExchangeSettings.get_solo().is_enabled:
+            logger.info("Material Exchange disabled; skipping buy validation.")
+            return
+    except Exception:
+        pass
+
+    config = MaterialExchangeConfig.objects.first()
     if not config:
-        logger.warning("No active Material Exchange config found")
+        logger.warning("No Material Exchange config found")
         return
 
     pending_orders = MaterialExchangeBuyOrder.objects.filter(
@@ -1265,12 +1340,20 @@ def handle_material_exchange_buy_order_created(order_id):
     time_limit=600,
     soft_time_limit=580,
 )
+@rate_limit_retry_task
 def check_completed_material_exchange_contracts():
     """
     Check if corp contracts for approved sell orders have been completed.
     Update order status and notify users when payment is verified.
     """
-    config = MaterialExchangeConfig.objects.filter(is_active=True).first()
+    try:
+        if not MaterialExchangeSettings.get_solo().is_enabled:
+            logger.info("Material Exchange disabled; skipping completion check.")
+            return
+    except Exception:
+        pass
+
+    config = MaterialExchangeConfig.objects.first()
     if not config:
         return
 
@@ -1287,7 +1370,10 @@ def check_completed_material_exchange_contracts():
                 "esi-contracts.read_corporation_contracts.v1",
             ),
         )
-    except (ESITokenError, ESIRateLimitError, ESIForbiddenError, ESIClientError) as exc:
+    except ESIRateLimitError as exc:
+        logger.warning("ESI rate limit reached while checking contract status: %s", exc)
+        raise
+    except (ESITokenError, ESIForbiddenError, ESIClientError) as exc:
         logger.error("Failed to check contract status: %s", exc)
         return
 
@@ -1502,7 +1588,7 @@ def _get_character_for_scope(corporation_id: int, scope: str) -> int:
         # Step 2: Get all tokens for these characters
         # Note: AllianceAuth's Token model does not have a 'character' FK.
         # Avoid select_related("character") to prevent FieldError.
-        tokens = Token.objects.filter(character_id__in=character_ids)
+        tokens = Token.objects.filter(character_id__in=character_ids).require_valid()
 
         if not tokens.exists():
             raise ESITokenError(
@@ -1570,6 +1656,7 @@ def _get_user_character_ids(user: User) -> list[int]:
 
         return list(
             Token.objects.filter(user=user)
+            .require_valid()
             .values_list("character_id", flat=True)
             .distinct()
         )

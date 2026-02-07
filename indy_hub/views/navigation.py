@@ -22,13 +22,11 @@ def build_nav_context(
 
     if material_hub_enabled is None:
         try:
-            from ..models import MaterialExchangeConfig
+            from ..models import MaterialExchangeSettings
 
-            material_hub_enabled = MaterialExchangeConfig.objects.filter(
-                is_active=True
-            ).exists()
+            material_hub_enabled = MaterialExchangeSettings.get_solo().is_enabled
         except Exception:
-            material_hub_enabled = False
+            material_hub_enabled = True
 
     # Primary sections
     overview_url = reverse("indy_hub:index")
@@ -76,7 +74,7 @@ def build_nav_context(
         elif active_tab == "settings":
             settings_class = "active fw-semibold"
 
-    material_hub_nav_url = material_hub_url
+    material_hub_nav_url = material_hub_url if material_hub_enabled else None
 
     context: dict[str, str | None] = {
         # New top-level sections

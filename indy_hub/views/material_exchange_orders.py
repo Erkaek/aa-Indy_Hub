@@ -16,6 +16,7 @@ from django.utils.translation import gettext as _
 from allianceauth.authentication.models import UserProfile
 from allianceauth.services.hooks import get_extension_logger
 
+from ..decorators import indy_hub_permission_required
 from ..models import (
     MaterialExchangeBuyOrder,
     MaterialExchangeSellOrder,
@@ -30,6 +31,7 @@ from .navigation import build_nav_context
 logger = get_extension_logger(__name__)
 
 
+@indy_hub_permission_required("can_access_indy_hub")
 @login_required
 def my_orders(request):
     """
@@ -132,6 +134,7 @@ def my_orders(request):
     return render(request, "indy_hub/material_exchange/my_orders.html", context)
 
 
+@indy_hub_permission_required("can_access_indy_hub")
 @login_required
 def sell_order_detail(request, order_id):
     """
@@ -186,6 +189,7 @@ def sell_order_detail(request, order_id):
     return render(request, "indy_hub/material_exchange/sell_order_detail.html", context)
 
 
+@indy_hub_permission_required("can_access_indy_hub")
 @login_required
 def buy_order_detail(request, order_id):
     """
@@ -569,6 +573,7 @@ def _build_status_timeline(order, order_type):
     return timeline
 
 
+@indy_hub_permission_required("can_access_indy_hub")
 @login_required
 def sell_order_delete(request, order_id):
     """
@@ -610,6 +615,7 @@ def sell_order_delete(request, order_id):
     )
 
 
+@indy_hub_permission_required("can_access_indy_hub")
 @login_required
 def buy_order_delete(request, order_id):
     """

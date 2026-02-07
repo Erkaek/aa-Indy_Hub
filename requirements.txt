@@ -1,5 +1,7 @@
 allianceauth>=4,<5
+django-esi>=3
 django-eveuniverse>=1.5.7
+requests>=2.31
 
 # Optional Discord DM providers (aadiscordbot preferred):
 # aadiscordbot

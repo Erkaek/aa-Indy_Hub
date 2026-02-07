@@ -70,48 +70,138 @@ def setup_periodic_tasks():
         from django_celery_beat.models import CrontabSchedule, PeriodicTask
 
         # AA Example App
+        from indy_hub.models import MaterialExchangeSettings
         from indy_hub.schedules import INDY_HUB_BEAT_SCHEDULE
     except ImportError:
         return  # django_celery_beat is not installed
 
     for name, conf in INDY_HUB_BEAT_SCHEDULE.items():
         schedule = conf["schedule"]
-        if hasattr(schedule, "_orig_minute"):  # crontab
-            crontabs = CrontabSchedule.objects.filter(
-                minute=str(schedule._orig_minute),
-                hour=str(schedule._orig_hour),
-                day_of_week=str(schedule._orig_day_of_week),
-                day_of_month=str(schedule._orig_day_of_month),
-                month_of_year=str(schedule._orig_month_of_year),
-            )
-            if crontabs.exists():
-                crontab = crontabs.first()
+        apply_offset = bool(conf.get("apply_offset"))
+        if apply_offset:
+            try:
+                # Alliance Auth
+                from allianceauth.crontab.utils import offset_cron
+
+                schedule = offset_cron(schedule)
+            except Exception:
+                # If offset_cron is unavailable, fall back to original schedule.
+                schedule = conf["schedule"]
+
+        def _normalize_cron_value(value, *, field: str) -> str:
+            if not isinstance(value, (set, list, tuple)):
+                return str(value)
+
+            values = sorted({int(item) for item in value})
+            if not values:
+                return "*"
+
+            if field == "minute":
+                full_range = list(range(0, 60))
+            elif field == "hour":
+                full_range = list(range(0, 24))
+            elif field == "day_of_week":
+                full_range = list(range(0, 7))
+            elif field == "month_of_year":
+                full_range = list(range(1, 13))
+            elif field == "day_of_month":
+                full_range = list(range(1, 32))
             else:
-                crontab = CrontabSchedule.objects.create(
-                    minute=str(schedule._orig_minute),
-                    hour=str(schedule._orig_hour),
-                    day_of_week=str(schedule._orig_day_of_week),
-                    day_of_month=str(schedule._orig_day_of_month),
-                    month_of_year=str(schedule._orig_month_of_year),
-                )
-            PeriodicTask.objects.update_or_create(
-                name=name,
-                defaults={
-                    "task": conf["task"],
-                    "crontab": crontab,
-                    "interval": None,
-                    "args": json.dumps([]),
-                    "enabled": True,
-                },
+                full_range = None
+
+            if full_range is not None and values == full_range:
+                return "*"
+
+            if len(values) > 1:
+                step = values[1] - values[0]
+                if step > 0 and all(
+                    values[i] - values[i - 1] == step for i in range(1, len(values))
+                ):
+                    if values[0] == 0:
+                        return f"*/{step}"
+                    return f"{values[0]}-{values[-1]}/{step}"
+
+            return ",".join(str(item) for item in values)
+
+        def _cron_value(field: str) -> str:
+            original = getattr(schedule, f"_orig_{field}", None)
+            if original is not None and not apply_offset:
+                return _normalize_cron_value(original, field=field)
+            return _normalize_cron_value(getattr(schedule, field), field=field)
+
+        crontabs = CrontabSchedule.objects.filter(
+            minute=_cron_value("minute"),
+            hour=_cron_value("hour"),
+            day_of_week=_cron_value("day_of_week"),
+            day_of_month=_cron_value("day_of_month"),
+            month_of_year=_cron_value("month_of_year"),
+        )
+        if crontabs.exists():
+            crontab = crontabs.first()
+        else:
+            crontab = CrontabSchedule.objects.create(
+                minute=_cron_value("minute"),
+                hour=_cron_value("hour"),
+                day_of_week=_cron_value("day_of_week"),
+                day_of_month=_cron_value("day_of_month"),
+                month_of_year=_cron_value("month_of_year"),
             )
+        enabled = True
+        if name == "indy-hub-material-exchange-cycle":
+            try:
+                enabled = MaterialExchangeSettings.get_solo().is_enabled
+            except Exception:
+                enabled = True
+
+        PeriodicTask.objects.update_or_create(
+            name=name,
+            defaults={
+                "task": conf["task"],
+                "crontab": crontab,
+                "interval": None,
+                "args": json.dumps([]),
+                "enabled": enabled,
+            },
+        )
     logger.info("IndyHub cron tasks registered.")
 
     # Clean up any legacy task entries that are no longer defined
-    removed, _ = PeriodicTask.objects.filter(
-        name="indy-hub-notify-completed-jobs"
-    ).delete()
+    legacy_task_names = [
+        "indy-hub-notify-completed-jobs",
+        "indy-hub-check-completed-contracts",
+        "indy-hub-validate-sell-orders",
+        "indy-hub-update-system-cost-indices",
+    ]
+    removed, _ = PeriodicTask.objects.filter(name__in=legacy_task_names).delete()
     if removed:
-        logger.info("Removed legacy periodic task indy-hub-notify-completed-jobs")
+        logger.info("Removed %s legacy IndyHub periodic tasks", removed)
+
+
+def remove_periodic_tasks() -> None:
+    """Remove IndyHub periodic tasks from django-celery-beat."""
+    # Alliance Auth
+    from allianceauth.services.hooks import get_extension_logger
+
+    logger = get_extension_logger(__name__)
+
+    try:
+        # Third Party
+        from django_celery_beat.models import PeriodicTask
+
+        # AA Example App
+        from indy_hub.schedules import INDY_HUB_BEAT_SCHEDULE
+    except ImportError:
+        return  # django_celery_beat is not installed
+
+    task_names = list(INDY_HUB_BEAT_SCHEDULE.keys()) + [
+        "indy-hub-notify-completed-jobs",
+        "indy-hub-check-completed-contracts",
+        "indy-hub-validate-sell-orders",
+        "indy-hub-update-system-cost-indices",
+    ]
+    removed, _ = PeriodicTask.objects.filter(name__in=task_names).delete()
+    if removed:
+        logger.info("Removed %s IndyHub periodic tasks.", removed)
 
 
 # ...import additional tasks here if needed...

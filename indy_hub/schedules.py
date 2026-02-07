@@ -3,6 +3,7 @@ Celery periodic task configuration for indy_hub module
 """
 
 # Third Party
+# Celery
 from celery.schedules import crontab
 
 # Periodic task configuration for indy_hub
@@ -11,11 +12,13 @@ INDY_HUB_BEAT_SCHEDULE = {
         "task": "indy_hub.tasks.industry.update_all_blueprints",
         "schedule": crontab(hour=3, minute=30),  # Daily at 03:30
         "options": {"priority": 7},  # Low priority for background updates
+        "apply_offset": True,
     },
     "indy-hub-update-all-industry-jobs": {
         "task": "indy_hub.tasks.industry.update_all_industry_jobs",
         "schedule": crontab(minute=0, hour="*/2"),  # Every 2 hours
         "options": {"priority": 7},  # Slightly higher priority for jobs
+        "apply_offset": True,
     },
     "indy-hub-dispatch-job-digests": {
         "task": "indy_hub.tasks.notifications.dispatch_job_notification_digests",
@@ -36,12 +39,14 @@ INDY_HUB_BEAT_SCHEDULE = {
         "task": "indy_hub.tasks.industry.update_type_names",
         "schedule": crontab(hour=3, minute=0),  # Daily at 03:00
         "options": {"priority": 8},  # Low priority for caching
+        "apply_offset": True,
     },
     # Material Exchange combined cycle: sync -> validate -> check completed
     "indy-hub-material-exchange-cycle": {
         "task": "indy_hub.tasks.material_exchange_contracts.run_material_exchange_cycle",
         "schedule": crontab(minute="*/5"),  # Every 5 minutes
         "options": {"priority": 4},
+        "apply_offset": True,
     },
     # Removed: indy-hub-refresh-production-items - now using EveUniverse.EveIndustryActivityMaterial
 }

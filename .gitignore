@@ -40,7 +40,6 @@ yarn-error.log*
 # ======================
 # Project-specific
 # ======================
-testauth/
 alliance_auth.sqlite3
 .cache/
 _stubs/

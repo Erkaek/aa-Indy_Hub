@@ -56,8 +56,13 @@ from ..notifications import (
 )
 from ..services.simulations import summarize_simulations
 from ..tasks.industry import (
+    BLUEPRINT_SCOPE,
+    CORP_BLUEPRINT_SCOPE_SET,
+    CORP_JOBS_SCOPE_SET,
+    JOBS_SCOPE,
     MANUAL_REFRESH_KIND_BLUEPRINTS,
     MANUAL_REFRESH_KIND_JOBS,
+    STRUCTURE_SCOPE,
     request_manual_refresh,
 )
 from ..utils.discord_actions import (
@@ -87,6 +92,21 @@ else:  # pragma: no cover - EveUniverse not installed
     EveType = None
 
 logger = get_extension_logger(__name__)
+
+
+def _has_required_scopes(user, scopes: list[str]) -> bool:
+    try:
+        # Alliance Auth
+        from esi.models import Token
+
+        return (
+            Token.objects.filter(user=user)
+            .require_scopes(scopes)
+            .require_valid()
+            .exists()
+        )
+    except Exception:
+        return False
 
 
 @dataclass
@@ -860,6 +880,16 @@ def personnal_bp_list(request, scope="character"):
 
     is_corporation_scope = scope == "corporation"
     has_corporate_perm = request.user.has_perm("indy_hub.can_manage_corp_bp_requests")
+    required_scopes = (
+        list(CORP_BLUEPRINT_SCOPE_SET)
+        if is_corporation_scope
+        else [BLUEPRINT_SCOPE, STRUCTURE_SCOPE]
+    )
+    if not _has_required_scopes(request.user, required_scopes):
+        messages.warning(
+            request,
+            _("ESI: missing blueprint scope/tokens. Add a character in the ESI tab."),
+        )
     try:
         # Check if we need to sync data
         force_update = request.GET.get("refresh") == "1"
@@ -1164,9 +1194,10 @@ def personnal_bp_list(request, scope="character"):
 
             # IMPORTANT: the template prefers bp.location_name over bp.location_path.
             # Some blueprints may have a persisted location_name that is just an ID
-            # (e.g. a container item_id). Override it per-request so we display the
-            # resolved structure/station name when available.
-            bp.location_name = resolved_name
+            # (e.g. a container item_id). Only override when we actually resolved a
+            # structure/station name so we don't wipe existing values.
+            if resolved_name:
+                bp.location_name = resolved_name
 
             location_path = resolved_name
             if not location_path and effective_location_id != bp.location_id:
@@ -1398,6 +1429,16 @@ def personnal_job_list(request, scope="character"):
 
     is_corporation_scope = scope == "corporation"
     has_corporate_perm = request.user.has_perm("indy_hub.can_manage_corp_bp_requests")
+    required_scopes = (
+        list(CORP_JOBS_SCOPE_SET)
+        if is_corporation_scope
+        else [JOBS_SCOPE, STRUCTURE_SCOPE]
+    )
+    if not _has_required_scopes(request.user, required_scopes):
+        messages.warning(
+            request,
+            _("ESI: missing job scope/tokens. Add a character in the ESI tab."),
+        )
     try:
         force_update = request.GET.get("refresh") == "1"
         if force_update:

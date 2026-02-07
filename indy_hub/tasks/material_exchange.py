@@ -18,6 +18,21 @@ from django.utils import timezone
 from allianceauth.services.hooks import get_extension_logger
 from esi.models import Token
 
+try:
+    try:
+        # Alliance Auth
+        from esi.decorators import rate_limit_retry_task
+    except ImportError:  # pragma: no cover - older django-esi
+
+        def rate_limit_retry_task(func):
+            return func
+
+except ImportError:  # pragma: no cover - older django-esi
+
+    def rate_limit_retry_task(func):
+        return func
+
+
 # AA Example App
 from indy_hub.models import (
     CachedCharacterAsset,
@@ -73,6 +88,7 @@ def _me_sell_assets_progress_key(user_id: int) -> str:
     time_limit=300,
     soft_time_limit=280,
 )
+@rate_limit_retry_task
 def refresh_corp_assets_cached(
     corporation_id: int, director_character_id: int | None = None
 ) -> None:
@@ -200,6 +216,7 @@ def refresh_corp_assets_cached(
     time_limit=300,
     soft_time_limit=280,
 )
+@rate_limit_retry_task
 def refresh_material_exchange_sell_user_assets(user_id: int) -> None:
     """Refresh CachedCharacterAsset for all of a user's characters, tracking progress.
 
@@ -301,11 +318,12 @@ def refresh_material_exchange_sell_user_assets(user_id: int) -> None:
             # Only use a token actually owned by this user.
             # Otherwise Token.get_token() could (in edge cases) resolve a token from
             # another user that happens to have the same character_id.
-            if (
-                not Token.objects.filter(user=user, character_id=int(character_id))
-                .require_scopes(["esi-assets.read_assets.v1"])
-                .exists()
-            ):
+            token_qs = Token.objects.filter(
+                user=user, character_id=int(character_id)
+            ).require_scopes(["esi-assets.read_assets.v1"])
+            if hasattr(token_qs, "require_valid"):
+                token_qs = token_qs.require_valid()
+            if not token_qs.exists():
                 raise ESITokenError(
                     f"No assets token for character {character_id} and user {user_id}"
                 )
@@ -313,7 +331,14 @@ def refresh_material_exchange_sell_user_assets(user_id: int) -> None:
             assets = shared_client.fetch_character_assets(
                 character_id=int(character_id)
             )
-        except (ESITokenError, ESIRateLimitError, ESIForbiddenError, ESIClientError):
+        except ESIRateLimitError as exc:
+            logger.warning(
+                "ESI rate limit hit while refreshing assets for character %s: %s",
+                character_id,
+                exc,
+            )
+            raise
+        except (ESITokenError, ESIForbiddenError, ESIClientError):
             failed += 1
             done += 1
             cache.set(
@@ -778,9 +803,6 @@ def sync_material_exchange_prices():
     Updates MaterialExchangeStock jita_buy_price and jita_sell_price.
     """
     try:
-        # Third Party
-        import requests
-
         stock_items = MaterialExchangeStock.objects.filter(quantity__gt=0)
         if not stock_items.exists():
             logger.info("No stock items to sync prices for")
@@ -789,32 +811,23 @@ def sync_material_exchange_prices():
         # Collect all type_ids
         type_ids = list(stock_items.values_list("type_id", flat=True))
 
-        # Fuzzwork API supports batch requests
-        # https://market.fuzzwork.co.uk/aggregates/?station=60003760&types=34,35,36
-        # Jita 4-4 = station_id 60003760
-        jita_station_id = 60003760
-        type_ids_str = ",".join(map(str, type_ids))
-
-        url = f"https://market.fuzzwork.co.uk/aggregates/?station={jita_station_id}&types={type_ids_str}"
+        # Local
+        from ..services.fuzzwork import FuzzworkError, fetch_fuzzwork_prices
 
         try:
-            response = requests.get(url, timeout=30)
-            response.raise_for_status()
-            prices_data = response.json()
-        except requests.RequestException as e:
-            logger.error(f"Failed to fetch prices from Fuzzwork: {e}")
+            prices = fetch_fuzzwork_prices(type_ids, timeout=30)
+        except FuzzworkError as exc:
+            logger.error("Failed to fetch prices from Fuzzwork: %s", exc)
             return
 
         # Update stock prices
         with transaction.atomic():
             for stock_item in stock_items:
-                type_id_str = str(stock_item.type_id)
-                if type_id_str in prices_data:
-                    price_info = prices_data[type_id_str]
-
+                price_info = prices.get(int(stock_item.type_id))
+                if price_info:
                     # Fuzzwork returns buy/sell prices
-                    jita_buy = Decimal(str(price_info.get("buy", {}).get("max", 0)))
-                    jita_sell = Decimal(str(price_info.get("sell", {}).get("min", 0)))
+                    jita_buy = price_info.get("buy", Decimal("0"))
+                    jita_sell = price_info.get("sell", Decimal("0"))
 
                     stock_item.jita_buy_price = jita_buy
                     stock_item.jita_sell_price = jita_sell

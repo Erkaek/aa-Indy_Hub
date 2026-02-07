@@ -79,14 +79,22 @@
                 {% trans "Loading your asset inventory. This may take a moment..." %}
             </div>
             {% endif %}
-                <p class="text-sm opacity-70">
-                    {% trans "Last update" %}:
-                    {% if sell_last_update %}
-                        {{ sell_last_update|timezone:"UTC"|date:"Y-m-d H:i" }} EVE
-                    {% else %}
-                        {% trans "Never" %}
-                    {% endif %}
-                </p>
+                <div class="alert alert-info d-flex align-items-start gap-2 mt-3 mb-0" role="status">
+                    <i class="fas fa-clock mt-1" aria-hidden="true"></i>
+                    <div>
+                        <div class="fw-semibold">
+                            {% trans "Last update" %}:
+                            {% if sell_last_update %}
+                                {{ sell_last_update|timezone:"UTC"|date:"Y-m-d H:i" }} EVE
+                            {% else %}
+                                {% trans "Never" %}
+                            {% endif %}
+                        </div>
+                        <small class="text-muted">
+                            {% trans "Data may be delayed; refresh later if values look outdated." %}
+                        </small>
+                    </div>
+                </div>
         </div>
 
         {% if materials %}

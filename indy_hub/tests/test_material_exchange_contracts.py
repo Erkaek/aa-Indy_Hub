@@ -35,7 +35,7 @@ class ContractValidationTestCase(TestCase):
         """Set up test data"""
         self.config = MaterialExchangeConfig.objects.create(
             corporation_id=123456789,
-            structure_id=60001234,
+            structure_id=60003760,
             structure_name="Test Structure",
             is_active=True,
         )
@@ -140,7 +140,7 @@ class ContractValidationTaskTest(TestCase):
         """Set up test data"""
         self.config = MaterialExchangeConfig.objects.create(
             corporation_id=123456789,
-            structure_id=60001234,
+            structure_id=60003760,
             structure_name="Test Structure",
             is_active=True,
         )
@@ -271,7 +271,7 @@ class BuyOrderValidationTaskTest(TestCase):
     def setUp(self):
         self.config = MaterialExchangeConfig.objects.create(
             corporation_id=123456789,
-            structure_id=60001234,
+            structure_id=60003760,
             structure_name="Test Structure",
             is_active=True,
         )
@@ -502,7 +502,7 @@ class BuyOrderSignalTest(TestCase):
         """Set up test data"""
         self.config = MaterialExchangeConfig.objects.create(
             corporation_id=123456789,
-            structure_id=60001234,
+            structure_id=60003760,
             structure_name="Test Structure",
             is_active=True,
         )

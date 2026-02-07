@@ -364,33 +364,32 @@
                 </header>
                 <div class="card focus-card">
                     <div class="card-body p-3">
-                        <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap">
+                        <div class="d-flex align-items-start justify-content-between gap-3 flex-wrap">
                             <div class="flex-grow-1">
-                                <p class="text-muted small mb-1">{% trans "Set up pricing rules, corporation hangars, and market operations." %}</p>
-                                <p class="text-muted small mb-0">
+                                <div class="d-flex align-items-center gap-2 flex-wrap mb-1">
+                                    <p class="text-muted small mb-0">{% trans "Set up pricing rules, corporation hangars, and market operations." %}</p>
                                     {% if material_exchange_enabled %}
-                                        <span class="badge bg-success me-2">{% trans "Enabled" %}</span>
+                                        <span class="badge bg-success">{% trans "Enabled" %}</span>
                                     {% else %}
-                                        <span class="badge bg-secondary me-2">{% trans "Disabled" %}</span>
+                                        <span class="badge bg-secondary">{% trans "Disabled" %}</span>
                                     {% endif %}
+                                </div>
+                                <p class="text-muted small mb-0">
                                     {% blocktrans with total=material_exchange_config_total active=material_exchange_config_active %}{{ active }} active of {{ total }} configured hubs{% endblocktrans %}
                                 </p>
                             </div>
                             <div class="d-flex align-items-center gap-3">
-                                <form method="post" action="{% url 'indy_hub:material_exchange_toggle_active' %}" class="d-flex align-items-center gap-2 mb-0">
+                                <form method="post" action="{% url 'indy_hub:material_exchange_toggle_active' %}" class="d-flex align-items-center gap-2 mb-0" id="materialExchangeToggleForm">
                                     {% csrf_token %}
                                     <input type="hidden" name="next" value="{% url 'indy_hub:settings_hub' %}">
-                                    <div class="form-check form-switch m-0">
-                                        <input class="form-check-input" type="checkbox" id="meEnableSwitch" name="is_active" {% if material_exchange_enabled %}checked{% endif %}>
-                                        <label class="form-check-label small" for="meEnableSwitch">{% trans "Enable Material Exchange" %}</label>
+                                    <div class="form-check form-switch form-check-lg m-0">
+                                        <input class="form-check-input" type="checkbox" id="meEnableSwitch" name="is_active" role="switch" {% if material_exchange_enabled %}checked{% endif %}>
+                                        <label class="form-check-label fw-semibold" for="meEnableSwitch">
+                                            {% trans "Enable" %}
+                                        </label>
                                     </div>
-                                    <button type="submit" class="btn btn-sm btn-primary">
-                                        <i class="fas fa-save me-1"></i>{% trans "Save" %}
-                                    </button>
                                 </form>
-                                <a class="btn btn-success btn-slim" href="{% url 'indy_hub:material_exchange_config' %}">
-                                    <i class="fas fa-cog me-1"></i>{% trans "Configure" %}
-                                </a>
+                                <span class="badge bg-body-tertiary text-secondary border">{% trans "Auto-save" %}</span>
                             </div>
                         </div>
                     </div>
@@ -480,6 +479,16 @@ window.jobNotificationState = {
     customHours: {{ job_notification_custom_hours|default:6 }},
     hint: '{{ job_notification_hint|escapejs }}'
 };
+
+document.addEventListener('DOMContentLoaded', () => {
+    const meToggle = document.getElementById('meEnableSwitch');
+    const meForm = document.getElementById('materialExchangeToggleForm');
+    if (meToggle && meForm) {
+        meToggle.addEventListener('change', () => {
+            meForm.submit();
+        });
+    }
+});
 </script>
 <script src="{% static 'indy_hub/js/index.js' %}"></script>
 {% endblock extra_javascript %}

@@ -7,6 +7,7 @@ from importlib import import_module
 from django.apps import AppConfig, apps
 from django.conf import settings
 from django.db import connection
+from django.db.models.signals import post_migrate
 
 
 class IndyHubConfig(AppConfig):
@@ -57,53 +58,78 @@ class IndyHubConfig(AppConfig):
         except Exception as e:
             logger.warning(f"Could not import indy_hub task submodules: {e}")
 
-        # Skip tasks configuration during tests
-        if (
-            "test" in sys.argv
-            or "runtests.py" in sys.argv[0]
-            or hasattr(settings, "TESTING")
-            or "pytest" in sys.modules
-        ):
-            logger.info("Skipping periodic tasks setup during tests.")
-            return
+        def _setup_periodic_tasks(sender, **kwargs):
+            # Skip tasks configuration during tests
+            if (
+                "test" in sys.argv
+                or "runtests.py" in sys.argv[0]
+                or hasattr(settings, "TESTING")
+                or "pytest" in sys.modules
+            ):
+                logger.info("Skipping periodic tasks setup during tests.")
+                return
 
-        # Skip during migrations
-        if "migrate" in sys.argv or "makemigrations" in sys.argv:
-            logger.info("Skipping periodic tasks setup during migrations.")
-            return
+            plan = kwargs.get("plan")
+            if plan:
+                indy_plan = [
+                    backwards
+                    for migration, backwards in plan
+                    if migration.app_label == "indy_hub"
+                ]
+                if indy_plan and all(indy_plan):
+                    try:
+                        from .tasks import remove_periodic_tasks
 
-        # Check that Celery Beat tables exist
-        try:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    "SELECT 1 FROM django_celery_beat_crontabschedule LIMIT 1"
+                        remove_periodic_tasks()
+                        logger.info("IndyHub periodic tasks removed during rollback.")
+                    except Exception as e:
+                        logger.exception(
+                            "Error removing IndyHub periodic tasks during rollback: %s",
+                            e,
+                        )
+                    return
+
+            if not apps.is_installed("django_celery_beat"):
+                logger.warning(
+                    "django_celery_beat not installed; skipping periodic tasks setup."
                 )
-        except Exception as e:
-            logger.warning(
-                f"Celery Beat tables not available, skipping periodic tasks setup: {e}"
-            )
-            return
+                return
 
-        # Inject beat schedule for compatibility (optional, non-blocking)
-        try:
-            # AA Example App
-            from indy_hub.schedules import INDY_HUB_BEAT_SCHEDULE
+            # Check that Celery Beat tables exist
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT 1 FROM django_celery_beat_crontabschedule LIMIT 1"
+                    )
+            except Exception as e:
+                logger.warning(
+                    "Celery Beat tables not available, skipping periodic tasks setup: %s",
+                    e,
+                )
+                return
 
-            if hasattr(settings, "CELERYBEAT_SCHEDULE"):
-                settings.CELERYBEAT_SCHEDULE.update(INDY_HUB_BEAT_SCHEDULE)
-            else:
-                settings.CELERYBEAT_SCHEDULE = INDY_HUB_BEAT_SCHEDULE.copy()
-        except Exception as e:
-            logger.warning(f"Could not inject indy_hub beat schedule: {e}")
+            # Inject beat schedule for compatibility (optional, non-blocking)
+            try:
+                # AA Example App
+                from indy_hub.schedules import INDY_HUB_BEAT_SCHEDULE
 
-        # Configure periodic tasks
-        try:
-            from .tasks import setup_periodic_tasks
+                if hasattr(settings, "CELERYBEAT_SCHEDULE"):
+                    settings.CELERYBEAT_SCHEDULE.update(INDY_HUB_BEAT_SCHEDULE)
+                else:
+                    settings.CELERYBEAT_SCHEDULE = INDY_HUB_BEAT_SCHEDULE.copy()
+            except Exception as e:
+                logger.warning("Could not inject indy_hub beat schedule: %s", e)
 
-            setup_periodic_tasks()
-            logger.info("IndyHub periodic tasks configured.")
-        except Exception as e:
-            logger.exception(f"Error setting up periodic tasks: {e}")
+            # Configure periodic tasks
+            try:
+                from .tasks import setup_periodic_tasks
+
+                setup_periodic_tasks()
+                logger.info("IndyHub periodic tasks configured.")
+            except Exception as e:
+                logger.exception("Error setting up periodic tasks: %s", e)
+
+        post_migrate.connect(_setup_periodic_tasks, sender=self)
 
         # Check dependencies (optional logging)
         if not apps.is_installed("esi"):

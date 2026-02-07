@@ -12,9 +12,7 @@ from allianceauth.services.hooks import get_extension_logger
 
 # Local
 from ..decorators import indy_hub_permission_required
-from ..models import (
-    MaterialExchangeConfig,
-)
+from ..models import MaterialExchangeConfig, MaterialExchangeSettings
 from .navigation import build_nav_context
 from .user import _build_dashboard_context
 
@@ -44,11 +42,14 @@ def settings_hub(request):
 
     # Material Exchange counters
     context["material_exchange_config_total"] = MaterialExchangeConfig.objects.count()
-    context["material_exchange_config_active"] = MaterialExchangeConfig.objects.filter(
-        is_active=True
-    ).count()
-    context["material_exchange_enabled"] = bool(
-        context["material_exchange_config_active"]
+    context["material_exchange_enabled"] = (
+        MaterialExchangeSettings.get_solo().is_enabled
+    )
+    context["material_exchange_config_active"] = (
+        1
+        if context["material_exchange_enabled"]
+        and context["material_exchange_config_total"]
+        else 0
     )
 
     logger.debug(
@@ -70,6 +71,7 @@ def settings_hub(request):
     return render(request, "indy_hub/settings/hub.html", context)
 
 
+@indy_hub_permission_required("can_access_indy_hub")
 @login_required
 def test_darkly_theme(request):
     """Test page for darkly theme CSS overrides."""

@@ -22,7 +22,7 @@ from django.views.decorators.http import require_http_methods
 # Alliance Auth
 from allianceauth.services.hooks import get_extension_logger
 
-from ..decorators import indy_hub_permission_required
+from ..decorators import indy_hub_permission_required, tokens_required
 from ..models import (
     CachedCharacterAsset,
     MaterialExchangeBuyOrder,
@@ -30,6 +30,7 @@ from ..models import (
     MaterialExchangeConfig,
     MaterialExchangeSellOrder,
     MaterialExchangeSellOrderItem,
+    MaterialExchangeSettings,
     MaterialExchangeStock,
     MaterialExchangeTransaction,
 )
@@ -53,6 +54,24 @@ User = get_user_model()
 
 _PRODUCTION_IDS_CACHE: set[int] | None = None
 _INDUSTRY_MARKET_GROUP_IDS_CACHE: set[int] | None = None
+
+
+def _get_material_exchange_settings() -> MaterialExchangeSettings | None:
+    try:
+        return MaterialExchangeSettings.get_solo()
+    except Exception:
+        return None
+
+
+def _is_material_exchange_enabled() -> bool:
+    settings_obj = _get_material_exchange_settings()
+    if settings_obj is None:
+        return True
+    return bool(settings_obj.is_enabled)
+
+
+def _get_material_exchange_config() -> MaterialExchangeConfig | None:
+    return MaterialExchangeConfig.objects.first()
 
 
 def _get_industry_market_group_ids() -> set[int]:
@@ -269,6 +288,7 @@ def _ensure_sell_assets_refresh_started(user) -> dict:
         has_assets_token = (
             Token.objects.filter(user=user)
             .require_scopes(["esi-assets.read_assets.v1"])
+            .require_valid()
             .exists()
         )
     except Exception:
@@ -322,6 +342,9 @@ def _ensure_sell_assets_refresh_started(user) -> dict:
 @indy_hub_permission_required("can_access_indy_hub")
 def material_exchange_sell_assets_refresh_status(request):
     """Return JSON progress for sell-page user asset refresh."""
+
+    if not _is_material_exchange_enabled():
+        return JsonResponse({"running": False, "finished": True, "error": "disabled"})
 
     progress_key = _me_sell_assets_progress_key(request.user.id)
     state = cache.get(progress_key) or {
@@ -380,8 +403,14 @@ def _ensure_buy_stock_refresh_started(config) -> dict:
 @indy_hub_permission_required("can_access_indy_hub")
 def material_exchange_buy_stock_refresh_status(request):
     """Return JSON progress for buy-page stock refresh."""
+    if not _is_material_exchange_enabled():
+        return JsonResponse({"running": False, "finished": True, "error": "disabled"})
 
-    config = get_object_or_404(MaterialExchangeConfig, is_active=True)
+    config = _get_material_exchange_config()
+    if not config:
+        return JsonResponse(
+            {"running": False, "finished": True, "error": "not_configured"}
+        )
     progress_key = (
         f"indy_hub:material_exchange:buy_stock_refresh:{int(config.corporation_id)}"
     )
@@ -413,34 +442,17 @@ def _get_group_map(type_ids: list[int]) -> dict[int, str]:
 
 def _fetch_fuzzwork_prices(type_ids: list[int]) -> dict[int, dict[str, Decimal]]:
     """Batch fetch Jita buy/sell prices from Fuzzwork for given type IDs."""
+    # Local
+    from ..services.fuzzwork import FuzzworkError, fetch_fuzzwork_prices
 
     if not type_ids:
         return {}
 
     try:
-        # Third Party
-        import requests
-
-        jita_station_id = 60003760  # Jita 4-4
-        unique_ids = list({int(t) for t in type_ids if t})
-        type_ids_str = ",".join(map(str, unique_ids))
-        url = f"https://market.fuzzwork.co.uk/aggregates/?station={jita_station_id}&types={type_ids_str}"
-
-        response = requests.get(url, timeout=15)
-        response.raise_for_status()
-        data = response.json()
-    except Exception as exc:  # pragma: no cover - defensive
-        logger.warning(f"material_exchange: failed to fetch fuzzwork prices: {exc}")
+        return fetch_fuzzwork_prices(type_ids, timeout=15)
+    except FuzzworkError as exc:  # pragma: no cover - defensive
+        logger.warning("material_exchange: failed to fetch fuzzwork prices: %s", exc)
         return {}
-
-    prices: dict[int, dict[str, Decimal]] = {}
-    for tid in unique_ids:
-        info = data.get(str(tid), {})
-        buy_price = Decimal(str(info.get("buy", {}).get("max", 0) or 0))
-        sell_price = Decimal(str(info.get("sell", {}).get("min", 0) or 0))
-        prices[tid] = {"buy": buy_price, "sell": sell_price}
-
-    return prices
 
 
 @login_required
@@ -450,16 +462,13 @@ def material_exchange_index(request):
     Material Exchange hub landing page.
     Shows overview, recent transactions, and quick stats.
     """
-    try:
-        config = MaterialExchangeConfig.objects.filter(is_active=True).first()
-    except MaterialExchangeConfig.DoesNotExist:
-        config = None
+    config = _get_material_exchange_config()
+    enabled = _is_material_exchange_enabled()
 
-    if not config:
-        any_config = MaterialExchangeConfig.objects.first()
+    if not enabled or not config:
         context = {
             "nav_context": _build_nav_context(request.user),
-            "material_exchange_disabled": bool(any_config),
+            "material_exchange_disabled": not enabled,
         }
         context.update(
             build_nav_context(
@@ -623,7 +632,14 @@ def material_exchange_history(request):
         messages.error(request, _("You are not allowed to view this page."))
         return redirect("indy_hub:material_exchange_index")
 
-    config = get_object_or_404(MaterialExchangeConfig, is_active=True)
+    if not _is_material_exchange_enabled():
+        messages.warning(request, _("Material Exchange is disabled."))
+        return redirect("indy_hub:material_exchange_index")
+
+    config = _get_material_exchange_config()
+    if not config:
+        messages.warning(request, _("Material Exchange is not configured."))
+        return redirect("indy_hub:material_exchange_index")
     closed_statuses = ["completed", "rejected", "cancelled"]
 
     sell_history = (
@@ -659,12 +675,20 @@ def material_exchange_history(request):
 
 @login_required
 @indy_hub_permission_required("can_access_indy_hub")
-def material_exchange_sell(request):
+@tokens_required(scopes="esi-assets.read_assets.v1")
+def material_exchange_sell(request, tokens):
     """
     Sell materials TO the hub.
     Member chooses materials + quantities, creates ONE order with multiple items.
     """
-    config = get_object_or_404(MaterialExchangeConfig, is_active=True)
+    if not _is_material_exchange_enabled():
+        messages.warning(request, _("Material Exchange is disabled."))
+        return redirect("indy_hub:material_exchange_index")
+
+    config = _get_material_exchange_config()
+    if not config:
+        messages.warning(request, _("Material Exchange is not configured."))
+        return redirect("indy_hub:material_exchange_index")
     materials_with_qty: list[dict] = []
     assets_refreshing = False
 
@@ -1050,12 +1074,20 @@ def material_exchange_sell(request):
 
 @login_required
 @indy_hub_permission_required("can_access_indy_hub")
-def material_exchange_buy(request):
+@tokens_required(scopes="esi-assets.read_corporation_assets.v1")
+def material_exchange_buy(request, tokens):
     """
     Buy materials FROM the hub.
     Member chooses materials + quantities, creates ONE order with multiple items.
     """
-    config = get_object_or_404(MaterialExchangeConfig, is_active=True)
+    if not _is_material_exchange_enabled():
+        messages.warning(request, _("Material Exchange is disabled."))
+        return redirect("indy_hub:material_exchange_index")
+
+    config = _get_material_exchange_config()
+    if not config:
+        messages.warning(request, _("Material Exchange is not configured."))
+        return redirect("indy_hub:material_exchange_index")
     stock_refreshing = False
 
     corp_assets_scope_missing = False
@@ -1353,11 +1385,20 @@ def material_exchange_buy(request):
 @login_required
 @indy_hub_permission_required("can_manage_material_hub")
 @require_http_methods(["POST"])
-def material_exchange_sync_stock(request):
+@tokens_required(scopes="esi-assets.read_corporation_assets.v1")
+def material_exchange_sync_stock(request, tokens):
     """
     Force an immediate sync of stock from ESI corp assets.
     Updates MaterialExchangeStock and redirects back.
     """
+    if not _is_material_exchange_enabled():
+        messages.warning(request, _("Material Exchange is disabled."))
+        return redirect("indy_hub:material_exchange_index")
+
+    if not _get_material_exchange_config():
+        messages.warning(request, _("Material Exchange is not configured."))
+        return redirect("indy_hub:material_exchange_index")
+
     try:
         sync_material_exchange_stock()
         config = MaterialExchangeConfig.objects.first()
@@ -1388,6 +1429,14 @@ def material_exchange_sync_prices(request):
     Force an immediate sync of Jita prices for current stock items.
     Updates MaterialExchangeStock jita_buy_price/jita_sell_price and redirects back.
     """
+    if not _is_material_exchange_enabled():
+        messages.warning(request, _("Material Exchange is disabled."))
+        return redirect("indy_hub:material_exchange_index")
+
+    if not _get_material_exchange_config():
+        messages.warning(request, _("Material Exchange is not configured."))
+        return redirect("indy_hub:material_exchange_index")
+
     try:
         sync_material_exchange_prices()
         config = MaterialExchangeConfig.objects.first()
@@ -1689,7 +1738,14 @@ def material_exchange_transactions(request):
     Transaction history and finance reporting.
     Shows all completed transactions with filters and monthly aggregates.
     """
-    config = get_object_or_404(MaterialExchangeConfig, is_active=True)
+    if not _is_material_exchange_enabled():
+        messages.warning(request, _("Material Exchange is disabled."))
+        return redirect("indy_hub:material_exchange_index")
+
+    config = _get_material_exchange_config()
+    if not config:
+        messages.warning(request, _("Material Exchange is not configured."))
+        return redirect("indy_hub:material_exchange_index")
 
     # Filters
     transaction_type = request.GET.get("type", "")  # 'sell', 'buy', or ''
