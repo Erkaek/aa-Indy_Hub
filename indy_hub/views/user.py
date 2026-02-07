@@ -348,11 +348,17 @@ def _collect_corporation_scope_status(
 
         blueprint_token = _select_corporation_token(token_qs, CORP_BLUEPRINT_SCOPE)
         jobs_token = _select_corporation_token(token_qs, CORP_JOBS_SCOPE)
-        if not blueprint_token and not jobs_token:
+        roles_token = (
+            token_qs.require_scopes([CORP_ROLES_SCOPE])
+            .require_valid()
+            .order_by("-created")
+            .first()
+        )
+        if not blueprint_token and not jobs_token and not roles_token:
             continue
 
         # Use the selected token directly to avoid Token.get_token() finding wrong token
-        token_to_use = blueprint_token or jobs_token
+        token_to_use = blueprint_token or jobs_token or roles_token
         try:
             roles = _fetch_character_corporation_roles_with_token(token_to_use)
         except ESITokenError:
@@ -471,6 +477,7 @@ def _collect_corporation_scope_status(
                     "last_updated": None,
                 },
                 "authorization": _build_corporation_authorization_summary(setting),
+                "has_director_role": True,
             },
         )
 
@@ -478,6 +485,7 @@ def _collect_corporation_scope_status(
             entry["corporation_name"] = corp_name
 
         entry["authorization"] = _build_corporation_authorization_summary(setting)
+        entry["has_director_role"] = True
 
         if blueprint_token and not entry["blueprint"]["has_scope"]:
             entry["blueprint"] = {
@@ -1850,6 +1858,7 @@ def token_management(request, tokens):
         for status in corp_scope_status
         if status.get("blueprint", {}).get("has_scope")
         or status.get("jobs", {}).get("has_scope")
+        or status.get("has_director_role")
     ]
     corporation_sharing = build_corporation_sharing_context(request.user)
     can_manage_corp = request.user.has_perm("indy_hub.can_manage_corp_bp_requests")
