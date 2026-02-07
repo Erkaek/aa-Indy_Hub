@@ -179,9 +179,9 @@ class ESIClient:
             character_id=character_id,
             endpoint=f"/characters/{character_id}/roles/",
             scope="esi-characters.read_corporation_roles.v1",
-            operation=lambda access_token: operation_fn(
+            operation=lambda token: operation_fn(
                 character_id=character_id,
-                token=access_token,
+                token=token,
             ),
         )
 
@@ -217,9 +217,9 @@ class ESIClient:
                 structure_id=int(structure_id),
                 endpoint=f"/universe/structures/{int(structure_id)}/",
                 scope="esi-universe.read_structures.v1",
-                operation=lambda access_token: operation_fn(
+                operation=lambda token: operation_fn(
                     structure_id=int(structure_id),
-                    token=access_token,
+                    token=token,
                 ),
             )
         except ESIForbiddenError:
@@ -245,7 +245,7 @@ class ESIClient:
     ) -> list[dict]:
         token_obj = self._get_token(character_id, scope)
         try:
-            access_token = token_obj.valid_access_token()
+            token_obj.valid_access_token()
         except Exception as exc:
             raise ESITokenError(
                 f"No valid token for character {character_id} and scope {scope}"
@@ -259,7 +259,7 @@ class ESIClient:
             ) from exc
 
         try:
-            payload = operation_fn(**params, token=access_token).results()
+            payload = operation_fn(**params, token=token_obj).results()
         except HTTPError as exc:
             self._handle_http_error(
                 exc,
@@ -461,13 +461,13 @@ class ESIClient:
         if operation is None:
             raise ESIClientError("No ESI operation provided")
         try:
-            access_token = token_obj.valid_access_token()
+            token_obj.valid_access_token()
         except Exception as exc:
             raise ESITokenError(
                 f"No valid token for character {character_id} and scope {scope}"
             ) from exc
         try:
-            return operation(access_token).results()
+            return operation(token_obj).results()
         except HTTPError as exc:
             self._handle_http_error(
                 exc,

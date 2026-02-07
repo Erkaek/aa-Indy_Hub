@@ -146,15 +146,9 @@ ASSETS_SCOPE_SET = [ASSETS_SCOPE]
 def _fetch_character_corporation_roles_with_token(token_obj: Token) -> set[str]:
     """Fetch corporation roles using a specific token instead of Token.get_token()."""
     try:
-        access_token = token_obj.valid_access_token()
-    except Exception as exc:
-        raise ESITokenError(
-            f"No valid access token for character {token_obj.character_id}"
-        ) from exc
-    try:
         payload = esi_provider.client.Character.get_characters_character_id_roles(
             character_id=token_obj.character_id,
-            token=access_token,
+            token=token_obj,
         ).results()
     except HTTPError as exc:
         status_code = getattr(exc, "status_code", None) or getattr(

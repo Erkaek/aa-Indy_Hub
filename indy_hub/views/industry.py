@@ -113,10 +113,9 @@ logger = get_extension_logger(__name__)
 
 def _fetch_character_skill_levels(character_id: int) -> dict[int, int]:
     token = Token.get_token(character_id, SKILLS_SCOPE)
-    access_token = token.valid_access_token()
     payload = shared_client.client.Skills.get_characters_character_id_skills(
         character_id=character_id,
-        token=access_token,
+        token=token,
     ).results()
     skills = payload.get("skills", []) if payload else []
     return {

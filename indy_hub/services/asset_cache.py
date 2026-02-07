@@ -835,7 +835,7 @@ def _refresh_corp_divisions(corporation_id: int) -> tuple[dict[int, str], bool]:
         divisions_data = (
             esi.client.Corporation.get_corporations_corporation_id_divisions(
                 corporation_id=corporation_id,
-                token=token_obj.valid_access_token(),
+                token=token_obj,
             ).results()
         )
         hangar_divisions = divisions_data.get("hangar", []) if divisions_data else []
