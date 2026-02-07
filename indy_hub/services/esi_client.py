@@ -67,6 +67,10 @@ class ESIRateLimitError(ESIClientError):
         self.remaining = remaining
 
 
+class ESIUnmodifiedError(ESIClientError):
+    """Raised when ESI responds with HTTP 304 (Not Modified)."""
+
+
 def rate_limit_wait_seconds(response, fallback: float) -> tuple[float, int | None]:
     """Return the recommended pause in seconds from ESI headers."""
 
@@ -517,6 +521,16 @@ class ESIClient:
             raise ESIRateLimitError(
                 retry_after=sleep_for,
                 remaining=remaining,
+            ) from exc
+
+        if status_code == 304:
+            raise ESIUnmodifiedError(
+                f"ESI returned 304 for {endpoint or 'request'}"
+            ) from exc
+
+        if status_code == 304:
+            raise ESIUnmodifiedError(
+                f"ESI returned 304 for {endpoint or 'request'}"
             ) from exc
 
         if status_code == 403 and character_id is not None:

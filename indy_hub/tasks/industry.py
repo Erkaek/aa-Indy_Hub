@@ -61,6 +61,7 @@ from ..services.esi_client import (
     ESIForbiddenError,
     ESIRateLimitError,
     ESITokenError,
+    ESIUnmodifiedError,
     shared_client,
 )
 from ..services.location_population import populate_location_names
@@ -173,6 +174,15 @@ def get_character_corporation_roles(character_id: int) -> set[str]:
 
     try:
         payload = shared_client.fetch_character_corporation_roles(int(character_id))
+    except ESIUnmodifiedError:
+        cached = _CORPORATION_ROLE_CACHE.get(character_id)
+        if cached is not None:
+            return cached
+        logger.debug(
+            "Corporation roles not modified for character %s; no cache available",
+            character_id,
+        )
+        return set()
     except (ESITokenError, ESIForbiddenError, ESIRateLimitError, ESIClientError) as exc:
         logger.warning(
             "Failed to fetch corporation roles for character %s: %s",
@@ -623,6 +633,13 @@ def update_blueprints_for_user(self, user_id, scope: str | None = None):
                 )
 
             blueprints = shared_client.fetch_character_blueprints(char_id)
+        except ESIUnmodifiedError:
+            logger.debug(
+                "Blueprints not modified for %s (%s); skipping sync",
+                character_name,
+                char_id,
+            )
+            continue
         except ESITokenError as exc:
             message = f"Invalid token for {character_name} ({char_id}): {exc}"
             logger.warning(message)
@@ -718,6 +735,13 @@ def update_blueprints_for_user(self, user_id, scope: str | None = None):
                 corp_blueprints = shared_client.fetch_corporation_blueprints(
                     int(corp_id), character_id=int(corp_char_id)
                 )
+            except ESIUnmodifiedError:
+                logger.debug(
+                    "Corporate blueprints not modified for %s (%s); skipping sync",
+                    corp_name,
+                    corp_id,
+                )
+                continue
             except ESITokenError as exc:
                 message = f"Invalid token for corporation {corp_name} ({corp_id}) via {acting_character_name}: {exc}"
                 logger.warning(message)
@@ -904,7 +928,7 @@ def update_industry_jobs_for_user(self, user_id, scope: str | None = None):
                 if chosen_scopes is None:
                     scope_list = ", ".join(base_scopes)
                     message = f"{character_name} ({char_id}) missing token for scopes {scope_list}"
-                    logger.debug(message)
+                    logger.warning(message)
                     error_messages.append(message)
                     continue
 
@@ -915,6 +939,25 @@ def update_industry_jobs_for_user(self, user_id, scope: str | None = None):
                     )
 
                 jobs = shared_client.fetch_character_industry_jobs(char_id)
+                if not isinstance(jobs, list):
+                    payload_type = type(jobs).__name__
+                    logger.warning(
+                        "Skipping industry jobs for %s (%s): unexpected payload type %s",
+                        character_name,
+                        char_id,
+                        payload_type,
+                    )
+                    error_messages.append(
+                        f"Unexpected industry jobs payload type for {character_name} ({char_id}): {payload_type}"
+                    )
+                    continue
+            except ESIUnmodifiedError:
+                logger.debug(
+                    "Industry jobs not modified for %s (%s); skipping sync",
+                    character_name,
+                    char_id,
+                )
+                continue
             except ESITokenError as exc:
                 message = f"Invalid token for {character_name} ({char_id}): {exc}"
                 logger.warning(message)
@@ -938,6 +981,14 @@ def update_industry_jobs_for_user(self, user_id, scope: str | None = None):
             esi_job_ids = set()
             with transaction.atomic():
                 for job in jobs:
+                    if not isinstance(job, dict):
+                        logger.warning(
+                            "Skipping industry job with unexpected payload type for %s: %s (%r)",
+                            character_name,
+                            type(job).__name__,
+                            job,
+                        )
+                        continue
                     job_id = job.get("job_id")
                     if job_id is None:
                         logger.debug(
@@ -1091,6 +1142,25 @@ def update_industry_jobs_for_user(self, user_id, scope: str | None = None):
                     corp_jobs = shared_client.fetch_corporation_industry_jobs(
                         int(corp_id), character_id=int(corp_char_id)
                     )
+                    if not isinstance(corp_jobs, list):
+                        payload_type = type(corp_jobs).__name__
+                        logger.warning(
+                            "Skipping corporation jobs for %s (%s): unexpected payload type %s",
+                            corp_name,
+                            corp_id,
+                            payload_type,
+                        )
+                        error_messages.append(
+                            f"Unexpected corporation jobs payload type for {corp_name} ({corp_id}): {payload_type}"
+                        )
+                        continue
+                except ESIUnmodifiedError:
+                    logger.debug(
+                        "Corporate jobs not modified for %s (%s); skipping sync",
+                        corp_name,
+                        corp_id,
+                    )
+                    continue
                 except ESITokenError as exc:
                     message = f"Invalid token for corporation {corp_name} ({corp_id}) via {acting_character_name}: {exc}"
                     logger.warning(message)
@@ -1117,6 +1187,14 @@ def update_industry_jobs_for_user(self, user_id, scope: str | None = None):
                 corp_job_ids: set[int] = set()
                 with transaction.atomic():
                     for job in corp_jobs:
+                        if not isinstance(job, dict):
+                            logger.warning(
+                                "Skipping corporate job with unexpected payload type for %s: %s (%r)",
+                                corp_name,
+                                type(job).__name__,
+                                job,
+                            )
+                            continue
                         job_id = job.get("job_id")
                         if job_id is None:
                             logger.debug(

@@ -76,6 +76,7 @@ from indy_hub.services.esi_client import (
     ESIForbiddenError,
     ESIRateLimitError,
     ESITokenError,
+    ESIUnmodifiedError,
     shared_client,
 )
 
@@ -83,6 +84,27 @@ logger = get_extension_logger(__name__)
 
 # Cache for structure names to avoid repeated ESI lookups
 _structure_name_cache: dict[int, str] = {}
+
+
+def _normalize_esi_mapping(payload, *, context: str) -> dict | None:
+    """Return a dict from an ESI payload or None if unsupported."""
+    if isinstance(payload, dict):
+        return payload
+    for attr in ("model_dump", "dict", "to_dict"):
+        converter = getattr(payload, attr, None)
+        if callable(converter):
+            try:
+                result = converter()
+            except Exception:  # pragma: no cover - defensive
+                result = None
+            if isinstance(result, dict):
+                return result
+    logger.warning(
+        "Unexpected %s payload type for material exchange contracts: %s",
+        context,
+        type(payload).__name__,
+    )
+    return None
 
 
 def _log_sell_order_transactions(order: MaterialExchangeSellOrder) -> None:
@@ -335,6 +357,13 @@ def _sync_contracts_for_corporation(corporation_id: int):
             corporation_id=corporation_id,
             character_id=character_id,
         )
+        if not isinstance(contracts, list):
+            logger.warning(
+                "Skipping contract sync for corporation %s: unexpected payload type %s",
+                corporation_id,
+                type(contracts).__name__,
+            )
+            return
 
         logger.info(
             "Fetched %s contracts from ESI for corporation %s",
@@ -347,6 +376,12 @@ def _sync_contracts_for_corporation(corporation_id: int):
             "Cannot sync contracts for corporation %s - missing ESI scope: %s",
             corporation_id,
             exc,
+        )
+        return
+    except ESIUnmodifiedError:
+        logger.debug(
+            "Contracts not modified for corporation %s; skipping sync",
+            corporation_id,
         )
         return
     except ESIRateLimitError as exc:
@@ -371,12 +406,19 @@ def _sync_contracts_for_corporation(corporation_id: int):
 
     with transaction.atomic():
         for contract_data in contracts:
-            contract_id = contract_data.get("contract_id")
+            contract_payload = _normalize_esi_mapping(
+                contract_data,
+                context=f"contract ({corporation_id})",
+            )
+            if not contract_payload:
+                continue
+
+            contract_id = contract_payload.get("contract_id")
             if not contract_id:
                 continue
 
             # Filter: only process contracts with "INDY" in title
-            contract_title = contract_data.get("title", "")
+            contract_title = contract_payload.get("title", "")
             if "INDY" not in contract_title.upper():
                 continue
 
@@ -387,24 +429,24 @@ def _sync_contracts_for_corporation(corporation_id: int):
             contract, created = ESIContract.objects.update_or_create(
                 contract_id=contract_id,
                 defaults={
-                    "issuer_id": contract_data.get("issuer_id", 0),
-                    "issuer_corporation_id": contract_data.get(
+                    "issuer_id": contract_payload.get("issuer_id", 0),
+                    "issuer_corporation_id": contract_payload.get(
                         "issuer_corporation_id", 0
                     ),
-                    "assignee_id": contract_data.get("assignee_id", 0),
-                    "acceptor_id": contract_data.get("acceptor_id", 0),
-                    "contract_type": contract_data.get("type", "unknown"),
-                    "status": contract_data.get("status", "unknown"),
-                    "title": contract_data.get("title", ""),
-                    "start_location_id": contract_data.get("start_location_id"),
-                    "end_location_id": contract_data.get("end_location_id"),
-                    "price": Decimal(str(contract_data.get("price") or 0)),
-                    "reward": Decimal(str(contract_data.get("reward") or 0)),
-                    "collateral": Decimal(str(contract_data.get("collateral") or 0)),
-                    "date_issued": contract_data.get("date_issued"),
-                    "date_expired": contract_data.get("date_expired"),
-                    "date_accepted": contract_data.get("date_accepted"),
-                    "date_completed": contract_data.get("date_completed"),
+                    "assignee_id": contract_payload.get("assignee_id", 0),
+                    "acceptor_id": contract_payload.get("acceptor_id", 0),
+                    "contract_type": contract_payload.get("type", "unknown"),
+                    "status": contract_payload.get("status", "unknown"),
+                    "title": contract_payload.get("title", ""),
+                    "start_location_id": contract_payload.get("start_location_id"),
+                    "end_location_id": contract_payload.get("end_location_id"),
+                    "price": Decimal(str(contract_payload.get("price") or 0)),
+                    "reward": Decimal(str(contract_payload.get("reward") or 0)),
+                    "collateral": Decimal(str(contract_payload.get("collateral") or 0)),
+                    "date_issued": contract_payload.get("date_issued"),
+                    "date_expired": contract_payload.get("date_expired"),
+                    "date_accepted": contract_payload.get("date_accepted"),
+                    "date_completed": contract_payload.get("date_completed"),
                     "corporation_id": corporation_id,
                 },
             )
@@ -412,8 +454,8 @@ def _sync_contracts_for_corporation(corporation_id: int):
             # Fetch and store contract items for item_exchange contracts
             # Only fetch items for contracts where items are accessible (outstanding/in_progress)
             # Completed/expired contracts return 404 for items endpoint
-            contract_status = contract_data.get("status", "")
-            if contract_data.get("type") == "item_exchange" and contract_status in [
+            contract_status = contract_payload.get("status", "")
+            if contract_payload.get("type") == "item_exchange" and contract_status in [
                 "outstanding",
                 "in_progress",
             ]:
@@ -423,18 +465,31 @@ def _sync_contracts_for_corporation(corporation_id: int):
                         contract_id=contract_id,
                         character_id=character_id,
                     )
+                    if not isinstance(contract_items, list):
+                        logger.warning(
+                            "Skipping contract items for %s: unexpected payload type %s",
+                            contract_id,
+                            type(contract_items).__name__,
+                        )
+                        continue
 
                     # Clear existing items and create new ones
                     ESIContractItem.objects.filter(contract=contract).delete()
 
                     for item_data in contract_items:
+                        item_payload = _normalize_esi_mapping(
+                            item_data,
+                            context=f"contract item ({contract_id})",
+                        )
+                        if not item_payload:
+                            continue
                         ESIContractItem.objects.create(
                             contract=contract,
-                            record_id=item_data.get("record_id", 0),
-                            type_id=item_data.get("type_id", 0),
-                            quantity=item_data.get("quantity", 0),
-                            is_included=item_data.get("is_included", False),
-                            is_singleton=item_data.get("is_singleton", False),
+                            record_id=item_payload.get("record_id", 0),
+                            type_id=item_payload.get("type_id", 0),
+                            quantity=item_payload.get("quantity", 0),
+                            is_included=item_payload.get("is_included", False),
+                            is_singleton=item_payload.get("is_singleton", False),
                         )
 
                     logger.info(
@@ -443,6 +498,11 @@ def _sync_contracts_for_corporation(corporation_id: int):
                         len(contract_items),
                     )
 
+                except ESIUnmodifiedError:
+                    logger.debug(
+                        "Contract items not modified for %s; skipping items sync",
+                        contract_id,
+                    )
                 except ESIClientError as exc:
                     # 404 is normal for contracts without items or expired contracts
                     if "404" in str(exc):
