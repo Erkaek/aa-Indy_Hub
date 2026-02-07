@@ -1716,21 +1716,23 @@ def index(request):
 
     # Cached slot recap (no ESI calls on the overview page).
     try:
+        # Django
         from django.db.models import Count
         from django.utils import timezone
 
+        # Alliance Auth
         from allianceauth.authentication.models import CharacterOwnership
 
+        from ..models import Blueprint, IndustryJob, IndustrySkillSnapshot
         from .industry import (
             MANUFACTURING_ACTIVITY_IDS,
             REACTION_ACTIVITY_IDS,
             RESEARCH_ACTIVITY_IDS,
         )
-        from ..models import Blueprint, IndustryJob, IndustrySkillSnapshot
 
-        ownerships = CharacterOwnership.objects.filter(user=request.user).select_related(
-            "character"
-        )
+        ownerships = CharacterOwnership.objects.filter(
+            user=request.user
+        ).select_related("character")
         character_ids = [
             ownership.character.character_id
             for ownership in ownerships
@@ -1814,7 +1816,10 @@ def index(request):
 
         context["unused_slots_summary"] = (
             unused_summary
-            if any(unused_summary[k]["total"] for k in ("manufacturing", "research", "reactions"))
+            if any(
+                unused_summary[k]["total"]
+                for k in ("manufacturing", "research", "reactions")
+            )
             else None
         )
     except Exception:
@@ -2322,10 +2327,7 @@ def authorize_all(request):
         .values_list("character_id", flat=True)
     )
     missing = set(all_chars) - (
-        set(blueprint_auth)
-        & set(jobs_auth)
-        & set(assets_auth)
-        & set(skills_auth)
+        set(blueprint_auth) & set(jobs_auth) & set(assets_auth) & set(skills_auth)
     )
     if not missing:
         messages.info(request, "All characters already authorized for all scopes.")

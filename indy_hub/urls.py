@@ -31,13 +31,13 @@ from .views.industry import (
     bp_reject_copy_request,
     bp_update_copy_request,
     craft_bp,
-    industry_slot_overview,
 )
 from .views.industry import (
     delete_production_simulation as delete_production_simulation_view,
 )
 from .views.industry import (
     edit_simulation_name,
+    industry_slot_overview,
     personnal_bp_list,
     personnal_job_list,
     production_simulations_list,

@@ -82,6 +82,7 @@ from ..utils.eve import (
     get_corporation_ticker,
     get_type_name,
 )
+from .navigation import build_nav_context
 
 # ESI skills scope + industry slot calculations
 SKILLS_SCOPE = "esi-skills.read_skills.v1"
@@ -97,9 +98,6 @@ SKILL_TYPE_IDS = {
 MANUFACTURING_ACTIVITY_IDS = {1}
 RESEARCH_ACTIVITY_IDS = {3, 4, 5, 8}
 REACTION_ACTIVITY_IDS = {9, 11}
-
-# Indy Hub
-from .navigation import build_nav_context
 
 if "eveuniverse" in getattr(settings, "INSTALLED_APPS", ()):  # pragma: no branch
     try:  # pragma: no cover - EveUniverse optional
@@ -123,9 +121,7 @@ def _fetch_character_skill_levels(character_id: int) -> dict[int, int]:
     skills = payload.get("skills", []) if payload else []
     return {
         int(skill.get("skill_id")): int(
-            skill.get("active_skill_level")
-            or skill.get("trained_skill_level")
-            or 0
+            skill.get("active_skill_level") or skill.get("trained_skill_level") or 0
         )
         for skill in skills
         if skill.get("skill_id")
@@ -141,9 +137,7 @@ def _update_skill_snapshot(
         owner_user=user,
         character_id=character_id,
         defaults={
-            "mass_production_level": levels.get(
-                SKILL_TYPE_IDS["mass_production"], 0
-            ),
+            "mass_production_level": levels.get(SKILL_TYPE_IDS["mass_production"], 0),
             "advanced_mass_production_level": levels.get(
                 SKILL_TYPE_IDS["advanced_mass_production"], 0
             ),
@@ -153,9 +147,7 @@ def _update_skill_snapshot(
             "advanced_laboratory_operation_level": levels.get(
                 SKILL_TYPE_IDS["advanced_laboratory_operation"], 0
             ),
-            "mass_reactions_level": levels.get(
-                SKILL_TYPE_IDS["mass_reactions"], 0
-            ),
+            "mass_reactions_level": levels.get(SKILL_TYPE_IDS["mass_reactions"], 0),
             "advanced_mass_reactions_level": levels.get(
                 SKILL_TYPE_IDS["advanced_mass_reactions"], 0
             ),
@@ -174,7 +166,9 @@ def _build_slot_overview_rows(user: User) -> list[dict[str, object]]:
         "character"
     )
     character_ids = [
-        ownership.character.character_id for ownership in ownerships if ownership.character
+        ownership.character.character_id
+        for ownership in ownerships
+        if ownership.character
     ]
     now = timezone.now()
 
@@ -220,12 +214,16 @@ def _build_slot_overview_rows(user: User) -> list[dict[str, object]]:
         elif activity_id in REACTION_ACTIVITY_IDS:
             used_counts[char_id]["reactions"] += total
 
-    def _slots_payload(total_value: int | None, used_value: int) -> dict[str, int | None]:
+    def _slots_payload(
+        total_value: int | None, used_value: int
+    ) -> dict[str, int | None]:
         if total_value is None:
             return {"total": None, "available": None, "used": None, "percent_used": 0}
         used_clamped = min(max(used_value, 0), total_value)
         available = max(total_value - used_clamped, 0)
-        percent_used = int(round((used_clamped / total_value) * 100)) if total_value else 0
+        percent_used = (
+            int(round((used_clamped / total_value) * 100)) if total_value else 0
+        )
         return {
             "total": total_value,
             "available": available,
@@ -269,7 +267,9 @@ def _build_slot_overview_rows(user: User) -> list[dict[str, object]]:
                 "character_id": character_id,
                 "name": get_character_name(character_id),
                 "skills_missing": skills_missing,
-                "manufacturing": _slots_payload(totals["manufacturing"], used["manufacturing"]),
+                "manufacturing": _slots_payload(
+                    totals["manufacturing"], used["manufacturing"]
+                ),
                 "research": _slots_payload(totals["research"], used["research"]),
                 "reactions": _slots_payload(totals["reactions"], used["reactions"]),
             }
@@ -1457,8 +1457,6 @@ def personnal_bp_list(request, scope="character"):
             ("1", activity_labels[1]),
             ("9,11", activity_labels[9]),
         ]
-        slot_overview_rows = _build_slot_overview_rows(request.user)
-        slot_overview_rows = _build_slot_overview_rows(request.user)
         context = {
             "blueprints": blueprints_page,
             "statistics": {

@@ -319,6 +319,26 @@ class IndustryJob(models.Model):
             copy_type_id = self.product_type_id or self.blueprint_type_id
             return f"https://images.evetech.net/types/{copy_type_id}/bpc?size={size}"
 
+        # When blueprint and product IDs match, prefer the blueprint original artwork
+        if self.product_type_id and self.blueprint_type_id == self.product_type_id:
+            return (
+                "https://images.evetech.net/types/"
+                f"{self.product_type_id}/bp?size={size}"
+            )
+
+        # Otherwise favour the product icon if available
+        if self.product_type_id:
+            return (
+                "https://images.evetech.net/types/"
+                f"{self.product_type_id}/icon?size={size}"
+            )
+
+        # Fallback for missing product IDs – display the blueprint artwork
+        return (
+            "https://images.evetech.net/types/"
+            f"{self.blueprint_type_id}/bp?size={size}"
+        )
+
 
 class IndustrySkillSnapshot(models.Model):
     owner_user = models.ForeignKey(
@@ -350,9 +370,7 @@ class IndustrySkillSnapshot(models.Model):
 
     @property
     def manufacturing_slots(self) -> int:
-        return (
-            1 + self.mass_production_level + self.advanced_mass_production_level
-        )
+        return 1 + self.mass_production_level + self.advanced_mass_production_level
 
     @property
     def research_slots(self) -> int:
@@ -365,19 +383,6 @@ class IndustrySkillSnapshot(models.Model):
     @property
     def reaction_slots(self) -> int:
         return 1 + self.mass_reactions_level + self.advanced_mass_reactions_level
-
-        # When blueprint and product IDs match, prefer the blueprint original artwork
-        if self.product_type_id and self.blueprint_type_id == self.product_type_id:
-            return f"https://images.evetech.net/types/{self.product_type_id}/bp?size={size}"
-
-        # Otherwise favour the product icon if available
-        if self.product_type_id:
-            return f"https://images.evetech.net/types/{self.product_type_id}/icon?size={size}"
-
-        # Fallback for missing product IDs – display the blueprint artwork
-        return (
-            f"https://images.evetech.net/types/{self.blueprint_type_id}/bp?size={size}"
-        )
 
     @property
     def progress_percent(self):
