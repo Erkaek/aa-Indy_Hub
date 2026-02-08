@@ -306,7 +306,11 @@ def _normalized_roles(roles: list[str] | tuple[str, ...] | None) -> set[str]:
     return {str(role).upper() for role in roles if role}
 
 
-def _fetch_character_skill_levels_with_token(token_obj: Token) -> dict[int, int]:
+def _fetch_character_skill_levels_with_token(
+    token_obj: Token,
+    *,
+    force_refresh: bool = False,
+) -> dict[int, int]:
     client = shared_client.client
     skills_resource = getattr(client, "Skills", None)
     if skills_resource is not None and hasattr(
@@ -322,17 +326,25 @@ def _fetch_character_skill_levels_with_token(token_obj: Token) -> dict[int, int]
         ) or getattr(character_resource, "GetCharactersCharacterIdSkills")
 
     try:
+        request_kwargs = {}
+        if force_refresh:
+            request_kwargs["If-None-Match"] = ""
         payload = operation_fn(
             character_id=token_obj.character_id,
             token=token_obj,
+            **request_kwargs,
         ).results()
     except Exception as exc:
         if "is not of type 'string'" not in str(exc):
             raise
         access_token = token_obj.valid_access_token()
+        request_kwargs = {}
+        if force_refresh:
+            request_kwargs["If-None-Match"] = ""
         payload = operation_fn(
             character_id=token_obj.character_id,
             token=access_token,
+            **request_kwargs,
         ).results()
 
     skills = payload.get("skills", []) if payload else []
@@ -370,13 +382,17 @@ def get_character_corporation_roles(character_id: int) -> set[str]:
     if character_id in _CORPORATION_ROLE_CACHE:
         return _CORPORATION_ROLE_CACHE[character_id]
 
+    table_empty = not CharacterRoles.objects.exists()
+    snapshot = CharacterRoles.objects.filter(character_id=character_id).first()
     try:
-        payload = shared_client.fetch_character_corporation_roles(int(character_id))
+        payload = shared_client.fetch_character_corporation_roles(
+            int(character_id),
+            force_refresh=table_empty or snapshot is None,
+        )
     except ESIUnmodifiedError:
         cached = _CORPORATION_ROLE_CACHE.get(character_id)
         if cached is not None:
             return cached
-        snapshot = CharacterRoles.objects.filter(character_id=character_id).first()
         if snapshot:
             roles = _roles_from_snapshot(snapshot)
             _CORPORATION_ROLE_CACHE[character_id] = roles
@@ -1806,6 +1822,7 @@ def update_all_skill_snapshots() -> dict[str, int]:
     skipped = 0
     failures = 0
     seen: set[int] = set()
+    table_empty = not IndustrySkillSnapshot.objects.exists()
 
     min_age = timezone.now() - SKILL_REFRESH_MIN_AGE
 
@@ -1834,7 +1851,10 @@ def update_all_skill_snapshots() -> dict[str, int]:
             continue
 
         try:
-            levels = _fetch_character_skill_levels_with_token(token)
+            levels = _fetch_character_skill_levels_with_token(
+                token,
+                force_refresh=table_empty or snapshot is None,
+            )
         except (
             ESITokenError,
             ESIForbiddenError,

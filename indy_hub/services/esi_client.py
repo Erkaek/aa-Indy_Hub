@@ -200,7 +200,12 @@ class ESIClient:
             params={"corporation_id": corporation_id},
         )
 
-    def fetch_character_corporation_roles(self, character_id: int) -> dict:
+    def fetch_character_corporation_roles(
+        self,
+        character_id: int,
+        *,
+        force_refresh: bool = False,
+    ) -> dict:
         """Return the corporation roles assigned to a character."""
         token_obj = self._get_token(
             character_id, "esi-characters.read_corporation_roles.v1"
@@ -208,7 +213,10 @@ class ESIClient:
         operation_fn = self._resolve_operation(
             "Character", "get_characters_character_id_roles"
         )
-        return self._call_authed(
+        request_kwargs = {}
+        if force_refresh:
+            request_kwargs["If-None-Match"] = ""
+        payload = self._call_authed(
             token_obj,
             character_id=character_id,
             endpoint=f"/characters/{character_id}/roles/",
@@ -216,7 +224,22 @@ class ESIClient:
             operation=lambda token: operation_fn(
                 character_id=character_id,
                 token=token,
+                **request_kwargs,
             ),
+        )
+        if isinstance(payload, list):
+            if not payload:
+                raise ESIClientError(
+                    "ESI /characters/{character_id}/roles returned an empty payload"
+                )
+            payload = payload[0]
+        if isinstance(payload, dict):
+            return payload
+        coerced = self._coerce_mapping(payload)
+        if isinstance(coerced, dict):
+            return coerced
+        raise ESIClientError(
+            "ESI /characters/{character_id}/roles returned an unexpected payload"
         )
 
     def fetch_character_online_status(self, character_id: int) -> dict:

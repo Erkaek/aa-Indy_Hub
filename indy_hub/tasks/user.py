@@ -143,6 +143,7 @@ def _coerce_role_list(value: object) -> list[str]:
 @shared_task
 def update_character_roles_for_character(user_id: int, character_id: int) -> dict:
     """Refresh stored corporation roles for a single character."""
+    table_empty = not CharacterRoles.objects.exists()
     ownership = (
         CharacterOwnership.objects.filter(
             user_id=user_id, character__character_id=character_id
@@ -163,8 +164,12 @@ def update_character_roles_for_character(user_id: int, character_id: int) -> dic
     if not token:
         return {"status": "skipped", "reason": "token_missing"}
 
+    snapshot = CharacterRoles.objects.filter(character_id=character_id).first()
     try:
-        payload = shared_client.fetch_character_corporation_roles(int(character_id))
+        payload = shared_client.fetch_character_corporation_roles(
+            int(character_id),
+            force_refresh=table_empty or snapshot is None,
+        )
     except ESIUnmodifiedError:
         return {"status": "skipped", "reason": "not_modified"}
     except ESIRateLimitError as exc:
@@ -186,6 +191,16 @@ def update_character_roles_for_character(user_id: int, character_id: int) -> dic
         )
         return {"status": "failed", "reason": str(exc)}
 
+    if isinstance(payload, list):
+        if not payload:
+            logger.debug(
+                "Empty corporation roles payload for character %s",
+                character_id,
+            )
+            return {"status": "failed", "reason": "unexpected_payload"}
+        payload = payload[0]
+    if not isinstance(payload, dict):
+        payload = shared_client._coerce_mapping(payload)
     if not isinstance(payload, dict):
         logger.debug(
             "Unexpected corporation roles payload type for character %s: %s",
