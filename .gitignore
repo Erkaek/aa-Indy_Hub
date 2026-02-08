@@ -58,3 +58,4 @@ runtests.py
 # Local developer notes
 # ======================
 NOTES.local.md
+.github/copilot-instructions.md
