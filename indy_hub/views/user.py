@@ -2180,21 +2180,8 @@ def token_management(request, tokens):
                     message += " " + _("Indy Hub removed the unusable tokens.")
                 level = "warning"
             elif reason == "missing_required_roles":
-                required_roles = warning.get("required_roles") or sorted(
-                    REQUIRED_CORPORATION_ROLES
-                )
-                message = _(
-                    "%(character)s lacks the required corporation roles (%(roles)s) for %(corporation)s."
-                ) % {
-                    "character": character_name,
-                    "roles": ", ".join(required_roles),
-                    "corporation": corp_name,
-                }
-                if warning.get("tokens_revoked"):
-                    message += " " + _("Indy Hub removed the unusable tokens.")
-                else:
-                    message += " " + _("Tokens remain restricted.")
-                level = "danger"
+                # Hide required-role warnings on the ESI page.
+                continue
             elif reason == "roles_unavailable":
                 message = _(
                     "Indy Hub could not verify corporation roles for %(corporation)s. The corporation is still listed, but scopes remain unverified."

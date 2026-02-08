@@ -298,6 +298,7 @@ SKILL_REFRESH_MIN_AGE = timedelta(days=1)
 _OPTIONAL_CORPORATION_SCOPES = {STRUCTURE_SCOPE}
 REQUIRED_CORPORATION_ROLES = {"DIRECTOR", "FACTORY_MANAGER"}
 _CORPORATION_ROLE_CACHE: dict[int, set[str]] = {}
+_SKILLS_OPERATION_UNAVAILABLE = False
 
 
 def _normalized_roles(roles: list[str] | tuple[str, ...] | None) -> set[str]:
@@ -311,6 +312,7 @@ def _fetch_character_skill_levels_with_token(
     *,
     force_refresh: bool = False,
 ) -> dict[int, int]:
+    global _SKILLS_OPERATION_UNAVAILABLE
     client = shared_client.client
     skills_resource = getattr(client, "Skills", None)
     if skills_resource is not None and hasattr(
@@ -335,17 +337,26 @@ def _fetch_character_skill_levels_with_token(
             **request_kwargs,
         ).results()
     except Exception as exc:
+        if "GetCharactersCharacterIdSkills" in str(exc):
+            _SKILLS_OPERATION_UNAVAILABLE = True
+            raise ESIClientError("ESI skills operation unavailable") from exc
         if "is not of type 'string'" not in str(exc):
             raise
         access_token = token_obj.valid_access_token()
         request_kwargs = {}
         if force_refresh:
             request_kwargs["If-None-Match"] = ""
-        payload = operation_fn(
-            character_id=token_obj.character_id,
-            token=access_token,
-            **request_kwargs,
-        ).results()
+        try:
+            payload = operation_fn(
+                character_id=token_obj.character_id,
+                token=access_token,
+                **request_kwargs,
+            ).results()
+        except Exception as nested_exc:
+            if "GetCharactersCharacterIdSkills" in str(nested_exc):
+                _SKILLS_OPERATION_UNAVAILABLE = True
+                raise ESIClientError("ESI skills operation unavailable") from nested_exc
+            raise
 
     skills = payload.get("skills", []) if payload else []
     return {
@@ -1824,6 +1835,12 @@ def update_all_skill_snapshots() -> dict[str, int]:
     seen: set[int] = set()
     table_empty = not IndustrySkillSnapshot.objects.exists()
 
+    if _SKILLS_OPERATION_UNAVAILABLE:
+        logger.warning(
+            "Skipping skill snapshot refresh: ESI skills operation unavailable"
+        )
+        return {"updated": 0, "skipped": 0, "failures": 0}
+
     min_age = timezone.now() - SKILL_REFRESH_MIN_AGE
 
     tokens = (
@@ -1861,6 +1878,13 @@ def update_all_skill_snapshots() -> dict[str, int]:
             ESIRateLimitError,
             ESIClientError,
         ) as exc:
+            if isinstance(
+                exc, ESIClientError
+            ) and "skills operation unavailable" in str(exc):
+                logger.warning(
+                    "Skipping skill snapshot refresh: ESI skills operation unavailable"
+                )
+                return {"updated": updated, "skipped": skipped, "failures": failures}
             failures += 1
             logger.warning(
                 "Failed to refresh skills for character %s: %s",
@@ -1907,3 +1931,130 @@ def update_all_skill_snapshots() -> dict[str, int]:
         failures,
     )
     return {"updated": updated, "skipped": skipped, "failures": failures}
+
+
+@shared_task
+def update_character_skill_snapshot_for_character(
+    user_id: int,
+    character_id: int,
+) -> dict[str, object]:
+    """Refresh skill snapshot for a single character."""
+    if _SKILLS_OPERATION_UNAVAILABLE:
+        return {"status": "skipped", "reason": "operation_unavailable"}
+
+    ownership = (
+        CharacterOwnership.objects.filter(
+            user_id=user_id, character__character_id=character_id
+        )
+        .select_related("character", "user")
+        .first()
+    )
+    if not ownership:
+        return {"status": "skipped", "reason": "ownership_missing"}
+
+    if not _is_user_active(ownership.user):
+        return {"status": "skipped", "reason": "user_inactive"}
+
+    token = (
+        Token.objects.filter(user=ownership.user, character_id=character_id)
+        .require_scopes([SKILLS_SCOPE])
+        .require_valid()
+        .order_by("-created")
+        .first()
+    )
+    if not token:
+        return {"status": "skipped", "reason": "token_missing"}
+
+    snapshot = IndustrySkillSnapshot.objects.filter(
+        character_id=int(character_id)
+    ).first()
+    table_empty = not IndustrySkillSnapshot.objects.exists()
+
+    try:
+        levels = _fetch_character_skill_levels_with_token(
+            token,
+            force_refresh=table_empty or snapshot is None,
+        )
+    except (ESITokenError, ESIForbiddenError, ESIRateLimitError) as exc:
+        logger.warning(
+            "Failed to refresh skills for character %s: %s",
+            character_id,
+            exc,
+        )
+        return {"status": "failed", "reason": str(exc)}
+    except ESIClientError as exc:
+        if "skills operation unavailable" in str(exc):
+            return {"status": "skipped", "reason": "operation_unavailable"}
+        logger.warning(
+            "Failed to refresh skills for character %s: %s",
+            character_id,
+            exc,
+        )
+        return {"status": "failed", "reason": str(exc)}
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning(
+            "Unexpected error refreshing skills for character %s: %s",
+            character_id,
+            exc,
+        )
+        return {"status": "failed", "reason": str(exc)}
+
+    defaults = {
+        "mass_production_level": levels.get(SKILL_TYPE_IDS["mass_production"], 0),
+        "advanced_mass_production_level": levels.get(
+            SKILL_TYPE_IDS["advanced_mass_production"], 0
+        ),
+        "laboratory_operation_level": levels.get(
+            SKILL_TYPE_IDS["laboratory_operation"], 0
+        ),
+        "advanced_laboratory_operation_level": levels.get(
+            SKILL_TYPE_IDS["advanced_laboratory_operation"], 0
+        ),
+        "mass_reactions_level": levels.get(SKILL_TYPE_IDS["mass_reactions"], 0),
+        "advanced_mass_reactions_level": levels.get(
+            SKILL_TYPE_IDS["advanced_mass_reactions"], 0
+        ),
+    }
+    _update_or_create_with_deadlock_retry(
+        IndustrySkillSnapshot,
+        lookup={
+            "owner_user": ownership.user,
+            "character_id": int(character_id),
+        },
+        defaults=defaults,
+    )
+    return {"status": "updated"}
+
+
+@shared_task
+def update_character_skill_snapshots() -> dict[str, int]:
+    """Queue per-character skill snapshot refresh tasks."""
+    if _SKILLS_OPERATION_UNAVAILABLE:
+        logger.warning(
+            "Skipping skill snapshot queue: ESI skills operation unavailable"
+        )
+        return {"queued": 0}
+
+    queued = 0
+    seen: set[tuple[int, int]] = set()
+    tokens = (
+        Token.objects.all()
+        .require_scopes([SKILLS_SCOPE])
+        .require_valid()
+        .values_list("user_id", "character_id")
+        .distinct()
+    )
+    for user_id, character_id in tokens:
+        if not user_id or not character_id:
+            continue
+        key = (int(user_id), int(character_id))
+        if key in seen:
+            continue
+        seen.add(key)
+        update_character_skill_snapshot_for_character.apply_async(
+            args=[int(user_id), int(character_id)],
+        )
+        queued += 1
+
+    logger.info("Queued %s character skill refresh tasks", queued)
+    return {"queued": queued}
