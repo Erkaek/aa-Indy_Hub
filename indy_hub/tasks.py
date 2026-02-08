@@ -8,7 +8,7 @@ Tasks are organized in specialized modules under the tasks/ directory.
 
 # Standard Library
 # Django
-from django.contrib.auth.models import User  # noqa: F401
+from django.contrib.auth import get_user_model
 
 # Alliance Auth
 from allianceauth.services.hooks import get_extension_logger
@@ -33,7 +33,15 @@ from .tasks.notifications import (  # noqa: F401
     dispatch_job_notification_digests,
     notify_recently_completed_jobs,
 )
-from .tasks.user import *  # noqa: F401, F403
+from .tasks.user import (  # noqa: F401
+    cleanup_inactive_user_data,
+    generate_user_activity_report,
+    update_character_roles_for_character,
+    update_character_roles_snapshots,
+    update_user_preferences_defaults,
+)
+
+User = get_user_model()
 
 logger = get_extension_logger(__name__)
 

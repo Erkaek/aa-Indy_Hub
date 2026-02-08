@@ -5,24 +5,20 @@ from __future__ import annotations
 # Third Party
 from bravado.exception import HTTPError
 
-try:
-    # Django
-    from django.conf import settings
-except Exception:  # pragma: no cover - settings might be unavailable in tests
-    settings = None
-
 # Alliance Auth
 from allianceauth.services.hooks import get_extension_logger
 from esi.errors import TokenError
+from esi.exceptions import HTTPNotModified
 from esi.models import Token
 
 # AA Example App
 # Local
+from indy_hub.app_settings import ESI_COMPATIBILITY_DATE
 from indy_hub.services.providers import esi_provider
 
 logger = get_extension_logger(__name__)
 
-DEFAULT_COMPATIBILITY_DATE = "2025-09-30"
+DEFAULT_COMPATIBILITY_DATE = ESI_COMPATIBILITY_DATE
 
 
 class ESIClientError(Exception):
@@ -138,7 +134,7 @@ def token_rate_limit_wait_seconds(
 
 
 class ESIClient:
-    """Small helper around django-esi Swagger client with AA-friendly errors."""
+    """Small helper around django-esi OpenAPI client with AA-friendly errors."""
 
     def __init__(
         self,
@@ -223,6 +219,64 @@ class ESIClient:
             ),
         )
 
+    def fetch_character_online_status(self, character_id: int) -> dict:
+        """Return the online status for a character."""
+        scope = "esi-location.read_online.v1"
+        token_obj = self._get_token(character_id, scope)
+        operation_fn = None
+        location_resource = getattr(self.client, "Location", None)
+        if location_resource is not None:
+            operation_fn = getattr(
+                location_resource,
+                "get_characters_character_id_online",
+                None,
+            ) or getattr(location_resource, "GetCharactersCharacterIdOnline", None)
+        if not operation_fn:
+            character_resource = getattr(self.client, "Character", None)
+            if character_resource is not None:
+                operation_fn = getattr(
+                    character_resource,
+                    "get_characters_character_id_online",
+                    None,
+                ) or getattr(character_resource, "GetCharactersCharacterIdOnline", None)
+        if not operation_fn:
+            raise ESIClientError(
+                "ESI operation Location.get_characters_character_id_online is not available"
+            )
+        payload = self._call_authed(
+            token_obj,
+            character_id=character_id,
+            endpoint=f"/characters/{character_id}/online/",
+            scope=scope,
+            operation=lambda token: operation_fn(
+                character_id=character_id,
+                token=token,
+                **{"If-None-Match": ""},
+            ),
+        )
+        if isinstance(payload, list):
+            if not payload:
+                raise ESIClientError(
+                    "ESI /characters/{character_id}/online returned an empty payload"
+                )
+            payload = payload[0]
+        if isinstance(payload, dict):
+            return payload
+        coerced = self._coerce_mapping(payload)
+        if isinstance(coerced, dict):
+            return coerced
+        if payload is not None:
+            attr_payload = {
+                key: getattr(payload, key)
+                for key in ("online", "last_login", "last_logout", "logins")
+                if hasattr(payload, key)
+            }
+            if attr_payload:
+                return attr_payload
+        raise ESIClientError(
+            "ESI /characters/{character_id}/online returned an unexpected payload"
+        )
+
     def fetch_structure_name(
         self, structure_id: int, character_id: int | None = None
     ) -> str | None:
@@ -283,7 +337,7 @@ class ESIClient:
     ) -> list[dict]:
         token_obj = self._get_token(character_id, scope)
         try:
-            access_token = token_obj.valid_access_token()
+            token_obj.valid_access_token()
         except Exception as exc:
             raise ESITokenError(
                 f"No valid token for character {character_id} and scope {scope}"
@@ -297,7 +351,9 @@ class ESIClient:
             ) from exc
 
         try:
-            payload = operation_fn(**params, token=access_token).results()
+            payload = operation_fn(**params, token=token_obj).results()
+        except HTTPNotModified as exc:
+            raise ESIUnmodifiedError(f"ESI returned 304 for {endpoint}") from exc
         except HTTPError as exc:
             self._handle_http_error(
                 exc,
@@ -318,15 +374,36 @@ class ESIClient:
             raise ESIClientError(
                 f"ESI {endpoint} returned an unexpected payload type: {type(payload)}"
             )
-        return payload
+        return [self._coerce_mapping(item) for item in payload]
+
+    @staticmethod
+    def _coerce_mapping(item):
+        if isinstance(item, dict):
+            return item
+        for attr in ("model_dump", "dict", "to_dict"):
+            converter = getattr(item, attr, None)
+            if callable(converter):
+                try:
+                    result = converter()
+                except Exception:
+                    result = None
+                if isinstance(result, dict):
+                    return result
+        return item
 
     def _get_token(self, character_id: int, scope: str) -> Token:
-        try:
-            return Token.get_token(character_id, scope)
-        except Exception as exc:  # pragma: no cover - Alliance Auth handles details
+        token = (
+            Token.objects.filter(character_id=int(character_id))
+            .require_scopes([scope])
+            .require_valid()
+            .order_by("-created")
+            .first()
+        )
+        if not token:
             raise ESITokenError(
                 f"No valid token for character {character_id} and scope {scope}"
-            ) from exc
+            )
+        return token
 
     def _get_access_token(self, character_id: int, scope: str) -> str:
         token = self._get_token(character_id, scope)
@@ -499,13 +576,17 @@ class ESIClient:
         if operation is None:
             raise ESIClientError("No ESI operation provided")
         try:
-            access_token = token_obj.valid_access_token()
+            token_obj.valid_access_token()
         except Exception as exc:
             raise ESITokenError(
                 f"No valid token for character {character_id} and scope {scope}"
             ) from exc
         try:
-            return operation(access_token).results()
+            return operation(token_obj).results()
+        except HTTPNotModified as exc:
+            raise ESIUnmodifiedError(
+                f"ESI returned 304 for {endpoint or 'request'}"
+            ) from exc
         except HTTPError as exc:
             self._handle_http_error(
                 exc,
@@ -524,7 +605,7 @@ class ESIClient:
             raise ESIClientError(f"ESI request failed for {endpoint}: {exc}") from exc
 
     def _resolve_operation(self, resource: str, operation: str):
-        """Resolve an ESI operation name for Swagger and OpenAPI3 clients."""
+        """Resolve an ESI operation name for OpenAPI clients."""
         resource_obj = getattr(self.client, resource)
         if hasattr(resource_obj, operation):
             return getattr(resource_obj, operation)
@@ -564,16 +645,6 @@ class ESIClient:
             raise ESIRateLimitError(
                 retry_after=sleep_for,
                 remaining=remaining,
-            ) from exc
-
-        if status_code == 304:
-            raise ESIUnmodifiedError(
-                f"ESI returned 304 for {endpoint or 'request'}"
-            ) from exc
-
-        if status_code == 304:
-            raise ESIUnmodifiedError(
-                f"ESI returned 304 for {endpoint or 'request'}"
             ) from exc
 
         if status_code == 403 and character_id is not None:
@@ -627,13 +698,4 @@ class ESIClient:
 
 
 # Module level singleton to avoid re-creating sessions
-if settings is not None:
-    _compat_date = getattr(
-        settings,
-        "INDY_HUB_ESI_COMPATIBILITY_DATE",
-        DEFAULT_COMPATIBILITY_DATE,
-    )
-else:  # pragma: no cover - running without Django settings
-    _compat_date = DEFAULT_COMPATIBILITY_DATE
-
-shared_client = ESIClient(compatibility_date=_compat_date)
+shared_client = ESIClient(compatibility_date=DEFAULT_COMPATIBILITY_DATE)

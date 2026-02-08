@@ -2,6 +2,7 @@
 # Standard Library
 import json
 from collections.abc import Iterable
+from datetime import timedelta
 from math import ceil
 from typing import Any
 
@@ -10,8 +11,8 @@ from bravado.exception import HTTPError
 
 # Django
 from django.contrib import messages
+from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
-from django.contrib.auth.models import User
 from django.core.cache import cache
 from django.db import transaction
 from django.db.models import (
@@ -38,12 +39,14 @@ from allianceauth.authentication.models import CharacterOwnership
 from allianceauth.eveonline.models import EveCharacter
 from allianceauth.services.hooks import get_extension_logger
 from esi.errors import TokenError
+from esi.exceptions import HTTPNotModified
 from esi.models import CallbackRedirect, Token
 from esi.views import sso_redirect
 
 # AA Example App
 from indy_hub.models import CharacterSettings, CorporationSharingSetting
 
+from ..app_settings import ROLES_CACHE_MAX_AGE_MINUTES
 from ..decorators import indy_hub_access_required, tokens_required
 from ..models import (
     Blueprint,
@@ -76,6 +79,8 @@ from ..tasks.industry import (
 )
 from ..utils.eve import get_character_name, get_corporation_name, get_type_name
 from .navigation import build_nav_context
+
+User = get_user_model()
 
 logger = get_extension_logger(__name__)
 
@@ -140,10 +145,12 @@ BLUEPRINT_SCOPE = "esi-characters.read_blueprints.v1"
 JOBS_SCOPE = "esi-industry.read_character_jobs.v1"
 STRUCTURE_SCOPE = "esi-universe.read_structures.v1"
 SKILLS_SCOPE = "esi-skills.read_skills.v1"
+ONLINE_SCOPE = "esi-location.read_online.v1"
 BLUEPRINT_SCOPE_SET = [BLUEPRINT_SCOPE, STRUCTURE_SCOPE]
 JOBS_SCOPE_SET = [JOBS_SCOPE, STRUCTURE_SCOPE]
 ASSETS_SCOPE = "esi-assets.read_assets.v1"
-ASSETS_SCOPE_SET = [ASSETS_SCOPE]
+ASSETS_SCOPE_SET = [ASSETS_SCOPE, ONLINE_SCOPE]
+ROLE_CACHE_MAX_AGE_MINUTES = ROLES_CACHE_MAX_AGE_MINUTES
 
 
 def _fetch_character_corporation_roles_with_token(
@@ -154,6 +161,9 @@ def _fetch_character_corporation_roles_with_token(
 ) -> set[str] | None:
     """Fetch corporation roles using a specific token instead of Token.get_token()."""
     cache_key = f"indy_hub:corp_roles:{token_obj.character_id}"
+    cached_roles = cache.get(cache_key)
+    if cached_roles:
+        return {str(role).upper() for role in cached_roles if role}
 
     def _coerce_list(value: object) -> list[str]:
         if isinstance(value, (list, tuple)):
@@ -167,6 +177,14 @@ def _fetch_character_corporation_roles_with_token(
                 {str(role).upper() for role in (getattr(snapshot, key, None) or [])}
             )
         return collected
+
+    snapshot = CharacterRoles.objects.filter(
+        character_id=token_obj.character_id
+    ).first()
+    if snapshot and (timezone.now() - snapshot.last_updated) < timedelta(
+        minutes=ROLE_CACHE_MAX_AGE_MINUTES
+    ):
+        return _roles_from_snapshot(snapshot)
 
     try:
         character_resource = esi_provider.client.Character
@@ -188,6 +206,20 @@ def _fetch_character_corporation_roles_with_token(
                 character_id=token_obj.character_id,
                 token=access_token,
             ).results()
+    except HTTPNotModified:
+        cached_roles = cache.get(cache_key)
+        if cached_roles:
+            return {str(role).upper() for role in cached_roles if role}
+        snapshot = CharacterRoles.objects.filter(
+            character_id=token_obj.character_id
+        ).first()
+        if snapshot:
+            return _roles_from_snapshot(snapshot)
+        logger.debug(
+            "ESI roles endpoint returned 304 without cache for character %s",
+            token_obj.character_id,
+        )
+        return None
     except HTTPError as exc:
         status_code = getattr(exc, "status_code", None) or getattr(
             exc.response, "status_code", None
@@ -2552,6 +2584,13 @@ def sync_all_tokens(request, tokens):
                         request,
                         _("Blueprint synchronization scheduled."),
                     )
+                elif remaining is None:
+                    messages.warning(
+                        request,
+                        _(
+                            "Blueprint synchronization skipped: user inactive or missing online scope."
+                        ),
+                    )
                 else:
                     wait_minutes = max(1, ceil(remaining.total_seconds() / 60))
                     messages.warning(
@@ -2578,6 +2617,13 @@ def sync_all_tokens(request, tokens):
                     messages.success(
                         request,
                         _("Industry jobs synchronization scheduled."),
+                    )
+                elif remaining is None:
+                    messages.warning(
+                        request,
+                        _(
+                            "Jobs synchronization skipped: user inactive or missing online scope."
+                        ),
                     )
                 else:
                     wait_minutes = max(1, ceil(remaining.total_seconds() / 60))
@@ -2629,6 +2675,13 @@ def sync_blueprints(request, tokens):
                         request,
                         _("Blueprint synchronization scheduled."),
                     )
+                elif remaining is None:
+                    messages.warning(
+                        request,
+                        _(
+                            "Blueprint synchronization skipped: user inactive or missing online scope."
+                        ),
+                    )
                 else:
                     wait_minutes = max(1, ceil(remaining.total_seconds() / 60))
                     messages.warning(
@@ -2671,6 +2724,13 @@ def sync_jobs(request, tokens):
                     messages.success(
                         request,
                         _("Jobs synchronization scheduled."),
+                    )
+                elif remaining is None:
+                    messages.warning(
+                        request,
+                        _(
+                            "Jobs synchronization skipped: user inactive or missing online scope."
+                        ),
                     )
                 else:
                     wait_minutes = max(1, ceil(remaining.total_seconds() / 60))

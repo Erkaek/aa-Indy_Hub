@@ -5,21 +5,17 @@ import json
 from urllib.parse import urlencode, urljoin
 
 # Django
-from django.conf import settings
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.urls import reverse
 
 # Alliance Auth
 from allianceauth.services.hooks import get_extension_logger
 
+from ..app_settings import DISCORD_ACTION_TOKEN_MAX_AGE
 from ..notifications import build_site_url
 
 _ACTION_TOKEN_SALT = "indy_hub.discord_action"
-_DEFAULT_TOKEN_MAX_AGE = getattr(
-    settings,
-    "INDY_HUB_DISCORD_ACTION_TOKEN_MAX_AGE",
-    72 * 60 * 60,  # three days
-)
+_DEFAULT_TOKEN_MAX_AGE = DISCORD_ACTION_TOKEN_MAX_AGE
 
 logger = get_extension_logger(__name__)
 

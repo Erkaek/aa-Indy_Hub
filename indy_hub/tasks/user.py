@@ -11,7 +11,7 @@ from datetime import timedelta
 from celery import shared_task
 
 # Django
-from django.contrib.auth.models import User
+from django.contrib.auth import get_user_model
 from django.utils import timezone
 
 # Alliance Auth
@@ -33,6 +33,8 @@ from ..services.esi_client import (
 logger = get_extension_logger(__name__)
 
 CORP_ROLES_SCOPE = "esi-characters.read_corporation_roles.v1"
+
+User = get_user_model()
 
 
 @shared_task

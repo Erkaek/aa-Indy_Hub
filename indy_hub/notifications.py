@@ -16,6 +16,18 @@ from django.utils.translation import gettext_lazy as _
 from allianceauth.notifications.models import Notification
 from allianceauth.services.hooks import get_extension_logger
 
+# Alliance Auth (External Libs)
+# AppUtils
+from app_utils.urls import site_absolute_url
+
+# AA Example App
+# Indy Hub
+from indy_hub.app_settings import DISCORD_DM_ENABLED as DM_ENABLED
+from indy_hub.app_settings import DISCORD_FOOTER_TEXT as EMBED_FOOTER_TEXT
+from indy_hub.app_settings import (
+    SITE_URL,
+)
+
 logger = get_extension_logger(__name__)
 
 LEVELS = {
@@ -32,12 +44,6 @@ DISCORD_EMBED_COLORS = {
     "danger": 0xE74C3C,
 }
 
-DM_ENABLED = getattr(settings, "INDY_HUB_DISCORD_DM_ENABLED", True)
-EMBED_FOOTER_TEXT = getattr(
-    settings,
-    "INDY_HUB_DISCORD_FOOTER_TEXT",
-    getattr(settings, "Indy_Hub", "Alliance Auth"),
-)
 DEFAULT_LINK_LABEL = _("View details")
 SHORT_LINK_LABEL = _("clic here")
 
@@ -52,9 +58,9 @@ def build_site_url(path: str | None) -> str | None:
     if parsed.scheme:
         return path
 
-    base_url = getattr(settings, "INDY_HUB_SITE_URL", "") or getattr(
-        settings, "SITE_URL", ""
-    )
+    base_url = SITE_URL or getattr(settings, "SITE_URL", "")
+    if not base_url:
+        base_url = site_absolute_url()
     if not base_url:
         origins = list(getattr(settings, "CSRF_TRUSTED_ORIGINS", []) or [])
         base_url = next(

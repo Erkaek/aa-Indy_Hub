@@ -497,6 +497,45 @@ class CharacterRoles(models.Model):
         return f"Roles for {self.character_id}"
 
 
+class CharacterOnlineStatus(models.Model):
+    owner_user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="character_online_statuses"
+    )
+    character_id = models.BigIntegerField(unique=True)
+    online = models.BooleanField(default=False)
+    last_login = models.DateTimeField(blank=True, null=True)
+    last_logout = models.DateTimeField(blank=True, null=True)
+    logins = models.IntegerField(blank=True, null=True)
+    last_updated = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Character Online Status"
+        verbose_name_plural = "Character Online Statuses"
+        indexes = [
+            models.Index(
+                fields=["owner_user", "character_id"],
+                name="indy_hub_online_user_char_idx",
+            ),
+            models.Index(
+                fields=["character_id"],
+                name="indy_hub_online_char_idx",
+            ),
+            models.Index(
+                fields=["last_login"],
+                name="indy_hub_online_last_login_idx",
+            ),
+            models.Index(
+                fields=["last_updated"],
+                name="indy_hub_online_updated_idx",
+            ),
+        ]
+        default_permissions = ()
+
+    def __str__(self) -> str:
+        return f"Online status for {self.character_id}"
+
+
 class BlueprintCopyRequest(models.Model):
     # Blueprint identity (anonymized, deduped by type_id, ME, TE)
     type_id = models.IntegerField()

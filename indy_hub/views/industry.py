@@ -1146,12 +1146,20 @@ def personnal_bp_list(request, scope="character"):
                     request.user.id,
                     priority=5,
                     scope=scope,
+                    check_active=not is_corporation_scope,
                 )
                 if scheduled:
                     messages.success(
                         request,
                         _(
                             "Blueprint refresh scheduled. Updated data will appear shortly."
+                        ),
+                    )
+                elif remaining is None:
+                    messages.warning(
+                        request,
+                        _(
+                            "Blueprint refresh skipped: user inactive or missing online scope."
                         ),
                     )
                 else:
@@ -1694,12 +1702,20 @@ def personnal_job_list(request, scope="character"):
                     request.user.id,
                     priority=5,
                     scope=scope,
+                    check_active=not is_corporation_scope,
                 )
                 if scheduled:
                     messages.success(
                         request,
                         _(
                             "Industry jobs refresh scheduled. Updated data will appear shortly."
+                        ),
+                    )
+                elif remaining is None:
+                    messages.warning(
+                        request,
+                        _(
+                            "Industry jobs refresh skipped: user inactive or missing online scope."
                         ),
                     )
                 else:

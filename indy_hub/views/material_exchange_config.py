@@ -1358,10 +1358,28 @@ def material_exchange_debug_tokens(request, corp_id, tokens):
         except Exception:
             pass
         try:
-            char_info = esi.client.Character.get_characters_character_id(
-                character_id=char_id
-            ).results()
-            return int(char_info.get("corporation_id", 0)) == int(corp_id)
+            character_resource = esi.client.Character
+            operation = getattr(
+                character_resource, "get_characters_character_id", None
+            ) or getattr(character_resource, "GetCharactersCharacterId")
+            char_info = operation(character_id=char_id).results()
+            if isinstance(char_info, dict):
+                corp_value = char_info.get("corporation_id")
+            else:
+                corp_value = None
+                for attr in ("model_dump", "dict", "to_dict"):
+                    converter = getattr(char_info, attr, None)
+                    if callable(converter):
+                        try:
+                            result = converter()
+                        except Exception:
+                            result = None
+                        if isinstance(result, dict):
+                            corp_value = result.get("corporation_id")
+                            break
+                if corp_value is None:
+                    corp_value = getattr(char_info, "corporation_id", None)
+            return int(corp_value or 0) == int(corp_id)
         except Exception:
             return False
 

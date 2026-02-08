@@ -49,7 +49,7 @@ INDY_HUB_BEAT_SCHEDULE = {
     },
     "indy-hub-update-skill-snapshots": {
         "task": "indy_hub.tasks.industry.update_all_skill_snapshots",
-        "schedule": crontab(minute=15, hour="*"),  # Hourly at HH:15
+        "schedule": crontab(hour=4, minute=15),  # Daily at 04:15
         "options": {"priority": 7},
         "apply_offset": True,
     },

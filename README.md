@@ -45,6 +45,8 @@ ______________________________________________________________________
 - **Alliance Auth v4+**
 - **Python 3.10+**
 - **Django** (as required by AA)
+- **Alliance Auth AppUtils**
+- **django-esi** (OpenAPI client, >=8)
 - **django-eveuniverse** (populated with industry data)
 - **Celery** (for background sync and notifications)
 - *(Optional)* Director characters for corporate dashboards
@@ -56,7 +58,7 @@ ______________________________________________________________________
 
 ### Bare Metal
 
-```bash
+```text
 pip install django-eveuniverse indy-hub
 ```
 
@@ -76,27 +78,27 @@ EVEUNIVERSE_LOAD_MARKET_GROUPS = True
 
 Run migrations and collect static files:
 
-```bash
+```text
 python manage.py migrate
 python manage.py collectstatic --noinput
 ```
 
 Populate industry data:
 
-```bash
+```text
 python manage.py eveuniverse_load_data types --types-enabled-sections industry_activities type_materials
 ```
 
 Restart services:
 
-```bash
+```text
 # Restart Alliance Auth
 systemctl restart allianceauth
 ```
 
 ### Docker
 
-```bash
+```text
 docker compose exec allianceauth_gunicorn bash
 pip install django-eveuniverse indy-hub
 exit
@@ -118,14 +120,14 @@ EVEUNIVERSE_LOAD_MARKET_GROUPS = True
 
 Add to your `conf/requirements.txt` (Always use current versions)
 
-```bash
+```text
 django-eveuniverse==1.6.0
 indy-hub==1.14.0
 ```
 
 Run migrations and collect static files:
 
-```bash
+```text
 docker compose exec allianceauth_gunicorn bash
 auth migrate
 auth collectstatic --noinput
@@ -134,7 +136,7 @@ exit
 
 Restart Auth:
 
-```bash
+```text
 docker compose build
 docker compose down
 docker compose up -d
@@ -142,7 +144,7 @@ docker compose up -d
 
 Populate industry data:
 
-```bash
+```text
 docker compose exec allianceauth_gunicorn bash
 auth eveuniverse_load_data types --types-enabled-sections industry_activities type_materials
 exit
@@ -198,19 +200,17 @@ Customize Indy Hub behavior in `local.py`:
 ```python
 # Discord notifications
 INDY_HUB_DISCORD_DM_ENABLED = True  # Default: True
+INDY_HUB_DISCORD_ACTION_TOKEN_MAX_AGE = 86400  # Default: 24 hours
 
-# Manual refresh cooldown (seconds between user refreshes)
-INDY_HUB_MANUAL_REFRESH_COOLDOWN_SECONDS = 3600  # Default: 1 hour
-
-# Background sync windows (minutes)
-INDY_HUB_BLUEPRINTS_BULK_WINDOW_MINUTES = 720  # Default: 12 hours
-INDY_HUB_INDUSTRY_JOBS_BULK_WINDOW_MINUTES = 120  # Default: 2 hours
+# ESI compatibility date (OpenAPI)
+INDY_HUB_ESI_COMPATIBILITY_DATE = "2025-09-30"  # Default: app default
 ```
 
 **Scheduled Tasks** (auto-created):
 
-- `indy-hub-update-all-blueprints` → Daily at 03:00 UTC
+- `indy-hub-update-all-blueprints` → Daily at 03:30 UTC
 - `indy-hub-update-all-industry-jobs` → Every 2 hours
+- `indy-hub-update-skill-snapshots` → Daily at 04:15 UTC
 
 ______________________________________________________________________
 
@@ -218,7 +218,7 @@ ______________________________________________________________________
 
 ### Bare Metal Update
 
-```bash
+```text
 # Update the package
 pip install --upgrade indy-hub
 
@@ -236,13 +236,13 @@ systemctl restart allianceauth
 
 Update Versions in `conf/requirements.txt` (Always use current versions)
 
-```bash
+```text
 indy-hub==1.14.0
 ```
 
 Update the Package:
 
-```bash
+```text
 # Exec Into the Container
 docker compose exec allianceauth_gunicorn bash
 

@@ -18,6 +18,12 @@ from allianceauth.services.hooks import get_extension_logger
 from esi.models import Token
 
 # AA Example App
+from indy_hub.app_settings import (
+    ASSET_CACHE_MAX_AGE_MINUTES,
+    CHAR_ASSET_CACHE_MAX_AGE_MINUTES,
+    DIVISION_CACHE_MAX_AGE_MINUTES,
+)
+
 # Local
 from indy_hub.models import (
     CachedCharacterAsset,
@@ -43,16 +49,6 @@ STRUCTURE_PLACEHOLDER_TTL = timedelta(hours=6)
 
 logger = get_extension_logger(__name__)
 esi = esi_provider
-
-ASSET_CACHE_MAX_AGE_MINUTES = getattr(
-    settings, "INDY_HUB_ASSET_CACHE_MAX_AGE_MINUTES", 60
-)
-CHAR_ASSET_CACHE_MAX_AGE_MINUTES = getattr(
-    settings, "INDY_HUB_CHAR_ASSET_CACHE_MAX_AGE_MINUTES", ASSET_CACHE_MAX_AGE_MINUTES
-)
-DIVISION_CACHE_MAX_AGE_MINUTES = getattr(
-    settings, "INDY_HUB_DIVISION_CACHE_MAX_AGE_MINUTES", 1440
-)
 
 
 def _coerce_role_list(value: object) -> list[str]:
@@ -315,6 +311,7 @@ def _get_character_for_scope(corporation_id: int, scope: str) -> int:
             "character_id", flat=True
         )
     )
+    character_ids_set = {int(cid) for cid in character_ids if cid is not None}
     try:
         tokens = Token.objects.all()
         if character_ids:
@@ -337,18 +334,51 @@ def _get_character_for_scope(corporation_id: int, scope: str) -> int:
 
     def _character_matches_corp(token) -> bool:
         try:
+            if character_ids_set and int(token.character_id or 0) in character_ids_set:
+                return True
             char_obj = getattr(token, "character", None)
             if char_obj and getattr(char_obj, "corporation_id", None) is not None:
                 return int(char_obj.corporation_id) == int(corporation_id)
         except Exception:
             pass
         try:
-            char_info = esi.client.Character.get_characters_character_id(
-                character_id=int(token.character_id)
-            ).results()
-            return int(char_info.get("corporation_id", 0)) == int(corporation_id)
+            character_resource = esi.client.Character
+            operation = getattr(
+                character_resource, "get_characters_character_id", None
+            ) or getattr(character_resource, "GetCharactersCharacterId")
+            char_info = operation(character_id=int(token.character_id)).results()
+            if isinstance(char_info, dict):
+                corp_id = char_info.get("corporation_id")
+            else:
+                corp_id = None
+                for attr in ("model_dump", "dict", "to_dict"):
+                    converter = getattr(char_info, attr, None)
+                    if callable(converter):
+                        try:
+                            result = converter()
+                        except Exception:
+                            result = None
+                        if isinstance(result, dict):
+                            corp_id = result.get("corporation_id")
+                            break
+                if corp_id is None:
+                    corp_id = getattr(char_info, "corporation_id", None)
+            return int(corp_id or 0) == int(corporation_id)
         except Exception:
             return False
+
+    for token in tokens:
+        try:
+            scope_names = list(token.scopes.values_list("name", flat=True))
+            if scope in scope_names and _character_matches_corp(token):
+                return int(token.character_id)
+        except Exception:
+            continue
+
+    raise ESITokenError(
+        f"No character in corporation {corporation_id} has scope '{scope}'. "
+        "Ask a member to grant this scope."
+    )
 
     for token in tokens:
         try:

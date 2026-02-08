@@ -29,10 +29,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - ESI: persisted character corporation roles in the new CharacterRoles table.
 - ESI: hourly scheduled refresh for skill snapshots.
 - ESI: daily scheduled refresh for character roles snapshots.
+- Dependencies: add Alliance Auth AppUtils as a required dependency.
 
 ### Changed
 
 - ESI: switched to shared django-esi provider with compatibility date and operation registry.
+- ESI: OpenAPI-only client usage with PascalCase operationId registry.
+- ESI: token handling now uses Token objects for OpenAPI calls.
+- Dependencies: django-esi is now required at >=8,\<9.
 - Material Exchange: nav entry hides when disabled; settings card reflects global state.
 - Material Exchange: sync/validation tasks now skip when disabled or not configured.
 - Celery: periodic task schedules can apply allianceauth cron offsets.
@@ -58,8 +62,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - ESI: token management page now lists the corporation roles scope in required character scopes.
 - Industry: fixed personal jobs page layout issues in the slots overview header/collapse.
 - ESI: handle 304/not-modified responses for roles with cache/DB fallback.
+- ESI: avoid repeated role verification calls by using cache/DB snapshots.
 - ESI: guard against unexpected roles payload types without raising.
 - Services: corrected asset cache role filtering after refactor.
+- Industry: bulk blueprint sync runs daily with a 12h window and skips inactive users.
+- Industry: bulk jobs sync uses a 1h window and skips inactive users.
+- Industry: jobs and blueprints syncs skip users updated within 2h/1h respectively.
+- Industry: skill snapshots refresh daily and skip inactive users; minimum refresh age is 1 day.
 
 ### Internal
 

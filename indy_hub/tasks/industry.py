@@ -38,7 +38,6 @@ except ImportError:  # pragma: no cover - older django-esi
 
 
 # Django
-from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.cache import cache
 from django.db import transaction
@@ -51,8 +50,16 @@ from allianceauth.authentication.models import CharacterOwnership
 from allianceauth.services.hooks import get_extension_logger
 from esi.models import Token
 
+from ..app_settings import (
+    BLUEPRINTS_BULK_WINDOW_MINUTES,
+    BULK_UPDATE_WINDOW_MINUTES,
+    INDUSTRY_JOBS_BULK_WINDOW_MINUTES,
+    LOCATION_LOOKUP_BUDGET,
+    MANUAL_REFRESH_COOLDOWN_SECONDS,
+)
 from ..models import (
     Blueprint,
+    CharacterOnlineStatus,
     CharacterRoles,
     CharacterSettings,
     CorporationSharingSetting,
@@ -89,6 +96,7 @@ CORP_STRUCTURES_SCOPE = "esi-corporations.read_structures.v1"
 CORP_ASSETS_SCOPE = "esi-assets.read_corporation_assets.v1"
 CORP_WALLET_SCOPE = "esi-wallet.read_corporation_wallets.v1"
 SKILLS_SCOPE = "esi-skills.read_skills.v1"
+ONLINE_SCOPE = "esi-location.read_online.v1"
 SKILL_TYPE_IDS = {
     "mass_production": 3387,
     "advanced_mass_production": 3388,
@@ -129,6 +137,125 @@ def _is_deadlock_error(exc: Exception) -> bool:
     return "Deadlock found" in str(exc)
 
 
+def _is_user_active(user: User, *, now: datetime | None = None) -> bool:
+    if not user:
+        return False
+    now = now or timezone.now()
+    cutoff = now - timedelta(days=ACTIVE_USER_DAYS)
+    active_char_ids = list(
+        CharacterOnlineStatus.objects.filter(
+            owner_user=user,
+            last_login__isnull=False,
+            last_login__gte=cutoff,
+        ).values_list("character_id", flat=True)
+    )
+    if not active_char_ids:
+        return False
+    return (
+        Token.objects.filter(user=user, character_id__in=active_char_ids)
+        .require_scopes([ONLINE_SCOPE])
+        .require_valid()
+        .exists()
+    )
+
+
+def _coerce_online_datetime(value):
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        dt = value
+    elif isinstance(value, str):
+        dt = parse_datetime(value)
+        if dt is None:
+            return None
+    else:
+        return None
+    if timezone.is_naive(dt):
+        dt = timezone.make_aware(dt, timezone.utc)
+    return dt
+
+
+def _refresh_online_status_for_user(user: User, *, now: datetime | None = None) -> None:
+    now = now or timezone.now()
+    ownerships = CharacterOwnership.objects.filter(user=user).select_related(
+        "character"
+    )
+    for ownership in ownerships:
+        char_id = ownership.character.character_id
+        if not char_id:
+            continue
+        token = (
+            Token.objects.filter(user=user, character_id=int(char_id))
+            .require_scopes([ONLINE_SCOPE])
+            .require_valid()
+            .order_by("-created")
+            .first()
+        )
+        if not token:
+            continue
+
+        try:
+            payload = shared_client.fetch_character_online_status(int(char_id))
+        except ESIUnmodifiedError:
+            CharacterOnlineStatus.objects.filter(character_id=int(char_id)).update(
+                owner_user=user,
+                last_updated=now,
+            )
+            continue
+        except (
+            ESITokenError,
+            ESIForbiddenError,
+            ESIRateLimitError,
+            ESIClientError,
+        ) as exc:
+            logger.warning(
+                "Failed to refresh online status for character %s: %s",
+                char_id,
+                exc,
+            )
+            continue
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning(
+                "Unexpected error refreshing online status for character %s: %s",
+                char_id,
+                exc,
+            )
+            continue
+
+        if not isinstance(payload, dict):
+            logger.warning(
+                "Unexpected online status payload for character %s: %s",
+                char_id,
+                type(payload),
+            )
+            continue
+
+        CharacterOnlineStatus.objects.update_or_create(
+            character_id=int(char_id),
+            defaults={
+                "owner_user": user,
+                "online": bool(payload.get("online")),
+                "last_login": _coerce_online_datetime(payload.get("last_login")),
+                "last_logout": _coerce_online_datetime(payload.get("last_logout")),
+                "logins": payload.get("logins"),
+            },
+        )
+
+
+def _user_recent_blueprint_sync(user: User, *, now: datetime | None = None) -> bool:
+    now = now or timezone.now()
+    return Blueprint.objects.filter(
+        owner_user=user, last_updated__gte=now - BLUEPRINT_REFRESH_MIN_AGE
+    ).exists()
+
+
+def _user_recent_job_sync(user: User, *, now: datetime | None = None) -> bool:
+    now = now or timezone.now()
+    return IndustryJob.objects.filter(
+        owner_user=user, last_updated__gte=now - JOB_REFRESH_MIN_AGE
+    ).exists()
+
+
 def _update_or_create_with_deadlock_retry(
     model,
     *,
@@ -159,15 +286,14 @@ MANUAL_REFRESH_KIND_JOBS = "jobs"
 
 _MANUAL_REFRESH_CACHE_PREFIX = "indy_hub:manual_refresh"
 _DEFAULT_BULK_WINDOWS = {
-    MANUAL_REFRESH_KIND_BLUEPRINTS: 720,
-    MANUAL_REFRESH_KIND_JOBS: 120,
+    MANUAL_REFRESH_KIND_BLUEPRINTS: BLUEPRINTS_BULK_WINDOW_MINUTES,
+    MANUAL_REFRESH_KIND_JOBS: INDUSTRY_JOBS_BULK_WINDOW_MINUTES,
 }
 
-_MANUAL_REFRESH_CACHE_PREFIX = "indy_hub:manual_refresh"
-_DEFAULT_BULK_WINDOWS = {
-    MANUAL_REFRESH_KIND_BLUEPRINTS: 720,
-    MANUAL_REFRESH_KIND_JOBS: 120,
-}
+ACTIVE_USER_DAYS = 30
+BLUEPRINT_REFRESH_MIN_AGE = timedelta(hours=1)
+JOB_REFRESH_MIN_AGE = timedelta(hours=2)
+SKILL_REFRESH_MIN_AGE = timedelta(days=1)
 
 _OPTIONAL_CORPORATION_SCOPES = {STRUCTURE_SCOPE}
 REQUIRED_CORPORATION_ROLES = {"DIRECTOR", "FACTORY_MANAGER"}
@@ -461,25 +587,22 @@ def _collect_corporation_contexts(
 
 
 def _get_manual_refresh_cooldown_seconds() -> int:
-    value = getattr(settings, "INDY_HUB_MANUAL_REFRESH_COOLDOWN_SECONDS", 3600)
-    try:
-        value = int(value)
-    except (TypeError, ValueError):
-        value = 3600
-    return max(value, 0)
+    return max(int(MANUAL_REFRESH_COOLDOWN_SECONDS), 0)
 
 
 def _get_bulk_window_minutes(kind: str) -> int:
     fallback = _DEFAULT_BULK_WINDOWS.get(kind, 720)
-    fallback = getattr(settings, "INDY_HUB_BULK_UPDATE_WINDOW_MINUTES", fallback)
     try:
-        specific = getattr(
-            settings,
-            f"INDY_HUB_{kind.upper()}_BULK_WINDOW_MINUTES",
-            fallback,
-        )
-    except AttributeError:
-        specific = fallback
+        fallback = int(BULK_UPDATE_WINDOW_MINUTES)
+    except (TypeError, ValueError):
+        fallback = _DEFAULT_BULK_WINDOWS.get(kind, 720)
+
+    specific = fallback
+    if kind == MANUAL_REFRESH_KIND_BLUEPRINTS:
+        specific = BLUEPRINTS_BULK_WINDOW_MINUTES
+    elif kind == MANUAL_REFRESH_KIND_JOBS:
+        specific = INDUSTRY_JOBS_BULK_WINDOW_MINUTES
+
     try:
         minutes = int(specific)
     except (TypeError, ValueError):
@@ -598,10 +721,19 @@ def request_manual_refresh(
     *,
     priority: int | None = None,
     scope: str | None = None,
+    check_active: bool = True,
 ) -> tuple[bool, timedelta | None]:
     allowed, remaining = manual_refresh_allowed(kind, user_id, scope)
     if not allowed:
         return False, remaining
+
+    if check_active:
+        user = User.objects.filter(id=user_id).first()
+        if not user:
+            return False, None
+        _refresh_online_status_for_user(user)
+        if not _is_user_active(user):
+            return False, None
 
     if kind == MANUAL_REFRESH_KIND_BLUEPRINTS:
         queue_blueprint_update_for_user(user_id, priority=priority, scope=scope)
@@ -616,7 +748,7 @@ def request_manual_refresh(
 
 def _get_location_lookup_budget() -> int:
     try:
-        value = int(getattr(settings, "INDY_HUB_LOCATION_LOOKUP_BUDGET", 50))
+        value = int(LOCATION_LOOKUP_BUDGET)
     except (TypeError, ValueError):
         value = 50
     return max(value, 0)
@@ -653,6 +785,20 @@ def update_blueprints_for_user(self, user_id, scope: str | None = None):
     except User.DoesNotExist as exc:  # pragma: no cover - defensive guard
         logger.warning("User %s not found during blueprint synchronization", user_id)
         raise self.retry(exc=exc, countdown=60 * (2**self.request.retries))
+
+    now = timezone.now()
+    _refresh_online_status_for_user(user, now=now)
+    if not _is_user_active(user, now=now):
+        logger.info("Skipping blueprint sync for inactive user %s", user.username)
+        return {"success": True, "skipped": "inactive_user"}
+
+    if _user_recent_blueprint_sync(user, now=now):
+        logger.info(
+            "Skipping blueprint sync for %s: updated within last %s minutes",
+            user.username,
+            int(BLUEPRINT_REFRESH_MIN_AGE.total_seconds() / 60),
+        )
+        return {"success": True, "skipped": "recent_sync"}
 
     normalized_scope = (scope or "").strip().lower()
     if normalized_scope not in {"character", "corporation"}:
@@ -951,6 +1097,21 @@ def update_blueprints_for_user(self, user_id, scope: str | None = None):
 def update_industry_jobs_for_user(self, user_id, scope: str | None = None):
     try:
         user = User.objects.get(id=user_id)
+        now = timezone.now()
+        _refresh_online_status_for_user(user, now=now)
+        if not _is_user_active(user, now=now):
+            logger.info(
+                "Skipping industry jobs sync for inactive user %s", user.username
+            )
+            return {"success": True, "skipped": "inactive_user"}
+
+        if _user_recent_job_sync(user, now=now):
+            logger.info(
+                "Skipping industry jobs sync for %s: updated within last %s minutes",
+                user.username,
+                int(JOB_REFRESH_MIN_AGE.total_seconds() / 60),
+            )
+            return {"success": True, "skipped": "recent_sync"}
         logger.info("Starting industry jobs update for user %s", user.username)
         updated_count = 0
         deleted_total = 0
@@ -1009,9 +1170,6 @@ def update_industry_jobs_for_user(self, user_id, scope: str | None = None):
             char_id = ownership.character.character_id
             character_name = get_character_name(char_id)
             try:
-                # Alliance Auth
-                from esi.models import Token
-
                 token_qs = (
                     Token.objects.filter(character_id=char_id, user=user)
                     .require_valid()
@@ -1585,7 +1743,11 @@ def update_all_blueprints():
     logger.info("Starting bulk blueprint update for all users")
 
     user_ids = list(
-        User.objects.filter(token__isnull=False).distinct().values_list("id", flat=True)
+        Token.objects.all()
+        .require_scopes([ONLINE_SCOPE])
+        .require_valid()
+        .values_list("user_id", flat=True)
+        .distinct()
     )
     random.shuffle(user_ids)
 
@@ -1613,7 +1775,11 @@ def update_all_industry_jobs():
     logger.info("Starting bulk industry jobs update for all users")
 
     user_ids = list(
-        User.objects.filter(token__isnull=False).distinct().values_list("id", flat=True)
+        Token.objects.all()
+        .require_scopes([ONLINE_SCOPE])
+        .require_valid()
+        .values_list("user_id", flat=True)
+        .distinct()
     )
     random.shuffle(user_ids)
 
@@ -1641,6 +1807,8 @@ def update_all_skill_snapshots() -> dict[str, int]:
     failures = 0
     seen: set[int] = set()
 
+    min_age = timezone.now() - SKILL_REFRESH_MIN_AGE
+
     tokens = (
         Token.objects.all()
         .require_scopes([SKILLS_SCOPE])
@@ -1653,6 +1821,17 @@ def update_all_skill_snapshots() -> dict[str, int]:
         if not char_id or char_id in seen:
             continue
         seen.add(int(char_id))
+
+        if not getattr(token, "user", None) or not _is_user_active(token.user):
+            skipped += 1
+            continue
+
+        snapshot = IndustrySkillSnapshot.objects.filter(
+            character_id=int(char_id)
+        ).first()
+        if snapshot and snapshot.last_updated >= min_age:
+            skipped += 1
+            continue
 
         try:
             levels = _fetch_character_skill_levels_with_token(token)

@@ -6,12 +6,14 @@ from unittest.mock import patch
 # Django
 from django.contrib.auth.models import User
 from django.test import TestCase
+from django.utils import timezone
 
 # Alliance Auth
 from allianceauth.authentication.models import CharacterOwnership
 from allianceauth.eveonline.models import EveCharacter
 
 # AA Example App
+from indy_hub.models import CharacterOnlineStatus
 from indy_hub.tasks.industry import update_industry_jobs_for_user
 
 
@@ -24,6 +26,9 @@ class _FakeTokenQuerySet:
 
     def order_by(self, *args, **kwargs):
         return self
+
+    def first(self):
+        return _FakeToken()
 
     def exists(self):
         return True
@@ -41,6 +46,8 @@ class _FakeToken:
 class IndustryJobsPayloadTests(TestCase):
     def setUp(self) -> None:
         self.user = User.objects.create_user("jobs-user", password="secret123")
+        self.user.last_login = self.user.date_joined
+        self.user.save(update_fields=["last_login"])
         character_id = 9000001
         character = EveCharacter.objects.create(
             character_id=character_id,
@@ -59,10 +66,18 @@ class IndustryJobsPayloadTests(TestCase):
             character=character,
             owner_hash=f"hash-{character_id}-{self.user.id}",
         )
+        CharacterOnlineStatus.objects.create(
+            owner_user=self.user,
+            character_id=character_id,
+            online=True,
+            last_login=timezone.now(),
+            last_logout=timezone.now(),
+            logins=1,
+        )
 
     def test_skips_non_list_payload(self) -> None:
         with (
-            patch("esi.models.Token", _FakeToken),
+            patch("indy_hub.tasks.industry.Token", _FakeToken),
             patch(
                 "indy_hub.tasks.industry.shared_client.fetch_character_industry_jobs",
                 return_value="not-a-list",
@@ -81,7 +96,7 @@ class IndustryJobsPayloadTests(TestCase):
 
     def test_skips_non_dict_job_items(self) -> None:
         with (
-            patch("esi.models.Token", _FakeToken),
+            patch("indy_hub.tasks.industry.Token", _FakeToken),
             patch(
                 "indy_hub.tasks.industry.shared_client.fetch_character_industry_jobs",
                 return_value=["bad-item"],

@@ -2117,6 +2117,7 @@ class ManualRefreshCooldownTests(TestCase):
             scheduled, remaining = request_manual_refresh(
                 MANUAL_REFRESH_KIND_BLUEPRINTS,
                 self.user.id,
+                check_active=False,
             )
         self.assertTrue(scheduled)
         self.assertIsNone(remaining)
@@ -2135,6 +2136,7 @@ class ManualRefreshCooldownTests(TestCase):
             scheduled, _ = request_manual_refresh(
                 MANUAL_REFRESH_KIND_JOBS,
                 self.user.id,
+                check_active=False,
             )
         self.assertTrue(scheduled)
         mock_apply.assert_called_once()
