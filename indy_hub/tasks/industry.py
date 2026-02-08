@@ -1836,109 +1836,36 @@ def update_all_industry_jobs():
 
 @shared_task
 def update_all_skill_snapshots() -> dict[str, int]:
-    """Refresh skill snapshots for all characters with skills scope."""
-    updated = 0
-    skipped = 0
-    failures = 0
-    seen: set[int] = set()
-    table_empty = not IndustrySkillSnapshot.objects.exists()
-
+    """Queue per-user skill snapshot refresh tasks."""
     if _SKILLS_OPERATION_UNAVAILABLE:
         logger.warning(
             "Skipping skill snapshot refresh: ESI skills operation unavailable"
         )
-        return {"updated": 0, "skipped": 0, "failures": 0}
+        return {"queued": 0, "skipped": 0}
 
-    min_age = timezone.now() - SKILL_REFRESH_MIN_AGE
-
-    tokens = (
+    user_ids = list(
         Token.objects.all()
         .require_scopes([SKILLS_SCOPE])
         .require_valid()
-        .select_related("user")
-        .order_by("-created")
+        .values_list("user_id", flat=True)
+        .distinct()
     )
-    for token in tokens.iterator():
-        char_id = getattr(token, "character_id", None)
-        if not char_id or char_id in seen:
-            continue
-        seen.add(int(char_id))
+    random.shuffle(user_ids)
 
-        if not getattr(token, "user", None) or not _is_user_active(token.user):
-            skipped += 1
-            continue
-
-        snapshot = IndustrySkillSnapshot.objects.filter(
-            character_id=int(char_id)
-        ).first()
-        if snapshot and snapshot.last_updated >= min_age:
-            skipped += 1
-            continue
-
-        try:
-            levels = _fetch_character_skill_levels_with_token(
-                token,
-                force_refresh=table_empty or snapshot is None,
-            )
-        except (
-            ESITokenError,
-            ESIForbiddenError,
-            ESIRateLimitError,
-            ESIClientError,
-        ) as exc:
-            if isinstance(
-                exc, ESIClientError
-            ) and "skills operation unavailable" in str(exc):
-                logger.warning(
-                    "Skipping skill snapshot refresh: ESI skills operation unavailable"
-                )
-                return {"updated": updated, "skipped": skipped, "failures": failures}
-            failures += 1
-            logger.warning(
-                "Failed to refresh skills for character %s: %s",
-                char_id,
-                exc,
-            )
-            continue
-        except Exception as exc:  # pragma: no cover - defensive
-            failures += 1
-            logger.warning(
-                "Unexpected error refreshing skills for character %s: %s",
-                char_id,
-                exc,
-            )
-            continue
-
-        defaults = {
-            "mass_production_level": levels.get(SKILL_TYPE_IDS["mass_production"], 0),
-            "advanced_mass_production_level": levels.get(
-                SKILL_TYPE_IDS["advanced_mass_production"], 0
-            ),
-            "laboratory_operation_level": levels.get(
-                SKILL_TYPE_IDS["laboratory_operation"], 0
-            ),
-            "advanced_laboratory_operation_level": levels.get(
-                SKILL_TYPE_IDS["advanced_laboratory_operation"], 0
-            ),
-            "mass_reactions_level": levels.get(SKILL_TYPE_IDS["mass_reactions"], 0),
-            "advanced_mass_reactions_level": levels.get(
-                SKILL_TYPE_IDS["advanced_mass_reactions"], 0
-            ),
-        }
-        _update_or_create_with_deadlock_retry(
-            IndustrySkillSnapshot,
-            lookup={"owner_user": token.user, "character_id": int(char_id)},
-            defaults=defaults,
-        )
-        updated += 1
+    window_minutes = _get_bulk_window_minutes("skills")
+    queued = _queue_staggered_user_tasks(
+        update_user_skill_snapshots,
+        user_ids,
+        window_minutes=window_minutes,
+        priority=7,
+    )
 
     logger.info(
-        "Updated skill snapshots for %s characters (%s skipped, %s failures)",
-        updated,
-        skipped,
-        failures,
+        "Queued skill snapshot updates for %s users across a %s minute window",
+        queued,
+        window_minutes,
     )
-    return {"updated": updated, "skipped": skipped, "failures": failures}
+    return {"queued": queued, "skipped": 0, "window_minutes": window_minutes}
 
 
 @shared_task
@@ -2035,34 +1962,39 @@ def update_character_skill_snapshot_for_character(
 
 
 @shared_task
-def update_character_skill_snapshots() -> dict[str, int]:
-    """Queue per-character skill snapshot refresh tasks."""
+def update_user_skill_snapshots(user_id: int) -> dict[str, int]:
+    """Refresh skill snapshots for all characters of a user with skills scope."""
     if _SKILLS_OPERATION_UNAVAILABLE:
-        logger.warning(
-            "Skipping skill snapshot queue: ESI skills operation unavailable"
-        )
-        return {"queued": 0}
+        return {"updated": 0, "skipped": 0, "failures": 0}
 
-    queued = 0
-    seen: set[tuple[int, int]] = set()
+    user = User.objects.filter(id=user_id).first()
+    if not user or not _is_user_active(user):
+        return {"updated": 0, "skipped": 1, "failures": 0}
+
     tokens = (
-        Token.objects.all()
+        Token.objects.filter(user=user)
         .require_scopes([SKILLS_SCOPE])
         .require_valid()
-        .values_list("user_id", "character_id")
+        .values_list("character_id", flat=True)
         .distinct()
     )
-    for user_id, character_id in tokens:
-        if not user_id or not character_id:
+    updated = 0
+    skipped = 0
+    failures = 0
+    for character_id in tokens:
+        if not character_id:
+            skipped += 1
             continue
-        key = (int(user_id), int(character_id))
-        if key in seen:
-            continue
-        seen.add(key)
-        update_character_skill_snapshot_for_character.apply_async(
-            args=[int(user_id), int(character_id)],
+        result = update_character_skill_snapshot_for_character(
+            int(user_id),
+            int(character_id),
         )
-        queued += 1
+        status = result.get("status") if isinstance(result, dict) else None
+        if status == "updated":
+            updated += 1
+        elif status == "failed":
+            failures += 1
+        else:
+            skipped += 1
 
-    logger.info("Queued %s character skill refresh tasks", queued)
-    return {"queued": queued}
+    return {"updated": updated, "skipped": skipped, "failures": failures}

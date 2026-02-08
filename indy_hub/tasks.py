@@ -24,9 +24,11 @@ from .tasks.industry import (  # noqa: F401
     cleanup_old_jobs,
     update_all_blueprints,
     update_all_industry_jobs,
+    update_all_skill_snapshots,
     update_blueprints_for_user,
     update_industry_jobs_for_user,
     update_type_names,
+    update_user_skill_snapshots,
 )
 from .tasks.location import refresh_structure_location  # noqa: F401
 from .tasks.notifications import (  # noqa: F401
@@ -39,6 +41,7 @@ from .tasks.user import (  # noqa: F401
     update_character_roles_for_character,
     update_character_roles_snapshots,
     update_user_preferences_defaults,
+    update_user_roles_snapshots,
 )
 
 User = get_user_model()

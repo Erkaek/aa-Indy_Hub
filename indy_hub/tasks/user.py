@@ -225,20 +225,44 @@ def update_character_roles_for_character(user_id: int, character_id: int) -> dic
 
 @shared_task
 def update_character_roles_snapshots():
-    """Queue per-character role refreshes (rate-limited)."""
-    ownerships = (
-        CharacterOwnership.objects.select_related("character")
-        .values_list("user_id", "character__character_id")
-        .distinct()
+    """Queue per-user role refresh tasks."""
+    user_ids = list(
+        CharacterOwnership.objects.values_list("user_id", flat=True).distinct()
     )
     queued = 0
-    for user_id, character_id in ownerships:
-        if not character_id:
+    for user_id in user_ids:
+        if not user_id:
             continue
-        update_character_roles_for_character.apply_async(
-            args=[user_id, int(character_id)],
-        )
+        update_user_roles_snapshots.apply_async(args=[int(user_id)])
         queued += 1
 
-    logger.info("Queued %s character role refresh tasks", queued)
+    logger.info("Queued %s user role refresh tasks", queued)
     return {"queued": queued}
+
+
+@shared_task
+def update_user_roles_snapshots(user_id: int) -> dict[str, int]:
+    """Refresh role snapshots for all characters of a user."""
+    ownerships = (
+        CharacterOwnership.objects.filter(user_id=user_id)
+        .select_related("character")
+        .values_list("character__character_id", flat=True)
+        .distinct()
+    )
+    updated = 0
+    skipped = 0
+    failures = 0
+    for character_id in ownerships:
+        if not character_id:
+            skipped += 1
+            continue
+        result = update_character_roles_for_character(int(user_id), int(character_id))
+        status = result.get("status") if isinstance(result, dict) else None
+        if status == "updated":
+            updated += 1
+        elif status == "failed":
+            failures += 1
+        else:
+            skipped += 1
+
+    return {"updated": updated, "skipped": skipped, "failures": failures}
