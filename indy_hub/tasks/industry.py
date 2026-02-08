@@ -704,11 +704,12 @@ def update_blueprints_for_user(self, user_id, scope: str | None = None):
             from esi.models import Token
 
             token_qs = (
-                Token.objects.filter(character_id=char_id, user=user)
+                Token.objects.all()
+                .require_scopes([SKILLS_SCOPE])
                 .require_valid()
+                .select_related("user")
                 .order_by("-created")
             )
-
             chosen_scopes: list[str] | None = None
             for scope_set in scope_preferences:
                 candidate_qs = token_qs
@@ -1641,7 +1642,8 @@ def update_all_skill_snapshots() -> dict[str, int]:
     seen: set[int] = set()
 
     tokens = (
-        Token.objects.require_scopes([SKILLS_SCOPE])
+        Token.objects.all()
+        .require_scopes([SKILLS_SCOPE])
         .require_valid()
         .select_related("user")
         .order_by("-created")

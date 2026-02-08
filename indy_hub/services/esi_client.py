@@ -103,6 +103,40 @@ def rate_limit_wait_seconds(response, fallback: float) -> tuple[float, int | Non
     return wait, remaining
 
 
+def token_rate_limit_wait_seconds(
+    response, fallback: float
+) -> tuple[float, int | None]:
+    """Return wait seconds from token-based rate limit headers."""
+
+    retry_after_header = response.headers.get("Retry-After")
+    reset_header = response.headers.get("X-Ratelimit-Reset")
+    remaining_header = response.headers.get("X-Ratelimit-Remaining")
+
+    wait_candidates: list[float] = []
+    for raw_value in (retry_after_header, reset_header):
+        if raw_value is None:
+            continue
+        try:
+            wait_candidates.append(float(raw_value))
+        except (TypeError, ValueError):
+            continue
+
+    wait = fallback
+    if wait_candidates:
+        positive = [value for value in wait_candidates if value > 0]
+        if positive:
+            wait = max(max(positive), fallback)
+
+    remaining: int | None = None
+    if remaining_header is not None:
+        try:
+            remaining = int(remaining_header)
+        except (TypeError, ValueError):
+            remaining = None
+
+    return wait, remaining
+
+
 class ESIClient:
     """Small helper around django-esi Swagger client with AA-friendly errors."""
 
@@ -249,7 +283,7 @@ class ESIClient:
     ) -> list[dict]:
         token_obj = self._get_token(character_id, scope)
         try:
-            token_obj.valid_access_token()
+            access_token = token_obj.valid_access_token()
         except Exception as exc:
             raise ESITokenError(
                 f"No valid token for character {character_id} and scope {scope}"
@@ -263,7 +297,7 @@ class ESIClient:
             ) from exc
 
         try:
-            payload = operation_fn(**params, token=token_obj).results()
+            payload = operation_fn(**params, token=access_token).results()
         except HTTPError as exc:
             self._handle_http_error(
                 exc,
@@ -465,13 +499,13 @@ class ESIClient:
         if operation is None:
             raise ESIClientError("No ESI operation provided")
         try:
-            token_obj.valid_access_token()
+            access_token = token_obj.valid_access_token()
         except Exception as exc:
             raise ESITokenError(
                 f"No valid token for character {character_id} and scope {scope}"
             ) from exc
         try:
-            return operation(token_obj).results()
+            return operation(access_token).results()
         except HTTPError as exc:
             self._handle_http_error(
                 exc,
@@ -516,6 +550,15 @@ class ESIClient:
         )
         if status_code == 420:
             sleep_for, remaining = rate_limit_wait_seconds(
+                exc.response, self.backoff_factor
+            )
+            raise ESIRateLimitError(
+                retry_after=sleep_for,
+                remaining=remaining,
+            ) from exc
+
+        if status_code == 429:
+            sleep_for, remaining = token_rate_limit_wait_seconds(
                 exc.response, self.backoff_factor
             )
             raise ESIRateLimitError(

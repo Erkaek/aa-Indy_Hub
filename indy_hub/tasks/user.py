@@ -20,7 +20,7 @@ from allianceauth.services.hooks import get_extension_logger
 from esi.models import Token
 
 # Indy Hub
-from ..models import Blueprint, CharacterRoles, CharacterSettings, IndustryJob
+from ..models import Blueprint, CharacterRoles, CharacterSettings
 from ..services.esi_client import (
     ESIClientError,
     ESIForbiddenError,
@@ -77,97 +77,20 @@ def update_user_preferences_defaults():
     Useful after adding new preference fields.
     """
     # Alternative: find users with no global settings (character_id=0)
-
     users_without_global_settings = User.objects.exclude(
         charactersettings__character_id=0
     )
 
-    count = 0
+    created = 0
     for user in users_without_global_settings:
-        settings, created = CharacterSettings.objects.get_or_create(
-            user=user,
-            character_id=0,  # Global settings
-            defaults={
-                "jobs_notify_completed": True,  # Default to enabled
-                "allow_copy_requests": False,  # Default to disabled
-                "copy_sharing_scope": CharacterSettings.SCOPE_NONE,
-            },
+        _, was_created = CharacterSettings.objects.get_or_create(
+            user=user, character_id=0
         )
-        if created:
-            count += 1
+        if was_created:
+            created += 1
 
-    logger.info(f"Created default preferences for {count} users")
-    return {"users_updated": count}
-
-
-@shared_task
-def sync_user_character_names():
-    """
-    Update cached character names for all user data.
-    Useful when character names change in EVE Online.
-    """
-    from ..utils import batch_cache_character_names
-    from ..utils.eve import get_character_name
-
-    # Get all unique character IDs from blueprints and jobs
-    bp_char_ids = set(
-        Blueprint.objects.exclude(character_id__isnull=True).values_list(
-            "character_id", flat=True
-        )
-    )
-
-    job_char_ids = set(
-        IndustryJob.objects.exclude(character_id__isnull=True).values_list(
-            "character_id", flat=True
-        )
-    )
-
-    all_char_ids = list(bp_char_ids | job_char_ids)
-
-    if all_char_ids:
-        # Batch update character names
-        batch_cache_character_names(all_char_ids)
-
-        updated_blueprints = 0
-        bp_qs = Blueprint.objects.filter(character_id__in=all_char_ids).only(
-            "id", "character_id", "character_name"
-        )
-        for bp in bp_qs.iterator():
-            if not bp.character_id:
-                continue
-            new_name = get_character_name(bp.character_id)
-            if new_name and new_name != bp.character_name:
-                bp.character_name = new_name
-                bp.save(update_fields=["character_name"])
-                updated_blueprints += 1
-
-        updated_jobs = 0
-        job_qs = IndustryJob.objects.filter(character_id__in=all_char_ids).only(
-            "id", "character_id", "character_name"
-        )
-        for job in job_qs.iterator():
-            if not job.character_id:
-                continue
-            new_name = get_character_name(job.character_id)
-            if new_name and new_name != job.character_name:
-                job.character_name = new_name
-                job.save(update_fields=["character_name"])
-                updated_jobs += 1
-
-        logger.info(
-            "Updated character names for %s characters (%s blueprints, %s jobs)",
-            len(all_char_ids),
-            updated_blueprints,
-            updated_jobs,
-        )
-        return {
-            "characters_considered": len(all_char_ids),
-            "blueprints_updated": updated_blueprints,
-            "jobs_updated": updated_jobs,
-        }
-
-    logger.info("Updated character names for 0 characters")
-    return {"characters_considered": 0, "blueprints_updated": 0, "jobs_updated": 0}
+    logger.info("Ensured global notification defaults for %s users", created)
+    return {"defaults_created": created}
 
 
 @shared_task
@@ -185,10 +108,12 @@ def generate_user_activity_report():
     )
 
     users_with_blueprints = (
-        User.objects.filter(blueprint__isnull=False).distinct().count()
+        User.objects.filter(blueprints__isnull=False).distinct().count()
     )
 
-    users_with_jobs = User.objects.filter(industryjob__isnull=False).distinct().count()
+    users_with_jobs = (
+        User.objects.filter(industry_jobs__isnull=False).distinct().count()
+    )
 
     users_with_notifications = CharacterSettings.objects.filter(
         character_id=0, jobs_notify_completed=True  # Global settings only
@@ -207,84 +132,96 @@ def generate_user_activity_report():
     return report
 
 
+def _coerce_role_list(value: object) -> list[str]:
+    if isinstance(value, (list, tuple)):
+        return [str(item) for item in value if item]
+    return []
+
+
+@shared_task
+def update_character_roles_for_character(user_id: int, character_id: int) -> dict:
+    """Refresh stored corporation roles for a single character."""
+    ownership = (
+        CharacterOwnership.objects.filter(
+            user_id=user_id, character__character_id=character_id
+        )
+        .select_related("character", "user")
+        .first()
+    )
+    if not ownership:
+        return {"status": "skipped", "reason": "ownership_missing"}
+
+    token = (
+        Token.objects.filter(user=ownership.user, character_id=character_id)
+        .require_scopes([CORP_ROLES_SCOPE])
+        .require_valid()
+        .order_by("-created")
+        .first()
+    )
+    if not token:
+        return {"status": "skipped", "reason": "token_missing"}
+
+    try:
+        payload = shared_client.fetch_character_corporation_roles(int(character_id))
+    except ESIUnmodifiedError:
+        return {"status": "skipped", "reason": "not_modified"}
+    except ESIRateLimitError as exc:
+        delay = int(getattr(exc, "retry_after", None) or 0)
+        update_character_roles_for_character.apply_async(
+            args=[user_id, int(character_id)],
+            countdown=max(delay, 1),
+        )
+        return {"status": "rate_limited", "retry_in": delay}
+    except (
+        ESITokenError,
+        ESIForbiddenError,
+        ESIClientError,
+    ) as exc:
+        logger.warning(
+            "Failed to refresh corporation roles for character %s: %s",
+            character_id,
+            exc,
+        )
+        return {"status": "failed", "reason": str(exc)}
+
+    if not isinstance(payload, dict):
+        logger.debug(
+            "Unexpected corporation roles payload type for character %s: %s",
+            character_id,
+            type(payload),
+        )
+        return {"status": "failed", "reason": "unexpected_payload"}
+
+    CharacterRoles.objects.update_or_create(
+        character_id=character_id,
+        defaults={
+            "owner_user": ownership.user,
+            "corporation_id": getattr(ownership.character, "corporation_id", None),
+            "roles": _coerce_role_list(payload.get("roles")),
+            "roles_at_hq": _coerce_role_list(payload.get("roles_at_hq")),
+            "roles_at_base": _coerce_role_list(payload.get("roles_at_base")),
+            "roles_at_other": _coerce_role_list(payload.get("roles_at_other")),
+        },
+    )
+    return {"status": "updated"}
+
+
 @shared_task
 def update_character_roles_snapshots():
-    """Refresh stored corporation roles for characters once per day."""
-
-    def _coerce_list(value: object) -> list[str]:
-        if isinstance(value, (list, tuple)):
-            return [str(item) for item in value if item]
-        return []
-
-    ownerships = CharacterOwnership.objects.select_related("character", "user")
-    updated = 0
-    skipped = 0
-    failures = 0
-
-    for ownership in ownerships.iterator():
-        character_id = getattr(ownership.character, "character_id", None)
+    """Queue per-character role refreshes (rate-limited)."""
+    ownerships = (
+        CharacterOwnership.objects.select_related("character")
+        .values_list("user_id", "character__character_id")
+        .distinct()
+    )
+    queued = 0
+    for user_id, character_id in ownerships:
         if not character_id:
             continue
-
-        token = (
-            Token.objects.filter(user=ownership.user, character_id=character_id)
-            .require_scopes([CORP_ROLES_SCOPE])
-            .require_valid()
-            .order_by("-created")
-            .first()
+        update_character_roles_for_character.apply_async(
+            args=[user_id, int(character_id)],
         )
-        if not token:
-            skipped += 1
-            continue
+        queued += 1
 
-        try:
-            payload = shared_client.fetch_character_corporation_roles(int(character_id))
-        except ESIUnmodifiedError:
-            continue
-        except (
-            ESITokenError,
-            ESIForbiddenError,
-            ESIRateLimitError,
-            ESIClientError,
-        ) as exc:
-            failures += 1
-            logger.warning(
-                "Failed to refresh corporation roles for character %s: %s",
-                character_id,
-                exc,
-            )
-            continue
-
-        if not isinstance(payload, dict):
-            logger.debug(
-                "Unexpected corporation roles payload type for character %s: %s",
-                character_id,
-                type(payload),
-            )
-            failures += 1
-            continue
-
-        CharacterRoles.objects.update_or_create(
-            character_id=character_id,
-            defaults={
-                "owner_user": ownership.user,
-                "corporation_id": getattr(ownership.character, "corporation_id", None),
-                "roles": _coerce_list(payload.get("roles")),
-                "roles_at_hq": _coerce_list(payload.get("roles_at_hq")),
-                "roles_at_base": _coerce_list(payload.get("roles_at_base")),
-                "roles_at_other": _coerce_list(payload.get("roles_at_other")),
-            },
-        )
-        updated += 1
-
-    logger.info(
-        "Updated corporation roles for %s characters (%s skipped, %s failures)",
-        updated,
-        skipped,
-        failures,
-    )
-    return {
-        "updated": updated,
-        "skipped": skipped,
-        "failures": failures,
-    }
+    logger.info("Queued %s character role refresh tasks", queued)
+    return {"queued": queued}

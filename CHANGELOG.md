@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - ESI: show explicit missing ESI scopes per character and corporation on the token management page.
 - Industry: added a slot availability overview per linked character (manufacturing/research/reactions).
 - Overview: show a compact recap of unused industry slots (Mfg/Res/React) using cached skill snapshots.
+- ESI: persisted character corporation roles in the new CharacterRoles table.
+- ESI: hourly scheduled refresh for skill snapshots.
+- ESI: daily scheduled refresh for character roles snapshots.
 
 ### Changed
 
@@ -39,6 +42,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Scopes: Material Exchange required scope set now includes corporation divisions and contracts.
 - Industry: skill snapshot cache refresh interval reduced to 1 hour.
 - Overview: Industry module chips now include unused slots recap alongside completion counters.
+- Industry: skill snapshots now refresh via scheduled task; page load only fills missing snapshots.
+- Material Exchange: character/corporation lookup uses stored EveCharacter/EveCorporationInfo data before fetching.
+- Assets: director-role checks use stored CharacterRoles with ESI fallback and persistence.
 
 ### Fixed
 
@@ -51,11 +57,16 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Scopes: removed unused corp wallet scope from required scope sets.
 - ESI: token management page now lists the corporation roles scope in required character scopes.
 - Industry: fixed personal jobs page layout issues in the slots overview header/collapse.
+- ESI: handle 304/not-modified responses for roles with cache/DB fallback.
+- ESI: guard against unexpected roles payload types without raising.
+- Services: corrected asset cache role filtering after refactor.
 
 ### Internal
 
 - Added Material Exchange settings migration.
 - Test fixtures now use public station IDs for structure locations.
+- Migrations: add CharacterRoles model and indexes.
+- Celery: added periodic task entry for skill snapshot refresh.
 
 ## [1.13.13] - 2026-02-01
 
