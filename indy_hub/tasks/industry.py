@@ -315,17 +315,25 @@ def _fetch_character_skill_levels_with_token(
     global _SKILLS_OPERATION_UNAVAILABLE
     client = shared_client.client
     skills_resource = getattr(client, "Skills", None)
-    if skills_resource is not None and hasattr(
-        skills_resource, "get_characters_character_id_skills"
-    ):
-        operation_fn = skills_resource.get_characters_character_id_skills
-    else:
+    operation_fn = None
+    if skills_resource is not None:
+        operation_fn = getattr(
+            skills_resource,
+            "get_characters_character_id_skills",
+            None,
+        ) or getattr(skills_resource, "GetCharactersCharacterIdSkills", None)
+
+    if not operation_fn:
         character_resource = client.Character
         operation_fn = getattr(
             character_resource,
             "get_characters_character_id_skills",
             None,
-        ) or getattr(character_resource, "GetCharactersCharacterIdSkills")
+        ) or getattr(character_resource, "GetCharactersCharacterIdSkills", None)
+
+    if not operation_fn:
+        _SKILLS_OPERATION_UNAVAILABLE = True
+        raise ESIClientError("ESI skills operation unavailable")
 
     try:
         request_kwargs = {}
