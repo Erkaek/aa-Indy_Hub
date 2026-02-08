@@ -22,6 +22,7 @@ DEFAULT_COMPATIBILITY_DATE = ESI_COMPATIBILITY_DATE
 DEFAULT_ESI_OPERATIONS = [
     "GetCharactersCharacterIdBlueprints",
     "GetCharactersCharacterIdIndustryJobs",
+    "GetCharactersCharacterIdSkills",
     "GetCharactersCharacterIdOnline",
     "GetCorporationsCorporationIdBlueprints",
     "GetCorporationsCorporationIdIndustryJobs",
@@ -46,6 +47,7 @@ DEFAULT_ESI_TAGS = [
     "Contracts",
     "Corporation",
     "Industry",
+    "Skills",
     "Universe",
 ]
 
