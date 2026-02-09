@@ -5,6 +5,7 @@ These tasks handle user profile management, preferences, cleanup, etc.
 """
 
 # Standard Library
+import random
 from datetime import timedelta
 
 # Third Party
@@ -29,6 +30,7 @@ from ..services.esi_client import (
     ESIUnmodifiedError,
     shared_client,
 )
+from .industry import _get_bulk_window_minutes, _is_user_active, _queue_staggered_user_tasks
 
 logger = get_extension_logger(__name__)
 
@@ -227,22 +229,37 @@ def update_character_roles_for_character(user_id: int, character_id: int) -> dic
 def update_character_roles_snapshots():
     """Queue per-user role refresh tasks."""
     user_ids = list(
-        CharacterOwnership.objects.values_list("user_id", flat=True).distinct()
+        Token.objects.all()
+        .require_scopes([CORP_ROLES_SCOPE])
+        .require_valid()
+        .values_list("user_id", flat=True)
+        .distinct()
     )
-    queued = 0
-    for user_id in user_ids:
-        if not user_id:
-            continue
-        update_user_roles_snapshots.apply_async(args=[int(user_id)])
-        queued += 1
+    random.shuffle(user_ids)
 
-    logger.info("Queued %s user role refresh tasks", queued)
-    return {"queued": queued}
+    window_minutes = _get_bulk_window_minutes("roles")
+    queued = _queue_staggered_user_tasks(
+        update_user_roles_snapshots,
+        user_ids,
+        window_minutes=window_minutes,
+        priority=7,
+    )
+
+    logger.info(
+        "Queued role refresh tasks for %s users across a %s minute window",
+        queued,
+        window_minutes,
+    )
+    return {"queued": queued, "window_minutes": window_minutes}
 
 
 @shared_task
 def update_user_roles_snapshots(user_id: int) -> dict[str, int]:
     """Refresh role snapshots for all characters of a user."""
+    user = User.objects.filter(id=user_id).first()
+    if not user or not _is_user_active(user):
+        return {"updated": 0, "skipped": 1, "failures": 0}
+
     ownerships = (
         CharacterOwnership.objects.filter(user_id=user_id)
         .select_related("character")
