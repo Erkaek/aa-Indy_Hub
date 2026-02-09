@@ -29,9 +29,6 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - ESI: persisted character corporation roles in the new CharacterRoles table.
 - ESI: hourly scheduled refresh for skill snapshots.
 - ESI: daily scheduled refresh for character roles snapshots.
-- Dependencies: add Alliance Auth AppUtils as a required dependency.
-- Material Exchange: refresh status now exposes last update for smarter reload timing.
-- Material Exchange: inline loading spinner during sell/buy refresh.
 
 ### Changed
 
@@ -39,6 +36,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - ESI: OpenAPI-only client usage with PascalCase operationId registry.
 - ESI: token handling now uses Token objects for OpenAPI calls.
 - Dependencies: django-esi is now required at >=8,\<9.
+- Dependencies: Alliance Auth AppUtils is now required.
 - Material Exchange: nav entry hides when disabled; settings card reflects global state.
 - Material Exchange: sync/validation tasks now skip when disabled or not configured.
 - Celery: periodic task schedules can apply allianceauth cron offsets.
