@@ -227,22 +227,27 @@ def refresh_material_exchange_sell_user_assets(user_id: int) -> None:
 
     progress_key = _me_sell_assets_progress_key(int(user_id))
     ttl_seconds = 10 * 60
+    cached_state = cache.get(progress_key) or {}
+    started_at = cached_state.get("started_at") or timezone.now().timestamp()
+
+    def _set_progress(**fields) -> None:
+        if "started_at" not in fields:
+            fields["started_at"] = started_at
+        if "last_progress_at" not in fields:
+            fields["last_progress_at"] = timezone.now().timestamp()
+        cache.set(progress_key, fields, ttl_seconds)
 
     UserModel = get_user_model()
 
     try:
         user = UserModel.objects.get(pk=int(user_id))
     except Exception:
-        cache.set(
-            progress_key,
-            {
-                "running": False,
-                "finished": True,
-                "error": "user_not_found",
-                "total": 0,
-                "done": 0,
-            },
-            ttl_seconds,
+        _set_progress(
+            running=False,
+            finished=True,
+            error="user_not_found",
+            total=0,
+            done=0,
         )
         return
 
@@ -261,31 +266,23 @@ def refresh_material_exchange_sell_user_assets(user_id: int) -> None:
         character_ids = []
 
     total = int(len(character_ids))
-    cache.set(
-        progress_key,
-        {
-            "running": True,
-            "finished": False,
-            "error": None,
-            "total": total,
-            "done": 0,
-            "failed": 0,
-        },
-        ttl_seconds,
+    _set_progress(
+        running=True,
+        finished=False,
+        error=None,
+        total=total,
+        done=0,
+        failed=0,
     )
 
     if total <= 0:
-        cache.set(
-            progress_key,
-            {
-                "running": False,
-                "finished": True,
-                "error": "no_characters",
-                "total": 0,
-                "done": 0,
-                "failed": 0,
-            },
-            ttl_seconds,
+        _set_progress(
+            running=False,
+            finished=True,
+            error="no_characters",
+            total=0,
+            done=0,
+            failed=0,
         )
         return
 
@@ -300,17 +297,13 @@ def refresh_material_exchange_sell_user_assets(user_id: int) -> None:
         if not character_id:
             failed += 1
             done += 1
-            cache.set(
-                progress_key,
-                {
-                    "running": True,
-                    "finished": False,
-                    "error": None,
-                    "total": total,
-                    "done": done,
-                    "failed": failed,
-                },
-                ttl_seconds,
+            _set_progress(
+                running=True,
+                finished=False,
+                error=None,
+                total=total,
+                done=done,
+                failed=failed,
             )
             continue
 
@@ -324,12 +317,20 @@ def refresh_material_exchange_sell_user_assets(user_id: int) -> None:
             if hasattr(token_qs, "require_valid"):
                 token_qs = token_qs.require_valid()
             if not token_qs.exists():
-                raise ESITokenError(
-                    f"No assets token for character {character_id} and user {user_id}"
+                done += 1
+                _set_progress(
+                    running=True,
+                    finished=False,
+                    error=None,
+                    total=total,
+                    done=done,
+                    failed=failed,
                 )
+                continue
 
             assets = shared_client.fetch_character_assets(
-                character_id=int(character_id)
+                character_id=int(character_id),
+                force_refresh=True,
             )
         except ESIRateLimitError as exc:
             logger.warning(
@@ -341,17 +342,13 @@ def refresh_material_exchange_sell_user_assets(user_id: int) -> None:
         except (ESITokenError, ESIForbiddenError, ESIClientError):
             failed += 1
             done += 1
-            cache.set(
-                progress_key,
-                {
-                    "running": True,
-                    "finished": False,
-                    "error": None,
-                    "total": total,
-                    "done": done,
-                    "failed": failed,
-                },
-                ttl_seconds,
+            _set_progress(
+                running=True,
+                finished=False,
+                error=None,
+                total=total,
+                done=done,
+                failed=failed,
             )
             continue
 
@@ -411,47 +408,35 @@ def refresh_material_exchange_sell_user_assets(user_id: int) -> None:
             all_rows.extend(rows)
 
         done += 1
-        cache.set(
-            progress_key,
-            {
-                "running": True,
-                "finished": False,
-                "error": None,
-                "total": total,
-                "done": done,
-                "failed": failed,
-            },
-            ttl_seconds,
+        _set_progress(
+            running=True,
+            finished=False,
+            error=None,
+            total=total,
+            done=done,
+            failed=failed,
         )
 
-    cache.set(
-        progress_key,
-        {
-            "running": False,
-            "finished": True,
-            "error": None,
-            "total": total,
-            "done": done,
-            "failed": failed,
-        },
-        ttl_seconds,
+    _set_progress(
+        running=False,
+        finished=True,
+        error=None,
+        total=total,
+        done=done,
+        failed=failed,
     )
 
     # Only replace cached rows if we managed to fetch at least some assets.
     # This prevents the sell page from losing previously cached data when ESI is down
     # or when all characters are missing the required scope.
     if not all_rows:
-        cache.set(
-            progress_key,
-            {
-                "running": False,
-                "finished": True,
-                "error": "no_assets_fetched",
-                "total": total,
-                "done": done,
-                "failed": failed,
-            },
-            ttl_seconds,
+        _set_progress(
+            running=False,
+            finished=True,
+            error="no_assets_fetched",
+            total=total,
+            done=done,
+            failed=failed,
         )
         return
 

@@ -301,11 +301,90 @@ class IndustryJob(models.Model):
 
     @property
     def display_end_date(self):
-        # Only mark as Completed if status indicates completion
+        date_value = self.completed_date or self.end_date
+        if date_value:
+            return timezone.localtime(date_value).strftime("%Y-%m-%d %H:%M")
+        return "Completed" if self.is_completed else ""
+
+    @property
+    def progress_percent(self):
+        """Compute job progress percentage based on start and end dates."""
         if self.is_completed:
-            return "Completed"
-        # Otherwise show the scheduled end date
-        return self.end_date.strftime("%Y-%m-%d %H:%M") if self.end_date else ""
+            return 100
+        if self.start_date and self.end_date:
+            total = (self.end_date - self.start_date).total_seconds()
+            if total <= 0:
+                return 100
+            elapsed = (timezone.now() - self.start_date).total_seconds()
+            percent = (elapsed / total) * 100
+            return int(max(0, min(100, percent)))
+        return 0
+
+    @property
+    def display_eta(self):
+        """Return formatted remaining time or Completed for jobs."""
+        if self.is_completed:
+            return _("Completed")
+        if not self.end_date:
+            return ""
+
+        now = timezone.now()
+        if self.end_date > now:
+            remaining = self.end_date - now
+            total_seconds = int(remaining.total_seconds())
+
+            weeks, remainder = divmod(total_seconds, 7 * 24 * 3600)
+            days, remainder = divmod(remainder, 24 * 3600)
+            hours, remainder = divmod(remainder, 3600)
+            minutes, seconds = divmod(remainder, 60)
+
+            parts: list[str] = []
+            if weeks:
+                parts.append(
+                    ngettext("%(count)d week", "%(count)d weeks", weeks)
+                    % {"count": weeks}
+                )
+            if days:
+                parts.append(
+                    ngettext("%(count)d day", "%(count)d days", days) % {"count": days}
+                )
+            if hours:
+                parts.append(
+                    ngettext("%(count)d hour", "%(count)d hours", hours)
+                    % {"count": hours}
+                )
+            if minutes:
+                parts.append(
+                    ngettext(
+                        "%(count)d minute",
+                        "%(count)d minutes",
+                        minutes,
+                    )
+                    % {"count": minutes}
+                )
+            if seconds and not (weeks or days or hours):
+                parts.append(
+                    ngettext(
+                        "%(count)d second",
+                        "%(count)d seconds",
+                        seconds,
+                    )
+                    % {"count": seconds}
+                )
+
+            if not parts:
+                parts.append(
+                    ngettext(
+                        "%(count)d second",
+                        "%(count)d seconds",
+                        seconds,
+                    )
+                    % {"count": seconds}
+                )
+
+            return ", ".join(parts)
+
+        return _("Completed")
 
     @property
     def icon_url(self):

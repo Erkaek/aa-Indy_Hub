@@ -1430,12 +1430,38 @@ def check_completed_material_exchange_contracts():
                 "esi-contracts.read_corporation_contracts.v1",
             ),
         )
+    except ESIUnmodifiedError:
+        contracts = list(
+            ESIContract.objects.filter(corporation_id=config.corporation_id).values(
+                "contract_id",
+                "status",
+            )
+        )
+        if not contracts:
+            logger.debug(
+                "Contracts not modified for corporation %s; no cached contracts available",
+                config.corporation_id,
+            )
+            return
     except ESIRateLimitError as exc:
         logger.warning("ESI rate limit reached while checking contract status: %s", exc)
         raise
     except (ESITokenError, ESIForbiddenError, ESIClientError) as exc:
-        logger.error("Failed to check contract status: %s", exc)
-        return
+        if "304" in str(exc):
+            contracts = list(
+                ESIContract.objects.filter(corporation_id=config.corporation_id).values(
+                    "contract_id", "status"
+                )
+            )
+            if not contracts:
+                logger.debug(
+                    "Contracts not modified for corporation %s; no cached contracts available",
+                    config.corporation_id,
+                )
+                return
+        else:
+            logger.error("Failed to check contract status: %s", exc)
+            return
 
     for order in approved_orders:
         # Extract contract ID from stored field or notes

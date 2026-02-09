@@ -30,6 +30,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - ESI: hourly scheduled refresh for skill snapshots.
 - ESI: daily scheduled refresh for character roles snapshots.
 - Dependencies: add Alliance Auth AppUtils as a required dependency.
+- Material Exchange: refresh status now exposes last update for smarter reload timing.
+- Material Exchange: inline loading spinner during sell/buy refresh.
 
 ### Changed
 
@@ -49,6 +51,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Industry: skill snapshots now refresh via scheduled task; page load only fills missing snapshots.
 - Material Exchange: character/corporation lookup uses stored EveCharacter/EveCorporationInfo data before fetching.
 - Assets: director-role checks use stored CharacterRoles with ESI fallback and persistence.
+- ESI: authorization flows now preserve return-to URLs via next param and session.
+- Material Exchange: sell/buy headers show pricing formula and refreshed update timing.
+- Material Exchange: auto-refresh notices explain next refresh timing.
+- Material Exchange: refresh overlays hide content while assets/stock sync.
+- Material Exchange: refreshed=1 guard cleaned from URLs after reload.
 
 ### Fixed
 
@@ -69,6 +76,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Industry: bulk jobs sync uses a 1h window and skips inactive users.
 - Industry: jobs and blueprints syncs skip users updated within 2h/1h respectively.
 - Industry: skill snapshots refresh daily and skip inactive users; minimum refresh age is 1 day.
+- Industry: completed jobs now show correct progress, ETA, and end date.
+- ESI: force-refresh assets to bypass ETag/304 and reduce stale cache reads.
+- ESI: paginated fetches accept force_refresh without raising TypeError.
+- Material Exchange: stuck refresh polling now times out and recovers from stale running states.
+- Material Exchange: sell page reload waits for updated last update timestamp.
+- Material Exchange: local time display uses browser timezone for accuracy.
+- Material Exchange: loading spinner rendering fixed for sell/buy pages.
 
 ### Internal
 
@@ -76,6 +90,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Test fixtures now use public station IDs for structure locations.
 - Migrations: add CharacterRoles model and indexes.
 - Celery: added periodic task entry for skill snapshot refresh.
+- Material Exchange: progress cache now tracks last_progress_at for timeout handling.
+- Asset cache: role checks use stored snapshots without on-demand ESI fetches.
 
 ## [1.13.13] - 2026-02-01
 

@@ -879,12 +879,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
 function requestDivisionsToken() {
     // Redirect to corporation authorization (includes divisions/roles)
-    window.location.href = '{% url "indy_hub:authorize_corp_all" %}';
+    const nextUrl = encodeURIComponent(window.location.pathname + window.location.search);
+    window.location.href = '{% url "indy_hub:authorize_corp_all" %}?next=' + nextUrl;
 }
 
 function requestAssetsToken() {
     // Redirect to Material Exchange authorization (corp scopes incl. assets)
-    window.location.href = '{% url "indy_hub:authorize_material_exchange" %}';
+    const nextUrl = encodeURIComponent(window.location.pathname + window.location.search);
+    window.location.href = '{% url "indy_hub:authorize_material_exchange" %}?next=' + nextUrl;
 }
 
 function requestTokensSync() {

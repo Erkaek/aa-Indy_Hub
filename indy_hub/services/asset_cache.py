@@ -37,6 +37,7 @@ from indy_hub.services.esi_client import (
     ESIForbiddenError,
     ESIRateLimitError,
     ESITokenError,
+    ESIUnmodifiedError,
     shared_client,
 )
 from indy_hub.services.providers import esi_provider
@@ -62,10 +63,14 @@ def _get_or_fetch_character_roles(
     *,
     owner_user=None,
     corporation_id: int | None = None,
+    allow_fetch: bool = True,
 ) -> list[str]:
     snapshot = CharacterRoles.objects.filter(character_id=character_id).first()
     if snapshot:
         return [str(role).upper() for role in (snapshot.roles or []) if role]
+
+    if not allow_fetch:
+        return []
 
     if owner_user is None or corporation_id is None:
         ownership = (
@@ -279,6 +284,12 @@ def _cache_corp_structure_names(corporation_id: int) -> dict[int, str]:
         structures = shared_client.fetch_corporation_structures(
             int(corporation_id), character_id=int(character_id)
         )
+    except ESIUnmodifiedError:
+        logger.debug(
+            "Corporation structures not modified for %s; using cached names",
+            corporation_id,
+        )
+        return {}
     except (ESIForbiddenError, ESITokenError):
         return {}
     except Exception as exc:  # pragma: no cover - defensive
@@ -439,6 +450,11 @@ def _refresh_corp_assets(corporation_id: int) -> tuple[list[dict], bool]:
 
         return assets, assets_scope_missing
 
+    except ESIUnmodifiedError:
+        logger.debug(
+            "Corporation assets not modified for %s; using cached assets",
+            corporation_id,
+        )
     except ESITokenError:
         assets_scope_missing = True
     except (ESIForbiddenError, ESIRateLimitError, ESIClientError) as exc:
@@ -701,6 +717,7 @@ def resolve_structure_names(
                         int(cid),
                         owner_user=user,
                         corporation_id=corporation_id,
+                        allow_fetch=False,
                     )
 
                     # Accept only DIRECTOR role

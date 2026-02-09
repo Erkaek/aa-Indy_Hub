@@ -56,6 +56,18 @@ _PRODUCTION_IDS_CACHE: set[int] | None = None
 _INDUSTRY_MARKET_GROUP_IDS_CACHE: set[int] | None = None
 
 
+def _minutes_until_refresh(last_update, *, window_seconds: int = 3600) -> int | None:
+    if not last_update:
+        return None
+    try:
+        remaining = window_seconds - (timezone.now() - last_update).total_seconds()
+    except Exception:
+        return None
+    if remaining <= 0:
+        return 0
+    return int((remaining + 59) // 60)
+
+
 def _get_material_exchange_settings() -> MaterialExchangeSettings | None:
     try:
         return MaterialExchangeSettings.get_solo()
@@ -270,7 +282,18 @@ def _ensure_sell_assets_refresh_started(user) -> dict:
     ttl_seconds = 10 * 60
     state = cache.get(progress_key) or {}
     if state.get("running"):
-        return state
+        try:
+            started_at = float(state.get("started_at") or 0)
+            last_progress_at = float(state.get("last_progress_at") or started_at or 0)
+            elapsed = timezone.now().timestamp() - last_progress_at
+        except (TypeError, ValueError):
+            elapsed = 0
+        if not state.get("started_at") and not state.get("last_progress_at"):
+            elapsed = 999999
+        if elapsed <= 180:
+            return state
+        state.update({"running": False, "finished": True, "error": "timeout"})
+        cache.set(progress_key, state, ttl_seconds)
 
     # Always refresh on page open unless explicitly suppressed.
     try:
@@ -307,6 +330,7 @@ def _ensure_sell_assets_refresh_started(user) -> dict:
         cache.set(progress_key, state, ttl_seconds)
         return state
 
+    started_at = timezone.now().timestamp()
     state = {
         "running": True,
         "finished": False,
@@ -314,6 +338,8 @@ def _ensure_sell_assets_refresh_started(user) -> dict:
         "total": total,
         "done": 0,
         "failed": 0,
+        "started_at": started_at,
+        "last_progress_at": started_at,
     }
     cache.set(progress_key, state, ttl_seconds)
 
@@ -355,7 +381,37 @@ def material_exchange_sell_assets_refresh_status(request):
         "done": 0,
         "failed": 0,
     }
-    return JsonResponse(state)
+    if state.get("running"):
+        try:
+            started_at = float(state.get("started_at") or 0)
+            last_progress_at = float(state.get("last_progress_at") or started_at or 0)
+            elapsed = timezone.now().timestamp() - last_progress_at
+        except (TypeError, ValueError):
+            elapsed = 0
+        if not state.get("started_at") and not state.get("last_progress_at"):
+            elapsed = 999999
+        if elapsed > 180:
+            state.update({"running": False, "finished": True, "error": "timeout"})
+            cache.set(progress_key, state, 10 * 60)
+    response = dict(state)
+    try:
+        last_update = (
+            CachedCharacterAsset.objects.filter(user=request.user)
+            .order_by("-synced_at")
+            .values_list("synced_at", flat=True)
+            .first()
+        )
+    except Exception:
+        last_update = None
+
+    if last_update:
+        try:
+            last_update_utc = timezone.localtime(last_update, timezone.utc)
+        except Exception:
+            last_update_utc = last_update
+        response["last_update"] = last_update_utc.isoformat()
+
+    return JsonResponse(response)
 
 
 def _ensure_buy_stock_refresh_started(config) -> dict:
@@ -1042,9 +1098,8 @@ def material_exchange_sell(request, tokens):
                 _("No items available to sell at this location."),
             )
 
-    # Show loading spinner if either Celery task is running OR stock sync just happened
-    # (stock sync is bloquant and completes before template render, so this is safe)
-    assets_refreshing = assets_refreshing or needs_refresh
+    # Show loading spinner only while the refresh task is running.
+    assets_refreshing = bool(sell_assets_progress.get("running"))
 
     # Get corporation name
     corporation_name = _get_corp_name_for_hub(config.corporation_id)
@@ -1056,6 +1111,7 @@ def material_exchange_sell(request, tokens):
         "assets_refreshing": assets_refreshing,
         "sell_assets_progress": sell_assets_progress,
         "sell_last_update": sell_last_update,
+        "sell_next_refresh_minutes": _minutes_until_refresh(sell_last_update),
         "nav_context": _build_nav_context(request.user),
     }
 
@@ -1366,6 +1422,7 @@ def material_exchange_buy(request, tokens):
         "corp_assets_scope_missing": corp_assets_scope_missing,
         "hangar_division_label": hangar_division_label,
         "buy_last_update": buy_last_update,
+        "buy_next_refresh_minutes": _minutes_until_refresh(buy_last_update),
         "nav_context": _build_nav_context(request.user),
     }
 

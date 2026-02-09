@@ -50,6 +50,12 @@ from allianceauth.authentication.models import CharacterOwnership
 from allianceauth.services.hooks import get_extension_logger
 from esi.models import Token
 
+try:
+    # Alliance Auth
+    from esi.exceptions import HTTPNotModified
+except ImportError:  # pragma: no cover - older django-esi
+    HTTPNotModified = None
+
 from ..app_settings import (
     BLUEPRINTS_BULK_WINDOW_MINUTES,
     BULK_UPDATE_WINDOW_MINUTES,
@@ -364,6 +370,8 @@ def _fetch_character_skill_levels_with_token(
             token=token_obj,
             **request_kwargs,
         ).results()
+    except HTTPNotModified as exc:
+        raise ESIUnmodifiedError("ESI skills not modified") from exc
     except Exception as exc:
         if "GetCharactersCharacterIdSkills" in str(exc):
             _SKILLS_OPERATION_UNAVAILABLE = True
@@ -380,6 +388,8 @@ def _fetch_character_skill_levels_with_token(
                 token=access_token,
                 **request_kwargs,
             ).results()
+        except HTTPNotModified as nested_exc:
+            raise ESIUnmodifiedError("ESI skills not modified") from nested_exc
         except Exception as nested_exc:
             if "GetCharactersCharacterIdSkills" in str(nested_exc):
                 _SKILLS_OPERATION_UNAVAILABLE = True
@@ -832,7 +842,13 @@ def _coerce_job_datetime(value):
 
 @shared_task(bind=True, max_retries=3)
 @rate_limit_retry_task
-def update_blueprints_for_user(self, user_id, scope: str | None = None):
+def update_blueprints_for_user(
+    self,
+    user_id,
+    scope: str | None = None,
+    character_id: int | None = None,
+    force_refresh: bool = False,
+):
     base_scopes = [BLUEPRINT_SCOPE]
     scope_preferences = [
         base_scopes + [STRUCTURE_SCOPE],
@@ -850,7 +866,11 @@ def update_blueprints_for_user(self, user_id, scope: str | None = None):
         logger.info("Skipping blueprint sync for inactive user %s", user.username)
         return {"success": True, "skipped": "inactive_user"}
 
-    if _user_recent_blueprint_sync(user, now=now):
+    if (
+        not force_refresh
+        and character_id is None
+        and _user_recent_blueprint_sync(user, now=now)
+    ):
         logger.info(
             "Skipping blueprint sync for %s: updated within last %s minutes",
             user.username,
@@ -900,6 +920,8 @@ def update_blueprints_for_user(self, user_id, scope: str | None = None):
     ownerships = (
         CharacterOwnership.objects.filter(user=user) if process_characters else []
     )
+    if character_id and process_characters:
+        ownerships = ownerships.filter(character__character_id=int(character_id))
     for ownership in ownerships:
         char_id = ownership.character.character_id
         character_name = get_character_name(char_id)
@@ -908,8 +930,7 @@ def update_blueprints_for_user(self, user_id, scope: str | None = None):
             from esi.models import Token
 
             token_qs = (
-                Token.objects.all()
-                .require_scopes([SKILLS_SCOPE])
+                Token.objects.filter(character_id=char_id, user=user)
                 .require_valid()
                 .select_related("user")
                 .order_by("-created")
@@ -929,7 +950,6 @@ def update_blueprints_for_user(self, user_id, scope: str | None = None):
                     f"{', '.join(base_scopes)}"
                 )
                 logger.debug(message)
-                error_messages.append(message)
                 continue
 
             if STRUCTURE_SCOPE not in chosen_scopes:
@@ -1152,7 +1172,13 @@ def update_blueprints_for_user(self, user_id, scope: str | None = None):
 
 @shared_task(bind=True, max_retries=3)
 @rate_limit_retry_task
-def update_industry_jobs_for_user(self, user_id, scope: str | None = None):
+def update_industry_jobs_for_user(
+    self,
+    user_id,
+    scope: str | None = None,
+    character_id: int | None = None,
+    force_refresh: bool = False,
+):
     try:
         user = User.objects.get(id=user_id)
         now = timezone.now()
@@ -1163,7 +1189,11 @@ def update_industry_jobs_for_user(self, user_id, scope: str | None = None):
             )
             return {"success": True, "skipped": "inactive_user"}
 
-        if _user_recent_job_sync(user, now=now):
+        if (
+            not force_refresh
+            and character_id is None
+            and _user_recent_job_sync(user, now=now)
+        ):
             logger.info(
                 "Skipping industry jobs sync for %s: updated within last %s minutes",
                 user.username,
@@ -1200,6 +1230,8 @@ def update_industry_jobs_for_user(self, user_id, scope: str | None = None):
 
         if not process_characters:
             ownerships = []
+        elif character_id:
+            ownerships = ownerships.filter(character__character_id=int(character_id))
 
         if process_corporations and user.has_perm(
             "indy_hub.can_manage_corp_bp_requests"
@@ -1246,8 +1278,7 @@ def update_industry_jobs_for_user(self, user_id, scope: str | None = None):
                 if chosen_scopes is None:
                     scope_list = ", ".join(base_scopes)
                     message = f"{character_name} ({char_id}) missing token for scopes {scope_list}"
-                    logger.warning(message)
-                    error_messages.append(message)
+                    logger.debug(message)
                     continue
 
                 if STRUCTURE_SCOPE not in chosen_scopes:
@@ -1933,6 +1964,8 @@ def update_character_skill_snapshot_for_character(
             token,
             force_refresh=table_empty or snapshot is None,
         )
+    except ESIUnmodifiedError:
+        return {"status": "skipped", "reason": "not_modified"}
     except (ESITokenError, ESIForbiddenError, ESIRateLimitError) as exc:
         logger.warning(
             "Failed to refresh skills for character %s: %s",

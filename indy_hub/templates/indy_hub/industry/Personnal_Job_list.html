@@ -164,7 +164,12 @@
                                         <tr class="table-light">
                                             <td></td>
                                             <td colspan="4" class="small text-muted">
-                                                {% blocktrans with scope=skills_scope %}Missing scope: {{ scope }}{% endblocktrans %}
+                                                <div class="d-flex flex-wrap align-items-center gap-2">
+                                                    <span>{% blocktrans with scope=skills_scope %}Missing scope: {{ scope }}{% endblocktrans %}</span>
+                                                    <a href="{% url 'indy_hub:authorize_all' %}?force=1&next={{ request.get_full_path|urlencode }}" class="btn btn-primary btn-sm ms-auto">
+                                                        <i class="fas fa-user-plus me-1"></i>{% trans "Update" %}
+                                                    </a>
+                                                </div>
                                             </td>
                                         </tr>
                                     {% endif %}
@@ -383,9 +388,9 @@
                             <div class="card-footer bg-transparent border-0 d-flex justify-content-between small text-muted">
                                                 </form>
                                     {% if job.is_completed %}
-                                    <i class="fas fa-flag-checkered me-1"></i>{{ job.end_date|date:"Y-m-d H:i" }}
+                                    <i class="fas fa-flag-checkered me-1"></i>{{ job.display_end_date }}
                                     {% else %}
-                                    <i class="fas fa-stopwatch me-1"></i>{{ job.end_date|date:"Y-m-d H:i" }}
+                                    <i class="fas fa-stopwatch me-1"></i>{{ job.display_end_date }}
                                     {% endif %}
                                 </span>
                             </div>

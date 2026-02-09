@@ -5,6 +5,7 @@ from collections.abc import Iterable
 from datetime import timedelta
 from math import ceil
 from typing import Any
+from urllib.parse import quote
 
 # Third Party
 from bravado.exception import HTTPError
@@ -83,6 +84,34 @@ from .navigation import build_nav_context
 User = get_user_model()
 
 logger = get_extension_logger(__name__)
+
+
+def _append_next_param(url: str, request) -> str:
+    next_url = request.get_full_path() if request else ""
+    if not next_url:
+        return url
+    separator = "&" if "?" in url else "?"
+    return f"{url}{separator}next={quote(next_url, safe='')}"
+
+
+def _resolve_next_url(request):
+    next_url = request.GET.get("next")
+    if next_url and not url_has_allowed_host_and_scheme(
+        next_url,
+        allowed_hosts={request.get_host()},
+        require_https=request.is_secure(),
+    ):
+        next_url = None
+    return next_url
+
+
+def _stash_next_in_session(request, next_url: str | None) -> None:
+    if not request or not next_url:
+        return
+    try:
+        request.session["indy_hub_authorize_next"] = next_url
+    except Exception:
+        logger.debug("Unable to store authorize next URL", exc_info=True)
 
 
 ONBOARDING_TASK_CONFIG = [
@@ -170,6 +199,25 @@ def _fetch_character_corporation_roles_with_token(
             return [str(item) for item in value if item]
         return []
 
+    def _coerce_mapping(value: object) -> dict:
+        if value is None:
+            return {}
+        if isinstance(value, dict):
+            return value
+        for attr_name in ("model_dump", "dict", "to_dict"):
+            func = getattr(value, attr_name, None)
+            if callable(func):
+                try:
+                    data = func()
+                except TypeError:
+                    data = func
+                if isinstance(data, dict):
+                    return data
+        try:
+            return dict(value)
+        except Exception:
+            return {}
+
     def _roles_from_snapshot(snapshot: CharacterRoles) -> set[str]:
         collected: set[str] = set()
         for key in ("roles", "roles_at_hq", "roles_at_base", "roles_at_other"):
@@ -186,6 +234,7 @@ def _fetch_character_corporation_roles_with_token(
     ):
         return _roles_from_snapshot(snapshot)
 
+    force_refresh = cached_roles is None and (snapshot is None)
     try:
         character_resource = esi_provider.client.Character
         operation_fn = getattr(
@@ -194,17 +243,21 @@ def _fetch_character_corporation_roles_with_token(
             None,
         ) or getattr(character_resource, "GetCharactersCharacterIdRoles")
         try:
+            request_kwargs = {"If-None-Match": ""} if force_refresh else {}
             payload = operation_fn(
                 character_id=token_obj.character_id,
                 token=token_obj,
+                **request_kwargs,
             ).results()
         except Exception as exc:
             if "is not of type 'string'" not in str(exc):
                 raise
             access_token = token_obj.valid_access_token()
+            request_kwargs = {"If-None-Match": ""} if force_refresh else {}
             payload = operation_fn(
                 character_id=token_obj.character_id,
                 token=access_token,
+                **request_kwargs,
             ).results()
     except HTTPNotModified:
         cached_roles = cache.get(cache_key)
@@ -260,6 +313,9 @@ def _fetch_character_corporation_roles_with_token(
             f"ESI request failed for character {token_obj.character_id} roles: {exc}"
         ) from exc
 
+    if isinstance(payload, list):
+        payload = payload[0] if payload else {}
+    payload = _coerce_mapping(payload)
     if not isinstance(payload, dict):
         logger.debug(
             "ESI roles endpoint returned unexpected payload type for %s: %s",
@@ -2026,6 +2082,13 @@ def legacy_token_management_redirect(request):
 @login_required
 @tokens_required(scopes="esi-characters.read_corporation_roles.v1")
 def token_management(request, tokens):
+    next_url = request.session.pop("indy_hub_authorize_next", None)
+    if next_url and url_has_allowed_host_and_scheme(
+        next_url,
+        allowed_hosts={request.get_host()},
+        require_https=request.is_secure(),
+    ):
+        return redirect(next_url)
     blueprint_tokens = None
     jobs_tokens = None
     assets_tokens = None
@@ -2080,28 +2143,38 @@ def token_management(request, tokens):
             blueprint_tokens = jobs_tokens = assets_tokens = None
             blueprint_char_ids = jobs_char_ids = assets_char_ids = []
     blueprint_auth_url = (
-        reverse("indy_hub:authorize_blueprints") if CallbackRedirect else None
+        _append_next_param(reverse("indy_hub:authorize_blueprints"), request)
+        if CallbackRedirect
+        else None
     )
-    jobs_auth_url = reverse("indy_hub:authorize_jobs") if CallbackRedirect else None
-    assets_auth_url = reverse("indy_hub:authorize_assets") if CallbackRedirect else None
+    jobs_auth_url = (
+        _append_next_param(reverse("indy_hub:authorize_jobs"), request)
+        if CallbackRedirect
+        else None
+    )
+    assets_auth_url = (
+        _append_next_param(reverse("indy_hub:authorize_assets"), request)
+        if CallbackRedirect
+        else None
+    )
     corp_blueprint_auth_url = (
-        reverse("indy_hub:authorize_corp_blueprints")
+        _append_next_param(reverse("indy_hub:authorize_corp_blueprints"), request)
         if can_manage_corp and CallbackRedirect
         else None
     )
     corp_jobs_auth_url = (
-        reverse("indy_hub:authorize_corp_jobs")
+        _append_next_param(reverse("indy_hub:authorize_corp_jobs"), request)
         if can_manage_corp and CallbackRedirect
         else None
     )
     corp_all_auth_url = (
-        reverse("indy_hub:authorize_corp_all")
+        _append_next_param(reverse("indy_hub:authorize_corp_all"), request)
         if can_manage_corp and CallbackRedirect
         else None
     )
     can_manage_material_hub = request.user.has_perm("indy_hub.can_manage_material_hub")
     material_exchange_auth_url = (
-        reverse("indy_hub:authorize_material_exchange")
+        _append_next_param(reverse("indy_hub:authorize_material_exchange"), request)
         if can_manage_material_hub and CallbackRedirect
         else None
     )
@@ -2285,6 +2358,7 @@ def token_management(request, tokens):
 @indy_hub_access_required
 @login_required
 def authorize_assets(request):
+    next_url = _resolve_next_url(request)
     # Only skip if ALL characters are already authorized for assets scope
     all_chars = CharacterOwnership.objects.filter(user=request.user).values_list(
         "character__character_id", flat=True
@@ -2298,11 +2372,12 @@ def authorize_assets(request):
     missing = set(all_chars) - set(authorized)
     if not missing:
         messages.info(request, "All characters already have assets access.")
-        return redirect("indy_hub:token_management")
+        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
     if not CallbackRedirect:
         messages.error(request, "ESI module not available")
-        return redirect("indy_hub:token_management")
+        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
     try:
+        _stash_next_in_session(request, next_url)
         return sso_redirect(
             request,
             scopes=" ".join(sorted(ASSETS_SCOPE_SET)),
@@ -2311,12 +2386,13 @@ def authorize_assets(request):
     except Exception as e:
         logger.error(f"Error creating assets authorization: {e}")
         messages.error(request, f"Error setting up assets authorization: {e}")
-        return redirect("indy_hub:token_management")
+        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
 
 
 @indy_hub_access_required
 @login_required
 def authorize_blueprints(request):
+    next_url = _resolve_next_url(request)
     # Only skip if ALL characters are already authorized for blueprint scope
     all_chars = CharacterOwnership.objects.filter(user=request.user).values_list(
         "character__character_id", flat=True
@@ -2330,11 +2406,12 @@ def authorize_blueprints(request):
     missing = set(all_chars) - set(authorized)
     if not missing:
         messages.info(request, "All characters already have blueprint access.")
-        return redirect("indy_hub:token_management")
+        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
     if not CallbackRedirect:
         messages.error(request, "ESI module not available")
-        return redirect("indy_hub:token_management")
+        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
     try:
+        _stash_next_in_session(request, next_url)
         return sso_redirect(
             request,
             scopes=" ".join(sorted(BLUEPRINT_SCOPE_SET)),
@@ -2343,12 +2420,13 @@ def authorize_blueprints(request):
     except Exception as e:
         logger.error(f"Error creating blueprint authorization: {e}")
         messages.error(request, f"Error setting up ESI authorization: {e}")
-        return redirect("indy_hub:token_management")
+        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
 
 
 @indy_hub_access_required
 @login_required
 def authorize_jobs(request):
+    next_url = _resolve_next_url(request)
     # Only skip if ALL characters have jobs access
     all_chars = CharacterOwnership.objects.filter(user=request.user).values_list(
         "character__character_id", flat=True
@@ -2362,11 +2440,12 @@ def authorize_jobs(request):
     missing = set(all_chars) - set(authorized)
     if not missing:
         messages.info(request, "All characters already have jobs access.")
-        return redirect("indy_hub:token_management")
+        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
     if not CallbackRedirect:
         messages.error(request, "ESI module not available")
-        return redirect("indy_hub:token_management")
+        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
     try:
+        _stash_next_in_session(request, next_url)
         return sso_redirect(
             request,
             scopes=" ".join(sorted(JOBS_SCOPE_SET)),
@@ -2375,21 +2454,23 @@ def authorize_jobs(request):
     except Exception as e:
         logger.error(f"Error creating jobs authorization: {e}")
         messages.error(request, f"Error setting up ESI authorization: {e}")
-        return redirect("indy_hub:token_management")
+        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
 
 
 @indy_hub_access_required
 @login_required
 def authorize_corp_blueprints(request):
+    next_url = _resolve_next_url(request)
     if not request.user.has_perm("indy_hub.can_manage_corp_bp_requests"):
         messages.error(
             request, "You do not have permission to manage corporation assets."
         )
-        return redirect("indy_hub:token_management")
+        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
     if not CallbackRedirect:
         messages.error(request, "ESI module not available")
-        return redirect("indy_hub:token_management")
+        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
     try:
+        _stash_next_in_session(request, next_url)
         return sso_redirect(
             request,
             scopes=" ".join(sorted(set(CORP_BLUEPRINT_SCOPE_SET))),
@@ -2398,21 +2479,23 @@ def authorize_corp_blueprints(request):
     except Exception as e:
         logger.error(f"Error creating corporation blueprint authorization: {e}")
         messages.error(request, f"Error setting up corporation authorization: {e}")
-        return redirect("indy_hub:token_management")
+        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
 
 
 @indy_hub_access_required
 @login_required
 def authorize_corp_jobs(request):
+    next_url = _resolve_next_url(request)
     if not request.user.has_perm("indy_hub.can_manage_corp_bp_requests"):
         messages.error(
             request, "You do not have permission to manage corporation assets."
         )
-        return redirect("indy_hub:token_management")
+        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
     if not CallbackRedirect:
         messages.error(request, "ESI module not available")
-        return redirect("indy_hub:token_management")
+        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
     try:
+        _stash_next_in_session(request, next_url)
         return sso_redirect(
             request,
             scopes=" ".join(sorted(set(CORP_JOBS_SCOPE_SET))),
@@ -2421,21 +2504,23 @@ def authorize_corp_jobs(request):
     except Exception as e:
         logger.error(f"Error creating corporation job authorization: {e}")
         messages.error(request, f"Error setting up corporation authorization: {e}")
-        return redirect("indy_hub:token_management")
+        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
 
 
 @indy_hub_access_required
 @login_required
 def authorize_corp_all(request):
+    next_url = _resolve_next_url(request)
     if not request.user.has_perm("indy_hub.can_manage_corp_bp_requests"):
         messages.error(
             request, "You do not have permission to manage corporation assets."
         )
-        return redirect("indy_hub:token_management")
+        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
     if not CallbackRedirect:
         messages.error(request, "ESI module not available")
-        return redirect("indy_hub:token_management")
+        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
     try:
+        _stash_next_in_session(request, next_url)
         scope_set = sorted(
             {
                 *CORP_BLUEPRINT_SCOPE_SET,
@@ -2451,21 +2536,23 @@ def authorize_corp_all(request):
     except Exception as e:
         logger.error(f"Error creating corporation authorization: {e}")
         messages.error(request, f"Error setting up corporation authorization: {e}")
-        return redirect("indy_hub:token_management")
+        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
 
 
 @indy_hub_access_required
 @login_required
 def authorize_material_exchange(request):
+    next_url = _resolve_next_url(request)
     if not request.user.has_perm("indy_hub.can_manage_material_hub"):
         messages.error(
             request, "You do not have permission to manage Material Exchange."
         )
-        return redirect("indy_hub:token_management")
+        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
     if not CallbackRedirect:
         messages.error(request, "ESI module not available")
-        return redirect("indy_hub:token_management")
+        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
     try:
+        _stash_next_in_session(request, next_url)
         scope_set = sorted(MATERIAL_EXCHANGE_SCOPE_SET)
         return sso_redirect(
             request,
@@ -2477,12 +2564,13 @@ def authorize_material_exchange(request):
         messages.error(
             request, f"Error setting up Material Exchange authorization: {e}"
         )
-        return redirect("indy_hub:token_management")
+        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
 
 
 @indy_hub_access_required
 @login_required
 def authorize_all(request):
+    next_url = _resolve_next_url(request)
     # Only skip if ALL characters have blueprint, jobs, and assets access
     force = request.GET.get("force") == "1"
     all_chars = CharacterOwnership.objects.filter(user=request.user).values_list(
@@ -2517,11 +2605,12 @@ def authorize_all(request):
     )
     if not missing and not force:
         messages.info(request, "All characters already authorized for all scopes.")
-        return redirect("indy_hub:token_management")
+        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
     if not CallbackRedirect:
         messages.error(request, "ESI module not available")
-        return redirect("indy_hub:token_management")
+        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
     try:
+        _stash_next_in_session(request, next_url)
         combined_scopes = sorted(
             {
                 *BLUEPRINT_SCOPE_SET,
@@ -2539,7 +2628,7 @@ def authorize_all(request):
     except Exception as e:
         logger.error(f"Error creating combined authorization: {e}")
         messages.error(request, f"Error setting up ESI authorization: {e}")
-        return redirect("indy_hub:token_management")
+        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
 
 
 @indy_hub_access_required

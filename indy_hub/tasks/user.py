@@ -30,7 +30,11 @@ from ..services.esi_client import (
     ESIUnmodifiedError,
     shared_client,
 )
-from .industry import _get_bulk_window_minutes, _is_user_active, _queue_staggered_user_tasks
+from .industry import (
+    _get_bulk_window_minutes,
+    _is_user_active,
+    _queue_staggered_user_tasks,
+)
 
 logger = get_extension_logger(__name__)
 
@@ -143,7 +147,12 @@ def _coerce_role_list(value: object) -> list[str]:
 
 
 @shared_task
-def update_character_roles_for_character(user_id: int, character_id: int) -> dict:
+def update_character_roles_for_character(
+    user_id: int,
+    character_id: int,
+    *,
+    force_refresh: bool = False,
+) -> dict:
     """Refresh stored corporation roles for a single character."""
     table_empty = not CharacterRoles.objects.exists()
     ownership = (
@@ -170,7 +179,7 @@ def update_character_roles_for_character(user_id: int, character_id: int) -> dic
     try:
         payload = shared_client.fetch_character_corporation_roles(
             int(character_id),
-            force_refresh=table_empty or snapshot is None,
+            force_refresh=force_refresh or table_empty or snapshot is None,
         )
     except ESIUnmodifiedError:
         return {"status": "skipped", "reason": "not_modified"}
@@ -178,6 +187,7 @@ def update_character_roles_for_character(user_id: int, character_id: int) -> dic
         delay = int(getattr(exc, "retry_after", None) or 0)
         update_character_roles_for_character.apply_async(
             args=[user_id, int(character_id)],
+            kwargs={"force_refresh": force_refresh},
             countdown=max(delay, 1),
         )
         return {"status": "rate_limited", "retry_in": delay}

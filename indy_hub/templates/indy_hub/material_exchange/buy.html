@@ -15,15 +15,32 @@
 {% block content %}
 <div class="container-fluid py-4">
     <div class="page-header mb-4">
-            <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
-                <div>
+            <div class="d-flex flex-wrap align-items-stretch justify-content-between gap-3">
+                <div class="d-flex flex-column h-100">
                     <h2 class="h3 mb-1">
                         <i class="fas fa-shopping-cart me-2"></i>
                         {% trans "Buy Materials from Hub" %}
                     </h2>
                     <p class="description">{% trans "Purchase materials from corp stock" %}</p>
+                    <div class="mt-auto">
+                        <span class="badge rounded-pill bg-info-subtle text-info border fs-6">
+                            <i class="fas fa-tags me-1"></i>{% trans "Pricing Formula" %}:
+                            {% if config.buy_markup_base == 'sell' %}
+                                {% trans "Jita Sell Price" %}
+                            {% else %}
+                                {% trans "Jita Buy Price" %}
+                            {% endif %}
+                            {% if config.buy_markup_percent > 0 %}
+                                +{{ config.buy_markup_percent }}%
+                            {% elif config.buy_markup_percent < 0 %}
+                                {{ config.buy_markup_percent }}%
+                            {% else %}
+                                ({% trans "no markup" %})
+                            {% endif %}
+                        </span>
+                    </div>
                 </div>
-                <div class="d-flex gap-2">
+                <div class="d-flex gap-2 align-self-start">
                     <a href="{% url 'indy_hub:material_exchange_index' %}" class="btn btn-outline-light">
                         <i class="fas fa-arrow-left me-1"></i>{% trans "Back to Hub" %}
                     </a>
@@ -32,48 +49,72 @@
             <i class="fas fa-shopping-cart header-bg"></i>
         </div>
 
-        <div class="glass-panel p-4 mb-4">
-            <div class="d-flex align-items-start gap-3">
-                <i class="fas fa-info-circle text-info mt-1 info-icon-fixed"></i>
-                <div class="info-body-flex">
-                    <p class="mb-2 small text-muted text-uppercase">{% trans "Pricing Formula" %}</p>
-                    <div class="d-flex align-items-baseline gap-2 flex-wrap">
-                        <span class="fw-semibold">
-                            {% if config.buy_markup_base == 'sell' %}
-                                {% trans "Jita Sell Price" %}
-                            {% else %}
-                                {% trans "Jita Buy Price" %}
-                            {% endif %}
-                        </span>
-                        {% if config.buy_markup_percent > 0 %}
-                        <span class="text-success">+</span>
-                        <span class="text-success fw-bold h5 mb-0">{{ config.buy_markup_percent }}%</span>
-                        {% elif config.buy_markup_percent < 0 %}
-                        <span class="text-success fw-bold h5 mb-0">{{ config.buy_markup_percent }}%</span>
+        {% if stock_refreshing %}
+        <div class="d-flex flex-column align-items-center justify-content-center py-5">
+            <svg width="56" height="56" viewBox="0 0 24 24" aria-hidden="true" class="text-info">
+                <g stroke="currentColor" fill="none" stroke-width="1" stroke-linecap="round">
+                    <circle cx="12" cy="12" r="10">
+                        <animate attributeName="stroke-dasharray" dur="1.5s" calcMode="spline" values="0 150;42 150;42 150;42 150" keyTimes="0;0.475;0.95;1" keySplines="0.42,0,0.58,1;0.42,0,0.58,1;0.42,0,0.58,1" repeatCount="indefinite" />
+                        <animate attributeName="stroke-dashoffset" dur="1.5s" calcMode="spline" values="0;-16;-59;-59" keyTimes="0;0.475;0.95;1" keySplines="0.42,0,0.58,1;0.42,0,0.58,1;0.42,0,0.58,1" repeatCount="indefinite" />
+                    </circle>
+                    <animateTransform attributeName="transform" type="rotate" dur="2s" values="0 12 12;360 12 12" repeatCount="indefinite" />
+                </g>
+            </svg>
+            <div class="mt-3 text-muted">{% trans "Refreshing via ESI (assets + prices)." %}</div>
+        </div>
+        {% endif %}
+
+        <div class="{% if stock_refreshing %}d-none{% endif %}">
+            <div class="alert alert-info d-flex align-items-start gap-2 mb-3" role="status">
+                <i class="fas fa-clock mt-1" aria-hidden="true"></i>
+                <div>
+                    <div class="fw-semibold">
+                        {% trans "Last update" %}:
+                        {% if buy_last_update %}
+                            {% with buy_utc=buy_last_update|timezone:"UTC" %}
+                                {{ buy_utc|date:"Y-m-d H:i" }} EVE
+                                <span class="text-muted">
+                                    / <span class="js-local-time" data-utc="{{ buy_utc|date:'c' }}">{{ buy_utc|date:"Y-m-d H:i" }}</span> {% trans "Local" %}
+                                </span>
+                            {% endwith %}
                         {% else %}
-                        <span class="text-muted small">({% trans "no markup" %})</span>
+                            {% trans "Never" %}
                         {% endif %}
                     </div>
+                    <small class="text-muted">
+                        {% if buy_next_refresh_minutes == 0 %}
+                            {% trans "Auto-refresh will run on the next page open." %}
+                        {% elif buy_next_refresh_minutes %}
+                            {% blocktrans with minutes=buy_next_refresh_minutes %}Auto-refresh runs on page open in about {{ minutes }} minute(s).{% endblocktrans %}
+                        {% else %}
+                            {% trans "Auto-refresh runs on page open once data is older than 60 minutes." %}
+                        {% endif %}
+                    </small>
                 </div>
             </div>
+
+            <div class="alert alert-info d-flex align-items-start gap-2 mb-3" role="status">
+                <i class="fas fa-exclamation-circle mt-1" aria-hidden="true"></i>
+                <div>
+                    <div class="fw-semibold">{% trans "Select the quantities you want to purchase." %}</div>
+                    <small class="text-muted">{% trans "Totals update automatically based on your selections." %}</small>
+                </div>
+            </div>
+
             {% if corp_assets_scope_missing %}
-            <div class="alert alert-danger mt-3 mb-0">
-                <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
-                    <div>
-                        <i class="fas fa-exclamation-triangle me-2"></i>
-                        {% trans "Missing corporation assets token: the hub cannot load stock. A director must authorize the required ESI scope for the corporation." %}
-                    </div>
-                    <div class="d-flex gap-2">
-                        <a class="btn btn-outline-light btn-sm" href="{% url 'indy_hub:esi_hub' %}">{% trans "Open ESI" %}</a>
-                        <a class="btn btn-outline-light btn-sm" href="{% url 'indy_hub:token_management' %}">{% trans "Manage tokens" %}</a>
+            <div class="glass-panel p-4 mb-4">
+                <div class="alert alert-danger mt-3 mb-0">
+                    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+                        <div>
+                            <i class="fas fa-exclamation-triangle me-2"></i>
+                            {% trans "Missing corporation assets token: the hub cannot load stock. A director must authorize the required ESI scope for the corporation." %}
+                        </div>
+                        <div class="d-flex gap-2">
+                            <a class="btn btn-outline-light btn-sm" href="{% url 'indy_hub:esi_hub' %}">{% trans "Open ESI" %}</a>
+                            <a class="btn btn-outline-light btn-sm" href="{% url 'indy_hub:token_management' %}">{% trans "Manage tokens" %}</a>
+                        </div>
                     </div>
                 </div>
-            </div>
-            {% endif %}
-            {% if stock_refreshing %}
-            <div class="alert alert-info mt-3 mb-0">
-                <i class="fas fa-sync fa-spin me-2"></i>
-                {% trans "Refreshing via ESI (assets + prices)." %}
             </div>
             {% endif %}
         </div>
@@ -85,22 +126,6 @@
                     <h5 class="mb-4">
                         {% trans "Available Stock in" %} {{ config.structure_name }} - {{ hangar_division_label }} hangar division
                     </h5>
-                        <div class="alert alert-info d-flex align-items-start gap-2 mb-3" role="status">
-                            <i class="fas fa-clock mt-1" aria-hidden="true"></i>
-                            <div>
-                                <div class="fw-semibold">
-                                    {% trans "Last update" %}:
-                                    {% if buy_last_update %}
-                                        {{ buy_last_update|timezone:"UTC"|date:"Y-m-d H:i" }} EVE
-                                    {% else %}
-                                        {% trans "Never" %}
-                                    {% endif %}
-                                </div>
-                                <small class="text-muted">
-                                    {% trans "Data may be delayed; refresh later if values look outdated." %}
-                                </small>
-                            </div>
-                        </div>
                     <form method="post" id="purchaseForm">
                         {% csrf_token %}
                         <input type="hidden" id="hidden_order_reference" name="order_reference" value="">
@@ -219,6 +244,12 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    const cleanUrl = new URL(window.location.href);
+    if (cleanUrl.searchParams.get('refreshed') === '1') {
+        cleanUrl.searchParams.delete('refreshed');
+        window.history.replaceState({}, document.title, cleanUrl.toString());
+    }
+
     const qtyInputs = document.querySelectorAll('.qty-input');
 
     function formatNumber(num) {
@@ -439,6 +470,26 @@ document.addEventListener('DOMContentLoaded', function() {
     {% else %}
     console.log('Stock polling DISABLED - stock_refreshing is False');
     {% endif %}
+
+    document.querySelectorAll('.js-local-time[data-utc]').forEach(function(node) {
+        const utcValue = node.getAttribute('data-utc');
+        if (!utcValue) {
+            return;
+        }
+        const date = new Date(utcValue);
+        if (Number.isNaN(date.getTime())) {
+            return;
+        }
+        const formatted = new Intl.DateTimeFormat(undefined, {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+        }).format(date);
+        node.textContent = formatted.replace(/\//g, '-');
+    });
 });
 </script>
 {% endblock content %}

@@ -357,6 +357,7 @@ class ESIClient:
         resource: str,
         operation: str,
         params: dict,
+        force_refresh: bool = False,
     ) -> list[dict]:
         token_obj = self._get_token(character_id, scope)
         try:
@@ -373,8 +374,14 @@ class ESIClient:
                 f"ESI operation {resource}.{operation} is not available"
             ) from exc
 
+        request_kwargs = {}
+        if force_refresh:
+            request_kwargs["If-None-Match"] = ""
+
         try:
-            payload = operation_fn(**params, token=token_obj).results()
+            payload = operation_fn(
+                **params, token=token_obj, **request_kwargs
+            ).results()
         except HTTPNotModified as exc:
             raise ESIUnmodifiedError(f"ESI returned 304 for {endpoint}") from exc
         except HTTPError as exc:
@@ -510,7 +517,12 @@ class ESIClient:
             params={"corporation_id": corporation_id},
         )
 
-    def fetch_character_assets(self, *, character_id: int) -> list[dict]:
+    def fetch_character_assets(
+        self,
+        *,
+        character_id: int,
+        force_refresh: bool = False,
+    ) -> list[dict]:
         """Fetch all assets for a character using their token."""
         return self._fetch_paginated(
             character_id=character_id,
@@ -519,6 +531,7 @@ class ESIClient:
             resource="Assets",
             operation="get_characters_character_id_assets",
             params={"character_id": character_id},
+            force_refresh=force_refresh,
         )
 
     def fetch_corporation_structures(

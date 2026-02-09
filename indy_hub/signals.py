@@ -39,13 +39,16 @@ from indy_hub.tasks.industry import (
     CORP_STRUCTURES_SCOPE,
     JOBS_SCOPE,
     REQUIRED_CORPORATION_ROLES,
+    SKILLS_SCOPE,
     STRUCTURE_SCOPE,
     get_character_corporation_roles,
     update_blueprints_for_user,
+    update_character_skill_snapshot_for_character,
     update_industry_jobs_for_user,
 )
 
 from .services.esi_client import ESITokenError
+from .tasks.user import update_character_roles_for_character
 
 logger = get_extension_logger(__name__)
 
@@ -443,7 +446,13 @@ if Token:
         if blueprint_scopes.exists():
             logger.info(f"Triggering blueprint sync for user {instance.user_id}")
             try:
-                update_blueprints_for_user.delay(instance.user_id)
+                update_blueprints_for_user.apply_async(
+                    args=(instance.user_id,),
+                    kwargs={
+                        "scope": "character",
+                        "character_id": int(instance.character_id),
+                    },
+                )
             except Exception as e:
                 logger.error(f"Failed to trigger blueprint sync: {e}")
 
@@ -452,9 +461,46 @@ if Token:
         if jobs_scopes.exists():
             logger.info(f"Triggering jobs sync for user {instance.user_id}")
             try:
-                update_industry_jobs_for_user.delay(instance.user_id)
+                update_industry_jobs_for_user.apply_async(
+                    args=(instance.user_id,),
+                    kwargs={
+                        "scope": "character",
+                        "character_id": int(instance.character_id),
+                    },
+                )
             except Exception as e:
                 logger.error(f"Failed to trigger jobs sync: {e}")
+
+        skills_scopes = instance.scopes.filter(name=SKILLS_SCOPE)
+        if skills_scopes.exists():
+            logger.info(
+                "Triggering skill snapshot sync for user %s, character %s",
+                instance.user_id,
+                instance.character_id,
+            )
+            try:
+                update_character_skill_snapshot_for_character.apply_async(
+                    args=(int(instance.user_id), int(instance.character_id))
+                )
+            except Exception as e:
+                logger.error(f"Failed to trigger skill snapshot sync: {e}")
+
+        roles_scopes = instance.scopes.filter(
+            name="esi-characters.read_corporation_roles.v1"
+        )
+        if roles_scopes.exists():
+            logger.info(
+                "Triggering role snapshot sync for user %s, character %s",
+                instance.user_id,
+                instance.character_id,
+            )
+            try:
+                update_character_roles_for_character.apply_async(
+                    args=(int(instance.user_id), int(instance.character_id)),
+                    kwargs={"force_refresh": True},
+                )
+            except Exception as e:
+                logger.error(f"Failed to trigger role snapshot sync: {e}")
 
 
 @receiver(post_save, sender=Token)
