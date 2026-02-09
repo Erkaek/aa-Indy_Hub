@@ -307,6 +307,26 @@ def _normalized_roles(roles: list[str] | tuple[str, ...] | None) -> set[str]:
     return {str(role).upper() for role in roles if role}
 
 
+def _coerce_mapping(payload: object) -> dict:
+    if payload is None:
+        return {}
+    if isinstance(payload, dict):
+        return payload
+    for attr_name in ("model_dump", "dict", "to_dict"):
+        func = getattr(payload, attr_name, None)
+        if callable(func):
+            try:
+                data = func()
+            except TypeError:
+                data = func
+            if isinstance(data, dict):
+                return data
+    try:
+        return dict(payload)
+    except Exception:
+        return {}
+
+
 def _fetch_character_skill_levels_with_token(
     token_obj: Token,
     *,
@@ -366,6 +386,9 @@ def _fetch_character_skill_levels_with_token(
                 raise ESIClientError("ESI skills operation unavailable") from nested_exc
             raise
 
+    if isinstance(payload, list):
+        payload = payload[0] if payload else {}
+    payload = _coerce_mapping(payload)
     skills = payload.get("skills", []) if payload else []
     return {
         int(skill.get("skill_id")): int(
