@@ -28,6 +28,7 @@ from ..services.esi_client import (
     ESIRateLimitError,
     ESITokenError,
     ESIUnmodifiedError,
+    get_retry_after_seconds,
     shared_client,
 )
 from .industry import (
@@ -184,11 +185,11 @@ def update_character_roles_for_character(
     except ESIUnmodifiedError:
         return {"status": "skipped", "reason": "not_modified"}
     except ESIRateLimitError as exc:
-        delay = int(getattr(exc, "retry_after", None) or 0)
+        delay = get_retry_after_seconds(exc)
         update_character_roles_for_character.apply_async(
             args=[user_id, int(character_id)],
             kwargs={"force_refresh": force_refresh},
-            countdown=max(delay, 1),
+            countdown=delay,
         )
         return {"status": "rate_limited", "retry_in": delay}
     except (

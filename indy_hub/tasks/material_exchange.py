@@ -53,6 +53,7 @@ from indy_hub.services.esi_client import (
     ESIForbiddenError,
     ESIRateLimitError,
     ESITokenError,
+    get_retry_after_seconds,
     shared_client,
 )
 from indy_hub.utils.eve import get_type_name
@@ -333,12 +334,18 @@ def refresh_material_exchange_sell_user_assets(user_id: int) -> None:
                 force_refresh=True,
             )
         except ESIRateLimitError as exc:
+            delay = get_retry_after_seconds(exc)
             logger.warning(
-                "ESI rate limit hit while refreshing assets for character %s: %s",
+                "ESI rate limit hit while refreshing assets for character %s; retrying in %ss: %s",
                 character_id,
+                delay,
                 exc,
             )
-            raise
+            refresh_material_exchange_sell_user_assets.apply_async(
+                args=(int(user_id),),
+                countdown=delay,
+            )
+            return
         except (ESITokenError, ESIForbiddenError, ESIClientError):
             failed += 1
             done += 1

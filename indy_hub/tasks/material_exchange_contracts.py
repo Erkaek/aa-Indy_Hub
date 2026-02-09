@@ -77,6 +77,7 @@ from indy_hub.services.esi_client import (
     ESIRateLimitError,
     ESITokenError,
     ESIUnmodifiedError,
+    get_retry_after_seconds,
     shared_client,
 )
 
@@ -293,8 +294,15 @@ def sync_esi_contracts():
     for config in configs:
         try:
             _sync_contracts_for_corporation(config.corporation_id)
-        except ESIRateLimitError:
-            raise
+        except ESIRateLimitError as exc:
+            delay = get_retry_after_seconds(exc)
+            logger.warning(
+                "ESI rate limit reached during contract sync; retrying in %ss: %s",
+                delay,
+                exc,
+            )
+            sync_esi_contracts.apply_async(countdown=delay)
+            return
         except Exception as exc:
             logger.error(
                 "Failed to sync contracts for corporation %s: %s",
@@ -1444,8 +1452,14 @@ def check_completed_material_exchange_contracts():
             )
             return
     except ESIRateLimitError as exc:
-        logger.warning("ESI rate limit reached while checking contract status: %s", exc)
-        raise
+        delay = get_retry_after_seconds(exc)
+        logger.warning(
+            "ESI rate limit reached while checking contract status; retrying in %ss: %s",
+            delay,
+            exc,
+        )
+        check_completed_material_exchange_contracts.apply_async(countdown=delay)
+        return
     except (ESITokenError, ESIForbiddenError, ESIClientError) as exc:
         if "304" in str(exc):
             contracts = list(

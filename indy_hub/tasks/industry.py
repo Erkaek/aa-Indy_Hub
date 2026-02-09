@@ -83,6 +83,7 @@ from ..services.esi_client import (
     ESIRateLimitError,
     ESITokenError,
     ESIUnmodifiedError,
+    get_retry_after_seconds,
     shared_client,
 )
 from ..services.location_population import populate_location_names
@@ -459,7 +460,23 @@ def get_character_corporation_roles(character_id: int) -> set[str]:
             character_id,
         )
         return set()
-    except (ESITokenError, ESIForbiddenError, ESIRateLimitError, ESIClientError) as exc:
+    except ESIRateLimitError as exc:
+        delay = get_retry_after_seconds(exc)
+        logger.warning(
+            "ESI rate limit hit while fetching roles for character %s; using cached roles when available (retry in %ss): %s",
+            character_id,
+            delay,
+            exc,
+        )
+        cached = _CORPORATION_ROLE_CACHE.get(character_id)
+        if cached is not None:
+            return cached
+        if snapshot:
+            roles = _roles_from_snapshot(snapshot)
+            _CORPORATION_ROLE_CACHE[character_id] = roles
+            return roles
+        return set()
+    except (ESITokenError, ESIForbiddenError, ESIClientError) as exc:
         logger.warning(
             "Failed to fetch corporation roles for character %s: %s",
             character_id,
@@ -1001,9 +1018,10 @@ def update_blueprints_for_user(
             error_messages.append(message)
             continue
         except ESIRateLimitError as exc:
-            message = f"ESI rate limit hit for {character_name} ({char_id}): {exc}"
+            delay = get_retry_after_seconds(exc)
+            message = f"ESI rate limit hit for {character_name} ({char_id}); retrying in {delay}s: {exc}"
             logger.warning(message)
-            raise
+            raise self.retry(countdown=delay)
         except (ESIForbiddenError, ESIClientError) as exc:
             message = f"ESI error for {character_name} ({char_id}): {exc}"
             logger.error(message)
@@ -1103,12 +1121,13 @@ def update_blueprints_for_user(
                 error_messages.append(message)
                 continue
             except ESIRateLimitError as exc:
+                delay = get_retry_after_seconds(exc)
                 message = (
                     "ESI rate limit hit for corporation "
-                    f"{corp_name} ({corp_id}) via {acting_character_name}: {exc}"
+                    f"{corp_name} ({corp_id}) via {acting_character_name}; retrying in {delay}s: {exc}"
                 )
                 logger.warning(message)
-                raise
+                raise self.retry(countdown=delay)
             except (ESIForbiddenError, ESIClientError) as exc:
                 message = f"ESI error for corporation {corp_name} ({corp_id}) via {acting_character_name}: {exc}"
                 logger.error(message)
@@ -1342,9 +1361,10 @@ def update_industry_jobs_for_user(
                 error_messages.append(message)
                 continue
             except ESIRateLimitError as exc:
-                message = f"ESI rate limit hit for {character_name} ({char_id}): {exc}"
+                delay = get_retry_after_seconds(exc)
+                message = f"ESI rate limit hit for {character_name} ({char_id}); retrying in {delay}s: {exc}"
                 logger.warning(message)
-                raise
+                raise self.retry(countdown=delay)
             except (ESIForbiddenError, ESIClientError) as exc:
                 message = f"ESI error for {character_name} ({char_id}): {exc}"
                 logger.error(message)
@@ -1545,12 +1565,13 @@ def update_industry_jobs_for_user(
                     error_messages.append(message)
                     continue
                 except ESIRateLimitError as exc:
+                    delay = get_retry_after_seconds(exc)
                     message = (
                         "ESI rate limit hit for corporation "
-                        f"{corp_name} ({corp_id}) via {acting_character_name}: {exc}"
+                        f"{corp_name} ({corp_id}) via {acting_character_name}; retrying in {delay}s: {exc}"
                     )
                     logger.warning(message)
-                    raise
+                    raise self.retry(countdown=delay)
                 except (ESIForbiddenError, ESIClientError) as exc:
                     message = f"ESI error for corporation {corp_name} ({corp_id}) via {acting_character_name}: {exc}"
                     logger.error(message)
@@ -1995,7 +2016,20 @@ def update_character_skill_snapshot_for_character(
         )
     except ESIUnmodifiedError:
         return {"status": "skipped", "reason": "not_modified"}
-    except (ESITokenError, ESIForbiddenError, ESIRateLimitError) as exc:
+    except ESIRateLimitError as exc:
+        delay = get_retry_after_seconds(exc)
+        logger.warning(
+            "ESI rate limit hit while refreshing skills for character %s; retrying in %ss: %s",
+            character_id,
+            delay,
+            exc,
+        )
+        update_character_skill_snapshot_for_character.apply_async(
+            args=(int(user_id), int(character_id)),
+            countdown=delay,
+        )
+        return {"status": "rate_limited", "retry_in": delay}
+    except (ESITokenError, ESIForbiddenError) as exc:
         logger.warning(
             "Failed to refresh skills for character %s: %s",
             character_id,

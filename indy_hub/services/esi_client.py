@@ -133,6 +133,28 @@ def token_rate_limit_wait_seconds(
     return wait, remaining
 
 
+def get_retry_after_seconds(
+    exc: Exception,
+    *,
+    fallback: int = 60,
+    minimum: int = 1,
+) -> int:
+    """Normalize retry delay from an ESIRateLimitError or similar exception."""
+
+    raw_delay = getattr(exc, "retry_after", None)
+    delay = 0
+    if raw_delay is not None:
+        try:
+            delay = int(float(raw_delay))
+        except (TypeError, ValueError):
+            delay = 0
+
+    if delay <= 0:
+        delay = int(fallback)
+
+    return max(delay, int(minimum))
+
+
 class ESIClient:
     """Small helper around django-esi OpenAPI client with AA-friendly errors."""
 
