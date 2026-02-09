@@ -204,6 +204,13 @@ INDY_HUB_DISCORD_ACTION_TOKEN_MAX_AGE = 86400  # Default: 24 hours
 
 # ESI compatibility date (OpenAPI)
 INDY_HUB_ESI_COMPATIBILITY_DATE = "2025-09-30"  # Default: app default
+
+# ESI task staggering (rate-limit friendly scheduling)
+INDY_HUB_ESI_TASK_STAGGER_THRESHOLD = 400  # Default: 400
+INDY_HUB_ESI_TASK_TARGET_PER_MIN_BLUEPRINTS = 30  # Default: 30
+INDY_HUB_ESI_TASK_TARGET_PER_MIN_JOBS = 30  # Default: 30
+INDY_HUB_ESI_TASK_TARGET_PER_MIN_SKILLS = 40  # Default: 40
+INDY_HUB_ESI_TASK_TARGET_PER_MIN_ROLES = 30  # Default: 30
 ```
 
 **Scheduled Tasks** (auto-created):

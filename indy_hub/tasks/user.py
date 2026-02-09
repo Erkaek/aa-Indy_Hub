@@ -31,7 +31,7 @@ from ..services.esi_client import (
     shared_client,
 )
 from .industry import (
-    _get_bulk_window_minutes,
+    _get_adaptive_window_minutes,
     _is_user_active,
     _queue_staggered_user_tasks,
 )
@@ -247,7 +247,7 @@ def update_character_roles_snapshots():
     )
     random.shuffle(user_ids)
 
-    window_minutes = _get_bulk_window_minutes("roles")
+    window_minutes = _get_adaptive_window_minutes("roles", len(user_ids))
     queued = _queue_staggered_user_tasks(
         update_user_roles_snapshots,
         user_ids,

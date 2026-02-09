@@ -95,3 +95,34 @@ BULK_UPDATE_WINDOW_MINUTES = clean_setting(
     min_value=0,
     required_type=int,
 )
+
+ESI_TASK_STAGGER_THRESHOLD = clean_setting(
+    "INDY_HUB_ESI_TASK_STAGGER_THRESHOLD",
+    400,
+    min_value=0,
+    required_type=int,
+)
+ESI_TASK_TARGET_PER_MIN_BLUEPRINTS = clean_setting(
+    "INDY_HUB_ESI_TASK_TARGET_PER_MIN_BLUEPRINTS",
+    30,
+    min_value=0,
+    required_type=int,
+)
+ESI_TASK_TARGET_PER_MIN_JOBS = clean_setting(
+    "INDY_HUB_ESI_TASK_TARGET_PER_MIN_JOBS",
+    30,
+    min_value=0,
+    required_type=int,
+)
+ESI_TASK_TARGET_PER_MIN_SKILLS = clean_setting(
+    "INDY_HUB_ESI_TASK_TARGET_PER_MIN_SKILLS",
+    40,
+    min_value=0,
+    required_type=int,
+)
+ESI_TASK_TARGET_PER_MIN_ROLES = clean_setting(
+    "INDY_HUB_ESI_TASK_TARGET_PER_MIN_ROLES",
+    30,
+    min_value=0,
+    required_type=int,
+)

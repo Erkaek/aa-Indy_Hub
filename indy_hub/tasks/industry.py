@@ -59,6 +59,11 @@ except ImportError:  # pragma: no cover - older django-esi
 from ..app_settings import (
     BLUEPRINTS_BULK_WINDOW_MINUTES,
     BULK_UPDATE_WINDOW_MINUTES,
+    ESI_TASK_STAGGER_THRESHOLD,
+    ESI_TASK_TARGET_PER_MIN_BLUEPRINTS,
+    ESI_TASK_TARGET_PER_MIN_JOBS,
+    ESI_TASK_TARGET_PER_MIN_ROLES,
+    ESI_TASK_TARGET_PER_MIN_SKILLS,
     INDUSTRY_JOBS_BULK_WINDOW_MINUTES,
     LOCATION_LOOKUP_BUDGET,
     MANUAL_REFRESH_COOLDOWN_SECONDS,
@@ -676,6 +681,30 @@ def _get_bulk_window_minutes(kind: str) -> int:
     except (TypeError, ValueError):
         minutes = fallback
     return max(minutes, 0)
+
+
+def _get_target_per_min(kind: str) -> int:
+    if kind == "blueprints":
+        return int(ESI_TASK_TARGET_PER_MIN_BLUEPRINTS)
+    if kind == "industry_jobs":
+        return int(ESI_TASK_TARGET_PER_MIN_JOBS)
+    if kind == "skills":
+        return int(ESI_TASK_TARGET_PER_MIN_SKILLS)
+    if kind == "roles":
+        return int(ESI_TASK_TARGET_PER_MIN_ROLES)
+    return 0
+
+
+def _get_adaptive_window_minutes(kind: str, total: int) -> int:
+    if total <= 0:
+        return 0
+    threshold = int(ESI_TASK_STAGGER_THRESHOLD)
+    target_per_min = _get_target_per_min(kind)
+    if threshold > 0 and total <= threshold:
+        return 0
+    if target_per_min <= 0:
+        return _get_bulk_window_minutes(kind)
+    return max((total + target_per_min - 1) // target_per_min, 1)
 
 
 def _manual_refresh_cache_key(kind: str, user_id: int, scope: str | None = None) -> str:
@@ -1840,7 +1869,7 @@ def update_all_blueprints():
     )
     random.shuffle(user_ids)
 
-    window_minutes = _get_bulk_window_minutes("blueprints")
+    window_minutes = _get_adaptive_window_minutes("blueprints", len(user_ids))
     queued = _queue_staggered_user_tasks(
         update_blueprints_for_user,
         user_ids,
@@ -1872,7 +1901,7 @@ def update_all_industry_jobs():
     )
     random.shuffle(user_ids)
 
-    window_minutes = _get_bulk_window_minutes("industry_jobs")
+    window_minutes = _get_adaptive_window_minutes("industry_jobs", len(user_ids))
     queued = _queue_staggered_user_tasks(
         update_industry_jobs_for_user,
         user_ids,
@@ -1906,7 +1935,7 @@ def update_all_skill_snapshots() -> dict[str, int]:
     )
     random.shuffle(user_ids)
 
-    window_minutes = _get_bulk_window_minutes("skills")
+    window_minutes = _get_adaptive_window_minutes("skills", len(user_ids))
     queued = _queue_staggered_user_tasks(
         update_user_skill_snapshots,
         user_ids,

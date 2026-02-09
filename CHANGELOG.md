@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - ESI: token handling now uses Token objects for OpenAPI calls.
 - Dependencies: django-esi is now required at >=8,\<9.
 - Dependencies: Alliance Auth AppUtils is now required.
+- ESI: bulk task staggering now adapts to volume with per-minute targets.
 - Material Exchange: nav entry hides when disabled; settings card reflects global state.
 - Material Exchange: sync/validation tasks now skip when disabled or not configured.
 - Celery: periodic task schedules can apply allianceauth cron offsets.
