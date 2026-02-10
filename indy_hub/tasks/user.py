@@ -5,7 +5,6 @@ These tasks handle user profile management, preferences, cleanup, etc.
 """
 
 # Standard Library
-import random
 from datetime import timedelta
 
 # Third Party
@@ -237,16 +236,28 @@ def update_character_roles_for_character(
 
 
 @shared_task
-def update_character_roles_snapshots():
-    """Queue per-user role refresh tasks."""
-    user_ids = list(
+def update_character_roles_snapshots(
+    *, last_user_id: int | None = None, batch_size: int = 500
+):
+    """Queue per-user role refresh tasks in batches."""
+    if batch_size <= 0:
+        batch_size = 1
+
+    user_qs = (
         Token.objects.all()
         .require_scopes([CORP_ROLES_SCOPE])
         .require_valid()
         .values_list("user_id", flat=True)
         .distinct()
+        .order_by("user_id")
     )
-    random.shuffle(user_ids)
+    if last_user_id:
+        user_qs = user_qs.filter(user_id__gt=last_user_id)
+
+    user_ids = list(user_qs[:batch_size])
+    if not user_ids:
+        logger.info("No users remaining for role snapshot updates.")
+        return {"queued": 0, "batch_size": batch_size, "done": True}
 
     window_minutes = _get_adaptive_window_minutes("roles", len(user_ids))
     queued = _queue_staggered_user_tasks(
@@ -256,12 +267,25 @@ def update_character_roles_snapshots():
         priority=7,
     )
 
+    if len(user_ids) == batch_size:
+        update_character_roles_snapshots.apply_async(
+            kwargs={"last_user_id": int(user_ids[-1]), "batch_size": batch_size},
+            countdown=1,
+        )
+
     logger.info(
-        "Queued role refresh tasks for %s users across a %s minute window",
+        "Queued role refresh tasks for %s users (batch_size=%s, window=%s min)",
         queued,
+        batch_size,
         window_minutes,
     )
-    return {"queued": queued, "window_minutes": window_minutes}
+    return {
+        "queued": queued,
+        "batch_size": batch_size,
+        "window_minutes": window_minutes,
+        "last_user_id": int(user_ids[-1]),
+        "done": len(user_ids) < batch_size,
+    }
 
 
 @shared_task

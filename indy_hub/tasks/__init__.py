@@ -171,6 +171,7 @@ def setup_periodic_tasks():
         "indy-hub-check-completed-contracts",
         "indy-hub-validate-sell-orders",
         "indy-hub-update-system-cost-indices",
+        "indy-hub-refresh-production-items",
     ]
     removed, _ = PeriodicTask.objects.filter(name__in=legacy_task_names).delete()
     if removed:
@@ -198,6 +199,7 @@ def remove_periodic_tasks() -> None:
         "indy-hub-check-completed-contracts",
         "indy-hub-validate-sell-orders",
         "indy-hub-update-system-cost-indices",
+        "indy-hub-refresh-production-items",
     ]
     removed, _ = PeriodicTask.objects.filter(name__in=task_names).delete()
     if removed:

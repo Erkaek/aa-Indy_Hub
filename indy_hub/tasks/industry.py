@@ -1875,20 +1875,36 @@ def populate_location_names_async(
 
 
 @shared_task
-def update_all_blueprints():
+def update_all_blueprints(*, last_user_id: int | None = None, batch_size: int = 500):
     """
-    Update blueprints for all users - scheduled via Celery beat
-    """
-    logger.info("Starting bulk blueprint update for all users")
+    Update blueprints for all users - scheduled via Celery beat.
 
-    user_ids = list(
+    Dispatches per-user tasks in batches to avoid long-running scheduler work.
+    """
+    if batch_size <= 0:
+        batch_size = 1
+
+    logger.info(
+        "Starting bulk blueprint update batch (last_user_id=%s, batch_size=%s)",
+        last_user_id,
+        batch_size,
+    )
+
+    user_qs = (
         Token.objects.all()
         .require_scopes([ONLINE_SCOPE])
         .require_valid()
         .values_list("user_id", flat=True)
         .distinct()
+        .order_by("user_id")
     )
-    random.shuffle(user_ids)
+    if last_user_id:
+        user_qs = user_qs.filter(user_id__gt=last_user_id)
+
+    user_ids = list(user_qs[:batch_size])
+    if not user_ids:
+        logger.info("No users remaining for blueprint updates.")
+        return {"users_queued": 0, "batch_size": batch_size, "done": True}
 
     window_minutes = _get_adaptive_window_minutes("blueprints", len(user_ids))
     queued = _queue_staggered_user_tasks(
@@ -1898,29 +1914,58 @@ def update_all_blueprints():
         priority=7,
     )
 
+    if len(user_ids) == batch_size:
+        update_all_blueprints.apply_async(
+            kwargs={"last_user_id": int(user_ids[-1]), "batch_size": batch_size},
+            countdown=1,
+        )
+
     logger.info(
-        "Queued blueprint updates for %s users across a %s minute window",
+        "Queued blueprint updates for %s users (batch_size=%s, window=%s min)",
         queued,
+        batch_size,
         window_minutes,
     )
-    return {"users_queued": queued, "window_minutes": window_minutes}
+    return {
+        "users_queued": queued,
+        "batch_size": batch_size,
+        "window_minutes": window_minutes,
+        "last_user_id": int(user_ids[-1]),
+        "done": len(user_ids) < batch_size,
+    }
 
 
 @shared_task
-def update_all_industry_jobs():
+def update_all_industry_jobs(*, last_user_id: int | None = None, batch_size: int = 500):
     """
-    Update industry jobs for all users - scheduled via Celery beat
-    """
-    logger.info("Starting bulk industry jobs update for all users")
+    Update industry jobs for all users - scheduled via Celery beat.
 
-    user_ids = list(
+    Dispatches per-user tasks in batches to avoid long-running scheduler work.
+    """
+    if batch_size <= 0:
+        batch_size = 1
+
+    logger.info(
+        "Starting bulk industry jobs update batch (last_user_id=%s, batch_size=%s)",
+        last_user_id,
+        batch_size,
+    )
+
+    user_qs = (
         Token.objects.all()
         .require_scopes([ONLINE_SCOPE])
         .require_valid()
         .values_list("user_id", flat=True)
         .distinct()
+        .order_by("user_id")
     )
-    random.shuffle(user_ids)
+    if last_user_id:
+        user_qs = user_qs.filter(user_id__gt=last_user_id)
+
+    user_ids = list(user_qs[:batch_size])
+    if not user_ids:
+        logger.info("No users remaining for industry job updates.")
+        return {"users_queued": 0, "batch_size": batch_size, "done": True}
 
     window_minutes = _get_adaptive_window_minutes("industry_jobs", len(user_ids))
     queued = _queue_staggered_user_tasks(
@@ -1930,31 +1975,56 @@ def update_all_industry_jobs():
         priority=7,
     )
 
+    if len(user_ids) == batch_size:
+        update_all_industry_jobs.apply_async(
+            kwargs={"last_user_id": int(user_ids[-1]), "batch_size": batch_size},
+            countdown=1,
+        )
+
     logger.info(
-        "Queued industry job updates for %s users across a %s minute window",
+        "Queued industry job updates for %s users (batch_size=%s, window=%s min)",
         queued,
+        batch_size,
         window_minutes,
     )
-    return {"users_queued": queued, "window_minutes": window_minutes}
+    return {
+        "users_queued": queued,
+        "batch_size": batch_size,
+        "window_minutes": window_minutes,
+        "last_user_id": int(user_ids[-1]),
+        "done": len(user_ids) < batch_size,
+    }
 
 
 @shared_task
-def update_all_skill_snapshots() -> dict[str, int]:
-    """Queue per-user skill snapshot refresh tasks."""
+def update_all_skill_snapshots(
+    *, last_user_id: int | None = None, batch_size: int = 500
+) -> dict[str, int]:
+    """Queue per-user skill snapshot refresh tasks in batches."""
     if _SKILLS_OPERATION_UNAVAILABLE:
         logger.warning(
             "Skipping skill snapshot refresh: ESI skills operation unavailable"
         )
         return {"queued": 0, "skipped": 0}
 
-    user_ids = list(
+    if batch_size <= 0:
+        batch_size = 1
+
+    user_qs = (
         Token.objects.all()
         .require_scopes([SKILLS_SCOPE])
         .require_valid()
         .values_list("user_id", flat=True)
         .distinct()
+        .order_by("user_id")
     )
-    random.shuffle(user_ids)
+    if last_user_id:
+        user_qs = user_qs.filter(user_id__gt=last_user_id)
+
+    user_ids = list(user_qs[:batch_size])
+    if not user_ids:
+        logger.info("No users remaining for skill snapshot updates.")
+        return {"queued": 0, "skipped": 0, "batch_size": batch_size, "done": True}
 
     window_minutes = _get_adaptive_window_minutes("skills", len(user_ids))
     queued = _queue_staggered_user_tasks(
@@ -1964,12 +2034,26 @@ def update_all_skill_snapshots() -> dict[str, int]:
         priority=7,
     )
 
+    if len(user_ids) == batch_size:
+        update_all_skill_snapshots.apply_async(
+            kwargs={"last_user_id": int(user_ids[-1]), "batch_size": batch_size},
+            countdown=1,
+        )
+
     logger.info(
-        "Queued skill snapshot updates for %s users across a %s minute window",
+        "Queued skill snapshot updates for %s users (batch_size=%s, window=%s min)",
         queued,
+        batch_size,
         window_minutes,
     )
-    return {"queued": queued, "skipped": 0, "window_minutes": window_minutes}
+    return {
+        "queued": queued,
+        "skipped": 0,
+        "batch_size": batch_size,
+        "window_minutes": window_minutes,
+        "last_user_id": int(user_ids[-1]),
+        "done": len(user_ids) < batch_size,
+    }
 
 
 @shared_task
