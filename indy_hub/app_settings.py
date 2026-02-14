@@ -70,6 +70,34 @@ DIVISION_CACHE_MAX_AGE_MINUTES = clean_setting(
     required_type=int,
 )
 
+ONLINE_STATUS_STALE_HOURS = clean_setting(
+    "INDY_HUB_ONLINE_STATUS_STALE_HOURS",
+    72,
+    min_value=1,
+    required_type=int,
+)
+
+SKILL_SNAPSHOT_STALE_HOURS = clean_setting(
+    "INDY_HUB_SKILL_SNAPSHOT_STALE_HOURS",
+    24,
+    min_value=1,
+    required_type=int,
+)
+
+ROLE_SNAPSHOT_STALE_HOURS = clean_setting(
+    "INDY_HUB_ROLE_SNAPSHOT_STALE_HOURS",
+    24,
+    min_value=1,
+    required_type=int,
+)
+
+STRUCTURE_NAME_STALE_HOURS = clean_setting(
+    "INDY_HUB_STRUCTURE_NAME_STALE_HOURS",
+    24,
+    min_value=1,
+    required_type=int,
+)
+
 LOCATION_LOOKUP_BUDGET = clean_setting(
     "INDY_HUB_LOCATION_LOOKUP_BUDGET",
     50,

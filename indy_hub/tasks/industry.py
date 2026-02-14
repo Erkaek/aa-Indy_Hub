@@ -67,6 +67,9 @@ from ..app_settings import (
     INDUSTRY_JOBS_BULK_WINDOW_MINUTES,
     LOCATION_LOOKUP_BUDGET,
     MANUAL_REFRESH_COOLDOWN_SECONDS,
+    ONLINE_STATUS_STALE_HOURS,
+    ROLE_SNAPSHOT_STALE_HOURS,
+    SKILL_SNAPSHOT_STALE_HOURS,
 )
 from ..models import (
     Blueprint,
@@ -153,7 +156,37 @@ def _is_user_active(user: User, *, now: datetime | None = None) -> bool:
     if not user:
         return False
     now = now or timezone.now()
+    refresh_cutoff = now - timedelta(hours=ONLINE_STATUS_STALE_HOURS)
     cutoff = now - timedelta(days=ACTIVE_USER_DAYS)
+    ownerships = CharacterOwnership.objects.filter(user=user).select_related(
+        "character"
+    )
+    character_ids = [
+        ownership.character.character_id
+        for ownership in ownerships
+        if ownership.character and ownership.character.character_id
+    ]
+    if not character_ids:
+        return False
+    statuses = CharacterOnlineStatus.objects.filter(
+        owner_user=user,
+        character_id__in=character_ids,
+    )
+    known_ids = set(statuses.values_list("character_id", flat=True))
+    stale_ids = set(
+        statuses.filter(last_updated__lt=refresh_cutoff).values_list(
+            "character_id", flat=True
+        )
+    )
+    missing_ids = set(character_ids) - known_ids
+    if missing_ids or stale_ids:
+        logger.info(
+            "Refreshing online status for user %s (missing=%s stale=%s)",
+            user.id,
+            len(missing_ids),
+            len(stale_ids),
+        )
+        _refresh_online_status_for_user(user, now=now)
     active_char_ids = list(
         CharacterOnlineStatus.objects.filter(
             owner_user=user,
@@ -339,11 +372,25 @@ def _coerce_mapping(payload: object) -> dict:
         return {}
 
 
+def _build_skill_level_map(skills: list[dict]) -> dict[int, dict[str, int]]:
+    levels: dict[int, dict[str, int]] = {}
+    for skill in skills:
+        if not isinstance(skill, dict):
+            continue
+        skill_id = skill.get("skill_id")
+        if not skill_id:
+            continue
+        active_level = int(skill.get("active_skill_level") or 0)
+        trained_level = int(skill.get("trained_skill_level") or 0)
+        levels[int(skill_id)] = {"active": active_level, "trained": trained_level}
+    return levels
+
+
 def _fetch_character_skill_levels_with_token(
     token_obj: Token,
     *,
     force_refresh: bool = False,
-) -> dict[int, int]:
+) -> dict[int, dict[str, int]]:
     global _SKILLS_OPERATION_UNAVAILABLE
     client = shared_client.client
     skills_resource = getattr(client, "Skills", None)
@@ -406,13 +453,7 @@ def _fetch_character_skill_levels_with_token(
         payload = payload[0] if payload else {}
     payload = _coerce_mapping(payload)
     skills = payload.get("skills", []) if payload else []
-    return {
-        int(skill.get("skill_id")): int(
-            skill.get("active_skill_level") or skill.get("trained_skill_level") or 0
-        )
-        for skill in skills
-        if skill.get("skill_id")
-    }
+    return _build_skill_level_map(skills)
 
 
 def _extract_role_payload(payload: dict) -> dict[str, list[str]]:
@@ -442,6 +483,15 @@ def get_character_corporation_roles(character_id: int) -> set[str]:
 
     table_empty = not CharacterRoles.objects.exists()
     snapshot = CharacterRoles.objects.filter(character_id=character_id).first()
+    now = timezone.now()
+    snapshot_stale = bool(
+        snapshot
+        and (now - snapshot.last_updated) >= timedelta(hours=ROLE_SNAPSHOT_STALE_HOURS)
+    )
+    if snapshot and not snapshot_stale:
+        roles = _roles_from_snapshot(snapshot)
+        _CORPORATION_ROLE_CACHE[character_id] = roles
+        return roles
     try:
         payload = shared_client.fetch_character_corporation_roles(
             int(character_id),
@@ -1034,54 +1084,66 @@ def update_blueprints_for_user(
             continue
 
         esi_ids = set()
-        with transaction.atomic():
-            for bp in blueprints:
-                item_id = bp.get("item_id")
-                if item_id is None:
-                    logger.debug(
-                        "Blueprint without item_id ignored for %s (%s)",
-                        character_name,
-                        bp,
+        try:
+            with transaction.atomic():
+                for bp in blueprints:
+                    item_id = bp.get("item_id")
+                    if item_id is None:
+                        logger.debug(
+                            "Blueprint without item_id ignored for %s (%s)",
+                            character_name,
+                            bp,
+                        )
+                        continue
+                    esi_ids.add(item_id)
+                    location_id = bp.get("location_id")
+                    location_name = resolve_location_name(
+                        location_id,
+                        character_id=char_id,
+                        owner_user_id=user.id,
                     )
-                    continue
-                esi_ids.add(item_id)
-                location_id = bp.get("location_id")
-                location_name = resolve_location_name(
-                    location_id,
-                    character_id=char_id,
-                    owner_user_id=user.id,
-                )
-                Blueprint.objects.update_or_create(
-                    item_id=item_id,
-                    defaults={
-                        "owner_user": user,
-                        "owner_kind": Blueprint.OwnerKind.CHARACTER,
-                        "corporation_id": None,
-                        "corporation_name": "",
-                        "character_id": char_id,
-                        "blueprint_id": bp.get("blueprint_id"),
-                        "type_id": bp.get("type_id"),
-                        "location_id": location_id,
-                        "location_name": location_name,
-                        "location_flag": bp.get("location_flag", ""),
-                        "quantity": bp.get("quantity"),
-                        "time_efficiency": bp.get("time_efficiency", 0),
-                        "material_efficiency": bp.get("material_efficiency", 0),
-                        "runs": bp.get("runs", 0),
-                        "character_name": character_name,
-                        "type_name": get_type_name(bp.get("type_id")),
-                    },
-                )
+                    Blueprint.objects.update_or_create(
+                        item_id=item_id,
+                        defaults={
+                            "owner_user": user,
+                            "owner_kind": Blueprint.OwnerKind.CHARACTER,
+                            "corporation_id": None,
+                            "corporation_name": "",
+                            "character_id": char_id,
+                            "blueprint_id": bp.get("blueprint_id"),
+                            "type_id": bp.get("type_id"),
+                            "location_id": location_id,
+                            "location_name": location_name,
+                            "location_flag": bp.get("location_flag", ""),
+                            "quantity": bp.get("quantity"),
+                            "time_efficiency": bp.get("time_efficiency", 0),
+                            "material_efficiency": bp.get("material_efficiency", 0),
+                            "runs": bp.get("runs", 0),
+                            "character_name": character_name,
+                            "type_name": get_type_name(bp.get("type_id")),
+                        },
+                    )
 
-            deleted, _ = (
-                Blueprint.objects.filter(
-                    owner_user=user,
-                    owner_kind=Blueprint.OwnerKind.CHARACTER,
-                    character_id=char_id,
+                deleted, _ = (
+                    Blueprint.objects.filter(
+                        owner_user=user,
+                        owner_kind=Blueprint.OwnerKind.CHARACTER,
+                        character_id=char_id,
+                    )
+                    .exclude(item_id__in=esi_ids)
+                    .delete()
                 )
-                .exclude(item_id__in=esi_ids)
-                .delete()
-            )
+        except OperationalError as exc:
+            if _is_deadlock_error(exc):
+                delay = 2 * (2**self.request.retries)
+                logger.warning(
+                    "Deadlock syncing blueprints for %s (%s); retrying in %ss",
+                    character_name,
+                    char_id,
+                    delay,
+                )
+                raise self.retry(exc=exc, countdown=delay)
+            raise
         deleted_total += deleted
         updated_count += len(blueprints)
         logger.debug(
@@ -1140,53 +1202,65 @@ def update_blueprints_for_user(
                 continue
 
             corp_esi_ids: set[int] = set()
-            with transaction.atomic():
-                for bp in corp_blueprints:
-                    item_id = bp.get("item_id")
-                    if item_id is None:
-                        logger.debug(
-                            "Corporate blueprint without item_id ignored for %s (%s)",
-                            corp_name,
-                            bp,
+            try:
+                with transaction.atomic():
+                    for bp in corp_blueprints:
+                        item_id = bp.get("item_id")
+                        if item_id is None:
+                            logger.debug(
+                                "Corporate blueprint without item_id ignored for %s (%s)",
+                                corp_name,
+                                bp,
+                            )
+                            continue
+                        corp_esi_ids.add(item_id)
+                        location_id = bp.get("location_id")
+                        location_name = resolve_location_name(
+                            location_id,
+                            character_id=int(corp_char_id),
+                            owner_user_id=user.id,
                         )
-                        continue
-                    corp_esi_ids.add(item_id)
-                    location_id = bp.get("location_id")
-                    location_name = resolve_location_name(
-                        location_id,
-                        character_id=int(corp_char_id),
-                        owner_user_id=user.id,
-                    )
-                    Blueprint.objects.update_or_create(
-                        item_id=item_id,
-                        defaults={
-                            "owner_user": user,
-                            "owner_kind": Blueprint.OwnerKind.CORPORATION,
-                            "corporation_id": corp_id,
-                            "corporation_name": corp_name,
-                            "character_id": None,
-                            "character_name": acting_character_name,
-                            "blueprint_id": bp.get("blueprint_id"),
-                            "type_id": bp.get("type_id"),
-                            "location_id": location_id,
-                            "location_name": location_name,
-                            "location_flag": bp.get("location_flag", ""),
-                            "quantity": bp.get("quantity"),
-                            "time_efficiency": bp.get("time_efficiency", 0),
-                            "material_efficiency": bp.get("material_efficiency", 0),
-                            "runs": bp.get("runs", 0),
-                            "type_name": get_type_name(bp.get("type_id")),
-                        },
-                    )
+                        Blueprint.objects.update_or_create(
+                            item_id=item_id,
+                            defaults={
+                                "owner_user": user,
+                                "owner_kind": Blueprint.OwnerKind.CORPORATION,
+                                "corporation_id": corp_id,
+                                "corporation_name": corp_name,
+                                "character_id": None,
+                                "character_name": acting_character_name,
+                                "blueprint_id": bp.get("blueprint_id"),
+                                "type_id": bp.get("type_id"),
+                                "location_id": location_id,
+                                "location_name": location_name,
+                                "location_flag": bp.get("location_flag", ""),
+                                "quantity": bp.get("quantity"),
+                                "time_efficiency": bp.get("time_efficiency", 0),
+                                "material_efficiency": bp.get("material_efficiency", 0),
+                                "runs": bp.get("runs", 0),
+                                "type_name": get_type_name(bp.get("type_id")),
+                            },
+                        )
 
-                deleted, _ = (
-                    Blueprint.objects.filter(
-                        owner_kind=Blueprint.OwnerKind.CORPORATION,
-                        corporation_id=corp_id,
+                    deleted, _ = (
+                        Blueprint.objects.filter(
+                            owner_kind=Blueprint.OwnerKind.CORPORATION,
+                            corporation_id=corp_id,
+                        )
+                        .exclude(item_id__in=corp_esi_ids)
+                        .delete()
                     )
-                    .exclude(item_id__in=corp_esi_ids)
-                    .delete()
-                )
+            except OperationalError as exc:
+                if _is_deadlock_error(exc):
+                    delay = 2 * (2**self.request.retries)
+                    logger.warning(
+                        "Deadlock syncing corp blueprints for %s (%s); retrying in %ss",
+                        corp_name,
+                        corp_id,
+                        delay,
+                    )
+                    raise self.retry(exc=exc, countdown=delay)
+                raise
 
             updated_count += len(corp_blueprints)
             deleted_total += deleted
@@ -1377,142 +1451,154 @@ def update_industry_jobs_for_user(
                 continue
 
             esi_job_ids = set()
-            with transaction.atomic():
-                for job in jobs:
-                    if not isinstance(job, dict):
-                        logger.warning(
-                            "Skipping industry job with unexpected payload type for %s: %s (%r)",
-                            character_name,
-                            type(job).__name__,
-                            job,
-                        )
-                        continue
-                    job_id = job.get("job_id")
-                    if job_id is None:
-                        logger.debug(
-                            "Skipping job without identifier for %s: %s",
-                            character_name,
-                            job,
-                        )
-                        continue
-                    esi_job_ids.add(job_id)
-                    station_id = job.get("station_id") or job.get("facility_id")
-                    location_name = ""
-                    if station_id is not None:
-                        try:
-                            location_key = int(station_id)
-                        except (TypeError, ValueError):
-                            location_key = None
+            try:
+                with transaction.atomic():
+                    for job in jobs:
+                        if not isinstance(job, dict):
+                            logger.warning(
+                                "Skipping industry job with unexpected payload type for %s: %s (%r)",
+                                character_name,
+                                type(job).__name__,
+                                job,
+                            )
+                            continue
+                        job_id = job.get("job_id")
+                        if job_id is None:
+                            logger.debug(
+                                "Skipping job without identifier for %s: %s",
+                                character_name,
+                                job,
+                            )
+                            continue
+                        esi_job_ids.add(job_id)
+                        station_id = job.get("station_id") or job.get("facility_id")
+                        location_name = ""
+                        if station_id is not None:
+                            try:
+                                location_key = int(station_id)
+                            except (TypeError, ValueError):
+                                location_key = None
 
-                        if location_key is not None:
-                            cached_name = location_cache.get(location_key)
-                            if cached_name is not None:
-                                location_name = cached_name
-                            elif lookup_budget > 0:
-                                try:
-                                    resolved_name = resolve_location_name(
+                            if location_key is not None:
+                                cached_name = location_cache.get(location_key)
+                                if cached_name is not None:
+                                    location_name = cached_name
+                                elif lookup_budget > 0:
+                                    try:
+                                        resolved_name = resolve_location_name(
+                                            location_key,
+                                            character_id=char_id,
+                                            owner_user_id=user.id,
+                                        )
+                                    except Exception:  # pragma: no cover - defensive
+                                        logger.debug(
+                                            "Location resolution failed for %s via %s",
+                                            location_key,
+                                            character_name,
+                                            exc_info=True,
+                                        )
+                                        resolved_name = None
+
+                                    lookup_budget -= 1
+                                    location_name = (
+                                        resolved_name
+                                        if resolved_name
+                                        else f"{PLACEHOLDER_PREFIX}{location_key}"
+                                    )
+                                    location_cache[location_key] = location_name
+                                else:
+                                    if not lookup_budget_warned:
+                                        logger.warning(
+                                            "Location lookup budget exhausted while syncing industry jobs for %s; remaining locations will use placeholders.",
+                                            user.username,
+                                        )
+                                        lookup_budget_warned = True
+                                    location_name = location_cache.setdefault(
                                         location_key,
-                                        character_id=char_id,
-                                        owner_user_id=user.id,
+                                        f"{PLACEHOLDER_PREFIX}{location_key}",
                                     )
-                                except (
-                                    Exception
-                                ):  # pragma: no cover - defensive fallback
-                                    logger.debug(
-                                        "Location resolution failed for %s via %s",
-                                        location_key,
-                                        character_name,
-                                        exc_info=True,
-                                    )
-                                    resolved_name = None
+                        start_date = _coerce_job_datetime(job.get("start_date"))
+                        end_date = _coerce_job_datetime(job.get("end_date"))
+                        pause_date = _coerce_job_datetime(job.get("pause_date"))
+                        completed_date = _coerce_job_datetime(job.get("completed_date"))
 
-                                lookup_budget -= 1
-                                location_name = (
-                                    resolved_name
-                                    if resolved_name
-                                    else f"{PLACEHOLDER_PREFIX}{location_key}"
-                                )
-                                location_cache[location_key] = location_name
-                            else:
-                                if not lookup_budget_warned:
-                                    logger.warning(
-                                        "Location lookup budget exhausted while syncing industry jobs for %s; remaining locations will use placeholders.",
-                                        user.username,
-                                    )
-                                    lookup_budget_warned = True
-                                location_name = location_cache.setdefault(
-                                    location_key,
-                                    f"{PLACEHOLDER_PREFIX}{location_key}",
-                                )
-                    start_date = _coerce_job_datetime(job.get("start_date"))
-                    end_date = _coerce_job_datetime(job.get("end_date"))
-                    pause_date = _coerce_job_datetime(job.get("pause_date"))
-                    completed_date = _coerce_job_datetime(job.get("completed_date"))
+                        if start_date is None:
+                            logger.warning(
+                                "Skipping job %s for %s due to invalid start date %r",
+                                job_id,
+                                character_name,
+                                job.get("start_date"),
+                            )
+                            continue
 
-                    if start_date is None:
-                        logger.warning(
-                            "Skipping job %s for %s due to invalid start date %r",
-                            job_id,
-                            character_name,
-                            job.get("start_date"),
+                        if end_date is None:
+                            logger.warning(
+                                "Job %s for %s missing end date; defaulting to start date.",
+                                job_id,
+                                character_name,
+                            )
+                            end_date = start_date
+
+                        _update_or_create_with_deadlock_retry(
+                            IndustryJob,
+                            lookup={"job_id": job_id},
+                            defaults={
+                                "owner_user": user,
+                                "owner_kind": Blueprint.OwnerKind.CHARACTER,
+                                "corporation_id": None,
+                                "corporation_name": "",
+                                "character_id": char_id,
+                                "installer_id": job.get("installer_id"),
+                                "station_id": station_id,
+                                "location_name": location_name,
+                                "activity_id": job.get("activity_id"),
+                                "blueprint_id": job.get("blueprint_id"),
+                                "blueprint_type_id": job.get("blueprint_type_id"),
+                                "runs": job.get("runs"),
+                                "cost": job.get("cost"),
+                                "licensed_runs": job.get("licensed_runs"),
+                                "probability": job.get("probability"),
+                                "product_type_id": job.get("product_type_id"),
+                                "status": job.get("status"),
+                                "duration": job.get("duration"),
+                                "start_date": start_date,
+                                "end_date": end_date,
+                                "pause_date": pause_date,
+                                "completed_date": completed_date,
+                                "completed_character_id": job.get(
+                                    "completed_character_id"
+                                ),
+                                "successful_runs": job.get("successful_runs"),
+                                "blueprint_type_name": get_type_name(
+                                    job.get("blueprint_type_id")
+                                ),
+                                "product_type_name": get_type_name(
+                                    job.get("product_type_id")
+                                ),
+                                "character_name": character_name,
+                            },
                         )
-                        continue
 
-                    if end_date is None:
-                        logger.warning(
-                            "Job %s for %s missing end date; defaulting to start date.",
-                            job_id,
-                            character_name,
+                    deleted, _ = (
+                        IndustryJob.objects.filter(
+                            owner_user=user,
+                            owner_kind=Blueprint.OwnerKind.CHARACTER,
+                            character_id=char_id,
                         )
-                        end_date = start_date
-
-                    _update_or_create_with_deadlock_retry(
-                        IndustryJob,
-                        lookup={"job_id": job_id},
-                        defaults={
-                            "owner_user": user,
-                            "owner_kind": Blueprint.OwnerKind.CHARACTER,
-                            "corporation_id": None,
-                            "corporation_name": "",
-                            "character_id": char_id,
-                            "installer_id": job.get("installer_id"),
-                            "station_id": station_id,
-                            "location_name": location_name,
-                            "activity_id": job.get("activity_id"),
-                            "blueprint_id": job.get("blueprint_id"),
-                            "blueprint_type_id": job.get("blueprint_type_id"),
-                            "runs": job.get("runs"),
-                            "cost": job.get("cost"),
-                            "licensed_runs": job.get("licensed_runs"),
-                            "probability": job.get("probability"),
-                            "product_type_id": job.get("product_type_id"),
-                            "status": job.get("status"),
-                            "duration": job.get("duration"),
-                            "start_date": start_date,
-                            "end_date": end_date,
-                            "pause_date": pause_date,
-                            "completed_date": completed_date,
-                            "completed_character_id": job.get("completed_character_id"),
-                            "successful_runs": job.get("successful_runs"),
-                            "blueprint_type_name": get_type_name(
-                                job.get("blueprint_type_id")
-                            ),
-                            "product_type_name": get_type_name(
-                                job.get("product_type_id")
-                            ),
-                            "character_name": character_name,
-                        },
+                        .exclude(job_id__in=esi_job_ids)
+                        .delete()
                     )
-
-                deleted, _ = (
-                    IndustryJob.objects.filter(
-                        owner_user=user,
-                        owner_kind=Blueprint.OwnerKind.CHARACTER,
-                        character_id=char_id,
+            except OperationalError as exc:
+                if _is_deadlock_error(exc):
+                    delay = 2 * (2**self.request.retries)
+                    logger.warning(
+                        "Deadlock syncing jobs for %s (%s); retrying in %ss",
+                        character_name,
+                        char_id,
+                        delay,
                     )
-                    .exclude(job_id__in=esi_job_ids)
-                    .delete()
-                )
+                    raise self.retry(exc=exc, countdown=delay)
+                raise
 
             deleted_total += deleted
             updated_count += len(jobs)
@@ -1584,143 +1670,157 @@ def update_industry_jobs_for_user(
                     continue
 
                 corp_job_ids: set[int] = set()
-                with transaction.atomic():
-                    for job in corp_jobs:
-                        if not isinstance(job, dict):
-                            logger.warning(
-                                "Skipping corporate job with unexpected payload type for %s: %s (%r)",
-                                corp_name,
-                                type(job).__name__,
-                                job,
-                            )
-                            continue
-                        job_id = job.get("job_id")
-                        if job_id is None:
-                            logger.debug(
-                                "Skipping corporate job without identifier for %s: %s",
-                                corp_name,
-                                job,
-                            )
-                            continue
+                try:
+                    with transaction.atomic():
+                        for job in corp_jobs:
+                            if not isinstance(job, dict):
+                                logger.warning(
+                                    "Skipping corporate job with unexpected payload type for %s: %s (%r)",
+                                    corp_name,
+                                    type(job).__name__,
+                                    job,
+                                )
+                                continue
+                            job_id = job.get("job_id")
+                            if job_id is None:
+                                logger.debug(
+                                    "Skipping corporate job without identifier for %s: %s",
+                                    corp_name,
+                                    job,
+                                )
+                                continue
 
-                        corp_job_ids.add(job_id)
-                        station_id = job.get("station_id") or job.get("facility_id")
-                        location_name = ""
-                        if station_id is not None:
-                            try:
-                                location_key = int(station_id)
-                            except (TypeError, ValueError):
-                                location_key = None
+                            corp_job_ids.add(job_id)
+                            station_id = job.get("station_id") or job.get("facility_id")
+                            location_name = ""
+                            if station_id is not None:
+                                try:
+                                    location_key = int(station_id)
+                                except (TypeError, ValueError):
+                                    location_key = None
 
-                            if location_key is not None:
-                                cached_name = location_cache.get(location_key)
-                                if cached_name is not None:
-                                    location_name = cached_name
-                                elif lookup_budget > 0:
-                                    try:
-                                        resolved_name = resolve_location_name(
+                                if location_key is not None:
+                                    cached_name = location_cache.get(location_key)
+                                    if cached_name is not None:
+                                        location_name = cached_name
+                                    elif lookup_budget > 0:
+                                        try:
+                                            resolved_name = resolve_location_name(
+                                                location_key,
+                                                character_id=int(corp_char_id),
+                                                owner_user_id=user.id,
+                                            )
+                                        except Exception:  # pragma: no cover
+                                            logger.debug(
+                                                "Location resolution failed for %s via %s",
+                                                location_key,
+                                                acting_character_name,
+                                                exc_info=True,
+                                            )
+                                            resolved_name = None
+
+                                        lookup_budget -= 1
+                                        location_name = (
+                                            resolved_name
+                                            if resolved_name
+                                            else f"{PLACEHOLDER_PREFIX}{location_key}"
+                                        )
+                                        location_cache[location_key] = location_name
+                                    else:
+                                        if not lookup_budget_warned:
+                                            logger.warning(
+                                                "Location lookup budget exhausted while syncing corporate jobs for %s; remaining locations will use placeholders.",
+                                                corp_name,
+                                            )
+                                            lookup_budget_warned = True
+                                        location_name = location_cache.setdefault(
                                             location_key,
-                                            character_id=int(corp_char_id),
-                                            owner_user_id=user.id,
+                                            f"{PLACEHOLDER_PREFIX}{location_key}",
                                         )
-                                    except Exception:  # pragma: no cover
-                                        logger.debug(
-                                            "Location resolution failed for %s via %s",
-                                            location_key,
-                                            acting_character_name,
-                                            exc_info=True,
-                                        )
-                                        resolved_name = None
 
-                                    lookup_budget -= 1
-                                    location_name = (
-                                        resolved_name
-                                        if resolved_name
-                                        else f"{PLACEHOLDER_PREFIX}{location_key}"
-                                    )
-                                    location_cache[location_key] = location_name
-                                else:
-                                    if not lookup_budget_warned:
-                                        logger.warning(
-                                            "Location lookup budget exhausted while syncing corporate jobs for %s; remaining locations will use placeholders.",
-                                            corp_name,
-                                        )
-                                        lookup_budget_warned = True
-                                    location_name = location_cache.setdefault(
-                                        location_key,
-                                        f"{PLACEHOLDER_PREFIX}{location_key}",
-                                    )
-
-                        start_date = _coerce_job_datetime(job.get("start_date"))
-                        end_date = _coerce_job_datetime(job.get("end_date"))
-                        pause_date = _coerce_job_datetime(job.get("pause_date"))
-                        completed_date = _coerce_job_datetime(job.get("completed_date"))
-
-                        if start_date is None:
-                            logger.warning(
-                                "Ignoring corporate job %s for %s due to invalid start date %r",
-                                job_id,
-                                corp_name,
-                                job.get("start_date"),
+                            start_date = _coerce_job_datetime(job.get("start_date"))
+                            end_date = _coerce_job_datetime(job.get("end_date"))
+                            pause_date = _coerce_job_datetime(job.get("pause_date"))
+                            completed_date = _coerce_job_datetime(
+                                job.get("completed_date")
                             )
-                            continue
 
-                        if end_date is None:
-                            logger.warning(
-                                "Corporate job %s for %s missing end date; defaulting to start date.",
-                                job_id,
-                                corp_name,
+                            if start_date is None:
+                                logger.warning(
+                                    "Ignoring corporate job %s for %s due to invalid start date %r",
+                                    job_id,
+                                    corp_name,
+                                    job.get("start_date"),
+                                )
+                                continue
+
+                            if end_date is None:
+                                logger.warning(
+                                    "Corporate job %s for %s missing end date; defaulting to start date.",
+                                    job_id,
+                                    corp_name,
+                                )
+                                end_date = start_date
+
+                            _update_or_create_with_deadlock_retry(
+                                IndustryJob,
+                                lookup={"job_id": job_id},
+                                defaults={
+                                    "owner_user": user,
+                                    "owner_kind": Blueprint.OwnerKind.CORPORATION,
+                                    "corporation_id": corp_id,
+                                    "corporation_name": corp_name,
+                                    "character_id": None,
+                                    "character_name": acting_character_name,
+                                    "installer_id": job.get("installer_id"),
+                                    "station_id": station_id,
+                                    "location_name": location_name,
+                                    "activity_id": job.get("activity_id"),
+                                    "blueprint_id": job.get("blueprint_id"),
+                                    "blueprint_type_id": job.get("blueprint_type_id"),
+                                    "runs": job.get("runs"),
+                                    "cost": job.get("cost"),
+                                    "licensed_runs": job.get("licensed_runs"),
+                                    "probability": job.get("probability"),
+                                    "product_type_id": job.get("product_type_id"),
+                                    "status": job.get("status"),
+                                    "duration": job.get("duration"),
+                                    "start_date": start_date,
+                                    "end_date": end_date,
+                                    "pause_date": pause_date,
+                                    "completed_date": completed_date,
+                                    "completed_character_id": job.get(
+                                        "completed_character_id"
+                                    ),
+                                    "successful_runs": job.get("successful_runs"),
+                                    "blueprint_type_name": get_type_name(
+                                        job.get("blueprint_type_id")
+                                    ),
+                                    "product_type_name": get_type_name(
+                                        job.get("product_type_id")
+                                    ),
+                                },
                             )
-                            end_date = start_date
 
-                        _update_or_create_with_deadlock_retry(
-                            IndustryJob,
-                            lookup={"job_id": job_id},
-                            defaults={
-                                "owner_user": user,
-                                "owner_kind": Blueprint.OwnerKind.CORPORATION,
-                                "corporation_id": corp_id,
-                                "corporation_name": corp_name,
-                                "character_id": None,
-                                "character_name": acting_character_name,
-                                "installer_id": job.get("installer_id"),
-                                "station_id": station_id,
-                                "location_name": location_name,
-                                "activity_id": job.get("activity_id"),
-                                "blueprint_id": job.get("blueprint_id"),
-                                "blueprint_type_id": job.get("blueprint_type_id"),
-                                "runs": job.get("runs"),
-                                "cost": job.get("cost"),
-                                "licensed_runs": job.get("licensed_runs"),
-                                "probability": job.get("probability"),
-                                "product_type_id": job.get("product_type_id"),
-                                "status": job.get("status"),
-                                "duration": job.get("duration"),
-                                "start_date": start_date,
-                                "end_date": end_date,
-                                "pause_date": pause_date,
-                                "completed_date": completed_date,
-                                "completed_character_id": job.get(
-                                    "completed_character_id"
-                                ),
-                                "successful_runs": job.get("successful_runs"),
-                                "blueprint_type_name": get_type_name(
-                                    job.get("blueprint_type_id")
-                                ),
-                                "product_type_name": get_type_name(
-                                    job.get("product_type_id")
-                                ),
-                            },
+                        deleted, _ = (
+                            IndustryJob.objects.filter(
+                                owner_kind=Blueprint.OwnerKind.CORPORATION,
+                                corporation_id=corp_id,
+                            )
+                            .exclude(job_id__in=corp_job_ids)
+                            .delete()
                         )
-
-                deleted, _ = (
-                    IndustryJob.objects.filter(
-                        owner_kind=Blueprint.OwnerKind.CORPORATION,
-                        corporation_id=corp_id,
-                    )
-                    .exclude(job_id__in=corp_job_ids)
-                    .delete()
-                )
+                except OperationalError as exc:
+                    if _is_deadlock_error(exc):
+                        delay = 2 * (2**self.request.retries)
+                        logger.warning(
+                            "Deadlock syncing corp jobs for %s (%s); retrying in %ss",
+                            corp_name,
+                            corp_id,
+                            delay,
+                        )
+                        raise self.retry(exc=exc, countdown=delay)
+                    raise
 
                 updated_count += len(corp_jobs)
                 deleted_total += deleted
@@ -1997,66 +2097,6 @@ def update_all_industry_jobs(*, last_user_id: int | None = None, batch_size: int
 
 
 @shared_task
-def update_all_skill_snapshots(
-    *, last_user_id: int | None = None, batch_size: int = 500
-) -> dict[str, int]:
-    """Queue per-user skill snapshot refresh tasks in batches."""
-    if _SKILLS_OPERATION_UNAVAILABLE:
-        logger.warning(
-            "Skipping skill snapshot refresh: ESI skills operation unavailable"
-        )
-        return {"queued": 0, "skipped": 0}
-
-    if batch_size <= 0:
-        batch_size = 1
-
-    user_qs = (
-        Token.objects.all()
-        .require_scopes([SKILLS_SCOPE])
-        .require_valid()
-        .values_list("user_id", flat=True)
-        .distinct()
-        .order_by("user_id")
-    )
-    if last_user_id:
-        user_qs = user_qs.filter(user_id__gt=last_user_id)
-
-    user_ids = list(user_qs[:batch_size])
-    if not user_ids:
-        logger.info("No users remaining for skill snapshot updates.")
-        return {"queued": 0, "skipped": 0, "batch_size": batch_size, "done": True}
-
-    window_minutes = _get_adaptive_window_minutes("skills", len(user_ids))
-    queued = _queue_staggered_user_tasks(
-        update_user_skill_snapshots,
-        user_ids,
-        window_minutes=window_minutes,
-        priority=7,
-    )
-
-    if len(user_ids) == batch_size:
-        update_all_skill_snapshots.apply_async(
-            kwargs={"last_user_id": int(user_ids[-1]), "batch_size": batch_size},
-            countdown=1,
-        )
-
-    logger.info(
-        "Queued skill snapshot updates for %s users (batch_size=%s, window=%s min)",
-        queued,
-        batch_size,
-        window_minutes,
-    )
-    return {
-        "queued": queued,
-        "skipped": 0,
-        "batch_size": batch_size,
-        "window_minutes": window_minutes,
-        "last_user_id": int(user_ids[-1]),
-        "done": len(user_ids) < batch_size,
-    }
-
-
-@shared_task
 def update_character_skill_snapshot_for_character(
     user_id: int,
     character_id: int,
@@ -2076,7 +2116,10 @@ def update_character_skill_snapshot_for_character(
         return {"status": "skipped", "reason": "ownership_missing"}
 
     if not _is_user_active(ownership.user):
-        return {"status": "skipped", "reason": "user_inactive"}
+        logger.info(
+            "Skill snapshot refresh continuing for inactive user (character %s)",
+            character_id,
+        )
 
     token = (
         Token.objects.filter(user=ownership.user, character_id=character_id)
@@ -2086,12 +2129,23 @@ def update_character_skill_snapshot_for_character(
         .first()
     )
     if not token:
+        logger.info(
+            "Skipping skill snapshot for character %s: token_missing",
+            character_id,
+        )
         return {"status": "skipped", "reason": "token_missing"}
 
     snapshot = IndustrySkillSnapshot.objects.filter(
         character_id=int(character_id)
     ).first()
     table_empty = not IndustrySkillSnapshot.objects.exists()
+    now = timezone.now()
+    snapshot_stale = bool(
+        snapshot
+        and (now - snapshot.last_updated) >= timedelta(hours=SKILL_SNAPSHOT_STALE_HOURS)
+    )
+    if snapshot and not snapshot_stale:
+        return {"status": "skipped", "reason": "fresh"}
 
     try:
         levels = _fetch_character_skill_levels_with_token(
@@ -2137,21 +2191,42 @@ def update_character_skill_snapshot_for_character(
         )
         return {"status": "failed", "reason": str(exc)}
 
+    def _extract_levels(skill_id: int) -> tuple[int, int]:
+        entry = levels.get(skill_id, 0)
+        if isinstance(entry, dict):
+            active_level = int(entry.get("active") or 0)
+            trained_level = int(entry.get("trained") or 0)
+        else:
+            active_level = int(entry or 0)
+            trained_level = active_level
+        return active_level, trained_level
+
+    mass_active, mass_trained = _extract_levels(SKILL_TYPE_IDS["mass_production"])
+    adv_mass_active, adv_mass_trained = _extract_levels(
+        SKILL_TYPE_IDS["advanced_mass_production"]
+    )
+    lab_active, lab_trained = _extract_levels(SKILL_TYPE_IDS["laboratory_operation"])
+    adv_lab_active, adv_lab_trained = _extract_levels(
+        SKILL_TYPE_IDS["advanced_laboratory_operation"]
+    )
+    react_active, react_trained = _extract_levels(SKILL_TYPE_IDS["mass_reactions"])
+    adv_react_active, adv_react_trained = _extract_levels(
+        SKILL_TYPE_IDS["advanced_mass_reactions"]
+    )
+
     defaults = {
-        "mass_production_level": levels.get(SKILL_TYPE_IDS["mass_production"], 0),
-        "advanced_mass_production_level": levels.get(
-            SKILL_TYPE_IDS["advanced_mass_production"], 0
-        ),
-        "laboratory_operation_level": levels.get(
-            SKILL_TYPE_IDS["laboratory_operation"], 0
-        ),
-        "advanced_laboratory_operation_level": levels.get(
-            SKILL_TYPE_IDS["advanced_laboratory_operation"], 0
-        ),
-        "mass_reactions_level": levels.get(SKILL_TYPE_IDS["mass_reactions"], 0),
-        "advanced_mass_reactions_level": levels.get(
-            SKILL_TYPE_IDS["advanced_mass_reactions"], 0
-        ),
+        "mass_production_level": mass_active,
+        "advanced_mass_production_level": adv_mass_active,
+        "laboratory_operation_level": lab_active,
+        "advanced_laboratory_operation_level": adv_lab_active,
+        "mass_reactions_level": react_active,
+        "advanced_mass_reactions_level": adv_react_active,
+        "trained_mass_production_level": mass_trained,
+        "trained_advanced_mass_production_level": adv_mass_trained,
+        "trained_laboratory_operation_level": lab_trained,
+        "trained_advanced_laboratory_operation_level": adv_lab_trained,
+        "trained_mass_reactions_level": react_trained,
+        "trained_advanced_mass_reactions_level": adv_react_trained,
     }
     _update_or_create_with_deadlock_retry(
         IndustrySkillSnapshot,
@@ -2171,8 +2246,13 @@ def update_user_skill_snapshots(user_id: int) -> dict[str, int]:
         return {"updated": 0, "skipped": 0, "failures": 0}
 
     user = User.objects.filter(id=user_id).first()
-    if not user or not _is_user_active(user):
+    if not user:
+        logger.info(
+            "Skipping skill snapshot refresh for user %s: user_missing", user_id
+        )
         return {"updated": 0, "skipped": 1, "failures": 0}
+    if not _is_user_active(user):
+        logger.info("Skill snapshot refresh continuing for inactive user %s", user_id)
 
     tokens = (
         Token.objects.filter(user=user)
@@ -2181,6 +2261,11 @@ def update_user_skill_snapshots(user_id: int) -> dict[str, int]:
         .values_list("character_id", flat=True)
         .distinct()
     )
+    if not tokens:
+        logger.info(
+            "Skipping skill snapshot refresh for user %s: token_missing", user_id
+        )
+        return {"updated": 0, "skipped": 1, "failures": 0}
     updated = 0
     skipped = 0
     failures = 0
@@ -2200,4 +2285,11 @@ def update_user_skill_snapshots(user_id: int) -> dict[str, int]:
         else:
             skipped += 1
 
+    logger.info(
+        "Skill snapshot refresh done for user %s: updated=%s skipped=%s failures=%s",
+        user_id,
+        updated,
+        skipped,
+        failures,
+    )
     return {"updated": updated, "skipped": skipped, "failures": failures}

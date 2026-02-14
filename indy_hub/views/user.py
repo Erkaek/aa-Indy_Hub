@@ -47,7 +47,7 @@ from esi.views import sso_redirect
 # AA Example App
 from indy_hub.models import CharacterSettings, CorporationSharingSetting
 
-from ..app_settings import ROLES_CACHE_MAX_AGE_MINUTES
+from ..app_settings import ROLE_SNAPSHOT_STALE_HOURS
 from ..decorators import indy_hub_access_required, tokens_required
 from ..models import (
     Blueprint,
@@ -57,7 +57,6 @@ from ..models import (
     CharacterRoles,
     IndustryJob,
     JobNotificationDigestEntry,
-    ProductionConfig,
     ProductionSimulation,
     UserOnboardingProgress,
 )
@@ -179,7 +178,6 @@ BLUEPRINT_SCOPE_SET = [BLUEPRINT_SCOPE, STRUCTURE_SCOPE]
 JOBS_SCOPE_SET = [JOBS_SCOPE, STRUCTURE_SCOPE]
 ASSETS_SCOPE = "esi-assets.read_assets.v1"
 ASSETS_SCOPE_SET = [ASSETS_SCOPE, ONLINE_SCOPE]
-ROLE_CACHE_MAX_AGE_MINUTES = ROLES_CACHE_MAX_AGE_MINUTES
 
 
 def _fetch_character_corporation_roles_with_token(
@@ -229,9 +227,12 @@ def _fetch_character_corporation_roles_with_token(
     snapshot = CharacterRoles.objects.filter(
         character_id=token_obj.character_id
     ).first()
-    if snapshot and (timezone.now() - snapshot.last_updated) < timedelta(
-        minutes=ROLE_CACHE_MAX_AGE_MINUTES
-    ):
+    snapshot_stale = bool(
+        snapshot
+        and (timezone.now() - snapshot.last_updated)
+        >= timedelta(hours=ROLE_SNAPSHOT_STALE_HOURS)
+    )
+    if snapshot and not snapshot_stale:
         return _roles_from_snapshot(snapshot)
 
     force_refresh = cached_roles is None and (snapshot is None)
@@ -3434,31 +3435,6 @@ def production_simulations(request):
     context.update(build_nav_context(request.user, active_tab="industry"))
 
     return render(request, "indy_hub/industry/production_simulations.html", context)
-
-
-@indy_hub_access_required
-@login_required
-@require_POST
-def delete_production_simulation(request, simulation_id):
-    """
-    Delete a production simulation.
-    """
-    simulation = get_object_or_404(
-        ProductionSimulation, id=simulation_id, user=request.user
-    )
-
-    # Remove all related configurations as well
-    ProductionConfig.objects.filter(
-        user=request.user,
-        blueprint_type_id=simulation.blueprint_type_id,
-        runs=simulation.runs,
-    ).delete()
-
-    simulation_name = simulation.display_name
-    simulation.delete()
-
-    messages.success(request, f'Simulation "{simulation_name}" deleted successfully.')
-    return redirect("indy_hub:production_simulations")
 
 
 @indy_hub_access_required

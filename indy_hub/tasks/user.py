@@ -19,8 +19,10 @@ from allianceauth.authentication.models import CharacterOwnership
 from allianceauth.services.hooks import get_extension_logger
 from esi.models import Token
 
+from ..app_settings import ROLE_SNAPSHOT_STALE_HOURS
+
 # Indy Hub
-from ..models import Blueprint, CharacterRoles, CharacterSettings
+from ..models import CharacterRoles
 from ..services.esi_client import (
     ESIClientError,
     ESIForbiddenError,
@@ -30,114 +32,13 @@ from ..services.esi_client import (
     get_retry_after_seconds,
     shared_client,
 )
-from .industry import (
-    _get_adaptive_window_minutes,
-    _is_user_active,
-    _queue_staggered_user_tasks,
-)
+from .industry import _is_user_active
 
 logger = get_extension_logger(__name__)
 
 CORP_ROLES_SCOPE = "esi-characters.read_corporation_roles.v1"
 
 User = get_user_model()
-
-
-@shared_task
-def cleanup_inactive_user_data():
-    """
-    Clean up data for users who haven't been active for a long time.
-    Runs weekly to maintain database performance.
-    """
-    # Define inactive threshold (6 months)
-    inactive_threshold = timezone.now() - timedelta(days=180)
-
-    # Since CharacterSettings don't track last_refresh_request anymore,
-    # we'll identify inactive users by their Django last_login timestamp
-    inactive_users = User.objects.filter(last_login__lt=inactive_threshold).exclude(
-        last_login__isnull=True
-    )
-
-    count = 0
-    for user in inactive_users:
-
-        # Clean up old blueprint data for inactive users
-        old_blueprints = Blueprint.objects.filter(
-            owner_user=user, updated_at__lt=inactive_threshold
-        )
-        blueprint_count = old_blueprints.count()
-        old_blueprints.delete()
-
-        if blueprint_count > 0:
-            count += 1
-            logger.info(
-                f"Cleaned up {blueprint_count} old blueprints for inactive user {user.username}"
-            )
-
-    logger.info(f"Cleaned up data for {count} inactive users")
-    return {"inactive_users_cleaned": count}
-
-
-@shared_task
-def update_user_preferences_defaults():
-    """
-    Ensure all users have proper default notification preferences.
-    Useful after adding new preference fields.
-    """
-    # Alternative: find users with no global settings (character_id=0)
-    users_without_global_settings = User.objects.exclude(
-        charactersettings__character_id=0
-    )
-
-    created = 0
-    for user in users_without_global_settings:
-        _, was_created = CharacterSettings.objects.get_or_create(
-            user=user, character_id=0
-        )
-        if was_created:
-            created += 1
-
-    logger.info("Ensured global notification defaults for %s users", created)
-    return {"defaults_created": created}
-
-
-@shared_task
-def generate_user_activity_report():
-    """
-    Generate activity statistics for users.
-    Can be used for analytics and monitoring.
-    """
-    total_users = User.objects.count()
-    # Since we no longer track last_refresh_request, use login activity for "active"
-    active_users = (
-        User.objects.filter(last_login__gte=timezone.now() - timedelta(days=30))
-        .exclude(last_login__isnull=True)
-        .count()
-    )
-
-    users_with_blueprints = (
-        User.objects.filter(blueprints__isnull=False).distinct().count()
-    )
-
-    users_with_jobs = (
-        User.objects.filter(industry_jobs__isnull=False).distinct().count()
-    )
-
-    users_with_notifications = CharacterSettings.objects.filter(
-        character_id=0, jobs_notify_completed=True  # Global settings only
-    ).count()
-
-    report = {
-        "total_users": total_users,
-        "active_users_30d": active_users,
-        "users_with_blueprints": users_with_blueprints,
-        "users_with_jobs": users_with_jobs,
-        "users_with_notifications_enabled": users_with_notifications,
-        "generated_at": timezone.now().isoformat(),
-    }
-
-    logger.info(f"Generated user activity report: {report}")
-    return report
 
 
 def _coerce_role_list(value: object) -> list[str]:
@@ -176,6 +77,13 @@ def update_character_roles_for_character(
         return {"status": "skipped", "reason": "token_missing"}
 
     snapshot = CharacterRoles.objects.filter(character_id=character_id).first()
+    now = timezone.now()
+    snapshot_stale = bool(
+        snapshot
+        and (now - snapshot.last_updated) >= timedelta(hours=ROLE_SNAPSHOT_STALE_HOURS)
+    )
+    if snapshot and not snapshot_stale:
+        return {"status": "skipped", "reason": "fresh"}
     try:
         payload = shared_client.fetch_character_corporation_roles(
             int(character_id),
@@ -233,59 +141,6 @@ def update_character_roles_for_character(
         },
     )
     return {"status": "updated"}
-
-
-@shared_task
-def update_character_roles_snapshots(
-    *, last_user_id: int | None = None, batch_size: int = 500
-):
-    """Queue per-user role refresh tasks in batches."""
-    if batch_size <= 0:
-        batch_size = 1
-
-    user_qs = (
-        Token.objects.all()
-        .require_scopes([CORP_ROLES_SCOPE])
-        .require_valid()
-        .values_list("user_id", flat=True)
-        .distinct()
-        .order_by("user_id")
-    )
-    if last_user_id:
-        user_qs = user_qs.filter(user_id__gt=last_user_id)
-
-    user_ids = list(user_qs[:batch_size])
-    if not user_ids:
-        logger.info("No users remaining for role snapshot updates.")
-        return {"queued": 0, "batch_size": batch_size, "done": True}
-
-    window_minutes = _get_adaptive_window_minutes("roles", len(user_ids))
-    queued = _queue_staggered_user_tasks(
-        update_user_roles_snapshots,
-        user_ids,
-        window_minutes=window_minutes,
-        priority=7,
-    )
-
-    if len(user_ids) == batch_size:
-        update_character_roles_snapshots.apply_async(
-            kwargs={"last_user_id": int(user_ids[-1]), "batch_size": batch_size},
-            countdown=1,
-        )
-
-    logger.info(
-        "Queued role refresh tasks for %s users (batch_size=%s, window=%s min)",
-        queued,
-        batch_size,
-        window_minutes,
-    )
-    return {
-        "queued": queued,
-        "batch_size": batch_size,
-        "window_minutes": window_minutes,
-        "last_user_id": int(user_ids[-1]),
-        "done": len(user_ids) < batch_size,
-    }
 
 
 @shared_task

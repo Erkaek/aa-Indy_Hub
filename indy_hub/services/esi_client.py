@@ -24,6 +24,10 @@ DEFAULT_COMPATIBILITY_DATE = ESI_COMPATIBILITY_DATE
 class ESIClientError(Exception):
     """Base error raised when the ESI client fails."""
 
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
 
 class ESITokenError(ESIClientError):
     """Raised when a valid access token cannot be retrieved."""
@@ -354,11 +358,33 @@ class ESIClient:
                 structure_id=int(structure_id),
                 endpoint=f"/universe/structures/{int(structure_id)}/",
                 scope="esi-universe.read_structures.v1",
+                results_kwargs={"use_etag": False},
                 operation=lambda token: operation_fn(
                     structure_id=int(structure_id),
                     token=token,
                 ),
             )
+        except ESIUnmodifiedError:
+            try:
+                payload = self._call_authed(
+                    token_obj,
+                    character_id=int(character_id),
+                    structure_id=int(structure_id),
+                    endpoint=f"/universe/structures/{int(structure_id)}/",
+                    scope="esi-universe.read_structures.v1",
+                    results_kwargs={"use_etag": False, "force_refresh": True},
+                    operation=lambda token: operation_fn(
+                        structure_id=int(structure_id),
+                        token=token,
+                        **{"If-None-Match": ""},
+                    ),
+                )
+            except ESIForbiddenError:
+                raise
+            except ESITokenError:
+                return None
+            except ESIClientError:
+                return None
         except ESIForbiddenError:
             raise
         except ESITokenError:
@@ -366,8 +392,19 @@ class ESIClient:
         except ESIClientError:
             return None
 
+        if isinstance(payload, list):
+            if not payload:
+                return None
+            payload = payload[0]
         if isinstance(payload, dict):
             return payload.get("name")
+        coerced = self._coerce_mapping(payload)
+        if isinstance(coerced, dict):
+            return coerced.get("name")
+        if payload is not None:
+            name = getattr(payload, "name", None)
+            if name:
+                return str(name)
         return None
 
     def _fetch_paginated(
@@ -630,6 +667,7 @@ class ESIClient:
         endpoint: str | None = None,
         scope: str | None = None,
         operation=None,
+        results_kwargs: dict | None = None,
     ):
         if operation is None:
             raise ESIClientError("No ESI operation provided")
@@ -640,7 +678,9 @@ class ESIClient:
                 f"No valid token for character {character_id} and scope {scope}"
             ) from exc
         try:
-            return operation(token_obj).results()
+            if results_kwargs is None:
+                results_kwargs = {}
+            return operation(token_obj).results(**results_kwargs)
         except HTTPNotModified as exc:
             raise ESIUnmodifiedError(
                 f"ESI returned 304 for {endpoint or 'request'}"
@@ -725,7 +765,8 @@ class ESIClient:
             ) from exc
 
         raise ESIClientError(
-            f"ESI returned {status_code} for {endpoint or 'request'}: {exc}"
+            f"ESI returned {status_code} for {endpoint or 'request'}: {exc}",
+            status_code=status_code,
         ) from exc
 
     def _handle_forbidden_token(

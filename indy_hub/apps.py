@@ -125,7 +125,6 @@ class IndyHubConfig(AppConfig):
                 from .tasks import setup_periodic_tasks
 
                 setup_periodic_tasks()
-                logger.info("IndyHub periodic tasks configured.")
             except Exception as e:
                 logger.exception("Error setting up periodic tasks: %s", e)
 

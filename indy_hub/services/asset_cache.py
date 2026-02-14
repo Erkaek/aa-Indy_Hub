@@ -22,6 +22,8 @@ from indy_hub.app_settings import (
     ASSET_CACHE_MAX_AGE_MINUTES,
     CHAR_ASSET_CACHE_MAX_AGE_MINUTES,
     DIVISION_CACHE_MAX_AGE_MINUTES,
+    ROLE_SNAPSHOT_STALE_HOURS,
+    STRUCTURE_NAME_STALE_HOURS,
 )
 
 # Local
@@ -41,12 +43,14 @@ from indy_hub.services.esi_client import (
     shared_client,
 )
 from indy_hub.services.providers import esi_provider
+from indy_hub.utils.eve import resolve_location_name
 
 PLACEHOLDER_PREFIX = "Structure "
 
 # How long we keep placeholder results before retrying a fresh lookup.
 # This prevents hammering ESI for private/forbidden structures.
 STRUCTURE_PLACEHOLDER_TTL = timedelta(hours=6)
+STRUCTURE_NAME_TTL = timedelta(hours=STRUCTURE_NAME_STALE_HOURS)
 
 logger = get_extension_logger(__name__)
 esi = esi_provider
@@ -66,7 +70,12 @@ def _get_or_fetch_character_roles(
     allow_fetch: bool = True,
 ) -> list[str]:
     snapshot = CharacterRoles.objects.filter(character_id=character_id).first()
-    if snapshot:
+    now = timezone.now()
+    snapshot_stale = bool(
+        snapshot
+        and (now - snapshot.last_updated) >= timedelta(hours=ROLE_SNAPSHOT_STALE_HOURS)
+    )
+    if snapshot and not snapshot_stale:
         return [str(role).upper() for role in (snapshot.roles or []) if role]
 
     if not allow_fetch:
@@ -628,10 +637,21 @@ def resolve_structure_names(
             return True
         return (now - last) >= STRUCTURE_PLACEHOLDER_TTL
 
+    def _is_stale_name(structure_id: int) -> bool:
+        name = str(known.get(structure_id, ""))
+        if not name or name.startswith(PLACEHOLDER_PREFIX):
+            return False
+        last = known_last_resolved.get(structure_id)
+        if not last:
+            return True
+        return (now - last) >= STRUCTURE_NAME_TTL
+
     missing = [
         sid
         for sid in all_ids_for_cache
-        if sid not in known or _is_stale_placeholder(int(sid))
+        if sid not in known
+        or _is_stale_placeholder(int(sid))
+        or _is_stale_name(int(sid))
     ]
 
     # Try corporation structures endpoint first (returns names) when corp_id is available
@@ -644,7 +664,9 @@ def resolve_structure_names(
         missing = [
             sid
             for sid in all_ids_for_cache
-            if sid not in known or _is_stale_placeholder(int(sid))
+            if sid not in known
+            or _is_stale_placeholder(int(sid))
+            or _is_stale_name(int(sid))
         ]
 
     # Try direct structure lookups with the provided character first, then fall back to any corp token with the universe scope
@@ -777,9 +799,21 @@ def resolve_structure_names(
             except Exception as exc:
                 logger.debug("Failed to update task progress: %s", exc)
 
-        # Skip direct /universe/structures/ lookup for NPC stations (small IDs)
-        # They will be resolved via /universe/names/ later
+        # Resolve NPC stations via /universe/stations before falling back.
         if structure_id < npc_station_threshold:
+            name = resolve_location_name(
+                structure_id,
+                force_refresh=True,
+                allow_public=True,
+            )
+            if name and not str(name).startswith(PLACEHOLDER_PREFIX):
+                known[structure_id] = name
+                structure_payload = {
+                    "structure_id": structure_id,
+                    "name": name,
+                    "last_resolved": timezone.now(),
+                }
+                structures_to_cache.append(structure_payload)
             continue
 
         if do_sync_esi:
@@ -941,23 +975,56 @@ def _refresh_corp_divisions(corporation_id: int) -> tuple[dict[int, str], bool]:
 
     scope_missing = False
     try:
+
+        def _coerce_payload(payload):
+            if isinstance(payload, list):
+                payload = payload[0] if payload else {}
+            if isinstance(payload, dict):
+                return payload
+            for attr in ("model_dump", "dict", "to_dict"):
+                converter = getattr(payload, attr, None)
+                if callable(converter):
+                    try:
+                        result = converter()
+                    except Exception:
+                        result = None
+                    if isinstance(result, dict):
+                        return result
+            return {}
+
         character_id = _get_character_for_scope(
             corporation_id, "esi-corporations.read_divisions.v1"
         )
         token_obj = Token.get_token(character_id, "esi-corporations.read_divisions.v1")
-        divisions_data = (
-            esi.client.Corporation.get_corporations_corporation_id_divisions(
-                corporation_id=corporation_id,
-                token=token_obj,
-            ).results()
+        operation = getattr(
+            esi.client.Corporation,
+            "get_corporations_corporation_id_divisions",
+            None,
         )
+        if operation is None:
+            operation = getattr(
+                esi.client.Corporation,
+                "GetCorporationsCorporationIdDivisions",
+                None,
+            )
+        if operation is None:
+            raise AttributeError("Corporation divisions operation not available")
+        divisions_data = operation(
+            corporation_id=corporation_id,
+            token=token_obj,
+        ).results()
+        divisions_data = _coerce_payload(divisions_data)
         hangar_divisions = divisions_data.get("hangar", []) if divisions_data else []
 
         now = timezone.now()
         divisions: dict[int, str] = {}
-        for info in hangar_divisions:
-            division_num = info.get("division")
-            division_name = info.get("name")
+        for info in hangar_divisions or []:
+            if isinstance(info, dict):
+                division_num = info.get("division")
+                division_name = info.get("name")
+            else:
+                division_num = getattr(info, "division", None)
+                division_name = getattr(info, "name", None)
             if division_num:
                 divisions[int(division_num)] = (
                     division_name or f"Hangar Division {division_num}"
@@ -1113,8 +1180,6 @@ def _refresh_character_assets(user) -> tuple[list[dict], bool]:
                 bucket = structure_ids_by_character.setdefault(int(character_id), set())
                 if row.location_id:
                     bucket.add(int(row.location_id))
-                if row.raw_location_id:
-                    bucket.add(int(row.raw_location_id))
 
             all_assets.append(
                 {

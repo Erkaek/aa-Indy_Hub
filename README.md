@@ -35,7 +35,7 @@ ______________________________________________________________________
 - **Flexible Sharing Scopes**: Expose blueprint libraries per character, per corporation, or to everyone at once.
 - **Conditional Offer Chat**: Negotiate blueprint copy terms directly in Indy Hub with persistent history and status tracking.
 - **Material Exchange**: Create buy/sell orders with order references, validate ESI contracts, and review transaction history.
-- **Material Exchange UX**: Compact order detail headers with quick-copy helpers (order reference, buyer/corporation, EVE-friendly totals).
+- **Material Exchange UX**: Compact order detail headers with quick-copy helpers (order reference, buyer/corporation, EVE-friendly totals) plus hub location and quantity shortcuts on buy/sell pages.
 - **ESI Integration**: Secure OAuth2-based sync for blueprints and jobs with director-level corporation scopes.
 - **Notifications**: In-app alerts for job completions, copy offers, chat messages, and deliveries, with configurable immediate or digest cadences.
 - **Modern UI**: Responsive Bootstrap 5 interface with theme compatibility and full i18n support.
@@ -211,13 +211,19 @@ INDY_HUB_ESI_TASK_TARGET_PER_MIN_BLUEPRINTS = 30  # Default: 30
 INDY_HUB_ESI_TASK_TARGET_PER_MIN_JOBS = 30  # Default: 30
 INDY_HUB_ESI_TASK_TARGET_PER_MIN_SKILLS = 40  # Default: 40
 INDY_HUB_ESI_TASK_TARGET_PER_MIN_ROLES = 30  # Default: 30
+
+# Stale refresh thresholds (hours)
+INDY_HUB_ONLINE_STATUS_STALE_HOURS = 72  # Default: 72
+INDY_HUB_SKILL_SNAPSHOT_STALE_HOURS = 24  # Default: 24
+INDY_HUB_ROLE_SNAPSHOT_STALE_HOURS = 24  # Default: 24
+INDY_HUB_STRUCTURE_NAME_STALE_HOURS = 24  # Default: 24
 ```
 
 **Scheduled Tasks** (auto-created):
 
 - `indy-hub-update-all-blueprints` → Daily at 03:30 UTC
 - `indy-hub-update-all-industry-jobs` → Every 2 hours
-- `indy-hub-update-skill-snapshots` → Daily at 04:15 UTC
+- `indy-hub-refresh-stale-snapshots` → Hourly (skills/roles/online/structures)
 
 ______________________________________________________________________
 

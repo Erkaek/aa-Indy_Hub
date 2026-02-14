@@ -73,22 +73,6 @@ class ContractValidationTestCase(TestCase):
             stock_available_at_creation=1000,
         )
 
-    def test_matching_contract_criteria(self):
-        """Test contract criteria matching"""
-
-        # TODO: Update these tests to use database models instead of dict contracts
-        # These tests are skipped for now as the implementation has moved to _db variants
-        self.skipTest(
-            "Legacy dict-based contract matching tests - needs update for DB models"
-        )
-
-    def test_contract_items_matching(self):
-        """Test contract items matching"""
-        # TODO: Update to use ESIContractItem models instead of dicts
-        self.skipTest(
-            "Legacy dict-based contract item matching - needs update for DB models"
-        )
-
     def test_extract_contract_id(self):
         """Test contract ID extraction from notes"""
         # Valid format

@@ -51,36 +51,30 @@ PUBLIC_STATION_ID = 60003760
 
 
 def assign_main_character(user: User, *, character_id: int) -> EveCharacter:
-    """Ensure the given user has a main character to satisfy middleware requirements."""
-
-    profile, _ = UserProfile.objects.get_or_create(user=user)
-
     character, _ = EveCharacter.objects.get_or_create(
         character_id=character_id,
         defaults={
-            "character_name": f"{user.username.title()}",
-            "corporation_id": 2000000,
+            "character_name": f"Pilot {character_id}",
+            "corporation_id": 2_000_000,
             "corporation_name": "Test Corp",
             "corporation_ticker": "TEST",
-            "alliance_id": None,
-            "alliance_name": "",
-            "alliance_ticker": "",
-            "faction_id": None,
-            "faction_name": "",
         },
     )
+    CharacterOwnership.objects.update_or_create(
+        user=user,
+        character=character,
+        defaults={"owner_hash": f"hash-{character_id}-{user.id}"},
+    )
+    profile, _ = UserProfile.objects.get_or_create(user=user)
     profile.main_character = character
     profile.save(update_fields=["main_character"])
     return character
 
 
-def grant_indy_permissions(user: User, *extra_codenames: str) -> None:
-    """Attach the requested Indy Hub permissions to the user."""
-
-    required = {"can_access_indy_hub", *extra_codenames}
-    permissions = Permission.objects.filter(
-        content_type__app_label="indy_hub", codename__in=required
-    )
+def grant_indy_permissions(user: User, *codenames: str) -> None:
+    required = {"can_access_indy_hub"}
+    required.update(codenames)
+    permissions = Permission.objects.filter(codename__in=required)
     found = {perm.codename: perm for perm in permissions}
     missing = required - found.keys()
     if missing:

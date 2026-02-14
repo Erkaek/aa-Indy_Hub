@@ -27,6 +27,7 @@ def _import_task_submodules() -> None:
         return
 
     # Import task submodules so their @shared_task are registered
+    from . import housekeeping  # noqa: F401
     from . import industry  # noqa: F401
     from . import location  # noqa: F401
     from . import material_exchange  # noqa: F401
@@ -74,6 +75,10 @@ def setup_periodic_tasks():
         from indy_hub.schedules import INDY_HUB_BEAT_SCHEDULE
     except ImportError:
         return  # django_celery_beat is not installed
+
+    created = 0
+    updated = 0
+    unchanged = 0
 
     for name, conf in INDY_HUB_BEAT_SCHEDULE.items():
         schedule = conf["schedule"]
@@ -153,17 +158,50 @@ def setup_periodic_tasks():
             except Exception:
                 enabled = True
 
-        PeriodicTask.objects.update_or_create(
-            name=name,
-            defaults={
-                "task": conf["task"],
-                "crontab": crontab,
-                "interval": None,
-                "args": json.dumps([]),
-                "enabled": enabled,
-            },
+        args_json = json.dumps([])
+        desired_task = conf["task"]
+
+        existing = (
+            PeriodicTask.objects.select_related("crontab")
+            .only("id", "name", "task", "crontab_id", "interval_id", "args", "enabled")
+            .filter(name=name)
+            .first()
         )
-    logger.info("IndyHub cron tasks registered.")
+
+        if existing is None:
+            PeriodicTask.objects.create(
+                name=name,
+                task=desired_task,
+                crontab=crontab,
+                interval=None,
+                args=args_json,
+                enabled=enabled,
+            )
+            created += 1
+            continue
+
+        needs_update = False
+        if existing.task != desired_task:
+            existing.task = desired_task
+            needs_update = True
+        if existing.crontab_id != crontab.id:
+            existing.crontab = crontab
+            needs_update = True
+        if existing.interval_id is not None:
+            existing.interval = None
+            needs_update = True
+        if existing.args != args_json:
+            existing.args = args_json
+            needs_update = True
+        if existing.enabled != enabled:
+            existing.enabled = enabled
+            needs_update = True
+
+        if needs_update:
+            existing.save()
+            updated += 1
+        else:
+            unchanged += 1
 
     # Clean up any legacy task entries that are no longer defined
     legacy_task_names = [
@@ -172,10 +210,38 @@ def setup_periodic_tasks():
         "indy-hub-validate-sell-orders",
         "indy-hub-update-system-cost-indices",
         "indy-hub-refresh-production-items",
+        "indy-hub-update-character-roles",
+        "indy-hub-update-skill-snapshots",
     ]
-    removed, _ = PeriodicTask.objects.filter(name__in=legacy_task_names).delete()
-    if removed:
-        logger.info("Removed %s legacy IndyHub periodic tasks", removed)
+    removed_legacy, _ = PeriodicTask.objects.filter(name__in=legacy_task_names).delete()
+    if removed_legacy:
+        logger.info("Removed %s legacy IndyHub periodic tasks", removed_legacy)
+
+    # Remove any stale IndyHub tasks not present in the current schedule.
+    valid_names = set(INDY_HUB_BEAT_SCHEDULE.keys())
+    stale_qs = PeriodicTask.objects.filter(name__startswith="indy-hub-").exclude(
+        name__in=valid_names
+    )
+    stale_removed, _ = stale_qs.delete()
+    if stale_removed:
+        logger.info("Removed %s stale IndyHub periodic tasks", stale_removed)
+
+    removed_total = removed_legacy + stale_removed
+    if created or updated or removed_total:
+        logger.info(
+            "IndyHub periodic tasks updated (created=%s, updated=%s, removed=%s).",
+            created,
+            updated,
+            removed_total,
+        )
+
+    return {
+        "created": created,
+        "updated": updated,
+        "unchanged": unchanged,
+        "removed_legacy": removed_legacy,
+        "removed_stale": stale_removed,
+    }
 
 
 def remove_periodic_tasks() -> None:
@@ -200,6 +266,8 @@ def remove_periodic_tasks() -> None:
         "indy-hub-validate-sell-orders",
         "indy-hub-update-system-cost-indices",
         "indy-hub-refresh-production-items",
+        "indy-hub-update-character-roles",
+        "indy-hub-update-skill-snapshots",
     ]
     removed, _ = PeriodicTask.objects.filter(name__in=task_names).delete()
     if removed:

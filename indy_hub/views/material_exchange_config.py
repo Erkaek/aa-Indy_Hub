@@ -1,6 +1,7 @@
 """Material Exchange Configuration views."""
 
 # Standard Library
+from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 
 # Django
@@ -10,6 +11,7 @@ from django.core.cache import cache
 from django.db import transaction
 from django.shortcuts import redirect, render
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 # Alliance Auth
@@ -19,6 +21,7 @@ from esi.views import sso_redirect
 # AA Example App
 from indy_hub.services.providers import esi_provider
 
+from ..app_settings import ROLE_SNAPSHOT_STALE_HOURS
 from ..decorators import indy_hub_permission_required, tokens_required
 from ..models import CharacterRoles, MaterialExchangeConfig, MaterialExchangeSettings
 from ..services.asset_cache import (
@@ -26,6 +29,8 @@ from ..services.asset_cache import (
     get_corp_divisions_cached,
     resolve_structure_names,
 )
+from ..services.esi_client import ESIUnmodifiedError
+from ..utils.eve import PLACEHOLDER_PREFIX
 
 esi = esi_provider
 logger = get_extension_logger(__name__)
@@ -199,6 +204,13 @@ def material_exchange_config(request, tokens):
                 break
 
     if request.method == "POST":
+        if request.POST.get("delete_config") == "1":
+            if config:
+                config.delete()
+                messages.success(request, _("Configuration deleted."))
+            else:
+                messages.info(request, _("No configuration to delete."))
+            return redirect("indy_hub:material_exchange_config")
         return _handle_config_save(request, config)
 
     market_group_choices: list[dict[str, str | int]] = []
@@ -409,11 +421,24 @@ def _find_director_character(user, corp_id):
 
     def _load_roles(character_id: int) -> list[str]:
         snapshot = CharacterRoles.objects.filter(character_id=character_id).first()
-        if snapshot:
+        snapshot_stale = bool(
+            snapshot
+            and (timezone.now() - snapshot.last_updated)
+            >= timedelta(hours=ROLE_SNAPSHOT_STALE_HOURS)
+        )
+        if snapshot and not snapshot_stale:
             return [str(role).upper() for role in (snapshot.roles or []) if role]
 
+        force_refresh = snapshot is None
         try:
-            payload = shared_client.fetch_character_corporation_roles(character_id)
+            payload = shared_client.fetch_character_corporation_roles(
+                character_id,
+                force_refresh=force_refresh,
+            )
+        except ESIUnmodifiedError:
+            if snapshot:
+                return [str(role).upper() for role in (snapshot.roles or []) if role]
+            return []
         except Exception as exc:
             logger.warning(
                 "Failed to fetch roles for character %s: %s",
@@ -930,11 +955,13 @@ def _get_corp_structures(user, corp_id):
 
     structures: list[dict] = []
     for loc_id in sorted(loc_ids):
-        # Always include all asset-backed locations, even if name resolution failed.
+        resolved_name = structure_names.get(loc_id)
+        if not resolved_name or str(resolved_name).startswith(PLACEHOLDER_PREFIX):
+            continue
         structures.append(
             {
                 "id": loc_id,
-                "name": structure_names.get(loc_id) or f"Structure {loc_id}",
+                "name": resolved_name,
                 "flags": sorted(structure_flags.get(int(loc_id), set())),
             }
         )

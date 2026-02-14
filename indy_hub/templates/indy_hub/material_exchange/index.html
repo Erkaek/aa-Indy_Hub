@@ -36,67 +36,37 @@
         <i class="fas fa-store header-bg"></i>
     </div>
 
+    <div class="me-hub-banner" role="note">
+        <i class="fas fa-map-marker-alt" aria-hidden="true"></i>
+        <span class="me-hub-banner-label">{% trans "Hub Location" %}:</span>
+        {% if config.structure_name %}
+        <span class="me-hub-banner-value">{{ config.structure_name }}</span>
+        {% else %}
+        <span class="me-hub-banner-value">{% blocktrans with location=config.structure_id %}{{ location }}{% endblocktrans %}</span>
+        {% endif %}
+    </div>
+
     <!-- Quick Stats -->
-    <div class="row g-3 mb-4">
-        <div class="col-md-3">
-            <div class="glass-panel p-3">
-                <div class="d-flex align-items-center gap-3">
-                    <div class="flex-shrink-0">
-                        <div class="stat-icon bg-primary text-white">
-                            <i class="fas fa-cubes"></i>
-                        </div>
-                    </div>
-                    <div class="flex-grow-1">
-                        <p class="text-muted small mb-1">{% trans "Items in Stock" %}</p>
-                        <h3 class="h4 mb-0">{{ stock_count|intcomma }}</h3>
-                    </div>
-                </div>
+    <div class="me-quick-stats">
+        <div class="me-stat-card" data-accent="success">
+            <div class="me-stat-icon" aria-hidden="true">
+                <i class="fas fa-hand-holding-usd"></i>
             </div>
+            <div class="me-stat-content">
+                <span class="me-stat-label">{% trans "Pending Sell Orders" %}</span>
+                <span class="me-stat-value">{{ pending_sell_orders|intcomma }}</span>
+            </div>
+            <span class="me-stat-glow" aria-hidden="true"></span>
         </div>
-        <div class="col-md-3">
-            <div class="glass-panel p-3">
-                <div class="d-flex align-items-center gap-3">
-                    <div class="flex-shrink-0">
-                        <div class="stat-icon bg-success text-white">
-                            <i class="fas fa-coins"></i>
-                        </div>
-                    </div>
-                    <div class="flex-grow-1">
-                        <p class="text-muted small mb-1">{% trans "Stock Value" %}</p>
-                        <h3 class="h5 mb-0">{{ total_stock_value|floatformat:0|intcomma }} ISK</h3>
-                    </div>
-                </div>
+        <div class="me-stat-card" data-accent="primary">
+            <div class="me-stat-icon" aria-hidden="true">
+                <i class="fas fa-shopping-cart"></i>
             </div>
-        </div>
-        <div class="col-md-3">
-            <div class="glass-panel p-3">
-                <div class="d-flex align-items-center gap-3">
-                    <div class="flex-shrink-0">
-                        <div class="stat-icon bg-warning text-white">
-                            <i class="fas fa-hand-holding-usd"></i>
-                        </div>
-                    </div>
-                    <div class="flex-grow-1">
-                        <p class="text-muted small mb-1">{% trans "Pending Sell Orders" %}</p>
-                        <h3 class="h4 mb-0">{{ pending_sell_orders|intcomma }}</h3>
-                    </div>
-                </div>
+            <div class="me-stat-content">
+                <span class="me-stat-label">{% trans "Pending Buy Orders" %}</span>
+                <span class="me-stat-value">{{ pending_buy_orders|intcomma }}</span>
             </div>
-        </div>
-        <div class="col-md-3">
-            <div class="glass-panel p-3">
-                <div class="d-flex align-items-center gap-3">
-                    <div class="flex-shrink-0">
-                        <div class="stat-icon bg-info text-white">
-                            <i class="fas fa-shopping-cart"></i>
-                        </div>
-                    </div>
-                    <div class="flex-grow-1">
-                        <p class="text-muted small mb-1">{% trans "Pending Buy Orders" %}</p>
-                        <h3 class="h4 mb-0">{{ pending_buy_orders|intcomma }}</h3>
-                    </div>
-                </div>
-            </div>
+            <span class="me-stat-glow" aria-hidden="true"></span>
         </div>
     </div>
 

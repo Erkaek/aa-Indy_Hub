@@ -65,10 +65,10 @@
         {% endif %}
 
         <div class="{% if assets_refreshing %}d-none{% endif %}">
-            <div class="alert alert-info d-flex align-items-start gap-2 mb-3" role="status">
-                <i class="fas fa-clock mt-1" aria-hidden="true"></i>
-                <div>
-                    <div class="fw-semibold">
+            <div class="me-info-bar" role="status">
+                <i class="fas fa-clock" aria-hidden="true"></i>
+                <div class="me-info-bar-body">
+                    <div class="me-info-bar-title">
                         {% trans "Last update" %}:
                         {% if sell_last_update %}
                             {% with sell_utc=sell_last_update|timezone:"UTC" %}
@@ -81,7 +81,7 @@
                             {% trans "Never" %}
                         {% endif %}
                     </div>
-                    <small class="text-muted">
+                    <div class="me-info-bar-sub">
                         {% if sell_next_refresh_minutes == 0 %}
                             {% trans "Auto-refresh will run on the next page open." %}
                         {% elif sell_next_refresh_minutes %}
@@ -89,15 +89,15 @@
                         {% else %}
                             {% trans "Auto-refresh runs on page open once data is older than 60 minutes." %}
                         {% endif %}
-                    </small>
+                    </div>
                 </div>
             </div>
 
-            <div class="alert alert-info d-flex align-items-start gap-2 mb-3" role="status">
-                <i class="fas fa-exclamation-circle mt-1" aria-hidden="true"></i>
+            <div class="me-instruction-chip" role="status">
+                <i class="fas fa-exclamation-circle" aria-hidden="true"></i>
                 <div>
-                    <div class="fw-semibold">{% trans "Enter the quantities you want to sell." %}</div>
-                    <small class="text-muted">{% trans "Make sure you have the items in your hangar." %}</small>
+                    <div class="me-instruction-title">{% trans "Enter the quantities you want to sell." %}</div>
+                    <div class="me-instruction-sub">{% trans "Make sure you have the items in your hangar." %}</div>
                 </div>
             </div>
 
@@ -113,6 +113,20 @@
                             <i class="fas fa-key me-1"></i>{% trans "Add assets token" %}
                         </a>
                     </div>
+                </div>
+            </div>
+            {% endif %}
+
+            {% if sell_assets_progress.error == "esi_down" %}
+            <div class="alert alert-warning d-flex align-items-start gap-2 mb-3" role="status">
+                <i class="fas fa-cloud-bolt mt-1" aria-hidden="true"></i>
+                <div>
+                    <div class="fw-semibold">{% trans "ESI is temporarily unavailable. Using cached assets." %}</div>
+                    {% if sell_assets_progress.retry_after_minutes %}
+                    <small class="text-muted">
+                        {% blocktrans with minutes=sell_assets_progress.retry_after_minutes %}Retry in about {{ minutes }} minute(s).{% endblocktrans %}
+                    </small>
+                    {% endif %}
                 </div>
             </div>
             {% endif %}
@@ -173,17 +187,25 @@
                                             {{ item.buy_price_from_member|floatformat:2|intcomma }} ISK
                                         </td>
                                         <td class="text-center">
-                                            <div>
-                                                <input
-                                                    type="number"
-                                                    name="qty_{{ item.type_id }}"
-                                                    id="qty-{{ item.type_id }}"
-                                                    class="form-control qty-input"
-                                                    min="0"
-                                                    max="{{ item.user_quantity }}"
-                                                    value="0"
-                                                    data-type-id="{{ item.type_id }}"
-                                                    data-max="{{ item.user_quantity }}">
+                                            <div class="qty-cell">
+                                                <div class="qty-input-row">
+                                                    <input
+                                                        type="number"
+                                                        name="qty_{{ item.type_id }}"
+                                                        id="qty-{{ item.type_id }}"
+                                                        class="form-control qty-input"
+                                                        min="0"
+                                                        max="{{ item.user_quantity }}"
+                                                        value="0"
+                                                        data-type-id="{{ item.type_id }}"
+                                                        data-max="{{ item.user_quantity }}">
+                                                    <div class="qty-btns" role="group" aria-label="{% trans 'Quantity shortcuts' %}">
+                                                        <button type="button" class="btn btn-outline-secondary btn-sm qty-btn" data-action="zero" title="{% trans 'Zero' %}" aria-label="{% trans 'Zero' %}">
+                                                            <i class="fas fa-ban" aria-hidden="true"></i>
+                                                        </button>
+                                                        <button type="button" class="btn btn-outline-secondary btn-sm qty-btn" data-action="max">{% trans "Max" %}</button>
+                                                    </div>
+                                                </div>
                                                 <div class="qty-error" id="error-{{ item.type_id }}">
                                                     {% trans "Max:" %} {{ item.user_quantity|intcomma }}
                                                 </div>
@@ -333,6 +355,28 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     const qtyInputs = document.querySelectorAll('.qty-input');
+
+    document.addEventListener('click', function(event) {
+        const button = event.target.closest('.qty-btn');
+        if (!button) {
+            return;
+        }
+        const row = button.closest('tr');
+        if (!row) {
+            return;
+        }
+        const input = row.querySelector('.qty-input');
+        if (!input) {
+            return;
+        }
+        const action = button.dataset.action;
+        if (action === 'zero') {
+            input.value = 0;
+        } else if (action === 'max') {
+            input.value = input.dataset.max || 0;
+        }
+        updateInvoice();
+    });
 
     function formatNumber(num) {
         return new Intl.NumberFormat('en-US', {

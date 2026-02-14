@@ -57,7 +57,7 @@ from ..notifications import (
     notify_user,
     send_discord_webhook_with_message_id,
 )
-from ..services.esi_client import ESITokenError, shared_client
+from ..services.esi_client import ESITokenError, ESIUnmodifiedError, shared_client
 from ..services.simulations import summarize_simulations
 from ..tasks.industry import (
     BLUEPRINT_SCOPE,
@@ -99,6 +99,8 @@ MANUFACTURING_ACTIVITY_IDS = {1}
 RESEARCH_ACTIVITY_IDS = {3, 4, 5, 8}
 REACTION_ACTIVITY_IDS = {9, 11}
 
+_SKILLS_OPERATION_UNAVAILABLE = False
+
 if "eveuniverse" in getattr(settings, "INSTALLED_APPS", ()):  # pragma: no branch
     try:  # pragma: no cover - EveUniverse optional
         # Alliance Auth (External Libs)
@@ -110,69 +112,123 @@ else:  # pragma: no cover - EveUniverse not installed
 
 logger = get_extension_logger(__name__)
 
+try:
+    # Alliance Auth
+    from esi.exceptions import HTTPNotModified
+except ImportError:  # pragma: no cover - older django-esi
+    HTTPNotModified = None
 
-def _fetch_character_skill_levels(character_id: int) -> dict[int, int]:
+
+def _fetch_character_skill_levels(
+    character_id: int,
+    *,
+    force_refresh: bool = False,
+) -> dict[int, dict[str, int]]:
+    global _SKILLS_OPERATION_UNAVAILABLE
+    if _SKILLS_OPERATION_UNAVAILABLE:
+        raise ESIUnmodifiedError("ESI skills operation unavailable")
     token = Token.get_token(character_id, SKILLS_SCOPE)
     client = shared_client.client
     skills_resource = getattr(client, "Skills", None)
-    if skills_resource is not None and hasattr(
-        skills_resource, "get_characters_character_id_skills"
-    ):
-        operation_fn = skills_resource.get_characters_character_id_skills
-    else:
+    operation_fn = None
+    if skills_resource is not None:
+        operation_fn = getattr(
+            skills_resource,
+            "get_characters_character_id_skills",
+            None,
+        ) or getattr(skills_resource, "GetCharactersCharacterIdSkills", None)
+    if operation_fn is None:
         character_resource = client.Character
         operation_fn = getattr(
             character_resource,
             "get_characters_character_id_skills",
             None,
-        ) or getattr(character_resource, "GetCharactersCharacterIdSkills")
+        ) or getattr(character_resource, "GetCharactersCharacterIdSkills", None)
+    if not callable(operation_fn):
+        _SKILLS_OPERATION_UNAVAILABLE = True
+        raise ESIUnmodifiedError("ESI skills operation unavailable")
     try:
+        request_kwargs = {"If-None-Match": ""} if force_refresh else {}
         payload = operation_fn(
             character_id=character_id,
             token=token,
+            **request_kwargs,
         ).results()
+    except HTTPNotModified as exc:
+        raise ESIUnmodifiedError("ESI skills not modified") from exc
     except Exception as exc:
-        if "is not of type 'string'" in str(exc):
+        exc_text = str(exc)
+        if "GetCharactersCharacterIdSkills" in exc_text and "not found" in exc_text:
+            _SKILLS_OPERATION_UNAVAILABLE = True
+            raise ESIUnmodifiedError("ESI skills operation unavailable") from exc
+        if "is not of type 'string'" in exc_text:
             access_token = token.valid_access_token()
+            request_kwargs = {"If-None-Match": ""} if force_refresh else {}
             payload = operation_fn(
                 character_id=character_id,
                 token=access_token,
+                **request_kwargs,
             ).results()
         else:
             raise
     skills = payload.get("skills", []) if payload else []
-    return {
-        int(skill.get("skill_id")): int(
-            skill.get("active_skill_level") or skill.get("trained_skill_level") or 0
-        )
-        for skill in skills
-        if skill.get("skill_id")
-    }
+    levels: dict[int, dict[str, int]] = {}
+    for skill in skills:
+        if not isinstance(skill, dict):
+            continue
+        skill_id = skill.get("skill_id")
+        if not skill_id:
+            continue
+        active_level = int(skill.get("active_skill_level") or 0)
+        trained_level = int(skill.get("trained_skill_level") or 0)
+        levels[int(skill_id)] = {"active": active_level, "trained": trained_level}
+    return levels
 
 
 def _update_skill_snapshot(
     user: User,
     character_id: int,
-    levels: dict[int, int],
+    levels: dict[int, dict[str, int]],
 ) -> IndustrySkillSnapshot:
+    def _extract_levels(skill_id: int) -> tuple[int, int]:
+        entry = levels.get(skill_id, 0)
+        if isinstance(entry, dict):
+            active_level = int(entry.get("active") or 0)
+            trained_level = int(entry.get("trained") or 0)
+        else:
+            active_level = int(entry or 0)
+            trained_level = active_level
+        return active_level, trained_level
+
+    mass_active, mass_trained = _extract_levels(SKILL_TYPE_IDS["mass_production"])
+    adv_mass_active, adv_mass_trained = _extract_levels(
+        SKILL_TYPE_IDS["advanced_mass_production"]
+    )
+    lab_active, lab_trained = _extract_levels(SKILL_TYPE_IDS["laboratory_operation"])
+    adv_lab_active, adv_lab_trained = _extract_levels(
+        SKILL_TYPE_IDS["advanced_laboratory_operation"]
+    )
+    react_active, react_trained = _extract_levels(SKILL_TYPE_IDS["mass_reactions"])
+    adv_react_active, adv_react_trained = _extract_levels(
+        SKILL_TYPE_IDS["advanced_mass_reactions"]
+    )
+
     return IndustrySkillSnapshot.objects.update_or_create(
         owner_user=user,
         character_id=character_id,
         defaults={
-            "mass_production_level": levels.get(SKILL_TYPE_IDS["mass_production"], 0),
-            "advanced_mass_production_level": levels.get(
-                SKILL_TYPE_IDS["advanced_mass_production"], 0
-            ),
-            "laboratory_operation_level": levels.get(
-                SKILL_TYPE_IDS["laboratory_operation"], 0
-            ),
-            "advanced_laboratory_operation_level": levels.get(
-                SKILL_TYPE_IDS["advanced_laboratory_operation"], 0
-            ),
-            "mass_reactions_level": levels.get(SKILL_TYPE_IDS["mass_reactions"], 0),
-            "advanced_mass_reactions_level": levels.get(
-                SKILL_TYPE_IDS["advanced_mass_reactions"], 0
-            ),
+            "mass_production_level": mass_active,
+            "advanced_mass_production_level": adv_mass_active,
+            "laboratory_operation_level": lab_active,
+            "advanced_laboratory_operation_level": adv_lab_active,
+            "mass_reactions_level": react_active,
+            "advanced_mass_reactions_level": adv_react_active,
+            "trained_mass_production_level": mass_trained,
+            "trained_advanced_mass_production_level": adv_mass_trained,
+            "trained_laboratory_operation_level": lab_trained,
+            "trained_advanced_laboratory_operation_level": adv_lab_trained,
+            "trained_mass_reactions_level": react_trained,
+            "trained_advanced_mass_reactions_level": adv_react_trained,
         },
     )[0]
 
@@ -262,15 +318,43 @@ def _build_slot_overview_rows(user: User) -> list[dict[str, object]]:
         snapshot = snapshots.get(character_id)
         skills_missing = character_id not in skill_token_ids
 
-        if not skills_missing and snapshot is None:
-            try:
-                levels = _fetch_character_skill_levels(character_id)
-                snapshot = _update_skill_snapshot(user, character_id, levels)
-            except ESITokenError:
-                skills_missing = True
-            except Exception as exc:  # pragma: no cover - defensive logging
-                logger.warning("Failed to refresh skills for %s: %s", character_id, exc)
-                skills_missing = True
+        if not skills_missing:
+            if snapshot is None:
+                try:
+                    levels = _fetch_character_skill_levels(
+                        character_id,
+                        force_refresh=True,
+                    )
+                    snapshot = _update_skill_snapshot(user, character_id, levels)
+                except ESIUnmodifiedError:
+                    skills_missing = True
+                except ESITokenError:
+                    skills_missing = True
+                except Exception as exc:  # pragma: no cover - defensive logging
+                    logger.warning(
+                        "Failed to refresh skills for %s: %s",
+                        character_id,
+                        exc,
+                    )
+                    skills_missing = True
+            elif _skill_snapshot_stale(snapshot):
+                try:
+                    levels = _fetch_character_skill_levels(character_id)
+                    snapshot = _update_skill_snapshot(user, character_id, levels)
+                except ESIUnmodifiedError:
+                    pass
+                except ESITokenError as exc:
+                    logger.warning(
+                        "Failed to refresh skills for %s: %s",
+                        character_id,
+                        exc,
+                    )
+                except Exception as exc:  # pragma: no cover - defensive logging
+                    logger.warning(
+                        "Failed to refresh skills for %s: %s",
+                        character_id,
+                        exc,
+                    )
 
         if skills_missing:
             snapshot = None
@@ -3926,8 +4010,10 @@ def bp_copy_fulfill_requests(request):
     else:
         base_qs = BlueprintCopyRequest.objects.filter(requested_by=request.user)
 
-    state_filter = Q(fulfilled=False) | Q(
-        fulfilled=True, delivered=False, offers__owner=request.user
+    state_filter = (
+        Q(fulfilled=False)
+        | Q(fulfilled=True, delivered=False, offers__owner=request.user)
+        | Q(fulfilled=True, delivered=False, fulfilled_by=request.user)
     )
 
     if include_self_requests:
@@ -3959,8 +4045,11 @@ def bp_copy_fulfill_requests(request):
 
         if req.fulfilled and (req.delivered or not my_offer):
             # Already delivered or fulfilled by someone else
-            # But allow viewing own requests if include_self is enabled
-            if not (is_self_request_preliminary and include_self_requests):
+            # But allow the fulfiller (no offer record) or own requests when enabled.
+            if not (
+                (is_self_request_preliminary and include_self_requests)
+                or req.fulfilled_by_id == request.user.id
+            ):
                 continue
 
         if my_offer and my_offer.status == "rejected":
@@ -4826,6 +4915,29 @@ def bp_accept_copy_request(request, request_id):
     req.fulfilled_at = timezone.now()
     req.fulfilled_by = request.user
     req.save(update_fields=["fulfilled", "fulfilled_at", "fulfilled_by"])
+    offer, created = BlueprintCopyOffer.objects.get_or_create(
+        request=req,
+        owner=request.user,
+        defaults={
+            "status": "accepted",
+            "accepted_by_buyer": True,
+            "accepted_by_seller": True,
+            "accepted_at": timezone.now(),
+        },
+    )
+    if not created and offer.status != "accepted":
+        offer.status = "accepted"
+        offer.accepted_by_buyer = True
+        offer.accepted_by_seller = True
+        offer.accepted_at = timezone.now()
+        offer.save(
+            update_fields=[
+                "status",
+                "accepted_by_buyer",
+                "accepted_by_seller",
+                "accepted_at",
+            ]
+        )
     _close_request_chats(req, BlueprintCopyChat.CloseReason.OFFER_ACCEPTED)
     _strike_discord_webhook_messages_for_request(request, req, actor=request.user)
     # Notify requester
@@ -4974,14 +5086,16 @@ def bp_mark_copy_delivered(request, request_id):
         .select_related("request")
         .first()
     )
-    if not offer:
+    if not offer and req.fulfilled_by_id != request.user.id:
         messages.error(
             request, _("You do not have an accepted offer for this request.")
         )
         return redirect("indy_hub:bp_copy_fulfill_requests")
 
-    if offer.status == "conditional" and not (
-        offer.accepted_by_buyer and offer.accepted_by_seller
+    if (
+        offer
+        and offer.status == "conditional"
+        and not (offer.accepted_by_buyer and offer.accepted_by_seller)
     ):
         messages.error(
             request,

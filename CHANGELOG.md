@@ -8,10 +8,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ## [Unreleased]
 
 ### Added
+- Material Exchange: hub location banner and quantity shortcuts (Zero/Max) on buy/sell rows.
+- Tasks: retry on database deadlocks during blueprint and job syncs.
 
 ### Changed
+- Material Exchange: refreshed buy/sell info blocks for clearer update timing and instructions.
 
 ### Fixed
+- Material Exchange: ESI outage cooldowns now prevent repeated refresh failures and surface cached-state warnings.
+- Locations: avoid invalid public structure lookups and prefer universe names for resolvable IDs.
 
 ### Internal
 

@@ -11,10 +11,8 @@ from math import ceil
 
 # Django
 from django.contrib.auth.decorators import login_required
-from django.core.cache import cache
 from django.db import connection
 from django.http import JsonResponse
-from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
 # Alliance Auth
@@ -367,44 +365,6 @@ def fuzzwork_price(request):
 @indy_hub_access_required
 @indy_hub_permission_required("can_access_indy_hub")
 @login_required
-def health_check(request):
-    """
-    Simple health check endpoint for monitoring.
-    Returns the status of the Indy Hub module.
-    """
-    from ..models import Blueprint, IndustryJob
-
-    try:
-        # Basic database connectivity check.
-        # Avoid heavy table counts on every probe: cache briefly.
-        cache_ttl_seconds = 60
-        blueprint_count = cache.get("indy_hub.health.blueprint_count")
-        job_count = cache.get("indy_hub.health.job_count")
-        if blueprint_count is None:
-            blueprint_count = Blueprint.objects.count()
-            cache.set(
-                "indy_hub.health.blueprint_count", blueprint_count, cache_ttl_seconds
-            )
-        if job_count is None:
-            job_count = IndustryJob.objects.count()
-            cache.set("indy_hub.health.job_count", job_count, cache_ttl_seconds)
-
-        return JsonResponse(
-            {
-                "status": "healthy",
-                "timestamp": timezone.now().isoformat(),
-                "data": {"blueprints": blueprint_count, "jobs": job_count},
-            }
-        )
-
-    except Exception as e:
-        logger.error(f"Health check failed: {e}")
-        return JsonResponse({"status": "unhealthy", "error": str(e)}, status=500)
-
-
-@indy_hub_access_required
-@indy_hub_permission_required("can_access_indy_hub")
-@login_required
 @require_http_methods(["POST"])
 def save_production_config(request):
     """
@@ -694,30 +654,3 @@ def load_production_config(request):
     except Exception as e:
         logger.error(f"Error loading production config: {e}")
         return JsonResponse({"error": "Internal server error"}, status=500)
-
-
-@indy_hub_access_required
-@indy_hub_permission_required("can_access_indy_hub")
-@login_required
-def api_info(request):
-    """
-    API information and documentation endpoint.
-    Returns available API endpoints and their descriptions.
-    """
-    endpoints = {
-        "fuzzwork_price": {
-            "url": "/api/fuzzwork-price/",
-            "method": "GET",
-            "parameters": {"type_id": "EVE Online type ID (required)"},
-            "description": "Get market prices from Fuzzwork API",
-        },
-        "health_check": {
-            "url": "/api/health/",
-            "method": "GET",
-            "description": "Health check endpoint",
-        },
-    }
-
-    return JsonResponse(
-        {"api_version": "1.0", "module": "indy_hub", "endpoints": endpoints}
-    )

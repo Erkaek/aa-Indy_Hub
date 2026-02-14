@@ -99,7 +99,7 @@ def _rate_limited_public_results(
         try:
             if hasattr(operation, "request_config"):
                 operation.request_config.also_return_response = True
-            result = operation.results()
+            result = operation.results(use_etag=False)
             if isinstance(result, tuple) and len(result) == 2:
                 payload, response = result
             else:
@@ -543,6 +543,34 @@ def resolve_location_name(
     attempted_characters: set[int] = set()
     remaining_attempts = _MAX_STRUCTURE_LOOKUPS
 
+    def _extract_public_name(payload) -> str | None:
+        if isinstance(payload, list):
+            if not payload:
+                return None
+            payload = payload[0]
+        if isinstance(payload, Mapping):
+            value = payload.get("name")
+            return str(value) if value else None
+        if payload is not None:
+            value = getattr(payload, "name", None)
+            return str(value) if value else None
+        return None
+
+    def _get_universe_operation(op_name: str, **kwargs):
+        universe_client = getattr(esi_provider.client, "Universe", None)
+        if universe_client is None:
+            return None
+        operation = getattr(universe_client, op_name, None)
+        if operation is None:
+            camel = "".join(part.capitalize() for part in op_name.split("_"))
+            operation = getattr(universe_client, camel, None)
+        if operation is None:
+            return None
+        try:
+            return operation(**kwargs)
+        except TypeError:
+            return None
+
     def try_structure_lookup(
         candidate_character_id: int | None,
         *,
@@ -642,43 +670,22 @@ def resolve_location_name(
                     name = result
                     break
 
-    if allow_public:
-        universe_client = getattr(esi_provider.client, "Universe", None)
-        if not name and not is_station:
-            operation = None
-            if universe_client is not None:
-                try:
-                    operation = universe_client.get_universe_structures_structure_id(
-                        structure_id=structure_id,
-                    )
-                except AttributeError:
-                    operation = None
-            if operation is not None:
-                payload, response = _rate_limited_public_results(
-                    operation,
-                    description=f"/universe/structures/{structure_id}/",
-                )
-                if isinstance(payload, Mapping):
-                    name = payload.get("name")
-                elif response is not None and response.status_code == 404:
-                    logger.debug("Structure %s not found via public ESI", structure_id)
-
-        if not name:
-            operation = None
-            if universe_client is not None:
-                try:
-                    operation = universe_client.get_universe_stations_station_id(
-                        station_id=structure_id,
-                    )
-                except AttributeError:
-                    operation = None
+    if allow_public and not name:
+        if not is_station:
+            if structure_id <= 2_147_483_647:
+                public_names = shared_client.resolve_ids_to_names([structure_id])
+                name = public_names.get(structure_id)
+        else:
+            operation = _get_universe_operation(
+                "get_universe_stations_station_id",
+                station_id=structure_id,
+            )
             if operation is not None:
                 payload, response = _rate_limited_public_results(
                     operation,
                     description=f"/universe/stations/{structure_id}/",
                 )
-                if isinstance(payload, Mapping):
-                    name = payload.get("name")
+                name = _extract_public_name(payload)
 
     if not name:
         name = placeholder_value

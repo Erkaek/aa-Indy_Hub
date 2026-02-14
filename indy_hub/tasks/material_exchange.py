@@ -3,6 +3,7 @@ Material Exchange Celery tasks for stock sync, pricing, and payment verification
 """
 
 # Standard Library
+from datetime import timedelta
 from decimal import Decimal
 
 # Third Party
@@ -65,6 +66,7 @@ logger = get_extension_logger(__name__)
 # This lets pages trigger a one-time refresh for already-cached data.
 ME_USER_ASSETS_CACHE_VERSION = 1
 ME_STOCK_SYNC_CACHE_VERSION = 1
+ESI_DOWN_COOLDOWN_SECONDS = 5 * 60
 
 # Long TTL: we want this to survive normal operation, but it's OK if cache clears.
 _ME_CACHE_VERSION_TTL_SECONDS = 90 * 24 * 60 * 60
@@ -76,6 +78,20 @@ def me_user_assets_cache_version_key(user_id: int) -> str:
 
 def me_stock_sync_cache_version_key(corporation_id: int) -> str:
     return f"indy_hub:material_exchange:stock_sync_cache_version:{int(corporation_id)}"
+
+
+def me_sell_assets_esi_cooldown_key(user_id: int) -> str:
+    return f"indy_hub:material_exchange:esi_down:sell_assets:{int(user_id)}"
+
+
+def me_buy_stock_esi_cooldown_key(corporation_id: int) -> str:
+    return f"indy_hub:material_exchange:esi_down:buy_stock:{int(corporation_id)}"
+
+
+def _set_esi_cooldown(cache_key: str, *, cooldown_seconds: int) -> float:
+    retry_at = timezone.now() + timedelta(seconds=int(cooldown_seconds))
+    cache.set(cache_key, retry_at.timestamp(), int(cooldown_seconds))
+    return retry_at.timestamp()
 
 
 def _me_sell_assets_progress_key(user_id: int) -> str:
@@ -346,7 +362,35 @@ def refresh_material_exchange_sell_user_assets(user_id: int) -> None:
                 countdown=delay,
             )
             return
-        except (ESITokenError, ESIForbiddenError, ESIClientError):
+        except ESIClientError as exc:
+            status_code = getattr(exc, "status_code", None)
+            if status_code and int(status_code) >= 500:
+                retry_at = _set_esi_cooldown(
+                    me_sell_assets_esi_cooldown_key(int(user_id)),
+                    cooldown_seconds=ESI_DOWN_COOLDOWN_SECONDS,
+                )
+                _set_progress(
+                    running=False,
+                    finished=True,
+                    error="esi_down",
+                    total=total,
+                    done=done,
+                    failed=failed,
+                    retry_at=retry_at,
+                )
+                return
+            failed += 1
+            done += 1
+            _set_progress(
+                running=True,
+                finished=False,
+                error=None,
+                total=total,
+                done=done,
+                failed=failed,
+            )
+            continue
+        except (ESITokenError, ESIForbiddenError):
             failed += 1
             done += 1
             _set_progress(
@@ -408,8 +452,6 @@ def refresh_material_exchange_sell_user_assets(user_id: int) -> None:
                 # This helps downstream pages show proper location names.
                 if resolved_location_id:
                     character_structure_ids.add(int(resolved_location_id))
-                if raw_location_id:
-                    character_structure_ids.add(int(raw_location_id))
 
         if rows:
             all_rows.extend(rows)
@@ -520,19 +562,69 @@ def refresh_material_exchange_buy_stock(corporation_id: int) -> None:
                 "running": False,
                 "finished": True,
                 "error": None,
+                "last_refresh": timezone.now().isoformat(),
             },
             ttl_seconds,
         )
-        logger.info(
-            "Buy stock refresh completed successfully for corporation %s",
+    except ESIRateLimitError as exc:
+        delay = get_retry_after_seconds(exc)
+        logger.warning(
+            "ESI rate limit hit while refreshing buy stock for corporation %s; retrying in %ss: %s",
             corporation_id,
+            delay,
+            exc,
         )
-    except Exception as exc:
-        logger.error(
-            "Buy stock refresh failed for corporation %s: %s",
+        refresh_material_exchange_buy_stock.apply_async(
+            args=(int(corporation_id),),
+            countdown=delay,
+        )
+        cache.set(
+            progress_key,
+            {
+                "running": False,
+                "finished": True,
+                "error": "rate_limited",
+                "retry_after_seconds": delay,
+            },
+            ttl_seconds,
+        )
+    except ESIClientError as exc:
+        status_code = getattr(exc, "status_code", None)
+        if status_code and int(status_code) >= 500:
+            retry_at = _set_esi_cooldown(
+                me_buy_stock_esi_cooldown_key(int(corporation_id)),
+                cooldown_seconds=ESI_DOWN_COOLDOWN_SECONDS,
+            )
+            cache.set(
+                progress_key,
+                {
+                    "running": False,
+                    "finished": True,
+                    "error": "esi_down",
+                    "retry_at": retry_at,
+                },
+                ttl_seconds,
+            )
+            return
+        logger.exception(
+            "Failed to refresh buy stock for corporation %s: %s",
             corporation_id,
             exc,
-            exc_info=True,
+        )
+        cache.set(
+            progress_key,
+            {
+                "running": False,
+                "finished": True,
+                "error": "refresh_failed",
+            },
+            ttl_seconds,
+        )
+    except Exception as exc:
+        logger.exception(
+            "Failed to refresh buy stock for corporation %s: %s",
+            corporation_id,
+            exc,
         )
         cache.set(
             progress_key,
@@ -547,7 +639,7 @@ def refresh_material_exchange_buy_stock(corporation_id: int) -> None:
 
 @shared_task(
     autoretry_for=(Exception,),
-    retry_kwargs={"max_retries": 3, "countdown": 10},
+    retry_kwargs={"max_retries": 3, "countdown": 5},
     rate_limit="100/m",
     time_limit=300,
     soft_time_limit=280,

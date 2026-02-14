@@ -43,6 +43,30 @@ class Migration(migrations.Migration):
                     "advanced_mass_reactions_level",
                     models.PositiveSmallIntegerField(default=0),
                 ),
+                (
+                    "trained_mass_production_level",
+                    models.PositiveSmallIntegerField(default=0),
+                ),
+                (
+                    "trained_advanced_mass_production_level",
+                    models.PositiveSmallIntegerField(default=0),
+                ),
+                (
+                    "trained_laboratory_operation_level",
+                    models.PositiveSmallIntegerField(default=0),
+                ),
+                (
+                    "trained_advanced_laboratory_operation_level",
+                    models.PositiveSmallIntegerField(default=0),
+                ),
+                (
+                    "trained_mass_reactions_level",
+                    models.PositiveSmallIntegerField(default=0),
+                ),
+                (
+                    "trained_advanced_mass_reactions_level",
+                    models.PositiveSmallIntegerField(default=0),
+                ),
                 ("last_updated", models.DateTimeField(auto_now=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 (

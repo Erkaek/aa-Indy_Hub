@@ -1,6 +1,6 @@
 # Django
 from django.core.cache import cache
-from django.db.models.signals import post_delete, post_migrate, post_save, pre_save
+from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 from django.urls import reverse
 
@@ -101,12 +101,31 @@ def _has_valid_token_for_scopes(user, scopes: list[str]) -> bool:
     if not user or not Token:
         return False
     try:
-        return (
+        token = (
             Token.objects.filter(user=user)
             .require_scopes(scopes)
-            .require_valid()
-            .exists()
+            .order_by("-created")
+            .first()
         )
+        if not token:
+            return False
+        try:
+            if not token.expired:
+                return True
+            refresh_cache_key = f"indy_hub:token_refresh_checked:{token.id}"
+            if cache.get(refresh_cache_key):
+                return False
+            refresh_lock_key = f"indy_hub:token_refresh_lock:{token.id}"
+            if not cache.add(refresh_lock_key, True, 10):
+                return False
+            try:
+                token.refresh()
+                return True
+            finally:
+                cache.set(refresh_cache_key, True, 30)
+                cache.delete(refresh_lock_key)
+        except Exception:
+            return False
     except Exception:
         return False
 
@@ -368,20 +387,6 @@ def auto_sync_stock_on_config_change(sender, instance, created, **kwargs):
         logger.info("Price sync completed for config pk=%s", instance.pk)
     except Exception:
         logger.exception("Price sync failed for config pk=%s", instance.pk)
-
-
-@receiver(post_migrate)
-def setup_indyhub_periodic_tasks(sender, **kwargs):
-    # Only run for the indy_hub app
-    if getattr(sender, "name", None) != "indy_hub":
-        return
-    try:
-        # AA Example App
-        from indy_hub.tasks import setup_periodic_tasks
-
-        setup_periodic_tasks()
-    except Exception as e:
-        logger.warning(f"Could not setup indy_hub periodic tasks after migrate: {e}")
 
 
 # --- NEW: Combined token sync trigger ---

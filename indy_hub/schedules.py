@@ -41,15 +41,9 @@ INDY_HUB_BEAT_SCHEDULE = {
         "options": {"priority": 8},  # Low priority for caching
         "apply_offset": True,
     },
-    "indy-hub-update-character-roles": {
-        "task": "indy_hub.tasks.user.update_character_roles_snapshots",
-        "schedule": crontab(hour=4, minute=0),  # Daily at 04:00
-        "options": {"priority": 7},
-        "apply_offset": True,
-    },
-    "indy-hub-update-skill-snapshots": {
-        "task": "indy_hub.tasks.industry.update_all_skill_snapshots",
-        "schedule": crontab(hour=4, minute=15),  # Daily at 04:15
+    "indy-hub-refresh-stale-snapshots": {
+        "task": "indy_hub.tasks.housekeeping.refresh_stale_snapshots",
+        "schedule": crontab(minute=0, hour="*"),  # Hourly
         "options": {"priority": 7},
         "apply_offset": True,
     },

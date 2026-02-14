@@ -36,8 +36,11 @@ from ..models import (
 )
 from ..services.asset_cache import get_corp_divisions_cached, get_user_assets_cached
 from ..tasks.material_exchange import (
+    ESI_DOWN_COOLDOWN_SECONDS,
     ME_STOCK_SYNC_CACHE_VERSION,
     ME_USER_ASSETS_CACHE_VERSION,
+    me_buy_stock_esi_cooldown_key,
+    me_sell_assets_esi_cooldown_key,
     me_stock_sync_cache_version_key,
     me_user_assets_cache_version_key,
     refresh_material_exchange_buy_stock,
@@ -281,6 +284,24 @@ def _ensure_sell_assets_refresh_started(user) -> dict:
     progress_key = _me_sell_assets_progress_key(user.id)
     ttl_seconds = 10 * 60
     state = cache.get(progress_key) or {}
+
+    cooldown_until = cache.get(me_sell_assets_esi_cooldown_key(int(user.id)))
+    if cooldown_until:
+        try:
+            retry_seconds = max(
+                0, int(float(cooldown_until) - timezone.now().timestamp())
+            )
+        except (TypeError, ValueError):
+            retry_seconds = int(ESI_DOWN_COOLDOWN_SECONDS)
+        retry_minutes = int((retry_seconds + 59) // 60)
+        state = {
+            "running": False,
+            "finished": True,
+            "error": "esi_down",
+            "retry_after_minutes": retry_minutes,
+        }
+        cache.set(progress_key, state, ttl_seconds)
+        return state
     if state.get("running"):
         try:
             started_at = float(state.get("started_at") or 0)
@@ -423,6 +444,26 @@ def _ensure_buy_stock_refresh_started(config) -> dict:
     ttl_seconds = 10 * 60
     state = cache.get(progress_key) or {}
 
+    cooldown_until = cache.get(
+        me_buy_stock_esi_cooldown_key(int(config.corporation_id))
+    )
+    if cooldown_until:
+        try:
+            retry_seconds = max(
+                0, int(float(cooldown_until) - timezone.now().timestamp())
+            )
+        except (TypeError, ValueError):
+            retry_seconds = int(ESI_DOWN_COOLDOWN_SECONDS)
+        retry_minutes = int((retry_seconds + 59) // 60)
+        state = {
+            "running": False,
+            "finished": True,
+            "error": "esi_down",
+            "retry_after_minutes": retry_minutes,
+        }
+        cache.set(progress_key, state, ttl_seconds)
+        return state
+
     if state.get("running"):
         return state
 
@@ -540,21 +581,6 @@ def material_exchange_index(request):
             "indy_hub/material_exchange/not_configured.html",
             context,
         )
-
-    # Post-deploy self-heal: if the user already has cached assets but they were
-    # produced by an older normalization version, trigger a one-time background refresh.
-    try:
-        has_cached_assets = CachedCharacterAsset.objects.filter(
-            user=request.user
-        ).exists()
-        if has_cached_assets:
-            current_version = int(
-                cache.get(me_user_assets_cache_version_key(int(request.user.id))) or 0
-            )
-            if current_version < int(ME_USER_ASSETS_CACHE_VERSION):
-                _ensure_sell_assets_refresh_started(request.user)
-    except Exception:
-        pass
 
     # Stats (based on the user's visible sell items)
     stock_count = 0
@@ -783,6 +809,23 @@ def material_exchange_sell(request, tokens):
         if request.GET.get("refreshed") != "1" or user_assets_version_refresh:
             sell_assets_progress = _ensure_sell_assets_refresh_started(request.user)
     assets_refreshing = bool(sell_assets_progress.get("running"))
+
+    if sell_assets_progress.get("error") == "esi_down" and not sell_assets_progress.get(
+        "retry_after_minutes"
+    ):
+        cooldown_until = cache.get(
+            me_sell_assets_esi_cooldown_key(int(request.user.id))
+        )
+        if cooldown_until:
+            try:
+                retry_seconds = max(
+                    0, int(float(cooldown_until) - timezone.now().timestamp())
+                )
+            except (TypeError, ValueError):
+                retry_seconds = int(ESI_DOWN_COOLDOWN_SECONDS)
+            sell_assets_progress["retry_after_minutes"] = int(
+                (retry_seconds + 59) // 60
+            )
 
     if request.method == "POST":
         user_assets, scope_missing = _fetch_user_assets_for_structure(
@@ -1023,6 +1066,16 @@ def material_exchange_sell(request, tokens):
         config.structure_id,
         allow_refresh=allow_refresh,
     )
+    if sell_assets_progress.get("error") == "no_assets_fetched" and (
+        has_cached_assets or user_assets
+    ):
+        sell_assets_progress = dict(sell_assets_progress)
+        sell_assets_progress["error"] = None
+        cache.set(
+            progress_key,
+            sell_assets_progress,
+            10 * 60,
+        )
     if user_assets:
         pre_filter_count = len(user_assets)
         logger.info(
@@ -1349,6 +1402,21 @@ def material_exchange_buy(request, tokens):
         if request.GET.get("refreshed") != "1" or stock_version_refresh:
             buy_stock_progress = _ensure_buy_stock_refresh_started(config)
     stock_refreshing = bool(buy_stock_progress.get("running"))
+
+    if buy_stock_progress.get("error") == "esi_down" and not buy_stock_progress.get(
+        "retry_after_minutes"
+    ):
+        cooldown_until = cache.get(
+            me_buy_stock_esi_cooldown_key(int(config.corporation_id))
+        )
+        if cooldown_until:
+            try:
+                retry_seconds = max(
+                    0, int(float(cooldown_until) - timezone.now().timestamp())
+                )
+            except (TypeError, ValueError):
+                retry_seconds = int(ESI_DOWN_COOLDOWN_SECONDS)
+            buy_stock_progress["retry_after_minutes"] = int((retry_seconds + 59) // 60)
 
     # GET: ensure prices are populated if stock exists without prices
     base_stock_qs = config.stock_items.filter(quantity__gt=0)
