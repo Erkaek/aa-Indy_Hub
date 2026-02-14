@@ -1,8 +1,7 @@
 # Django
 from django.core.cache import cache
-from django.db.models.signals import post_delete, post_save, pre_save
+from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
-from django.urls import reverse
 
 # Alliance Auth
 from allianceauth.services.hooks import get_extension_logger
@@ -136,41 +135,6 @@ def _update_scope_status_cache(user) -> None:
     for group, meta in _TOKEN_SCOPE_GROUPS.items():
         ok = _has_valid_token_for_scopes(user, meta["scopes"])
         cache.set(_token_scope_cache_key(user.id, group), ok, 3600)
-
-
-def _check_scope_loss_and_notify(user) -> None:
-    if not user:
-        return
-
-    for group, meta in _TOKEN_SCOPE_GROUPS.items():
-        cache_key = _token_scope_cache_key(user.id, group)
-        previous_ok = cache.get(cache_key)
-        current_ok = _has_valid_token_for_scopes(user, meta["scopes"])
-        cache.set(cache_key, current_ok, 3600)
-
-        if previous_ok is True and not current_ok:
-            try:
-                # AA Example App
-                from indy_hub.notifications import notify_user
-
-                notify_user(
-                    user,
-                    "ESI token missing",
-                    (
-                        f"Your {meta['label']} ESI token is missing. "
-                        "Please add a character in the ESI tab."
-                    ),
-                    level="warning",
-                    link=reverse("indy_hub:esi_hub"),
-                    link_label="Open ESI",
-                )
-            except Exception:
-                logger.warning(
-                    "Failed to notify user %s about missing %s scopes",
-                    user,
-                    meta["label"],
-                    exc_info=True,
-                )
 
 
 def _normalize_int(value):
@@ -520,20 +484,6 @@ def remove_duplicate_tokens(sender, instance, created, **kwargs):
     for token in tokens:
         if set(token.scopes.values_list("id", flat=True)) == instance_scope_ids:
             token.delete()
-
-
-@receiver(post_save, sender=Token)
-def cache_scope_status_on_token_save(sender, instance, **kwargs):
-    if not instance.user_id:
-        return
-    _check_scope_loss_and_notify(instance.user)
-
-
-@receiver(post_delete, sender=Token)
-def notify_on_token_scope_loss(sender, instance, **kwargs):
-    if not instance.user_id:
-        return
-    _check_scope_loss_and_notify(instance.user)
 
 
 @receiver(post_save, sender=MaterialExchangeBuyOrder)
