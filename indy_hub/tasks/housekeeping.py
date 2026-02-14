@@ -7,9 +7,9 @@ from datetime import timedelta
 from celery import shared_task
 
 # Django
-from django.utils import timezone
 from django.contrib.auth import get_user_model
 from django.db.models import Q
+from django.utils import timezone
 
 # Alliance Auth
 from allianceauth.services.hooks import get_extension_logger
@@ -30,6 +30,7 @@ from ..models import (
     IndustrySkillSnapshot,
 )
 from ..services.asset_cache import STRUCTURE_PLACEHOLDER_TTL
+from ..utils.eve import PLACEHOLDER_PREFIX
 from .industry import (
     ONLINE_SCOPE,
     SKILLS_SCOPE,
@@ -37,11 +38,10 @@ from .industry import (
     _get_adaptive_window_minutes,
     _queue_staggered_user_tasks,
     _refresh_online_status_for_user,
+    update_user_skill_snapshots,
 )
 from .location import cache_structure_names_bulk
 from .user import CORP_ROLES_SCOPE, update_user_roles_snapshots
-from .industry import update_user_skill_snapshots
-from ..utils.eve import PLACEHOLDER_PREFIX
 
 logger = get_extension_logger(__name__)
 User = get_user_model()
@@ -66,9 +66,7 @@ def _select_users_for_stale_snapshots(
     cutoff = now - timedelta(hours=stale_hours)
 
     stale_ids = {
-        int(cid)
-        for cid, last in snapshot_map.items()
-        if last and last < cutoff
+        int(cid) for cid, last in snapshot_map.items() if last and last < cutoff
     }
     missing_ids = set(character_ids) - set(snapshot_map)
     target_ids = stale_ids | missing_ids
@@ -99,7 +97,9 @@ def refresh_stale_snapshots() -> dict[str, int]:
             .distinct()
         )
         skill_user_ids = _select_users_for_stale_snapshots(
-            token_pairs=[(int(uid), int(cid)) for uid, cid in skill_tokens if uid and cid],
+            token_pairs=[
+                (int(uid), int(cid)) for uid, cid in skill_tokens if uid and cid
+            ],
             snapshot_model=IndustrySkillSnapshot,
             stale_hours=SKILL_SNAPSHOT_STALE_HOURS,
             now=now,
@@ -126,7 +126,9 @@ def refresh_stale_snapshots() -> dict[str, int]:
             .distinct()
         )
         role_user_ids = _select_users_for_stale_snapshots(
-            token_pairs=[(int(uid), int(cid)) for uid, cid in role_tokens if uid and cid],
+            token_pairs=[
+                (int(uid), int(cid)) for uid, cid in role_tokens if uid and cid
+            ],
             snapshot_model=CharacterRoles,
             stale_hours=ROLE_SNAPSHOT_STALE_HOURS,
             now=now,
@@ -193,8 +195,7 @@ def refresh_stale_snapshots() -> dict[str, int]:
                     name__startswith=PLACEHOLDER_PREFIX,
                     last_resolved__lt=placeholder_cutoff,
                 )
-            )
-            .values_list("structure_id", flat=True)[:LOCATION_LOOKUP_BUDGET]
+            ).values_list("structure_id", flat=True)[:LOCATION_LOOKUP_BUDGET]
         )
         if stale_structure_ids:
             token = (
