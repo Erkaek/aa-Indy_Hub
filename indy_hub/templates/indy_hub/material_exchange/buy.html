@@ -21,7 +21,7 @@
                         <i class="fas fa-shopping-cart me-2"></i>
                         {% trans "Buy Materials from Hub" %}
                     </h2>
-                    <p class="description">{% trans "Purchase materials from corp stock" %}</p>
+                    <p class="description">{% trans "Purchase materials from Hub stock" %}</p>
                     <div class="mt-auto">
                         <span class="badge rounded-pill bg-info-subtle text-info border fs-6">
                             <i class="fas fa-tags me-1"></i>{% trans "Pricing Formula" %}:
@@ -138,7 +138,7 @@
             <div class="col-lg-8">
                 <div class="glass-panel p-4">
                     <h5 class="mb-4">
-                        {% trans "Available Stock in" %} {{ config.structure_name }} - {{ hangar_division_label }} hangar division
+                        {% trans "Available Stock in" %} {{ config.structure_name }}
                     </h5>
                     <form method="post" id="purchaseForm">
                         {% csrf_token %}

@@ -57,6 +57,7 @@ from .views.material_exchange import (
     material_exchange_reject_sell,
     material_exchange_sell,
     material_exchange_sell_assets_refresh_status,
+    material_exchange_stats_history,
     material_exchange_sync_prices,
     material_exchange_sync_stock,
     material_exchange_transactions,
@@ -398,6 +399,11 @@ urlpatterns = [
         "material-exchange/transactions/",
         material_exchange_transactions,
         name="material_exchange_transactions",
+    ),
+    path(
+        "material-exchange/transactions/stats-history/",
+        material_exchange_stats_history,
+        name="material_exchange_stats_history",
     ),
     path(
         "material-exchange/history/",

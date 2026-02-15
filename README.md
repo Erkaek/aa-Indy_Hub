@@ -275,6 +275,8 @@ docker compose down
 docker compose up -d
 ```
 
+If Celery runs in dedicated containers/services in your stack, also restart worker and beat/scheduler containers.
+
 ______________________________________________________________________
 
 ## Usage

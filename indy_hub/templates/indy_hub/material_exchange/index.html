@@ -20,7 +20,7 @@
                     <i class="fas fa-store me-2"></i>
                     {% trans "Material Exchange" %}
                 </h2>
-                <p class="description">{% trans "Corp supply hub for buying and selling materials" %}</p>
+                <p class="description">{% trans "Supply hub for buying and selling materials" %}</p>
             </div>
             <div class="d-flex gap-2">
                 {% if perms.indy_hub.can_manage_material_hub %}
@@ -46,319 +46,175 @@
         {% endif %}
     </div>
 
-    <!-- Quick Stats -->
-    <div class="me-quick-stats">
-        <div class="me-stat-card" data-accent="success">
-            <div class="me-stat-icon" aria-hidden="true">
+    <!-- Hub Actions -->
+    <div class="me-hub-actions mb-4">
+        <article class="me-hub-action-card" data-accent="success">
+            <div class="me-hub-action-icon" aria-hidden="true">
                 <i class="fas fa-hand-holding-usd"></i>
             </div>
-            <div class="me-stat-content">
-                <span class="me-stat-label">{% trans "Pending Sell Orders" %}</span>
-                <span class="me-stat-value">{{ pending_sell_orders|intcomma }}</span>
-            </div>
-            <span class="me-stat-glow" aria-hidden="true"></span>
-        </div>
-        <div class="me-stat-card" data-accent="primary">
-            <div class="me-stat-icon" aria-hidden="true">
+            <h5 class="me-hub-action-title">{% trans "Sell to Hub" %}</h5>
+            <span class="me-hub-action-badge">{{ pending_sell_orders|intcomma }} {% trans "pending" %}</span>
+            <p class="me-hub-action-desc">{% trans "Sell your materials to the Hub, prices based on Jita." %}</p>
+            <a href="{% url 'indy_hub:material_exchange_sell' %}" class="btn btn-success me-hub-action-btn">
+                <i class="fas fa-coins me-1"></i>{% trans "Start Selling" %}
+            </a>
+        </article>
+
+        <article class="me-hub-action-card" data-accent="info">
+            <div class="me-hub-action-icon" aria-hidden="true">
                 <i class="fas fa-shopping-cart"></i>
             </div>
-            <div class="me-stat-content">
-                <span class="me-stat-label">{% trans "Pending Buy Orders" %}</span>
-                <span class="me-stat-value">{{ pending_buy_orders|intcomma }}</span>
-            </div>
-            <span class="me-stat-glow" aria-hidden="true"></span>
-        </div>
-    </div>
-
-    <!-- Main Actions -->
-    <div class="row g-3 mb-4">
-        <div class="col-lg-3 col-md-6">
-            <div class="card border-0 shadow-sm h-100">
-                <div class="card-body text-center">
-                    <i class="fas fa-list-alt fa-3x text-warning mb-3"></i>
-                    <h5 class="card-title">{% trans "My Orders" %}</h5>
-                    <p class="card-text text-muted">{% trans "Track your sell and buy orders with status updates." %}</p>
-                    <a href="{% url 'indy_hub:my_orders' %}" class="btn btn-warning">
-                        <i class="fas fa-eye me-1"></i>{% trans "View Orders" %}
-                    </a>
-                </div>
-            </div>
-        </div>
-        <div class="col-lg-3 col-md-6">
-            <div class="card border-0 shadow-sm h-100">
-                <div class="card-body text-center">
-                    <i class="fas fa-hand-holding-usd fa-3x text-success mb-3"></i>
-                    <h5 class="card-title">{% trans "Sell to Hub" %}</h5>
-                    <p class="card-text text-muted">{% trans "Sell your materials to the corp at fair prices based on Jita Buy." %}</p>
-                    <a href="{% url 'indy_hub:material_exchange_sell' %}" class="btn btn-success">
-                        <i class="fas fa-coins me-1"></i>{% trans "Start Selling" %}
-                    </a>
-                </div>
-            </div>
-        </div>
-        <div class="col-lg-3 col-md-6">
-            <div class="card border-0 shadow-sm h-100">
-                <div class="card-body text-center">
-                    <i class="fas fa-shopping-cart fa-3x text-primary mb-3"></i>
-                    <h5 class="card-title">{% trans "Buy from Hub" %}</h5>
-                    <p class="card-text text-muted">{% trans "Purchase materials from the corp stock without going to Jita." %}</p>
-                    <a href="{% url 'indy_hub:material_exchange_buy' %}" class="btn btn-primary">
-                        <i class="fas fa-shopping-bag me-1"></i>{% trans "Browse Stock" %}
-                    </a>
-                </div>
-            </div>
-        </div>
-        <div class="col-lg-3 col-md-6">
-            <div class="card border-0 shadow-sm h-100">
-                <div class="card-body text-center">
-                    <i class="fas fa-history fa-3x text-secondary mb-3"></i>
-                    <h5 class="card-title">{% trans "Transaction History" %}</h5>
-                    <p class="card-text text-muted">{% trans "View all completed transactions and monthly reports." %}</p>
-                    <a href="{% url 'indy_hub:material_exchange_transactions' %}" class="btn btn-secondary">
-                        <i class="fas fa-list me-1"></i>{% trans "View History" %}
-                    </a>
-                </div>
-            </div>
-        </div>
+            <h5 class="me-hub-action-title">{% trans "Buy from Hub" %}</h5>
+            <span class="me-hub-action-badge">{{ pending_buy_orders|intcomma }} {% trans "pending" %}</span>
+            <p class="me-hub-action-desc">{% trans "Purchase materials from the Hub stock without going to Jita." %}</p>
+            <a href="{% url 'indy_hub:material_exchange_buy' %}" class="btn btn-info me-hub-action-btn">
+                <i class="fas fa-shopping-bag me-1"></i>{% trans "Browse Stock" %}
+            </a>
+        </article>
     </div>
 
     <!-- Your Recent Orders -->
     <div class="row g-3">
-        <div class="col-md-6">
-            <div class="glass-panel p-4">
-                <h5 class="mb-3">
-                    <i class="fas fa-hand-holding-usd me-2 text-success"></i>
-                    {% trans "Your Recent Sell Orders" %}
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="mb-0">
+                    <i class="fas fa-list me-2 text-primary"></i>
+                    {% trans "Your Active Orders" %}
                 </h5>
-                {% if user_sell_orders %}
-                <div class="table-responsive">
-                    <table class="table table-sm table-hover">
-                        <thead class="table-light">
-                            <tr>
-                                <th>{% trans "Items" %}</th>
-                                <th class="text-end">{% trans "Total Quantity" %}</th>
-                                <th class="text-end">{% trans "Total" %}</th>
-                                <th>{% trans "Status" %}</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for order in user_sell_orders %}
-                            <tr>
-                                <td>
-                                    <small>
-                                        {% for item in order.items.all %}
-                                            {{ item.type_name }} ({{ item.quantity|intcomma }}){% if not forloop.last %}, {% endif %}
-                                        {% endfor %}
-                                    </small>
-                                </td>
-                                <td class="text-end">{{ order.total_quantity|intcomma }}</td>
-                                <td class="text-end">{{ order.total_price|floatformat:0|intcomma }} ISK</td>
-                                <td>
-                                    <div class="status-badge status-{{ order.status }}">
-                                        {% if order.status == 'draft' %}
-                                        <i class="fas fa-file status-icon"></i>
-                                        {% elif order.status == 'awaiting_validation' %}
-                                        <i class="fas fa-hourglass-half status-icon"></i>
-                                        {% elif order.status == 'validated' %}
-                                        <i class="fas fa-check-circle status-icon"></i>
-                                        {% elif order.status == 'accepted' %}
-                                        <i class="fas fa-shipping-fast status-icon"></i>
-                                        {% elif order.status == 'completed' %}
-                                        <i class="fas fa-check status-icon"></i>
-                                        {% elif order.status == 'rejected' %}
-                                        <i class="fas fa-times-circle status-icon"></i>
-                                        {% elif order.status == 'cancelled' %}
-                                        <i class="fas fa-ban status-icon"></i>
-                                        {% endif %}
-                                        <span>{{ order.get_status_display }}</span>
-                                    </div>
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-                {% else %}
-                <p class="text-muted text-center py-3">{% trans "No sell orders yet." %}</p>
-                {% endif %}
+                <a href="{% url 'indy_hub:my_orders' %}" class="btn btn-sm me-panel-action-btn">
+                    <i class="fas fa-eye me-1"></i>{% trans "My Orders History" %}
+                </a>
             </div>
-        </div>
-        <div class="col-md-6">
-            <div class="glass-panel p-4">
-                <h5 class="mb-3">
-                    <i class="fas fa-shopping-cart me-2 text-primary"></i>
-                    {% trans "Your Recent Buy Orders" %}
-                </h5>
-                {% if user_buy_orders %}
-                <div class="table-responsive">
-                    <table class="table table-sm table-hover">
-                        <thead class="table-light">
-                            <tr>
-                                <th>{% trans "Items" %}</th>
-                                <th class="text-end">{% trans "Total Quantity" %}</th>
-                                <th class="text-end">{% trans "Total" %}</th>
-                                <th>{% trans "Status" %}</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for order in user_buy_orders %}
-                            <tr>
-                                <td>
-                                    <small>
-                                        {% for item in order.items.all %}
-                                            {{ item.type_name }} ({{ item.quantity|intcomma }}){% if not forloop.last %}, {% endif %}
+            {% if recent_orders %}
+            <div class="me-user-orders">
+                    {% for order in recent_orders %}
+                    <article class="me-user-order-row" data-order-kind="{{ order.order_kind }}">
+                        <div class="me-user-order-main me-user-layout-grid">
+                            <div class="me-user-order-ref">
+                                <span class="me-order-ref-title">
+                                    <span class="me-order-kind-label me-order-kind-{{ order.order_kind }}">{% if order.order_kind == 'sell' %}{% trans "Sell" %}{% else %}{% trans "Buy" %}{% endif %}</span>
+                                    · {{ order.order_reference }}
+                                </span>
+                            </div>
+                            <div class="me-user-order-meta me-user-order-items">
+                                {% for item in order.items.all %}
+                                    {{ item.type_name }}{% if not forloop.last %}, {% endif %}
+                                {% endfor %}
+                            </div>
+                            <span class="me-order-flow-inline" aria-label="{% trans 'Order workflow' %}" title="{% for step in order.timeline_breadcrumb %}{{ step.status }}{% if not forloop.last %} › {% endif %}{% endfor %}">
+                                <span class="me-order-progress-inline-bar">
+                                    <span class="me-order-progress-fill" style="width: {{ order.progress_width }}%;"></span>
+                                    {% if order.progress_active_width %}
+                                    <span class="me-order-progress-active-segment" style="left: {{ order.progress_active_start }}%; width: {{ order.progress_active_width }}%;"></span>
+                                    {% endif %}
+                                    <span class="me-order-progress-points" aria-hidden="true">
+                                        {% for step in order.timeline_breadcrumb %}
+                                        <span class="me-order-progress-point {% if step.completed %}done{% endif %}{% if step.status == order.progress_current_label %} current{% endif %}{% if forloop.first %} start{% endif %}{% if forloop.last %} end{% endif %}" style="left: {{ step.position_percent }}%;"></span>
                                         {% endfor %}
-                                    </small>
-                                </td>
-                                <td class="text-end">{{ order.total_quantity|intcomma }}</td>
-                                <td class="text-end">{{ order.total_price|floatformat:0|intcomma }} ISK</td>
-                                <td>
-                                    <div class="status-badge status-{{ order.status }}">
-                                        {% if order.status == 'draft' %}
-                                        <i class="fas fa-file status-icon"></i>
-                                        {% elif order.status == 'awaiting_validation' %}
-                                        <i class="fas fa-hourglass-half status-icon"></i>
-                                        {% elif order.status == 'validated' %}
-                                        <i class="fas fa-check-circle status-icon"></i>
-                                        {% elif order.status == 'accepted' %}
-                                        <i class="fas fa-shipping-fast status-icon"></i>
-                                        {% elif order.status == 'completed' %}
-                                        <i class="fas fa-check status-icon"></i>
-                                        {% elif order.status == 'rejected' %}
-                                        <i class="fas fa-times-circle status-icon"></i>
-                                        {% elif order.status == 'cancelled' %}
-                                        <i class="fas fa-ban status-icon"></i>
-                                        {% endif %}
-                                        <span>{{ order.get_status_display }}</span>
-                                    </div>
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-                {% else %}
-                <p class="text-muted text-center py-3">{% trans "No buy orders yet." %}</p>
-                {% endif %}
-            </div>
-        </div>
-    </div>
-
-    <!-- Recent Hub Transactions -->
-    {% if recent_transactions %}
-    <div class="glass-panel p-4 mt-4">
-        <h5 class="mb-3">
-            <i class="fas fa-exchange-alt me-2"></i>
-            {% trans "Recent Hub Activity" %}
-        </h5>
-        <div class="table-responsive">
-            <table class="table table-sm table-hover">
-                <thead class="table-light">
-                    <tr>
-                        <th>{% trans "Type" %}</th>
-                        <th>{% trans "User" %}</th>
-                        <th>{% trans "Material" %}</th>
-                        <th class="text-end">{% trans "Quantity" %}</th>
-                        <th class="text-end">{% trans "Value" %}</th>
-                        <th>{% trans "Date" %}</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for tx in recent_transactions %}
-                    <tr>
-                        <td>
-                            {% if tx.transaction_type == 'sell' %}
-                            <span class="badge bg-success">{% trans "Sell" %}</span>
+                                    </span>
+                                </span>
+                                <span class="me-order-breadcrumb-inline" aria-hidden="true">
+                                    {% for step in order.timeline_breadcrumb %}
+                                    {% if step.status == order.progress_current_label %}
+                                    <span class="me-order-crumb-inline current {% if forloop.first %}start{% endif %}{% if forloop.last %} end{% endif %}" style="left: {{ step.position_percent }}%;">{{ step.status }}</span>
+                                    {% endif %}
+                                    {% endfor %}
+                                </span>
+                            </span>
+                        </div>
+                        <div class="me-user-order-side">
+                            <strong class="me-user-order-total text-primary">{{ order.total_price|floatformat:0|intcomma }} ISK</strong>
+                            {% url 'indy_hub:material_exchange_index' as exchange_index %}
+                            {% if order.order_kind == 'sell' %}
+                            <a class="btn btn-outline-secondary btn-sm me-user-order-detail-btn" href="{% url 'indy_hub:sell_order_detail' order.id %}?next={{ exchange_index }}" aria-label="{% trans 'Details' %}">
+                                <i class="fas fa-eye" aria-hidden="true"></i>
+                            </a>
                             {% else %}
-                            <span class="badge bg-primary">{% trans "Buy" %}</span>
+                            <a class="btn btn-outline-secondary btn-sm me-user-order-detail-btn" href="{% url 'indy_hub:buy_order_detail' order.id %}?next={{ exchange_index }}" aria-label="{% trans 'Details' %}">
+                                <i class="fas fa-eye" aria-hidden="true"></i>
+                            </a>
                             {% endif %}
-                        </td>
-                        <td>{{ tx.user.username }}</td>
-                        <td>{{ tx.type_name }}</td>
-                        <td class="text-end">{{ tx.quantity|intcomma }}</td>
-                        <td class="text-end">{{ tx.total_price|floatformat:0|intcomma }} ISK</td>
-                        <td>{{ tx.completed_at|date:"Y-m-d H:i" }}</td>
-                    </tr>
+                        </div>
+                    </article>
                     {% endfor %}
-                </tbody>
-            </table>
+            </div>
+            {% else %}
+            <p class="text-muted text-center py-3">{% trans "No active orders." %}</p>
+            {% endif %}
         </div>
     </div>
-    {% endif %}
 
     {% if can_admin %}
+    {% with sell_count=admin_sell_orders|length buy_count=admin_buy_orders|length %}
+    {% with active_admin_orders=sell_count|add:buy_count %}
     <div class="d-flex align-items-center mb-3 mt-5" id="admin-panel">
-        <div class="flex-grow-1 border-bottom admin-divider-line"></div>
-        <div class="px-3 py-2 d-flex align-items-center gap-2 rounded-pill admin-divider-chip">
-            <i class="fas fa-shield-alt text-primary"></i>
-            <span class="text-muted small">{% trans "Admin Panel" %}</span>
+        <div class="d-flex align-items-center gap-3 flex-grow-1">
+            <div class="flex-grow-1 border-bottom admin-divider-line"></div>
+            <button type="button"
+                    class="px-3 py-2 d-flex align-items-center gap-2 rounded-pill admin-divider-chip admin-panel-toggle"
+                    data-bs-toggle="collapse"
+                    data-bs-target="#admin-panel-content"
+                    aria-controls="admin-panel-content"
+                    aria-expanded="{% if admin_sell_orders or admin_buy_orders %}true{% else %}false{% endif %}">
+                <i class="fas fa-shield-alt text-primary"></i>
+                <span class="text-muted small">{% trans "Admin Panel" %}</span>
+                <span class="admin-panel-toggle-count small">
+                    ({% blocktrans count order_count=active_admin_orders %}{{ order_count }} active order{% plural %}{{ order_count }} active orders{% endblocktrans %})
+                </span>
+                <i class="fas fa-chevron-down small text-muted"></i>
+            </button>
+            <div class="flex-grow-1 border-bottom admin-divider-line"></div>
         </div>
-        <div class="flex-grow-1 border-bottom admin-divider-line"></div>
+        <a href="{% url 'indy_hub:material_exchange_transactions' %}" class="btn btn-sm me-panel-action-btn ms-3">
+            <i class="fas fa-history me-1"></i>{% trans "View History" %}
+        </a>
     </div>
 
+    <div id="admin-panel-content" class="collapse {% if admin_sell_orders or admin_buy_orders %}show{% endif %}">
     <!-- Sell Orders Admin -->
-    <div class="mb-4">
-        <h5 class="mb-3">
+    <div class="mb-3">
+        <h5 class="mb-2">
             <i class="fas fa-arrow-up text-danger me-2"></i>{% trans "Sell Orders" %}
         </h5>
         {% if admin_sell_orders %}
-        <div class="admin-ledger">
-            <div class="ledger-head">
-                <div class="title">{% trans "Sell queue" %}</div>
-            </div>
-            <div class="ledger-list">
-                {% for order in admin_sell_orders %}
-                <div class="ledger-row status-{{ order.status }}">
-                    <div class="d-flex align-items-start gap-3">
-                        <div class="status-rail"></div>
-                        <div>
-                            <div class="ref">{% trans "Sell" %} · {{ order.order_reference }}</div>
-                            <div class="identity">
-                                <span class="text-primary">{{ order.seller.username }}</span>
-                                <span>· {{ order.created_at|date:"Y-m-d H:i" }}</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="ledger-stats">
-                        <div class="stat-chip">
-                            <div class="label">{% trans "Items" %}</div>
-                            <div class="value">{{ order.items.count }}</div>
-                        </div>
-                        <div class="stat-chip">
-                            <div class="label">{% trans "Total" %}</div>
-                            <div class="value text-success">{{ order.total_price|floatformat:0|intcomma }} ISK</div>
-                        </div>
-                        <div class="stat-chip">
-                            <div class="label">{% trans "Preview" %}</div>
-                            <div class="preview">
-                                {% for item in order.items.all|slice:":3" %}
-                                    {{ item.type_name }} ×{{ item.quantity|intcomma }}{% if not forloop.last %}, {% endif %}
-                                {% endfor %}
-                                {% if order.items.count > 3 %}
-                                    …
+        <div class="me-user-orders">
+            {% for order in admin_sell_orders %}
+            <div class="me-user-order-row me-admin-order-row status-{{ order.status }}" data-order-kind="{{ order.order_kind }}">
+                    <div class="me-user-order-main me-admin-layout-grid">
+                        <span class="me-order-ref-title">
+                            <span class="me-order-kind-label me-order-kind-{{ order.order_kind }}">{% if order.order_kind == 'sell' %}{% trans "Sell" %}{% else %}{% trans "Buy" %}{% endif %}</span>
+                            · {{ order.order_reference }}
+                        </span>
+                        <span class="me-admin-order-user">{% trans "User" %}: {{ order.seller_display_name|default:order.seller.username }}</span>
+                        <span class="me-admin-order-items">
+                            {% for item in order.items.all %}
+                                {{ item.type_name }}{% if not forloop.last %}, {% endif %}
+                            {% endfor %}
+                        </span>
+                        <span class="me-order-flow-inline" aria-label="{% trans 'Order workflow' %}" title="{% for step in order.timeline_breadcrumb %}{{ step.status }}{% if not forloop.last %} › {% endif %}{% endfor %}">
+                            <span class="me-order-progress-inline-bar">
+                                <span class="me-order-progress-fill" style="width: {{ order.progress_width }}%;"></span>
+                                {% if order.progress_active_width %}
+                                <span class="me-order-progress-active-segment" style="left: {{ order.progress_active_start }}%; width: {{ order.progress_active_width }}%;"></span>
                                 {% endif %}
-                            </div>
-                        </div>
+                                <span class="me-order-progress-points" aria-hidden="true">
+                                    {% for step in order.timeline_breadcrumb %}
+                                    <span class="me-order-progress-point {% if step.completed %}done{% endif %}{% if step.status == order.progress_current_label %} current{% endif %}{% if forloop.first %} start{% endif %}{% if forloop.last %} end{% endif %}" style="left: {{ step.position_percent }}%;"></span>
+                                    {% endfor %}
+                                </span>
+                            </span>
+                            <span class="me-order-breadcrumb-inline" aria-hidden="true">
+                                {% for step in order.timeline_breadcrumb %}
+                                {% if step.status == order.progress_current_label %}
+                                <span class="me-order-crumb-inline current {% if forloop.first %}start{% endif %}{% if forloop.last %} end{% endif %}" style="left: {{ step.position_percent }}%;">{{ step.status }}</span>
+                                {% endif %}
+                                {% endfor %}
+                            </span>
+                        </span>
                     </div>
-                    <div class="ledger-actions">
-                        <div class="status-badge status-{{ order.status }}">
-                            {% if order.status == 'draft' %}
-                            <i class="fas fa-file status-icon"></i>
-                            {% elif order.status == 'awaiting_validation' %}
-                            <i class="fas fa-hourglass-half status-icon"></i>
-                            {% elif order.status == 'validated' %}
-                            <i class="fas fa-check-circle status-icon"></i>
-                            {% elif order.status == 'accepted' %}
-                            <i class="fas fa-shipping-fast status-icon"></i>
-                            {% elif order.status == 'completed' %}
-                            <i class="fas fa-check status-icon"></i>
-                            {% elif order.status == 'rejected' %}
-                            <i class="fas fa-times-circle status-icon"></i>
-                            {% elif order.status == 'cancelled' %}
-                            <i class="fas fa-ban status-icon"></i>
-                            {% endif %}
-                            <span>{{ order.get_status_display }}</span>
-                        </div>
+                    <div class="me-user-order-side me-admin-order-side">
+                        <strong class="me-user-order-total text-primary">{{ order.total_price|floatformat:0|intcomma }} ISK</strong>
+                        <div class="me-admin-order-actions">
                         {% url 'indy_hub:material_exchange_index' as exchange_index %}
                         <a class="btn btn-outline-secondary btn-sm" href="{% url 'indy_hub:sell_order_detail' order.id %}?next={{ exchange_index }}%23admin-panel">
                             <i class="fas fa-eye me-1"></i>{% trans "Details" %}
@@ -371,10 +227,10 @@
                             </button>
                         </form>
                         {% endif %}
+                        </div>
                     </div>
                 </div>
-                {% endfor %}
-            </div>
+            {% endfor %}
         </div>
         {% else %}
         <div class="alert alert-info">
@@ -385,67 +241,48 @@
 
     <!-- Buy Orders Admin -->
     <div>
-        <h5 class="mb-3">
+        <h5 class="mb-2">
             <i class="fas fa-arrow-down text-success me-2"></i>{% trans "Buy Orders" %}
         </h5>
         {% if admin_buy_orders %}
-        <div class="admin-ledger">
-            <div class="ledger-head">
-                <div class="title">{% trans "Buy queue" %}</div>
-            </div>
-            <div class="ledger-list">
-                {% for order in admin_buy_orders %}
-                <div class="ledger-row status-{{ order.status }}">
-                    <div class="d-flex align-items-start gap-3">
-                        <div class="status-rail"></div>
-                        <div>
-                            <div class="ref">{% trans "Buy" %} · {{ order.order_reference }}</div>
-                            <div class="identity">
-                                <span class="text-primary">{{ order.buyer.username }}</span>
-                                <span>· {{ order.created_at|date:"Y-m-d H:i" }}</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="ledger-stats">
-                        <div class="stat-chip">
-                            <div class="label">{% trans "Items" %}</div>
-                            <div class="value">{{ order.items.count }}</div>
-                        </div>
-                        <div class="stat-chip">
-                            <div class="label">{% trans "Total" %}</div>
-                            <div class="value text-success">{{ order.total_price|floatformat:0|intcomma }} ISK</div>
-                        </div>
-                        <div class="stat-chip">
-                            <div class="label">{% trans "Preview" %}</div>
-                            <div class="preview">
-                                {% for item in order.items.all|slice:":3" %}
-                                    {{ item.type_name }} ×{{ item.quantity|intcomma }}{% if not forloop.last %}, {% endif %}
-                                {% endfor %}
-                                {% if order.items.count > 3 %}
-                                    …
+        <div class="me-user-orders">
+            {% for order in admin_buy_orders %}
+            <div class="me-user-order-row me-admin-order-row status-{{ order.status }}" data-order-kind="{{ order.order_kind }}">
+                    <div class="me-user-order-main me-admin-layout-grid">
+                        <span class="me-order-ref-title">
+                            <span class="me-order-kind-label me-order-kind-{{ order.order_kind }}">{% if order.order_kind == 'sell' %}{% trans "Sell" %}{% else %}{% trans "Buy" %}{% endif %}</span>
+                            · {{ order.order_reference }}
+                        </span>
+                        <span class="me-admin-order-user">{% trans "User" %}: {{ order.buyer_display_name|default:order.buyer.username }}</span>
+                        <span class="me-admin-order-items">
+                            {% for item in order.items.all %}
+                                {{ item.type_name }}{% if not forloop.last %}, {% endif %}
+                            {% endfor %}
+                        </span>
+                        <span class="me-order-flow-inline" aria-label="{% trans 'Order workflow' %}" title="{% for step in order.timeline_breadcrumb %}{{ step.status }}{% if not forloop.last %} › {% endif %}{% endfor %}">
+                            <span class="me-order-progress-inline-bar">
+                                <span class="me-order-progress-fill" style="width: {{ order.progress_width }}%;"></span>
+                                {% if order.progress_active_width %}
+                                <span class="me-order-progress-active-segment" style="left: {{ order.progress_active_start }}%; width: {{ order.progress_active_width }}%;"></span>
                                 {% endif %}
-                            </div>
-                        </div>
+                                <span class="me-order-progress-points" aria-hidden="true">
+                                    {% for step in order.timeline_breadcrumb %}
+                                    <span class="me-order-progress-point {% if step.completed %}done{% endif %}{% if step.status == order.progress_current_label %} current{% endif %}{% if forloop.first %} start{% endif %}{% if forloop.last %} end{% endif %}" style="left: {{ step.position_percent }}%;"></span>
+                                    {% endfor %}
+                                </span>
+                            </span>
+                            <span class="me-order-breadcrumb-inline" aria-hidden="true">
+                                {% for step in order.timeline_breadcrumb %}
+                                {% if step.status == order.progress_current_label %}
+                                <span class="me-order-crumb-inline current {% if forloop.first %}start{% endif %}{% if forloop.last %} end{% endif %}" style="left: {{ step.position_percent }}%;">{{ step.status }}</span>
+                                {% endif %}
+                                {% endfor %}
+                            </span>
+                        </span>
                     </div>
-                    <div class="ledger-actions">
-                        <div class="status-badge status-{{ order.status }}">
-                            {% if order.status == 'draft' %}
-                            <i class="fas fa-file status-icon"></i>
-                            {% elif order.status == 'awaiting_validation' %}
-                            <i class="fas fa-hourglass-half status-icon"></i>
-                            {% elif order.status == 'validated' %}
-                            <i class="fas fa-check-circle status-icon"></i>
-                            {% elif order.status == 'accepted' %}
-                            <i class="fas fa-shipping-fast status-icon"></i>
-                            {% elif order.status == 'completed' %}
-                            <i class="fas fa-check status-icon"></i>
-                            {% elif order.status == 'rejected' %}
-                            <i class="fas fa-times-circle status-icon"></i>
-                            {% elif order.status == 'cancelled' %}
-                            <i class="fas fa-ban status-icon"></i>
-                            {% endif %}
-                            <span>{{ order.get_status_display }}</span>
-                        </div>
+                    <div class="me-user-order-side me-admin-order-side">
+                        <strong class="me-user-order-total text-primary">{{ order.total_price|floatformat:0|intcomma }} ISK</strong>
+                        <div class="me-admin-order-actions">
                         {% url 'indy_hub:material_exchange_index' as exchange_index %}
                         <a class="btn btn-outline-secondary btn-sm" href="{% url 'indy_hub:buy_order_detail' order.id %}?next={{ exchange_index }}%23admin-panel">
                             <i class="fas fa-eye me-1"></i>{% trans "Details" %}
@@ -458,10 +295,10 @@
                             </button>
                         </form>
                         {% endif %}
+                        </div>
                     </div>
                 </div>
-                {% endfor %}
-            </div>
+            {% endfor %}
         </div>
         {% else %}
         <div class="alert alert-info">
@@ -469,6 +306,9 @@
         </div>
         {% endif %}
     </div>
+    </div>
+    {% endwith %}
+    {% endwith %}
     {% endif %}
 
 </div>

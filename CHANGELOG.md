@@ -9,96 +9,65 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### Added
 
-- Material Exchange: hub location banner and quantity shortcuts (Zero/Max) on buy/sell rows.
-- Tasks: retry on database deadlocks during blueprint and job syncs.
-
 ### Changed
-
-- Material Exchange: refreshed buy/sell info blocks for clearer update timing and instructions.
 
 ### Fixed
 
-- Material Exchange: ESI outage cooldowns now prevent repeated refresh failures and surface cached-state warnings.
-- Locations: avoid invalid public structure lookups and prefer universe names for resolvable IDs.
-
 ### Internal
 
-## [1.14.0] - 2026-02-07
+## [1.14.0] - 2026-02-15
 
 ### Added
 
-- Material Exchange: global enable/disable settings with UI toggle and task gating.
-- Notifications: in-app warnings when required ESI tokens/scopes go missing.
-- Material Exchange: quick-copy buttons for assign-to, price, and title/description in order details.
-- Services: Fuzzwork API helper module for aggregate pricing lookups.
-- ESI: show explicit missing ESI scopes per character and corporation on the token management page.
-- Industry: added a slot availability overview per linked character (manufacturing/research/reactions).
-- Overview: show a compact recap of unused industry slots (Mfg/Res/React) using cached skill snapshots.
-- ESI: persisted character corporation roles in the new CharacterRoles table.
-- ESI: hourly scheduled refresh for skill snapshots.
-- ESI: daily scheduled refresh for character roles snapshots.
+- Material Exchange: global enable/disable settings with task gating (`MaterialExchangeSettings`).
+- Material Exchange: transaction stats history view with monthly charts and top-user aggregates.
+- Material Exchange: quick-copy helpers for order reference, assign-to, and contract totals in order detail pages.
+- Material Exchange: compact active-order timelines and admin panel improvements (collapsible panel, active-order counters, compact row actions).
+- Industry: slot availability overview using skill snapshots, with dedicated UI and refresh tasks.
+- ESI: persisted character snapshots for skills, corporation roles, and online status.
+- ESI/Services: Fuzzwork pricing helper and shared django-esi OpenAPI provider layer.
+- Scheduling: hourly stale-snapshot refresh task and periodic task bootstrap migration.
+- Notifications: in-app warnings when required ESI tokens/scopes are missing.
+- Token management: explicit missing-scope display for character and corporation coverage.
 
 ### Changed
 
-- ESI: switched to shared django-esi provider with compatibility date and operation registry.
-- ESI: OpenAPI-only client usage with PascalCase operationId registry.
-- ESI: token handling now uses Token objects for OpenAPI calls.
-- Dependencies: django-esi is now required at >=8,\<9.
-- Dependencies: Alliance Auth AppUtils is now required.
-- ESI: bulk task staggering now adapts to volume with per-minute targets.
-- Material Exchange: nav entry hides when disabled; settings card reflects global state.
-- Material Exchange: sync/validation tasks now skip when disabled or not configured.
-- Celery: periodic task schedules can apply allianceauth cron offsets.
-- Auth: ESI authorization flows now use `sso_redirect` helpers.
-- ESI: token management UI now shows simplified status tables with per-section action buttons.
-- ESI: corporation authorization button now requests Material Exchange scopes as well.
-- Scopes: Material Exchange required scope set now includes corporation divisions and contracts.
-- Industry: skill snapshot cache refresh interval reduced to 1 hour.
-- Overview: Industry module chips now include unused slots recap alongside completion counters.
-- Industry: skill snapshots now refresh via scheduled task; page load only fills missing snapshots.
-- Material Exchange: character/corporation lookup uses stored EveCharacter/EveCorporationInfo data before fetching.
-- Assets: director-role checks use stored CharacterRoles with ESI fallback and persistence.
-- ESI: authorization flows now preserve return-to URLs via next param and session.
-- Material Exchange: sell/buy headers show pricing formula and refreshed update timing.
-- Material Exchange: auto-refresh notices explain next refresh timing.
-- Material Exchange: refresh overlays hide content while assets/stock sync.
-- Material Exchange: refreshed=1 guard cleaned from URLs after reload.
+- Dependencies: added `allianceauth-app-utils>=1`, `django-esi>=7,<9`, and `requests>=2.31`.
+- ESI integration: moved to shared django-esi OpenAPI provider with compatibility-date driven behavior.
+- Token management: simplified coverage tables and stronger missing-scope visibility for characters and corporations.
+- Authorization flows: improved return URL handling (`next`) and force reauthorization support.
+- Task orchestration: adaptive staggering for large ESI sync batches with per-minute target settings.
+- Material Exchange UI: refreshed hub actions, order rows, progress bars, and transaction history presentation.
+- Access control: Material Exchange transaction history now requires `can_manage_material_hub`.
+- Periodic tasks: setup is now post-migrate aware with safer update/remove behavior on migration plans.
+- Material Exchange: hub navigation entry now hides when globally disabled.
+- Material Exchange: sync/validation tasks now skip when module is disabled or unconfigured.
+- Material Exchange: sell/buy pages now show clearer pricing/update context and refresh timing feedback.
+- Scopes: required Material Exchange corp scopes now include divisions/contracts, and unused corp wallet scope was removed.
+- Celery: Indy Hub schedules can apply Alliance Auth cron offsets when available.
 
 ### Fixed
 
-- Material Exchange: structure dropdown includes all asset-backed locations and is sorted.
-- Material Exchange: hangar divisions resolve correctly and scope checks use valid tokens.
-- Blueprints/jobs: missing-scope warnings and location name overwrite guard.
-- ESI: corporation divisions operation uses correct snake_case name.
-- ESI: asset/structure fetches handle rate-limit errors consistently.
-- Fuzzwork: pricing updates and API endpoint use shared helper with clearer errors.
-- Scopes: removed unused corp wallet scope from required scope sets.
-- ESI: token management page now lists the corporation roles scope in required character scopes.
-- Industry: fixed personal jobs page layout issues in the slots overview header/collapse.
-- ESI: handle 304/not-modified responses for roles with cache/DB fallback.
-- ESI: avoid repeated role verification calls by using cache/DB snapshots.
-- ESI: guard against unexpected roles payload types without raising.
-- Services: corrected asset cache role filtering after refactor.
-- Industry: bulk blueprint sync runs daily with a 12h window and skips inactive users.
-- Industry: bulk jobs sync uses a 1h window and skips inactive users.
-- Industry: jobs and blueprints syncs skip users updated within 2h/1h respectively.
-- Industry: skill snapshots refresh daily and skip inactive users; minimum refresh age is 1 day.
-- Industry: completed jobs now show correct progress, ETA, and end date.
-- ESI: force-refresh assets to bypass ETag/304 and reduce stale cache reads.
-- ESI: paginated fetches accept force_refresh without raising TypeError.
-- Material Exchange: stuck refresh polling now times out and recovers from stale running states.
-- Material Exchange: sell page reload waits for updated last update timestamp.
-- Material Exchange: local time display uses browser timezone for accuracy.
-- Material Exchange: loading spinner rendering fixed for sell/buy pages.
+- Material Exchange: refresh loops now recover from stale running states and time out safely.
+- Material Exchange: ESI outage cooldown handling improved with clearer retry behavior.
+- Material Exchange: structure/hangar and scope handling reliability improved during stock/assets sync.
+- ESI: rate-limit retry-after handling improved across task flows.
+- ESI: corporation role/scope validation and token handling hardening across industry/material features.
+- UI/Localization: cleaner wording and consistency updates across hub, buy/sell, and transactions screens.
+- ESI: 304/not-modified and force-refresh handling improved for roles/assets cache workflows.
+- Material Exchange: `refreshed=1` URL cleanup and browser-local time rendering improvements on buy/sell pages.
+- Material Exchange: sell/buy loading overlays and refresh state transitions now behave more reliably.
 
 ### Internal
 
-- Added Material Exchange settings migration.
-- Test fixtures now use public station IDs for structure locations.
-- Migrations: add CharacterRoles model and indexes.
-- Celery: added periodic task entry for skill snapshot refresh.
-- Material Exchange: progress cache now tracks last_progress_at for timeout handling.
-- Asset cache: role checks use stored snapshots without on-demand ESI fetches.
+- Added migrations:
+  - `0079_material_exchange_settings`
+  - `0080_industry_skill_snapshot`
+  - `0081_character_roles`
+  - `0082_character_online_status`
+  - `0083_setup_periodic_tasks`
+- Refactored task registration/loading and removed obsolete helper/task modules (`esi_helpers.py`, `services/esi_contracts.py`, `tasks/optimization.py`).
+- Added scheduled stale snapshot housekeeping task and related setup wiring.
 
 ## [1.13.13] - 2026-02-01
 

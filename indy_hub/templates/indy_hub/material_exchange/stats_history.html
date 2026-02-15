@@ -1,0 +1,279 @@
+{% extends "indy_hub/base.html" %}
+{% load i18n %}
+{% load static %}
+{% load humanize %}
+
+{% block page_title %}{% trans "Transaction Stats History" %}{% endblock page_title %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
+<link rel="stylesheet" href="{% static 'indy_hub/css/blueprints.css' %}">
+<link rel="stylesheet" href="{% static 'indy_hub/css/material_exchange.css' %}">
+{% endblock extra_css %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="page-header mb-4">
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+            <div>
+                <h2 class="h3 mb-1">
+                    <i class="fas fa-chart-line me-2"></i>
+                    {% trans "Transaction Stats History" %}
+                </h2>
+                <p class="description">{% trans "Monthly trends for buy and sell orders" %}</p>
+            </div>
+            <div class="d-flex gap-2">
+                <a href="{% url 'indy_hub:material_exchange_transactions' %}" class="btn btn-outline-light">
+                    <i class="fas fa-arrow-left me-1"></i>{% trans "Back to Transactions" %}
+                </a>
+            </div>
+        </div>
+        <i class="fas fa-chart-line header-bg"></i>
+    </div>
+
+    <div class="me-quick-stats mb-4">
+        <div class="me-stat-card" data-accent="primary">
+            <div class="me-stat-icon" aria-hidden="true">
+                <i class="fas fa-shopping-cart"></i>
+            </div>
+            <div class="me-stat-content">
+                <span class="me-stat-label">{% trans "Total Buy Volume" %}</span>
+                <span class="me-stat-value">{{ total_buy_volume|floatformat:0|intcomma }}</span>
+                <small class="text-muted">ISK</small>
+            </div>
+            <span class="me-stat-glow" aria-hidden="true"></span>
+        </div>
+        <div class="me-stat-card" data-accent="success">
+            <div class="me-stat-icon" aria-hidden="true">
+                <i class="fas fa-hand-holding-usd"></i>
+            </div>
+            <div class="me-stat-content">
+                <span class="me-stat-label">{% trans "Total Sell Volume" %}</span>
+                <span class="me-stat-value">{{ total_sell_volume|floatformat:0|intcomma }}</span>
+                <small class="text-muted">ISK</small>
+            </div>
+            <span class="me-stat-glow" aria-hidden="true"></span>
+        </div>
+        <div class="me-stat-card" data-accent="primary">
+            <div class="me-stat-icon" aria-hidden="true">
+                <i class="fas fa-list"></i>
+            </div>
+            <div class="me-stat-content">
+                <span class="me-stat-label">{% trans "Orders Tracked" %}</span>
+                <span class="me-stat-value">{{ total_transactions|intcomma }}</span>
+                <small class="text-muted">{{ months_count|intcomma }} {% trans "months" %}</small>
+            </div>
+            <span class="me-stat-glow" aria-hidden="true"></span>
+        </div>
+    </div>
+
+    <form method="get" class="card border-0 shadow-sm me-transactions-filter mb-4">
+        <div class="card-body">
+            <div class="row g-2 align-items-end">
+                <div class="col-lg-4 col-md-6">
+                    <label for="statsPeriod" class="form-label mb-1">{% trans "Period" %}</label>
+                    <select id="statsPeriod" name="period" class="form-select">
+                        {% for value, label in period_options %}
+                        <option value="{{ value }}" {% if selected_period == value %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-lg-3 col-md-6 d-flex gap-2">
+                    <button type="submit" class="btn btn-primary flex-fill">
+                        <i class="fas fa-filter me-1"></i>{% trans "Apply" %}
+                    </button>
+                    <a href="{% url 'indy_hub:material_exchange_stats_history' %}" class="btn btn-outline-secondary flex-fill">{% trans "Reset" %}</a>
+                </div>
+                <div class="col-lg-5 col-md-12 text-muted small">
+                    {% if period_start %}
+                    {% blocktrans with start=period_start|date:"Y-m-d" %}Data shown since {{ start }}.{% endblocktrans %}
+                    {% else %}
+                    {% trans "Data shown for all available history." %}
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </form>
+
+    {% if chart_labels %}
+    <div class="row g-3">
+        <div class="col-lg-8">
+            <div class="card border-0 shadow-sm h-100 me-chart-card">
+                <div class="card-body">
+                    <h5 class="mb-3">{% trans "Monthly Volume (ISK)" %}</h5>
+                    <div class="me-chart-wrap">
+                        <canvas id="meVolumeChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="card border-0 shadow-sm h-100 me-chart-card">
+                <div class="card-body">
+                    <h5 class="mb-3">{% trans "Monthly Orders" %}</h5>
+                    <div class="me-chart-wrap">
+                        <canvas id="meOrdersChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm me-chart-card mt-3">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="mb-0">{% trans "Top Users (All Time)" %}</h5>
+                <small class="text-muted">{% trans "Sorted by total traded volume" %}</small>
+            </div>
+
+            {% if top_user_stats %}
+            <div class="table-responsive">
+                <table class="table table-hover align-middle me-transactions-table mb-0">
+                    <thead>
+                        <tr>
+                            <th>{% trans "User" %}</th>
+                            <th class="text-end">{% trans "Buy Orders" %}</th>
+                            <th class="text-end">{% trans "Sell Orders" %}</th>
+                            <th class="text-end">{% trans "Buy Volume" %}</th>
+                            <th class="text-end">{% trans "Sell Volume" %}</th>
+                            <th class="text-end">{% trans "Net Flow" %}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for user_stat in top_user_stats %}
+                        <tr>
+                            <td class="fw-semibold">{{ user_stat.username }}</td>
+                            <td class="text-end">{{ user_stat.buy_orders|intcomma }}</td>
+                            <td class="text-end">{{ user_stat.sell_orders|intcomma }}</td>
+                            <td class="text-end">{{ user_stat.buy_volume|floatformat:0|intcomma }} ISK</td>
+                            <td class="text-end">{{ user_stat.sell_volume|floatformat:0|intcomma }} ISK</td>
+                            <td class="text-end fw-semibold {% if user_stat.net_flow >= 0 %}text-success{% else %}text-danger{% endif %}">
+                                {{ user_stat.net_flow|floatformat:0|intcomma }} ISK
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="alert alert-info mb-0">
+                <i class="fas fa-info-circle me-2"></i>{% trans "No user transaction stats available yet." %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% else %}
+    <div class="alert alert-info">
+        <i class="fas fa-info-circle me-2"></i>{% trans "No transaction history available yet." %}
+    </div>
+    {% endif %}
+</div>
+
+{{ chart_labels|json_script:"meChartLabels" }}
+{{ buy_volumes|json_script:"meBuyVolumes" }}
+{{ sell_volumes|json_script:"meSellVolumes" }}
+{{ transaction_counts|json_script:"meTransactionCounts" }}
+{% endblock content %}
+
+{% block extra_javascript %}
+{{ block.super }}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const labels = JSON.parse(document.getElementById("meChartLabels").textContent || "[]");
+        const buyVolumes = JSON.parse(document.getElementById("meBuyVolumes").textContent || "[]");
+        const sellVolumes = JSON.parse(document.getElementById("meSellVolumes").textContent || "[]");
+        const transactionCounts = JSON.parse(document.getElementById("meTransactionCounts").textContent || "[]");
+
+        if (!labels.length || typeof Chart === "undefined") {
+            return;
+        }
+
+        const isDark = (document.documentElement.dataset.theme || "").toLowerCase() === "darkly";
+        const textColor = isDark ? "#e2e8f0" : "#334155";
+        const gridColor = isDark ? "rgba(148, 163, 184, 0.18)" : "rgba(15, 23, 42, 0.12)";
+
+        const volumeCtx = document.getElementById("meVolumeChart");
+        if (volumeCtx) {
+            new Chart(volumeCtx, {
+                type: "line",
+                data: {
+                    labels,
+                    datasets: [
+                        {
+                            label: "{% trans 'Buy Order Volume' %}",
+                            data: buyVolumes,
+                            borderColor: "#0d6efd",
+                            backgroundColor: "rgba(13, 110, 253, 0.18)",
+                            fill: true,
+                            tension: 0.35,
+                        },
+                        {
+                            label: "{% trans 'Sell Order Volume' %}",
+                            data: sellVolumes,
+                            borderColor: "#198754",
+                            backgroundColor: "rgba(25, 135, 84, 0.18)",
+                            fill: true,
+                            tension: 0.35,
+                        },
+                    ],
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { labels: { color: textColor } },
+                    },
+                    scales: {
+                        x: {
+                            ticks: { color: textColor },
+                            grid: { color: gridColor },
+                        },
+                        y: {
+                            ticks: { color: textColor },
+                            grid: { color: gridColor },
+                        },
+                    },
+                },
+            });
+        }
+
+        const ordersCtx = document.getElementById("meOrdersChart");
+        if (ordersCtx) {
+            new Chart(ordersCtx, {
+                type: "bar",
+                data: {
+                    labels,
+                    datasets: [
+                        {
+                            label: "{% trans 'Orders' %}",
+                            data: transactionCounts,
+                            backgroundColor: "rgba(108, 117, 125, 0.7)",
+                            borderColor: "#6c757d",
+                            borderWidth: 1,
+                        },
+                    ],
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { labels: { color: textColor } },
+                    },
+                    scales: {
+                        x: {
+                            ticks: { color: textColor },
+                            grid: { color: gridColor },
+                        },
+                        y: {
+                            ticks: { color: textColor },
+                            grid: { color: gridColor },
+                            beginAtZero: true,
+                        },
+                    },
+                },
+            });
+        }
+    });
+</script>
+{% endblock extra_javascript %}

@@ -13,6 +13,7 @@ from django.core.cache import cache
 from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Count, Q, Sum
+from django.db.models.functions import TruncMonth
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -20,6 +21,7 @@ from django.utils.translation import gettext_lazy as _
 from django.views.decorators.http import require_http_methods
 
 # Alliance Auth
+from allianceauth.authentication.models import UserProfile
 from allianceauth.services.hooks import get_extension_logger
 
 from ..decorators import indy_hub_permission_required, tokens_required
@@ -57,6 +59,163 @@ User = get_user_model()
 
 _PRODUCTION_IDS_CACHE: set[int] | None = None
 _INDUSTRY_MARKET_GROUP_IDS_CACHE: set[int] | None = None
+
+
+def _resolve_main_character_name(user) -> str:
+    """Return user's main character name when available, fallback to username."""
+    if not user:
+        return ""
+
+    try:
+        profile = UserProfile.objects.select_related("main_character").get(user=user)
+        main_character = getattr(profile, "main_character", None)
+        if main_character and getattr(main_character, "character_name", None):
+            return str(main_character.character_name)
+    except UserProfile.DoesNotExist:
+        pass
+    except Exception:
+        pass
+
+    return str(getattr(user, "username", ""))
+
+
+def _build_timeline_breadcrumb_for_order(
+    order, order_kind: str, perspective: str = "user"
+):
+    """Build compact timeline breadcrumb for order list cards."""
+    breadcrumb = []
+
+    if order_kind == "sell":
+        breadcrumb.append(
+            {
+                "status": _("Order Created"),
+                "completed": order.status
+                in ["draft", "awaiting_validation", "validated", "completed"],
+                "icon": "fa-pen",
+            }
+        )
+        breadcrumb.append(
+            {
+                "status": _("Awaiting Contract"),
+                "completed": order.status
+                in ["awaiting_validation", "validated", "completed"],
+                "icon": "fa-file",
+            }
+        )
+        breadcrumb.append(
+            {
+                "status": _("Auth Validation"),
+                "completed": order.status in ["validated", "completed"],
+                "icon": "fa-check-circle",
+            }
+        )
+        breadcrumb.append(
+            {
+                "status": _("Corporation Acceptance"),
+                "completed": order.status == "completed",
+                "icon": "fa-flag-checkered",
+            }
+        )
+    else:
+        final_acceptance_label = (
+            _("User Accept") if perspective == "admin" else _("You Accept")
+        )
+        breadcrumb.append(
+            {
+                "status": _("Order Created"),
+                "completed": order.status
+                in ["draft", "awaiting_validation", "validated", "completed"],
+                "icon": "fa-pen",
+            }
+        )
+        breadcrumb.append(
+            {
+                "status": _("Awaiting Corp Contract"),
+                "completed": order.status
+                in ["awaiting_validation", "validated", "completed"],
+                "icon": "fa-file",
+            }
+        )
+        breadcrumb.append(
+            {
+                "status": _("Auth Validation"),
+                "completed": order.status in ["validated", "completed"],
+                "icon": "fa-check-circle",
+            }
+        )
+        breadcrumb.append(
+            {
+                "status": final_acceptance_label,
+                "completed": order.status == "completed",
+                "icon": "fa-hand-pointer",
+            }
+        )
+
+    return breadcrumb
+
+
+def _annotate_timeline_positions(timeline):
+    total_steps = len(timeline)
+    if total_steps <= 1:
+        if total_steps == 1:
+            timeline[0]["position_percent"] = 0
+        return timeline
+
+    last_index = total_steps - 1
+    for index, step in enumerate(timeline):
+        step["position_percent"] = round((index / last_index) * 100, 2)
+    return timeline
+
+
+def _attach_order_progress_data(order, order_kind: str, perspective: str = "user"):
+    order.order_kind = order_kind
+    order.timeline_breadcrumb = _build_timeline_breadcrumb_for_order(
+        order, order_kind, perspective
+    )
+    order.timeline_breadcrumb = _annotate_timeline_positions(order.timeline_breadcrumb)
+    order.progress_width = _calc_progress_width(order.timeline_breadcrumb)
+    order.progress_total_steps = len(order.timeline_breadcrumb)
+    order.progress_completed_steps = sum(
+        1 for step in order.timeline_breadcrumb if step.get("completed")
+    )
+    order.progress_active_start = 0
+    order.progress_active_width = 0
+
+    current_step_index = 0
+    for idx, step in enumerate(order.timeline_breadcrumb):
+        if step.get("completed"):
+            current_step_index = idx
+
+    if order.timeline_breadcrumb:
+        order.progress_current_label = order.timeline_breadcrumb[current_step_index][
+            "status"
+        ]
+        current_step_position = order.timeline_breadcrumb[current_step_index].get(
+            "position_percent", 0
+        )
+        if current_step_index < order.progress_total_steps - 1:
+            next_step_position = order.timeline_breadcrumb[current_step_index + 1].get(
+                "position_percent", current_step_position
+            )
+            order.progress_active_start = current_step_position
+            order.progress_active_width = max(
+                0, round(next_step_position - current_step_position, 2)
+            )
+    else:
+        order.progress_current_label = ""
+
+    return order
+
+
+def _calc_progress_width(breadcrumb) -> int:
+    if not breadcrumb:
+        return 0
+    total = len(breadcrumb)
+    done = sum(1 for step in breadcrumb if step.get("completed"))
+    if total <= 1:
+        return 100 if done else 0
+    ratio = max(0, min(done - 1, total - 1)) / (total - 1)
+    return int(ratio * 100)
 
 
 def _minutes_until_refresh(last_update, *, window_seconds: int = 3600) -> int | None:
@@ -634,22 +793,28 @@ def material_exchange_index(request):
     ).count()
     pending_buy_orders = config.buy_orders.filter(status="draft").count()
 
-    # User's recent orders
+    # User's active orders
+    closed_statuses = ["completed", "rejected", "cancelled"]
     user_sell_orders = (
         request.user.material_sell_orders.filter(config=config)
+        .exclude(status__in=closed_statuses)
         .prefetch_related("items")
         .order_by("-created_at")[:5]
     )
     user_buy_orders = (
         request.user.material_buy_orders.filter(config=config)
+        .exclude(status__in=closed_statuses)
         .prefetch_related("items")
         .order_by("-created_at")[:5]
     )
 
-    # Recent transactions (last 10)
-    recent_transactions = config.transactions.select_related(
-        "user", "sell_order", "buy_order"
-    ).order_by("-completed_at")[:10]
+    recent_orders = []
+    for order in user_sell_orders:
+        recent_orders.append(_attach_order_progress_data(order, "sell"))
+    for order in user_buy_orders:
+        recent_orders.append(_attach_order_progress_data(order, "buy"))
+    recent_orders.sort(key=lambda order: order.created_at, reverse=True)
+    recent_orders = recent_orders[:10]
 
     # Admin section data (if user has permission)
     can_admin = request.user.has_perm("indy_hub.can_manage_material_hub")
@@ -658,7 +823,6 @@ def material_exchange_index(request):
     status_filter = None
 
     if can_admin:
-        closed_statuses = ["completed", "rejected", "cancelled"]
         status_filter = request.GET.get("status") or None
         # Admin panel: show only active/in-flight orders; closed ones move to history view
         admin_sell_orders = (
@@ -677,15 +841,23 @@ def material_exchange_index(request):
             admin_sell_orders = admin_sell_orders.filter(status=status_filter)
             admin_buy_orders = admin_buy_orders.filter(status=status_filter)
 
+        admin_sell_orders = list(admin_sell_orders)
+        for order in admin_sell_orders:
+            order.seller_display_name = _resolve_main_character_name(order.seller)
+            _attach_order_progress_data(order, "sell", perspective="admin")
+
+        admin_buy_orders = list(admin_buy_orders)
+        for order in admin_buy_orders:
+            order.buyer_display_name = _resolve_main_character_name(order.buyer)
+            _attach_order_progress_data(order, "buy", perspective="admin")
+
     context = {
         "config": config,
         "stock_count": stock_count,
         "total_stock_value": total_stock_value,
         "pending_sell_orders": pending_sell_orders,
         "pending_buy_orders": pending_buy_orders,
-        "user_sell_orders": user_sell_orders,
-        "user_buy_orders": user_buy_orders,
-        "recent_transactions": recent_transactions,
+        "recent_orders": recent_orders,
         "can_admin": can_admin,
         "admin_sell_orders": admin_sell_orders,
         "admin_buy_orders": admin_buy_orders,
@@ -1857,7 +2029,7 @@ def _complete_buy_order(order, *, delivered_by=None, delivery_method=None):
 
 
 @login_required
-@indy_hub_permission_required("can_access_indy_hub")
+@indy_hub_permission_required("can_manage_material_hub")
 def material_exchange_transactions(request):
     """
     Transaction history and finance reporting.
@@ -1876,7 +2048,9 @@ def material_exchange_transactions(request):
     transaction_type = request.GET.get("type", "")  # 'sell', 'buy', or ''
     user_filter = request.GET.get("user", "")
 
-    transactions_qs = config.transactions.select_related("user")
+    transactions_qs = config.transactions.select_related(
+        "user", "sell_order", "buy_order"
+    ).prefetch_related("sell_order__items", "buy_order__items")
 
     if transaction_type:
         transactions_qs = transactions_qs.filter(transaction_type=transaction_type)
@@ -1889,6 +2063,33 @@ def material_exchange_transactions(request):
     paginator = Paginator(transactions_qs, 50)
     page_number = request.GET.get("page", 1)
     page_obj = paginator.get_page(page_number)
+
+    transactions = list(page_obj.object_list)
+
+    for tx in transactions:
+        if tx.sell_order_id:
+            order = tx.sell_order
+            tx.has_linked_order = True
+            tx.order_reference = order.order_reference or f"SELL-{tx.sell_order_id}"
+            tx.order_items = list(order.items.all())
+        elif tx.buy_order_id:
+            order = tx.buy_order
+            tx.has_linked_order = True
+            tx.order_reference = order.order_reference or f"BUY-{tx.buy_order_id}"
+            tx.order_items = list(order.items.all())
+        else:
+            tx.has_linked_order = False
+            tx.order_reference = ""
+            tx.order_items = []
+
+        if not tx.order_items:
+            tx.order_items = [tx]
+
+        tx.order_item_count = len(tx.order_items)
+        tx.order_total_price = sum(
+            (item.total_price for item in tx.order_items),
+            Decimal("0"),
+        )
 
     # Aggregates for current month
     now = timezone.now()
@@ -1908,7 +2109,7 @@ def material_exchange_transactions(request):
     context = {
         "config": config,
         "page_obj": page_obj,
-        "transactions": page_obj.object_list,
+        "transactions": transactions,
         "is_paginated": page_obj.has_other_pages(),
         "transaction_type": transaction_type,
         "user_filter": user_filter,
@@ -1927,6 +2128,168 @@ def material_exchange_transactions(request):
     )
 
     return render(request, "indy_hub/material_exchange/transactions.html", context)
+
+
+@login_required
+@indy_hub_permission_required("can_manage_material_hub")
+def material_exchange_stats_history(request):
+    """Monthly statistics history for Material Exchange transactions."""
+    if not _is_material_exchange_enabled():
+        messages.warning(request, _("Material Exchange is disabled."))
+        return redirect("indy_hub:material_exchange_index")
+
+    config = _get_material_exchange_config()
+    if not config:
+        messages.warning(request, _("Material Exchange is not configured."))
+        return redirect("indy_hub:material_exchange_index")
+
+    period_options = [
+        ("1m", _("This month")),
+        ("3m", _("Last 3 months")),
+        ("6m", _("Last 6 months")),
+        ("12m", _("Last 12 months")),
+        ("24m", _("Last 24 months")),
+        ("all", _("All time")),
+    ]
+    period_months_map = {
+        "1m": 1,
+        "3m": 3,
+        "6m": 6,
+        "12m": 12,
+        "24m": 24,
+    }
+    selected_period = request.GET.get("period", "all")
+    if selected_period not in {key for key, _ in period_options}:
+        selected_period = "all"
+
+    filtered_transactions = config.transactions.all()
+    period_start = None
+    if selected_period in period_months_map:
+        months = period_months_map[selected_period]
+        month_anchor = timezone.now().replace(
+            day=1,
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+        month_index = (month_anchor.year * 12 + month_anchor.month - 1) - (months - 1)
+        start_year = month_index // 12
+        start_month = (month_index % 12) + 1
+        period_start = month_anchor.replace(year=start_year, month=start_month)
+        filtered_transactions = filtered_transactions.filter(
+            completed_at__gte=period_start
+        )
+
+    monthly_rows = (
+        filtered_transactions.annotate(month=TruncMonth("completed_at"))
+        .values("month")
+        .annotate(
+            total_sell_volume=Sum(
+                "total_price", filter=Q(transaction_type="sell"), default=0
+            ),
+            total_buy_volume=Sum(
+                "total_price", filter=Q(transaction_type="buy"), default=0
+            ),
+            sell_orders=Count("id", filter=Q(transaction_type="sell")),
+            buy_orders=Count("id", filter=Q(transaction_type="buy")),
+        )
+        .order_by("month")
+    )
+
+    chart_labels = []
+    buy_volumes = []
+    sell_volumes = []
+    transaction_counts = []
+
+    total_buy_volume = Decimal("0")
+    total_sell_volume = Decimal("0")
+    total_transactions = 0
+
+    for row in monthly_rows:
+        month = row.get("month")
+        if not month:
+            continue
+        buy_volume = row.get("total_buy_volume") or Decimal("0")
+        sell_volume = row.get("total_sell_volume") or Decimal("0")
+        buy_count = row.get("buy_orders") or 0
+        sell_count = row.get("sell_orders") or 0
+
+        chart_labels.append(month.strftime("%Y-%m"))
+        buy_volumes.append(float(buy_volume))
+        sell_volumes.append(float(sell_volume))
+        transaction_counts.append(buy_count + sell_count)
+
+        total_buy_volume += buy_volume
+        total_sell_volume += sell_volume
+        total_transactions += buy_count + sell_count
+
+    user_stats = (
+        filtered_transactions.values("user__username")
+        .annotate(
+            buy_volume=Sum("total_price", filter=Q(transaction_type="buy"), default=0),
+            sell_volume=Sum(
+                "total_price", filter=Q(transaction_type="sell"), default=0
+            ),
+            buy_orders=Count("id", filter=Q(transaction_type="buy")),
+            sell_orders=Count("id", filter=Q(transaction_type="sell")),
+        )
+        .order_by("user__username")
+    )
+
+    user_rows = []
+    for row in user_stats:
+        buy_volume = row.get("buy_volume") or Decimal("0")
+        sell_volume = row.get("sell_volume") or Decimal("0")
+        buy_orders = row.get("buy_orders") or 0
+        sell_orders = row.get("sell_orders") or 0
+
+        user_rows.append(
+            {
+                "username": row.get("user__username") or "-",
+                "buy_volume": buy_volume,
+                "sell_volume": sell_volume,
+                "buy_orders": buy_orders,
+                "sell_orders": sell_orders,
+                "total_orders": buy_orders + sell_orders,
+                "net_flow": buy_volume - sell_volume,
+            }
+        )
+
+    top_user_stats = sorted(
+        user_rows,
+        key=lambda item: item["buy_volume"] + item["sell_volume"],
+        reverse=True,
+    )[:10]
+
+    context = {
+        "config": config,
+        "chart_labels": chart_labels,
+        "buy_volumes": buy_volumes,
+        "sell_volumes": sell_volumes,
+        "transaction_counts": transaction_counts,
+        "months_count": len(chart_labels),
+        "total_buy_volume": total_buy_volume,
+        "total_sell_volume": total_sell_volume,
+        "total_transactions": total_transactions,
+        "top_user_stats": top_user_stats,
+        "period_options": period_options,
+        "selected_period": selected_period,
+        "period_start": period_start,
+        "nav_context": _build_nav_context(request.user),
+    }
+
+    context.update(
+        build_nav_context(
+            request.user,
+            active_tab="material_hub",
+            can_manage_corp=request.user.has_perm(
+                "indy_hub.can_manage_corp_bp_requests"
+            ),
+        )
+    )
+
+    return render(request, "indy_hub/material_exchange/stats_history.html", context)
 
 
 @login_required
