@@ -740,7 +740,7 @@ class BlueprintCopyFulfillViewTests(TestCase):
         )
         self.client.force_login(self.user)
 
-    def test_personal_only_request_hidden(self) -> None:
+    def test_personal_only_request_visible(self) -> None:
         blueprint = Blueprint.objects.create(
             owner_user=self.user,
             character_id=42,
@@ -770,8 +770,13 @@ class BlueprintCopyFulfillViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("metrics", response.context)
-        self.assertEqual(response.context["metrics"]["total"], 0)
-        self.assertEqual(response.context["requests"], [])
+        self.assertEqual(response.context["metrics"]["total"], 1)
+        self.assertEqual(len(response.context["requests"]), 1)
+        entry = response.context["requests"][0]
+        self.assertEqual(entry["status_key"], "awaiting_response")
+        self.assertFalse(entry["is_corporate"])
+        self.assertEqual(entry["personal_blueprints"], 1)
+        self.assertEqual(entry["corporate_blueprints"], 0)
 
     def test_self_request_hidden_without_corporate_source(self) -> None:
         blueprint = Blueprint.objects.create(
@@ -907,6 +912,109 @@ class BlueprintCopyFulfillViewTests(TestCase):
         self.assertEqual(entry["corporate_blueprints"], 1)
         self.assertFalse(entry["has_dual_sources"])
         self.assertEqual(entry["default_scope"], "corporation")
+
+    def test_personal_requests_hidden_when_personal_share_disabled(self) -> None:
+        settings = CharacterSettings.objects.get(user=self.user, character_id=0)
+        settings.allow_copy_requests = False
+        settings.copy_sharing_scope = CharacterSettings.SCOPE_NONE
+        settings.save(update_fields=["allow_copy_requests", "copy_sharing_scope"])
+
+        corp_id = 3_100_001
+        manager_character = EveCharacter.objects.get(character_id=101001)
+        manager_character.corporation_id = corp_id
+        manager_character.corporation_name = "Manager Access Corp"
+        manager_character.corporation_ticker = "MAC"
+        manager_character.save(
+            update_fields=[
+                "corporation_id",
+                "corporation_name",
+                "corporation_ticker",
+            ]
+        )
+        CharacterOwnership.objects.update_or_create(
+            user=self.user,
+            character=manager_character,
+            defaults={
+                "owner_hash": f"hash-{manager_character.character_id}-{self.user.id}",
+            },
+        )
+
+        corp_owner = User.objects.create_user("corp_owner2", password="owner123")
+        owner_character = assign_main_character(corp_owner, character_id=303120)
+        owner_character.corporation_id = corp_id
+        owner_character.corporation_name = "Manager Access Corp"
+        owner_character.corporation_ticker = "MAC"
+        owner_character.save(
+            update_fields=[
+                "corporation_id",
+                "corporation_name",
+                "corporation_ticker",
+            ]
+        )
+        CharacterOwnership.objects.update_or_create(
+            user=corp_owner,
+            character=owner_character,
+            defaults={
+                "owner_hash": f"hash-{owner_character.character_id}-{corp_owner.id}",
+            },
+        )
+        grant_indy_permissions(corp_owner, "can_manage_corp_bp_requests")
+        CorporationSharingSetting.objects.create(
+            user=corp_owner,
+            corporation_id=corp_id,
+            corporation_name="Manager Access Corp",
+            share_scope=CharacterSettings.SCOPE_CORPORATION,
+            allow_copy_requests=True,
+        )
+
+        Blueprint.objects.create(
+            owner_user=corp_owner,
+            owner_kind=Blueprint.OwnerKind.CORPORATION,
+            corporation_id=corp_id,
+            corporation_name="Manager Access Corp",
+            item_id=9111001,
+            blueprint_id=9111002,
+            type_id=781001,
+            location_id=PUBLIC_STATION_ID,
+            location_flag="corp_hangar",
+            quantity=-1,
+            time_efficiency=14,
+            material_efficiency=12,
+            runs=0,
+            type_name="Corp Access Blueprint",
+        )
+
+        personal_bp = Blueprint.objects.create(
+            owner_user=self.user,
+            character_id=42,
+            item_id=9111011,
+            blueprint_id=9111012,
+            type_id=781099,
+            location_id=PUBLIC_STATION_ID,
+            location_flag="hangar",
+            quantity=-1,
+            time_efficiency=10,
+            material_efficiency=8,
+            runs=0,
+            character_name="Capsuleer",
+            type_name="Personal Hidden Blueprint",
+        )
+
+        buyer = User.objects.create_user("buyer_hidden", password="buyer123")
+        BlueprintCopyRequest.objects.create(
+            type_id=personal_bp.type_id,
+            material_efficiency=personal_bp.material_efficiency,
+            time_efficiency=personal_bp.time_efficiency,
+            requested_by=buyer,
+            runs_requested=2,
+            copies_requested=1,
+        )
+
+        response = self.client.get(reverse("indy_hub:bp_copy_fulfill_requests"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["requests"], [])
+        self.assertEqual(response.context["metrics"]["total"], 0)
 
     def test_dual_source_requests_show_corporate_only(self) -> None:
         corp_id = 4_200_123
@@ -1678,7 +1786,7 @@ class BlueprintCopyRequestPageTests(TestCase):
             type_name="Duplicated Widget Blueprint",
         )
 
-    def test_duplicate_submission_creates_additional_request(self) -> None:
+    def test_duplicate_submission_is_blocked(self) -> None:
         url = reverse("indy_hub:bp_copy_request_page")
         post_data = {
             "type_id": 605001,
@@ -1690,7 +1798,7 @@ class BlueprintCopyRequestPageTests(TestCase):
 
         with patch("indy_hub.views.industry.notify_user") as mock_notify:
             response = self.client.post(url, post_data)
-            self.assertRedirects(response, url)
+            self.assertRedirects(response, reverse("indy_hub:bp_copy_my_requests"))
 
             initial_requests = BlueprintCopyRequest.objects.filter(
                 type_id=605001,
@@ -1713,7 +1821,7 @@ class BlueprintCopyRequestPageTests(TestCase):
                 "copies_requested": 2,
             }
             response = self.client.post(url, followup_data)
-            self.assertRedirects(response, url)
+            self.assertRedirects(response, reverse("indy_hub:bp_copy_my_requests"))
 
             open_requests = BlueprintCopyRequest.objects.filter(
                 type_id=605001,
@@ -1723,8 +1831,8 @@ class BlueprintCopyRequestPageTests(TestCase):
                 fulfilled=False,
             )
 
-            self.assertEqual(open_requests.count(), 2)
-            self.assertEqual(mock_notify.call_count, 2)
+            self.assertEqual(open_requests.count(), 1)
+            self.assertEqual(mock_notify.call_count, 1)
 
     def test_everyone_scope_shows_blueprint(self) -> None:
         settings = CharacterSettings.objects.get(user=self.owner, character_id=0)
@@ -1738,6 +1846,20 @@ class BlueprintCopyRequestPageTests(TestCase):
         page_obj = response.context["page_obj"]
         visible_type_ids = {entry["type_id"] for entry in page_obj}
         self.assertIn(605001, visible_type_ids)
+
+    def test_invalid_per_page_falls_back_to_default(self) -> None:
+        settings = CharacterSettings.objects.get(user=self.owner, character_id=0)
+        settings.copy_sharing_scope = CharacterSettings.SCOPE_EVERYONE
+        settings.allow_copy_requests = True
+        settings.save(update_fields=["copy_sharing_scope", "allow_copy_requests"])
+
+        response = self.client.get(
+            reverse("indy_hub:bp_copy_request_page"),
+            {"per_page": "abc"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["per_page"], 24)
 
     def test_corporation_scope_shows_corporate_blueprint(self) -> None:
         corp_id = 2_000_000
@@ -1873,7 +1995,7 @@ class BlueprintCopyRequestPageTests(TestCase):
                 reverse("indy_hub:bp_copy_request_page"), post_data
             )
 
-        self.assertRedirects(response, reverse("indy_hub:bp_copy_request_page"))
+        self.assertRedirects(response, reverse("indy_hub:bp_copy_my_requests"))
         recipients = {call.args[0] for call in mock_notify.call_args_list}
         self.assertSetEqual({self.owner, manager}, recipients)
 

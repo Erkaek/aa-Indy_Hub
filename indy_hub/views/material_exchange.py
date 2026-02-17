@@ -16,6 +16,7 @@ from django.db.models import Count, Q, Sum
 from django.db.models.functions import TruncMonth
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.views.decorators.http import require_http_methods
@@ -352,10 +353,7 @@ def _get_allowed_type_ids_for_config(
         )
         group_ids = {int(x) for x in (raw_group_ids or [])}
         if not group_ids:
-            group_ids = _get_industry_market_group_ids()
-
-        if not group_ids:
-            return None
+            return set()
 
         expanded_group_ids = _expand_market_group_ids(group_ids)
         groups_key = ",".join(map(str, sorted(expanded_group_ids)))
@@ -404,9 +402,21 @@ def _fetch_user_assets_for_structure(
 ) -> tuple[dict[int, int], bool]:
     """Return aggregated asset quantities for the user's characters at a structure using cache."""
 
+    aggregated, _by_character, scope_missing = _fetch_user_assets_for_structure_data(
+        user, structure_id, allow_refresh=allow_refresh
+    )
+    return aggregated, scope_missing
+
+
+def _fetch_user_assets_for_structure_data(
+    user, structure_id: int, *, allow_refresh: bool = True
+) -> tuple[dict[int, int], dict[int, dict[int, int]], bool]:
+    """Return aggregated and per-character asset quantities at a structure using cache."""
+
     assets, scope_missing = get_user_assets_cached(user, allow_refresh=allow_refresh)
 
     aggregated: dict[int, int] = {}
+    by_character: dict[int, dict[int, int]] = {}
     for asset in assets:
         try:
             if int(asset.get("location_id", 0)) != int(structure_id):
@@ -430,7 +440,41 @@ def _fetch_user_assets_for_structure(
 
         aggregated[type_id] = aggregated.get(type_id, 0) + quantity
 
-    return aggregated, scope_missing
+        try:
+            character_id = int(asset.get("character_id") or 0)
+        except (TypeError, ValueError):
+            character_id = 0
+        if character_id > 0:
+            char_assets = by_character.setdefault(character_id, {})
+            char_assets[type_id] = char_assets.get(type_id, 0) + quantity
+
+    return aggregated, by_character, scope_missing
+
+
+def _resolve_user_character_names_map(user) -> dict[int, str]:
+    """Return owned character names keyed by character ID."""
+
+    names: dict[int, str] = {}
+    try:
+        # Alliance Auth
+        from allianceauth.authentication.models import CharacterOwnership
+
+        ownerships = CharacterOwnership.objects.select_related("character").filter(
+            user=user
+        )
+        for ownership in ownerships:
+            character = getattr(ownership, "character", None)
+            if not character:
+                continue
+            character_id = getattr(character, "character_id", None)
+            if not character_id:
+                continue
+            character_name = (getattr(character, "character_name", "") or "").strip()
+            names[int(character_id)] = character_name or str(character_id)
+    except Exception:
+        return names
+
+    return names
 
 
 def _me_sell_assets_progress_key(user_id: int) -> str:
@@ -760,7 +804,7 @@ def material_exchange_index(request):
             )
 
         allowed_type_ids = _get_allowed_type_ids_for_config(config, "sell")
-        if allowed_type_ids:
+        if allowed_type_ids is not None:
             user_assets = {
                 tid: qty for tid, qty in user_assets.items() if tid in allowed_type_ids
             }
@@ -1018,10 +1062,10 @@ def material_exchange_sell(request, tokens):
 
         pre_filter_count = len(user_assets)
 
-        # Apply market group filter if configured
+        # Apply market group filter strictly (empty config means no allowed items)
         try:
             allowed_type_ids = _get_allowed_type_ids_for_config(config, "sell")
-            if allowed_type_ids:
+            if allowed_type_ids is not None:
                 user_assets = {
                     tid: qty
                     for tid, qty in user_assets.items()
@@ -1233,10 +1277,12 @@ def material_exchange_sell(request, tokens):
         or not has_cached_assets
         or needs_user_assets_version_refresh
     )
-    user_assets, scope_missing = _fetch_user_assets_for_structure(
-        request.user,
-        config.structure_id,
-        allow_refresh=allow_refresh,
+    user_assets, user_assets_by_character, scope_missing = (
+        _fetch_user_assets_for_structure_data(
+            request.user,
+            config.structure_id,
+            allow_refresh=allow_refresh,
+        )
     )
     if sell_assets_progress.get("error") == "no_assets_fetched" and (
         has_cached_assets or user_assets
@@ -1254,14 +1300,22 @@ def material_exchange_sell(request, tokens):
             f"SELL DEBUG: Found {len(user_assets)} unique items in assets before production filter (filter disabled)"
         )
 
-        # Apply market group filter (same as POST + Index) to keep views consistent
+        # Apply market group filter strictly (same as POST + Index)
         try:
             allowed_type_ids = _get_allowed_type_ids_for_config(config, "sell")
-            if allowed_type_ids:
+            if allowed_type_ids is not None:
                 user_assets = {
                     tid: qty
                     for tid, qty in user_assets.items()
                     if tid in allowed_type_ids
+                }
+                user_assets_by_character = {
+                    character_id: {
+                        tid: qty
+                        for tid, qty in char_assets.items()
+                        if tid in allowed_type_ids
+                    }
+                    for character_id, char_assets in user_assets_by_character.items()
                 }
                 logger.info(
                     f"SELL DEBUG: {len(user_assets)} items after market group filter"
@@ -1272,7 +1326,74 @@ def material_exchange_sell(request, tokens):
         price_data = _fetch_fuzzwork_prices(list(user_assets.keys()))
         logger.info(f"SELL DEBUG: Got prices for {len(price_data)} items from Fuzzwork")
 
-        for type_id, user_qty in user_assets.items():
+        def _is_sellable_type(type_id: int) -> bool:
+            fuzz_prices = price_data.get(type_id, {})
+            jita_buy = fuzz_prices.get("buy") or Decimal(0)
+            jita_sell = fuzz_prices.get("sell") or Decimal(0)
+            if jita_buy <= 0 and jita_sell <= 0:
+                return False
+            buy_price = compute_buy_price_from_member(
+                config=config,
+                jita_buy=jita_buy,
+                jita_sell=jita_sell,
+            )
+            return buy_price > 0
+
+        character_names_map = _resolve_user_character_names_map(request.user)
+        sell_page_base_url = reverse("indy_hub:material_exchange_sell")
+        character_tabs = []
+
+        sorted_characters = sorted(
+            user_assets_by_character.keys(),
+            key=lambda character_id: character_names_map.get(
+                character_id, str(character_id)
+            ).lower(),
+        )
+        for character_id in sorted_characters:
+            character_assets = user_assets_by_character.get(character_id, {})
+            tab_count = sum(
+                1 for type_id in character_assets if _is_sellable_type(type_id)
+            )
+            if tab_count <= 0:
+                continue
+            character_tabs.append(
+                {
+                    "id": str(character_id),
+                    "name": character_names_map.get(
+                        character_id, _("Character %(id)s") % {"id": character_id}
+                    ),
+                    "item_count": tab_count,
+                    "url": f"{sell_page_base_url}?character={character_id}",
+                }
+            )
+
+        selected_character_param = (request.GET.get("character") or "").strip()
+        selected_character_id: int | None = None
+        if selected_character_param:
+            try:
+                selected_character_id = int(selected_character_param)
+            except (TypeError, ValueError):
+                selected_character_id = None
+
+        available_character_ids = {
+            int(tab["id"]) for tab in character_tabs if str(tab.get("id", "")).isdigit()
+        }
+
+        if selected_character_id in available_character_ids:
+            active_character_tab = str(selected_character_id)
+        elif character_tabs:
+            active_character_tab = str(character_tabs[0]["id"])
+            selected_character_id = int(active_character_tab)
+        else:
+            active_character_tab = ""
+            selected_character_id = None
+
+        if selected_character_id and selected_character_id in user_assets_by_character:
+            assets_for_display = user_assets_by_character[selected_character_id]
+        else:
+            assets_for_display = {}
+
+        for type_id, user_qty in assets_for_display.items():
             fuzz_prices = price_data.get(type_id, {})
             jita_buy = fuzz_prices.get("buy") or Decimal(0)
             jita_sell = fuzz_prices.get("sell") or Decimal(0)
@@ -1332,6 +1453,8 @@ def material_exchange_sell(request, tokens):
     context = {
         "config": config,
         "materials": materials_with_qty,
+        "character_tabs": character_tabs if user_assets else [],
+        "active_character_tab": active_character_tab if user_assets else "",
         "corporation_name": corporation_name,
         "assets_refreshing": assets_refreshing,
         "sell_assets_progress": sell_assets_progress,
@@ -1393,10 +1516,10 @@ def material_exchange_buy(request, tokens):
 
         pre_filter_stock_count = len(stock_items)
 
-        # Apply market group filter if configured
+        # Apply market group filter strictly (empty config means no allowed items)
         try:
             allowed_type_ids = _get_allowed_type_ids_for_config(config, "buy")
-            if allowed_type_ids:
+            if allowed_type_ids is not None:
                 stock_items = [
                     item for item in stock_items if item.type_id in allowed_type_ids
                 ]
@@ -1606,10 +1729,10 @@ def material_exchange_buy(request, tokens):
     stock_items = list(config.stock_items.filter(quantity__gt=0, jita_buy_price__gt=0))
     pre_filter_stock_count = len(stock_items)
 
-    # Apply market group filter if configured
+    # Apply market group filter strictly (empty config means no allowed items)
     try:
         allowed_type_ids = _get_allowed_type_ids_for_config(config, "buy")
-        if allowed_type_ids:
+        if allowed_type_ids is not None:
             stock_items = [
                 item for item in stock_items if item.type_id in allowed_type_ids
             ]

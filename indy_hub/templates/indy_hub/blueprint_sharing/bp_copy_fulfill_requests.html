@@ -45,7 +45,7 @@
     {# Metric Tiles #}
     <div class="row g-3 mb-4">
         <div class="col-md-6">
-            <a href="?status=all" class="metric-tile-link">
+            <a href="?status=all{% if include_self_requests %}&include_self=1{% endif %}" class="metric-tile-link">
                 <div class="metric-tile bg-gradient-primary">
                     <div>
                         <p class="label text-primary mb-1">
@@ -60,7 +60,7 @@
             </a>
         </div>
         <div class="col-md-6">
-            <a href="?status=awaiting_response" class="metric-tile-link">
+            <a href="?status=awaiting_response{% if include_self_requests %}&include_self=1{% endif %}" class="metric-tile-link">
                 <div class="metric-tile bg-gradient-warning">
                     <div>
                         <p class="label text-warning mb-1">
@@ -75,7 +75,7 @@
             </a>
         </div>
         <div class="col-md-6">
-            <a href="?status=waiting_on_buyer" class="metric-tile-link">
+            <a href="?status=waiting_on_buyer{% if include_self_requests %}&include_self=1{% endif %}" class="metric-tile-link">
                 <div class="metric-tile bg-gradient-info">
                     <div>
                         <p class="label text-info mb-1">
@@ -90,7 +90,7 @@
             </a>
         </div>
         <div class="col-md-6">
-            <a href="?status=ready_to_deliver" class="metric-tile-link">
+            <a href="?status=ready_to_deliver{% if include_self_requests %}&include_self=1{% endif %}" class="metric-tile-link">
                 <div class="metric-tile bg-gradient-success">
                     <div>
                         <p class="label text-success mb-1">
@@ -117,7 +117,9 @@
                 <option value="waiting_on_you" {% if active_filter == 'waiting_on_you' %}selected{% endif %}>{% trans "Waiting on you" %}</option>
                 <option value="ready_to_deliver" {% if active_filter == 'ready_to_deliver' %}selected{% endif %}>{% trans "Ready to deliver" %}</option>
                 <option value="offer_rejected" {% if active_filter == 'offer_rejected' %}selected{% endif %}>{% trans "Offer rejected" %}</option>
+                {% if include_self_requests %}
                 <option value="self_request" {% if active_filter == 'self_request' %}selected{% endif %}>{% trans "My tracked requests" %}</option>
+                {% endif %}
             </select>
         </div>
         <div class="form-check ms-1">
@@ -126,16 +128,8 @@
         </div>
     </form>
 
-    {# Requests Table #}
-    <div class="requests-panel requests-panel--fulfill">
-        <div class="requests-head d-none d-lg-grid">
-            <span>{% trans "Blueprint" %}</span>
-            <span>{% trans "Requester" %}</span>
-            <span>{% trans "Details" %}</span>
-            <span>{% trans "Status" %}</span>
-            <span class="text-end">{% trans "Action" %}</span>
-        </div>
-
+    {# Requests List - Horizontal Card Layout #}
+    <div class="fulfill-requests-list">
         {% if not requests %}
         <div class="p-4 text-center text-muted">
             <i class="fas fa-filter me-1"></i>{% trans "No requests match this filter." %}
@@ -143,218 +137,113 @@
         {% endif %}
 
         {% for req in requests %}
-        <div class="request-row">
-            {# Blueprint Type #}
-            <div class="request-blueprint">
-                <div class="d-flex align-items-center gap-2">
-                    <img
-                        src="{{ req.icon_url }}"
-                        alt="{{ req.type_name }}"
-                        loading="lazy"
-                        class="request-blueprint__icon"
-                        onerror="this.onerror=null;this.src='https://images.evetech.net/types/{{ req.type_id }}/icon?size=32'"
-                    >
-                    <div>
-                        <div class="fw-600">{{ req.type_name }}</div>
-                        {% if req.personal_source_names or req.corporation_names %}
-                        <div class="bp-owner">
-                            {% if req.personal_source_names %}
-                            <div class="bp-owner-row">
-                                <small class="bp-owner-label">
-                                    <i class="fas fa-user me-1"></i>{% trans "Personal owner" %}:
-                                </small>
-                                {% for name in req.personal_source_names %}
-                                <span class="spec-badge bp-owner-badge">{{ name }}</span>
-                                {% endfor %}
-                            </div>
-                            {% endif %}
-                            {% if req.corporation_names %}
-                            <div class="bp-owner-row">
-                                <small class="bp-owner-label">
-                                    <i class="fas fa-building me-1"></i>{% trans "Corp owner" %}:
-                                </small>
-                                {% for name in req.corporation_names %}
-                                <span class="spec-badge bp-owner-badge">{{ name }}</span>
-                                {% endfor %}
-                            </div>
-                            {% endif %}
-                        </div>
+        <div class="fulfill-card">
+            {# Left: Icon #}
+            <div class="fulfill-card__icon">
+                <img
+                    src="{{ req.icon_url }}"
+                    alt="{{ req.type_name }}"
+                    loading="lazy"
+                    onerror="this.onerror=null;this.src='https://images.evetech.net/types/{{ req.type_id }}/icon?size=64'"
+                >
+            </div>
+
+            {# Center: Info #}
+            <div class="fulfill-card__info">
+                <div class="fulfill-card__main">
+                    <h3 class="fulfill-card__title">{{ req.type_name }}</h3>
+                    <div class="fulfill-card__specs">
+                        <span class="fulfill-spec fulfill-spec--me">ME {{ req.material_efficiency }}</span>
+                        <span class="fulfill-spec fulfill-spec--te">TE {{ req.time_efficiency }}</span>
+                        <span class="fulfill-spec fulfill-spec--copies">{{ req.copies_requested }} {% trans "copies" %} · {{ req.runs_requested }} {% trans "runs / copy" %}</span>
+                    </div>
+                </div>
+                <div class="fulfill-card__meta">
+                    <div class="fulfill-meta-item">
+                        <i class="fas fa-user"></i>
+                        <span>{{ req.requester_character|default:req.requester }}</span>
+                        <button
+                            type="button"
+                            class="btn btn-sm btn-outline-secondary bp-request-card__copy-button fulfill-copy-btn"
+                            data-copy-value="{{ req.requester_character|default:req.requester }}"
+                            aria-label="{% trans 'Copy character name' %}"
+                            data-copy-success-label="{% trans 'Copied!' %}"
+                            data-copy-error-label="{% trans 'Unable to copy' %}"
+                        >
+                            <i class="fas fa-copy"></i>
+                        </button>
+                        {% if req.requester_corporation %}
+                        <span class="fulfill-corp">{{ req.requester_corporation_ticker|default:req.requester_corporation }}</span>
                         {% endif %}
-                        <div class="bp-params">
-                            <span class="spec-badge spec-badge--green spec-badge--compact">
-                                <i class="fas fa-industry"></i> ME {{ req.material_efficiency }}
-                            </span>
-                            <span class="spec-badge spec-badge--green spec-badge--compact">
-                                <i class="fas fa-stopwatch"></i> TE {{ req.time_efficiency }}
-                            </span>
-                        </div>
-                        <small class="text-muted">
-                            <i class="far fa-clock me-1"></i>{{ req.created_at|naturaltime }}
-                        </small>
                     </div>
-                </div>
-            </div>
-
-            {# Requester #}
-            <div class="request-requester">
-                <div class="d-flex align-items-center gap-2">
-                    <div class="fw-600">{{ req.requester_character|default:req.requester }}</div>
-                    <button
-                        type="button"
-                        class="btn btn-sm btn-outline-secondary bp-request-card__copy-button"
-                        data-copy-value="{{ req.requester_character|default:req.requester }}"
-                        aria-label="{% trans 'Copy character name' %}"
-                        data-copy-success-label="{% trans 'Copied!' %}"
-                        data-copy-error-label="{% trans 'Unable to copy' %}"
-                    >
-                        <i class="fas fa-copy"></i>
-                    </button>
-                </div>
-                {% if req.requester_corporation %}
-                <small class="text-muted">
-                    {{ req.requester_corporation }}{% if req.requester_corporation_ticker %} [{{ req.requester_corporation_ticker }}]{% endif %}
-                </small>
-                {% endif %}
-            </div>
-
-            {# Details: Copies/Runs/ME/TE #}
-            <div class="request-specs">
-                <div class="spec-block">
-                    <small class="spec-caption">{% trans "Order" %}</small>
-                    <div class="spec-group">
-                        <span class="spec-badge spec-badge--blue">
-                            <i class="fas fa-clone"></i> {{ req.copies_requested }} {% trans "copies" %}
-                        </span>
-                        <span class="spec-badge spec-badge--blue">
-                            <i class="fas fa-cogs"></i> {{ req.runs_requested }} {% trans "runs" %}
-                        </span>
+                    {% if req.personal_source_names or req.corporation_names %}
+                    <div class="fulfill-meta-item fulfill-meta-item--owners">
+                        <i class="fas fa-warehouse"></i>
+                        {% for name in req.personal_source_names %}<span class="fulfill-owner">{{ name }}</span>{% endfor %}
+                        {% for name in req.corporation_names %}<span class="fulfill-owner fulfill-owner--corp">{{ name }}</span>{% endfor %}
                     </div>
+                    {% endif %}
+                </div>
+                <div class="fulfill-card__time">
+                    <i class="far fa-clock"></i>
+                    <span>{{ req.created_at|naturaltime }}</span>
                 </div>
             </div>
 
-            {# Status #}
-            <div class="request-status">
-                <span class="status-chip {{ req.status_class }}">{{ req.status_label }}</span>
-                {% if req.status_hint %}
-                <small class="text-muted d-block mt-1">{{ req.status_hint }}</small>
-                {% endif %}
-            </div>
-
-            {# Actions #}
-            <div class="request-actions text-end">
-                <div class="btn-group btn-group-sm" role="group">
+            {# Right: Status & Actions #}
+            <div class="fulfill-card__actions">
+                <div class="fulfill-card__status">
+                    <span class="fulfill-status {{ req.status_class }}">{{ req.status_label }}</span>
+                </div>
+                <div class="fulfill-card__buttons">
                     {% if req.show_offer_actions %}
-                    <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}" class="d-inline">
+                    <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}">
                         {% csrf_token %}
                         <input type="hidden" name="action" value="accept">
-                        <input
-                            type="hidden"
-                            name="source_scope"
-                            value="{{ req.default_scope }}"
-                            data-scope-input
-                            data-request-id="{{ req.id }}"
-                            data-scope-default="{{ req.default_scope }}"
-                        >
-                        <button
-                            type="submit"
-                            class="btn btn-sm bp-action bp-action--accept-free"
-                            {% if req.has_dual_sources %}
-                            data-scope-trigger="true"
-                            data-scope-required="true"
-                            data-request-id="{{ req.id }}"
-                            data-scope-script-id="bp-scope-options-{{ req.id }}"
-                            data-scope-action="accept"
-                            data-scope-action-label="{% trans "Accept for free" %}"
-                            {% endif %}
-                        >
-                            <i class="fas fa-gift me-1"></i>{% trans "Accept for free" %}
+                        <input type="hidden" name="source_scope" value="{{ req.default_scope }}" data-scope-input data-request-id="{{ req.id }}" data-scope-default="{{ req.default_scope }}">
+                        <button type="submit" class="fulfill-btn fulfill-btn--accept" {% if req.has_dual_sources %}data-scope-trigger="true" data-scope-required="true" data-request-id="{{ req.id }}" data-scope-script-id="bp-scope-options-{{ req.id }}" data-scope-action="accept" data-scope-action-label="{% trans 'Accept for free' %}"{% endif %}>
+                            <i class="fas fa-check"></i> {% trans "Accept" %}
                         </button>
                     </form>
-                    <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}" class="d-inline">
-                        {% csrf_token %}
-                        <input type="hidden" name="action" value="reject">
-                        <input
-                            type="hidden"
-                            name="source_scope"
-                            value="{{ req.default_scope }}"
-                            data-scope-input
-                            data-request-id="{{ req.id }}"
-                            data-scope-default="{{ req.default_scope }}"
-                        >
-                        <button
-                            type="submit"
-                            class="btn btn-sm bp-action bp-action--decline"
-                            onclick="return confirm('{% trans "Decline this request?" %}')"
-                            {% if req.has_dual_sources %}
-                            data-scope-trigger="true"
-                            data-scope-required="true"
-                            data-request-id="{{ req.id }}"
-                            data-scope-script-id="bp-scope-options-{{ req.id }}"
-                            data-scope-action="reject"
-                            data-scope-action-label="{% trans "Decline" %}"
-                            {% endif %}
-                        >
-                            <i class="fas fa-times me-1"></i>{% trans "Decline" %}
-                        </button>
-                    </form>
-                    <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}" class="d-inline">
+                    <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}">
                         {% csrf_token %}
                         <input type="hidden" name="action" value="conditional">
-                        <input
-                            type="hidden"
-                            name="source_scope"
-                            value="{{ req.default_scope }}"
-                            data-scope-input
-                            data-request-id="{{ req.id }}"
-                            data-scope-default="{{ req.default_scope }}"
-                        >
-                        <button
-                            type="submit"
-                            class="btn btn-sm bp-action bp-action--conditions"
-                            {% if req.has_dual_sources %}
-                            data-scope-trigger="true"
-                            data-scope-required="true"
-                            data-request-id="{{ req.id }}"
-                            data-scope-script-id="bp-scope-options-{{ req.id }}"
-                            data-scope-action="conditional"
-                            data-scope-action-label="{% trans "Accept with conditions" %}"
-                            {% endif %}
-                        >
-                            <i class="fas fa-file-signature me-1"></i>{% trans "Accept with conditions" %}
+                        <input type="hidden" name="source_scope" value="{{ req.default_scope }}" data-scope-input data-request-id="{{ req.id }}" data-scope-default="{{ req.default_scope }}">
+                        <button type="submit" class="fulfill-btn fulfill-btn--condition" {% if req.has_dual_sources %}data-scope-trigger="true" data-scope-required="true" data-request-id="{{ req.id }}" data-scope-script-id="bp-scope-options-{{ req.id }}" data-scope-action="conditional" data-scope-action-label="{% trans 'Accept with conditions' %}"{% endif %}>
+                            <i class="fas fa-handshake"></i> {% trans "Negotiate" %}
+                        </button>
+                    </form>
+                    <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="reject">
+                        <input type="hidden" name="source_scope" value="{{ req.default_scope }}" data-scope-input data-request-id="{{ req.id }}" data-scope-default="{{ req.default_scope }}">
+                        <button type="submit" class="fulfill-btn fulfill-btn--decline" onclick="return confirm('{% trans 'Decline this request?' %}')" {% if req.has_dual_sources %}data-scope-trigger="true" data-scope-required="true" data-request-id="{{ req.id }}" data-scope-script-id="bp-scope-options-{{ req.id }}" data-scope-action="reject" data-scope-action-label="{% trans 'Decline' %}"{% endif %}>
+                            <i class="fas fa-times"></i> {% trans "Decline" %}
                         </button>
                     </form>
                     {% endif %}
                     {% if req.can_mark_delivered %}
-                    <form method="post" action="{% url 'indy_hub:bp_mark_copy_delivered' req.id %}" class="d-inline">
+                    <form method="post" action="{% url 'indy_hub:bp_mark_copy_delivered' req.id %}">
                         {% csrf_token %}
-                        <button type="submit" class="btn btn-sm btn-outline-success" onclick="return confirm('{% trans "Mark this request as delivered?" %}')">
-                            <i class="fas fa-truck me-1"></i>{% trans "Delivered" %}
+                        <button type="submit" class="fulfill-btn fulfill-btn--deliver" onclick="return confirm('{% trans 'Mark this request as delivered?' %}')">
+                            <i class="fas fa-truck"></i> {% trans "Delivered" %}
                         </button>
                     </form>
                     {% endif %}
                     {% if req.chat %}
-                    <button
-                        type="button"
-                        class="btn btn-sm btn-outline-secondary bp-chat-trigger bp-action bp-action--chat"
-                        data-chat-fetch-url="{{ req.chat.fetch_url }}"
-                        data-chat-send-url="{{ req.chat.send_url }}"
-                        data-chat-role="seller"
-                        data-chat-type-name="{{ req.type_name }}"
-                        data-chat-type-id="{{ req.type_id }}"
-                        data-chat-id="{{ req.chat.id }}"
-                    >
-                        <i class="fas fa-comments me-1"></i>{% trans "Open chat" %}
+                    <button type="button" class="fulfill-btn fulfill-btn--chat bp-chat-trigger" data-chat-fetch-url="{{ req.chat.fetch_url }}" data-chat-send-url="{{ req.chat.send_url }}" data-chat-role="seller" data-chat-type-name="{{ req.type_name }}" data-chat-type-id="{{ req.type_id }}" data-chat-id="{{ req.chat.id }}">
+                        <i class="fas fa-comments"></i> {% trans "Chat" %}
                     </button>
                     {% endif %}
                 </div>
-                {% if req.has_dual_sources %}
-                {% with req_id=req.id|stringformat:"s" %}
-                {% with scope_script_id="bp-scope-options-"|add:req_id %}
-                {{ req.scope_modal_payload|json_script:scope_script_id }}
-                {% endwith %}
-                {% endwith %}
-                {% endif %}
             </div>
+            {% if req.has_dual_sources %}
+            {% with req_id=req.id|stringformat:"s" %}
+            {% with scope_script_id="bp-scope-options-"|add:req_id %}
+            {{ req.scope_modal_payload|json_script:scope_script_id }}
+            {% endwith %}
+            {% endwith %}
+            {% endif %}
         </div>
         {% endfor %}
     </div>

@@ -15,6 +15,22 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### Internal
 
+## [1.14.1] - 2026-02-17
+
+### Changed
+
+- Blueprint Sharing: fulfill queue cards were redesigned for a cleaner, more readable layout with clearer status labels and compact actions.
+- Blueprint Sharing: fulfill cards now show explicit `runs / copy` wording and keep requester copy-name action available.
+- Material Exchange (Sell): added character tabs so user assets are split by character instead of mixed together.
+- Material Exchange (Buy): removed manual sync buttons from empty state because stock/price sync is already triggered automatically on page load.
+
+### Fixed
+
+- Blueprint Sharing: fixed mismatch where requests could appear in fulfill queue but fail action with "not allowed to fulfill".
+- Blueprint Sharing: fulfill queue now aligns with provider authorization rules so non-actionable requests are not shown as actionable.
+- Material Exchange (Sell/Buy): market-group filtering now applies strictly; if no categories are configured, no items are shown.
+- Material Exchange (Sell): only characters with non-empty sellable assets are shown in tabs; no "All characters" tab fallback.
+
 ## [1.14.0] - 2026-02-15
 
 ### Added
