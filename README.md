@@ -122,7 +122,7 @@ Add to your `conf/requirements.txt` (Always use current versions)
 
 ```text
 django-eveuniverse==1.6.0
-indy-hub==1.14.1
+indy-hub==1.14.2
 ```
 
 Run migrations and collect static files:

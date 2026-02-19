@@ -178,7 +178,9 @@ class ESIClient:
         self.provider = esi_provider
         self.client = self.provider.client
 
-    def fetch_character_blueprints(self, character_id: int) -> list[dict]:
+    def fetch_character_blueprints(
+        self, character_id: int, *, force_refresh: bool = False
+    ) -> list[dict]:
         """Return the list of blueprints for a character."""
         return self._fetch_paginated(
             character_id=character_id,
@@ -187,9 +189,12 @@ class ESIClient:
             resource="Character",
             operation="get_characters_character_id_blueprints",
             params={"character_id": character_id},
+            force_refresh=force_refresh,
         )
 
-    def fetch_character_industry_jobs(self, character_id: int) -> list[dict]:
+    def fetch_character_industry_jobs(
+        self, character_id: int, *, force_refresh: bool = False
+    ) -> list[dict]:
         """Return the list of industry jobs for a character."""
         return self._fetch_paginated(
             character_id=character_id,
@@ -198,10 +203,15 @@ class ESIClient:
             resource="Industry",
             operation="get_characters_character_id_industry_jobs",
             params={"character_id": character_id},
+            force_refresh=force_refresh,
         )
 
     def fetch_corporation_blueprints(
-        self, corporation_id: int, *, character_id: int
+        self,
+        corporation_id: int,
+        *,
+        character_id: int,
+        force_refresh: bool = False,
     ) -> list[dict]:
         """Return the list of blueprints owned by a corporation."""
         return self._fetch_paginated(
@@ -211,10 +221,15 @@ class ESIClient:
             resource="Corporation",
             operation="get_corporations_corporation_id_blueprints",
             params={"corporation_id": corporation_id},
+            force_refresh=force_refresh,
         )
 
     def fetch_corporation_industry_jobs(
-        self, corporation_id: int, *, character_id: int
+        self,
+        corporation_id: int,
+        *,
+        character_id: int,
+        force_refresh: bool = False,
     ) -> list[dict]:
         """Return the list of industry jobs owned by a corporation."""
         return self._fetch_paginated(
@@ -224,6 +239,7 @@ class ESIClient:
             resource="Industry",
             operation="get_corporations_corporation_id_industry_jobs",
             params={"corporation_id": corporation_id},
+            force_refresh=force_refresh,
         )
 
     def fetch_character_corporation_roles(
@@ -507,6 +523,7 @@ class ESIClient:
         self,
         corporation_id: int,
         character_id: int,
+        force_refresh: bool = False,
     ) -> list[dict]:
         """Fetch all contracts for a corporation using character's token."""
         return self._fetch_paginated(
@@ -516,6 +533,7 @@ class ESIClient:
             resource="Contracts",
             operation="get_corporations_corporation_id_contracts",
             params={"corporation_id": corporation_id},
+            force_refresh=force_refresh,
         )
 
     def fetch_corporation_contract_items(
@@ -523,6 +541,7 @@ class ESIClient:
         corporation_id: int,
         contract_id: int,
         character_id: int,
+        force_refresh: bool = False,
     ) -> list[dict]:
         """Fetch items for a specific corporation contract."""
         return self._fetch_paginated(
@@ -532,6 +551,7 @@ class ESIClient:
             resource="Contracts",
             operation="get_corporations_corporation_id_contracts_contract_id_items",
             params={"corporation_id": corporation_id, "contract_id": contract_id},
+            force_refresh=force_refresh,
         )
 
     def fetch_character_contracts(self, character_id: int) -> list[dict]:

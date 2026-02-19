@@ -15,6 +15,19 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### Internal
 
+## [1.14.2] - 2026-02-19
+
+### Fixed
+
+- ESI sync: blueprint, industry job, and material exchange contract fetches now support forced refresh to recover correctly when local data is empty but ESI responds `304 Not Modified`.
+- Blueprint sync: character and corporation refresh paths now force ESI refresh on first-load/empty local datasets to avoid stale-empty states.
+- Industry job sync: character and corporation refresh paths now mirror blueprint protections against `304` + empty local cache.
+- Material Exchange contracts: corporation contract and contract-item sync now force refresh when local cache is empty, including completion-check flows.
+
+### Internal
+
+- Release metadata bump to `1.14.2`.
+
 ## [1.14.1] - 2026-02-17
 
 ### Changed

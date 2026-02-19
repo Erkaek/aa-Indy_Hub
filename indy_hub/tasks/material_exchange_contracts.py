@@ -360,10 +360,15 @@ def _sync_contracts_for_corporation(corporation_id: int):
             "esi-contracts.read_corporation_contracts.v1",
         )
 
+        has_cached_contracts = ESIContract.objects.filter(
+            corporation_id=corporation_id
+        ).exists()
+
         # Fetch contracts from ESI
         contracts = shared_client.fetch_corporation_contracts(
             corporation_id=corporation_id,
             character_id=character_id,
+            force_refresh=not has_cached_contracts,
         )
         if not isinstance(contracts, list):
             logger.warning(
@@ -468,10 +473,14 @@ def _sync_contracts_for_corporation(corporation_id: int):
                 "in_progress",
             ]:
                 try:
+                    has_cached_items = ESIContractItem.objects.filter(
+                        contract=contract
+                    ).exists()
                     contract_items = shared_client.fetch_corporation_contract_items(
                         corporation_id=corporation_id,
                         contract_id=contract_id,
                         character_id=character_id,
+                        force_refresh=not has_cached_items,
                     )
                     if not isinstance(contract_items, list):
                         logger.warning(
@@ -1431,12 +1440,16 @@ def check_completed_material_exchange_contracts():
     )
 
     try:
+        has_cached_contracts = ESIContract.objects.filter(
+            corporation_id=config.corporation_id
+        ).exists()
         contracts = shared_client.fetch_corporation_contracts(
             corporation_id=config.corporation_id,
             character_id=_get_character_for_scope(
                 config.corporation_id,
                 "esi-contracts.read_corporation_contracts.v1",
             ),
+            force_refresh=not has_cached_contracts,
         )
     except ESIUnmodifiedError:
         contracts = list(

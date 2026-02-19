@@ -619,7 +619,6 @@ def _collect_corporation_contexts(
                     pass
 
     try:
-        # Alliance Auth
         from esi.models import Token
     except ImportError:  # pragma: no cover - defensive fallback
         logger.debug("ESI Token model unavailable; skipping corp context collection")
@@ -1021,6 +1020,12 @@ def update_blueprints_for_user(
     for ownership in ownerships:
         char_id = ownership.character.character_id
         character_name = get_character_name(char_id)
+        existing_character_blueprints = Blueprint.objects.filter(
+            owner_user=user,
+            owner_kind=Blueprint.OwnerKind.CHARACTER,
+            character_id=char_id,
+        ).exists()
+        force_char_refresh = force_refresh or not existing_character_blueprints
         try:
             # Alliance Auth
             from esi.models import Token
@@ -1054,7 +1059,10 @@ def update_blueprints_for_user(
                     character_name,
                 )
 
-            blueprints = shared_client.fetch_character_blueprints(char_id)
+            blueprints = shared_client.fetch_character_blueprints(
+                char_id,
+                force_refresh=force_char_refresh,
+            )
         except ESIUnmodifiedError:
             logger.debug(
                 "Blueprints not modified for %s (%s); skipping sync",
@@ -1166,9 +1174,16 @@ def update_blueprints_for_user(
                 )
                 continue
 
+            existing_corp_blueprints = Blueprint.objects.filter(
+                owner_kind=Blueprint.OwnerKind.CORPORATION,
+                corporation_id=corp_id,
+            ).exists()
+            force_corp_refresh = force_refresh or not existing_corp_blueprints
             try:
                 corp_blueprints = shared_client.fetch_corporation_blueprints(
-                    int(corp_id), character_id=int(corp_char_id)
+                    int(corp_id),
+                    character_id=int(corp_char_id),
+                    force_refresh=force_corp_refresh,
                 )
             except ESIUnmodifiedError:
                 logger.debug(
@@ -1409,7 +1424,17 @@ def update_industry_jobs_for_user(
                         character_name,
                     )
 
-                jobs = shared_client.fetch_character_industry_jobs(char_id)
+                existing_character_jobs = IndustryJob.objects.filter(
+                    owner_user=user,
+                    owner_kind=Blueprint.OwnerKind.CHARACTER,
+                    character_id=char_id,
+                ).exists()
+                force_char_refresh = force_refresh or not existing_character_jobs
+
+                jobs = shared_client.fetch_character_industry_jobs(
+                    char_id,
+                    force_refresh=force_char_refresh,
+                )
                 if not isinstance(jobs, list):
                     payload_type = type(jobs).__name__
                     logger.warning(
@@ -1622,9 +1647,17 @@ def update_industry_jobs_for_user(
                     )
                     continue
 
+                existing_corp_jobs = IndustryJob.objects.filter(
+                    owner_kind=Blueprint.OwnerKind.CORPORATION,
+                    corporation_id=corp_id,
+                ).exists()
+                force_corp_refresh = force_refresh or not existing_corp_jobs
+
                 try:
                     corp_jobs = shared_client.fetch_corporation_industry_jobs(
-                        int(corp_id), character_id=int(corp_char_id)
+                        int(corp_id),
+                        character_id=int(corp_char_id),
+                        force_refresh=force_corp_refresh,
                     )
                     if not isinstance(corp_jobs, list):
                         payload_type = type(corp_jobs).__name__
