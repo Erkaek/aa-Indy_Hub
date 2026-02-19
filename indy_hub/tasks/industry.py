@@ -619,6 +619,7 @@ def _collect_corporation_contexts(
                     pass
 
     try:
+        # Alliance Auth
         from esi.models import Token
     except ImportError:  # pragma: no cover - defensive fallback
         logger.debug("ESI Token model unavailable; skipping corp context collection")
