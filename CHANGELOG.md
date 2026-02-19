@@ -26,7 +26,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### Internal
 
-- Release metadata bump to `1.14.2`.
+- Release metadata bump to `1.14.2`. 
 
 ## [1.14.1] - 2026-02-17
 
