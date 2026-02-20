@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
 
+## [1.14.4] - 2026-02-21
+
+### Fixed
+
+- Material Exchange (Config): saving with `Alert Material Hub admins on sell contract anomalies` unchecked now correctly persists `notify_admins_on_sell_anomaly=False` instead of silently keeping the previous value.
+- Material Exchange (Config): checkbox parsing for `enforce_jita_price_bounds` now follows standard HTML form behavior consistently (`on` => true, missing key => false).
+
+### Added
+
+- Tests: added targeted coverage for Material Exchange configuration checkbox persistence in `test_material_exchange_config_save.py`.
+
+### Internal
+
+- Release metadata bump to `1.14.4`.
+
 ## [1.14.3] - 2026-02-20
 
 ### Added

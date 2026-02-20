@@ -1228,19 +1228,11 @@ def _handle_config_save(request, existing_config):
     allowed_market_groups_buy_raw = request.POST.getlist("allowed_market_groups_buy")
     allowed_market_groups_sell_raw = request.POST.getlist("allowed_market_groups_sell")
 
-    raw_enforce_bounds = request.POST.get("enforce_jita_price_bounds")
-    if raw_enforce_bounds is None and existing_config is not None:
-        enforce_jita_price_bounds = existing_config.enforce_jita_price_bounds
-    else:
-        enforce_jita_price_bounds = raw_enforce_bounds == "on"
+    enforce_jita_price_bounds = request.POST.get("enforce_jita_price_bounds") == "on"
 
-    raw_notify_admins_on_sell_anomaly = request.POST.get(
-        "notify_admins_on_sell_anomaly"
+    notify_admins_on_sell_anomaly = (
+        request.POST.get("notify_admins_on_sell_anomaly") == "on"
     )
-    if raw_notify_admins_on_sell_anomaly is None and existing_config is not None:
-        notify_admins_on_sell_anomaly = existing_config.notify_admins_on_sell_anomaly
-    else:
-        notify_admins_on_sell_anomaly = raw_notify_admins_on_sell_anomaly == "on"
 
     raw_is_active = request.POST.get("is_active")
     if raw_is_active is None and existing_config is not None:
