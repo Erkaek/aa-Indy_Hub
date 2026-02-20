@@ -1234,6 +1234,14 @@ def _handle_config_save(request, existing_config):
     else:
         enforce_jita_price_bounds = raw_enforce_bounds == "on"
 
+    raw_notify_admins_on_sell_anomaly = request.POST.get(
+        "notify_admins_on_sell_anomaly"
+    )
+    if raw_notify_admins_on_sell_anomaly is None and existing_config is not None:
+        notify_admins_on_sell_anomaly = existing_config.notify_admins_on_sell_anomaly
+    else:
+        notify_admins_on_sell_anomaly = raw_notify_admins_on_sell_anomaly == "on"
+
     raw_is_active = request.POST.get("is_active")
     if raw_is_active is None and existing_config is not None:
         is_active = existing_config.is_active
@@ -1321,6 +1329,9 @@ def _handle_config_save(request, existing_config):
             existing_config.buy_markup_percent = buy_markup_percent
             existing_config.buy_markup_base = buy_markup_base
             existing_config.enforce_jita_price_bounds = enforce_jita_price_bounds
+            existing_config.notify_admins_on_sell_anomaly = (
+                notify_admins_on_sell_anomaly
+            )
             existing_config.allowed_market_groups_buy = allowed_market_groups_buy
             existing_config.allowed_market_groups_sell = allowed_market_groups_sell
             existing_config.is_active = is_active
@@ -1339,6 +1350,7 @@ def _handle_config_save(request, existing_config):
                 buy_markup_percent=buy_markup_percent,
                 buy_markup_base=buy_markup_base,
                 enforce_jita_price_bounds=enforce_jita_price_bounds,
+                notify_admins_on_sell_anomaly=notify_admins_on_sell_anomaly,
                 allowed_market_groups_buy=allowed_market_groups_buy,
                 allowed_market_groups_sell=allowed_market_groups_sell,
                 is_active=is_active,

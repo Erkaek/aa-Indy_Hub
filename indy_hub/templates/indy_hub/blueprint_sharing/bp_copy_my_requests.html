@@ -149,98 +149,57 @@
                 </div>
             </form>
             {% if my_requests %}
-            <div class="requests-panel requests-panel--my-active">
-                <div class="requests-head d-none d-lg-grid">
-                    <span>{% trans "Blueprint" %}</span>
-                    <span>{% trans "Status" %}</span>
-                    <span>{% trans "Details" %}</span>
-                    <span>{% trans "Progress" %}</span>
-                    <span class="text-end">{% trans "Action" %}</span>
-                </div>
-
+            <div class="fulfill-requests-list">
                 {% for req in my_requests %}
                 {% if not req.is_history %}
-                <div class="request-row">
-                    {# Blueprint Type #}
-                    <div class="request-blueprint">
-                        <div class="d-flex align-items-center gap-2">
-                            <img
-                                src="{{ req.icon_url }}"
-                                alt="{{ req.type_name }}"
-                                loading="lazy"
-                                class="request-blueprint__icon"
-                                onerror="this.onerror=null;this.src='https://images.evetech.net/types/{{ req.type_id }}/icon?size=32'"
-                            >
-                            <div>
-                                <div class="fw-600">{{ req.type_name }}</div>
-                                <div class="bp-params">
-                                    <span class="spec-badge spec-badge--green spec-badge--compact">
-                                        <i class="fas fa-industry"></i> ME {{ req.material_efficiency }}
-                                    </span>
-                                    <span class="spec-badge spec-badge--green spec-badge--compact">
-                                        <i class="fas fa-stopwatch"></i> TE {{ req.time_efficiency }}
-                                    </span>
-                                </div>
-                                <small class="text-muted">
-                                    <i class="far fa-clock me-1"></i>{{ req.created_at|naturaltime }}
-                                </small>
+                <div class="fulfill-card">
+                    <div class="fulfill-card__icon">
+                        <img
+                            src="{{ req.icon_url }}"
+                            alt="{{ req.type_name }}"
+                            loading="lazy"
+                            onerror="this.onerror=null;this.src='https://images.evetech.net/types/{{ req.type_id }}/icon?size=64'"
+                        >
+                    </div>
+
+                    <div class="fulfill-card__info">
+                        <div class="fulfill-card__main">
+                            <h3 class="fulfill-card__title">{{ req.type_name }}</h3>
+                            <div class="fulfill-card__specs">
+                                <span class="fulfill-spec fulfill-spec--me">ME {{ req.material_efficiency }}</span>
+                                <span class="fulfill-spec fulfill-spec--te">TE {{ req.time_efficiency }}</span>
+                                <span class="fulfill-spec fulfill-spec--copies">{{ req.copies_requested }} {% trans "copies" %} · {{ req.runs_requested }} {% trans "runs" %}</span>
                             </div>
+                        </div>
+                        <div class="fulfill-card__meta">
+                            <div class="fulfill-meta-item fulfill-meta-item--time">
+                                <i class="far fa-clock"></i>
+                                <span>{{ req.created_at|naturaltime }}</span>
+                            </div>
+                            {% if req.accepted_offer %}
+                            <span class="badge bg-success"><i class="fas fa-handshake me-1"></i>{% trans "Accepted" %}</span>
+                            {% elif req.cond_accepted %}
+                            <span class="badge bg-info"><i class="fas fa-file-signature me-1"></i>{% trans "Conditions Accepted" %}</span>
+                            {% elif req.cond_waiting_builder %}
+                            <span class="badge bg-warning"><i class="fas fa-hourglass-half me-1"></i>{% trans "Awaiting Confirmation" %}</span>
+                            {% elif req.cond_waiting_buyer %}
+                            <span class="badge bg-info"><i class="fas fa-handshake me-1"></i>{% trans "Ready to Accept" %}</span>
+                            {% elif req.cond_offers %}
+                            <span class="badge bg-warning"><i class="fas fa-comments me-1"></i>{% trans "Offers Pending" %}</span>
+                            {% endif %}
                         </div>
                     </div>
 
-                    {# Status #}
-                    <div class="request-status">
-                        <span class="status-chip {{ req.status_class }}">{{ req.status_label }}</span>
-                    </div>
-
-                    {# Details: Copies/Runs/ME/TE #}
-                    <div class="request-specs">
-                        <div class="spec-block">
-                            <small class="spec-caption">{% trans "Order" %}</small>
-                            <div class="spec-group">
-                                <span class="spec-badge spec-badge--blue">
-                                    <i class="fas fa-clone"></i> {{ req.copies_requested }} {% trans "copies" %}
-                                </span>
-                                <span class="spec-badge spec-badge--blue">
-                                    <i class="fas fa-cogs"></i> {{ req.runs_requested }} {% trans "runs" %}
-                                </span>
-                            </div>
+                    <div class="fulfill-card__actions">
+                        <div class="fulfill-card__status">
+                            <span class="fulfill-status {{ req.status_class|default:'bg-secondary' }}">{{ req.status_label }}</span>
                         </div>
-                    </div>
-
-                    {# Progress / Alert #}
-                    <div class="request-progress">
-                        {% if req.accepted_offer %}
-                        <span class="badge bg-success">
-                            <i class="fas fa-handshake me-1"></i>{% trans "Accepted" %}
-                        </span>
-                        {% elif req.cond_accepted %}
-                        <span class="badge bg-info">
-                            <i class="fas fa-file-signature me-1"></i>{% trans "Conditions Accepted" %}
-                        </span>
-                        {% elif req.cond_waiting_builder %}
-                        <span class="badge bg-warning">
-                            <i class="fas fa-hourglass-half me-1"></i>{% trans "Awaiting Confirmation" %}
-                        </span>
-                        {% elif req.cond_waiting_buyer %}
-                        <span class="badge bg-info">
-                            <i class="fas fa-handshake me-1"></i>{% trans "Ready to Accept" %}
-                        </span>
-                        {% elif req.cond_offers %}
-                        <span class="badge bg-warning">
-                            <i class="fas fa-comments me-1"></i>{% trans "Offers Pending" %}
-                        </span>
-                        {% endif %}
-                    </div>
-
-                    {# Actions #}
-                    <div class="request-actions text-end">
-                        <div class="btn-group btn-group-sm" role="group">
+                        <div class="fulfill-card__buttons">
                             {% if req.chat_actions %}
                                 {% for action in req.chat_actions %}
                                 <button
                                     type="button"
-                                    class="btn btn-sm btn-outline-secondary bp-chat-trigger bp-action bp-action--chat"
+                                    class="fulfill-btn fulfill-btn--chat bp-chat-trigger"
                                     data-chat-fetch-url="{{ action.chat.fetch_url }}"
                                     data-chat-send-url="{{ action.chat.send_url }}"
                                     data-chat-role="buyer"
@@ -248,19 +207,19 @@
                                     data-chat-type-id="{{ req.type_id }}"
                                     data-chat-id="{{ action.chat.id }}"
                                 >
-                                    <i class="fas fa-comments me-1"></i>{% trans "Open chat" %}
+                                    <i class="fas fa-comments"></i>{% trans "Open chat" %}
                                 </button>
                                 {% endfor %}
                             {% endif %}
                             {% if req.can_cancel %}
-                            <form method="post" action="{% url 'indy_hub:bp_cancel_copy_request' req.id %}" class="d-inline">
+                            <form method="post" action="{% url 'indy_hub:bp_cancel_copy_request' req.id %}">
                                 {% csrf_token %}
                                 <button
                                     type="submit"
-                                    class="btn btn-sm btn-outline-danger"
+                                    class="fulfill-btn fulfill-btn--decline"
                                     onclick="return confirm('{% trans "Cancel this request?" %}')"
                                 >
-                                    <i class="fas fa-times me-1"></i>{% trans "Cancel" %}
+                                    <i class="fas fa-times"></i>{% trans "Cancel" %}
                                 </button>
                             </form>
                             {% endif %}
@@ -287,68 +246,38 @@
             aria-labelledby="bp-request-tab-history"
         >
             {% if history_requests %}
-            <div class="requests-panel requests-panel--my-history">
-                <div class="requests-head d-none d-lg-grid">
-                    <span>{% trans "Blueprint" %}</span>
-                    <span>{% trans "Status" %}</span>
-                    <span>{% trans "Details" %}</span>
-                    <span>{% trans "Completed" %}</span>
-                </div>
-
+            <div class="fulfill-requests-list">
                 {% for req in history_requests %}
-                <div class="request-row">
-                    {# Blueprint Type #}
-                    <div class="request-blueprint">
-                        <div class="d-flex align-items-center gap-2">
-                            <img
-                                src="https://images.evetech.net/types/{{ req.type_id }}/bp?size=64"
-                                alt="{{ req.type_name }}"
-                                loading="lazy"
-                                class="request-blueprint__icon"
-                                onerror="this.onerror=null;this.src='https://images.evetech.net/types/{{ req.type_id }}/icon?size=32'"
-                            >
-                            <div>
-                                <div class="fw-600">{{ req.type_name }}</div>
-                                <div class="bp-params">
-                                    <span class="spec-badge spec-badge--green spec-badge--compact">
-                                        <i class="fas fa-industry"></i> ME {{ req.material_efficiency }}
-                                    </span>
-                                    <span class="spec-badge spec-badge--green spec-badge--compact">
-                                        <i class="fas fa-stopwatch"></i> TE {{ req.time_efficiency }}
-                                    </span>
-                                </div>
-                                <small class="text-muted">
-                                    <i class="far fa-clock me-1"></i>{{ req.closed_at|naturaltime }}
-                                </small>
+                <div class="fulfill-card">
+                    <div class="fulfill-card__icon">
+                        <img
+                            src="https://images.evetech.net/types/{{ req.type_id }}/bp?size=64"
+                            alt="{{ req.type_name }}"
+                            loading="lazy"
+                            onerror="this.onerror=null;this.src='https://images.evetech.net/types/{{ req.type_id }}/icon?size=64'"
+                        >
+                    </div>
+                    <div class="fulfill-card__info">
+                        <div class="fulfill-card__main">
+                            <h3 class="fulfill-card__title">{{ req.type_name }}</h3>
+                            <div class="fulfill-card__specs">
+                                <span class="fulfill-spec fulfill-spec--me">ME {{ req.material_efficiency }}</span>
+                                <span class="fulfill-spec fulfill-spec--te">TE {{ req.time_efficiency }}</span>
+                                <span class="fulfill-spec fulfill-spec--copies">{{ req.copies_requested }} {% trans "copies" %} · {{ req.runs_requested }} {% trans "runs" %}</span>
                             </div>
                         </div>
-                    </div>
-
-                    {# Status #}
-                    <div class="request-status">
-                        <span class="status-chip bg-secondary text-white">{{ req.status_label }}</span>
-                    </div>
-
-                    {# Details #}
-                    <div class="request-specs">
-                        <div class="spec-block">
-                            <small class="spec-caption">{% trans "Order" %}</small>
-                            <div class="spec-group">
-                                <span class="spec-badge spec-badge--blue">
-                                    <i class="fas fa-clone"></i> {{ req.copies_requested }} {% trans "copies" %}
-                                </span>
-                                <span class="spec-badge spec-badge--blue">
-                                    <i class="fas fa-cogs"></i> {{ req.runs_requested }} {% trans "runs" %}
-                                </span>
-                            </div>
+                        <div class="fulfill-card__time">
+                            <i class="far fa-clock"></i>
+                            <span>{{ req.closed_at|naturaltime }}</span>
                         </div>
                     </div>
-
-                    {# Completed Date #}
-                    <div class="request-progress">
-                        <small class="text-muted">
-                            <i class="fas fa-check me-1"></i>{{ req.closed_at|naturaltime }}
-                        </small>
+                    <div class="fulfill-card__actions">
+                        <div class="fulfill-card__status">
+                            <span class="fulfill-status bg-secondary">{{ req.status_label }}</span>
+                        </div>
+                        <div class="fulfill-card__buttons">
+                            <span class="fulfill-spec fulfill-spec--copies"><i class="fas fa-check me-1"></i>{% trans "Completed" %}</span>
+                        </div>
                     </div>
                 </div>
                 {% endfor %}

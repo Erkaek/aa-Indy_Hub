@@ -862,6 +862,27 @@ def material_exchange_index(request):
 
     # Admin section data (if user has permission)
     can_admin = request.user.has_perm("indy_hub.can_manage_material_hub")
+    explicit_manage_material_hub_perm = False
+    try:
+        manage_perm = Permission.objects.get(
+            codename="can_manage_material_hub", content_type__app_label="indy_hub"
+        )
+        explicit_manage_material_hub_perm = (
+            User.objects.filter(
+                id=request.user.id,
+                is_active=True,
+            )
+            .filter(
+                Q(groups__permissions=manage_perm) | Q(user_permissions=manage_perm)
+            )
+            .exists()
+        )
+    except Permission.DoesNotExist:
+        explicit_manage_material_hub_perm = False
+
+    superuser_without_material_hub_manage = bool(
+        request.user.is_superuser and not explicit_manage_material_hub_perm
+    )
     admin_sell_orders = None
     admin_buy_orders = None
     status_filter = None
@@ -903,6 +924,7 @@ def material_exchange_index(request):
         "pending_buy_orders": pending_buy_orders,
         "recent_orders": recent_orders,
         "can_admin": can_admin,
+        "superuser_without_material_hub_manage": superuser_without_material_hub_manage,
         "admin_sell_orders": admin_sell_orders,
         "admin_buy_orders": admin_buy_orders,
         "status_filter": status_filter,

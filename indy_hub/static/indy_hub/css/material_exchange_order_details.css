@@ -251,6 +251,12 @@ html[data-theme="darkly"] .sell-order-detail .order-reference-display h1 {
     color: #991b1b;
 }
 
+.order-status-badge.status-anomaly {
+    background: #fef3c7;
+    border-color: #f59e0b;
+    color: #92400e;
+}
+
 .order-status-badge.status-cancelled {
     background: #e5e7eb;
     border-color: #9ca3af;
@@ -313,6 +319,47 @@ html[data-theme="darkly"] .sell-order-detail .order-reference-display h1 {
 
 html[data-theme="darkly"] .info-box {
     background: rgba(var(--bs-info-rgb), 0.08);
+}
+
+.sell-order-detail .me-how-this-works-attention {
+    position: relative;
+    overflow: hidden;
+}
+
+.sell-order-detail .me-how-this-works-attention::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: -45%;
+    width: 35%;
+    pointer-events: none;
+    background: linear-gradient(
+        110deg,
+        rgba(var(--bs-info-rgb), 0),
+        rgba(var(--bs-info-rgb), 0.24),
+        rgba(var(--bs-info-rgb), 0)
+    );
+    animation: meHowThisWorksShine 1s ease-in-out 2;
+}
+
+@keyframes meHowThisWorksShine {
+    from {
+        transform: translateX(0);
+    }
+    to {
+        transform: translateX(420%);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .sell-order-detail .me-how-this-works-attention {
+        animation: none;
+    }
+
+    .sell-order-detail .me-how-this-works-attention::after {
+        animation: none;
+    }
 }
 
 .contract-instructions {

@@ -166,7 +166,6 @@
                     {% endif %}
                     <form method="post" id="sellForm">
                         {% csrf_token %}
-                        <input type="hidden" id="hidden_order_reference" name="order_reference" value="">
                         <div class="table-responsive">
                             <table class="table table-hover stock-table align-middle">
                                 <thead>
@@ -214,10 +213,10 @@
                                                         data-type-id="{{ item.type_id }}"
                                                         data-max="{{ item.user_quantity }}">
                                                     <div class="qty-btns" role="group" aria-label="{% trans 'Quantity shortcuts' %}">
-                                                        <button type="button" class="btn btn-outline-secondary btn-sm qty-btn" data-action="zero" title="{% trans 'Zero' %}" aria-label="{% trans 'Zero' %}">
+                                                        <button type="button" class="btn btn-secondary btn-sm qty-btn" data-action="zero" title="{% trans 'Zero' %}" aria-label="{% trans 'Zero' %}">
                                                             <i class="fas fa-ban" aria-hidden="true"></i>
                                                         </button>
-                                                        <button type="button" class="btn btn-outline-secondary btn-sm qty-btn" data-action="max">{% trans "Max" %}</button>
+                                                        <button type="button" class="btn btn-secondary btn-sm qty-btn" data-action="max">{% trans "Max" %}</button>
                                                     </div>
                                                 </div>
                                                 <div class="qty-error" id="error-{{ item.type_id }}">
@@ -253,95 +252,11 @@
                                     <span class="fw-bold">{% trans "Total Payout" %}</span>
                                     <span class="h4 mb-0 text-success" id="totalAmount">0 ISK</span>
                                 </div>
-                                <button type="button" class="btn btn-success w-100 mt-3" data-bs-toggle="modal" data-bs-target="#contractDetailsModal">
-                                    <i class="fas fa-paper-plane me-2"></i>{% trans "Submit Sell Order" %}
+                                <button type="submit" form="sellForm" class="btn btn-success w-100 mt-3">
+                                    <i class="fas fa-paper-plane me-2"></i>{% trans "Create Sell Order" %}
                                 </button>
                             </div>
                         </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Contract Details Modal -->
-        <div class="modal fade" id="contractDetailsModal" tabindex="-1" aria-labelledby="contractDetailsModalLabel" aria-hidden="true">
-            <div class="modal-dialog modal-lg">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title" id="contractDetailsModalLabel">
-                            <i class="fas fa-file-contract me-2 text-info"></i>
-                            {% trans "Create In-Game Contract" %}
-                        </h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                    </div>
-                    <div class="modal-body">
-                        <div class="alert alert-info mb-4">
-                            <i class="fas fa-exclamation-circle me-2"></i>
-                            <strong>{% trans "Important:" %}</strong> {% trans "Create an in-game contract with the following details to match your sell order. Copy the Reference ID into the contract title." %}
-                        </div>
-
-                        <div class="alert alert-warning mb-4">
-                            <i class="fas fa-map-marker-alt me-2"></i>
-                            <strong>{% trans "Location:" %}</strong> {{ config.structure_name }} <small class="text-muted">(ID: {{ config.structure_id }})</small>
-                        </div>
-
-                        <div class="contract-details">
-                            <div class="row g-3">
-                                <div class="col-md-6">
-                                    <div class="detail-card">
-                                        <label class="fw-bold text-muted small">{% trans "Contract Type" %}</label>
-                                        <div class="detail-value">Item Exchange</div>
-                                    </div>
-                                </div>
-                                <div class="col-md-6">
-                                    <div class="detail-card">
-                                        <label class="fw-bold text-muted small">{% trans "Availability" %}</label>
-                                        <div class="detail-value">{% trans "Private" %} - {{ corporation_name }}</div>
-                                    </div>
-                                </div>
-                                <div class="col-12">
-                                    <div class="detail-card">
-                                        <label class="fw-bold text-muted small">{% trans "Items to Sell" %}</label>
-                                        <div class="items-list modal-items-list" id="modalItemsList">
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-md-6">
-                                    <div class="detail-card">
-                                        <label class="fw-bold text-muted small">{% trans "You Will Receive" %}</label>
-                                        <div class="detail-value text-success fw-bold" id="modalTotalAmount">0 ISK</div>
-                                    </div>
-                                </div>
-                                <div class="col-md-6">
-                                    <div class="detail-card">
-                                        <label class="fw-bold text-muted small">{% trans "Contract Duration" %}</label>
-                                        <div class="detail-value">4 Weeks</div>
-                                    </div>
-                                </div>
-                                <div class="col-12">
-                                    <div class="detail-card">
-                                        <label class="fw-bold text-muted small">{% trans "Description / Title" %}</label>
-                                        <div class="alert alert-info" role="alert">
-                                            <small>
-                                                {% trans "You will receive your order reference ID after submission. Please note it down and include it in the contract title." %}
-                                            </small>
-                                        </div>
-                                        <div class="detail-value text-warning fw-monospace contract-ref-tag" id="modalRefId">
-                                            INDY-[will be generated after submission]
-                                        </div>
-                                        <small class="text-muted mt-2">{% trans "Copy and paste this into the contract title/description field in-game" %}</small>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
-                            {% trans "Cancel" %}
-                        </button>
-                        <button type="submit" form="sellForm" class="btn btn-success">
-                            <i class="fas fa-check me-1"></i>{% trans "I Understand, Create Sell Order" %}
-                        </button>
                     </div>
                 </div>
             </div>
@@ -479,8 +394,6 @@ document.addEventListener('DOMContentLoaded', function() {
         const invoiceItems = document.getElementById('invoiceItems');
         const itemsList = document.getElementById('itemsList');
         const totalAmount = document.getElementById('totalAmount');
-        const modalItemsList = document.getElementById('modalItemsList');
-        const modalTotalAmount = document.getElementById('modalTotalAmount');
 
         if (selectedItems.length === 0) {
             emptyInvoice.classList.remove('d-none');
@@ -506,19 +419,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
             itemsList.innerHTML = itemsHTML;
             totalAmount.textContent = formatWholeISK(total) + ' ISK';
-
-            // Update modal with same items
-            let modalItemsHTML = '';
-            selectedItems.forEach(item => {
-                modalItemsHTML += `
-                    <div class="item-row">
-                        <span class="item-name">${item.name}</span>
-                        <span class="item-qty">${item.qty.toLocaleString()}x</span>
-                    </div>
-                `;
-            });
-            modalItemsList.innerHTML = modalItemsHTML;
-            modalTotalAmount.textContent = formatWholeISK(total) + ' ISK';
         }
     }
 
@@ -537,29 +437,6 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     });
-
-    // Handle modal display
-    const contractModal = document.getElementById('contractDetailsModal');
-    if (contractModal) {
-        contractModal.addEventListener('show.bs.modal', function() {
-            // Generate order reference immediately when modal opens
-            const orderRef = generateOrderReference();
-            document.getElementById('modalRefId').textContent = orderRef;
-            // Store reference in hidden form field
-            const hiddenRefField = document.getElementById('hidden_order_reference');
-            if (hiddenRefField) {
-                hiddenRefField.value = orderRef;
-            }
-        });
-    }
-
-    // Generate order reference (same format as server-side)
-    function generateOrderReference() {
-        const min = 1000000000;
-        const max = 9999999999;
-        const randomNum = Math.floor(Math.random() * (max - min + 1)) + min;
-        return `INDY-${randomNum}`;
-    }
 
     // Prevent form submission if any quantity exceeds stock
     const sellForm = document.getElementById('sellForm');

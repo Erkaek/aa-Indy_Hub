@@ -130,6 +130,8 @@
                         <span class="badge bg-secondary me-step-badge">4</span><span>{% trans "Pricing" %}</span>
                         <i class="fas fa-arrow-right opacity-50"></i>
                         <span class="badge bg-secondary me-step-badge">5</span><span>{% trans "Market Groups" %}</span>
+                        <i class="fas fa-arrow-right opacity-50"></i>
+                        <span class="badge bg-secondary me-step-badge">6</span><span>{% trans "Notifications" %}</span>
                     </div>
 
                     <div class="row g-2">
@@ -474,7 +476,7 @@
                                             <div class="row g-1 me-dual-list me-dual-list-sell">
                                                 <div class="col-5">
                                                     <div class="small text-muted mb-1">{% trans "Available" %}</div>
-                                                    <select class="form-select form-select-sm me-dual-list-select" multiple size="10" id="marketGroupsSellAvailable">
+                                                    <select class="form-select form-select-sm" multiple size="10" id="marketGroupsSellAvailable">
                                                         {% for group in market_group_choices %}
                                                             {% if group.id not in selected_market_groups_sell %}
                                                                 <option value="{{ group.id }}">{{ group.label }}</option>
@@ -483,16 +485,16 @@
                                                     </select>
                                                 </div>
                                                 <div class="col-2 d-flex flex-column align-items-center justify-content-center gap-2 me-dual-list-controls">
-                                                    <button type="button" class="btn btn-outline-info btn-sm" id="sellAddBtn" title="{% trans 'Add' %}">
+                                                    <button type="button" class="btn btn-info btn-sm" id="sellAddBtn" title="{% trans 'Add' %}">
                                                         <i class="fas fa-chevron-right"></i>
                                                     </button>
-                                                    <button type="button" class="btn btn-outline-info btn-sm" id="sellRemoveBtn" title="{% trans 'Remove' %}">
+                                                    <button type="button" class="btn btn-info btn-sm" id="sellRemoveBtn" title="{% trans 'Remove' %}">
                                                         <i class="fas fa-chevron-left"></i>
                                                     </button>
                                                 </div>
                                                 <div class="col-5">
                                                     <div class="small text-muted mb-1">{% trans "Selected" %}</div>
-                                                    <select name="allowed_market_groups_sell" class="form-select form-select-sm me-dual-list-select" multiple size="10" id="marketGroupsSellSelected">
+                                                    <select name="allowed_market_groups_sell" class="form-select form-select-sm" multiple size="10" id="marketGroupsSellSelected">
                                                         {% for group in market_group_choices %}
                                                             {% if group.id in selected_market_groups_sell %}
                                                                 <option value="{{ group.id }}" selected>{{ group.label }}</option>
@@ -507,7 +509,7 @@
                                             <div class="row g-1 me-dual-list me-dual-list-buy">
                                                 <div class="col-5">
                                                     <div class="small text-muted mb-1">{% trans "Available" %}</div>
-                                                    <select class="form-select form-select-sm me-dual-list-select" multiple size="10" id="marketGroupsBuyAvailable">
+                                                    <select class="form-select form-select-sm" multiple size="10" id="marketGroupsBuyAvailable">
                                                         {% for group in market_group_choices %}
                                                             {% if group.id not in selected_market_groups_buy %}
                                                                 <option value="{{ group.id }}">{{ group.label }}</option>
@@ -516,16 +518,16 @@
                                                     </select>
                                                 </div>
                                                 <div class="col-2 d-flex flex-column align-items-center justify-content-center gap-2 me-dual-list-controls">
-                                                    <button type="button" class="btn btn-outline-success btn-sm" id="buyAddBtn" title="{% trans 'Add' %}">
+                                                    <button type="button" class="btn btn-success btn-sm" id="buyAddBtn" title="{% trans 'Add' %}">
                                                         <i class="fas fa-chevron-right"></i>
                                                     </button>
-                                                    <button type="button" class="btn btn-outline-success btn-sm" id="buyRemoveBtn" title="{% trans 'Remove' %}">
+                                                    <button type="button" class="btn btn-success btn-sm" id="buyRemoveBtn" title="{% trans 'Remove' %}">
                                                         <i class="fas fa-chevron-left"></i>
                                                     </button>
                                                 </div>
                                                 <div class="col-5">
                                                     <div class="small text-muted mb-1">{% trans "Selected" %}</div>
-                                                    <select name="allowed_market_groups_buy" class="form-select form-select-sm me-dual-list-select" multiple size="10" id="marketGroupsBuySelected">
+                                                    <select name="allowed_market_groups_buy" class="form-select form-select-sm" multiple size="10" id="marketGroupsBuySelected">
                                                         {% for group in market_group_choices %}
                                                             {% if group.id in selected_market_groups_buy %}
                                                                 <option value="{{ group.id }}" selected>{{ group.label }}</option>
@@ -537,6 +539,34 @@
                                         </div>
                                     </div>
                                 {% endif %}
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Step 6: Notifications -->
+                    <div class="col-12">
+                        <div class="card focus-card">
+                            <div class="card-body p-2">
+                                <div class="d-flex align-items-center gap-2 mb-2">
+                                    <span class="badge bg-secondary me-step-badge">6</span>
+                                    <h5 class="fw-semibold mb-0">
+                                        <i class="fas fa-bell me-1 text-muted"></i>{% trans "Notifications" %}
+                                    </h5>
+                                </div>
+                                <div class="form-check mb-2">
+                                    <input
+                                        class="form-check-input"
+                                        type="checkbox"
+                                        name="notify_admins_on_sell_anomaly"
+                                        id="notifyAdminsOnSellAnomaly"
+                                        {% if not config or config.notify_admins_on_sell_anomaly %}checked{% endif %}>
+                                    <label class="form-check-label fw-semibold" for="notifyAdminsOnSellAnomaly">
+                                        {% trans "Alert Material Hub admins on sell contract anomalies" %}
+                                    </label>
+                                </div>
+                                <div class="small text-muted">
+                                    {% trans "If disabled, users must submit fully compliant contracts. Admin anomaly review notifications will not be sent automatically." %}
+                                </div>
                             </div>
                         </div>
                     </div>

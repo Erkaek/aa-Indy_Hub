@@ -249,6 +249,7 @@ def _get_status_class(status):
     status_classes = {
         "draft": "secondary",
         "awaiting_validation": "warning",
+        "anomaly": "warning",
         "validated": "info",
         "completed": "success",
         "rejected": "danger",
@@ -289,7 +290,13 @@ def _build_timeline_breadcrumb(order, order_type):
             {
                 "status": _("Order Created"),
                 "completed": order.status
-                in ["draft", "awaiting_validation", "validated", "completed"],
+                in [
+                    "draft",
+                    "awaiting_validation",
+                    "anomaly",
+                    "validated",
+                    "completed",
+                ],
                 "icon": "fa-pen",
                 "color": "secondary",
             }
@@ -299,7 +306,7 @@ def _build_timeline_breadcrumb(order, order_type):
             {
                 "status": _("Awaiting Contract"),
                 "completed": order.status
-                in ["awaiting_validation", "validated", "completed"],
+                in ["awaiting_validation", "anomaly", "validated", "completed"],
                 "icon": "fa-file",
                 "color": "secondary",
             }
@@ -433,6 +440,20 @@ def _build_status_timeline(order, order_type):
                     "completed": False,
                     "icon": "fa-hourglass-half",
                     "color": "warning",
+                }
+            )
+
+        if order.status == "anomaly":
+            timeline.append(
+                {
+                    "status": _("Anomaly - Waiting User/Admin Action"),
+                    "timestamp": order.updated_at,
+                    "user": (
+                        order.approved_by.username if order.approved_by else "System"
+                    ),
+                    "completed": True,
+                    "icon": "fa-exclamation-triangle",
+                    "color": "danger",
                 }
             )
 

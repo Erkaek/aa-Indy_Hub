@@ -98,6 +98,7 @@ class ContractValidationTestCase(TestCase):
         # Check all status choices exist
         status_values = [s[0] for s in MaterialExchangeSellOrder.Status.choices]
         self.assertIn(MaterialExchangeSellOrder.Status.DRAFT, status_values)
+        self.assertIn(MaterialExchangeSellOrder.Status.ANOMALY, status_values)
         self.assertIn(MaterialExchangeSellOrder.Status.VALIDATED, status_values)
         self.assertIn(MaterialExchangeSellOrder.Status.COMPLETED, status_values)
         self.assertIn(MaterialExchangeSellOrder.Status.REJECTED, status_values)

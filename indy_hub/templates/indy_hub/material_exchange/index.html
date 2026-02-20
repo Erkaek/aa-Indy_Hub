@@ -33,6 +33,14 @@
                 </a>
             </div>
         </div>
+        {% if superuser_without_material_hub_manage %}
+        <div class="alert alert-danger py-2 px-3 mt-2 mb-0 me-superuser-warning" role="alert">
+            <small>
+                <i class="fas fa-exclamation-triangle me-1"></i>
+                {% trans "Superuser detected without 'can_manage_material_hub': you won't receive Material Hub admin notifications." %}
+            </small>
+        </div>
+        {% endif %}
         <i class="fas fa-store header-bg"></i>
     </div>
 

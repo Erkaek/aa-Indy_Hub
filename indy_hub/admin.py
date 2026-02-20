@@ -3,6 +3,8 @@
 # Django
 from django import forms
 from django.contrib import admin
+from django.contrib.auth.admin import GroupAdmin
+from django.contrib.auth.models import Group
 
 from .models import (
     Blueprint,
@@ -19,6 +21,52 @@ from .models import (
     NotificationWebhook,
     UserOnboardingProgress,
 )
+
+
+class IndyHubGroupAdminForm(forms.ModelForm):
+    class Meta:
+        model = Group
+        fields = "__all__"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        permissions_field = self.fields.get("permissions")
+        if not permissions_field:
+            return
+
+        target_codenames = {
+            "can_access_indy_hub",
+            "can_manage_corp_bp_requests",
+            "can_manage_material_hub",
+        }
+
+        def _label_from_instance(permission):
+            if (
+                permission.content_type.app_label == "indy_hub"
+                and permission.codename in target_codenames
+            ):
+                return f"indy_hub | {permission.name}"
+            return str(permission)
+
+        permissions_field.label_from_instance = _label_from_instance
+
+
+try:
+    _registered_group_admin = admin.site._registry[Group].__class__
+except KeyError:
+    _registered_group_admin = GroupAdmin
+
+
+class IndyHubGroupAdmin(_registered_group_admin):
+    form = IndyHubGroupAdminForm
+
+
+try:
+    admin.site.unregister(Group)
+except admin.sites.NotRegistered:
+    pass
+
+admin.site.register(Group, IndyHubGroupAdmin)
 
 
 @admin.register(Blueprint)

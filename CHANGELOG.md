@@ -7,13 +7,34 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
 
+## [1.14.3] - 2026-02-20
+
 ### Added
+
+- Material Exchange (Sell): new order status `anomaly` (`Anomaly - Waiting User/Admin Action`) for contract mismatches requiring user/admin intervention.
+- Material Exchange (Config): new Notifications setting to choose whether Material Hub admins are automatically alerted on sell-contract anomalies.
+- Material Exchange (Index): superuser warning banner when a superuser is detected without explicit `can_manage_material_hub` assignment.
 
 ### Changed
 
+- Material Exchange (Sell): contract mismatch cases (wrong structure, wrong price, items mismatch, missing linked character) no longer auto-transition to `rejected`; they now transition to `anomaly`.
+- Material Exchange (Sell): anomaly notifications now adapt to configuration; user messages no longer claim admins were alerted when admin-alerting is disabled.
+- Material Exchange (Config): added a new "Notifications" step at the bottom of the configuration flow.
+- Material Exchange (Sell): removed the contract confirmation modal on submit; sell order creation is now direct from the summary panel.
+- Material Exchange (Sell Order Details): "How This Works" instructions remain visible while an order is in `anomaly` status.
+- Blueprint Sharing (My Requests): request rows now use the same horizontal card visual style as the Fulfill queue for Active and History tabs.
+- Permissions (Admin): custom Indy Hub permission display labels now render as `indy_hub | <permission name>` without the `blueprint` segment in admin permission pickers.
+
 ### Fixed
 
+- Material Exchange (Darkly): improved readability of quantity shortcut buttons (`Zero`/`Max`) on buy/sell pages using Bootstrap classes only.
+- Material Exchange (Darkly): improved readability of market-group dual-list controls and list rendering on the config page (`SELL - Market Groups` / `BUY - Market Groups`) without custom CSS overrides.
+- Material Exchange (Order Details/Index): added lightweight attention animations to improve visibility of `How This Works` and superuser warning sections.
+
 ### Internal
+
+- Migrations: added `0084_materialexchangesellorder_anomaly_status` (sell anomaly status + config toggle) and `0085_rename_permission_labels` (permission label rename data migration).
+- Release metadata bump to `1.14.3`.
 
 ## [1.14.2] - 2026-02-19
 

@@ -609,6 +609,7 @@ def validate_material_exchange_sell_orders():
         status__in=[
             MaterialExchangeSellOrder.Status.DRAFT,
             MaterialExchangeSellOrder.Status.AWAITING_VALIDATION,
+            MaterialExchangeSellOrder.Status.ANOMALY,
         ],
     )
 
@@ -778,6 +779,9 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
     - price matches
     """
     order_ref = order.order_reference or f"INDY-{order.id}"
+    notify_admins_on_sell_anomaly = bool(
+        getattr(config, "notify_admins_on_sell_anomaly", True)
+    )
 
     # Find seller's characters
     seller_character_ids = _get_user_character_ids(order.seller)
@@ -791,9 +795,24 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
             _("Your sell order cannot be validated: no linked EVE character found."),
             level="warning",
         )
-        order.status = MaterialExchangeSellOrder.Status.REJECTED
-        order.notes = "Seller has no linked EVE character"
+        order.status = MaterialExchangeSellOrder.Status.ANOMALY
+        order.notes = "Anomaly: seller has no linked EVE character"
         order.save(update_fields=["status", "notes", "updated_at"])
+
+        if notify_admins_on_sell_anomaly:
+            _notify_material_exchange_admins(
+                config,
+                _("Material Hub Order Requires Intervention"),
+                _(
+                    f"Order {order_ref} requires your intervention.\n"
+                    f"Please contact user {order.seller.username} regarding this anomaly: seller has no linked EVE character."
+                ),
+                level="warning",
+                link=(
+                    f"/indy_hub/material-exchange/my-orders/sell/{order.id}/"
+                    f"?next=/indy_hub/material-exchange/%23admin-panel"
+                ),
+            )
         return
 
     items_list = "\n".join(
@@ -806,6 +825,7 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
     last_reason: str | None = None
     contract_with_correct_ref_wrong_structure: dict | None = None
     contract_with_correct_ref_wrong_price: dict | None = None
+    contract_with_correct_ref_items_mismatch: dict | None = None
 
     for contract in contracts:
         # Track contracts with correct order reference in title (for better diagnostics)
@@ -834,6 +854,11 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
         # Items check
         if not _contract_items_match_order_db(contract, order):
             last_reason = "items mismatch"
+            if has_correct_ref and not contract_with_correct_ref_items_mismatch:
+                contract_with_correct_ref_items_mismatch = {
+                    "contract_id": contract.contract_id,
+                    "issue": "items mismatch",
+                }
             continue
 
         # Price check
@@ -907,40 +932,74 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
         )
     elif contract_with_correct_ref_wrong_structure:
         # Contract found with correct title but wrong structure
-        order.status = MaterialExchangeSellOrder.Status.REJECTED
+        order.status = MaterialExchangeSellOrder.Status.ANOMALY
         order.notes = (
-            f"Contract {contract_with_correct_ref_wrong_structure['contract_id']} has the correct title ({order_ref}) "
+            f"Anomaly: contract {contract_with_correct_ref_wrong_structure['contract_id']} has the correct title ({order_ref}) "
             f"but wrong location. Expected: {config.structure_name or f'Structure {config.structure_id}'}\n"
             f"Contract is at location {contract_with_correct_ref_wrong_structure.get('start_location_id') or contract_with_correct_ref_wrong_structure.get('end_location_id')}"
         )
         order.save(update_fields=["status", "notes", "updated_at"])
 
-        notify_user(
-            order.seller,
-            _("Sell Order Rejected: Wrong Contract Location"),
-            _(
-                f"Your sell order {order_ref} was rejected.\n\n"
-                f"You submitted contract #{contract_with_correct_ref_wrong_structure['contract_id']} which has the correct title, "
-                f"but it's located at the wrong structure.\n\n"
-                f"Required location: {config.structure_name or f'Structure {config.structure_id}'}\n"
-                f"Your contract is at location {contract_with_correct_ref_wrong_structure.get('start_location_id') or contract_with_correct_ref_wrong_structure.get('end_location_id')}\n\n"
-                f"Please create a new contract at the correct location."
-            ),
-            level="danger",
+        admin_link = (
+            f"/indy_hub/material-exchange/my-orders/sell/{order.id}/"
+            f"?next=/indy_hub/material-exchange/%23admin-panel"
         )
 
+        notify_user(
+            order.seller,
+            _("Sell Order Anomaly: Wrong Contract Location"),
+            (
+                _(
+                    f"Your sell order {order_ref} is in anomaly status.\n\n"
+                    f"You submitted contract #{contract_with_correct_ref_wrong_structure['contract_id']} which has the correct title, "
+                    f"but it's located at the wrong structure.\n\n"
+                    f"Required location: {config.structure_name or f'Structure {config.structure_id}'}\n"
+                    f"Your contract is at location {contract_with_correct_ref_wrong_structure.get('start_location_id') or contract_with_correct_ref_wrong_structure.get('end_location_id')}\n\n"
+                    f"You can either create a new contract at the correct location, or contact a Material Hub admin (they have been notified)."
+                )
+                if notify_admins_on_sell_anomaly
+                else _(
+                    f"Your sell order {order_ref} is in anomaly status.\n\n"
+                    f"You submitted contract #{contract_with_correct_ref_wrong_structure['contract_id']} which has the correct title, "
+                    f"but it's located at the wrong structure.\n\n"
+                    f"Required location: {config.structure_name or f'Structure {config.structure_id}'}\n"
+                    f"Your contract is at location {contract_with_correct_ref_wrong_structure.get('start_location_id') or contract_with_correct_ref_wrong_structure.get('end_location_id')}\n\n"
+                    f"Please create a new compliant contract at the correct location."
+                )
+            ),
+            level="warning",
+            link=f"/indy_hub/material-exchange/my-orders/sell/{order.id}/",
+        )
+
+        if notify_admins_on_sell_anomaly:
+            _notify_material_exchange_admins(
+                config,
+                _("Material Hub Order Requires Intervention"),
+                _(
+                    f"Order {order_ref} requires your intervention.\n"
+                    f"Please contact user {order.seller.username} regarding this anomaly: wrong contract location."
+                ),
+                level="warning",
+                link=admin_link,
+            )
+
         logger.warning(
-            "Sell order %s rejected: contract %s has correct title but wrong structure",
+            "Sell order %s anomaly: contract %s has correct title but wrong structure",
             order.id,
             contract_with_correct_ref_wrong_structure["contract_id"],
         )
     elif contract_with_correct_ref_wrong_price:
-        order.status = MaterialExchangeSellOrder.Status.REJECTED
+        order.status = MaterialExchangeSellOrder.Status.ANOMALY
         order.notes = (
-            f"Contract {contract_with_correct_ref_wrong_price['contract_id']} has the correct title ({order_ref}) "
+            f"Anomaly: contract {contract_with_correct_ref_wrong_price['contract_id']} has the correct title ({order_ref}) "
             f"but wrong price ({contract_with_correct_ref_wrong_price['price_msg']})."
         )
         order.save(update_fields=["status", "notes", "updated_at"])
+
+        admin_link = (
+            f"/indy_hub/material-exchange/my-orders/sell/{order.id}/"
+            f"?next=/indy_hub/material-exchange/%23admin-panel"
+        )
 
         expected_value = contract_with_correct_ref_wrong_price.get("expected_price")
         contract_value = contract_with_correct_ref_wrong_price.get("contract_price")
@@ -960,22 +1019,95 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
 
         notify_user(
             order.seller,
-            _("Sell Order Rejected: Wrong Price"),
-            _(
-                f"Your sell order {order_ref} was rejected.\n\n"
-                f"You submitted contract #{contract_with_correct_ref_wrong_price['contract_id']} with the correct title, but the price does not match the agreed total.\n\n"
-                f"Expected price: {expected_price}\n"
-                f"Contract price: {contract_price}\n\n"
-                f"Please create a new contract with the correct price at {config.structure_name or f'Structure {config.structure_id}'}."
+            _("Sell Order Anomaly: Price Mismatch"),
+            (
+                _(
+                    f"Your sell order {order_ref} is in anomaly status.\n\n"
+                    f"You submitted contract #{contract_with_correct_ref_wrong_price['contract_id']} with the correct title, but the price does not match the agreed total.\n\n"
+                    f"Expected price: {expected_price}\n"
+                    f"Contract price: {contract_price}\n\n"
+                    f"You can either create a new contract with the correct price at {config.structure_name or f'Structure {config.structure_id}'}, or wait for admin review (admins have been notified)."
+                )
+                if notify_admins_on_sell_anomaly
+                else _(
+                    f"Your sell order {order_ref} is in anomaly status.\n\n"
+                    f"You submitted contract #{contract_with_correct_ref_wrong_price['contract_id']} with the correct title, but the price does not match the agreed total.\n\n"
+                    f"Expected price: {expected_price}\n"
+                    f"Contract price: {contract_price}\n\n"
+                    f"Please create a new compliant contract with the correct price at {config.structure_name or f'Structure {config.structure_id}'}."
+                )
             ),
-            level="danger",
+            level="warning",
+            link=f"/indy_hub/material-exchange/my-orders/sell/{order.id}/",
         )
 
+        if notify_admins_on_sell_anomaly:
+            _notify_material_exchange_admins(
+                config,
+                _("Material Hub Order Requires Intervention"),
+                _(
+                    f"Order {order_ref} requires your intervention.\n"
+                    f"Please contact user {order.seller.username} regarding this anomaly: contract price mismatch."
+                ),
+                level="warning",
+                link=admin_link,
+            )
+
         logger.warning(
-            "Sell order %s rejected: contract %s has correct title but wrong price (%s)",
+            "Sell order %s anomaly: contract %s has correct title but wrong price (%s)",
             order.id,
             contract_with_correct_ref_wrong_price["contract_id"],
             contract_with_correct_ref_wrong_price["price_msg"],
+        )
+    elif contract_with_correct_ref_items_mismatch:
+        order.status = MaterialExchangeSellOrder.Status.ANOMALY
+        order.notes = (
+            f"Anomaly: contract {contract_with_correct_ref_items_mismatch['contract_id']} has the correct title ({order_ref}) "
+            f"but item list/quantities do not match this order."
+        )
+        order.save(update_fields=["status", "notes", "updated_at"])
+
+        admin_link = (
+            f"/indy_hub/material-exchange/my-orders/sell/{order.id}/"
+            f"?next=/indy_hub/material-exchange/%23admin-panel"
+        )
+
+        notify_user(
+            order.seller,
+            _("Sell Order Anomaly: Items Mismatch"),
+            (
+                _(
+                    f"Your sell order {order_ref} is in anomaly status.\n\n"
+                    f"Contract #{contract_with_correct_ref_items_mismatch['contract_id']} has the correct reference, but item list/quantities do not match this order.\n\n"
+                    f"Please create a corrected contract, or contact a Material Hub admin (they have been notified)."
+                )
+                if notify_admins_on_sell_anomaly
+                else _(
+                    f"Your sell order {order_ref} is in anomaly status.\n\n"
+                    f"Contract #{contract_with_correct_ref_items_mismatch['contract_id']} has the correct reference, but item list/quantities do not match this order.\n\n"
+                    f"Please create a corrected and compliant contract."
+                )
+            ),
+            level="warning",
+            link=f"/indy_hub/material-exchange/my-orders/sell/{order.id}/",
+        )
+
+        if notify_admins_on_sell_anomaly:
+            _notify_material_exchange_admins(
+                config,
+                _("Material Hub Order Requires Intervention"),
+                _(
+                    f"Order {order_ref} requires your intervention.\n"
+                    f"Please contact user {order.seller.username} regarding this anomaly: contract items mismatch."
+                ),
+                level="warning",
+                link=admin_link,
+            )
+
+        logger.warning(
+            "Sell order %s anomaly: contract %s has correct title but items mismatch",
+            order.id,
+            contract_with_correct_ref_items_mismatch["contract_id"],
         )
     else:
         # No contract found - only notify if status is changing or notes have significantly changed

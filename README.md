@@ -29,16 +29,15 @@ ______________________________________________________________________
 
 ### Features
 
-- **Blueprint Library**: View, filter, and search all your EVE Online blueprints by character, corporation, type, and efficiency.
-- **Industry Job Tracking**: Monitor and filter your manufacturing, research, and invention jobs in real time.
-- **Blueprint Copy Sharing**: Request, offer, and deliver blueprint copies (BPCs) with collapsible fulfillment cards, inline access list summaries, signed Discord quick-action links, and notifications for each step.
-- **Flexible Sharing Scopes**: Expose blueprint libraries per character, per corporation, or to everyone at once.
-- **Conditional Offer Chat**: Negotiate blueprint copy terms directly in Indy Hub with persistent history and status tracking.
-- **Material Exchange**: Create buy/sell orders with order references, validate ESI contracts, and review transaction history.
-- **Material Exchange UX**: Compact order detail headers with quick-copy helpers (order reference, buyer/corporation, EVE-friendly totals) plus hub location and quantity shortcuts on buy/sell pages.
-- **ESI Integration**: Secure OAuth2-based sync for blueprints and jobs with director-level corporation scopes.
-- **Notifications**: In-app alerts for job completions, copy offers, chat messages, and deliveries, with configurable immediate or digest cadences.
-- **Modern UI**: Responsive Bootstrap 5 interface with theme compatibility and full i18n support.
+- **Blueprint Library**: Browse, search, and manage personal and corporation blueprints.
+- **Industry Jobs**: Track active and completed manufacturing, research, and invention jobs.
+- **Blueprint Copy Requests**: Create requests, receive offers, chat with builders, and follow delivery status.
+- **Sharing Controls**: Configure who can see and fulfill blueprint copy requests.
+- **Material Exchange**: Submit buy/sell orders and follow validation/processing from one hub.
+- **Order Tracking**: View clear statuses, timelines, and history for your requests and orders.
+- **Notifications**: Receive in-app updates for key events (offers, deliveries, job updates).
+- **Admin Tools**: Manage corp blueprint workflows and Material Exchange operations with dedicated admin views.
+- **Modern UI**: Responsive, theme-friendly interface designed for daily operational use.
 
 ## Requirements
 
@@ -65,13 +64,11 @@ pip install django-eveuniverse indy-hub
 Add to your `local.py`:
 
 ```python
-# Add to INSTALLED_APPS
 INSTALLED_APPS = [
     "eveuniverse",
     "indy_hub",
 ]
 
-# EveUniverse configuration
 EVEUNIVERSE_LOAD_TYPE_MATERIALS = True
 EVEUNIVERSE_LOAD_MARKET_GROUPS = True
 ```
@@ -92,7 +89,6 @@ python manage.py eveuniverse_load_data types --types-enabled-sections industry_a
 Restart services:
 
 ```text
-# Restart Alliance Auth
 systemctl restart allianceauth
 ```
 
@@ -107,13 +103,11 @@ exit
 Add to your `conf/local.py`:
 
 ```python
-# Add to INSTALLED_APPS
 INSTALLED_APPS = [
     "eveuniverse",
     "indy_hub",
 ]
 
-# EveUniverse configuration
 EVEUNIVERSE_LOAD_TYPE_MATERIALS = True
 EVEUNIVERSE_LOAD_MARKET_GROUPS = True
 ```
@@ -122,7 +116,7 @@ Add to your `conf/requirements.txt` (Always use current versions)
 
 ```text
 django-eveuniverse==1.6.0
-indy-hub==1.14.2
+indy-hub==1.14.3
 ```
 
 Run migrations and collect static files:
@@ -163,7 +157,7 @@ Assign permissions in Alliance Auth to control access levels:
 
 ### Base Access (Required for all users)
 
-- **`indy_hub.can_access_indy_hub`** → "Can access Indy Hub"
+- **Visible in admin:** "indy_hub | can access Indy_Hub"
   - View and manage personal blueprints
   - Create and manage blueprint copy requests
   - Use Material Exchange (buy/sell orders)
@@ -172,7 +166,7 @@ Assign permissions in Alliance Auth to control access levels:
 
 ### Corporation Management (Optional)
 
-- **`indy_hub.can_manage_corp_bp_requests`** → "Can manage corporation indy"
+- **Visible in admin:** "indy_hub | can admin Corp"
   - View and manage corporation blueprints (director only)
   - Handle corporation blueprint copy requests (accept/reject corp BP copy sharing)
   - Access corporation industry jobs
@@ -182,14 +176,14 @@ Assign permissions in Alliance Auth to control access levels:
 
 ### Material Exchange Administration (Optional)
 
-- **`indy_hub.can_manage_material_hub`** → "Can manage Mat Exchange"
+- **Visible in admin:** "indy_hub | can admin MatExchange"
   - Configure Material Exchange settings
   - Manage stock availability
   - View all transactions
   - This role is **not** meant for everyone — only for people who manage the hub (they accept/reject buy and sell orders made to the corp)
   - Admin panel access
 
-**Note**: Permissions are independent and can be combined. Most users only need `can_access_indy_hub`.
+**Note**: Permissions are independent and can be combined. Most users only need `can access Indy_Hub`.
 
 ______________________________________________________________________
 
@@ -250,7 +244,9 @@ systemctl restart allianceauth
 Update Versions in `conf/requirements.txt` (Always use current versions)
 
 ```text
-indy-hub==1.14.1
+indy-hub==1.14.3
+
+
 ```
 
 Update the Package:
@@ -332,5 +328,6 @@ ______________________________________________________________________
 ## Contributing
 
 - Open an issue or pull request on GitHub for help or to contribute
+  Or contact me on discord: `erkaek`
 
 ______________________________________________________________________

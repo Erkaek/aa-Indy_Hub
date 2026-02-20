@@ -66,6 +66,49 @@ html[data-theme="darkly"] {
     font-weight: 600;
 }
 
+.me-superuser-warning {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+}
+
+.me-superuser-warning::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: -60%;
+    width: 50%;
+    pointer-events: none;
+    background: linear-gradient(
+        110deg,
+        rgba(255, 255, 255, 0),
+        rgba(255, 255, 255, 0.62),
+        rgba(255, 255, 255, 0)
+    );
+    z-index: 1;
+    animation: meSuperuserWarningShine 1s ease-in-out 2;
+}
+
+@keyframes meSuperuserWarningShine {
+    from {
+        transform: translateX(0) skewX(-16deg);
+    }
+    to {
+        transform: translateX(320%) skewX(-16deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .me-superuser-warning {
+        animation: none;
+    }
+
+    .me-superuser-warning::after {
+        animation: none;
+    }
+}
+
 html[data-theme="darkly"] .me-hub-banner {
     background: linear-gradient(90deg, rgba(13, 110, 253, 0.22), rgba(25, 135, 84, 0.22));
     border-color: rgba(148, 163, 184, 0.35);
@@ -328,6 +371,12 @@ html[data-theme="darkly"] .me-hub-banner-label {
     background: #fee2e2;
     border-color: #ef4444;
     color: #991b1b;
+}
+
+.status-badge.status-anomaly {
+    background: #fef3c7;
+    border-color: #f59e0b;
+    color: #92400e;
 }
 
 .status-badge.status-cancelled {
@@ -807,6 +856,10 @@ html[data-theme="darkly"] .status-rail {
 
 .ledger-row.status-rejected .status-rail {
     background: #ef4444;
+}
+
+.ledger-row.status-anomaly .status-rail {
+    background: #f59e0b;
 }
 
 .ledger-row.status-cancelled .status-rail {

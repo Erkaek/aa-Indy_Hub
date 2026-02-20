@@ -190,10 +190,10 @@
                                                         data-type-id="{{ item.type_id }}"
                                                         data-max="{{ item.quantity }}">
                                                     <div class="qty-btns" role="group" aria-label="{% trans 'Quantity shortcuts' %}">
-                                                        <button type="button" class="btn btn-outline-secondary btn-sm qty-btn" data-action="zero" title="{% trans 'Zero' %}" aria-label="{% trans 'Zero' %}">
+                                                        <button type="button" class="btn btn-secondary btn-sm qty-btn" data-action="zero" title="{% trans 'Zero' %}" aria-label="{% trans 'Zero' %}">
                                                             <i class="fas fa-ban" aria-hidden="true"></i>
                                                         </button>
-                                                        <button type="button" class="btn btn-outline-secondary btn-sm qty-btn" data-action="max">{% trans "Max" %}</button>
+                                                        <button type="button" class="btn btn-secondary btn-sm qty-btn" data-action="max">{% trans "Max" %}</button>
                                                     </div>
                                                 </div>
                                                 <div class="qty-error" id="error-{{ item.type_id }}">

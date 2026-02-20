@@ -93,14 +93,14 @@ class Blueprint(models.Model):
             ),
         ]
         permissions = [
-            ("can_access_indy_hub", "Can access Indy Hub"),
+            ("can_access_indy_hub", "can access Indy_Hub"),
             (
                 "can_manage_corp_bp_requests",
-                "Can manage corporation indy",
+                "can admin Corp",
             ),
             (
                 "can_manage_material_hub",
-                "Can manage Mat Exchange",
+                "can admin MatExchange",
             ),
         ]
         default_permissions = ()  # Disable Django's add/change/delete/view permissions
@@ -1870,6 +1870,13 @@ class MaterialExchangeConfig(models.Model):
         ),
     )
 
+    notify_admins_on_sell_anomaly = models.BooleanField(
+        default=True,
+        help_text=_(
+            "When enabled, Material Hub admins are notified when a sell contract anomaly is detected."
+        ),
+    )
+
     # Market group filters
     allowed_market_groups_buy = models.JSONField(
         blank=True,
@@ -2102,6 +2109,7 @@ class MaterialExchangeSellOrder(models.Model):
     class Status(models.TextChoices):
         DRAFT = "draft", _("Order Created - Awaiting Contract")
         AWAITING_VALIDATION = "awaiting_validation", _("Awaiting Auth Validation")
+        ANOMALY = "anomaly", _("Anomaly - Waiting User/Admin Action")
         VALIDATED = "validated", _("Validated - Awaiting Contract Accept")
         COMPLETED = "completed", _("Completed")
         REJECTED = "rejected", _("Rejected")
