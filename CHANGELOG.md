@@ -9,26 +9,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [1.14.4] - 2026-02-21
 
-### Fixed
-
-- Material Exchange (Config): saving with `Alert Material Hub admins on sell contract anomalies` unchecked now correctly persists `notify_admins_on_sell_anomaly=False` instead of silently keeping the previous value.
-- Material Exchange (Config): checkbox parsing for `enforce_jita_price_bounds` now follows standard HTML form behavior consistently (`on` => true, missing key => false).
-
-### Added
-
-- Tests: added targeted coverage for Material Exchange configuration checkbox persistence in `test_material_exchange_config_save.py`.
-
-### Internal
-
-- Release metadata bump to `1.14.4`.
-
-## [1.14.3] - 2026-02-20
-
 ### Added
 
 - Material Exchange (Sell): new order status `anomaly` (`Anomaly - Waiting User/Admin Action`) for contract mismatches requiring user/admin intervention.
 - Material Exchange (Config): new Notifications setting to choose whether Material Hub admins are automatically alerted on sell-contract anomalies.
 - Material Exchange (Index): superuser warning banner when a superuser is detected without explicit `can_manage_material_hub` assignment.
+- Tests: added targeted coverage for Material Exchange configuration checkbox persistence in `test_material_exchange_config_save.py`.
 
 ### Changed
 
@@ -42,6 +28,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### Fixed
 
+- Material Exchange (Config): saving with `Alert Material Hub admins on sell contract anomalies` unchecked now correctly persists `notify_admins_on_sell_anomaly=False` instead of silently keeping the previous value.
+- Material Exchange (Config): checkbox parsing for `enforce_jita_price_bounds` now follows standard HTML form behavior consistently (`on` => true, missing key => false).
 - Material Exchange (Darkly): improved readability of quantity shortcut buttons (`Zero`/`Max`) on buy/sell pages using Bootstrap classes only.
 - Material Exchange (Darkly): improved readability of market-group dual-list controls and list rendering on the config page (`SELL - Market Groups` / `BUY - Market Groups`) without custom CSS overrides.
 - Material Exchange (Order Details/Index): added lightweight attention animations to improve visibility of `How This Works` and superuser warning sections.
@@ -49,7 +37,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ### Internal
 
 - Migrations: added `0084_materialexchangesellorder_anomaly_status` (sell anomaly status + config toggle) and `0085_rename_permission_labels` (permission label rename data migration).
-- Release metadata bump to `1.14.3`.
+- Release metadata bump to `1.14.4`.
 
 ## [1.14.2] - 2026-02-19
 
