@@ -7,10 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
 
+## [1.14.5] - 2026-02-22
+
 ### Added
 
 - Material Exchange (Sell): new status `anomaly_rejected` (`Anomaly - Contract Refused In-Game (Redo Required)`) to keep orders open when an anomalous in-game contract is refused.
 - Tests: added regression coverage for anomaly contracts accepted/refused in-game and for recovery after user submits a new compliant contract.
+- Material Exchange (Sell): near-match detection for contracts that match expected structure/items/price but use a wrong order reference now raises explicit anomaly notes and notifications.
 
 ### Changed
 
@@ -18,6 +21,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Material Exchange (Sell): if an anomalous contract is refused/cancelled/expired/deleted in-game, the order now transitions to `anomaly_rejected` instead of `cancelled`, allowing the user to resubmit a compliant contract.
 - Material Exchange (Sell): validation queue now processes `anomaly_rejected` orders the same as other active in-flight statuses so re-submitted contracts are picked up automatically.
 - Material Exchange (UI): timelines, badges, progress breadcrumbs, and sell order detail instructions now include and render `anomaly_rejected` consistently.
+- Material Exchange (UI): anomaly visibility was reinforced on index and order details (clear anomaly badges/highlighted rows, stronger notes panels, and auto-open anomaly modal on sell detail when notes exist).
 
 ### Fixed
 
@@ -27,6 +31,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ### Internal
 
 - Migrations: added `0086_materialexchangesellorder_anomaly_rejected_status`.
+- Release metadata bump to `1.14.5`.
 
 ## [1.14.4] - 2026-02-21
 
