@@ -102,6 +102,11 @@
                                 <span class="me-order-ref-title">
                                     <span class="me-order-kind-label me-order-kind-{{ order.order_kind }}">{% if order.order_kind == 'sell' %}{% trans "Sell" %}{% else %}{% trans "Buy" %}{% endif %}</span>
                                     · {{ order.order_reference }}
+                                    {% if order.status == 'anomaly' or order.status == 'anomaly_rejected' %}
+                                    <span class="me-order-anomaly-flag" title="{% trans 'Anomaly detected' %}" aria-label="{% trans 'Anomaly detected' %}">
+                                        <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
+                                    </span>
+                                    {% endif %}
                                 </span>
                             </div>
                             <div class="me-user-order-meta me-user-order-items">
@@ -117,7 +122,7 @@
                                     {% endif %}
                                     <span class="me-order-progress-points" aria-hidden="true">
                                         {% for step in order.timeline_breadcrumb %}
-                                        <span class="me-order-progress-point {% if step.completed %}done{% endif %}{% if step.status == order.progress_current_label %} current{% endif %}{% if forloop.first %} start{% endif %}{% if forloop.last %} end{% endif %}" style="left: {{ step.position_percent }}%;"></span>
+                                        <span class="me-order-progress-point {% if step.completed %}done{% endif %}{% if step.status == order.progress_current_label %} current{% endif %}{% if step.status == order.progress_current_label and order.status == 'anomaly' or step.status == order.progress_current_label and order.status == 'anomaly_rejected' %} anomaly-current{% endif %}{% if forloop.first %} start{% endif %}{% if forloop.last %} end{% endif %}" style="left: {{ step.position_percent }}%;"></span>
                                         {% endfor %}
                                     </span>
                                 </span>
@@ -192,6 +197,11 @@
                         <span class="me-order-ref-title">
                             <span class="me-order-kind-label me-order-kind-{{ order.order_kind }}">{% if order.order_kind == 'sell' %}{% trans "Sell" %}{% else %}{% trans "Buy" %}{% endif %}</span>
                             · {{ order.order_reference }}
+                            {% if order.status == 'anomaly' or order.status == 'anomaly_rejected' %}
+                            <span class="me-order-anomaly-flag" title="{% trans 'Anomaly detected' %}" aria-label="{% trans 'Anomaly detected' %}">
+                                <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
+                            </span>
+                            {% endif %}
                         </span>
                         <span class="me-admin-order-user">{% trans "User" %}: {{ order.seller_display_name|default:order.seller.username }}</span>
                         <span class="me-admin-order-items">
@@ -207,7 +217,7 @@
                                 {% endif %}
                                 <span class="me-order-progress-points" aria-hidden="true">
                                     {% for step in order.timeline_breadcrumb %}
-                                    <span class="me-order-progress-point {% if step.completed %}done{% endif %}{% if step.status == order.progress_current_label %} current{% endif %}{% if forloop.first %} start{% endif %}{% if forloop.last %} end{% endif %}" style="left: {{ step.position_percent }}%;"></span>
+                                    <span class="me-order-progress-point {% if step.completed %}done{% endif %}{% if step.status == order.progress_current_label %} current{% endif %}{% if step.status == order.progress_current_label and order.status == 'anomaly' or step.status == order.progress_current_label and order.status == 'anomaly_rejected' %} anomaly-current{% endif %}{% if forloop.first %} start{% endif %}{% if forloop.last %} end{% endif %}" style="left: {{ step.position_percent }}%;"></span>
                                     {% endfor %}
                                 </span>
                             </span>
@@ -260,6 +270,11 @@
                         <span class="me-order-ref-title">
                             <span class="me-order-kind-label me-order-kind-{{ order.order_kind }}">{% if order.order_kind == 'sell' %}{% trans "Sell" %}{% else %}{% trans "Buy" %}{% endif %}</span>
                             · {{ order.order_reference }}
+                            {% if order.status == 'anomaly' or order.status == 'anomaly_rejected' %}
+                            <span class="me-order-anomaly-flag" title="{% trans 'Anomaly detected' %}" aria-label="{% trans 'Anomaly detected' %}">
+                                <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
+                            </span>
+                            {% endif %}
                         </span>
                         <span class="me-admin-order-user">{% trans "User" %}: {{ order.buyer_display_name|default:order.buyer.username }}</span>
                         <span class="me-admin-order-items">
@@ -275,7 +290,7 @@
                                 {% endif %}
                                 <span class="me-order-progress-points" aria-hidden="true">
                                     {% for step in order.timeline_breadcrumb %}
-                                    <span class="me-order-progress-point {% if step.completed %}done{% endif %}{% if step.status == order.progress_current_label %} current{% endif %}{% if forloop.first %} start{% endif %}{% if forloop.last %} end{% endif %}" style="left: {{ step.position_percent }}%;"></span>
+                                    <span class="me-order-progress-point {% if step.completed %}done{% endif %}{% if step.status == order.progress_current_label %} current{% endif %}{% if step.status == order.progress_current_label and order.status == 'anomaly' or step.status == order.progress_current_label and order.status == 'anomaly_rejected' %} anomaly-current{% endif %}{% if forloop.first %} start{% endif %}{% if forloop.last %} end{% endif %}" style="left: {{ step.position_percent }}%;"></span>
                                     {% endfor %}
                                 </span>
                             </span>

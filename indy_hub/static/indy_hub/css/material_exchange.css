@@ -1306,6 +1306,29 @@ html[data-theme="darkly"] .me-order-progress-compact .step {
     box-shadow: 0 0 0 2px rgba(var(--bs-danger-rgb), 0.25);
 }
 
+.me-order-progress-point.current.anomaly-current {
+    width: 0;
+    height: 0;
+    border-radius: 0;
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    border-bottom: 10px solid var(--bs-warning);
+    border-top: none;
+    background: transparent;
+    box-shadow: none;
+    transform: translate(-50%, -58%);
+}
+
+.me-order-anomaly-flag {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 0.4rem;
+    color: #f59e0b;
+    font-size: 0.85rem;
+    vertical-align: middle;
+}
+
 @keyframes meProgressActiveStripe {
     from {
         background-position: 0 0;
@@ -1324,6 +1347,18 @@ html[data-theme="darkly"] .me-order-progress-point.current {
     border-color: rgba(248, 113, 113, 0.95);
     background: #ef4444;
     box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.3);
+}
+
+html[data-theme="darkly"] .me-order-progress-point.current.anomaly-current {
+    border-left-color: transparent;
+    border-right-color: transparent;
+    border-bottom-color: #fbbf24;
+    background: transparent;
+    box-shadow: none;
+}
+
+html[data-theme="darkly"] .me-order-anomaly-flag {
+    color: #fbbf24;
 }
 
 html[data-theme="darkly"] .me-order-progress-active-segment {

@@ -392,3 +392,52 @@ html[data-theme="darkly"] .bg-white {
 html[data-theme="darkly"] [class*="subtle"] {
     background-color: #303030 !important;
 }
+
+.order-notes-card {
+    border-left: 4px solid rgba(var(--bs-secondary-rgb), 0.9);
+}
+
+.order-notes-card .order-notes-header {
+    border-bottom: 1px solid rgba(var(--bs-body-color-rgb), 0.08);
+}
+
+.order-notes-card.order-notes-alert {
+    border-left-color: rgba(var(--bs-warning-rgb), 0.95);
+    background: rgba(var(--bs-warning-rgb), 0.08);
+}
+
+.order-notes-card.order-notes-success {
+    border-left-color: rgba(var(--bs-success-rgb), 0.95);
+    background: rgba(var(--bs-success-rgb), 0.08);
+}
+
+.order-notes-card.order-notes-neutral {
+    border-left-color: rgba(var(--bs-info-rgb), 0.9);
+    background: rgba(var(--bs-info-rgb), 0.06);
+}
+
+.order-notes-card .order-notes-body {
+    padding-top: 0.9rem;
+}
+
+.order-notes-card .order-notes-text {
+    white-space: normal;
+    color: rgba(var(--bs-body-color-rgb), 0.95);
+    line-height: 1.45;
+}
+
+html[data-theme="darkly"] .order-notes-card {
+    border-left-color: rgba(var(--bs-secondary-rgb), 0.85);
+}
+
+html[data-theme="darkly"] .order-notes-card.order-notes-alert {
+    background: rgba(var(--bs-warning-rgb), 0.12);
+}
+
+html[data-theme="darkly"] .order-notes-card.order-notes-success {
+    background: rgba(var(--bs-success-rgb), 0.12);
+}
+
+html[data-theme="darkly"] .order-notes-card.order-notes-neutral {
+    background: rgba(var(--bs-info-rgb), 0.1);
+}

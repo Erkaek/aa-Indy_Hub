@@ -276,14 +276,19 @@
 
                 <!-- Notes (if any) -->
                 {% if order.notes %}
-                    <div class="card">
-                        <div class="card-header">
+                    <div class="card order-notes-card {% if order.status == 'anomaly' or order.status == 'anomaly_rejected' or order.status == 'rejected' or order.status == 'cancelled' %}order-notes-alert{% elif order.status == 'completed' or order.status == 'validated' %}order-notes-success{% else %}order-notes-neutral{% endif %}">
+                        <div class="card-header order-notes-header">
                             <h5 class="mb-0">
-                                <i class="fas fa-sticky-note me-2"></i>{% trans "Notes" %}
+                                {% if order.status == 'anomaly' or order.status == 'anomaly_rejected' or order.status == 'rejected' or order.status == 'cancelled' %}
+                                    <i class="fas fa-exclamation-triangle me-2"></i>
+                                {% else %}
+                                    <i class="fas fa-sticky-note me-2"></i>
+                                {% endif %}
+                                {% trans "Notes" %}
                             </h5>
                         </div>
-                        <div class="card-body">
-                            <p class="mb-0">{{ order.notes }}</p>
+                        <div class="card-body order-notes-body">
+                            <p class="mb-0 order-notes-text">{{ order.notes|linebreaksbr }}</p>
                         </div>
                     </div>
                 {% endif %}
