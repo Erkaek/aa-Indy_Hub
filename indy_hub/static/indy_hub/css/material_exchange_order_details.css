@@ -426,6 +426,50 @@ html[data-theme="darkly"] [class*="subtle"] {
     line-height: 1.45;
 }
 
+.sell-order-detail .order-notes-card.order-notes-attention {
+    position: relative;
+    overflow: hidden;
+    animation: meOrderNotesPulse 1s ease-in-out 2;
+}
+
+.sell-order-detail .order-notes-card.order-notes-attention::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: -45%;
+    width: 35%;
+    pointer-events: none;
+    background: linear-gradient(
+        110deg,
+        rgba(var(--bs-warning-rgb), 0),
+        rgba(var(--bs-warning-rgb), 0.28),
+        rgba(var(--bs-warning-rgb), 0)
+    );
+    animation: meOrderNotesShine 0.95s ease-in-out 2;
+}
+
+@keyframes meOrderNotesPulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(var(--bs-warning-rgb), 0);
+    }
+    40% {
+        box-shadow: 0 0 0 4px rgba(var(--bs-warning-rgb), 0.22);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(var(--bs-warning-rgb), 0);
+    }
+}
+
+@keyframes meOrderNotesShine {
+    from {
+        transform: translateX(0);
+    }
+    to {
+        transform: translateX(420%);
+    }
+}
+
 html[data-theme="darkly"] .order-notes-card {
     border-left-color: rgba(var(--bs-secondary-rgb), 0.85);
 }
@@ -440,4 +484,14 @@ html[data-theme="darkly"] .order-notes-card.order-notes-success {
 
 html[data-theme="darkly"] .order-notes-card.order-notes-neutral {
     background: rgba(var(--bs-info-rgb), 0.1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .sell-order-detail .order-notes-card.order-notes-attention {
+        animation: none;
+    }
+
+    .sell-order-detail .order-notes-card.order-notes-attention::after {
+        animation: none;
+    }
 }

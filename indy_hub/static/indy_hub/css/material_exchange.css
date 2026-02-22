@@ -905,6 +905,16 @@ html[data-theme="darkly"] .status-rail {
     border-left: 4px solid var(--me-buy-accent);
 }
 
+.me-user-order-row.status-anomaly,
+.me-user-order-row.status-anomaly_rejected {
+    border-left-color: rgba(var(--bs-warning-rgb), 1);
+    border-top-color: rgba(var(--bs-warning-rgb), 0.42);
+    border-right-color: rgba(var(--bs-warning-rgb), 0.42);
+    border-bottom-color: rgba(var(--bs-warning-rgb), 0.42);
+    background: rgba(var(--bs-warning-rgb), 0.14);
+    box-shadow: 0 0 0 1px rgba(var(--bs-warning-rgb), 0.2);
+}
+
 .me-user-order-row.me-admin-order-row {
     grid-template-columns: minmax(0, 1fr) 320px;
 }
@@ -920,6 +930,16 @@ html[data-theme="darkly"] .me-user-order-row[data-order-kind="sell"] {
 
 html[data-theme="darkly"] .me-user-order-row[data-order-kind="buy"] {
     border-left-color: var(--me-buy-accent);
+}
+
+html[data-theme="darkly"] .me-user-order-row.status-anomaly,
+html[data-theme="darkly"] .me-user-order-row.status-anomaly_rejected {
+    border-left-color: rgba(var(--bs-warning-rgb), 1);
+    border-top-color: rgba(var(--bs-warning-rgb), 0.48);
+    border-right-color: rgba(var(--bs-warning-rgb), 0.48);
+    border-bottom-color: rgba(var(--bs-warning-rgb), 0.48);
+    background: rgba(var(--bs-warning-rgb), 0.2);
+    box-shadow: 0 0 0 1px rgba(var(--bs-warning-rgb), 0.28);
 }
 
 .me-user-order-main {
@@ -1319,14 +1339,21 @@ html[data-theme="darkly"] .me-order-progress-compact .step {
     transform: translate(-50%, -58%);
 }
 
-.me-order-anomaly-flag {
+.me-order-anomaly-badge {
     display: inline-flex;
     align-items: center;
-    justify-content: center;
-    margin-left: 0.4rem;
-    color: #f59e0b;
-    font-size: 0.85rem;
+    gap: 0.3rem;
+    margin-left: 0.45rem;
+    padding: 0.1rem 0.45rem;
+    border-radius: 999px;
+    border: 1px solid rgba(var(--bs-warning-rgb), 0.65);
+    background: rgba(var(--bs-warning-rgb), 0.2);
+    color: #b45309;
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.01em;
     vertical-align: middle;
+    line-height: 1.1;
 }
 
 @keyframes meProgressActiveStripe {
@@ -1357,7 +1384,9 @@ html[data-theme="darkly"] .me-order-progress-point.current.anomaly-current {
     box-shadow: none;
 }
 
-html[data-theme="darkly"] .me-order-anomaly-flag {
+html[data-theme="darkly"] .me-order-anomaly-badge {
+    border-color: rgba(var(--bs-warning-rgb), 0.72);
+    background: rgba(var(--bs-warning-rgb), 0.24);
     color: #fbbf24;
 }
 

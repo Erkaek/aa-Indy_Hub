@@ -973,15 +973,12 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
     contract_with_correct_ref_wrong_structure: dict | None = None
     contract_with_correct_ref_wrong_price: dict | None = None
     contract_with_correct_ref_items_mismatch: dict | None = None
+    contract_with_wrong_ref_only: dict | None = None
 
     for contract in contracts:
         # Track contracts with correct order reference in title (for better diagnostics)
         title = contract.title or ""
         has_correct_ref = order_ref in title
-
-        # Require title reference before further checks
-        if not has_correct_ref:
-            continue
 
         # Basic criteria
         criteria_match = _matches_sell_order_criteria_db(
@@ -1027,8 +1024,19 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
                 }
             continue
 
-        matching_contract = contract
-        break
+        # Strict full match (issuer/assignee/location/items/price)
+        if has_correct_ref:
+            matching_contract = contract
+            break
+
+        # Near match: all strict fields match but order reference is missing/wrong
+        if not contract_with_wrong_ref_only:
+            contract_with_wrong_ref_only = {
+                "contract_id": contract.contract_id,
+                "title": title,
+                "status": contract.status,
+                "price": contract.price,
+            }
 
     if matching_contract:
         _set_sell_order_validated(
@@ -1285,6 +1293,62 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
             "Sell order %s anomaly: contract %s has correct title but items mismatch",
             order.id,
             contract_with_correct_ref_items_mismatch["contract_id"],
+        )
+    elif contract_with_wrong_ref_only:
+        contract_id = contract_with_wrong_ref_only["contract_id"]
+        found_title = (contract_with_wrong_ref_only.get("title") or "").strip()
+        title_display = found_title or _("(empty title)")
+
+        anomaly_notes = (
+            f"Anomaly: contract {contract_id} matches seller/corp/location/items/price but title reference is incorrect. "
+            f"Found title: '{title_display}'. Expected reference: '{order_ref}'."
+        )
+        anomaly_updated = (
+            order.status != MaterialExchangeSellOrder.Status.ANOMALY
+            or order.notes != anomaly_notes
+        )
+        order.status = MaterialExchangeSellOrder.Status.ANOMALY
+        order.notes = anomaly_notes
+        order.save(update_fields=["status", "notes", "updated_at"])
+
+        if anomaly_updated:
+            notify_user(
+                order.seller,
+                _("Sell Order Anomaly: Wrong Contract Reference"),
+                _(
+                    f"We found contract #{contract_id} that matches your sell order items, structure and price, "
+                    f"but the title/reference is incorrect.\n\n"
+                    f"Found title: {title_display}\n"
+                    f"Expected reference: {order_ref}\n\n"
+                    f"Please recreate/update the contract title with the exact order reference."
+                ),
+                level="warning",
+                link=f"/indy_hub/material-exchange/my-orders/sell/{order.id}/",
+            )
+
+            if notify_admins_on_sell_anomaly:
+                _notify_material_exchange_admins(
+                    config,
+                    _("Material Hub Order Requires Intervention"),
+                    _(
+                        f"Order {order_ref} has a near-match contract #{contract_id} with wrong reference in title.\n"
+                        f"Found title: {title_display}\n"
+                        f"Expected reference: {order_ref}\n"
+                        f"Please contact user {order.seller.username}."
+                    ),
+                    level="warning",
+                    link=(
+                        f"/indy_hub/material-exchange/my-orders/sell/{order.id}/"
+                        f"?next=/indy_hub/material-exchange/%23admin-panel"
+                    ),
+                )
+
+        logger.warning(
+            "Sell order %s anomaly: contract %s near-match found but wrong title reference (found=%r expected=%r)",
+            order.id,
+            contract_id,
+            title_display,
+            order_ref,
         )
     else:
         # No contract found - only notify if status is changing or notes have significantly changed

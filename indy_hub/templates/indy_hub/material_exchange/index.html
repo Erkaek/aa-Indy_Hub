@@ -96,15 +96,16 @@
             {% if recent_orders %}
             <div class="me-user-orders">
                     {% for order in recent_orders %}
-                    <article class="me-user-order-row" data-order-kind="{{ order.order_kind }}">
+                    <article class="me-user-order-row status-{{ order.status }}" data-order-kind="{{ order.order_kind }}">
                         <div class="me-user-order-main me-user-layout-grid">
                             <div class="me-user-order-ref">
                                 <span class="me-order-ref-title">
                                     <span class="me-order-kind-label me-order-kind-{{ order.order_kind }}">{% if order.order_kind == 'sell' %}{% trans "Sell" %}{% else %}{% trans "Buy" %}{% endif %}</span>
                                     · {{ order.order_reference }}
                                     {% if order.status == 'anomaly' or order.status == 'anomaly_rejected' %}
-                                    <span class="me-order-anomaly-flag" title="{% trans 'Anomaly detected' %}" aria-label="{% trans 'Anomaly detected' %}">
+                                    <span class="me-order-anomaly-badge" title="{% trans 'Anomaly detected' %}" aria-label="{% trans 'Anomaly detected' %}">
                                         <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
+                                        <span>{% trans "Anomaly" %}</span>
                                     </span>
                                     {% endif %}
                                 </span>
@@ -198,8 +199,9 @@
                             <span class="me-order-kind-label me-order-kind-{{ order.order_kind }}">{% if order.order_kind == 'sell' %}{% trans "Sell" %}{% else %}{% trans "Buy" %}{% endif %}</span>
                             · {{ order.order_reference }}
                             {% if order.status == 'anomaly' or order.status == 'anomaly_rejected' %}
-                            <span class="me-order-anomaly-flag" title="{% trans 'Anomaly detected' %}" aria-label="{% trans 'Anomaly detected' %}">
+                            <span class="me-order-anomaly-badge" title="{% trans 'Anomaly detected' %}" aria-label="{% trans 'Anomaly detected' %}">
                                 <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
+                                <span>{% trans "Anomaly" %}</span>
                             </span>
                             {% endif %}
                         </span>
@@ -271,8 +273,9 @@
                             <span class="me-order-kind-label me-order-kind-{{ order.order_kind }}">{% if order.order_kind == 'sell' %}{% trans "Sell" %}{% else %}{% trans "Buy" %}{% endif %}</span>
                             · {{ order.order_reference }}
                             {% if order.status == 'anomaly' or order.status == 'anomaly_rejected' %}
-                            <span class="me-order-anomaly-flag" title="{% trans 'Anomaly detected' %}" aria-label="{% trans 'Anomaly detected' %}">
+                            <span class="me-order-anomaly-badge" title="{% trans 'Anomaly detected' %}" aria-label="{% trans 'Anomaly detected' %}">
                                 <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
+                                <span>{% trans "Anomaly" %}</span>
                             </span>
                             {% endif %}
                         </span>

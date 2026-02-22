@@ -250,6 +250,171 @@ class ContractValidationTaskTest(TestCase):
         # User is not notified when no contracts are cached (just a warning log)
         mock_notify_user.assert_not_called()
 
+    @patch("indy_hub.tasks.material_exchange_contracts._get_user_character_ids")
+    @patch("indy_hub.tasks.material_exchange_contracts.notify_user")
+    @patch("indy_hub.tasks.material_exchange_contracts.notify_multi")
+    def test_validate_sell_orders_wrong_reference_only_sets_anomaly(
+        self, mock_notify_multi, mock_notify_user, mock_user_chars
+    ):
+        """Strict near-match without title reference must move order to anomaly."""
+        # AA Example App
+        from indy_hub.models import ESIContract, ESIContractItem
+
+        seller_char_id = 111111111
+        mock_user_chars.return_value = [seller_char_id]
+
+        near_match_contract = ESIContract.objects.create(
+            contract_id=2001,
+            corporation_id=self.config.corporation_id,
+            contract_type="item_exchange",
+            issuer_id=seller_char_id,
+            issuer_corporation_id=self.config.corporation_id,
+            assignee_id=self.config.corporation_id,
+            start_location_id=self.config.structure_id,
+            end_location_id=self.config.structure_id,
+            status="outstanding",
+            price=self.sell_item.total_price,
+            title="WRONG-REF-ONLY",
+            date_issued="2024-01-01T00:00:00Z",
+            date_expired="2024-12-31T23:59:59Z",
+        )
+        ESIContractItem.objects.create(
+            contract=near_match_contract,
+            record_id=20011,
+            type_id=self.sell_item.type_id,
+            quantity=self.sell_item.quantity,
+            is_included=True,
+        )
+
+        validate_material_exchange_sell_orders()
+
+        self.sell_order.refresh_from_db()
+        self.assertEqual(
+            self.sell_order.status,
+            MaterialExchangeSellOrder.Status.ANOMALY,
+        )
+        self.assertIn("title reference is incorrect", self.sell_order.notes)
+        self.assertIn("Expected reference", self.sell_order.notes)
+        mock_notify_user.assert_called()
+        mock_notify_multi.assert_called()
+
+    @patch("indy_hub.tasks.material_exchange_contracts._get_user_character_ids")
+    @patch("indy_hub.tasks.material_exchange_contracts.notify_user")
+    @patch("indy_hub.tasks.material_exchange_contracts.notify_multi")
+    def test_validate_sell_orders_wrong_price_has_priority_over_wrong_ref(
+        self, mock_notify_multi, mock_notify_user, mock_user_chars
+    ):
+        """Wrong price with exact reference must win over wrong-reference near-match."""
+        # AA Example App
+        from indy_hub.models import ESIContract, ESIContractItem
+
+        seller_char_id = 111111111
+        mock_user_chars.return_value = [seller_char_id]
+
+        wrong_price_exact_ref = ESIContract.objects.create(
+            contract_id=3001,
+            corporation_id=self.config.corporation_id,
+            contract_type="item_exchange",
+            issuer_id=seller_char_id,
+            issuer_corporation_id=self.config.corporation_id,
+            assignee_id=self.config.corporation_id,
+            start_location_id=self.config.structure_id,
+            end_location_id=self.config.structure_id,
+            status="outstanding",
+            price=self.sell_item.total_price + 1,
+            title=self.sell_order.order_reference,
+            date_issued="2024-01-01T00:00:00Z",
+            date_expired="2024-12-31T23:59:59Z",
+        )
+        ESIContractItem.objects.create(
+            contract=wrong_price_exact_ref,
+            record_id=30011,
+            type_id=self.sell_item.type_id,
+            quantity=self.sell_item.quantity,
+            is_included=True,
+        )
+
+        near_match_wrong_ref = ESIContract.objects.create(
+            contract_id=3002,
+            corporation_id=self.config.corporation_id,
+            contract_type="item_exchange",
+            issuer_id=seller_char_id,
+            issuer_corporation_id=self.config.corporation_id,
+            assignee_id=self.config.corporation_id,
+            start_location_id=self.config.structure_id,
+            end_location_id=self.config.structure_id,
+            status="outstanding",
+            price=self.sell_item.total_price,
+            title="NO-ORDER-REFERENCE",
+            date_issued="2024-01-01T00:00:00Z",
+            date_expired="2024-12-31T23:59:59Z",
+        )
+        ESIContractItem.objects.create(
+            contract=near_match_wrong_ref,
+            record_id=30021,
+            type_id=self.sell_item.type_id,
+            quantity=self.sell_item.quantity,
+            is_included=True,
+        )
+
+        validate_material_exchange_sell_orders()
+
+        self.sell_order.refresh_from_db()
+        self.assertEqual(
+            self.sell_order.status,
+            MaterialExchangeSellOrder.Status.ANOMALY,
+        )
+        self.assertIn("wrong price", self.sell_order.notes)
+        self.assertNotIn("title reference is incorrect", self.sell_order.notes)
+        mock_notify_user.assert_called()
+        mock_notify_multi.assert_called()
+
+    @patch("indy_hub.tasks.material_exchange_contracts._get_user_character_ids")
+    @patch("indy_hub.tasks.material_exchange_contracts.notify_user")
+    def test_validate_sell_orders_no_match_keeps_order_open(
+        self, mock_notify_user, mock_user_chars
+    ):
+        """When no contract matches sell criteria, order must stay open (not anomaly)."""
+        # AA Example App
+        from indy_hub.models import ESIContract, ESIContractItem
+
+        seller_char_id = 111111111
+        mock_user_chars.return_value = [seller_char_id]
+
+        non_matching_contract = ESIContract.objects.create(
+            contract_id=4001,
+            corporation_id=self.config.corporation_id,
+            contract_type="item_exchange",
+            issuer_id=seller_char_id,
+            issuer_corporation_id=self.config.corporation_id,
+            assignee_id=self.config.corporation_id,
+            start_location_id=self.config.structure_id,
+            end_location_id=self.config.structure_id,
+            status="outstanding",
+            price=self.sell_item.total_price,
+            title="UNRELATED-CONTRACT",
+            date_issued="2024-01-01T00:00:00Z",
+            date_expired="2024-12-31T23:59:59Z",
+        )
+        ESIContractItem.objects.create(
+            contract=non_matching_contract,
+            record_id=40011,
+            type_id=35,
+            quantity=self.sell_item.quantity,
+            is_included=True,
+        )
+
+        validate_material_exchange_sell_orders()
+
+        self.sell_order.refresh_from_db()
+        self.assertEqual(
+            self.sell_order.status,
+            MaterialExchangeSellOrder.Status.DRAFT,
+        )
+        self.assertIn("Waiting for matching contract", self.sell_order.notes)
+        self.assertNotIn("title reference is incorrect", self.sell_order.notes)
+        mock_notify_user.assert_not_called()
+
 
 class BuyOrderValidationTaskTest(TestCase):
     """Tests for buy order validation task behavior."""
@@ -535,12 +700,17 @@ class NotificationDeduplicationTest(TestCase):
     @patch("indy_hub.tasks.material_exchange_contracts.notify_user")
     def test_awaiting_buy_notification_throttled_across_cycles(self, mock_notify_user):
         """Awaiting-validation buy order ping should be sent once per throttle window."""
-        MaterialExchangeBuyOrder.objects.create(
+        # Django
+        from django.core.cache import cache
+
+        order = MaterialExchangeBuyOrder.objects.create(
             config=self.config,
             buyer=self.buyer,
             status=MaterialExchangeBuyOrder.Status.AWAITING_VALIDATION,
             order_reference="INDY-AWAIT-1",
         )
+
+        cache.delete(f"material_exchange:buy_order:{order.id}:awaiting_validation_ping")
 
         validate_material_exchange_buy_orders()
         validate_material_exchange_buy_orders()

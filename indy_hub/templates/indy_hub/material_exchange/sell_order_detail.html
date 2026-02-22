@@ -294,6 +294,28 @@
                 {% endif %}
             </div>
         </div>
+
+        {% if order.notes and order.status == 'anomaly' or order.notes and order.status == 'anomaly_rejected' %}
+        <div class="modal fade" id="anomalyNotesModal" tabindex="-1" aria-labelledby="anomalyNotesModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header border-warning">
+                        <h5 class="modal-title" id="anomalyNotesModalLabel">
+                            <i class="fas fa-exclamation-triangle text-warning me-2"></i>{% trans "Anomaly detected" %}
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p class="mb-2 text-muted">{% trans "This order requires your attention:" %}</p>
+                        <div class="order-notes-text">{{ order.notes|linebreaksbr }}</div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-warning" data-bs-dismiss="modal">{% trans "Understood" %}</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
     </div>
 </main>
 
@@ -345,6 +367,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const totalEl = document.getElementById('orderTotalFormatted');
     if (totalEl) {
         totalEl.textContent = formatOrderTotal(totalEl.dataset.raw);
+    }
+
+    const anomalyNotesModal = document.getElementById('anomalyNotesModal');
+    if (anomalyNotesModal && window.bootstrap && window.bootstrap.Modal) {
+        const modalInstance = new window.bootstrap.Modal(anomalyNotesModal);
+        modalInstance.show();
     }
 });
 
