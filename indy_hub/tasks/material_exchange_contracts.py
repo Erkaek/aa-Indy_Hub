@@ -714,7 +714,9 @@ def validate_material_exchange_buy_orders():
     for order in pending_orders:
         if order.status != MaterialExchangeBuyOrder.Status.AWAITING_VALIDATION:
             continue
-        reminder_key = f"material_exchange:buy_order:{order.id}:awaiting_validation_ping"
+        reminder_key = (
+            f"material_exchange:buy_order:{order.id}:awaiting_validation_ping"
+        )
         if not cache.add(reminder_key, timezone.now().timestamp(), 60 * 60 * 24):
             continue
         items_str = ", ".join(item.type_name for item in order.items.all())
@@ -794,7 +796,9 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
 
         if override:
             try:
-                price_label = f"{Decimal(str(contract_price)).quantize(Decimal('1')):,.0f}"
+                price_label = (
+                    f"{Decimal(str(contract_price)).quantize(Decimal('1')):,.0f}"
+                )
             except (InvalidOperation, TypeError):
                 price_label = f"{order.total_price:,.0f}"
             order.notes = (
@@ -802,7 +806,9 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
                 f"{price_label} ISK"
             )
         else:
-            order.notes = f"Contract validated: {contract_id} @ {order.total_price:,.0f} ISK"
+            order.notes = (
+                f"Contract validated: {contract_id} @ {order.total_price:,.0f} ISK"
+            )
 
         order.save(
             update_fields=[
@@ -1112,11 +1118,15 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
             contract_with_correct_ref_wrong_structure["contract_id"],
         )
     elif contract_with_correct_ref_wrong_price:
-        contract_status = str(contract_with_correct_ref_wrong_price.get("status") or "").lower()
+        contract_status = str(
+            contract_with_correct_ref_wrong_price.get("status") or ""
+        ).lower()
         if contract_status in finished_statuses:
             _set_sell_order_validated(
                 contract_id=contract_with_correct_ref_wrong_price["contract_id"],
-                contract_price=contract_with_correct_ref_wrong_price.get("contract_price"),
+                contract_price=contract_with_correct_ref_wrong_price.get(
+                    "contract_price"
+                ),
                 override=True,
             )
             return
