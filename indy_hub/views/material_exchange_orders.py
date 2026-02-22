@@ -250,6 +250,7 @@ def _get_status_class(status):
         "draft": "secondary",
         "awaiting_validation": "warning",
         "anomaly": "warning",
+        "anomaly_rejected": "warning",
         "validated": "info",
         "completed": "success",
         "rejected": "danger",
@@ -294,6 +295,7 @@ def _build_timeline_breadcrumb(order, order_type):
                     "draft",
                     "awaiting_validation",
                     "anomaly",
+                    "anomaly_rejected",
                     "validated",
                     "completed",
                 ],
@@ -306,7 +308,13 @@ def _build_timeline_breadcrumb(order, order_type):
             {
                 "status": _("Awaiting Contract"),
                 "completed": order.status
-                in ["awaiting_validation", "anomaly", "validated", "completed"],
+                in [
+                    "awaiting_validation",
+                    "anomaly",
+                    "anomaly_rejected",
+                    "validated",
+                    "completed",
+                ],
                 "icon": "fa-file",
                 "color": "secondary",
             }
@@ -443,10 +451,14 @@ def _build_status_timeline(order, order_type):
                 }
             )
 
-        if order.status == "anomaly":
+        if order.status in ["anomaly", "anomaly_rejected"]:
             timeline.append(
                 {
-                    "status": _("Anomaly - Waiting User/Admin Action"),
+                    "status": (
+                        _("Anomaly - Waiting User/Admin Action")
+                        if order.status == "anomaly"
+                        else _("Anomaly - Contract Refused In-Game (Redo Required)")
+                    ),
                     "timestamp": order.updated_at,
                     "user": (
                         order.approved_by.username if order.approved_by else "System"

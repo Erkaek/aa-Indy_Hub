@@ -2110,6 +2110,9 @@ class MaterialExchangeSellOrder(models.Model):
         DRAFT = "draft", _("Order Created - Awaiting Contract")
         AWAITING_VALIDATION = "awaiting_validation", _("Awaiting Auth Validation")
         ANOMALY = "anomaly", _("Anomaly - Waiting User/Admin Action")
+        ANOMALY_REJECTED = "anomaly_rejected", _(
+            "Anomaly - Contract Refused In-Game (Redo Required)"
+        )
         VALIDATED = "validated", _("Validated - Awaiting Contract Accept")
         COMPLETED = "completed", _("Completed")
         REJECTED = "rejected", _("Rejected")

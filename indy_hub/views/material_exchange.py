@@ -91,7 +91,14 @@ def _build_timeline_breadcrumb_for_order(
             {
                 "status": _("Order Created"),
                 "completed": order.status
-                in ["draft", "awaiting_validation", "validated", "completed"],
+                in [
+                    "draft",
+                    "awaiting_validation",
+                    "anomaly",
+                    "anomaly_rejected",
+                    "validated",
+                    "completed",
+                ],
                 "icon": "fa-pen",
             }
         )
@@ -99,7 +106,13 @@ def _build_timeline_breadcrumb_for_order(
             {
                 "status": _("Awaiting Contract"),
                 "completed": order.status
-                in ["awaiting_validation", "validated", "completed"],
+                in [
+                    "awaiting_validation",
+                    "anomaly",
+                    "anomaly_rejected",
+                    "validated",
+                    "completed",
+                ],
                 "icon": "fa-file",
             }
         )

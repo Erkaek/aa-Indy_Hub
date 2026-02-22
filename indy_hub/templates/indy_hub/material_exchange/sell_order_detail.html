@@ -116,7 +116,7 @@
                 </div>
 
                 <!-- How This Works / Contract Instructions (visible until validated) -->
-                {% if order.status == 'draft' or order.status == 'awaiting_validation' or order.status == 'anomaly' or order.status == 'validated' %}
+                {% if order.status == 'draft' or order.status == 'awaiting_validation' or order.status == 'anomaly' or order.status == 'anomaly_rejected' or order.status == 'validated' %}
                     <div class="card mb-4 me-how-this-works-attention">
                         <div class="card-header bg-info bg-opacity-10">
                             <h5 class="mb-0">

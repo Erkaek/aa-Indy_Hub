@@ -99,6 +99,7 @@ class ContractValidationTestCase(TestCase):
         status_values = [s[0] for s in MaterialExchangeSellOrder.Status.choices]
         self.assertIn(MaterialExchangeSellOrder.Status.DRAFT, status_values)
         self.assertIn(MaterialExchangeSellOrder.Status.ANOMALY, status_values)
+        self.assertIn(MaterialExchangeSellOrder.Status.ANOMALY_REJECTED, status_values)
         self.assertIn(MaterialExchangeSellOrder.Status.VALIDATED, status_values)
         self.assertIn(MaterialExchangeSellOrder.Status.COMPLETED, status_values)
         self.assertIn(MaterialExchangeSellOrder.Status.REJECTED, status_values)
@@ -516,6 +517,247 @@ class BuyOrderSignalTest(TestCase):
         # Note: In test env, .delay() might not actually queue
         # but we're testing the signal triggers
         self.assertEqual(buy_order.status, MaterialExchangeBuyOrder.Status.DRAFT)
+
+
+class NotificationDeduplicationTest(TestCase):
+    """Ensure periodic material exchange cycle does not re-send identical alerts."""
+
+    def setUp(self):
+        self.config = MaterialExchangeConfig.objects.create(
+            corporation_id=123456789,
+            structure_id=60003760,
+            structure_name="Test Structure",
+            is_active=True,
+        )
+        self.seller = User.objects.create_user(username="dedupe_seller")
+        self.buyer = User.objects.create_user(username="dedupe_buyer")
+
+    @patch("indy_hub.tasks.material_exchange_contracts.notify_user")
+    def test_awaiting_buy_notification_throttled_across_cycles(self, mock_notify_user):
+        """Awaiting-validation buy order ping should be sent once per throttle window."""
+        MaterialExchangeBuyOrder.objects.create(
+            config=self.config,
+            buyer=self.buyer,
+            status=MaterialExchangeBuyOrder.Status.AWAITING_VALIDATION,
+            order_reference="INDY-AWAIT-1",
+        )
+
+        validate_material_exchange_buy_orders()
+        validate_material_exchange_buy_orders()
+
+        self.assertEqual(mock_notify_user.call_count, 1)
+
+    @patch("indy_hub.tasks.material_exchange_contracts._get_user_character_ids")
+    @patch("indy_hub.tasks.material_exchange_contracts.notify_multi")
+    @patch("indy_hub.tasks.material_exchange_contracts.notify_user")
+    def test_sell_anomaly_notifications_not_repeated_for_unchanged_state(
+        self,
+        mock_notify_user,
+        mock_notify_multi,
+        mock_get_character_ids,
+    ):
+        """Same sell-order anomaly should not notify user/admin every cycle."""
+        # Standard Library
+        from datetime import timedelta
+
+        # Django
+        from django.utils import timezone
+
+        # AA Example App
+        from indy_hub.models import ESIContract
+
+        seller_char_id = 987654321
+        mock_get_character_ids.return_value = [seller_char_id]
+
+        sell_order = MaterialExchangeSellOrder.objects.create(
+            config=self.config,
+            seller=self.seller,
+            status=MaterialExchangeSellOrder.Status.DRAFT,
+            order_reference="INDY-ANOM-1",
+        )
+
+        MaterialExchangeSellOrderItem.objects.create(
+            order=sell_order,
+            type_id=34,
+            type_name="Tritanium",
+            quantity=100,
+            unit_price=10,
+            total_price=1000,
+        )
+
+        ESIContract.objects.create(
+            contract_id=555001,
+            corporation_id=self.config.corporation_id,
+            contract_type="item_exchange",
+            issuer_id=seller_char_id,
+            issuer_corporation_id=self.config.corporation_id,
+            assignee_id=self.config.corporation_id,
+            start_location_id=70000001,
+            end_location_id=70000001,
+            status="outstanding",
+            price=sell_order.total_price,
+            title=sell_order.order_reference,
+            date_issued=timezone.now(),
+            date_expired=timezone.now() + timedelta(days=30),
+        )
+
+        validate_material_exchange_sell_orders()
+        validate_material_exchange_sell_orders()
+
+        self.assertEqual(mock_notify_user.call_count, 1)
+        self.assertEqual(mock_notify_multi.call_count, 1)
+
+    @patch("indy_hub.tasks.material_exchange_contracts._get_user_character_ids")
+    @patch("indy_hub.tasks.material_exchange_contracts.notify_multi")
+    @patch("indy_hub.tasks.material_exchange_contracts.notify_user")
+    def test_anomaly_contract_finished_is_force_validated(
+        self,
+        mock_notify_user,
+        mock_notify_multi,
+        mock_get_character_ids,
+    ):
+        """An anomalous contract accepted in-game should move sell order to validated."""
+        # Standard Library
+        from datetime import timedelta
+
+        # Django
+        from django.utils import timezone
+
+        # AA Example App
+        from indy_hub.models import ESIContract
+
+        seller_char_id = 222333444
+        mock_get_character_ids.return_value = [seller_char_id]
+
+        sell_order = MaterialExchangeSellOrder.objects.create(
+            config=self.config,
+            seller=self.seller,
+            status=MaterialExchangeSellOrder.Status.ANOMALY,
+            order_reference="INDY-ANOM-FINISHED-1",
+        )
+        MaterialExchangeSellOrderItem.objects.create(
+            order=sell_order,
+            type_id=34,
+            type_name="Tritanium",
+            quantity=100,
+            unit_price=10,
+            total_price=1000,
+        )
+
+        ESIContract.objects.create(
+            contract_id=777001,
+            corporation_id=self.config.corporation_id,
+            contract_type="item_exchange",
+            issuer_id=seller_char_id,
+            issuer_corporation_id=self.config.corporation_id,
+            assignee_id=self.config.corporation_id,
+            start_location_id=70000001,
+            end_location_id=70000001,
+            status="finished",
+            price=sell_order.total_price,
+            title=sell_order.order_reference,
+            date_issued=timezone.now(),
+            date_expired=timezone.now() + timedelta(days=30),
+        )
+
+        validate_material_exchange_sell_orders()
+
+        sell_order.refresh_from_db()
+        self.assertEqual(sell_order.status, MaterialExchangeSellOrder.Status.VALIDATED)
+        self.assertEqual(sell_order.esi_contract_id, 777001)
+        self.assertIn("accepted in-game despite anomaly", sell_order.notes)
+        self.assertTrue(mock_notify_user.called)
+        self.assertTrue(mock_notify_multi.called)
+
+    @patch("indy_hub.tasks.material_exchange_contracts._get_user_character_ids")
+    @patch("indy_hub.tasks.material_exchange_contracts.notify_user")
+    def test_anomaly_contract_rejected_stays_open_for_redo(
+        self,
+        mock_notify_user,
+        mock_get_character_ids,
+    ):
+        """Rejected in-game anomaly contract should not cancel order and must allow later recovery."""
+        # Standard Library
+        from datetime import timedelta
+
+        # Django
+        from django.utils import timezone
+
+        # AA Example App
+        from indy_hub.models import ESIContract, ESIContractItem
+
+        seller_char_id = 555666777
+        mock_get_character_ids.return_value = [seller_char_id]
+
+        sell_order = MaterialExchangeSellOrder.objects.create(
+            config=self.config,
+            seller=self.seller,
+            status=MaterialExchangeSellOrder.Status.ANOMALY,
+            order_reference="INDY-ANOM-REJECTED-1",
+        )
+        MaterialExchangeSellOrderItem.objects.create(
+            order=sell_order,
+            type_id=34,
+            type_name="Tritanium",
+            quantity=100,
+            unit_price=10,
+            total_price=1000,
+        )
+
+        ESIContract.objects.create(
+            contract_id=888001,
+            corporation_id=self.config.corporation_id,
+            contract_type="item_exchange",
+            issuer_id=seller_char_id,
+            issuer_corporation_id=self.config.corporation_id,
+            assignee_id=self.config.corporation_id,
+            start_location_id=70000001,
+            end_location_id=70000001,
+            status="rejected",
+            price=sell_order.total_price,
+            title=sell_order.order_reference,
+            date_issued=timezone.now(),
+            date_expired=timezone.now() + timedelta(days=30),
+        )
+
+        validate_material_exchange_sell_orders()
+
+        sell_order.refresh_from_db()
+        self.assertEqual(
+            sell_order.status,
+            MaterialExchangeSellOrder.Status.ANOMALY_REJECTED,
+        )
+        self.assertIn("remains open", sell_order.notes)
+
+        valid_contract = ESIContract.objects.create(
+            contract_id=888002,
+            corporation_id=self.config.corporation_id,
+            contract_type="item_exchange",
+            issuer_id=seller_char_id,
+            issuer_corporation_id=self.config.corporation_id,
+            assignee_id=self.config.corporation_id,
+            start_location_id=self.config.structure_id,
+            end_location_id=self.config.structure_id,
+            status="outstanding",
+            price=sell_order.total_price,
+            title=sell_order.order_reference,
+            date_issued=timezone.now(),
+            date_expired=timezone.now() + timedelta(days=30),
+        )
+        ESIContractItem.objects.create(
+            contract=valid_contract,
+            record_id=9001,
+            type_id=34,
+            quantity=100,
+            is_included=True,
+        )
+
+        validate_material_exchange_sell_orders()
+
+        sell_order.refresh_from_db()
+        self.assertEqual(sell_order.status, MaterialExchangeSellOrder.Status.VALIDATED)
+        self.assertEqual(sell_order.esi_contract_id, valid_contract.contract_id)
+        self.assertTrue(mock_notify_user.called)
 
 
 if __name__ == "__main__":

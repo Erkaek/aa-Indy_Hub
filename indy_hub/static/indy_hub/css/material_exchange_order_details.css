@@ -251,7 +251,8 @@ html[data-theme="darkly"] .sell-order-detail .order-reference-display h1 {
     color: #991b1b;
 }
 
-.order-status-badge.status-anomaly {
+.order-status-badge.status-anomaly,
+.order-status-badge.status-anomaly_rejected {
     background: #fef3c7;
     border-color: #f59e0b;
     color: #92400e;
