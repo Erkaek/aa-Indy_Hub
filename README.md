@@ -36,6 +36,7 @@ ______________________________________________________________________
 - **Material Exchange**: Submit buy/sell orders and follow validation/processing from one hub.
 - **Order Tracking**: View clear statuses, timelines, and history for your requests and orders.
 - **Notifications**: Receive in-app updates for key events (offers, deliveries, job updates).
+- **Analytics Hooks**: Emits Alliance Auth analytics events for key Material Exchange lifecycle transitions.
 - **Admin Tools**: Manage corp blueprint workflows and Material Exchange operations with dedicated admin views.
 - **Modern UI**: Responsive, theme-friendly interface designed for daily operational use.
 

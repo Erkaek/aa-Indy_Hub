@@ -51,6 +51,7 @@ from ..tasks.material_exchange import (
     sync_material_exchange_prices,
     sync_material_exchange_stock,
 )
+from ..utils.analytics import emit_view_analytics_event
 from ..utils.eve import get_type_name
 from ..utils.material_exchange_pricing import compute_buy_price_from_member
 from .navigation import build_nav_context
@@ -605,6 +606,9 @@ def _ensure_sell_assets_refresh_started(user) -> dict:
 @indy_hub_permission_required("can_access_indy_hub")
 def material_exchange_sell_assets_refresh_status(request):
     """Return JSON progress for sell-page user asset refresh."""
+    emit_view_analytics_event(
+        view_name="material_exchange.sell_assets_refresh_status", request=request
+    )
 
     if not _is_material_exchange_enabled():
         return JsonResponse({"running": False, "finished": True, "error": "disabled"})
@@ -716,6 +720,9 @@ def _ensure_buy_stock_refresh_started(config) -> dict:
 @indy_hub_permission_required("can_access_indy_hub")
 def material_exchange_buy_stock_refresh_status(request):
     """Return JSON progress for buy-page stock refresh."""
+    emit_view_analytics_event(
+        view_name="material_exchange.buy_stock_refresh_status", request=request
+    )
     if not _is_material_exchange_enabled():
         return JsonResponse({"running": False, "finished": True, "error": "disabled"})
 
@@ -775,6 +782,7 @@ def material_exchange_index(request):
     Material Exchange hub landing page.
     Shows overview, recent transactions, and quick stats.
     """
+    emit_view_analytics_event(view_name="material_exchange.index", request=request)
     config = _get_material_exchange_config()
     enabled = _is_material_exchange_enabled()
 
@@ -961,6 +969,7 @@ def material_exchange_index(request):
 @indy_hub_permission_required("can_access_indy_hub")
 def material_exchange_history(request):
     """Admin-only history page showing closed (completed/rejected/cancelled) orders."""
+    emit_view_analytics_event(view_name="material_exchange.history", request=request)
     if not request.user.has_perm("indy_hub.can_manage_material_hub"):
         messages.error(request, _("You are not allowed to view this page."))
         return redirect("indy_hub:material_exchange_index")
@@ -1014,6 +1023,7 @@ def material_exchange_sell(request, tokens):
     Sell materials TO the hub.
     Member chooses materials + quantities, creates ONE order with multiple items.
     """
+    emit_view_analytics_event(view_name="material_exchange.sell", request=request)
     if not _is_material_exchange_enabled():
         messages.warning(request, _("Material Exchange is disabled."))
         return redirect("indy_hub:material_exchange_index")
@@ -1519,6 +1529,7 @@ def material_exchange_buy(request, tokens):
     Buy materials FROM the hub.
     Member chooses materials + quantities, creates ONE order with multiple items.
     """
+    emit_view_analytics_event(view_name="material_exchange.buy", request=request)
     if not _is_material_exchange_enabled():
         messages.warning(request, _("Material Exchange is disabled."))
         return redirect("indy_hub:material_exchange_index")
@@ -1846,6 +1857,7 @@ def material_exchange_sync_stock(request, tokens):
     Force an immediate sync of stock from ESI corp assets.
     Updates MaterialExchangeStock and redirects back.
     """
+    emit_view_analytics_event(view_name="material_exchange.sync_stock", request=request)
     if not _is_material_exchange_enabled():
         messages.warning(request, _("Material Exchange is disabled."))
         return redirect("indy_hub:material_exchange_index")
@@ -1884,6 +1896,9 @@ def material_exchange_sync_prices(request):
     Force an immediate sync of Jita prices for current stock items.
     Updates MaterialExchangeStock jita_buy_price/jita_sell_price and redirects back.
     """
+    emit_view_analytics_event(
+        view_name="material_exchange.sync_prices", request=request
+    )
     if not _is_material_exchange_enabled():
         messages.warning(request, _("Material Exchange is disabled."))
         return redirect("indy_hub:material_exchange_index")
@@ -1920,6 +1935,9 @@ def material_exchange_sync_prices(request):
 @require_http_methods(["POST"])
 def material_exchange_approve_sell(request, order_id):
     """Approve a sell order (member → hub)."""
+    emit_view_analytics_event(
+        view_name="material_exchange.approve_sell", request=request
+    )
     if not request.user.has_perm("indy_hub.can_manage_material_hub"):
         messages.error(request, _("Permission denied."))
         return redirect("indy_hub:material_exchange_index")
@@ -1945,6 +1963,9 @@ def material_exchange_approve_sell(request, order_id):
 @login_required
 @require_http_methods(["POST"])
 def material_exchange_reject_sell(request, order_id):
+    emit_view_analytics_event(
+        view_name="material_exchange.reject_sell", request=request
+    )
     """Reject a sell order."""
     if not request.user.has_perm("indy_hub.can_manage_material_hub"):
         messages.error(request, _("Permission denied."))
@@ -1956,6 +1977,8 @@ def material_exchange_reject_sell(request, order_id):
         status__in=[
             MaterialExchangeSellOrder.Status.DRAFT,
             MaterialExchangeSellOrder.Status.AWAITING_VALIDATION,
+            MaterialExchangeSellOrder.Status.ANOMALY,
+            MaterialExchangeSellOrder.Status.ANOMALY_REJECTED,
             MaterialExchangeSellOrder.Status.VALIDATED,
         ],
     )
@@ -1969,6 +1992,9 @@ def material_exchange_reject_sell(request, order_id):
 @login_required
 @require_http_methods(["POST"])
 def material_exchange_verify_payment_sell(request, order_id):
+    emit_view_analytics_event(
+        view_name="material_exchange.verify_payment_sell", request=request
+    )
     """Mark sell order as completed (contract accepted in-game)."""
     if not request.user.has_perm("indy_hub.can_manage_material_hub"):
         messages.error(request, _("Permission denied."))
@@ -1990,6 +2016,9 @@ def material_exchange_verify_payment_sell(request, order_id):
 @login_required
 @require_http_methods(["POST"])
 def material_exchange_complete_sell(request, order_id):
+    emit_view_analytics_event(
+        view_name="material_exchange.complete_sell", request=request
+    )
     """Mark sell order as fully completed and create transaction logs for each item."""
     if not request.user.has_perm("indy_hub.can_manage_material_hub"):
         messages.error(request, _("Permission denied."))
@@ -2036,6 +2065,9 @@ def material_exchange_complete_sell(request, order_id):
 @login_required
 @require_http_methods(["POST"])
 def material_exchange_approve_buy(request, order_id):
+    emit_view_analytics_event(
+        view_name="material_exchange.approve_buy", request=request
+    )
     """Approve a buy order (hub → member) - Creates contract permission."""
     if not request.user.has_perm("indy_hub.can_manage_material_hub"):
         messages.error(request, _("Permission denied."))
@@ -2076,6 +2108,7 @@ def material_exchange_approve_buy(request, order_id):
 @login_required
 @require_http_methods(["POST"])
 def material_exchange_reject_buy(request, order_id):
+    emit_view_analytics_event(view_name="material_exchange.reject_buy", request=request)
     """Reject a buy order."""
     if not request.user.has_perm("indy_hub.can_manage_material_hub"):
         messages.error(request, _("Permission denied."))
@@ -2111,6 +2144,9 @@ def _reject_buy_order(order: MaterialExchangeBuyOrder) -> None:
 @login_required
 @require_http_methods(["POST"])
 def material_exchange_mark_delivered_buy(request, order_id):
+    emit_view_analytics_event(
+        view_name="material_exchange.mark_delivered_buy", request=request
+    )
     """Mark buy order as delivered."""
     if not request.user.has_perm("indy_hub.can_manage_material_hub"):
         messages.error(request, _("Permission denied."))
@@ -2134,6 +2170,9 @@ def material_exchange_mark_delivered_buy(request, order_id):
 @login_required
 @require_http_methods(["POST"])
 def material_exchange_complete_buy(request, order_id):
+    emit_view_analytics_event(
+        view_name="material_exchange.complete_buy", request=request
+    )
     """Mark buy order as completed and create transaction logs for each item."""
     if not request.user.has_perm("indy_hub.can_manage_material_hub"):
         messages.error(request, _("Permission denied."))
@@ -2189,6 +2228,9 @@ def _complete_buy_order(order, *, delivered_by=None, delivery_method=None):
 @login_required
 @indy_hub_permission_required("can_manage_material_hub")
 def material_exchange_transactions(request):
+    emit_view_analytics_event(
+        view_name="material_exchange.transactions", request=request
+    )
     """
     Transaction history and finance reporting.
     Shows all completed transactions with filters and monthly aggregates.
@@ -2291,6 +2333,9 @@ def material_exchange_transactions(request):
 @login_required
 @indy_hub_permission_required("can_manage_material_hub")
 def material_exchange_stats_history(request):
+    emit_view_analytics_event(
+        view_name="material_exchange.stats_history", request=request
+    )
     """Monthly statistics history for Material Exchange transactions."""
     if not _is_material_exchange_enabled():
         messages.warning(request, _("Material Exchange is disabled."))
@@ -2453,6 +2498,9 @@ def material_exchange_stats_history(request):
 @login_required
 @require_http_methods(["POST"])
 def material_exchange_assign_contract(request, order_id):
+    emit_view_analytics_event(
+        view_name="material_exchange.assign_contract", request=request
+    )
     """Assign ESI contract ID to a sell or buy order."""
     if not request.user.has_perm("indy_hub.can_manage_material_hub"):
         messages.error(request, _("Permission denied."))

@@ -80,6 +80,7 @@ from indy_hub.services.esi_client import (
     get_retry_after_seconds,
     shared_client,
 )
+from indy_hub.utils.analytics import emit_analytics_event
 
 logger = get_extension_logger(__name__)
 
@@ -851,6 +852,11 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
                 order.id,
                 contract_id,
             )
+            emit_analytics_event(
+                task="material_exchange.sell_order_validated",
+                label="override_in_game_accept",
+                result="success",
+            )
             return
 
         notify_user(
@@ -887,6 +893,11 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
             order.id,
             contract_id,
         )
+        emit_analytics_event(
+            task="material_exchange.sell_order_validated",
+            label="standard",
+            result="success",
+        )
 
     def _set_sell_order_anomaly_rejected(*, contract_id: int, contract_status: str):
         anomaly_rejected_notes = (
@@ -919,6 +930,11 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
             order.id,
             contract_id,
             contract_status,
+        )
+        emit_analytics_event(
+            task="material_exchange.sell_order_anomaly_rejected",
+            label=contract_status,
+            result="warning",
         )
 
     # Find seller's characters
@@ -1000,12 +1016,14 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
         # Items check
         if not _contract_items_match_order_db(contract, order):
             last_reason = "items mismatch"
+            mismatch_details = _build_items_mismatch_details(contract, order)
             if has_correct_ref and not contract_with_correct_ref_items_mismatch:
                 contract_with_correct_ref_items_mismatch = {
                     "contract_id": contract.contract_id,
                     "issue": "items mismatch",
                     "status": contract.status,
                     "price": contract.price,
+                    "details": mismatch_details,
                 }
             continue
 
@@ -1242,6 +1260,16 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
         anomaly_notes = (
             f"Anomaly: contract {contract_with_correct_ref_items_mismatch['contract_id']} has the correct title ({order_ref}) "
             f"but item list/quantities do not match this order."
+            + (
+                f"\n\n{contract_with_correct_ref_items_mismatch.get('details')}"
+                if contract_with_correct_ref_items_mismatch.get("details")
+                else ""
+            )
+        )
+        mismatch_details_block = (
+            f"{contract_with_correct_ref_items_mismatch.get('details')}\n\n"
+            if contract_with_correct_ref_items_mismatch.get("details")
+            else ""
         )
         anomaly_updated = (
             order.status != MaterialExchangeSellOrder.Status.ANOMALY
@@ -1257,22 +1285,25 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
         )
 
         if anomaly_updated:
+            seller_message = (
+                _(
+                    f"Your sell order {order_ref} is in anomaly status.\n\n"
+                    f"Contract #{contract_with_correct_ref_items_mismatch['contract_id']} has the correct reference, but item list/quantities do not match this order.\n\n"
+                    f"{mismatch_details_block}"
+                    "Please create a corrected contract, or contact a Material Hub admin (they have been notified)."
+                )
+                if notify_admins_on_sell_anomaly
+                else _(
+                    f"Your sell order {order_ref} is in anomaly status.\n\n"
+                    f"Contract #{contract_with_correct_ref_items_mismatch['contract_id']} has the correct reference, but item list/quantities do not match this order.\n\n"
+                    f"{mismatch_details_block}"
+                    "Please create a corrected and compliant contract."
+                )
+            )
             notify_user(
                 order.seller,
                 _("Sell Order Anomaly: Items Mismatch"),
-                (
-                    _(
-                        f"Your sell order {order_ref} is in anomaly status.\n\n"
-                        f"Contract #{contract_with_correct_ref_items_mismatch['contract_id']} has the correct reference, but item list/quantities do not match this order.\n\n"
-                        f"Please create a corrected contract, or contact a Material Hub admin (they have been notified)."
-                    )
-                    if notify_admins_on_sell_anomaly
-                    else _(
-                        f"Your sell order {order_ref} is in anomaly status.\n\n"
-                        f"Contract #{contract_with_correct_ref_items_mismatch['contract_id']} has the correct reference, but item list/quantities do not match this order.\n\n"
-                        f"Please create a corrected and compliant contract."
-                    )
-                ),
+                seller_message,
                 level="warning",
                 link=f"/indy_hub/material-exchange/my-orders/sell/{order.id}/",
             )
@@ -1284,6 +1315,11 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
                 _(
                     f"Order {order_ref} requires your intervention.\n"
                     f"Please contact user {order.seller.username} regarding this anomaly: contract items mismatch."
+                    + (
+                        f"\n\n{contract_with_correct_ref_items_mismatch.get('details')}"
+                        if contract_with_correct_ref_items_mismatch.get("details")
+                        else ""
+                    )
                 ),
                 level="warning",
                 link=admin_link,
@@ -1294,10 +1330,31 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
             order.id,
             contract_with_correct_ref_items_mismatch["contract_id"],
         )
+        emit_analytics_event(
+            task="material_exchange.sell_order_items_mismatch",
+            label="correct_ref",
+            result="warning",
+        )
     elif contract_with_wrong_ref_only:
         contract_id = contract_with_wrong_ref_only["contract_id"]
         found_title = (contract_with_wrong_ref_only.get("title") or "").strip()
         title_display = found_title or _("(empty title)")
+        contract_status = str(contract_with_wrong_ref_only.get("status") or "").lower()
+
+        if contract_status in finished_statuses:
+            _set_sell_order_validated(
+                contract_id=contract_id,
+                contract_price=contract_with_wrong_ref_only.get("price"),
+                override=True,
+            )
+            return
+
+        if contract_status in rejected_statuses:
+            _set_sell_order_anomaly_rejected(
+                contract_id=contract_id,
+                contract_status=contract_status,
+            )
+            return
 
         anomaly_notes = (
             f"Anomaly: contract {contract_id} matches seller/corp/location/items/price but title reference is incorrect. "
@@ -1404,6 +1461,7 @@ def _validate_buy_order_from_db(config, order, contracts, esi_client=None):
     """Validate a single buy order against cached database contracts."""
 
     order_ref = order.order_reference or f"INDY-{order.id}"
+    finished_statuses = {"finished", "finished_issuer", "finished_contractor"}
 
     buyer_character_ids = _get_user_character_ids(order.buyer)
     if not buyer_character_ids:
@@ -1425,46 +1483,41 @@ def _validate_buy_order_from_db(config, order, contracts, esi_client=None):
     )
 
     matching_contract = None
+    finished_contract_ref_mismatch = None
+    finished_contract_items_mismatch = None
+    finished_contract_price_mismatch = None
+    finished_contract_criteria_mismatch = None
+    finished_contract_items_mismatch_details: str | None = None
     last_price_issue: str | None = None
     last_reason: str | None = None
+    last_items_mismatch_details: str | None = None
 
-    for contract in contracts:
-        title = contract.title or ""
-        has_correct_ref = order_ref in title
+    def _set_buy_order_validated(
+        contract,
+        *,
+        override: bool,
+        override_reason: str = "",
+        override_details: str | None = None,
+    ):
+        now = timezone.now()
 
-        # Require title reference before further checks.
-        if not has_correct_ref:
-            continue
-
-        criteria_match = _matches_buy_order_criteria_db(
-            contract, order, config, buyer_character_ids, esi_client
-        )
-        if not criteria_match:
-            continue
-
-        if not _contract_items_match_order_db(contract, order):
-            last_reason = "items mismatch"
-            continue
-
-        price_ok, price_msg = _contract_price_matches_db(contract, order)
-        if not price_ok:
-            last_price_issue = price_msg
-            last_reason = price_msg
-            continue
-
-        matching_contract = contract
-        break
-
-    now = timezone.now()
-
-    if matching_contract:
         order.status = MaterialExchangeBuyOrder.Status.VALIDATED
         order.contract_validated_at = now
-        order.esi_contract_id = matching_contract.contract_id
-        order.notes = (
-            f"Contract validated: {matching_contract.contract_id} @ "
-            f"{matching_contract.price:,.0f} ISK"
-        )
+        order.esi_contract_id = contract.contract_id
+
+        if override:
+            order.notes = (
+                f"Contract accepted in-game despite anomaly: {contract.contract_id} @ "
+                f"{contract.price:,.0f} ISK"
+                + (f" ({override_reason})" if override_reason else "")
+                + (f"\n\n{override_details}" if override_details else "")
+            )
+        else:
+            order.notes = (
+                f"Contract validated: {contract.contract_id} @ "
+                f"{contract.price:,.0f} ISK"
+            )
+
         order.save(
             update_fields=[
                 "status",
@@ -1476,17 +1529,58 @@ def _validate_buy_order_from_db(config, order, contracts, esi_client=None):
         )
 
         order.items.update(
-            esi_contract_id=matching_contract.contract_id,
+            esi_contract_id=contract.contract_id,
             esi_contract_validated=True,
             esi_validation_checked_at=now,
         )
+
+        if override:
+            notify_user(
+                order.buyer,
+                _("✅ Buy Order Accepted In-Game"),
+                _(
+                    f"Your buy order {order.order_reference} had a validation anomaly, but contract #{contract.contract_id} was accepted in-game. "
+                    f"The order has been moved back to validated status and completion sync will follow."
+                    + (f"\n\n{override_details}" if override_details else "")
+                ),
+                level="success",
+                link=f"/indy_hub/material-exchange/my-orders/buy/{order.id}/",
+            )
+
+            _notify_material_exchange_admins(
+                config,
+                _("Buy Order Validated by In-Game Acceptance"),
+                _(
+                    f"{order.buyer.username}'s anomalous buy order {order_ref} has been accepted in-game via contract #{contract.contract_id}.\n"
+                    f"Order moved to validated status."
+                    + (f"\n\n{override_details}" if override_details else "")
+                ),
+                level="info",
+                link=(
+                    f"/indy_hub/material-exchange/my-orders/buy/{order.id}/"
+                    f"?next=/indy_hub/material-exchange/%23admin-panel"
+                ),
+            )
+
+            logger.info(
+                "Buy order %s validated by in-game acceptance of anomalous contract %s (%s)",
+                order.id,
+                contract.contract_id,
+                override_reason or "no reason",
+            )
+            emit_analytics_event(
+                task="material_exchange.buy_order_validated",
+                label=f"override_{override_reason or 'unknown'}",
+                result="success",
+            )
+            return
 
         notify_user(
             order.buyer,
             _("Buy Order Ready"),
             _(
                 f"Your buy order {order.order_reference} is ready.\n"
-                f"Contract #{matching_contract.contract_id} for {order.total_price:,.0f} ISK has been validated.\n\n"
+                f"Contract #{contract.contract_id} for {order.total_price:,.0f} ISK has been validated.\n\n"
                 f"Please accept the in-game contract to receive your items."
             ),
             level="success",
@@ -1498,7 +1592,7 @@ def _validate_buy_order_from_db(config, order, contracts, esi_client=None):
             _(
                 f"{order.buyer.username} will receive:\n{items_list}\n\n"
                 f"Total: {order.total_price:,.0f} ISK\n"
-                f"Contract #{matching_contract.contract_id} verified from database."
+                f"Contract #{contract.contract_id} verified from database."
             ),
             level="success",
             link=(
@@ -1510,7 +1604,117 @@ def _validate_buy_order_from_db(config, order, contracts, esi_client=None):
         logger.info(
             "Buy order %s validated: contract %s verified",
             order.id,
-            matching_contract.contract_id,
+            contract.contract_id,
+        )
+        emit_analytics_event(
+            task="material_exchange.buy_order_validated",
+            label="standard",
+            result="success",
+        )
+
+    for contract in contracts:
+        title = contract.title or ""
+        has_correct_ref = order_ref in title
+
+        if not has_correct_ref:
+            criteria_match_without_ref = _matches_buy_order_criteria_db(
+                contract, order, config, buyer_character_ids, esi_client
+            )
+            if criteria_match_without_ref and _contract_items_match_order_db(
+                contract, order
+            ):
+                price_ok_without_ref, _price_msg_unused = _contract_price_matches_db(
+                    contract, order
+                )
+                if price_ok_without_ref:
+                    contract_status = str(contract.status or "").lower()
+                    if (
+                        contract_status in finished_statuses
+                        and finished_contract_ref_mismatch is None
+                    ):
+                        finished_contract_ref_mismatch = contract
+                        last_reason = "wrong contract reference"
+
+        # Require title reference before further checks.
+        if not has_correct_ref:
+            continue
+
+        criteria_match = _matches_buy_order_criteria_db(
+            contract, order, config, buyer_character_ids, esi_client
+        )
+        if not criteria_match:
+            contract_status = str(contract.status or "").lower()
+            if (
+                contract_status in finished_statuses
+                and finished_contract_criteria_mismatch is None
+            ):
+                finished_contract_criteria_mismatch = contract
+                last_reason = "contract criteria mismatch"
+            continue
+
+        if not _contract_items_match_order_db(contract, order):
+            last_reason = "items mismatch"
+            mismatch_details = _build_items_mismatch_details(contract, order)
+            if mismatch_details and last_items_mismatch_details is None:
+                last_items_mismatch_details = mismatch_details
+            contract_status = str(contract.status or "").lower()
+            if (
+                contract_status in finished_statuses
+                and finished_contract_items_mismatch is None
+            ):
+                finished_contract_items_mismatch = contract
+                finished_contract_items_mismatch_details = mismatch_details
+            continue
+
+        price_ok, price_msg = _contract_price_matches_db(contract, order)
+        if not price_ok:
+            last_price_issue = price_msg
+            last_reason = price_msg
+            contract_status = str(contract.status or "").lower()
+            if (
+                contract_status in finished_statuses
+                and finished_contract_price_mismatch is None
+            ):
+                finished_contract_price_mismatch = contract
+            continue
+
+        matching_contract = contract
+        break
+
+    if matching_contract:
+        _set_buy_order_validated(matching_contract, override=False)
+        return
+
+    if finished_contract_ref_mismatch:
+        _set_buy_order_validated(
+            finished_contract_ref_mismatch,
+            override=True,
+            override_reason="wrong contract reference",
+        )
+        return
+
+    if finished_contract_criteria_mismatch:
+        _set_buy_order_validated(
+            finished_contract_criteria_mismatch,
+            override=True,
+            override_reason="contract criteria mismatch",
+        )
+        return
+
+    if finished_contract_items_mismatch:
+        _set_buy_order_validated(
+            finished_contract_items_mismatch,
+            override=True,
+            override_reason="items mismatch",
+            override_details=finished_contract_items_mismatch_details,
+        )
+        return
+
+    if finished_contract_price_mismatch:
+        _set_buy_order_validated(
+            finished_contract_price_mismatch,
+            override=True,
+            override_reason="price mismatch",
         )
         return
 
@@ -1521,13 +1725,16 @@ def _validate_buy_order_from_db(config, order, contracts, esi_client=None):
             issues.append(issue)
 
     issue_line = f"Issue(s): {'; '.join(issues)}" if issues else ""
+    mismatch_block = (
+        f"\n\n{last_items_mismatch_details}" if last_items_mismatch_details else ""
+    )
 
     new_notes = "\n".join(
         [
             f"Pending contract for {order_ref}.",
             "Ensure corp issues item exchange contract to buyer.",
             f"Expected price: {order.total_price:,.0f} ISK",
-            issue_line,
+            f"{issue_line}{mismatch_block}".strip(),
         ]
     ).strip()
 
@@ -1558,12 +1765,22 @@ def _validate_buy_order_from_db(config, order, contracts, esi_client=None):
                 f"Buyer: {order.buyer.username}\n"
                 f"Expected price: {order.total_price:,.0f} ISK"
                 + (f"\nIssue(s): {'; '.join(issues)}" if issues else "")
+                + (
+                    f"\n\n{last_items_mismatch_details}"
+                    if last_items_mismatch_details
+                    else ""
+                )
             ),
             level="warning",
             link=(
                 f"/indy_hub/material-exchange/my-orders/buy/{order.id}/"
                 f"?next=/indy_hub/material-exchange/%23admin-panel"
             ),
+        )
+        emit_analytics_event(
+            task="material_exchange.buy_order_pending_mismatch",
+            label="issues_present" if issues else "no_issues",
+            result="warning",
         )
 
     logger.info("Buy order %s pending: no matching contract yet", order.id)
@@ -1682,6 +1899,59 @@ def _contract_items_match_order_db(contract, order):
     return True
 
 
+def _build_items_mismatch_details(contract, order) -> str:
+    """Build a human-readable item delta between order and contract included items."""
+    order_items = list(order.items.all())
+    included_items = list(contract.items.filter(is_included=True))
+
+    if not order_items and not included_items:
+        return ""
+
+    expected_by_type: dict[int, int] = {}
+    actual_by_type: dict[int, int] = {}
+    type_names: dict[int, str] = {}
+
+    for order_item in order_items:
+        type_id = int(order_item.type_id)
+        expected_by_type[type_id] = expected_by_type.get(type_id, 0) + int(
+            order_item.quantity
+        )
+        if type_id not in type_names:
+            type_names[type_id] = (
+                order_item.type_name or ""
+            ).strip() or f"Type {type_id}"
+
+    for contract_item in included_items:
+        type_id = int(contract_item.type_id)
+        actual_by_type[type_id] = actual_by_type.get(type_id, 0) + int(
+            contract_item.quantity
+        )
+        if type_id not in type_names:
+            type_names[type_id] = f"Type {type_id}"
+
+    all_type_ids = sorted(set(expected_by_type.keys()) | set(actual_by_type.keys()))
+    missing_lines: list[str] = []
+    surplus_lines: list[str] = []
+
+    for type_id in all_type_ids:
+        expected_qty = expected_by_type.get(type_id, 0)
+        actual_qty = actual_by_type.get(type_id, 0)
+        type_name = type_names.get(type_id, f"Type {type_id}")
+
+        if expected_qty > actual_qty:
+            missing_lines.append(f"- {expected_qty - actual_qty:,} {type_name}")
+        elif actual_qty > expected_qty:
+            surplus_lines.append(f"- {actual_qty - expected_qty:,} {type_name}")
+
+    sections: list[str] = []
+    if missing_lines:
+        sections.append("Missing:\n" + "\n".join(missing_lines))
+    if surplus_lines:
+        sections.append("Surplus:\n" + "\n".join(surplus_lines))
+
+    return "\n\n".join(sections)
+
+
 def _contract_price_matches_db(contract, order) -> tuple[bool, str]:
     """Validate database contract price against order total."""
     try:
@@ -1769,6 +2039,12 @@ def handle_material_exchange_buy_order_created(order_id):
                     buy_order=order,
                 )
             logger.info("Buy order %s notification sent to webhook", order_id)
+            emit_analytics_event(
+                task="material_exchange.buy_order_created",
+                label="webhook",
+                result="success",
+                value=max(len(items), 1),
+            )
             return
 
     admins = _get_admins_for_config(config)
@@ -1781,6 +2057,12 @@ def handle_material_exchange_buy_order_created(order_id):
     )
 
     logger.info("Buy order %s notification sent to admins", order_id)
+    emit_analytics_event(
+        task="material_exchange.buy_order_created",
+        label="admin_notify",
+        result="success",
+        value=max(len(items), 1),
+    )
 
 
 @shared_task(
@@ -1898,6 +2180,11 @@ def check_completed_material_exchange_contracts():
                 contract_id,
                 contract_status,
             )
+            emit_analytics_event(
+                task="material_exchange.sell_order_completed",
+                label=contract_status,
+                result="success",
+            )
 
         # Contract cancelled, rejected, failed, expired or deleted
         elif contract_status in [
@@ -1923,6 +2210,11 @@ def check_completed_material_exchange_contracts():
                 contract_id,
                 contract_status,
             )
+            emit_analytics_event(
+                task="material_exchange.sell_order_cancelled",
+                label=contract_status,
+                result="warning",
+            )
 
         # Contract reversed (rare case - completed then reversed)
         elif contract_status == "reversed":
@@ -1940,6 +2232,11 @@ def check_completed_material_exchange_contracts():
                 "Sell order %s reversed: contract %s was reversed",
                 order.id,
                 contract_id,
+            )
+            emit_analytics_event(
+                task="material_exchange.sell_order_cancelled",
+                label="reversed",
+                result="error",
             )
 
     # Process validated buy orders (corp -> member)
@@ -1986,6 +2283,11 @@ def check_completed_material_exchange_contracts():
                 contract_id,
                 contract_status,
             )
+            emit_analytics_event(
+                task="material_exchange.buy_order_completed",
+                label=contract_status,
+                result="success",
+            )
 
         # Contract cancelled, rejected, failed, expired or deleted
         elif contract_status in [
@@ -2011,6 +2313,11 @@ def check_completed_material_exchange_contracts():
                 contract_id,
                 contract_status,
             )
+            emit_analytics_event(
+                task="material_exchange.buy_order_cancelled",
+                label=contract_status,
+                result="warning",
+            )
 
         # Contract reversed (rare case - completed then reversed)
         elif contract_status == "reversed":
@@ -2028,6 +2335,11 @@ def check_completed_material_exchange_contracts():
                 "Buy order %s reversed: contract %s was reversed",
                 order.id,
                 contract_id,
+            )
+            emit_analytics_event(
+                task="material_exchange.buy_order_cancelled",
+                label="reversed",
+                result="error",
             )
 
 

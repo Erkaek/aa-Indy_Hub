@@ -4,7 +4,7 @@
 from django import forms
 from django.contrib import admin
 from django.contrib.auth.admin import GroupAdmin
-from django.contrib.auth.models import Group
+from django.contrib.auth.models import Group, User
 
 from .models import (
     Blueprint,
@@ -31,24 +31,22 @@ class IndyHubGroupAdminForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         permissions_field = self.fields.get("permissions")
-        if not permissions_field:
-            return
+        if permissions_field:
+            permissions_field.label_from_instance = _indy_hub_permission_label
 
-        target_codenames = {
-            "can_access_indy_hub",
-            "can_manage_corp_bp_requests",
-            "can_manage_material_hub",
-        }
 
-        def _label_from_instance(permission):
-            if (
-                permission.content_type.app_label == "indy_hub"
-                and permission.codename in target_codenames
-            ):
-                return f"indy_hub | {permission.name}"
-            return str(permission)
-
-        permissions_field.label_from_instance = _label_from_instance
+def _indy_hub_permission_label(permission):
+    target_codenames = {
+        "can_access_indy_hub",
+        "can_manage_corp_bp_requests",
+        "can_manage_material_hub",
+    }
+    if (
+        permission.content_type.app_label == "indy_hub"
+        and permission.codename in target_codenames
+    ):
+        return f"indy_hub | {permission.name}"
+    return str(permission)
 
 
 try:
@@ -61,12 +59,42 @@ class IndyHubGroupAdmin(_registered_group_admin):
     form = IndyHubGroupAdminForm
 
 
+class IndyHubUserAdminForm(forms.ModelForm):
+    class Meta:
+        model = User
+        fields = "__all__"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        user_permissions_field = self.fields.get("user_permissions")
+        if user_permissions_field:
+            user_permissions_field.label_from_instance = _indy_hub_permission_label
+
+
 try:
     admin.site.unregister(Group)
 except admin.sites.NotRegistered:
     pass
 
 admin.site.register(Group, IndyHubGroupAdmin)
+
+
+try:
+    _registered_user_admin = admin.site._registry[User].__class__
+except KeyError:
+    _registered_user_admin = admin.ModelAdmin
+
+
+class IndyHubUserAdmin(_registered_user_admin):
+    form = IndyHubUserAdminForm
+
+
+try:
+    admin.site.unregister(User)
+except admin.sites.NotRegistered:
+    pass
+
+admin.site.register(User, IndyHubUserAdmin)
 
 
 @admin.register(Blueprint)

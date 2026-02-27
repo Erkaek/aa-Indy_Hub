@@ -32,6 +32,8 @@ from ..services.esi_client import (
     get_retry_after_seconds,
     shared_client,
 )
+from ..utils.analytics import emit_analytics_event
+from ..utils.menu_badge import compute_menu_badge_count
 from .industry import _is_user_active
 
 logger = get_extension_logger(__name__)
@@ -39,6 +41,9 @@ logger = get_extension_logger(__name__)
 CORP_ROLES_SCOPE = "esi-characters.read_corporation_roles.v1"
 
 User = get_user_model()
+
+_MENU_BADGE_CACHE_TTL_SECONDS = 45
+_MENU_BADGE_REFRESH_LOCK_TTL_SECONDS = 30
 
 
 def _coerce_role_list(value: object) -> list[str]:
@@ -140,6 +145,11 @@ def update_character_roles_for_character(
             "roles_at_other": _coerce_role_list(payload.get("roles_at_other")),
         },
     )
+    emit_analytics_event(
+        task="user.update_character_roles",
+        label="updated",
+        result="success",
+    )
     return {"status": "updated"}
 
 
@@ -172,4 +182,31 @@ def update_user_roles_snapshots(user_id: int) -> dict[str, int]:
         else:
             skipped += 1
 
+    emit_analytics_event(
+        task="user.update_user_roles_snapshots",
+        label="completed",
+        result="success" if failures == 0 else "warning",
+        value=max(updated, 1),
+    )
     return {"updated": updated, "skipped": skipped, "failures": failures}
+
+
+@shared_task
+def warm_menu_badge_count_cache(user_id: int) -> dict[str, int]:
+    """Compute and cache Indy Hub menu badge count for one user."""
+    # Django
+    from django.core.cache import cache
+
+    user_id = int(user_id)
+    cache_key = f"indy_hub:menu_badge_count:{user_id}"
+    refresh_lock_key = f"indy_hub:menu_badge_count_refreshing:{user_id}"
+
+    count = 0
+    try:
+        count = compute_menu_badge_count(user_id)
+        cache.set(cache_key, count, _MENU_BADGE_CACHE_TTL_SECONDS)
+    finally:
+        # Best-effort unlock so later refreshes can be scheduled.
+        cache.delete(refresh_lock_key)
+
+    return {"user_id": user_id, "count": int(count)}

@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Analytics: added safe Alliance Auth analytics helper module (`indy_hub/utils/analytics.py`) with task/event and standardized view-hit emitters.
+- Navigation/UI: added live menu badge template (`indy_hub/includes/menuitem_live_badge.html`) with client-side async badge refresh.
+- API: added `menu_badge_count` endpoint and route (`indy_hub:menu_badge_count`) for non-blocking badge updates.
+- Token Management: added live refresh endpoint and route (`indy_hub:token_management_live_refresh`) plus client-side async refresh/reload logic on the ESI page.
+- Tests: added regression tests for sell-order rejection from `anomaly` / `anomaly_rejected` states (`test_material_exchange_reject_sell.py`).
+
+### Changed
+
+- Permissions/Admin: removed global `Permission.__str__` monkeypatch and moved Indy Hub permission label formatting to local Group/User admin forms only.
+- Menu performance: menu hook is now cache-first and no longer computes heavy badge queries during navigation render.
+- Token Management UX/perf: `/indy_hub/esi/` now renders from lightweight/cached data first, then refreshes in background when changes are detected.
+- Corporation scope handling: added non-live role-fetch mode and cache usage for dashboard/token management corp scope summaries to reduce live ESI pressure.
+- Material Exchange (contracts): enhanced mismatch diagnostics with explicit missing/surplus item deltas in order/admin notifications.
+- Material Exchange (contracts): buy-order validation now supports in-game completion overrides for finished contracts in mismatch scenarios (reference, criteria, items, price).
+- Material Exchange (contracts): sell-order near-match handling improved for finished/wrong-reference and rejected-status paths.
+- Material Exchange (UI/actions): reject-sell flow now accepts `anomaly` and `anomaly_rejected` as rejectable statuses.
+- Documentation: README feature list now includes analytics hooks for Material Exchange lifecycle transitions.
+
+### Fixed
+
+- ESI callback noise/perf: token management flow no longer requires blocking role-scope decorator path on initial page render.
+- Navigation responsiveness: Indy Hub menu displays immediately on cold cache and fills badge asynchronously when count becomes available.
+
+### Internal
+
+- Tasks analytics: instrumented major industry, housekeeping, location, notifications, material exchange, and user snapshot Celery tasks with standardized analytics events.
+- Views analytics: instrumented hub, industry, material exchange, material exchange config/orders, user/token, and selected API endpoints with standardized view-hit analytics events.
+- Utility refactor: extracted menu badge count computation into dedicated helper (`indy_hub/utils/menu_badge.py`) and reused it across API/task paths.
+- Test coverage: expanded `test_material_exchange_contracts.py` for in-game override scenarios and mismatch detail propagation.
+
 ## [1.14.5] - 2026-02-22
 
 ### Added

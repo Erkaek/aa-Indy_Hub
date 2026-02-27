@@ -20,6 +20,7 @@ from ..models import (
     JobNotificationDigestEntry,
 )
 from ..notifications import build_site_url, notify_user
+from ..utils.analytics import emit_analytics_event
 from ..utils.job_notifications import (
     build_digest_notification_body,
     compute_next_digest_at,
@@ -239,6 +240,12 @@ def dispatch_job_notification_digests() -> dict[str, int]:
         )
         processed += 1
 
+    emit_analytics_event(
+        task="notifications.dispatch_job_notification_digests",
+        label="completed",
+        result="success",
+        value=max(processed, 1),
+    )
     return {"processed": processed, "skipped": skipped}
 
 
@@ -271,4 +278,10 @@ def notify_recently_completed_jobs(max_jobs: int = 500) -> dict[str, int]:
         else:
             skipped += 1
 
+    emit_analytics_event(
+        task="notifications.notify_recently_completed_jobs",
+        label="completed",
+        result="success",
+        value=max(processed, 1),
+    )
     return {"processed": processed, "skipped": skipped, "scanned": len(pending_jobs)}

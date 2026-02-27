@@ -23,6 +23,7 @@ from ..models import (
     NotificationWebhookMessage,
 )
 from ..notifications import delete_discord_webhook_message
+from ..utils.analytics import emit_view_analytics_event
 from ..utils.eve import get_corporation_name
 
 # Local
@@ -38,6 +39,9 @@ def my_orders(request):
     Display all orders (sell + buy) for the current user.
     Shows order reference, status, items count, total price, timestamps.
     """
+    emit_view_analytics_event(
+        view_name="material_exchange_orders.my_orders", request=request
+    )
     logger.debug("Material exchange orders list accessed (user_id=%s)", request.user.id)
     # Optimize: Annotate items_count to avoid N+1 queries
     # Get all sell orders for user with annotated count
@@ -141,6 +145,9 @@ def sell_order_detail(request, order_id):
     Display detailed view of a specific sell order.
     Shows order reference prominently, items, status timeline, contract info.
     """
+    emit_view_analytics_event(
+        view_name="material_exchange_orders.sell_order_detail", request=request
+    )
     queryset = MaterialExchangeSellOrder.objects.prefetch_related("items")
 
     # Admins can inspect any order; regular users limited to their own
@@ -196,6 +203,9 @@ def buy_order_detail(request, order_id):
     Display detailed view of a specific buy order.
     Shows order reference prominently, items, status timeline, delivery info.
     """
+    emit_view_analytics_event(
+        view_name="material_exchange_orders.buy_order_detail", request=request
+    )
     queryset = MaterialExchangeBuyOrder.objects.prefetch_related("items")
 
     # Admins can inspect any order; regular users limited to their own
@@ -613,6 +623,9 @@ def sell_order_delete(request, order_id):
     Delete a sell order.
     Only owner can delete, only if not completed/rejected/cancelled.
     """
+    emit_view_analytics_event(
+        view_name="material_exchange_orders.sell_order_delete", request=request
+    )
     order = get_object_or_404(
         MaterialExchangeSellOrder,
         id=order_id,
@@ -655,6 +668,9 @@ def buy_order_delete(request, order_id):
     Delete a buy order.
     Only owner can delete, only if not completed/rejected/cancelled.
     """
+    emit_view_analytics_event(
+        view_name="material_exchange_orders.buy_order_delete", request=request
+    )
     order = get_object_or_404(
         MaterialExchangeBuyOrder,
         id=order_id,

@@ -1,5 +1,6 @@
 # User-related views
 # Standard Library
+import hashlib
 import json
 from collections.abc import Iterable
 from datetime import timedelta
@@ -77,12 +78,65 @@ from ..tasks.industry import (
     REQUIRED_CORPORATION_ROLES,
     request_manual_refresh,
 )
+from ..utils.analytics import emit_view_analytics_event
 from ..utils.eve import get_character_name, get_corporation_name, get_type_name
 from .navigation import build_nav_context
 
 User = get_user_model()
 
 logger = get_extension_logger(__name__)
+
+_TOKEN_MANAGEMENT_LIVE_CACHE_TTL_SECONDS = 300
+
+
+def _token_management_live_cache_key(user_id: int) -> str:
+    return f"indy_hub:token_management_live:{int(user_id)}"
+
+
+def _token_management_payload_hash(
+    *,
+    corporations: list[dict[str, Any]],
+    warnings: list[dict[str, Any]],
+    corporation_sharing: dict[str, Any] | None,
+) -> str:
+    payload = {
+        "corporations": corporations,
+        "warnings": warnings,
+        "corporation_sharing": corporation_sharing,
+    }
+    serialized = json.dumps(payload, sort_keys=True, default=str)
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()[:16]
+
+
+def _build_token_management_live_payload(user) -> dict[str, Any]:
+    corp_scope_status, corp_scope_warnings = _collect_corporation_scope_status(
+        user,
+        include_warnings=True,
+        allow_live_role_fetch=False,
+    )
+    corp_scope_status = [
+        status
+        for status in corp_scope_status
+        if status.get("blueprint", {}).get("has_scope")
+        or status.get("jobs", {}).get("has_scope")
+        or status.get("has_director_role")
+        or status.get("roles_unavailable")
+    ]
+    corporation_sharing = build_corporation_sharing_context(
+        user,
+        allow_live_role_fetch=False,
+    )
+    payload_hash = _token_management_payload_hash(
+        corporations=corp_scope_status,
+        warnings=corp_scope_warnings,
+        corporation_sharing=corporation_sharing,
+    )
+    return {
+        "corporations": corp_scope_status,
+        "warnings": corp_scope_warnings,
+        "corporation_sharing": corporation_sharing,
+        "hash": payload_hash,
+    }
 
 
 def _append_next_param(url: str, request) -> str:
@@ -185,6 +239,7 @@ def _fetch_character_corporation_roles_with_token(
     *,
     owner_user: User | None = None,
     corporation_id: int | None = None,
+    allow_remote_fetch: bool = True,
 ) -> set[str] | None:
     """Fetch corporation roles using a specific token instead of Token.get_token()."""
     cache_key = f"indy_hub:corp_roles:{token_obj.character_id}"
@@ -234,6 +289,11 @@ def _fetch_character_corporation_roles_with_token(
     )
     if snapshot and not snapshot_stale:
         return _roles_from_snapshot(snapshot)
+
+    if not allow_remote_fetch:
+        if snapshot:
+            return _roles_from_snapshot(snapshot)
+        return None
 
     force_refresh = cached_roles is None and (snapshot is None)
     try:
@@ -384,7 +444,10 @@ def _build_corporation_authorization_summary(
 
 
 def _collect_corporation_scope_status(
-    user, *, include_warnings: bool = False
+    user,
+    *,
+    include_warnings: bool = False,
+    allow_live_role_fetch: bool = True,
 ) -> list[dict[str, Any]] | tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     if not user.has_perm("indy_hub.can_manage_corp_bp_requests"):
         empty: list[dict[str, Any]] = []
@@ -527,12 +590,17 @@ def _collect_corporation_scope_status(
         )
         roles_unavailable = False
         roles: set[str] = set()
-        if roles_token:
+        if not allow_live_role_fetch:
+            roles = set(REQUIRED_CORPORATION_ROLES)
+            role_state["verified"] = True
+            role_state["unavailable"] = False
+        elif roles_token:
             try:
                 fetched_roles = _fetch_character_corporation_roles_with_token(
                     roles_token,
                     owner_user=user,
                     corporation_id=corp_id,
+                    allow_remote_fetch=allow_live_role_fetch,
                 )
                 if fetched_roles is None:
                     roles_unavailable = True
@@ -635,7 +703,11 @@ def _collect_corporation_scope_status(
             roles_unavailable = True
             if not role_state["verified"]:
                 role_state["unavailable"] = True
-        if not roles_unavailable and not roles.intersection(REQUIRED_CORPORATION_ROLES):
+        if (
+            allow_live_role_fetch
+            and not roles_unavailable
+            and not roles.intersection(REQUIRED_CORPORATION_ROLES)
+        ):
             logger.info(
                 "Character %s lacks required roles %s for corporation %s",
                 character_id,
@@ -826,7 +898,11 @@ def _default_corporation_summary_entry(
     }
 
 
-def build_corporation_sharing_context(user) -> dict[str, Any] | None:
+def build_corporation_sharing_context(
+    user,
+    *,
+    allow_live_role_fetch: bool = True,
+) -> dict[str, Any] | None:
     if not user.has_perm("indy_hub.can_manage_corp_bp_requests"):
         return None
 
@@ -851,7 +927,10 @@ def build_corporation_sharing_context(user) -> dict[str, Any] | None:
         if corp_id
     }
 
-    corp_scope_status = _collect_corporation_scope_status(user)
+    corp_scope_status = _collect_corporation_scope_status(
+        user,
+        allow_live_role_fetch=allow_live_role_fetch,
+    )
     settings_map = {
         setting.corporation_id: setting
         for setting in CorporationSharingSetting.objects.filter(
@@ -1760,9 +1839,19 @@ def _build_dashboard_context(request):
     onboarding_show = bool(pending_tasks) and not onboarding_progress.dismissed
 
     can_manage_corp = request.user.has_perm("indy_hub.can_manage_corp_bp_requests")
-    corp_scope_status = (
-        _collect_corporation_scope_status(request.user) if can_manage_corp else []
+    corp_scope_status_cache_key = (
+        f"indy_hub:corp_scope_status:dashboard:{int(request.user.id)}"
     )
+    if can_manage_corp:
+        corp_scope_status = cache.get(corp_scope_status_cache_key)
+        if corp_scope_status is None:
+            corp_scope_status = _collect_corporation_scope_status(
+                request.user,
+                allow_live_role_fetch=False,
+            )
+            cache.set(corp_scope_status_cache_key, corp_scope_status, timeout=300)
+    else:
+        corp_scope_status = []
     corporation_share_controls, corporation_share_summary = (
         _build_corporation_share_controls(request.user, corp_scope_status)
     )
@@ -1855,7 +1944,12 @@ def _build_dashboard_context(request):
     )
 
     corporation_overview = (
-        build_corporation_sharing_context(request.user) if can_manage_corp else None
+        build_corporation_sharing_context(
+            request.user,
+            allow_live_role_fetch=False,
+        )
+        if can_manage_corp
+        else None
     )
     corp_blueprint_count = 0
     corp_original_blueprints = 0
@@ -1942,6 +2036,7 @@ def _build_dashboard_context(request):
 @indy_hub_access_required
 @login_required
 def index(request):
+    emit_view_analytics_event(view_name="user.index", request=request)
     context = _build_dashboard_context(request)
     context.update(
         build_nav_context(
@@ -2081,8 +2176,8 @@ def legacy_token_management_redirect(request):
 
 @indy_hub_access_required
 @login_required
-@tokens_required(scopes="esi-characters.read_corporation_roles.v1")
-def token_management(request, tokens):
+def token_management(request):
+    emit_view_analytics_event(view_name="user.token_management", request=request)
     next_url = request.session.pop("indy_hub_authorize_next", None)
     if next_url and url_has_allowed_host_and_scheme(
         next_url,
@@ -2093,20 +2188,48 @@ def token_management(request, tokens):
     blueprint_tokens = None
     jobs_tokens = None
     assets_tokens = None
-    (
-        corp_scope_status,
-        corp_scope_warnings,
-    ) = _collect_corporation_scope_status(request.user, include_warnings=True)
-    corp_scope_status = [
-        status
-        for status in corp_scope_status
-        if status.get("blueprint", {}).get("has_scope")
-        or status.get("jobs", {}).get("has_scope")
-        or status.get("has_director_role")
-        or status.get("roles_unavailable")
-    ]
-    corporation_sharing = build_corporation_sharing_context(request.user)
     can_manage_corp = request.user.has_perm("indy_hub.can_manage_corp_bp_requests")
+    token_management_live_hash = ""
+    token_management_live_refresh_needed = False
+
+    if can_manage_corp:
+        live_payload = cache.get(_token_management_live_cache_key(int(request.user.id)))
+        if isinstance(live_payload, dict):
+            corp_scope_status = list(live_payload.get("corporations") or [])
+            corp_scope_warnings = list(live_payload.get("warnings") or [])
+            corporation_sharing = live_payload.get("corporation_sharing")
+            token_management_live_hash = str(live_payload.get("hash") or "")
+        else:
+            (
+                corp_scope_status,
+                corp_scope_warnings,
+            ) = _collect_corporation_scope_status(
+                request.user,
+                include_warnings=True,
+                allow_live_role_fetch=False,
+            )
+            corp_scope_status = [
+                status
+                for status in corp_scope_status
+                if status.get("blueprint", {}).get("has_scope")
+                or status.get("jobs", {}).get("has_scope")
+                or status.get("has_director_role")
+                or status.get("roles_unavailable")
+            ]
+            corporation_sharing = build_corporation_sharing_context(
+                request.user,
+                allow_live_role_fetch=False,
+            )
+            token_management_live_hash = _token_management_payload_hash(
+                corporations=corp_scope_status,
+                warnings=corp_scope_warnings,
+                corporation_sharing=corporation_sharing,
+            )
+            token_management_live_refresh_needed = True
+    else:
+        corp_scope_status = []
+        corp_scope_warnings = []
+        corporation_sharing = None
     if Token:
         try:
             blueprint_tokens = (
@@ -2347,6 +2470,11 @@ def token_management(request, tokens):
         "corp_role_warnings": warning_payload,
         "corp_role_warning_payload_json": warning_payload_json,
         "corp_role_warning_count": len(warning_payload),
+        "token_management_live_hash": token_management_live_hash,
+        "token_management_live_refresh_needed": token_management_live_refresh_needed,
+        "token_management_live_refresh_url": reverse(
+            "indy_hub:token_management_live_refresh"
+        ),
     }
     context.update(
         build_nav_context(
@@ -2354,6 +2482,33 @@ def token_management(request, tokens):
         )
     )
     return render(request, "indy_hub/esi/token_management.html", context)
+
+
+@indy_hub_access_required
+@login_required
+def token_management_live_refresh(request):
+    """Warm live token-management data and report if UI should refresh."""
+    if not request.user.has_perm("indy_hub.can_manage_corp_bp_requests"):
+        return JsonResponse({"updated": False, "has_changes": False})
+
+    current_hash = str(request.GET.get("current_hash") or "")
+    try:
+        live_payload = _build_token_management_live_payload(request.user)
+        cache.set(
+            _token_management_live_cache_key(int(request.user.id)),
+            live_payload,
+            _TOKEN_MANAGEMENT_LIVE_CACHE_TTL_SECONDS,
+        )
+        new_hash = str(live_payload.get("hash") or "")
+        return JsonResponse(
+            {
+                "updated": True,
+                "has_changes": bool(new_hash and new_hash != current_hash),
+                "hash": new_hash,
+            }
+        )
+    except Exception:
+        return JsonResponse({"updated": False, "has_changes": False}, status=200)
 
 
 @indy_hub_access_required
@@ -2636,6 +2791,7 @@ def authorize_all(request):
 @login_required
 @tokens_required(scopes=sorted({*BLUEPRINT_SCOPE_SET, *JOBS_SCOPE_SET}))
 def sync_all_tokens(request, tokens):
+    emit_view_analytics_event(view_name="user.sync_all_tokens", request=request)
     if Token:
         try:
             blueprint_tokens = (
@@ -2734,6 +2890,7 @@ def sync_all_tokens(request, tokens):
 @login_required
 @tokens_required(scopes=BLUEPRINT_SCOPE_SET)
 def sync_blueprints(request, tokens):
+    emit_view_analytics_event(view_name="user.sync_blueprints", request=request)
     if Token:
         try:
             blueprint_tokens = (
@@ -2784,6 +2941,7 @@ def sync_blueprints(request, tokens):
 @login_required
 @tokens_required(scopes=JOBS_SCOPE_SET)
 def sync_jobs(request, tokens):
+    emit_view_analytics_event(view_name="user.sync_jobs", request=request)
     if Token:
         try:
             jobs_tokens = (
@@ -2835,6 +2993,9 @@ def sync_jobs(request, tokens):
 @login_required
 @require_POST
 def toggle_job_notifications(request):
+    emit_view_analytics_event(
+        view_name="user.toggle_job_notifications", request=request
+    )
     payload: dict[str, object] = {}
     if request.body:
         try:
@@ -2959,6 +3120,9 @@ def toggle_job_notifications(request):
 @login_required
 @require_POST
 def toggle_corporation_job_notifications(request):
+    emit_view_analytics_event(
+        view_name="user.toggle_corporation_job_notifications", request=request
+    )
     if not request.user.has_perm("indy_hub.can_manage_corp_bp_requests"):
         return JsonResponse({"error": "forbidden"}, status=403)
 
@@ -3112,6 +3276,7 @@ def toggle_corporation_job_notifications(request):
 @login_required
 @require_POST
 def toggle_copy_sharing(request):
+    emit_view_analytics_event(view_name="user.toggle_copy_sharing", request=request)
     settings, _created = CharacterSettings.objects.get_or_create(
         user=request.user, character_id=0
     )
@@ -3261,6 +3426,9 @@ def toggle_copy_sharing(request):
 @login_required
 @require_POST
 def toggle_corporation_copy_sharing(request):
+    emit_view_analytics_event(
+        view_name="user.toggle_corporation_copy_sharing", request=request
+    )
     if not request.user.has_perm("indy_hub.can_manage_corp_bp_requests"):
         return JsonResponse({"error": "forbidden"}, status=403)
 
@@ -3416,6 +3584,7 @@ def onboarding_set_visibility(request):
 @indy_hub_access_required
 @login_required
 def production_simulations(request):
+    emit_view_analytics_event(view_name="user.production_simulations", request=request)
     """
     Management page for saved production simulations.
     """

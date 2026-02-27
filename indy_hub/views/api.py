@@ -11,6 +11,7 @@ from math import ceil
 
 # Django
 from django.contrib.auth.decorators import login_required
+from django.core.cache import cache
 from django.db import connection
 from django.http import JsonResponse
 from django.views.decorators.http import require_http_methods
@@ -27,8 +28,12 @@ from ..models import (
     ProductionConfig,
     ProductionSimulation,
 )
+from ..utils.analytics import emit_view_analytics_event
+from ..utils.menu_badge import compute_menu_badge_count
 
 logger = get_extension_logger(__name__)
+
+MENU_BADGE_CACHE_TTL_SECONDS = 45
 
 
 def _to_serializable(value):
@@ -41,6 +46,29 @@ def _to_serializable(value):
     return value
 
 
+@login_required
+@require_http_methods(["GET"])
+def menu_badge_count(request):
+    """Return current Indy Hub menu badge count for live menu update."""
+    if not request.user.has_perm("indy_hub.can_access_indy_hub"):
+        return JsonResponse({"count": 0}, status=403)
+
+    cache_key = f"indy_hub:menu_badge_count:{request.user.id}"
+    refresh_lock_key = f"indy_hub:menu_badge_count_refreshing:{request.user.id}"
+    count = cache.get(cache_key)
+    if count is None:
+        try:
+            if cache.add(refresh_lock_key, 1, 30):
+                count = compute_menu_badge_count(int(request.user.id))
+                cache.set(cache_key, count, MENU_BADGE_CACHE_TTL_SECONDS)
+                cache.delete(refresh_lock_key)
+            else:
+                count = 0
+        except Exception:
+            count = 0
+    return JsonResponse({"count": int(count or 0)})
+
+
 @indy_hub_access_required
 @indy_hub_permission_required("can_access_indy_hub")
 @login_required
@@ -51,6 +79,7 @@ def craft_bp_payload(request, type_id: int):
     This is used by the V2 UI to simulate profitability across multiple run counts
     while allowing buy/prod decisions to change with cycle rounding effects.
     """
+    emit_view_analytics_event(view_name="api.craft_bp_payload", request=request)
 
     debug_enabled = str(request.GET.get("indy_debug", "")).strip() in {
         "1",
@@ -306,6 +335,7 @@ def craft_bp_payload(request, type_id: int):
 @indy_hub_permission_required("can_access_indy_hub")
 @login_required
 def fuzzwork_price(request):
+    emit_view_analytics_event(view_name="api.fuzzwork_price", request=request)
     """
     Get item prices from Fuzzwork API.
 
@@ -367,6 +397,7 @@ def fuzzwork_price(request):
 @login_required
 @require_http_methods(["POST"])
 def save_production_config(request):
+    emit_view_analytics_event(view_name="api.save_production_config", request=request)
     """
     Save complete production configuration to database.
 
@@ -530,6 +561,7 @@ def save_production_config(request):
 @indy_hub_permission_required("can_access_indy_hub")
 @login_required
 def load_production_config(request):
+    emit_view_analytics_event(view_name="api.load_production_config", request=request)
     """
     Load complete production configuration from database.
 

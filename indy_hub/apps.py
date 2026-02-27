@@ -34,31 +34,6 @@ class IndyHubConfig(AppConfig):
         super().ready()
 
         try:
-            # Django
-            from django.contrib.auth.models import Permission
-
-            if not getattr(Permission, "_indy_hub_custom_str", False):
-                original_str = Permission.__str__
-                indy_hub_codenames = {
-                    "can_access_indy_hub",
-                    "can_manage_corp_bp_requests",
-                    "can_manage_material_hub",
-                }
-
-                def _indy_hub_permission_str(permission):
-                    if (
-                        permission.content_type.app_label == "indy_hub"
-                        and permission.codename in indy_hub_codenames
-                    ):
-                        return f"indy_hub | {permission.name}"
-                    return original_str(permission)
-
-                Permission.__str__ = _indy_hub_permission_str
-                Permission._indy_hub_custom_str = True
-        except Exception:
-            pass
-
-        try:
             # Alliance Auth
             from allianceauth.services.hooks import get_extension_logger
 

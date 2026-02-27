@@ -184,3 +184,50 @@
     {% endif %}
 </div>
 {% endblock content %}
+
+{% block extra_javascript %}
+{{ block.super }}
+{% if token_management_live_refresh_needed and token_management_live_refresh_url %}
+<script>
+(function () {
+    function runLiveRefresh() {
+        var refreshUrl = "{{ token_management_live_refresh_url }}";
+        var currentHash = "{{ token_management_live_hash|default:''|escapejs }}";
+        var url = refreshUrl + (refreshUrl.indexOf('?') === -1 ? '?' : '&') +
+            'current_hash=' + encodeURIComponent(currentHash);
+
+        fetch(url, {
+            method: 'GET',
+            credentials: 'same-origin',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        })
+            .then(function (response) {
+                if (!response.ok) {
+                    return null;
+                }
+                return response.json();
+            })
+            .then(function (payload) {
+                if (!payload || !payload.updated || !payload.has_changes) {
+                    return;
+                }
+                var nextUrl = new URL(window.location.href);
+                nextUrl.searchParams.set('tm_live', '1');
+                window.location.replace(nextUrl.toString());
+            })
+            .catch(function () {
+                // Keep initial fast-rendered UI if live refresh fails.
+            });
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', runLiveRefresh, { once: true });
+    } else {
+        runLiveRefresh();
+    }
+})();
+</script>
+{% endif %}
+{% endblock extra_javascript %}

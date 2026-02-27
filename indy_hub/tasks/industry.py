@@ -90,6 +90,7 @@ from ..services.esi_client import (
     shared_client,
 )
 from ..services.location_population import populate_location_names
+from ..utils.analytics import emit_analytics_event
 from ..utils.eve import (
     PLACEHOLDER_PREFIX,
     batch_cache_type_names,
@@ -1300,6 +1301,13 @@ def update_blueprints_for_user(
             "; ".join(error_messages),
         )
 
+    emit_analytics_event(
+        task="industry.update_blueprints_for_user",
+        label="completed",
+        result="success",
+        value=max(updated_count, 1),
+    )
+
     return {
         "success": True,
         "blueprints_updated": updated_count,
@@ -1877,6 +1885,12 @@ def update_industry_jobs_for_user(
                 user.username,
                 "; ".join(error_messages),
             )
+        emit_analytics_event(
+            task="industry.update_industry_jobs_for_user",
+            label="completed",
+            result="success",
+            value=max(updated_count, 1),
+        )
         return {
             "success": True,
             "jobs_updated": updated_count,
@@ -1885,6 +1899,11 @@ def update_industry_jobs_for_user(
         }
     except Exception as e:
         logger.error(f"Error updating jobs for user {user_id}: {e}")
+        emit_analytics_event(
+            task="industry.update_industry_jobs_for_user",
+            label="failed",
+            result="error",
+        )
         # Error tracking removed in unified settings
         raise self.retry(exc=e, countdown=60 * (2**self.request.retries))
 
@@ -1942,6 +1961,12 @@ def cleanup_old_jobs():
     logger.info(
         f"Cleaned up {total_deleted} orphaned industry jobs (no user: {count_no_user}, no char: {count_no_char}, no token: {deleted_tokenless})"
     )
+    emit_analytics_event(
+        task="industry.cleanup_old_jobs",
+        label="completed",
+        result="success",
+        value=max(total_deleted, 1),
+    )
     return {
         "deleted_jobs": total_deleted,
         "no_user": count_no_user,
@@ -1971,6 +1996,11 @@ def update_type_names():
         for job in jobs_without_names:
             job.refresh_from_db()
     logger.info("Updated type names for blueprints and jobs")
+    emit_analytics_event(
+        task="industry.update_type_names",
+        label="completed",
+        result="success",
+    )
 
 
 @shared_task(bind=True, max_retries=0)
@@ -2004,6 +2034,12 @@ def populate_location_names_async(
         summary.get("blueprints", 0),
         summary.get("jobs", 0),
         summary.get("locations", 0),
+    )
+    emit_analytics_event(
+        task="industry.populate_location_names_async",
+        label="completed",
+        result="success",
+        value=max(int(summary.get("locations", 0) or 0), 1),
     )
     return summary
 
@@ -2059,6 +2095,12 @@ def update_all_blueprints(*, last_user_id: int | None = None, batch_size: int = 
         queued,
         batch_size,
         window_minutes,
+    )
+    emit_analytics_event(
+        task="industry.update_all_blueprints",
+        label="queued",
+        result="success",
+        value=max(queued, 1),
     )
     return {
         "users_queued": queued,
@@ -2120,6 +2162,12 @@ def update_all_industry_jobs(*, last_user_id: int | None = None, batch_size: int
         queued,
         batch_size,
         window_minutes,
+    )
+    emit_analytics_event(
+        task="industry.update_all_industry_jobs",
+        label="queued",
+        result="success",
+        value=max(queued, 1),
     )
     return {
         "users_queued": queued,
@@ -2270,6 +2318,11 @@ def update_character_skill_snapshot_for_character(
         },
         defaults=defaults,
     )
+    emit_analytics_event(
+        task="industry.update_character_skill_snapshot",
+        label="updated",
+        result="success",
+    )
     return {"status": "updated"}
 
 
@@ -2325,5 +2378,11 @@ def update_user_skill_snapshots(user_id: int) -> dict[str, int]:
         updated,
         skipped,
         failures,
+    )
+    emit_analytics_event(
+        task="industry.update_user_skill_snapshots",
+        label="completed",
+        result="success" if failures == 0 else "warning",
+        value=max(updated, 1),
     )
     return {"updated": updated, "skipped": skipped, "failures": failures}

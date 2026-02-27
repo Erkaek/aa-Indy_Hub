@@ -20,6 +20,7 @@ from indy_hub.services.location_population import (
     DEFAULT_TASK_PRIORITY,
     populate_location_names,
 )
+from indy_hub.utils.analytics import emit_analytics_event
 from indy_hub.utils.eve import PLACEHOLDER_PREFIX, resolve_location_name
 
 logger = get_extension_logger(__name__)
@@ -75,6 +76,11 @@ def refresh_structure_location(self, structure_id: int) -> dict[str, int]:
         summary.get("blueprints", 0),
         summary.get("jobs", 0),
     )
+    emit_analytics_event(
+        task="location.refresh_structure_location",
+        label="success",
+        result="success",
+    )
     return summary
 
 
@@ -126,6 +132,12 @@ def cache_structure_name(
         defaults={"name": str(name), "last_resolved": now},
     )
 
+    emit_analytics_event(
+        task="location.cache_structure_name",
+        label="placeholder" if str(name).startswith(PLACEHOLDER_PREFIX) else "resolved",
+        result="success",
+    )
+
     return {
         "structure_id": structure_id,
         "name": str(name),
@@ -170,4 +182,10 @@ def cache_structure_names_bulk(
         )
 
     group(sigs).apply_async()
+    emit_analytics_event(
+        task="location.cache_structure_names_bulk",
+        label="queued",
+        result="success",
+        value=max(len(sigs), 1),
+    )
     return {"total": len(normalized), "queued": len(sigs)}

@@ -30,6 +30,7 @@ from ..models import (
     IndustrySkillSnapshot,
 )
 from ..services.asset_cache import STRUCTURE_PLACEHOLDER_TTL
+from ..utils.analytics import emit_analytics_event
 from ..utils.eve import PLACEHOLDER_PREFIX
 from .industry import (
     ONLINE_SCOPE,
@@ -221,4 +222,13 @@ def refresh_stale_snapshots() -> dict[str, int]:
         logger.exception("Failed stale structure refresh: %s", exc)
 
     logger.info("Stale refresh summary: %s", result)
+    emit_analytics_event(
+        task="housekeeping.refresh_stale_snapshots",
+        label="completed",
+        result="success",
+        value=max(
+            result.get("skills_users_queued", 0) + result.get("roles_users_queued", 0),
+            1,
+        ),
+    )
     return result

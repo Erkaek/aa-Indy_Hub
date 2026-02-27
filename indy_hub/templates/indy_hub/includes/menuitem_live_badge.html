@@ -1,0 +1,79 @@
+{% load i18n %}
+{% load navactive %}
+
+<li>
+    <a class="{% navactive request item.navactive|join:' ' %}" href="{% url item.url_name %}" data-indy-hub-menu="1" data-indy-hub-badge-url="{% url 'indy_hub:menu_badge_count' %}">
+        <i class="{{ item.classes }}"></i> {% translate item.text %}
+
+        {% if item.count != None %}
+            <span class="badge" data-indy-hub-badge="1">{{ item.count }}</span>
+        {% endif %}
+    </a>
+</li>
+<script>
+(function () {
+    if (window.__indyHubMenuBadgeLiveInitialized) {
+        return;
+    }
+    window.__indyHubMenuBadgeLiveInitialized = true;
+
+    function updateBadges(count) {
+        var links = document.querySelectorAll('a[data-indy-hub-menu="1"]');
+        links.forEach(function (link) {
+            var badge = link.querySelector('span.badge[data-indy-hub-badge="1"]');
+            if (count > 0) {
+                if (!badge) {
+                    badge = document.createElement('span');
+                    badge.className = 'badge';
+                    badge.setAttribute('data-indy-hub-badge', '1');
+                    link.appendChild(document.createTextNode(' '));
+                    link.appendChild(badge);
+                }
+                badge.textContent = String(count);
+            } else if (badge) {
+                badge.remove();
+            }
+        });
+    }
+
+    function loadBadgeCount() {
+        var firstLink = document.querySelector('a[data-indy-hub-menu="1"]');
+        if (!firstLink) {
+            return;
+        }
+        var url = firstLink.getAttribute('data-indy-hub-badge-url');
+        if (!url) {
+            return;
+        }
+
+        fetch(url, {
+            method: 'GET',
+            credentials: 'same-origin',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        })
+            .then(function (response) {
+                if (!response.ok) {
+                    return null;
+                }
+                return response.json();
+            })
+            .then(function (payload) {
+                if (!payload || typeof payload.count !== 'number') {
+                    return;
+                }
+                updateBadges(payload.count);
+            })
+            .catch(function () {
+                // Silent fail: menu remains usable without dynamic badge refresh.
+            });
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', loadBadgeCount, { once: true });
+    } else {
+        loadBadgeCount();
+    }
+})();
+</script>

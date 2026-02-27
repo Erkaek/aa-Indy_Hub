@@ -30,6 +30,7 @@ from ..services.asset_cache import (
     resolve_structure_names,
 )
 from ..services.esi_client import ESIUnmodifiedError
+from ..utils.analytics import emit_view_analytics_event
 from ..utils.eve import PLACEHOLDER_PREFIX
 
 esi = esi_provider
@@ -40,6 +41,10 @@ logger = get_extension_logger(__name__)
 @indy_hub_permission_required("can_manage_material_hub")
 def material_exchange_request_divisions_token(request):
     """Request ESI token with divisions scope, then redirect back to config."""
+    emit_view_analytics_event(
+        view_name="material_exchange_config.request_divisions_token",
+        request=request,
+    )
     return sso_redirect(
         request,
         scopes="esi-corporations.read_divisions.v1",
@@ -51,6 +56,9 @@ def material_exchange_request_divisions_token(request):
 @indy_hub_permission_required("can_manage_material_hub")
 def material_exchange_request_all_scopes(request):
     """
+    emit_view_analytics_event(
+        view_name="material_exchange_config.request_all_scopes", request=request
+    )
     Request all Material Exchange required ESI scopes at once.
 
     Required scopes:
@@ -78,6 +86,9 @@ def material_exchange_request_all_scopes(request):
 @indy_hub_permission_required("can_manage_material_hub")
 def material_exchange_request_contracts_scope(request):
     """Request ESI token with contracts scope, then redirect back to config."""
+    emit_view_analytics_event(
+        view_name="material_exchange_config.request_contracts_scope", request=request
+    )
     return sso_redirect(
         request,
         scopes="esi-contracts.read_corporation_contracts.v1",
@@ -169,6 +180,9 @@ def _get_token_for_corp(user, corp_id, scope, require_corporation_token: bool = 
 @indy_hub_permission_required("can_manage_material_hub")
 @tokens_required(scopes="esi-characters.read_corporation_roles.v1")
 def material_exchange_config(request, tokens):
+    emit_view_analytics_event(
+        view_name="material_exchange_config.page", request=request
+    )
     """
     Material Exchange configuration page.
     Allows admins to configure corp, structure, and pricing.
@@ -288,6 +302,9 @@ def material_exchange_config(request, tokens):
 @login_required
 @indy_hub_permission_required("can_manage_material_hub")
 def material_exchange_toggle_active(request):
+    emit_view_analytics_event(
+        view_name="material_exchange_config.toggle_active", request=request
+    )
     """Toggle Material Exchange availability from settings page."""
 
     if request.method != "POST":
@@ -339,6 +356,9 @@ def material_exchange_toggle_active(request):
     scopes="esi-assets.read_corporation_assets.v1 esi-corporations.read_divisions.v1"
 )
 def material_exchange_get_structures(request, tokens, corp_id):
+    emit_view_analytics_event(
+        view_name="material_exchange_config.get_structures", request=request
+    )
     """
     AJAX endpoint to get structures for a given corporation.
     Returns JSON list of structures.
@@ -604,6 +624,9 @@ def _find_director_character(user, corp_id):
     scopes="esi-characters.read_corporation_roles.v1 esi-assets.read_corporation_assets.v1"
 )
 def material_exchange_refresh_corp_assets(request, tokens):
+    emit_view_analytics_event(
+        view_name="material_exchange_config.refresh_corp_assets", request=request
+    )
     """
     AJAX endpoint to refresh corporation assets and structures.
     Triggers background task to fetch latest ESI data.
@@ -665,6 +688,9 @@ def material_exchange_refresh_corp_assets(request, tokens):
 @login_required
 @indy_hub_permission_required("can_manage_material_hub")
 def material_exchange_check_refresh_status(request, task_id):
+    emit_view_analytics_event(
+        view_name="material_exchange_config.check_refresh_status", request=request
+    )
     """
     AJAX endpoint to check the status of a refresh task.
     Returns the task status: pending, success, or failure, plus progress info.
@@ -976,6 +1002,9 @@ def _get_corp_structures(user, corp_id):
 @login_required
 @indy_hub_permission_required("can_manage_material_hub")
 def material_exchange_request_assets_token(request):
+    emit_view_analytics_event(
+        view_name="material_exchange_config.request_assets_token", request=request
+    )
     """Request ESI token with corp assets scope, then redirect back to config."""
     return sso_redirect(
         request,
@@ -1358,6 +1387,9 @@ def _handle_config_save(request, existing_config):
 @indy_hub_permission_required("can_manage_material_hub")
 @tokens_required(scopes="esi-characters.read_corporation_roles.v1")
 def material_exchange_debug_tokens(request, corp_id, tokens):
+    emit_view_analytics_event(
+        view_name="material_exchange_config.debug_tokens", request=request
+    )
     """Debug endpoint: list user's tokens and scopes relevant to a corporation.
 
     Query params:

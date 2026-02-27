@@ -5,6 +5,7 @@ from .views.api import (
     craft_bp_payload,
     fuzzwork_price,
     load_production_config,
+    menu_badge_count,
     save_production_config,
 )
 from .views.hubs import (
@@ -105,6 +106,7 @@ from .views.user import (
     toggle_corporation_job_notifications,
     toggle_job_notifications,
     token_management,
+    token_management_live_refresh,
 )
 
 app_name = "indy_hub"
@@ -130,6 +132,11 @@ urlpatterns = [
         name="corporation_job_list",
     ),
     path("tokens/", legacy_token_management_redirect, name="token_management"),
+    path(
+        "tokens/live-refresh/",
+        token_management_live_refresh,
+        name="token_management_live_refresh",
+    ),
     path("tokens/sync-blueprints/", sync_blueprints, name="sync_blueprints"),
     path("tokens/sync-jobs/", sync_jobs, name="sync_jobs"),
     path("tokens/sync-all/", sync_all_tokens, name="sync_all_tokens"),
@@ -168,6 +175,7 @@ urlpatterns = [
         load_production_config,
         name="load_production_config",
     ),
+    path("api/menu-badge-count/", menu_badge_count, name="menu_badge_count"),
     path(
         "simulations/", production_simulations_list, name="production_simulations_list"
     ),

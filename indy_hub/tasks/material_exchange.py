@@ -57,6 +57,7 @@ from indy_hub.services.esi_client import (
     get_retry_after_seconds,
     shared_client,
 )
+from indy_hub.utils.analytics import emit_analytics_event
 from indy_hub.utils.eve import get_type_name
 
 logger = get_extension_logger(__name__)
@@ -217,11 +218,22 @@ def refresh_corp_assets_cached(
                     },
                 )
 
+        emit_analytics_event(
+            task="material_exchange.refresh_corp_assets_cached",
+            label="success",
+            result="success",
+        )
+
     except Exception as exc:
         logger.exception(
             "Failed to refresh corp assets/structures for corporation %s: %s",
             corporation_id,
             exc,
+        )
+        emit_analytics_event(
+            task="material_exchange.refresh_corp_assets_cached",
+            label="failed",
+            result="error",
         )
         raise
 
@@ -524,6 +536,11 @@ def refresh_material_exchange_sell_user_assets(user_id: int) -> None:
         len(all_rows),
         user.id,
     )
+    emit_analytics_event(
+        task="material_exchange.refresh_sell_user_assets",
+        label="success",
+        result="success",
+    )
 
 
 def _me_buy_stock_refresh_progress_key(corporation_id: int) -> str:
@@ -565,6 +582,11 @@ def refresh_material_exchange_buy_stock(corporation_id: int) -> None:
                 "last_refresh": timezone.now().isoformat(),
             },
             ttl_seconds,
+        )
+        emit_analytics_event(
+            task="material_exchange.refresh_buy_stock",
+            label="success",
+            result="success",
         )
     except ESIRateLimitError as exc:
         delay = get_retry_after_seconds(exc)
@@ -634,6 +656,11 @@ def refresh_material_exchange_buy_stock(corporation_id: int) -> None:
                 "error": "refresh_failed",
             },
             ttl_seconds,
+        )
+        emit_analytics_event(
+            task="material_exchange.refresh_buy_stock",
+            label="failed",
+            result="error",
         )
 
 
@@ -870,8 +897,20 @@ def _sync_stock_impl():
         except Exception as exc:  # pragma: no cover - defensive
             logger.warning("Auto price sync failed after stock sync: %s", exc)
 
+        emit_analytics_event(
+            task="material_exchange.sync_stock",
+            label="success",
+            result="success",
+            value=max(len(stock_updates), 1),
+        )
+
     except Exception as e:
         logger.exception(f"Error syncing material exchange stock: {e}")
+        emit_analytics_event(
+            task="material_exchange.sync_stock",
+            label="failed",
+            result="error",
+        )
 
 
 @shared_task(
@@ -931,6 +970,17 @@ def sync_material_exchange_prices():
         logger.info(
             f"Material Exchange prices sync completed: {len(type_ids)} types updated"
         )
+        emit_analytics_event(
+            task="material_exchange.sync_prices",
+            label="success",
+            result="success",
+            value=max(len(type_ids), 1),
+        )
 
     except Exception as e:
         logger.exception(f"Error syncing material exchange prices: {e}")
+        emit_analytics_event(
+            task="material_exchange.sync_prices",
+            label="failed",
+            result="error",
+        )

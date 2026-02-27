@@ -69,6 +69,7 @@ from ..tasks.industry import (
     STRUCTURE_SCOPE,
     request_manual_refresh,
 )
+from ..utils.analytics import emit_view_analytics_event
 from ..utils.discord_actions import (
     _DEFAULT_TOKEN_MAX_AGE,
     BadSignature,
@@ -1193,6 +1194,7 @@ def _mark_offer_seller_accept(offer: BlueprintCopyOffer) -> bool:
 @indy_hub_access_required
 @login_required
 def personnal_bp_list(request, scope="character"):
+    emit_view_analytics_event(view_name="industry.personnal_bp_list", request=request)
     # Copy of the old blueprints_list code
     owner_options = []
     scope_param = request.GET.get("scope")
@@ -1637,6 +1639,7 @@ def personnal_bp_list(request, scope="character"):
 @indy_hub_access_required
 @login_required
 def all_bp_list(request):
+    emit_view_analytics_event(view_name="industry.all_bp_list", request=request)
     search = request.GET.get("search", "").strip()
     activity_id = request.GET.get("activity_id", "")
     market_group_id = request.GET.get("market_group_id", "")
@@ -1751,6 +1754,7 @@ def all_bp_list(request):
 @indy_hub_access_required
 @login_required
 def personnal_job_list(request, scope="character"):
+    emit_view_analytics_event(view_name="industry.personnal_job_list", request=request)
     owner_options: list[tuple[int, str]] = []
     scope_param = request.GET.get("scope")
     scope = (scope_param or scope or "character").lower()
@@ -3464,6 +3468,9 @@ def bp_copy_request_create(request):
 @indy_hub_permission_required("can_access_indy_hub")
 @login_required
 def bp_copy_request_page(request):
+    emit_view_analytics_event(
+        view_name="industry.bp_copy_request_page", request=request
+    )
     # Alliance Auth
     from allianceauth.eveonline.models import EveCharacter
 
@@ -3683,6 +3690,9 @@ def bp_copy_request_page(request):
 @indy_hub_permission_required("can_access_indy_hub")
 @login_required
 def bp_copy_fulfill_requests(request):
+    emit_view_analytics_event(
+        view_name="industry.bp_copy_fulfill_requests", request=request
+    )
     """List requests for blueprints the user owns and allows copy requests for."""
     from ..models import CharacterSettings
 
@@ -4417,6 +4427,7 @@ def bp_copy_fulfill_requests(request):
 @indy_hub_permission_required("can_manage_corp_bp_requests")
 @login_required
 def bp_copy_history(request):
+    emit_view_analytics_event(view_name="industry.bp_copy_history", request=request)
     """Show a simple history of copy requests and their acceptor (when known).
 
     Visibility is restricted to users with the `can_manage_corp_bp_requests` permission.
@@ -5168,6 +5179,7 @@ def bp_update_copy_request(request, request_id):
 @indy_hub_permission_required("can_access_indy_hub")
 @login_required
 def bp_copy_my_requests(request):
+    emit_view_analytics_event(view_name="industry.bp_copy_my_requests", request=request)
     """List copy requests made by the current user."""
     requested_filter = (request.GET.get("status") or "all").strip().lower()
     active_filter = requested_filter
@@ -5846,6 +5858,9 @@ def bp_chat_decide(request, chat_id: int):
 @indy_hub_access_required
 @login_required
 def production_simulations_list(request):
+    emit_view_analytics_event(
+        view_name="industry.production_simulations_list", request=request
+    )
     """
     Display the list of production simulations saved by the user.
     Return JSON when api=1 is included in the query string.
@@ -5995,6 +6010,7 @@ def edit_simulation_name(request, simulation_id):
 @indy_hub_access_required
 @login_required
 def industry_slot_overview(request):
+    emit_view_analytics_event(view_name="industry.slot_overview", request=request)
     character_rows = _build_slot_overview_rows(request.user)
     context = {
         "characters": character_rows,
