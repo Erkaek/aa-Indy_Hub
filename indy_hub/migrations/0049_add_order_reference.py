@@ -18,6 +18,7 @@ def add_order_reference_columns(apps, schema_editor):
                 """
                 SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
                 WHERE TABLE_NAME = 'indy_hub_materialexchangesellorder'
+                AND TABLE_SCHEMA = DATABASE()
                 AND COLUMN_NAME = 'order_reference'
             """
             )
@@ -34,6 +35,7 @@ def add_order_reference_columns(apps, schema_editor):
                 """
                 SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
                 WHERE TABLE_NAME = 'indy_hub_materialexchangebuyorder'
+                AND TABLE_SCHEMA = DATABASE()
                 AND COLUMN_NAME = 'order_reference'
             """
             )

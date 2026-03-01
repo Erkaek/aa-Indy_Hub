@@ -13,6 +13,40 @@ def populate_order_references(apps, schema_editor):
 
     with connection.cursor() as cursor:
         if vendor == "mysql":
+            # Ensure columns exist (handles environments where 0049 state advanced
+            # but physical columns were not created due to cross-schema lookup).
+            cursor.execute(
+                """
+                SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_NAME = 'indy_hub_materialexchangesellorder'
+                AND TABLE_SCHEMA = DATABASE()
+                AND COLUMN_NAME = 'order_reference'
+            """
+            )
+            if not cursor.fetchone():
+                cursor.execute(
+                    """
+                    ALTER TABLE indy_hub_materialexchangesellorder
+                    ADD COLUMN order_reference VARCHAR(50) DEFAULT '' NOT NULL
+                """
+                )
+
+            cursor.execute(
+                """
+                SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_NAME = 'indy_hub_materialexchangebuyorder'
+                AND TABLE_SCHEMA = DATABASE()
+                AND COLUMN_NAME = 'order_reference'
+            """
+            )
+            if not cursor.fetchone():
+                cursor.execute(
+                    """
+                    ALTER TABLE indy_hub_materialexchangebuyorder
+                    ADD COLUMN order_reference VARCHAR(50) DEFAULT '' NOT NULL
+                """
+                )
+
             # MySQL uses CONCAT
             cursor.execute(
                 """
