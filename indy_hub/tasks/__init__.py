@@ -33,6 +33,7 @@ def _import_task_submodules() -> None:
     from . import material_exchange  # noqa: F401
     from . import material_exchange_contracts  # noqa: F401
     from . import notifications  # noqa: F401
+    from . import sde_sync  # noqa: F401
     from . import user  # noqa: F401
 
 

@@ -36,6 +36,8 @@ from ..models import (
     MaterialExchangeSettings,
     MaterialExchangeStock,
     MaterialExchangeTransaction,
+    SDEBlueprintActivityMaterial,
+    SDEMarketGroup,
 )
 from ..services.asset_cache import get_corp_divisions_cached, get_user_assets_cached
 from ..tasks.material_exchange import (
@@ -52,7 +54,7 @@ from ..tasks.material_exchange import (
     sync_material_exchange_stock,
 )
 from ..utils.analytics import emit_view_analytics_event
-from ..utils.eve import get_type_name
+from ..utils.eve import batch_cache_type_names, get_type_name
 from ..utils.material_exchange_pricing import compute_buy_price_from_member
 from .navigation import build_nav_context
 
@@ -263,6 +265,36 @@ def _get_material_exchange_config() -> MaterialExchangeConfig | None:
     return MaterialExchangeConfig.objects.first()
 
 
+def _normalize_stock_type_names(stock_items: list[MaterialExchangeStock]) -> None:
+    """Replace numeric/empty stock type names with local eve_sde names when available."""
+
+    if not stock_items:
+        return
+
+    updates: list[MaterialExchangeStock] = []
+    for item in stock_items:
+        current_name = (item.type_name or "").strip()
+        if current_name and current_name != str(item.type_id):
+            continue
+
+        resolved_name = get_type_name(item.type_id)
+        if not resolved_name or resolved_name == str(item.type_id):
+            continue
+
+        item.type_name = resolved_name
+        updates.append(item)
+
+    if not updates:
+        return
+
+    try:
+        MaterialExchangeStock.objects.bulk_update(
+            updates, ["type_name"], batch_size=500
+        )
+    except Exception as exc:
+        logger.warning("Failed to persist normalized stock type names: %s", exc)
+
+
 def _get_industry_market_group_ids() -> set[int]:
     """Return market group IDs used by EVE industry materials (cached)."""
 
@@ -281,14 +313,11 @@ def _get_industry_market_group_ids() -> set[int]:
             return _INDUSTRY_MARKET_GROUP_IDS_CACHE
 
     try:
-        # Alliance Auth (External Libs)
-        from eveuniverse.models import EveIndustryActivityMaterial
-
         ids = set(
-            EveIndustryActivityMaterial.objects.exclude(
-                material_eve_type__eve_market_group_id__isnull=True
+            SDEBlueprintActivityMaterial.objects.exclude(
+                material_eve_type__market_group_id_raw__isnull=True
             )
-            .values_list("material_eve_type__eve_market_group_id", flat=True)
+            .values_list("material_eve_type__market_group_id_raw", flat=True)
             .distinct()
         )
     except Exception as exc:
@@ -312,11 +341,8 @@ def _get_market_group_children_map() -> dict[int | None, set[int]]:
             pass
 
     try:
-        # Alliance Auth (External Libs)
-        from eveuniverse.models import EveMarketGroup
-
         children_map: dict[int | None, set[int]] = {}
-        for group_id, parent_id in EveMarketGroup.objects.values_list(
+        for group_id, parent_id in SDEMarketGroup.objects.values_list(
             "id", "parent_market_group_id"
         ):
             children_map.setdefault(parent_id, set()).add(group_id)
@@ -382,11 +408,11 @@ def _get_allowed_type_ids_for_config(
             return {int(x) for x in cached}
 
         # Alliance Auth (External Libs)
-        from eveuniverse.models import EveType
+        from eve_sde.models import ItemType
 
         allowed_type_ids = set(
-            EveType.objects.filter(
-                eve_market_group_id__in=expanded_group_ids
+            ItemType.objects.filter(
+                market_group_id_raw__in=expanded_group_ids
             ).values_list("id", flat=True)
         )
         cache.set(cache_key, list(allowed_type_ids), 3600)
@@ -743,19 +769,17 @@ def material_exchange_buy_stock_refresh_status(request):
 
 
 def _get_group_map(type_ids: list[int]) -> dict[int, str]:
-    """Return mapping type_id -> group name using EveUniverse if available."""
+    """Return mapping type_id -> group name using eve_sde if available."""
 
     if not type_ids:
         return {}
 
     try:
         # Alliance Auth (External Libs)
-        from eveuniverse.models import EveType
+        from eve_sde.models import ItemType
 
-        eve_types = EveType.objects.filter(id__in=type_ids).select_related("eve_group")
-        return {
-            et.id: (et.eve_group.name if et.eve_group else "Other") for et in eve_types
-        }
+        eve_types = ItemType.objects.filter(id__in=type_ids).select_related("group")
+        return {et.id: (et.group.name if et.group else "Other") for et in eve_types}
     except Exception:
         return {}
 
@@ -1438,6 +1462,8 @@ def material_exchange_sell(request, tokens):
         else:
             assets_for_display = {}
 
+        batch_cache_type_names(assets_for_display.keys())
+
         for type_id, user_qty in assets_for_display.items():
             fuzz_prices = price_data.get(type_id, {})
             jita_buy = fuzz_prices.get("buy") or Decimal(0)
@@ -1559,6 +1585,7 @@ def material_exchange_buy(request, tokens):
         stock_items = list(
             config.stock_items.filter(quantity__gt=0, jita_buy_price__gt=0)
         )
+        _normalize_stock_type_names(stock_items)
 
         pre_filter_stock_count = len(stock_items)
 
@@ -1773,6 +1800,7 @@ def material_exchange_buy(request, tokens):
 
     # Show available stock (quantity > 0 and price available)
     stock_items = list(config.stock_items.filter(quantity__gt=0, jita_buy_price__gt=0))
+    _normalize_stock_type_names(stock_items)
     pre_filter_stock_count = len(stock_items)
 
     # Apply market group filter strictly (empty config means no allowed items)

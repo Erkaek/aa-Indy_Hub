@@ -37,6 +37,12 @@ ESI_COMPATIBILITY_DATE = clean_setting(
     required_type=str,
 )
 
+SDE_FOLDER = clean_setting(
+    "INDY_HUB_SDE_FOLDER",
+    "eve-sde",
+    required_type=str,
+)
+
 MANUAL_REFRESH_COOLDOWN_SECONDS = clean_setting(
     "INDY_HUB_MANUAL_REFRESH_COOLDOWN_SECONDS",
     3600,
