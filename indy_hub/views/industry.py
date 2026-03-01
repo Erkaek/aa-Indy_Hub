@@ -49,6 +49,7 @@ from ..models import (
     NotificationWebhookMessage,
     ProductionConfig,
     ProductionSimulation,
+    SDEMarketGroup,
 )
 from ..notifications import (
     build_site_url,
@@ -102,13 +103,21 @@ REACTION_ACTIVITY_IDS = {9, 11}
 
 _SKILLS_OPERATION_UNAVAILABLE = False
 
-if "eveuniverse" in getattr(settings, "INSTALLED_APPS", ()):  # pragma: no branch
-    try:  # pragma: no cover - EveUniverse optional
+
+def _is_eve_sde_installed() -> bool:
+    installed_apps = getattr(settings, "INSTALLED_APPS", ())
+    return any(
+        app == "eve_sde" or str(app).startswith("eve_sde.") for app in installed_apps
+    )
+
+
+if _is_eve_sde_installed():  # pragma: no branch
+    try:  # pragma: no cover - eve_sde optional in tests
         # Alliance Auth (External Libs)
-        from eveuniverse.models import EveType
-    except ImportError:  # pragma: no cover - fallback when EveUniverse absent
+        from eve_sde.models import ItemType as EveType
+    except ImportError:  # pragma: no cover - fallback when eve_sde absent
         EveType = None
-else:  # pragma: no cover - EveUniverse not installed
+else:  # pragma: no cover - eve_sde not installed
     EveType = None
 
 logger = get_extension_logger(__name__)
@@ -1297,7 +1306,7 @@ def personnal_bp_list(request, scope="character"):
             cursor.execute(
                 f"""
                 SELECT DISTINCT eve_type_id
-                FROM eveuniverse_eveindustryactivityproduct
+                FROM indy_hub_sdeindustryactivityproduct
                 WHERE activity_id IN ({id_list})
                 """
             )
@@ -1438,55 +1447,21 @@ def personnal_bp_list(request, scope="character"):
 
             agg.total_quantity = agg.orig_quantity + agg.copy_quantity
             agg.runs = agg.total_runs
-        # Optimize: Bulk load location data to avoid N+1 queries
-        try:
-            # Alliance Auth (External Libs)
-            from eveuniverse.models import EveStation, EveStructure
-        except (ImportError, RuntimeError, LookupError):
-            EveStation = None
-            EveStructure = None
-
         # Collect unique location IDs from bp_items
         location_ids = {bp.location_id for bp in bp_items if bp.location_id}
 
         def _populate_location_map(ids: set[int], location_map: dict[int, str]) -> None:
-            if EveStation and ids:
-                stations = EveStation.objects.filter(id__in=ids).prefetch_related(
-                    "solar_system__constellation__region"
-                )
-                for st in stations:
-                    sys = st.solar_system
-                    cons = sys.constellation
-                    reg = cons.region
-                    location_map[st.id] = (
-                        f"{reg.name} > {cons.name} > {sys.name} > {st.name}"
-                    )
+            if not ids:
+                return
 
-            if EveStructure and ids:
-                remaining_ids = ids - set(location_map.keys())
-                if remaining_ids:
-                    structures = EveStructure.objects.filter(
-                        id__in=remaining_ids
-                    ).prefetch_related("solar_system__constellation__region")
-                    for struct in structures:
-                        sys = struct.solar_system
-                        cons = sys.constellation
-                        reg = cons.region
-                        location_map[struct.id] = (
-                            f"{reg.name} > {cons.name} > {sys.name} > {struct.name}"
-                        )
+            # AA Example App
+            from indy_hub.models import CachedStructureName
 
-            # Fallback for environments without EveUniverse (or missing entries).
-            remaining_ids = ids - set(location_map.keys())
-            if remaining_ids:
-                # AA Example App
-                from indy_hub.models import CachedStructureName
-
-                for structure_id, name in CachedStructureName.objects.filter(
-                    structure_id__in=remaining_ids
-                ).values_list("structure_id", "name"):
-                    if structure_id and name:
-                        location_map[int(structure_id)] = str(name)
+            for structure_id, name in CachedStructureName.objects.filter(
+                structure_id__in=ids
+            ).values_list("structure_id", "name"):
+                if structure_id and name:
+                    location_map[int(structure_id)] = str(name)
 
         # Bulk load stations and structures with related data
         location_map: dict[int, str] = {}
@@ -1647,8 +1622,8 @@ def all_bp_list(request):
     # Base SQL
     sql = (
         "SELECT t.id, t.name "
-        "FROM eveuniverse_evetype t "
-        "JOIN eveuniverse_eveindustryactivityproduct a ON t.id = a.eve_type_id "
+        "FROM eve_sde_itemtype t "
+        "JOIN indy_hub_sdeindustryactivityproduct a ON t.id = a.eve_type_id "
         "WHERE t.published = 1"
     )
     # Append activity filter
@@ -1664,7 +1639,7 @@ def all_bp_list(request):
         sql += " AND (t.name LIKE %s OR t.id LIKE %s)"
         params.extend([f"%{search}%", f"%{search}%"])
     if market_group_id:
-        sql += " AND t.eve_group_id = %s"
+        sql += " AND t.group_id = %s"
         params.append(market_group_id)
     sql += " ORDER BY t.name ASC"
     page = int(request.GET.get("page", 1))
@@ -1675,7 +1650,7 @@ def all_bp_list(request):
     # Fetch raw activity options for activity dropdown
     with connection.cursor() as cursor:
         cursor.execute(
-            "SELECT id, name FROM eveuniverse_eveindustryactivity WHERE id IN (1,9,11) ORDER BY id"
+            "SELECT id, name FROM indy_hub_sdeindustryactivity WHERE id IN (1,9,11) ORDER BY id"
         )
         raw_activity_options = cursor.fetchall()
     # Apply consistent activity labels
@@ -1717,10 +1692,10 @@ def all_bp_list(request):
             if type_ids:
                 placeholders = ",".join(["%s"] * len(type_ids))
                 query = f"""
-                    SELECT DISTINCT t.eve_group_id, g.name
-                    FROM eveuniverse_evetype t
-                    JOIN eveuniverse_evegroup g ON t.eve_group_id = g.id
-                    WHERE t.eve_group_id IS NOT NULL
+                    SELECT DISTINCT t.group_id, g.name
+                    FROM eve_sde_itemtype t
+                    JOIN eve_sde_itemgroup g ON t.group_id = g.id
+                    WHERE t.group_id IS NOT NULL
                         AND t.id IN ({placeholders})
                     ORDER BY g.name
                 """
@@ -2376,9 +2351,7 @@ def craft_bp(request, type_id):
     try:
         # --- Fetch blueprint name ---
         with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT name FROM eveuniverse_evetype WHERE id=%s", [type_id]
-            )
+            cursor.execute("SELECT name FROM eve_sde_itemtype WHERE id=%s", [type_id])
             row = cursor.fetchone()
             bp_name = row[0] if row else str(type_id)
 
@@ -2387,7 +2360,7 @@ def craft_bp(request, type_id):
             cursor.execute(
                 """
                 SELECT product_eve_type_id, quantity
-                FROM eveuniverse_eveindustryactivityproduct
+                FROM indy_hub_sdeindustryactivityproduct
                 WHERE eve_type_id = %s AND activity_id IN (1, 11)
                 LIMIT 1
                 """,
@@ -2437,8 +2410,8 @@ def craft_bp(request, type_id):
                     cursor.execute(
                         """
                         SELECT m.material_eve_type_id, t.name, m.quantity
-                        FROM eveuniverse_eveindustryactivitymaterial m
-                        JOIN eveuniverse_evetype t ON m.material_eve_type_id = t.id
+                        FROM indy_hub_sdeindustryactivitymaterial m
+                        JOIN eve_sde_itemtype t ON m.material_eve_type_id = t.id
                         WHERE m.eve_type_id = %s AND m.activity_id IN (1, 11)
                         """,
                         [bp_id],
@@ -2464,7 +2437,7 @@ def craft_bp(request, type_id):
                             sub_cursor.execute(
                                 """
                                 SELECT eve_type_id
-                                FROM eveuniverse_eveindustryactivityproduct
+                                FROM indy_hub_sdeindustryactivityproduct
                                 WHERE product_eve_type_id = %s AND activity_id IN (1, 11)
                                 LIMIT 1
                                 """,
@@ -2476,7 +2449,7 @@ def craft_bp(request, type_id):
                                 sub_cursor.execute(
                                     """
                                     SELECT quantity
-                                    FROM eveuniverse_eveindustryactivityproduct
+                                    FROM indy_hub_sdeindustryactivityproduct
                                     WHERE eve_type_id = %s AND activity_id IN (1, 11)
                                     LIMIT 1
                                     """,
@@ -2540,7 +2513,7 @@ def craft_bp(request, type_id):
                         cursor.execute(
                             """
                             SELECT eve_type_id
-                            FROM eveuniverse_eveindustryactivityproduct
+                            FROM indy_hub_sdeindustryactivityproduct
                             WHERE product_eve_type_id = %s AND activity_id IN (1, 11)
                             LIMIT 1
                             """,
@@ -2571,7 +2544,7 @@ def craft_bp(request, type_id):
                     cursor.execute(
                         """
                         SELECT eve_type_id
-                        FROM eveuniverse_eveindustryactivityproduct
+                        FROM indy_hub_sdeindustryactivityproduct
                         WHERE product_eve_type_id = %s AND activity_id IN (1, 11)
                         LIMIT 1
                         """,
@@ -2636,7 +2609,7 @@ def craft_bp(request, type_id):
                 cursor.execute(
                     """
                     SELECT m.material_eve_type_id
-                    FROM eveuniverse_eveindustryactivitymaterial m
+                    FROM indy_hub_sdeindustryactivitymaterial m
                     WHERE m.eve_type_id = %s AND m.activity_id IN (1, 11)
                     """,
                     [bp_id],
@@ -2647,7 +2620,7 @@ def craft_bp(request, type_id):
                     cursor.execute(
                         """
                         SELECT eve_type_id
-                        FROM eveuniverse_eveindustryactivityproduct
+                        FROM indy_hub_sdeindustryactivityproduct
                         WHERE product_eve_type_id = %s AND activity_id IN (1, 11)
                         LIMIT 1
                         """,
@@ -2673,16 +2646,16 @@ def craft_bp(request, type_id):
                     SELECT
                         t.id AS type_id,
                         t.name AS type_name,
-                        t.eve_group_id AS group_id,
+                        t.group_id AS group_id,
                         g.name AS group_name,
                         a.activity_id,
                         COALESCE(NULLIF(a.product_eve_type_id, 0), NULLIF(a.eve_type_id, 0)) AS product_type_id,
                         a.quantity,
                         0 AS material_efficiency,
                         0 AS time_efficiency
-                    FROM eveuniverse_evetype t
-                    JOIN eveuniverse_eveindustryactivityproduct a ON t.id = a.eve_type_id
-                    LEFT JOIN eveuniverse_evegroup g ON t.eve_group_id = g.id
+                    FROM eve_sde_itemtype t
+                    JOIN indy_hub_sdeindustryactivityproduct a ON t.id = a.eve_type_id
+                    LEFT JOIN eve_sde_itemgroup g ON t.group_id = g.id
                     WHERE t.published = 1
                         AND a.activity_id IN (1, 11)
                         AND t.id IN ({placeholders})
@@ -3085,7 +3058,7 @@ def craft_bp(request, type_id):
                     cursor.execute(
                         """
                         SELECT eve_type_id
-                        FROM eveuniverse_eveindustryactivityproduct
+                        FROM indy_hub_sdeindustryactivityproduct
                         WHERE product_eve_type_id = %s AND activity_id IN (1, 11)
                         LIMIT 1
                         """,
@@ -3102,7 +3075,7 @@ def craft_bp(request, type_id):
                         cursor.execute(
                             """
                             SELECT quantity
-                            FROM eveuniverse_eveindustryactivityproduct
+                            FROM indy_hub_sdeindustryactivityproduct
                             WHERE eve_type_id = %s AND activity_id IN (1, 11)
                             LIMIT 1
                             """,
@@ -3132,8 +3105,8 @@ def craft_bp(request, type_id):
         with connection.cursor() as cursor:
             cursor.execute(
                 "SELECT m.material_eve_type_id, t.name, m.quantity "
-                "FROM eveuniverse_eveindustryactivitymaterial m "
-                "JOIN eveuniverse_evetype t ON m.material_eve_type_id = t.id "
+                "FROM indy_hub_sdeindustryactivitymaterial m "
+                "JOIN eve_sde_itemtype t ON m.material_eve_type_id = t.id "
                 "WHERE m.eve_type_id = %s AND m.activity_id IN (1, 11)",
                 [type_id],
             )
@@ -3169,19 +3142,29 @@ def craft_bp(request, type_id):
         if product_type_id:
             all_type_ids.add(product_type_id)
         eve_types_query = []
+        market_groups_by_id = {}
         if EveType is not None:
             eve_types_query = list(
-                EveType.objects.filter(id__in=all_type_ids).select_related(
-                    "eve_group",
-                    "eve_market_group__parent_market_group",
-                )
+                EveType.objects.filter(id__in=all_type_ids).select_related("group")
             )
+            market_group_ids = {
+                int(et.market_group_id_raw)
+                for et in eve_types_query
+                if getattr(et, "market_group_id_raw", None)
+            }
+            if market_group_ids:
+                market_groups_by_id = {
+                    group.id: group
+                    for group in SDEMarketGroup.objects.filter(
+                        id__in=market_group_ids
+                    ).select_related("parent_market_group")
+                }
         eve_types = eve_types_query
 
         # On ne garde que les groupes ayant au moins un item dans materials_list
 
         def _market_group_label(et):
-            mg = getattr(et, "eve_market_group", None)
+            mg = market_groups_by_id.get(getattr(et, "market_group_id_raw", None))
             if mg:
                 parent = getattr(mg, "parent_market_group", None)
                 parent_name = (parent.name or "").strip() if parent else ""
@@ -3189,17 +3172,17 @@ def craft_bp(request, type_id):
                 if parent_name and name:
                     return f"{parent_name} - {name}"
                 return name or parent_name or "Other"
-            if et.eve_group and et.eve_group.name:
-                return et.eve_group.name
+            if et.group and et.group.name:
+                return et.group.name
             return "Other"
 
         group_ids_used = set()
         for item_type_id in all_type_ids:
             eve_type = next((et for et in eve_types if et.id == item_type_id), None)
-            if eve_type and getattr(eve_type, "eve_market_group", None):
-                group_ids_used.add(eve_type.eve_market_group.id)
-            elif eve_type and eve_type.eve_group:
-                group_ids_used.add(eve_type.eve_group.id)
+            if eve_type and getattr(eve_type, "market_group_id_raw", None):
+                group_ids_used.add(int(eve_type.market_group_id_raw))
+            elif eve_type and eve_type.group:
+                group_ids_used.add(eve_type.group.id)
             elif eve_type:
                 group_ids_used.add(None)
 
@@ -3207,9 +3190,9 @@ def craft_bp(request, type_id):
         if EveType is not None:
             for eve_type in eve_types:
                 group_id = (
-                    eve_type.eve_market_group.id
-                    if getattr(eve_type, "eve_market_group", None)
-                    else (eve_type.eve_group.id if eve_type.eve_group else None)
+                    int(eve_type.market_group_id_raw)
+                    if getattr(eve_type, "market_group_id_raw", None)
+                    else (eve_type.group.id if eve_type.group else None)
                 )
                 group_name = _market_group_label(eve_type)
                 if group_id in group_ids_used:
@@ -3222,13 +3205,15 @@ def craft_bp(request, type_id):
         materials_by_group = {}
         for mat in materials_list:
             eve_type = next((et for et in eve_types if et.id == mat["type_id"]), None)
-            mg = getattr(eve_type, "eve_market_group", None) if eve_type else None
+            mg = (
+                market_groups_by_id.get(getattr(eve_type, "market_group_id_raw", None))
+                if eve_type
+                else None
+            )
             group_id = (
                 mg.id
                 if mg
-                else (
-                    eve_type.eve_group.id if eve_type and eve_type.eve_group else None
-                )
+                else (eve_type.group.id if eve_type and eve_type.group else None)
             )
             group_name = _market_group_label(eve_type) if eve_type else "Other"
             if group_id not in materials_by_group:
@@ -3382,9 +3367,7 @@ def craft_bp(request, type_id):
             f"EXCEPTION IN craft_bp: {type(e).__name__}: {str(e)}", exc_info=True
         )
         with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT name FROM eveuniverse_evetype WHERE id=%s", [type_id]
-            )
+            cursor.execute("SELECT name FROM eve_sde_itemtype WHERE id=%s", [type_id])
             row = cursor.fetchone()
             bp_name = row[0] if row else str(type_id)
         messages.error(request, f"Error crafting blueprint: {e}")
@@ -5922,10 +5905,10 @@ def production_simulations_list(request):
     # Resolve the EVE group name for each type_id
     market_group_map = {}
     if EveType is not None and type_ids:
-        eve_types = EveType.objects.filter(id__in=type_ids).select_related("eve_group")
+        eve_types = EveType.objects.filter(id__in=type_ids).select_related("group")
         for eve_type in eve_types:
             market_group_map[eve_type.id] = (
-                eve_type.eve_group.name if eve_type.eve_group else "Other"
+                eve_type.group.name if eve_type.group else "Other"
             )
     context = {
         "simulations": page_obj,

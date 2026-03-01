@@ -29,16 +29,28 @@ from ..services.esi_client import (
 )
 from ..services.providers import esi_provider
 
-if getattr(settings, "configured", False) and "eveuniverse" in getattr(
-    settings, "INSTALLED_APPS", ()
+
+def _is_eve_sde_installed() -> bool:
+    installed_apps = getattr(settings, "INSTALLED_APPS", ())
+    return any(
+        app == "eve_sde" or str(app).startswith("eve_sde.") for app in installed_apps
+    )
+
+
+if (
+    getattr(settings, "configured", False) and _is_eve_sde_installed()
 ):  # pragma: no branch
-    try:  # pragma: no cover - EveUniverse is optional
+    try:  # pragma: no cover - eve_sde is optional in unit tests
         # Alliance Auth (External Libs)
-        from eveuniverse.models import EveIndustryActivityProduct, EveType
-    except ImportError:  # pragma: no cover - fallback when EveUniverse is not installed
+        from eve_sde.models import ItemType as EveType
+    except ImportError:  # pragma: no cover - fallback when eve_sde is not installed
         EveType = None
+
+    try:
+        from ..models import SDEBlueprintActivityProduct as EveIndustryActivityProduct
+    except ImportError:  # pragma: no cover - model import can fail during app loading
         EveIndustryActivityProduct = None
-else:  # pragma: no cover - EveUniverse app not installed
+else:  # pragma: no cover - eve_sde app not installed
     EveType = None
     EveIndustryActivityProduct = None
 
@@ -59,6 +71,18 @@ _STATION_ID_MAX = 100_000_000
 _MAX_STRUCTURE_LOOKUPS = 3
 _FORBIDDEN_STRUCTURE_CHARACTERS: set[int] = set()
 _STRUCTURE_LOOKUP_PAUSE_UNTIL: float = 0.0
+
+
+def _get_item_type_model():
+    """Return eve_sde ItemType model when available, without relying only on import-time globals."""
+
+    if EveType is not None:
+        return EveType
+
+    try:
+        return apps.get_model("eve_sde", "ItemType")
+    except Exception:
+        return None
 
 
 def _schedule_structure_rate_limit_pause(duration: float | None) -> None:
@@ -197,21 +221,33 @@ def get_type_name(type_id: int | None) -> str:
     if not type_id:
         return ""
 
-    if type_id in _TYPE_NAME_CACHE:
-        return _TYPE_NAME_CACHE[type_id]
+    try:
+        type_id = int(type_id)
+    except (TypeError, ValueError):
+        return str(type_id)
 
-    if EveType is None:
+    if type_id in _TYPE_NAME_CACHE:
+        cached_value = _TYPE_NAME_CACHE[type_id]
+        if cached_value and cached_value != str(type_id):
+            return cached_value
+
+    item_type_model = _get_item_type_model()
+
+    if item_type_model is None:
         value = str(type_id)
     else:
         try:
-            value = EveType.objects.only("name").get(id=type_id).name
-        except EveType.DoesNotExist:  # type: ignore[attr-defined]
+            value = item_type_model.objects.only("name").get(id=type_id).name
+        except item_type_model.DoesNotExist:  # type: ignore[attr-defined]
             logger.debug(
                 "EveType %s introuvable, retour de l'identifiant brut", type_id
             )
             value = str(type_id)
 
-    _TYPE_NAME_CACHE[type_id] = value
+    if value != str(type_id):
+        _TYPE_NAME_CACHE[type_id] = value
+    else:
+        _TYPE_NAME_CACHE.pop(type_id, None)
     return value
 
 
@@ -331,19 +367,19 @@ def batch_cache_type_names(type_ids: Iterable[int]) -> Mapping[int, str]:
     if not ids:
         return {}
 
-    if EveType is None:
+    item_type_model = _get_item_type_model()
+
+    if item_type_model is None:
         return {pk: str(pk) for pk in ids}
 
     result: dict[int, str] = {}
-    for eve_type in EveType.objects.filter(id__in=ids).only("id", "name"):
+    for eve_type in item_type_model.objects.filter(id__in=ids).only("id", "name"):
         _TYPE_NAME_CACHE[eve_type.id] = eve_type.name
         result[eve_type.id] = eve_type.name
 
     missing = ids - result.keys()
     for pk in missing:
-        value = str(pk)
-        _TYPE_NAME_CACHE[pk] = value
-        result[pk] = value
+        result[pk] = str(pk)
 
     return result
 

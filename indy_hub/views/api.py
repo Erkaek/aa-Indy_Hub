@@ -126,7 +126,7 @@ def craft_bp_payload(request, type_id: int):
         cursor.execute(
             """
             SELECT product_eve_type_id, quantity
-            FROM eveuniverse_eveindustryactivityproduct
+            FROM indy_hub_sdeindustryactivityproduct
             WHERE eve_type_id = %s AND activity_id IN (1, 11)
             LIMIT 1
             """,
@@ -145,7 +145,7 @@ def craft_bp_payload(request, type_id: int):
                 cursor.execute(
                     """
                     SELECT COUNT(*)
-                    FROM eveuniverse_eveindustryactivitymaterial
+                    FROM indy_hub_sdeindustryactivitymaterial
                     WHERE eve_type_id = %s AND activity_id IN (1, 11)
                     """,
                     [type_id],
@@ -194,8 +194,8 @@ def craft_bp_payload(request, type_id: int):
             cursor.execute(
                 """
                 SELECT m.material_eve_type_id, t.name, m.quantity
-                FROM eveuniverse_eveindustryactivitymaterial m
-                JOIN eveuniverse_evetype t ON m.material_eve_type_id = t.id
+                FROM indy_hub_sdeindustryactivitymaterial m
+                JOIN eve_sde_itemtype t ON m.material_eve_type_id = t.id
                 WHERE m.eve_type_id = %s AND m.activity_id IN (1, 11)
                 """,
                 [bp_id],
@@ -222,7 +222,7 @@ def craft_bp_payload(request, type_id: int):
                     sub_cursor.execute(
                         """
                         SELECT eve_type_id
-                        FROM eveuniverse_eveindustryactivityproduct
+                        FROM indy_hub_sdeindustryactivityproduct
                         WHERE product_eve_type_id = %s AND activity_id IN (1, 11)
                         LIMIT 1
                         """,
@@ -235,7 +235,7 @@ def craft_bp_payload(request, type_id: int):
                         sub_cursor.execute(
                             """
                             SELECT quantity
-                            FROM eveuniverse_eveindustryactivityproduct
+                            FROM indy_hub_sdeindustryactivityproduct
                             WHERE eve_type_id = %s AND activity_id IN (1, 11)
                             LIMIT 1
                             """,
@@ -262,7 +262,7 @@ def craft_bp_payload(request, type_id: int):
                                 recipe_cursor.execute(
                                     """
                                     SELECT material_eve_type_id, quantity
-                                    FROM eveuniverse_eveindustryactivitymaterial
+                                    FROM indy_hub_sdeindustryactivitymaterial
                                     WHERE eve_type_id = %s AND activity_id IN (1, 11)
                                     """,
                                     [sub_bp_id],

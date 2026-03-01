@@ -2709,3 +2709,119 @@ class ESIContractItem(models.Model):
 
     def __str__(self):
         return f"Contract {self.contract_id} - Item {self.type_id} x{self.quantity}"
+
+
+class SDEMarketGroup(models.Model):
+    id = models.BigIntegerField(primary_key=True)
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True, null=True)
+    has_types = models.BooleanField(default=False)
+    icon_id = models.IntegerField(blank=True, null=True)
+    parent_market_group = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        related_name="children",
+        blank=True,
+        null=True,
+    )
+
+    class Meta:
+        verbose_name = "SDE Market Group"
+        verbose_name_plural = "SDE Market Groups"
+        default_permissions = ()
+        db_table = "indy_hub_sdemarketgroup"
+
+    def __str__(self):
+        return f"{self.name} ({self.id})"
+
+
+class SDEIndustryActivity(models.Model):
+    id = models.IntegerField(primary_key=True)
+    name = models.CharField(max_length=100)
+
+    class Meta:
+        verbose_name = "SDE Industry Activity"
+        verbose_name_plural = "SDE Industry Activities"
+        default_permissions = ()
+        db_table = "indy_hub_sdeindustryactivity"
+
+    def __str__(self):
+        return f"{self.name} ({self.id})"
+
+
+class SDEBlueprintActivityProduct(models.Model):
+    eve_type = models.ForeignKey(
+        "eve_sde.ItemType",
+        on_delete=models.CASCADE,
+        related_name="+",
+        db_column="eve_type_id",
+    )
+    activity = models.ForeignKey(
+        SDEIndustryActivity,
+        on_delete=models.CASCADE,
+        related_name="products",
+        db_column="activity_id",
+    )
+    product_eve_type = models.ForeignKey(
+        "eve_sde.ItemType",
+        on_delete=models.CASCADE,
+        related_name="+",
+        db_column="product_eve_type_id",
+    )
+    quantity = models.IntegerField(default=1)
+
+    class Meta:
+        verbose_name = "SDE Blueprint Activity Product"
+        verbose_name_plural = "SDE Blueprint Activity Products"
+        default_permissions = ()
+        db_table = "indy_hub_sdeindustryactivityproduct"
+        unique_together = (("eve_type", "activity", "product_eve_type"),)
+        indexes = [
+            models.Index(fields=["eve_type", "activity"]),
+            models.Index(fields=["product_eve_type", "activity"]),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.eve_type_id} -> {self.product_eve_type_id} "
+            f"({self.activity_id}) x{self.quantity}"
+        )
+
+
+class SDEBlueprintActivityMaterial(models.Model):
+    eve_type = models.ForeignKey(
+        "eve_sde.ItemType",
+        on_delete=models.CASCADE,
+        related_name="+",
+        db_column="eve_type_id",
+    )
+    activity = models.ForeignKey(
+        SDEIndustryActivity,
+        on_delete=models.CASCADE,
+        related_name="materials",
+        db_column="activity_id",
+    )
+    material_eve_type = models.ForeignKey(
+        "eve_sde.ItemType",
+        on_delete=models.CASCADE,
+        related_name="+",
+        db_column="material_eve_type_id",
+    )
+    quantity = models.IntegerField(default=0)
+
+    class Meta:
+        verbose_name = "SDE Blueprint Activity Material"
+        verbose_name_plural = "SDE Blueprint Activity Materials"
+        default_permissions = ()
+        db_table = "indy_hub_sdeindustryactivitymaterial"
+        unique_together = (("eve_type", "activity", "material_eve_type"),)
+        indexes = [
+            models.Index(fields=["eve_type", "activity"]),
+            models.Index(fields=["material_eve_type", "activity"]),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.eve_type_id} needs {self.material_eve_type_id} "
+            f"({self.activity_id}) x{self.quantity}"
+        )

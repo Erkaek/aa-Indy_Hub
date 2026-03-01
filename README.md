@@ -47,7 +47,7 @@ ______________________________________________________________________
 - **Django** (as required by AA)
 - **Alliance Auth AppUtils**
 - **django-esi** (OpenAPI client, >=8)
-- **django-eveuniverse** (populated with industry data)
+- **django-eveonline-sde** (base SDE data)
 - **Celery** (for background sync and notifications)
 - *(Optional)* Director characters for corporate dashboards
 - *(Optional)* [`aadiscordbot`](https://apps.allianceauth.org/apps/detail/allianceauth-discordbot) (preferred) or [`discordnotify`](https://apps.allianceauth.org/apps/detail/aa-discordnotify) for Discord notifications
@@ -59,19 +59,18 @@ ______________________________________________________________________
 ### Bare Metal
 
 ```text
-pip install django-eveuniverse indy-hub
+pip install django-eveonline-sde indy-hub
 ```
 
 Add to your `local.py`:
 
 ```python
 INSTALLED_APPS = [
-    "eveuniverse",
+    "eve_sde",
     "indy_hub",
 ]
 
-EVEUNIVERSE_LOAD_TYPE_MATERIALS = True
-EVEUNIVERSE_LOAD_MARKET_GROUPS = True
+INDY_HUB_SDE_FOLDER = "eve-sde"
 ```
 
 Run migrations and collect static files:
@@ -81,10 +80,11 @@ python manage.py migrate
 python manage.py collectstatic --noinput
 ```
 
-Populate industry data:
+Load SDE data and Indy Hub compatibility data:
 
 ```text
-python manage.py eveuniverse_load_data types --types-enabled-sections industry_activities type_materials
+python manage.py esde_load_sde
+python manage.py sync_sde_compat
 ```
 
 Restart services:
@@ -97,7 +97,7 @@ systemctl restart allianceauth
 
 ```text
 docker compose exec allianceauth_gunicorn bash
-pip install django-eveuniverse indy-hub
+pip install django-eveonline-sde indy-hub
 exit
 ```
 
@@ -105,18 +105,17 @@ Add to your `conf/local.py`:
 
 ```python
 INSTALLED_APPS = [
-    "eveuniverse",
+    "eve_sde",
     "indy_hub",
 ]
 
-EVEUNIVERSE_LOAD_TYPE_MATERIALS = True
-EVEUNIVERSE_LOAD_MARKET_GROUPS = True
+INDY_HUB_SDE_FOLDER = "eve-sde"
 ```
 
 Add to your `conf/requirements.txt` (Always use current versions)
 
 ```text
-django-eveuniverse==1.6.0
+django-eveonline-sde==0.0.1b3
 indy-hub==1.14.5
 ```
 
@@ -137,11 +136,12 @@ docker compose down
 docker compose up -d
 ```
 
-Populate industry data:
+Load SDE data and Indy Hub compatibility data:
 
 ```text
 docker compose exec allianceauth_gunicorn bash
-auth eveuniverse_load_data types --types-enabled-sections industry_activities type_materials
+auth esde_load_sde
+auth sync_sde_compat
 exit
 ```
 

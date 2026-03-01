@@ -89,7 +89,7 @@ class IndyHubConfigTests(TestCase):
         self.assertEqual(app_config.name, "indy_hub")
 
     def test_get_type_name_graceful_fallback(self) -> None:
-        """`get_type_name` should fall back to the stringified id when EveUniverse is absent."""
+        """`get_type_name` should fall back to the stringified id when SDE types are unavailable."""
         self.assertEqual(get_type_name(12345), "12345")
 
 

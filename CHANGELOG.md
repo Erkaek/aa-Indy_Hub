@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - API: added `menu_badge_count` endpoint and route (`indy_hub:menu_badge_count`) for non-blocking badge updates.
 - Token Management: added live refresh endpoint and route (`indy_hub:token_management_live_refresh`) plus client-side async refresh/reload logic on the ESI page.
 - Tests: added regression tests for sell-order rejection from `anomaly` / `anomaly_rejected` states (`test_material_exchange_reject_sell.py`).
+- SDE compatibility layer: added local industry metadata models (`SDEMarketGroup`, `SDEIndustryActivity`, `SDEBlueprintActivityProduct`, `SDEBlueprintActivityMaterial`) with migration `0087_sdeindustryactivity_sdemarketgroup_and_more`.
+- SDE sync tooling: added `sync_sde_compat` and `indy_sde` management commands plus `indy_hub.tasks.sde_sync.sync_sde_compatibility_data` periodic task.
 
 ### Changed
 
@@ -26,11 +28,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Material Exchange (contracts): sell-order near-match handling improved for finished/wrong-reference and rejected-status paths.
 - Material Exchange (UI/actions): reject-sell flow now accepts `anomaly` and `anomaly_rejected` as rejectable statuses.
 - Documentation: README feature list now includes analytics hooks for Material Exchange lifecycle transitions.
+- EVE data backend: migrated active industry/material lookup paths from `django-eveuniverse` to `django-eveonline-sde` (`eve_sde`) with Indy Hub compatibility tables.
+- Dependencies/config: replaced `django-eveuniverse` with `django-eveonline-sde` in packaging/test settings and aligned app wiring (`eve_sde` in installed apps).
+- Material Exchange naming: stock and asset type-name rendering now resolves through local `eve_sde` type data and normalizes persisted numeric placeholders.
+- Industry/API SQL paths: blueprint/material/product queries now target `eve_sde_*` and `indy_hub_sdeindustryactivity*` tables.
 
 ### Fixed
 
 - ESI callback noise/perf: token management flow no longer requires blocking role-scope decorator path on initial page render.
 - Navigation responsiveness: Indy Hub menu displays immediately on cold cache and fills badge asynchronously when count becomes available.
+- Material Exchange UI regression: fixed cases where type IDs were shown instead of type names on buy/sell flows.
+- SDE compatibility sync robustness: guarded imports against empty `eve_sde.ItemType` datasets and invalid FK rows during blueprint/material ingest.
 
 ### Internal
 
@@ -38,6 +46,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Views analytics: instrumented hub, industry, material exchange, material exchange config/orders, user/token, and selected API endpoints with standardized view-hit analytics events.
 - Utility refactor: extracted menu badge count computation into dedicated helper (`indy_hub/utils/menu_badge.py`) and reused it across API/task paths.
 - Test coverage: expanded `test_material_exchange_contracts.py` for in-game override scenarios and mismatch detail propagation.
+- Legacy migration note: historical reference to `eveuniverse` remains in `0021_blueprint_table_and_bp_type.py` as a guarded fallback (`LookupError`) for old migration compatibility.
 
 ## [1.14.5] - 2026-02-22
 
