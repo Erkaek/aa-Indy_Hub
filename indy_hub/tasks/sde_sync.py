@@ -26,6 +26,7 @@ def sync_sde_compatibility_data(self):
 
     if not os.path.isdir(sde_folder):
         try:
+            # Alliance Auth (External Libs)
             from eve_sde.sde_tasks import SDE_FOLDER, download_extract_sde
 
             logger.info(
@@ -43,6 +44,7 @@ def sync_sde_compatibility_data(self):
 
     if downloaded_folder:
         try:
+            # Alliance Auth (External Libs)
             from eve_sde.sde_tasks import delete_sde_folder
 
             delete_sde_folder()

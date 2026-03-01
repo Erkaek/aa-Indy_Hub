@@ -12,7 +12,7 @@ from django.db import transaction
 # Alliance Auth
 from allianceauth.services.hooks import get_extension_logger
 
-# AA Example App
+# Alliance Auth (External Libs)
 from eve_sde.models import ItemType
 
 # AA Example App

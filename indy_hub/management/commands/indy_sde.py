@@ -1,12 +1,9 @@
 # Django
-from django.conf import settings
 from django.core.management import BaseCommand, call_command
 
 
 class Command(BaseCommand):
-    help = (
-        "Populate Indy Hub SDE compatibility data without reloading full eve_sde by default."
-    )
+    help = "Populate Indy Hub SDE compatibility data without reloading full eve_sde by default."
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -47,7 +44,7 @@ class Command(BaseCommand):
             )
 
         if not sde_folder:
-            # AA Example App
+            # Alliance Auth (External Libs)
             from eve_sde.sde_tasks import SDE_FOLDER, download_extract_sde
 
             self.stdout.write(
@@ -70,7 +67,7 @@ class Command(BaseCommand):
 
         if downloaded_sde and not options.get("keep_downloaded_sde", False):
             try:
-                # AA Example App
+                # Alliance Auth (External Libs)
                 from eve_sde.sde_tasks import delete_sde_folder
 
                 delete_sde_folder()
