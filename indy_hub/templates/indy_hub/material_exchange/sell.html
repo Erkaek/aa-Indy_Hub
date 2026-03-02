@@ -152,6 +152,40 @@
                     </h5>
                     {% if character_tabs %}
                     <div class="me-character-tabs mb-3">
+                        {% if character_tabs|length > 1 %}
+                        <div class="d-flex flex-wrap align-items-center gap-3 p-3 rounded-3 bg-body-tertiary border">
+                            <img
+                                src="{% if active_character_tab_data %}{{ active_character_tab_data.portrait_url }}{% else %}https://images.evetech.net/characters/{{ character_tabs.0.id }}/portrait?size=128{% endif %}"
+                                alt="{% if active_character_tab_data %}{{ active_character_tab_data.name }}{% else %}{{ character_tabs.0.name }}{% endif %}"
+                                class="rounded-circle flex-shrink-0"
+                                width="64"
+                                height="64">
+                            <div class="flex-grow-1">
+                                <div class="small text-body-secondary">{% trans "Selected character" %}</div>
+                                <div class="h5 mb-0 text-body d-flex align-items-center gap-2 flex-wrap">
+                                    <span>{% if active_character_tab_data %}{{ active_character_tab_data.name }}{% else %}{{ character_tabs.0.name }}{% endif %}</span>
+                                    <span class="badge rounded-pill bg-secondary">{% if active_character_tab_data %}{{ active_character_tab_data.item_count }}{% else %}{{ character_tabs.0.item_count }}{% endif %}</span>
+                                </div>
+                            </div>
+                            <div class="ms-auto w-100 w-md-auto">
+                                <label for="sellCharacterSelect" class="form-label small text-body-secondary mb-1">{% trans "Switch character" %}</label>
+                                <div class="input-group input-group-sm">
+                                    <span class="input-group-text"><i class="fas fa-user"></i></span>
+                                    <select
+                                        id="sellCharacterSelect"
+                                        class="form-select"
+                                        onchange="if (this.value) { window.location.href = this.value; }"
+                                        aria-label="{% trans 'Select character' %}">
+                                        {% for tab in character_tabs %}
+                                        <option value="{{ tab.url }}" {% if active_character_tab == tab.id %}selected{% endif %}>
+                                            {{ tab.name }} ({{ tab.item_count }})
+                                        </option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        {% else %}
                         <ul class="nav nav-pills flex-wrap gap-2">
                             {% for tab in character_tabs %}
                             <li class="nav-item">
@@ -162,10 +196,32 @@
                             </li>
                             {% endfor %}
                         </ul>
+                        {% endif %}
                     </div>
                     {% endif %}
                     <form method="post" id="sellForm">
                         {% csrf_token %}
+                        <div class="d-flex align-items-stretch gap-3 mb-3">
+                            <div class="d-flex flex-column justify-content-center" role="radiogroup" aria-label="{% trans 'Search mode' %}">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="sellSearchMode" id="sellSearchModeItem" value="item" checked>
+                                    <label class="form-check-label" for="sellSearchModeItem">{% trans "Item" %}</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="sellSearchMode" id="sellSearchModeCategory" value="category">
+                                    <label class="form-check-label" for="sellSearchModeCategory">{% trans "Category" %}</label>
+                                </div>
+                            </div>
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="fas fa-search"></i></span>
+                                <input
+                                    type="text"
+                                    id="sellSearchInput"
+                                    class="form-control"
+                                    placeholder="{% trans 'Search by item or category' %}"
+                                    aria-label="{% trans 'Search by item or category' %}">
+                            </div>
+                        </div>
                         <div class="table-responsive">
                             <table class="table table-hover stock-table align-middle">
                                 <thead>
@@ -182,16 +238,18 @@
                                     <tr class="stock-row"
                                         data-type-id="{{ item.type_id }}"
                                         data-type-name="{{ item.type_name }}"
+                                        data-group-name="{{ item.group_name|default:'' }}"
                                         data-unit-price="{{ item.buy_price_from_member|floatformat:2 }}"
                                         data-max-qty="{{ item.user_quantity }}">
                                         <td>
                                             <img
-                                                src="https://images.evetech.net/types/{{ item.type_id }}/icon?size=64"
+                                                src="{{ item.image_url }}"
                                                 alt="{{ item.type_name }}"
                                                 class="item-icon">
                                         </td>
                                         <td>
-                                            <strong>{{ item.type_name }}</strong>
+                                            <div class="fw-semibold text-body">{{ item.type_name }}</div>
+                                            <div class="small text-body-secondary">{{ item.group_name|default:_('Other') }}</div>
                                         </td>
                                         <td class="text-end">
                                             <span class="badge bg-success">{{ item.user_quantity|intcomma }}</span>
@@ -228,6 +286,10 @@
                                     {% endfor %}
                                 </tbody>
                             </table>
+                        </div>
+                        <div id="sellSearchEmpty" class="alert alert-warning mt-3 d-none mb-0">
+                            <i class="fas fa-search me-2"></i>
+                            {% trans "No matching items for your search." %}
                         </div>
                     </form>
                 </div>
@@ -284,6 +346,64 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     const qtyInputs = document.querySelectorAll('.qty-input');
+    const sellSearchInput = document.getElementById('sellSearchInput');
+    const sellSearchModeInputs = document.querySelectorAll('input[name="sellSearchMode"]');
+    const stockRows = document.querySelectorAll('.stock-row');
+
+    const sellSearchPlaceholderByMode = {
+        item: '{% trans "Search item" %}',
+        category: '{% trans "Search category" %}'
+    };
+
+    function updateSellSearchPlaceholder() {
+        if (!sellSearchInput) {
+            return;
+        }
+        const selectedMode = document.querySelector('input[name="sellSearchMode"]:checked')?.value || 'item';
+        const placeholder = sellSearchPlaceholderByMode[selectedMode] || sellSearchPlaceholderByMode.item;
+        sellSearchInput.placeholder = placeholder;
+        sellSearchInput.setAttribute('aria-label', placeholder);
+    }
+
+    function applySellFilter() {
+        if (!sellSearchInput) {
+            return;
+        }
+
+        const query = (sellSearchInput.value || '').trim().toLowerCase();
+        const selectedMode = document.querySelector('input[name="sellSearchMode"]:checked')?.value || 'item';
+        let visibleCount = 0;
+
+        stockRows.forEach(row => {
+            const typeName = (row.dataset.typeName || '').toLowerCase();
+            const groupName = (row.dataset.groupName || '').toLowerCase();
+            const matches = !query || (selectedMode === 'category' ? groupName.includes(query) : typeName.includes(query));
+            row.classList.toggle('d-none', !matches);
+            if (matches) {
+                visibleCount += 1;
+            }
+        });
+
+        const emptyState = document.getElementById('sellSearchEmpty');
+        if (emptyState) {
+            emptyState.classList.toggle('d-none', visibleCount > 0);
+        }
+    }
+
+    if (sellSearchInput) {
+        sellSearchInput.addEventListener('keydown', function(event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+            }
+        });
+        sellSearchInput.addEventListener('input', applySellFilter);
+        sellSearchModeInputs.forEach(input => input.addEventListener('change', () => {
+            updateSellSearchPlaceholder();
+            applySellFilter();
+        }));
+        updateSellSearchPlaceholder();
+        applySellFilter();
+    }
 
     document.addEventListener('click', function(event) {
         const button = event.target.closest('.qty-btn');
@@ -443,9 +563,15 @@ document.addEventListener('DOMContentLoaded', function() {
     if (sellForm) {
         sellForm.addEventListener('submit', function(e) {
             let hasError = false;
+            const disabledForSubmit = [];
             qtyInputs.forEach(input => {
                 const qty = parseInt(input.value) || 0;
                 const max = parseInt(input.dataset.max);
+                if (qty <= 0) {
+                    input.disabled = true;
+                    disabledForSubmit.push(input);
+                    return;
+                }
                 if (qty > max) {
                     hasError = true;
                     input.value = max; // Auto-correct
@@ -454,6 +580,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
             if (hasError) {
                 e.preventDefault();
+                disabledForSubmit.forEach(input => {
+                    input.disabled = false;
+                });
                 alert('{% trans "Some quantities exceeded what you own and have been adjusted." %}');
                 updateInvoice();
                 return false;

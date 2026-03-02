@@ -184,6 +184,8 @@ html[data-theme="darkly"] [class*="subtle"] {
     justify-content: center;
     text-align: center;
     gap: 0.45rem;
+    min-height: 2.25rem;
+    padding: 0.5rem 0.95rem;
     line-height: 1.1;
     border-radius: 999px;
     font-weight: 700;

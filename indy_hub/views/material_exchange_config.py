@@ -27,8 +27,6 @@ from ..models import (
     CharacterRoles,
     MaterialExchangeConfig,
     MaterialExchangeSettings,
-    SDEBlueprintActivityMaterial,
-    SDEMarketGroup,
 )
 from ..services.asset_cache import (
     get_corp_assets_cached,
@@ -41,6 +39,56 @@ from ..utils.eve import PLACEHOLDER_PREFIX
 
 esi = esi_provider
 logger = get_extension_logger(__name__)
+
+# EVE SDE ItemCategory IDs allowed in Material Exchange group selectors.
+# This list intentionally includes industry/material-relevant categories only.
+# Keep in sync with functional coverage expectations from Material Hub UX.
+ALLOWED_ITEMGROUP_CATEGORY_IDS: set[int] = {
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    16,
+    17,
+    18,
+    20,
+    22,
+    23,
+    24,
+    25,
+    30,
+    32,
+    34,
+    35,
+    39,
+    40,
+    41,
+    42,
+    43,
+    46,
+    63,
+    65,
+    66,
+    87,
+    91,
+    2100,
+    2118,
+    2143,
+}
+
+# EVE SDE ItemGroup IDs explicitly included even if their category is outside
+# the allowlist above (edge groups required by current hub workflows).
+FORCED_INCLUDED_ITEMGROUP_IDS: set[int] = {
+    448,
+    14,
+    12,
+    4168,
+    4079,
+    649,
+    340,
+}
 
 
 @login_required
@@ -1039,9 +1087,9 @@ def _get_corp_hangar_divisions(user, corp_id):
 
 
 def _get_industry_market_group_ids() -> set[int]:
-    """Return market group IDs used by industry materials (cached)."""
+    """Return ItemGroup IDs used by known SDE item types (cached)."""
 
-    cache_key = "indy_hub:material_exchange:industry_market_group_ids:v1"
+    cache_key = "indy_hub:material_exchange:industry_market_group_ids:v8"
     cached = cache.get(cache_key)
     if cached is not None:
         try:
@@ -1050,15 +1098,32 @@ def _get_industry_market_group_ids() -> set[int]:
             return set()
 
     try:
-        ids = set(
-            SDEBlueprintActivityMaterial.objects.exclude(
-                material_eve_type__market_group_id_raw__isnull=True
-            )
-            .values_list("material_eve_type__market_group_id_raw", flat=True)
+        # Alliance Auth (External Libs)
+        from eve_sde.models import ItemGroup, ItemType
+
+        used_ids = set(
+            ItemType.objects.exclude(group_id__isnull=True)
+            .values_list("group_id", flat=True)
             .distinct()
         )
+
+        group_category_map = {
+            int(group_id): int(category_id)
+            for group_id, category_id in ItemGroup.objects.filter(
+                id__in=used_ids
+            ).values_list("id", "category_id")
+            if category_id is not None
+        }
+
+        ids = {
+            int(group_id)
+            for group_id in used_ids
+            if int(group_id) in FORCED_INCLUDED_ITEMGROUP_IDS
+            or int(group_category_map.get(int(group_id), -1))
+            in ALLOWED_ITEMGROUP_CATEGORY_IDS
+        }
     except Exception as exc:
-        logger.warning("Failed to load industry market group IDs: %s", exc)
+        logger.warning("Failed to load ItemGroup IDs from SDE item types: %s", exc)
         ids = set()
 
     cache.set(cache_key, list(ids), 3600)
@@ -1066,21 +1131,22 @@ def _get_industry_market_group_ids() -> set[int]:
 
 
 def _build_market_group_index() -> dict[int, dict[str, str | int | None]]:
-    """Return a dict of market group metadata keyed by id."""
+    """Return a dict of ItemGroup metadata keyed by id."""
 
     try:
+        # Alliance Auth (External Libs)
+        from eve_sde.models import ItemGroup
+
         return {
-            g["id"]: {
-                "id": g["id"],
-                "name": g["name"],
-                "parent_market_group_id": g["parent_market_group_id"],
+            int(group_id): {
+                "id": int(group_id),
+                "name": str(name or ""),
+                "parent_market_group_id": None,
             }
-            for g in SDEMarketGroup.objects.values(
-                "id", "name", "parent_market_group_id"
-            )
+            for group_id, name in ItemGroup.objects.values_list("id", "name")
         }
     except Exception as exc:
-        logger.warning("Failed to load market group choices: %s", exc)
+        logger.warning("Failed to load ItemGroup choices: %s", exc)
         return {}
 
 
@@ -1103,7 +1169,7 @@ def _get_industry_market_group_choice_ids(depth_from_root: int = 2) -> set[int]:
     """Return grouped market group IDs at the given depth for industry items."""
 
     cache_key = (
-        "indy_hub:material_exchange:industry_market_group_choice_ids:v2:"
+        "indy_hub:material_exchange:industry_market_group_choice_ids:v8:"
         f"depth:{depth_from_root}"
     )
     cached = cache.get(cache_key)
@@ -1141,7 +1207,7 @@ def _get_industry_market_group_choices(
     """Return sorted market group choices (id + label) for industry items."""
 
     cache_key = (
-        "indy_hub:material_exchange:industry_market_group_choices:v2:"
+        "indy_hub:material_exchange:industry_market_group_choices:v8:"
         f"depth:{depth_from_root}"
     )
     cached = cache.get(cache_key)
@@ -1156,11 +1222,33 @@ def _get_industry_market_group_choices(
     if not all_groups:
         return []
 
-    choices = [
-        {"id": int(group_id), "label": all_groups[int(group_id)]["name"]}
+    base_rows: list[tuple[int, str]] = [
+        (int(group_id), str(all_groups[int(group_id)]["name"]))
         for group_id in grouped_ids
         if int(group_id) in all_groups
     ]
+
+    name_counts: dict[str, int] = {}
+    for _group_id, group_name in base_rows:
+        key = group_name.strip().lower()
+        name_counts[key] = int(name_counts.get(key, 0)) + 1
+
+    choices: list[dict[str, str | int]] = []
+    for group_id, group_name in base_rows:
+        key = group_name.strip().lower()
+        label = group_name
+        if name_counts.get(key, 0) > 1:
+            path_ids = _get_market_group_path_ids(group_id, all_groups)
+            path_names = [
+                str(all_groups[path_id]["name"])
+                for path_id in path_ids
+                if path_id in all_groups
+            ]
+            if path_names:
+                label = " > ".join(path_names)
+
+        choices.append({"id": group_id, "label": label})
+
     choices.sort(key=lambda x: (str(x["label"]).lower()))
 
     cache.set(cache_key, choices, 3600)
@@ -1173,7 +1261,7 @@ def _get_industry_market_group_search_index(
     """Return market group labels and item names for search."""
 
     cache_key = (
-        "indy_hub:material_exchange:industry_market_group_search_index:v1:"
+        "indy_hub:material_exchange:industry_market_group_search_index:v8:"
         f"depth:{depth_from_root}"
     )
     cached = cache.get(cache_key)
@@ -1191,19 +1279,23 @@ def _get_industry_market_group_search_index(
     if not all_groups:
         return {}
 
+    grouped_id_list = sorted(int(group_id) for group_id in grouped_ids)
+
     try:
+        # Alliance Auth (External Libs)
+        from eve_sde.models import ItemType
+
         rows = (
-            SDEBlueprintActivityMaterial.objects.exclude(
-                material_eve_type__market_group_id_raw__isnull=True
-            )
-            .values_list(
-                "material_eve_type__market_group_id_raw",
-                "material_eve_type__name",
-            )
+            ItemType.objects.filter(group_id__in=grouped_id_list)
+            .exclude(name__isnull=True)
+            .exclude(name="")
+            .values_list("group_id", "name")
             .distinct()
         )
     except Exception as exc:
-        logger.warning("Failed to load industry item names: %s", exc)
+        logger.warning(
+            "Failed to load ItemGroup item names from SDE item types: %s", exc
+        )
         return {}
 
     index: dict[int, dict[str, object]] = {
@@ -1251,8 +1343,29 @@ def _handle_config_save(request, existing_config):
     sell_markup_base = request.POST.get("sell_markup_base", "buy")
     buy_markup_percent = request.POST.get("buy_markup_percent", "5")
     buy_markup_base = request.POST.get("buy_markup_base", "buy")
-    allowed_market_groups_buy_raw = request.POST.getlist("allowed_market_groups_buy")
-    allowed_market_groups_sell_raw = request.POST.getlist("allowed_market_groups_sell")
+    allowed_market_groups_buy_csv = request.POST.get(
+        "allowed_market_groups_buy_csv", ""
+    )
+    allowed_market_groups_sell_csv = request.POST.get(
+        "allowed_market_groups_sell_csv", ""
+    )
+
+    def _parse_csv_values(raw_csv: str) -> list[str]:
+        if not raw_csv:
+            return []
+        return [chunk.strip() for chunk in str(raw_csv).split(",") if chunk.strip()]
+
+    allowed_market_groups_buy_raw = _parse_csv_values(allowed_market_groups_buy_csv)
+    if not allowed_market_groups_buy_raw:
+        allowed_market_groups_buy_raw = request.POST.getlist(
+            "allowed_market_groups_buy"
+        )
+
+    allowed_market_groups_sell_raw = _parse_csv_values(allowed_market_groups_sell_csv)
+    if not allowed_market_groups_sell_raw:
+        allowed_market_groups_sell_raw = request.POST.getlist(
+            "allowed_market_groups_sell"
+        )
 
     enforce_jita_price_bounds = request.POST.get("enforce_jita_price_bounds") == "on"
 

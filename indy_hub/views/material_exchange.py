@@ -36,7 +36,6 @@ from ..models import (
     MaterialExchangeSettings,
     MaterialExchangeStock,
     MaterialExchangeTransaction,
-    SDEBlueprintActivityMaterial,
     SDEMarketGroup,
 )
 from ..services.asset_cache import get_corp_divisions_cached, get_user_assets_cached
@@ -296,13 +295,13 @@ def _normalize_stock_type_names(stock_items: list[MaterialExchangeStock]) -> Non
 
 
 def _get_industry_market_group_ids() -> set[int]:
-    """Return market group IDs used by EVE industry materials (cached)."""
+    """Return market group IDs used by known SDE item types (cached)."""
 
     global _INDUSTRY_MARKET_GROUP_IDS_CACHE
     if _INDUSTRY_MARKET_GROUP_IDS_CACHE is not None:
         return _INDUSTRY_MARKET_GROUP_IDS_CACHE
 
-    cache_key = "indy_hub:material_exchange:industry_market_group_ids:v1"
+    cache_key = "indy_hub:material_exchange:industry_market_group_ids:v2"
     cached = cache.get(cache_key)
     if cached is not None:
         try:
@@ -313,15 +312,16 @@ def _get_industry_market_group_ids() -> set[int]:
             return _INDUSTRY_MARKET_GROUP_IDS_CACHE
 
     try:
+        # Alliance Auth (External Libs)
+        from eve_sde.models import ItemType
+
         ids = set(
-            SDEBlueprintActivityMaterial.objects.exclude(
-                material_eve_type__market_group_id_raw__isnull=True
-            )
-            .values_list("material_eve_type__market_group_id_raw", flat=True)
+            ItemType.objects.exclude(market_group_id_raw__isnull=True)
+            .values_list("market_group_id_raw", flat=True)
             .distinct()
         )
     except Exception as exc:
-        logger.warning("Failed to load industry market group IDs: %s", exc)
+        logger.warning("Failed to load market group IDs from SDE item types: %s", exc)
         ids = set()
 
     cache.set(cache_key, list(ids), 3600)
@@ -380,7 +380,7 @@ def _expand_market_group_ids(group_ids: set[int]) -> set[int]:
 def _get_allowed_type_ids_for_config(
     config: MaterialExchangeConfig, mode: str
 ) -> set[int] | None:
-    """Resolve allowed EveType IDs for the given mode (sell/buy)."""
+    """Resolve allowed ItemType IDs for the given mode using ItemGroup IDs."""
 
     if mode not in {"sell", "buy"}:
         return None
@@ -395,13 +395,12 @@ def _get_allowed_type_ids_for_config(
         if not group_ids:
             return set()
 
-        expanded_group_ids = _expand_market_group_ids(group_ids)
-        groups_key = ",".join(map(str, sorted(expanded_group_ids)))
+        groups_key = ",".join(map(str, sorted(group_ids)))
         groups_hash = hashlib.md5(
             groups_key.encode("utf-8"), usedforsecurity=False
         ).hexdigest()
         cache_key = (
-            "indy_hub:material_exchange:allowed_type_ids:v1:" f"{mode}:{groups_hash}"
+            "indy_hub:material_exchange:allowed_type_ids:v4:" f"{mode}:{groups_hash}"
         )
         cached = cache.get(cache_key)
         if cached is not None:
@@ -411,14 +410,12 @@ def _get_allowed_type_ids_for_config(
         from eve_sde.models import ItemType
 
         allowed_type_ids = set(
-            ItemType.objects.filter(
-                market_group_id_raw__in=expanded_group_ids
-            ).values_list("id", flat=True)
+            ItemType.objects.filter(group_id__in=group_ids).values_list("id", flat=True)
         )
         cache.set(cache_key, list(allowed_type_ids), 3600)
         return allowed_type_ids
     except Exception as exc:
-        logger.warning("Failed to resolve market group filter (%s): %s", mode, exc)
+        logger.warning("Failed to resolve item group filter (%s): %s", mode, exc)
         return None
 
 
@@ -769,19 +766,65 @@ def material_exchange_buy_stock_refresh_status(request):
 
 
 def _get_group_map(type_ids: list[int]) -> dict[int, str]:
-    """Return mapping type_id -> group name using eve_sde if available."""
+    """Return mapping type_id -> group name via ItemType.group_id -> ItemGroup.id."""
 
     if not type_ids:
         return {}
 
     try:
         # Alliance Auth (External Libs)
-        from eve_sde.models import ItemType
+        from eve_sde.models import ItemGroup, ItemType
 
-        eve_types = ItemType.objects.filter(id__in=type_ids).select_related("group")
-        return {et.id: (et.group.name if et.group else "Other") for et in eve_types}
+        type_rows = list(
+            ItemType.objects.filter(id__in=type_ids).values_list("id", "group_id")
+        )
+        if not type_rows:
+            return {}
+
+        group_ids = {int(group_id) for _, group_id in type_rows if group_id}
+        group_name_by_id = {
+            int(group_id): str(name or "")
+            for group_id, name in ItemGroup.objects.filter(
+                id__in=group_ids
+            ).values_list("id", "name")
+        }
+
+        return {
+            int(type_id): (
+                (group_name_by_id.get(int(group_id)) or "Other")
+                if group_id
+                else "Other"
+            )
+            for type_id, group_id in type_rows
+        }
     except Exception:
         return {}
+
+
+def _resolve_type_image_url(
+    type_id: int, type_name: str = "", group_name: str = ""
+) -> str:
+    """Return images.evetech.net URL with icon variant for regular items or blueprints."""
+
+    try:
+        normalized_type_name = str(type_name or "").lower()
+        normalized_group_name = str(group_name or "").lower()
+        is_blueprint = (
+            "blueprint" in normalized_type_name or "blueprint" in normalized_group_name
+        )
+        is_blueprint_copy = is_blueprint and (
+            "copy" in normalized_type_name or "bpc" in normalized_type_name
+        )
+
+        variant = "icon"
+        if is_blueprint_copy:
+            variant = "bpc"
+        elif is_blueprint:
+            variant = "bp"
+
+        return f"https://images.evetech.net/types/{int(type_id)}/{variant}?size=64"
+    except Exception:
+        return f"https://images.evetech.net/types/{int(type_id)}/icon?size=64"
 
 
 def _fetch_fuzzwork_prices(type_ids: list[int]) -> dict[int, dict[str, Decimal]]:
@@ -1433,6 +1476,9 @@ def material_exchange_sell(request, tokens):
                     ),
                     "item_count": tab_count,
                     "url": f"{sell_page_base_url}?character={character_id}",
+                    "portrait_url": (
+                        f"https://images.evetech.net/characters/{character_id}/portrait?size=128"
+                    ),
                 }
             )
 
@@ -1462,6 +1508,17 @@ def material_exchange_sell(request, tokens):
         else:
             assets_for_display = {}
 
+        active_character_tab_data = next(
+            (
+                tab
+                for tab in character_tabs
+                if str(tab.get("id")) == active_character_tab
+            ),
+            None,
+        )
+
+        group_map = _get_group_map(list(assets_for_display.keys()))
+
         batch_cache_type_names(assets_for_display.keys())
 
         for type_id, user_qty in assets_for_display.items():
@@ -1482,10 +1539,17 @@ def material_exchange_sell(request, tokens):
             if buy_price <= 0:
                 continue
             type_name = get_type_name(type_id)
+            group_name = group_map.get(type_id, "Other")
             materials_with_qty.append(
                 {
                     "type_id": type_id,
                     "type_name": type_name,
+                    "group_name": group_name,
+                    "image_url": _resolve_type_image_url(
+                        type_id=type_id,
+                        type_name=type_name,
+                        group_name=group_name,
+                    ),
                     "buy_price_from_member": buy_price,
                     "user_quantity": user_qty,
                 }
@@ -1526,6 +1590,7 @@ def material_exchange_sell(request, tokens):
         "materials": materials_with_qty,
         "character_tabs": character_tabs if user_assets else [],
         "active_character_tab": active_character_tab if user_assets else "",
+        "active_character_tab_data": active_character_tab_data if user_assets else None,
         "corporation_name": corporation_name,
         "assets_refreshing": assets_refreshing,
         "sell_assets_progress": sell_assets_progress,
@@ -1820,6 +1885,13 @@ def material_exchange_buy(request, tokens):
             (i.type_name or "").lower(),
         )
     )
+    for item in stock_items:
+        item.group_name = group_map.get(item.type_id, "Other")
+        item.image_url = _resolve_type_image_url(
+            type_id=item.type_id,
+            type_name=item.type_name,
+            group_name=item.group_name,
+        )
 
     if pre_filter_stock_count > 0 and not stock_items:
         messages.info(
