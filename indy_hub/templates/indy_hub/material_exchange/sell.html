@@ -563,9 +563,15 @@ document.addEventListener('DOMContentLoaded', function() {
     if (sellForm) {
         sellForm.addEventListener('submit', function(e) {
             let hasError = false;
+            const disabledForSubmit = [];
             qtyInputs.forEach(input => {
                 const qty = parseInt(input.value) || 0;
                 const max = parseInt(input.dataset.max);
+                if (qty <= 0) {
+                    input.disabled = true;
+                    disabledForSubmit.push(input);
+                    return;
+                }
                 if (qty > max) {
                     hasError = true;
                     input.value = max; // Auto-correct
@@ -574,6 +580,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
             if (hasError) {
                 e.preventDefault();
+                disabledForSubmit.forEach(input => {
+                    input.disabled = false;
+                });
                 alert('{% trans "Some quantities exceeded what you own and have been adjusted." %}');
                 updateInvoice();
                 return false;
