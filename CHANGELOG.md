@@ -32,6 +32,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Dependencies/config: replaced `django-eveuniverse` with `django-eveonline-sde` in packaging/test settings and aligned app wiring (`eve_sde` in installed apps).
 - Material Exchange naming: stock and asset type-name rendering now resolves through local `eve_sde` type data and normalizes persisted numeric placeholders.
 - Industry/API SQL paths: blueprint/material/product queries now target `eve_sde_*` and `indy_hub_sdeindustryactivity*` tables.
+- Material Exchange (Config): market-group source now uses direct `eve_sde.ItemType -> ItemGroup` mapping with category allowlist filtering and explicit forced group includes for required groups.
+- Material Exchange (Config): page layout was streamlined (header summary integration, vertical Available/Selected dual-list flow, consistent BUY/SELL color semantics, and normalized header action button sizing).
+- Material Exchange (Sell): multi-character selector was redesigned into a compact selected-character card with integrated dropdown and portrait context.
+- Material Exchange (Buy/Sell): item rows now use theme-adaptive Bootstrap text colors for better readability in light/dark themes.
 
 ### Fixed
 
@@ -39,6 +43,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Navigation responsiveness: Indy Hub menu displays immediately on cold cache and fills badge asynchronously when count becomes available.
 - Material Exchange UI regression: fixed cases where type IDs were shown instead of type names on buy/sell flows.
 - SDE compatibility sync robustness: guarded imports against empty `eve_sde.ItemType` datasets and invalid FK rows during blueprint/material ingest.
+- Material Exchange (Config): saving large market-group selections no longer triggers `TooManyFieldsSent` by posting selected IDs as compact CSV payloads.
+- Material Exchange (Buy/Sell): item image resolution now supports blueprint endpoints (`bp`/`bpc`) to avoid invalid icon URL failures on blueprint types.
+- Material Exchange (Config): search/index coverage now correctly includes configured group contexts such as moon-material related entries when available.
 
 ### Internal
 

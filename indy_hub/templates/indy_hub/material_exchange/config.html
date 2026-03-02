@@ -23,15 +23,15 @@
                 <p class="description mb-0">{% trans "Configure corp hangar location and pricing rules." %}</p>
             </div>
                 <div class="d-flex flex-column align-items-end gap-2 me-header-actions">
-                    <a href="{% url 'indy_hub:material_exchange_index' %}" class="btn btn-outline-light me-header-btn me-header-btn--back">
+                    <a href="{% url 'indy_hub:material_exchange_index' %}" class="btn btn-outline-light me-header-btn">
                     <i class="fas fa-arrow-left me-1"></i>{% trans "Back to Hub" %}
                 </a>
                 <div class="d-flex flex-wrap gap-2">
-                        <a href="{% url 'indy_hub:material_exchange_request_all_scopes' %}" class="btn btn-success btn-sm me-header-btn me-header-btn--scopes">
+                        <a href="{% url 'indy_hub:material_exchange_request_all_scopes' %}" class="btn btn-success me-header-btn">
                         <i class="fas fa-plus-circle me-1"></i>
                         {% trans "Add All Scopes" %}
                     </a>
-                        <a href="{% url 'indy_hub:token_management' %}" class="btn btn-outline-secondary btn-sm me-header-btn me-header-btn--tokens">
+                        <a href="{% url 'indy_hub:token_management' %}" class="btn btn-outline-light me-header-btn">
                         <i class="fas fa-key me-1"></i>
                         {% trans "Manage Tokens" %}
                     </a>
@@ -59,6 +59,30 @@
                     {% endif %}
                 </strong>
             </p>
+
+            <div class="mt-2 pt-2 border-top border-light-subtle d-flex flex-wrap align-items-center justify-content-between gap-2">
+                <div class="small">
+                    <span class="text-muted">{% trans "Current:" %}</span>
+                    <span class="fw-semibold">"{% if current_corp_ticker %}{{ current_corp_ticker }}{% else %}{{ config.corporation_id }}{% endif %}"</span>
+                    <span class="text-muted mx-1">•</span>
+                    <span class="fw-semibold">{{ config.structure_name|default:config.structure_id }}</span>
+                    <span class="text-muted mx-1">•</span>
+                    <span class="fw-semibold">"{{ current_hangar_name|default:config.hangar_division }}"</span>
+                </div>
+                <div class="d-flex flex-wrap align-items-center gap-2">
+                    {% if config.enforce_jita_price_bounds %}
+                        <span class="badge bg-warning text-dark">
+                            <i class="fas fa-shield-alt me-1"></i>
+                            {% trans "Jita bounds" %}
+                        </span>
+                    {% endif %}
+                    {% if material_exchange_enabled %}
+                        <span class="badge bg-success">{% trans "Active" %}</span>
+                    {% else %}
+                        <span class="badge bg-secondary">{% trans "Disabled" %}</span>
+                    {% endif %}
+                </div>
+            </div>
         {% endif %}
         <i class="fas fa-exchange-alt header-bg"></i>
     </div>
@@ -74,47 +98,7 @@
 
     {{ market_group_search_index|json_script:"marketGroupSearchIndex" }}
 
-    {% if config %}
     <section class="dashboard-section mb-3">
-        <div class="card focus-card me-current-bar">
-            <div class="card-body p-2">
-                <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
-                    <div class="me-current-content">
-                        <span class="text-muted">{% trans "Current:" %}</span>
-                        <strong>
-                            "{% if current_corp_ticker %}{{ current_corp_ticker }}{% else %}{{ config.corporation_id }}{% endif %}"
-                        </strong>
-                        <span class="text-muted">--</span>
-                        <strong>{{ config.structure_name|default:config.structure_id }}</strong>
-                        <span class="text-muted">--</span>
-                        <strong>"{{ current_hangar_name|default:config.hangar_division }}"</strong>
-                    </div>
-                    <div class="d-flex flex-wrap align-items-center gap-2">
-                        {% if config.enforce_jita_price_bounds %}
-                            <span class="badge bg-warning text-dark">
-                                <i class="fas fa-shield-alt me-1"></i>
-                                {% trans "Jita bounds" %}
-                            </span>
-                        {% endif %}
-                        {% if material_exchange_enabled %}
-                            <span class="badge bg-success">{% trans "Active" %}</span>
-                        {% else %}
-                            <span class="badge bg-secondary">{% trans "Disabled" %}</span>
-                        {% endif %}
-                    </div>
-                </div>
-            </div>
-        </div>
-    </section>
-    {% endif %}
-
-    <section class="dashboard-section mb-3">
-        <header class="section-heading">
-            <div>
-                <h3 class="section-title">{% trans "Hub Configuration" %}</h3>
-                <p class="text-muted small mb-0">{% trans "Quick setup" %}</p>
-            </div>
-        </header>
         <div class="card focus-card">
             <div class="card-body p-3">
                 <form method="post" id="configForm" onsubmit="return validateForm()">
@@ -168,8 +152,6 @@
                                     {% endfor %}
                                 </select>
                             </div>
-
-                            <div class="form-text">{% trans "Tip: use refresh after adding tokens." %}</div>
 
                             <div id="refreshStatus" class="mt-2 refresh-status">
                                 <small class="text-info d-flex align-items-center gap-2">
@@ -357,9 +339,6 @@
                                         value="{{ config.sell_markup_percent|default_if_none:'0'|floatformat:'-2' }}">
                                     <span class="input-group-text">%</span>
                                 </div>
-                                <div class="small text-muted mb-2">
-                                    {% trans "Impact: changes what members receive when selling to the hub." %}
-                                </div>
                                 <label class="form-label fw-semibold">{% trans "Base Price" %}</label>
                                 <select name="sell_markup_base" class="form-select form-select-sm mb-2">
                                     <option value="buy" {% if not config or config.sell_markup_base == 'buy' %}selected{% endif %}>
@@ -403,9 +382,6 @@
                                         inputmode="decimal"
                                         value="{{ config.buy_markup_percent|default_if_none:'5'|floatformat:'-2' }}">
                                     <span class="input-group-text">%</span>
-                                </div>
-                                <div class="small text-muted mb-2">
-                                    {% trans "Impact: changes what members pay when buying from the hub." %}
                                 </div>
                                 <label class="form-label fw-semibold">{% trans "Base Price" %}</label>
                                 <select name="buy_markup_base" class="form-select form-select-sm mb-2">
@@ -472,11 +448,11 @@
                                 {% else %}
                                     <div class="row g-3">
                                         <div class="col-lg-6 me-dual-list-block">
-                                            <label class="form-label fw-semibold"><span class="me-pill-info"><i class="fas fa-arrow-right"></i> {% trans "SELL - Market Groups" %}</span></label>
-                                            <div class="row g-1 me-dual-list me-dual-list-sell">
-                                                <div class="col-5">
+                                            <label class="form-label fw-semibold"><span class="me-pill-success"><i class="fas fa-arrow-right"></i> {% trans "SELL - Market Groups" %}</span></label>
+                                            <div class="d-flex flex-column gap-2 me-dual-list me-dual-list-sell">
+                                                <div class="flex-grow-1" style="min-width: 0; flex: 1 1 0;">
                                                     <div class="small text-muted mb-1">{% trans "Available" %}</div>
-                                                    <select class="form-select form-select-sm" multiple size="10" id="marketGroupsSellAvailable">
+                                                    <select class="form-select form-select-sm" multiple size="10" id="marketGroupsSellAvailable" style="height: 130px;">
                                                         {% for group in market_group_choices %}
                                                             {% if group.id not in selected_market_groups_sell %}
                                                                 <option value="{{ group.id }}">{{ group.label }}</option>
@@ -484,17 +460,17 @@
                                                         {% endfor %}
                                                     </select>
                                                 </div>
-                                                <div class="col-2 d-flex flex-column align-items-center justify-content-center gap-2 me-dual-list-controls">
-                                                    <button type="button" class="btn btn-info btn-sm" id="sellAddBtn" title="{% trans 'Add' %}">
-                                                        <i class="fas fa-chevron-right"></i>
+                                                <div class="d-flex justify-content-center align-items-center gap-2 me-dual-list-controls">
+                                                    <button type="button" class="btn btn-success btn-sm" id="sellAddBtn" title="{% trans 'Add' %}">
+                                                        <i class="fas fa-chevron-down"></i>
                                                     </button>
-                                                    <button type="button" class="btn btn-info btn-sm" id="sellRemoveBtn" title="{% trans 'Remove' %}">
-                                                        <i class="fas fa-chevron-left"></i>
+                                                    <button type="button" class="btn btn-success btn-sm" id="sellRemoveBtn" title="{% trans 'Remove' %}">
+                                                        <i class="fas fa-chevron-up"></i>
                                                     </button>
                                                 </div>
-                                                <div class="col-5">
+                                                <div class="flex-grow-1" style="min-width: 0; flex: 1 1 0;">
                                                     <div class="small text-muted mb-1">{% trans "Selected" %}</div>
-                                                    <select name="allowed_market_groups_sell" class="form-select form-select-sm" multiple size="10" id="marketGroupsSellSelected">
+                                                    <select class="form-select form-select-sm" multiple size="10" id="marketGroupsSellSelected" style="height: 130px;">
                                                         {% for group in market_group_choices %}
                                                             {% if group.id in selected_market_groups_sell %}
                                                                 <option value="{{ group.id }}" selected>{{ group.label }}</option>
@@ -505,11 +481,11 @@
                                             </div>
                                         </div>
                                         <div class="col-lg-6 me-dual-list-block">
-                                            <label class="form-label fw-semibold"><span class="me-pill-success"><i class="fas fa-arrow-left"></i> {% trans "BUY - Market Groups" %}</span></label>
-                                            <div class="row g-1 me-dual-list me-dual-list-buy">
-                                                <div class="col-5">
+                                            <label class="form-label fw-semibold"><span class="me-pill-info"><i class="fas fa-arrow-left"></i> {% trans "BUY - Market Groups" %}</span></label>
+                                            <div class="d-flex flex-column gap-2 me-dual-list me-dual-list-buy">
+                                                <div class="flex-grow-1" style="min-width: 0; flex: 1 1 0;">
                                                     <div class="small text-muted mb-1">{% trans "Available" %}</div>
-                                                    <select class="form-select form-select-sm" multiple size="10" id="marketGroupsBuyAvailable">
+                                                    <select class="form-select form-select-sm" multiple size="10" id="marketGroupsBuyAvailable" style="height: 130px;">
                                                         {% for group in market_group_choices %}
                                                             {% if group.id not in selected_market_groups_buy %}
                                                                 <option value="{{ group.id }}">{{ group.label }}</option>
@@ -517,17 +493,17 @@
                                                         {% endfor %}
                                                     </select>
                                                 </div>
-                                                <div class="col-2 d-flex flex-column align-items-center justify-content-center gap-2 me-dual-list-controls">
-                                                    <button type="button" class="btn btn-success btn-sm" id="buyAddBtn" title="{% trans 'Add' %}">
-                                                        <i class="fas fa-chevron-right"></i>
+                                                <div class="d-flex justify-content-center align-items-center gap-2 me-dual-list-controls">
+                                                    <button type="button" class="btn btn-info btn-sm" id="buyAddBtn" title="{% trans 'Add' %}">
+                                                        <i class="fas fa-chevron-down"></i>
                                                     </button>
-                                                    <button type="button" class="btn btn-success btn-sm" id="buyRemoveBtn" title="{% trans 'Remove' %}">
-                                                        <i class="fas fa-chevron-left"></i>
+                                                    <button type="button" class="btn btn-info btn-sm" id="buyRemoveBtn" title="{% trans 'Remove' %}">
+                                                        <i class="fas fa-chevron-up"></i>
                                                     </button>
                                                 </div>
-                                                <div class="col-5">
+                                                <div class="flex-grow-1" style="min-width: 0; flex: 1 1 0;">
                                                     <div class="small text-muted mb-1">{% trans "Selected" %}</div>
-                                                    <select name="allowed_market_groups_buy" class="form-select form-select-sm" multiple size="10" id="marketGroupsBuySelected">
+                                                    <select class="form-select form-select-sm" multiple size="10" id="marketGroupsBuySelected" style="height: 130px;">
                                                         {% for group in market_group_choices %}
                                                             {% if group.id in selected_market_groups_buy %}
                                                                 <option value="{{ group.id }}" selected>{{ group.label }}</option>
@@ -827,13 +803,38 @@ document.addEventListener('DOMContentLoaded', function() {
         searchIndex = {};
     }
 
+    const normalizeSearchText = (value) => String(value || '').toLowerCase().trim();
+
+    const queryVariants = (query) => {
+        const q = normalizeSearchText(query);
+        if (!q) {
+            return [];
+        }
+        const variants = new Set([q]);
+        if (q.length > 3 && q.endsWith('s')) {
+            variants.add(q.slice(0, -1));
+        }
+        if (q.length > 2 && !q.endsWith('s')) {
+            variants.add(`${q}s`);
+        }
+        return Array.from(variants).filter(Boolean);
+    };
+
+    const textMatchesAnyQueryVariant = (text, variants) => {
+        const haystack = normalizeSearchText(text);
+        if (!variants.length) {
+            return true;
+        }
+        return variants.some(variant => haystack.includes(variant));
+    };
+
     const matchesQuery = (groupId, label, query) => {
-        if (!query) return true;
-        const q = query.toLowerCase();
-        if ((label || '').toLowerCase().includes(q)) return true;
+        const variants = queryVariants(query);
+        if (!variants.length) return true;
+        if (textMatchesAnyQueryVariant(label, variants)) return true;
         const payload = searchIndex[groupId] || {};
         const items = payload.items || [];
-        return items.some(name => String(name).toLowerCase().includes(q));
+        return items.some(name => textMatchesAnyQueryVariant(name, variants));
     };
 
     const applyFilter = () => {
@@ -848,7 +849,9 @@ document.addEventListener('DOMContentLoaded', function() {
         };
 
         filterSelect(sellAvailable);
+        filterSelect(sellSelected);
         filterSelect(buyAvailable);
+        filterSelect(buySelected);
     };
 
     const moveSelected = (fromSelect, toSelect) => {
@@ -872,6 +875,17 @@ document.addEventListener('DOMContentLoaded', function() {
         Array.from(selectEl.options).forEach(option => {
             option.selected = true;
         });
+    };
+
+    const upsertHiddenInput = (form, name, value) => {
+        let input = form.querySelector(`input[name="${name}"]`);
+        if (!input) {
+            input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = name;
+            form.appendChild(input);
+        }
+        input.value = value;
     };
 
     if (sellAddBtn) {
@@ -910,6 +924,18 @@ document.addEventListener('DOMContentLoaded', function() {
         form.addEventListener('submit', function() {
             ensureAllSelected(sellSelected);
             ensureAllSelected(buySelected);
+
+            const sellCsv = Array.from(sellSelected.options)
+                .map(option => String(option.value || '').trim())
+                .filter(Boolean)
+                .join(',');
+            const buyCsv = Array.from(buySelected.options)
+                .map(option => String(option.value || '').trim())
+                .filter(Boolean)
+                .join(',');
+
+            upsertHiddenInput(form, 'allowed_market_groups_sell_csv', sellCsv);
+            upsertHiddenInput(form, 'allowed_market_groups_buy_csv', buyCsv);
         });
     }
 });

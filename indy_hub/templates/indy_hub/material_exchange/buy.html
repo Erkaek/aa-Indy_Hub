@@ -143,6 +143,27 @@
                     <form method="post" id="purchaseForm">
                         {% csrf_token %}
                         <input type="hidden" id="hidden_order_reference" name="order_reference" value="">
+                        <div class="d-flex align-items-stretch gap-3 mb-3">
+                            <div class="d-flex flex-column justify-content-center" role="radiogroup" aria-label="{% trans 'Search mode' %}">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="buySearchMode" id="buySearchModeItem" value="item" checked>
+                                    <label class="form-check-label" for="buySearchModeItem">{% trans "Item" %}</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="buySearchMode" id="buySearchModeCategory" value="category">
+                                    <label class="form-check-label" for="buySearchModeCategory">{% trans "Category" %}</label>
+                                </div>
+                            </div>
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="fas fa-search"></i></span>
+                                <input
+                                    type="text"
+                                    id="buySearchInput"
+                                    class="form-control"
+                                    placeholder="{% trans 'Search by item or category' %}"
+                                    aria-label="{% trans 'Search by item or category' %}">
+                            </div>
+                        </div>
                         <div class="table-responsive">
                             <table class="table table-hover stock-table align-middle">
                                 <thead>
@@ -159,16 +180,18 @@
                                     <tr class="stock-row"
                                         data-type-id="{{ item.type_id }}"
                                         data-type-name="{{ item.type_name }}"
+                                        data-group-name="{{ item.group_name|default:'' }}"
                                         data-unit-price="{{ item.sell_price_to_member|floatformat:2 }}"
                                         data-max-qty="{{ item.quantity }}">
                                         <td>
                                             <img
-                                                src="https://images.evetech.net/types/{{ item.type_id }}/icon?size=64"
+                                                src="{{ item.image_url }}"
                                                 alt="{{ item.type_name }}"
                                                 class="item-icon">
                                         </td>
                                         <td>
-                                            <strong>{{ item.type_name }}</strong>
+                                            <div class="fw-semibold text-body">{{ item.type_name }}</div>
+                                            <div class="small text-body-secondary">{{ item.group_name|default:_('Other') }}</div>
                                         </td>
                                         <td class="text-end">
                                             <span class="badge bg-primary">{{ item.quantity|intcomma }}</span>
@@ -205,6 +228,10 @@
                                     {% endfor %}
                                 </tbody>
                             </table>
+                        </div>
+                        <div id="buySearchEmpty" class="alert alert-warning mt-3 d-none mb-0">
+                            <i class="fas fa-search me-2"></i>
+                            {% trans "No matching items for your search." %}
                         </div>
                     </form>
                 </div>
@@ -257,6 +284,59 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     const qtyInputs = document.querySelectorAll('.qty-input');
+    const buySearchInput = document.getElementById('buySearchInput');
+    const buySearchModeInputs = document.querySelectorAll('input[name="buySearchMode"]');
+    const stockRows = document.querySelectorAll('.stock-row');
+
+    const buySearchPlaceholderByMode = {
+        item: '{% trans "Search item" %}',
+        category: '{% trans "Search category" %}'
+    };
+
+    function updateBuySearchPlaceholder() {
+        if (!buySearchInput) {
+            return;
+        }
+        const selectedMode = document.querySelector('input[name="buySearchMode"]:checked')?.value || 'item';
+        const placeholder = buySearchPlaceholderByMode[selectedMode] || buySearchPlaceholderByMode.item;
+        buySearchInput.placeholder = placeholder;
+        buySearchInput.setAttribute('aria-label', placeholder);
+    }
+
+    function applyBuyFilter() {
+        if (!buySearchInput) {
+            return;
+        }
+
+        const query = (buySearchInput.value || '').trim().toLowerCase();
+        const selectedMode = document.querySelector('input[name="buySearchMode"]:checked')?.value || 'item';
+        let visibleCount = 0;
+
+        stockRows.forEach(row => {
+            const typeName = (row.dataset.typeName || '').toLowerCase();
+            const groupName = (row.dataset.groupName || '').toLowerCase();
+            const matches = !query || (selectedMode === 'category' ? groupName.includes(query) : typeName.includes(query));
+            row.classList.toggle('d-none', !matches);
+            if (matches) {
+                visibleCount += 1;
+            }
+        });
+
+        const emptyState = document.getElementById('buySearchEmpty');
+        if (emptyState) {
+            emptyState.classList.toggle('d-none', visibleCount > 0);
+        }
+    }
+
+    if (buySearchInput) {
+        buySearchInput.addEventListener('input', applyBuyFilter);
+        buySearchModeInputs.forEach(input => input.addEventListener('change', () => {
+            updateBuySearchPlaceholder();
+            applyBuyFilter();
+        }));
+        updateBuySearchPlaceholder();
+        applyBuyFilter();
+    }
 
     document.addEventListener('click', function(event) {
         const button = event.target.closest('.qty-btn');
