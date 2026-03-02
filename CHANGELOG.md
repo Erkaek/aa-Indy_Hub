@@ -35,7 +35,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Material Exchange (Config): market-group source now uses direct `eve_sde.ItemType -> ItemGroup` mapping with category allowlist filtering and explicit forced group includes for required groups.
 - Material Exchange (Config): page layout was streamlined (header summary integration, vertical Available/Selected dual-list flow, consistent BUY/SELL color semantics, and normalized header action button sizing).
 - Material Exchange (Sell): multi-character selector was redesigned into a compact selected-character card with integrated dropdown and portrait context.
+- Material Exchange (Sell): multi-character selector rendering was hardened so switch controls remain available even when active-tab metadata is temporarily missing.
 - Material Exchange (Buy/Sell): item rows now use theme-adaptive Bootstrap text colors for better readability in light/dark themes.
+- Material Exchange (Config): market-group search index generation now scopes `ItemType` queries to relevant `group_id` values to reduce cache-miss rebuild cost.
 
 ### Fixed
 
@@ -46,6 +48,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Material Exchange (Config): saving large market-group selections no longer triggers `TooManyFieldsSent` by posting selected IDs as compact CSV payloads.
 - Material Exchange (Buy/Sell): item image resolution now supports blueprint endpoints (`bp`/`bpc`) to avoid invalid icon URL failures on blueprint types.
 - Material Exchange (Config): search/index coverage now correctly includes configured group contexts such as moon-material related entries when available.
+- Material Exchange (Sell): large order forms no longer exceed Django field limits; zero-quantity `qty_*` inputs are excluded from submit payloads to prevent `TooManyFieldsSent`.
+- Material Exchange (Buy/Sell): pressing Enter in search inputs no longer triggers unintended order-form submission.
+- Material Exchange (Sell): fixed a client-side script regression in quantity shortcut handling that could break page interactions.
 
 ### Internal
 
@@ -54,6 +59,56 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Utility refactor: extracted menu badge count computation into dedicated helper (`indy_hub/utils/menu_badge.py`) and reused it across API/task paths.
 - Test coverage: expanded `test_material_exchange_contracts.py` for in-game override scenarios and mismatch detail propagation.
 - Legacy migration note: historical reference to `eveuniverse` remains in `0021_blueprint_table_and_bp_type.py` as a guarded fallback (`LookupError`) for old migration compatibility.
+- Material Exchange (Config): documented ItemCategory/ItemGroup allowlist constants with maintenance guidance for future filtering updates.
+
+### Update
+
+To apply this release safely, use the sequence matching your deployment type.
+
+#### Bare Metal
+
+1. Install SDE backend dependency:
+
+- `pip install git+https://github.com/Solar-Helix-Independent-Transport/django-eveonline-sde.git`
+
+2. Update Indy Hub:
+
+- `pip install --upgrade indy-hub`
+
+3. Apply database migrations:
+
+- `python manage.py migrate`
+
+4. Refresh static assets:
+
+- `python manage.py collectstatic --noinput`
+
+5. Restart the Alliance Auth server/services.
+1. Populate new Indy Hub compatibility tables:
+
+- `python manage.py sync_sde_compat`
+
+#### Docker
+
+1. Install/upgrade dependencies in the application container:
+
+- `docker compose exec allianceauth_gunicorn bash -c "pip install git+https://github.com/Solar-Helix-Independent-Transport/django-eveonline-sde.git && pip install --upgrade indy-hub"`
+
+2. Apply database migrations:
+
+- `docker compose exec allianceauth_gunicorn auth migrate`
+
+3. Refresh static assets:
+
+- `docker compose exec allianceauth_gunicorn auth collectstatic --noinput`
+
+4. Restart Alliance Auth containers:
+
+- `docker compose build && docker compose down && docker compose up -d`
+
+5. Populate new Indy Hub compatibility tables:
+
+- `docker compose exec allianceauth_gunicorn auth sync_sde_compat`
 
 ## [1.14.5] - 2026-02-22
 

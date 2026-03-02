@@ -69,9 +69,15 @@ INSTALLED_APPS = [
     "eve_sde",
     "indy_hub",
 ]
-
-INDY_HUB_SDE_FOLDER = "eve-sde"
 ```
+
+Optional override (only if your extracted SDE folder is not the eve_sde default):
+
+```python
+INDY_HUB_SDE_FOLDER = "/path/to/your/sde-folder"
+```
+
+If omitted, Indy Hub automatically reuses the default folder used by `eve_sde`.
 
 Run migrations and collect static files:
 
@@ -80,10 +86,9 @@ python manage.py migrate
 python manage.py collectstatic --noinput
 ```
 
-Load SDE data and Indy Hub compatibility data:
+Load Indy Hub compatibility data (after completing `eve_sde` data loading as documented in the `django-eveonline-sde` module):
 
 ```text
-python manage.py esde_load_sde
 python manage.py sync_sde_compat
 ```
 
@@ -108,9 +113,15 @@ INSTALLED_APPS = [
     "eve_sde",
     "indy_hub",
 ]
-
-INDY_HUB_SDE_FOLDER = "eve-sde"
 ```
+
+Optional override (only if your extracted SDE folder is not the eve_sde default):
+
+```python
+INDY_HUB_SDE_FOLDER = "/path/to/your/sde-folder"
+```
+
+If omitted, Indy Hub automatically reuses the default folder used by `eve_sde`.
 
 Add to your `conf/requirements.txt` (Always use current versions)
 
@@ -136,11 +147,10 @@ docker compose down
 docker compose up -d
 ```
 
-Load SDE data and Indy Hub compatibility data:
+Load Indy Hub compatibility data (after completing `eve_sde` data loading as documented in the `django-eveonline-sde` module):
 
 ```text
 docker compose exec allianceauth_gunicorn bash
-auth esde_load_sde
 auth sync_sde_compat
 exit
 ```

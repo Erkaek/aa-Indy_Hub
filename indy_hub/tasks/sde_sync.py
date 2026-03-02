@@ -21,8 +21,17 @@ logger = get_extension_logger(__name__)
 
 @shared_task(bind=True, base=QueueOnce)
 def sync_sde_compatibility_data(self):
-    sde_folder = getattr(settings, "INDY_HUB_SDE_FOLDER", "eve-sde")
+    sde_folder = getattr(settings, "INDY_HUB_SDE_FOLDER", "").strip()
     downloaded_folder = False
+
+    if not sde_folder:
+        try:
+            # Alliance Auth (External Libs)
+            from eve_sde.sde_tasks import SDE_FOLDER
+
+            sde_folder = SDE_FOLDER
+        except Exception:
+            sde_folder = "eve-sde"
 
     if not os.path.isdir(sde_folder):
         try:

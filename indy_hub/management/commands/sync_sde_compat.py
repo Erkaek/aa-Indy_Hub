@@ -30,7 +30,16 @@ class Command(BaseCommand):
 
         sde_folder = (options.get("sde_folder") or "").strip()
         if not sde_folder:
-            sde_folder = getattr(settings, "INDY_HUB_SDE_FOLDER", "eve-sde")
+            sde_folder = getattr(settings, "INDY_HUB_SDE_FOLDER", "").strip()
+
+        if not sde_folder:
+            try:
+                # Alliance Auth (External Libs)
+                from eve_sde.sde_tasks import SDE_FOLDER
+
+                sde_folder = SDE_FOLDER
+            except Exception:
+                sde_folder = "eve-sde"
 
         if not os.path.isdir(sde_folder):
             raise CommandError(f"SDE folder not found: {sde_folder}")
