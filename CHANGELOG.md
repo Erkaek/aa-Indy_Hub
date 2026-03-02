@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
 
+## [1.15.0] - 2026-03-02
+
 ### Added
 
 - Analytics: added safe Alliance Auth analytics helper module (`indy_hub/utils/analytics.py`) with task/event and standardized view-hit emitters.
@@ -60,6 +62,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Test coverage: expanded `test_material_exchange_contracts.py` for in-game override scenarios and mismatch detail propagation.
 - Legacy migration note: historical reference to `eveuniverse` remains in `0021_blueprint_table_and_bp_type.py` as a guarded fallback (`LookupError`) for old migration compatibility.
 - Material Exchange (Config): documented ItemCategory/ItemGroup allowlist constants with maintenance guidance for future filtering updates.
+- Release metadata bump to `1.15.0`.
 
 ### Update
 

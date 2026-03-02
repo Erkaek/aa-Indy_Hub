@@ -1093,9 +1093,11 @@ def _get_industry_market_group_ids() -> set[int]:
     cached = cache.get(cache_key)
     if cached is not None:
         try:
-            return {int(x) for x in cached}
+            cached_ids = {int(x) for x in cached}
+            if cached_ids:
+                return cached_ids
         except Exception:
-            return set()
+            pass
 
     try:
         # Alliance Auth (External Libs)
@@ -1126,7 +1128,8 @@ def _get_industry_market_group_ids() -> set[int]:
         logger.warning("Failed to load ItemGroup IDs from SDE item types: %s", exc)
         ids = set()
 
-    cache.set(cache_key, list(ids), 3600)
+    if ids:
+        cache.set(cache_key, list(ids), 3600)
     return ids
 
 
@@ -1175,9 +1178,11 @@ def _get_industry_market_group_choice_ids(depth_from_root: int = 2) -> set[int]:
     cached = cache.get(cache_key)
     if cached is not None:
         try:
-            return {int(x) for x in cached}
+            cached_ids = {int(x) for x in cached}
+            if cached_ids:
+                return cached_ids
         except Exception:
-            return set()
+            pass
 
     used_ids = _get_industry_market_group_ids()
     if not used_ids:
@@ -1197,7 +1202,8 @@ def _get_industry_market_group_choice_ids(depth_from_root: int = 2) -> set[int]:
         else:
             grouped_ids.add(path_ids[depth_from_root])
 
-    cache.set(cache_key, list(grouped_ids), 3600)
+    if grouped_ids:
+        cache.set(cache_key, list(grouped_ids), 3600)
     return grouped_ids
 
 
