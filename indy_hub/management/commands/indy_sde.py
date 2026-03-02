@@ -1,3 +1,6 @@
+# Standard Library
+import os
+
 # Django
 from django.core.management import BaseCommand, call_command
 
@@ -47,12 +50,20 @@ class Command(BaseCommand):
             # Alliance Auth (External Libs)
             from eve_sde.sde_tasks import SDE_FOLDER, download_extract_sde
 
-            self.stdout.write(
-                self.style.NOTICE("[2/3] Downloading latest SDE JSONL files...")
-            )
-            download_extract_sde()
-            sde_folder = SDE_FOLDER
-            downloaded_sde = True
+            if os.path.isdir(SDE_FOLDER):
+                sde_folder = SDE_FOLDER
+                self.stdout.write(
+                    self.style.NOTICE(
+                        f"[2/3] Reusing existing eve_sde folder: {sde_folder}"
+                    )
+                )
+            else:
+                self.stdout.write(
+                    self.style.NOTICE("[2/3] Downloading latest SDE JSONL files...")
+                )
+                download_extract_sde()
+                sde_folder = SDE_FOLDER
+                downloaded_sde = True
         else:
             self.stdout.write(
                 self.style.NOTICE(f"[2/3] Using provided SDE folder: {sde_folder}")
