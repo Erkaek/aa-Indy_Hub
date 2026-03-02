@@ -470,7 +470,7 @@
                                                 </div>
                                                 <div class="flex-grow-1" style="min-width: 0; flex: 1 1 0;">
                                                     <div class="small text-muted mb-1">{% trans "Selected" %}</div>
-                                                    <select class="form-select form-select-sm" multiple size="10" id="marketGroupsSellSelected" style="height: 130px;">
+                                                    <select name="allowed_market_groups_sell" class="form-select form-select-sm" multiple size="10" id="marketGroupsSellSelected" style="height: 130px;">
                                                         {% for group in market_group_choices %}
                                                             {% if group.id in selected_market_groups_sell %}
                                                                 <option value="{{ group.id }}" selected>{{ group.label }}</option>

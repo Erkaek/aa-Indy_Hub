@@ -153,19 +153,18 @@
                     {% if character_tabs %}
                     <div class="me-character-tabs mb-3">
                         {% if character_tabs|length > 1 %}
-                        {% if active_character_tab_data %}
                         <div class="d-flex flex-wrap align-items-center gap-3 p-3 rounded-3 bg-body-tertiary border">
                             <img
-                                src="{{ active_character_tab_data.portrait_url }}"
-                                alt="{{ active_character_tab_data.name }}"
+                                src="{% if active_character_tab_data %}{{ active_character_tab_data.portrait_url }}{% else %}https://images.evetech.net/characters/{{ character_tabs.0.id }}/portrait?size=128{% endif %}"
+                                alt="{% if active_character_tab_data %}{{ active_character_tab_data.name }}{% else %}{{ character_tabs.0.name }}{% endif %}"
                                 class="rounded-circle flex-shrink-0"
                                 width="64"
                                 height="64">
                             <div class="flex-grow-1">
                                 <div class="small text-body-secondary">{% trans "Selected character" %}</div>
                                 <div class="h5 mb-0 text-body d-flex align-items-center gap-2 flex-wrap">
-                                    <span>{{ active_character_tab_data.name }}</span>
-                                    <span class="badge rounded-pill bg-secondary">{{ active_character_tab_data.item_count }}</span>
+                                    <span>{% if active_character_tab_data %}{{ active_character_tab_data.name }}{% else %}{{ character_tabs.0.name }}{% endif %}</span>
+                                    <span class="badge rounded-pill bg-secondary">{% if active_character_tab_data %}{{ active_character_tab_data.item_count }}{% else %}{{ character_tabs.0.item_count }}{% endif %}</span>
                                 </div>
                             </div>
                             <div class="ms-auto w-100 w-md-auto">
@@ -186,7 +185,6 @@
                                 </div>
                             </div>
                         </div>
-                        {% endif %}
                         {% else %}
                         <ul class="nav nav-pills flex-wrap gap-2">
                             {% for tab in character_tabs %}
@@ -393,6 +391,11 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     if (sellSearchInput) {
+        sellSearchInput.addEventListener('keydown', function(event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+            }
+        });
         sellSearchInput.addEventListener('input', applySellFilter);
         sellSearchModeInputs.forEach(input => input.addEventListener('change', () => {
             updateSellSearchPlaceholder();

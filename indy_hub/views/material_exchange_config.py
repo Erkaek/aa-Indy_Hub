@@ -40,6 +40,9 @@ from ..utils.eve import PLACEHOLDER_PREFIX
 esi = esi_provider
 logger = get_extension_logger(__name__)
 
+# EVE SDE ItemCategory IDs allowed in Material Exchange group selectors.
+# This list intentionally includes industry/material-relevant categories only.
+# Keep in sync with functional coverage expectations from Material Hub UX.
 ALLOWED_ITEMGROUP_CATEGORY_IDS: set[int] = {
     4,
     5,
@@ -75,6 +78,8 @@ ALLOWED_ITEMGROUP_CATEGORY_IDS: set[int] = {
     2143,
 }
 
+# EVE SDE ItemGroup IDs explicitly included even if their category is outside
+# the allowlist above (edge groups required by current hub workflows).
 FORCED_INCLUDED_ITEMGROUP_IDS: set[int] = {
     448,
     14,
@@ -1274,12 +1279,16 @@ def _get_industry_market_group_search_index(
     if not all_groups:
         return {}
 
+    grouped_id_list = sorted(int(group_id) for group_id in grouped_ids)
+
     try:
         # Alliance Auth (External Libs)
         from eve_sde.models import ItemType
 
         rows = (
-            ItemType.objects.exclude(group_id__isnull=True)
+            ItemType.objects.filter(group_id__in=grouped_id_list)
+            .exclude(name__isnull=True)
+            .exclude(name="")
             .values_list("group_id", "name")
             .distinct()
         )
