@@ -7,18 +7,28 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
 
+## [1.15.1] - 2026-03-03
+
 ### Fixed
 
 - SDE sync commands: `sync_sde_compat` now auto-downloads temporary SDE data when the configured folder is missing, then deletes the temporary SDE folder after sync (including failure cleanup). Added `indy_sde_compat` as an alias command.
 - Material Exchange (Config): corporation asset/token selection is now scoped to the active user session for structure loading, preventing cross-user token selection side effects.
 - Material Exchange (roles cache): stale `CharacterRoles` snapshots are now reused when live fetch is disabled, preventing false `DIRECTOR` negatives (`has: []`) when roles exist in DB.
 - Material Exchange (assets logging): expected user-scoped corporation asset `403` role denials are now logged as informational instead of warning-level noise.
+- Material Exchange (ESI cache): corporation assets/divisions refresh now handles `304 Not Modified` with empty local cache by forcing a non-ETag refresh to repopulate DB cache after reinstall/reset scenarios.
+- Material Exchange (Config): when no structure flags are present but corp assets exist, structure discovery now falls back to plausible `location_id` candidates to avoid false "No corporation assets available" empty states.
+- Material Exchange (Config): negative empty-state cache TTL was reduced to recover faster after a successful background asset refresh.
 
 ### Changed
 
 - SDE compatibility periodic sync schedule changed to daily at `12:30 UTC` (no cron offset).
 - SDE compatibility sync now persists last processed source build metadata in Indy Hub (`SDESyncCompatState`) and skips full reprocessing when the upstream SDE build is unchanged.
 - Material Exchange (Config): corporation structures cache key is now user-specific to avoid sharing stale/incorrect structure lists across different users of the same corporation.
+- Startup/migrations: post-migrate bootstrap now queues `indy_hub.tasks.housekeeping.refresh_stale_snapshots` only when snapshot/cache tables are empty and `eveonline_evecharacter` contains data.
+
+### Internal
+
+- Release metadata bump to `1.15.1`.
 
 ## [1.15.0] - 2026-03-02
 
