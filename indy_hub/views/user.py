@@ -59,6 +59,7 @@ from ..models import (
     IndustryJob,
     JobNotificationDigestEntry,
     ProductionSimulation,
+    SDESyncCompatState,
     UserOnboardingProgress,
 )
 from ..notifications import build_site_url, notify_user
@@ -2436,6 +2437,7 @@ def token_management(request):
         enhanced_corp_scope_status.append(corp_entry)
 
     corp_scope_status = enhanced_corp_scope_status
+    sde_sync_state = SDESyncCompatState.objects.filter(pk=1).first()
     context = {
         "has_blueprint_tokens": bool(blueprint_char_ids),
         "has_jobs_tokens": bool(jobs_char_ids),
@@ -2474,6 +2476,12 @@ def token_management(request):
         "token_management_live_refresh_needed": token_management_live_refresh_needed,
         "token_management_live_refresh_url": reverse(
             "indy_hub:token_management_live_refresh"
+        ),
+        "indy_hub_last_sde_sync_at": (
+            sde_sync_state.last_synced_at if sde_sync_state else None
+        ),
+        "indy_hub_last_sde_source_build": (
+            sde_sync_state.last_source_build_number if sde_sync_state else None
         ),
     }
     context.update(

@@ -182,6 +182,20 @@
         </div>
         </section>
     {% endif %}
+
+    <div class="text-center mt-4">
+        <small class="text-muted">
+            {% trans "Last Indy Hub SDE update:" %}
+            {% if indy_hub_last_sde_sync_at %}
+                {{ indy_hub_last_sde_sync_at|date:"Y-m-d H:i:s" }} UTC
+                {% if indy_hub_last_sde_source_build %}
+                    · {% blocktrans with build=indy_hub_last_sde_source_build %}Build {{ build }}{% endblocktrans %}
+                {% endif %}
+            {% else %}
+                {% trans "Never" %}
+            {% endif %}
+        </small>
+    </div>
 </div>
 {% endblock content %}
 

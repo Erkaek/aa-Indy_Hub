@@ -954,7 +954,10 @@ def _get_user_corporations(user):
 def _get_corp_structures(user, corp_id):
     """Get list of player structures using lazy queryset and resolve names for user's DIRECTOR characters."""
 
-    cache_key = f"indy_hub:material_exchange:corp_structures:v2:{int(corp_id)}"
+    cache_key = (
+        f"indy_hub:material_exchange:corp_structures:v3:{int(corp_id)}:"
+        f"user:{int(getattr(user, 'id', 0) or 0)}"
+    )
     cached = cache.get(cache_key)
     if cached is not None:
         try:
@@ -968,6 +971,7 @@ def _get_corp_structures(user, corp_id):
     # Get structure IDs from corp assets
     assets_qs, assets_scope_missing = get_corp_assets_cached(
         int(corp_id),
+        owner_user=user,
         allow_refresh=True,
         as_queryset=True,
     )
@@ -1502,7 +1506,7 @@ def _handle_config_save(request, existing_config):
 @login_required
 @indy_hub_permission_required("can_manage_material_hub")
 @tokens_required(scopes="esi-characters.read_corporation_roles.v1")
-def material_exchange_debug_tokens(request, corp_id, tokens):
+def material_exchange_debug_tokens(request, tokens, corp_id):
     emit_view_analytics_event(
         view_name="material_exchange_config.debug_tokens", request=request
     )
@@ -1515,6 +1519,7 @@ def material_exchange_debug_tokens(request, corp_id, tokens):
     from django.http import JsonResponse
 
     # Alliance Auth
+    from allianceauth.eveonline.models import EveCharacter
     from esi.models import Token
 
     scope = request.GET.get("scope")
@@ -1537,28 +1542,12 @@ def material_exchange_debug_tokens(request, corp_id, tokens):
         except Exception:
             pass
         try:
-            character_resource = esi.client.Character
-            operation = getattr(
-                character_resource, "get_characters_character_id", None
-            ) or getattr(character_resource, "GetCharactersCharacterId")
-            char_info = operation(character_id=char_id).results()
-            if isinstance(char_info, dict):
-                corp_value = char_info.get("corporation_id")
-            else:
-                corp_value = None
-                for attr in ("model_dump", "dict", "to_dict"):
-                    converter = getattr(char_info, attr, None)
-                    if callable(converter):
-                        try:
-                            result = converter()
-                        except Exception:
-                            result = None
-                        if isinstance(result, dict):
-                            corp_value = result.get("corporation_id")
-                            break
-                if corp_value is None:
-                    corp_value = getattr(char_info, "corporation_id", None)
-            return int(corp_value or 0) == int(corp_id)
+            stored = EveCharacter.objects.get_character_by_id(int(char_id))
+            if stored is None:
+                stored = EveCharacter.objects.create_character(int(char_id))
+            if stored and getattr(stored, "corporation_id", None) is not None:
+                return int(stored.corporation_id) == int(corp_id)
+            return False
         except Exception:
             return False
 
