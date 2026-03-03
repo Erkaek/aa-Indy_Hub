@@ -15,6 +15,7 @@ from django.utils import timezone
 from allianceauth.authentication.models import CharacterOwnership
 from allianceauth.eveonline.models import EveCharacter
 from allianceauth.services.hooks import get_extension_logger
+from esi.exceptions import HTTPNotModified
 from esi.models import Token
 
 # AA Example App
@@ -440,12 +441,31 @@ def _refresh_corp_assets(
 
         assets: list[dict] | None = None
         last_forbidden: Exception | None = None
+        had_unmodified = False
         for cid in candidate_ids:
             try:
                 assets = shared_client.fetch_corporation_assets(
                     corporation_id=int(corporation_id),
                     character_id=int(cid),
                 )
+                break
+            except ESIUnmodifiedError:
+                had_unmodified = True
+                # 304 responses depend on ETag/cache headers and can happen even if
+                # the Indy Hub DB cache was wiped (e.g. reinstall). If we have no
+                # local cache rows, force-refresh once to populate.
+                if not CachedCorporationAsset.objects.filter(
+                    corporation_id=int(corporation_id)
+                ).exists():
+                    try:
+                        assets = shared_client.fetch_corporation_assets(
+                            corporation_id=int(corporation_id),
+                            character_id=int(cid),
+                            force_refresh=True,
+                        )
+                        break
+                    except ESIUnmodifiedError:
+                        pass
                 break
             except ESIForbiddenError as exc:
                 last_forbidden = exc
@@ -459,6 +479,11 @@ def _refresh_corp_assets(
         if assets is None:
             if last_forbidden is not None:
                 raise last_forbidden
+            if had_unmodified:
+                # Caller will fall back to DB cache (if any)
+                raise ESIUnmodifiedError(
+                    f"ESI returned 304 for /corporations/{int(corporation_id)}/assets/"
+                )
             raise ESIClientError(
                 f"No usable character token found for corporation {corporation_id} assets"
             )
@@ -1067,10 +1092,24 @@ def _refresh_corp_divisions(corporation_id: int) -> tuple[dict[int, str], bool]:
             )
         if operation is None:
             raise AttributeError("Corporation divisions operation not available")
-        divisions_data = operation(
-            corporation_id=corporation_id,
-            token=token_obj,
-        ).results()
+        try:
+            divisions_data = operation(
+                corporation_id=corporation_id,
+                token=token_obj,
+            ).results()
+        except HTTPNotModified:
+            # 304 means "Not Modified" relative to a cached ETag. This can happen
+            # even if the Indy Hub DB cache was wiped; force-refresh once so we can
+            # repopulate the DB cache.
+            if not CachedCorporationDivision.objects.filter(
+                corporation_id=int(corporation_id)
+            ).exists():
+                divisions_data = operation(
+                    corporation_id=corporation_id,
+                    token=token_obj,
+                ).results(use_etag=False, force_refresh=True)
+            else:
+                return {}, scope_missing
         divisions_data = _coerce_payload(divisions_data)
         hangar_divisions = divisions_data.get("hangar", []) if divisions_data else []
 
@@ -1109,6 +1148,11 @@ def _refresh_corp_divisions(corporation_id: int) -> tuple[dict[int, str], bool]:
 
     except ESITokenError:
         scope_missing = True
+    except HTTPNotModified:
+        logger.debug(
+            "Corporation divisions not modified for %s; using cached divisions",
+            corporation_id,
+        )
     except Exception as exc:  # pragma: no cover - defensive
         logger.warning(
             "Error refreshing corp divisions for %s: %s", corporation_id, exc

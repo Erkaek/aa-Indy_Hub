@@ -1016,19 +1016,51 @@ def _get_corp_structures(user, corp_id):
             loc_ids_set.add(int(structure_id))
             structure_flags.setdefault(int(structure_id), set()).add(str(flag))
 
+    if not loc_ids_set and assets_qs.exists():
+        # Fallback: some corp inventories may not expose the expected flags
+        # (OfficeFolder/CorpSAG*) even though assets are present. In that case,
+        # probe likely station/structure location_ids directly.
+        fallback_candidates: set[int] = set()
+        for raw_location_id in assets_qs.values_list(
+            "location_id", flat=True
+        ).distinct():
+            if not raw_location_id:
+                continue
+            try:
+                location_id = int(raw_location_id)
+            except (TypeError, ValueError):
+                continue
+
+            # NPC stations are in this range; Upwell structures are large int IDs.
+            if (
+                60_000_000 <= location_id <= 69_999_999
+                or location_id >= 1_000_000_000_000
+            ):
+                fallback_candidates.add(location_id)
+
+        # Keep fallback bounded to avoid expensive synchronous lookups.
+        loc_ids_set.update(sorted(fallback_candidates)[:600])
+
     loc_ids = list(loc_ids_set)
 
     if not loc_ids:
+        empty_msg = (
+            _("⚠ No corporation assets available (ESI scope missing)")
+            if assets_scope_missing
+            else _("⚠ No corporation structure locations found in cached corp assets")
+        )
         result = (
             [
                 {
                     "id": 0,
-                    "name": _("⚠ No corporation assets available (ESI scope missing)"),
+                    "name": empty_msg,
                 }
             ],
             assets_scope_missing,
         )
-        cache.set(cache_key, result, 300)
+        # Avoid long-lived negative cache entries: when background refresh succeeds
+        # shortly after, we want the config page to recover on next load.
+        cache.set(cache_key, result, 30)
         return result
 
     # Resolve structure names using user's DIRECTOR characters

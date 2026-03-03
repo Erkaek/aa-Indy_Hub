@@ -258,11 +258,22 @@ class ESIClient:
         request_kwargs = {}
         if force_refresh:
             request_kwargs["If-None-Match"] = ""
+
+        results_kwargs = None
+        if force_refresh:
+            results_kwargs = {"use_etag": False, "force_refresh": True}
+        results_kwargs = None
+        if force_refresh:
+            # django-esi can return cached results without hitting ESI; when a caller
+            # explicitly requests a refresh (e.g. after DB cache reset), bypass its
+            # caching/etag behavior.
+            results_kwargs = {"use_etag": False, "force_refresh": True}
         payload = self._call_authed(
             token_obj,
             character_id=character_id,
             endpoint=f"/characters/{character_id}/roles/",
             scope="esi-characters.read_corporation_roles.v1",
+            results_kwargs=results_kwargs,
             operation=lambda token: operation_fn(
                 character_id=character_id,
                 token=token,
@@ -453,10 +464,16 @@ class ESIClient:
         if force_refresh:
             request_kwargs["If-None-Match"] = ""
 
+        results_kwargs = None
+        if force_refresh:
+            results_kwargs = {"use_etag": False, "force_refresh": True}
+
         try:
-            payload = operation_fn(
-                **params, token=token_obj, **request_kwargs
-            ).results()
+            operation_call = operation_fn(**params, token=token_obj, **request_kwargs)
+            if results_kwargs is None:
+                payload = operation_call.results()
+            else:
+                payload = operation_call.results(**results_kwargs)
         except HTTPNotModified as exc:
             raise ESIUnmodifiedError(f"ESI returned 304 for {endpoint}") from exc
         except HTTPError as exc:
@@ -480,9 +497,13 @@ class ESIClient:
 
             access_token = token_obj.valid_access_token()
             try:
-                payload = operation_fn(
+                operation_call = operation_fn(
                     **params, token=access_token, **request_kwargs
-                ).results()
+                )
+                if results_kwargs is None:
+                    payload = operation_call.results()
+                else:
+                    payload = operation_call.results(**results_kwargs)
             except HTTPNotModified as retry_exc:
                 raise ESIUnmodifiedError(
                     f"ESI returned 304 for {endpoint}"
@@ -615,6 +636,7 @@ class ESIClient:
         corporation_id: int,
         *,
         character_id: int,
+        force_refresh: bool = False,
     ) -> list[dict]:
         """Fetch all corporation assets for the given corp using a character token."""
         return self._fetch_paginated(
@@ -624,6 +646,7 @@ class ESIClient:
             resource="Assets",
             operation="get_corporations_corporation_id_assets",
             params={"corporation_id": corporation_id},
+            force_refresh=force_refresh,
         )
 
     def fetch_character_assets(
@@ -648,6 +671,7 @@ class ESIClient:
         corporation_id: int,
         *,
         character_id: int,
+        force_refresh: bool = False,
     ) -> list[dict]:
         """Fetch corporation structures (includes names) using corp structures scope."""
         return self._fetch_paginated(
@@ -657,6 +681,7 @@ class ESIClient:
             resource="Corporation",
             operation="get_corporations_corporation_id_structures",
             params={"corporation_id": corporation_id},
+            force_refresh=force_refresh,
         )
 
     def resolve_ids_to_names(self, ids: list[int]) -> dict[int, str]:

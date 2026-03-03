@@ -128,6 +128,45 @@ class IndyHubConfig(AppConfig):
             except Exception as e:
                 logger.exception("Error setting up periodic tasks: %s", e)
 
+            # Bootstrap stale snapshots once after migration when local tables are empty.
+            # This helps fresh/reinstalled instances populate role/skill/online/structure
+            # snapshots without waiting for the next periodic schedule.
+            try:
+                # Alliance Auth
+                from allianceauth.eveonline.models import EveCharacter
+
+                from .models import (
+                    CachedStructureName,
+                    CharacterOnlineStatus,
+                    CharacterRoles,
+                    IndustrySkillSnapshot,
+                )
+                from .tasks.housekeeping import refresh_stale_snapshots
+
+                has_characters = EveCharacter.objects.exists()
+                should_bootstrap = has_characters and any(
+                    [
+                        not CharacterRoles.objects.exists(),
+                        not IndustrySkillSnapshot.objects.exists(),
+                        not CharacterOnlineStatus.objects.exists(),
+                        not CachedStructureName.objects.exists(),
+                    ]
+                )
+                if should_bootstrap:
+                    refresh_stale_snapshots.delay()
+                    logger.info(
+                        "Queued indy_hub refresh_stale_snapshots after migrate (empty snapshot/cache table detected)."
+                    )
+                elif not has_characters:
+                    logger.info(
+                        "Skipping post-migrate refresh_stale_snapshots: eveonline_evecharacter is empty."
+                    )
+            except Exception as e:
+                logger.warning(
+                    "Could not queue refresh_stale_snapshots after migrate: %s",
+                    e,
+                )
+
         post_migrate.connect(_setup_periodic_tasks, sender=self)
 
         # Check dependencies (optional logging)
