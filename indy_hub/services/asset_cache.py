@@ -70,16 +70,21 @@ def _get_or_fetch_character_roles(
     allow_fetch: bool = True,
 ) -> list[str]:
     snapshot = CharacterRoles.objects.filter(character_id=character_id).first()
+    snapshot_roles = (
+        [str(role).upper() for role in (snapshot.roles or []) if role]
+        if snapshot
+        else []
+    )
     now = timezone.now()
     snapshot_stale = bool(
         snapshot
         and (now - snapshot.last_updated) >= timedelta(hours=ROLE_SNAPSHOT_STALE_HOURS)
     )
     if snapshot and not snapshot_stale:
-        return [str(role).upper() for role in (snapshot.roles or []) if role]
+        return snapshot_roles
 
     if not allow_fetch:
-        return []
+        return snapshot_roles
 
     if owner_user is None or corporation_id is None:
         ownership = (
@@ -323,7 +328,7 @@ def _cache_corp_structure_names(corporation_id: int) -> dict[int, str]:
     return cached
 
 
-def _get_character_for_scope(corporation_id: int, scope: str) -> int:
+def _get_character_for_scope(corporation_id: int, scope: str, owner_user=None) -> int:
     """Find a character in the corporation with the required ESI scope."""
     tokens = Token.objects.none()
     character_ids = list(
@@ -334,6 +339,8 @@ def _get_character_for_scope(corporation_id: int, scope: str) -> int:
     character_ids_set = {int(cid) for cid in character_ids if cid is not None}
     try:
         tokens = Token.objects.all()
+        if owner_user is not None:
+            tokens = tokens.filter(user=owner_user)
         if character_ids:
             tokens = tokens.filter(character_id__in=character_ids)
         if hasattr(tokens, "require_valid"):
@@ -362,28 +369,12 @@ def _get_character_for_scope(corporation_id: int, scope: str) -> int:
         except Exception:
             pass
         try:
-            character_resource = esi.client.Character
-            operation = getattr(
-                character_resource, "get_characters_character_id", None
-            ) or getattr(character_resource, "GetCharactersCharacterId")
-            char_info = operation(character_id=int(token.character_id)).results()
-            if isinstance(char_info, dict):
-                corp_id = char_info.get("corporation_id")
-            else:
-                corp_id = None
-                for attr in ("model_dump", "dict", "to_dict"):
-                    converter = getattr(char_info, attr, None)
-                    if callable(converter):
-                        try:
-                            result = converter()
-                        except Exception:
-                            result = None
-                        if isinstance(result, dict):
-                            corp_id = result.get("corporation_id")
-                            break
-                if corp_id is None:
-                    corp_id = getattr(char_info, "corporation_id", None)
-            return int(corp_id or 0) == int(corporation_id)
+            stored = EveCharacter.objects.get_character_by_id(int(token.character_id))
+            if stored is None:
+                stored = EveCharacter.objects.create_character(int(token.character_id))
+            if stored and getattr(stored, "corporation_id", None) is not None:
+                return int(stored.corporation_id) == int(corporation_id)
+            return False
         except Exception:
             return False
 
@@ -414,18 +405,64 @@ def _get_character_for_scope(corporation_id: int, scope: str) -> int:
     )
 
 
-def _refresh_corp_assets(corporation_id: int) -> tuple[list[dict], bool]:
+def _refresh_corp_assets(
+    corporation_id: int, owner_user=None
+) -> tuple[list[dict], bool]:
     """Fetch corporation assets from ESI and refresh the cache."""
 
     assets_scope_missing = False
     try:
-        character_id = _get_character_for_scope(
-            corporation_id, "esi-assets.read_corporation_assets.v1"
-        )
-        assets = shared_client.fetch_corporation_assets(
-            corporation_id=int(corporation_id),
-            character_id=int(character_id),
-        )
+        scope = "esi-assets.read_corporation_assets.v1"
+        character_id = _get_character_for_scope(corporation_id, scope, owner_user)
+
+        candidate_ids: list[int] = [int(character_id)]
+        try:
+            corp_character_ids = list(
+                EveCharacter.objects.filter(corporation_id=corporation_id).values_list(
+                    "character_id", flat=True
+                )
+            )
+            extra_tokens = Token.objects.filter(character_id__in=corp_character_ids)
+            if owner_user is not None:
+                extra_tokens = extra_tokens.filter(user=owner_user)
+            extra_ids = list(
+                extra_tokens.require_scopes([scope])
+                .require_valid()
+                .values_list("character_id", flat=True)
+            )
+            for cid in extra_ids:
+                if cid is None:
+                    continue
+                if int(cid) not in candidate_ids:
+                    candidate_ids.append(int(cid))
+        except Exception:
+            pass
+
+        assets: list[dict] | None = None
+        last_forbidden: Exception | None = None
+        for cid in candidate_ids:
+            try:
+                assets = shared_client.fetch_corporation_assets(
+                    corporation_id=int(corporation_id),
+                    character_id=int(cid),
+                )
+                break
+            except ESIForbiddenError as exc:
+                last_forbidden = exc
+                logger.info(
+                    "Character %s lacks corp roles for assets in corp %s; trying next token",
+                    cid,
+                    corporation_id,
+                )
+                continue
+
+        if assets is None:
+            if last_forbidden is not None:
+                raise last_forbidden
+            raise ESIClientError(
+                f"No usable character token found for corporation {corporation_id} assets"
+            )
+
         now = timezone.now()
         rows: list[CachedCorporationAsset] = []
         for asset in assets:
@@ -466,7 +503,19 @@ def _refresh_corp_assets(corporation_id: int) -> tuple[list[dict], bool]:
         )
     except ESITokenError:
         assets_scope_missing = True
-    except (ESIForbiddenError, ESIRateLimitError, ESIClientError) as exc:
+    except ESIForbiddenError as exc:
+        if owner_user is not None:
+            logger.info(
+                "ESI assets forbidden for corp %s (user %s): %s",
+                corporation_id,
+                getattr(owner_user, "username", None),
+                exc,
+            )
+        else:
+            logger.warning(
+                "ESI assets lookup failed for corp %s: %s", corporation_id, exc
+            )
+    except (ESIRateLimitError, ESIClientError) as exc:
         logger.warning("ESI assets lookup failed for corp %s: %s", corporation_id, exc)
     except Exception as exc:  # pragma: no cover - defensive
         logger.warning(
@@ -479,6 +528,7 @@ def _refresh_corp_assets(corporation_id: int) -> tuple[list[dict], bool]:
 def get_corp_assets_cached(
     corporation_id: int,
     *,
+    owner_user=None,
     allow_refresh: bool = True,
     max_age_minutes: int | None = None,
     as_queryset: bool = False,
@@ -521,7 +571,10 @@ def get_corp_assets_cached(
         return assets, assets_scope_missing
 
     if allow_refresh:
-        refreshed_assets, assets_scope_missing = _refresh_corp_assets(corporation_id)
+        refreshed_assets, assets_scope_missing = _refresh_corp_assets(
+            corporation_id,
+            owner_user=owner_user,
+        )
         # After refresh, return a lazy queryset if requested; otherwise the refreshed list
         if refreshed_assets:
             if as_queryset:
@@ -748,11 +801,16 @@ def resolve_structure_names(
                         logger.debug(
                             "Character %s has Director role, added to candidates", cid
                         )
-                    else:
+                    elif corp_roles:
                         logger.debug(
                             "Character %s lacks Director role (has: %s)",
                             cid,
                             corp_roles,
+                        )
+                    else:
+                        logger.debug(
+                            "Character %s role snapshot unavailable; skipping Director filter",
+                            cid,
                         )
                 except Exception as exc:
                     logger.warning(

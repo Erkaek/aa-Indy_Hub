@@ -473,7 +473,37 @@ class ESIClient:
                 f"No valid token for character {character_id} and scope {scope}"
             ) from exc
         except Exception as exc:
-            raise ESIClientError(f"ESI request failed for {endpoint}: {exc}") from exc
+            if "is not of type 'string'" not in str(exc):
+                raise ESIClientError(
+                    f"ESI request failed for {endpoint}: {exc}"
+                ) from exc
+
+            access_token = token_obj.valid_access_token()
+            try:
+                payload = operation_fn(
+                    **params, token=access_token, **request_kwargs
+                ).results()
+            except HTTPNotModified as retry_exc:
+                raise ESIUnmodifiedError(
+                    f"ESI returned 304 for {endpoint}"
+                ) from retry_exc
+            except HTTPError as retry_exc:
+                self._handle_http_error(
+                    retry_exc,
+                    character_id=character_id,
+                    endpoint=endpoint,
+                    token_obj=token_obj,
+                    scope=scope,
+                )
+                raise
+            except TokenError as retry_exc:
+                raise ESITokenError(
+                    f"No valid token for character {character_id} and scope {scope}"
+                ) from retry_exc
+            except Exception as retry_exc:
+                raise ESIClientError(
+                    f"ESI request failed for {endpoint}: {retry_exc}"
+                ) from retry_exc
 
         if not isinstance(payload, list):
             raise ESIClientError(
@@ -692,15 +722,71 @@ class ESIClient:
         if operation is None:
             raise ESIClientError("No ESI operation provided")
         try:
-            token_obj.valid_access_token()
+            access_token = token_obj.valid_access_token()
         except Exception as exc:
             raise ESITokenError(
                 f"No valid token for character {character_id} and scope {scope}"
             ) from exc
-        try:
+
+        def _execute(token_value):
             if results_kwargs is None:
-                results_kwargs = {}
-            return operation(token_obj).results(**results_kwargs)
+                return operation(token_value).results()
+            return operation(token_value).results(**results_kwargs)
+
+        try:
+            return _execute(token_obj)
+        except HTTPNotModified as exc:
+            raise ESIUnmodifiedError(
+                f"ESI returned 304 for {endpoint or 'request'}"
+            ) from exc
+        except HTTPError as exc:
+            self._handle_http_error(
+                exc,
+                character_id=character_id,
+                structure_id=structure_id,
+                endpoint=endpoint,
+                token_obj=token_obj,
+                scope=scope,
+            )
+            raise
+        except TokenError as exc:
+            raise ESITokenError(
+                f"No valid token for character {character_id} and scope {scope}"
+            ) from exc
+        except Exception as exc:
+            if "is not of type 'string'" not in str(exc):
+                raise ESIClientError(
+                    f"ESI request failed for {endpoint}: {exc}"
+                ) from exc
+
+        try:
+            return _execute(access_token)
+        except HTTPNotModified as exc:
+            raise ESIUnmodifiedError(
+                f"ESI returned 304 for {endpoint or 'request'}"
+            ) from exc
+        except HTTPError as exc:
+            self._handle_http_error(
+                exc,
+                character_id=character_id,
+                structure_id=structure_id,
+                endpoint=endpoint,
+                token_obj=token_obj,
+                scope=scope,
+            )
+            raise
+        except TokenError as exc:
+            raise ESITokenError(
+                f"No valid token for character {character_id} and scope {scope}"
+            ) from exc
+        except Exception as exc:
+            if "is not of type 'string'" not in str(exc):
+                raise ESIClientError(
+                    f"ESI request failed for {endpoint}: {exc}"
+                ) from exc
+
+        try:
+            return _execute(access_token)
         except HTTPNotModified as exc:
             raise ESIUnmodifiedError(
                 f"ESI returned 304 for {endpoint or 'request'}"

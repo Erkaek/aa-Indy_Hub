@@ -2825,3 +2825,20 @@ class SDEBlueprintActivityMaterial(models.Model):
             f"{self.eve_type_id} needs {self.material_eve_type_id} "
             f"({self.activity_id}) x{self.quantity}"
         )
+
+
+class SDESyncCompatState(models.Model):
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    last_source_build_number = models.IntegerField(blank=True, null=True)
+    last_source_release_date = models.DateTimeField(blank=True, null=True)
+    last_synced_at = models.DateTimeField(blank=True, null=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "SDE Compat Sync State"
+        verbose_name_plural = "SDE Compat Sync State"
+        default_permissions = ()
+        db_table = "sdeindy_syncstate"
+
+    def __str__(self):
+        return f"SDE Compat State (build={self.last_source_build_number})"

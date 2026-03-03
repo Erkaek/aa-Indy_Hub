@@ -49,9 +49,9 @@ INDY_HUB_BEAT_SCHEDULE = {
     },
     "indy-hub-sync-sde-compatibility": {
         "task": "indy_hub.tasks.sde_sync.sync_sde_compatibility_data",
-        "schedule": crontab(minute=15, hour=4, day_of_week=0),  # Weekly Sunday
+        "schedule": crontab(minute=30, hour=12),  # Daily at 12:30 UTC
         "options": {"priority": 8},
-        "apply_offset": True,
+        "apply_offset": False,
     },
     # Material Exchange combined cycle: sync -> validate -> check completed
     "indy-hub-material-exchange-cycle": {
