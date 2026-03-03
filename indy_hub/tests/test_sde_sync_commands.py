@@ -7,6 +7,9 @@ from unittest.mock import patch
 from django.core.management import call_command
 from django.test import TestCase
 
+# AA Example App
+from indy_hub.models import SDESyncCompatState
+
 
 class SyncSdeCompatCommandTests(TestCase):
     @patch("indy_hub.management.commands.sync_sde_compat.sync_sde_compat_tables")
@@ -17,6 +20,8 @@ class SyncSdeCompatCommandTests(TestCase):
         call_command("sync_sde_compat", sde_folder="/tmp/existing")
 
         mock_sync.assert_called_once_with(sde_folder="/tmp/existing")
+        state = SDESyncCompatState.objects.get(pk=1)
+        self.assertIsNotNone(state.last_synced_at)
 
     @patch("indy_hub.management.commands.sync_sde_compat.sync_sde_compat_tables")
     @patch("eve_sde.sde_tasks.delete_sde_folder")

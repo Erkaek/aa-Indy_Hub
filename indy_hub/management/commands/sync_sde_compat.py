@@ -3,11 +3,13 @@ import os
 
 # Django
 from django.core.management.base import BaseCommand, CommandError
+from django.utils import timezone
 
 # Alliance Auth
 from allianceauth.services.hooks import get_extension_logger
 
 # AA Example App
+from indy_hub.models import SDESyncCompatState
 from indy_hub.services.sde_sync import sync_sde_compat_tables
 
 logger = get_extension_logger(__name__)
@@ -84,6 +86,10 @@ class Command(BaseCommand):
                             f"Downloaded SDE folder could not be deleted automatically: {sde_folder}"
                         )
                     )
+
+        state, _ = SDESyncCompatState.objects.get_or_create(pk=1)
+        state.last_synced_at = timezone.now()
+        state.save(update_fields=["last_synced_at", "updated_at"])
 
         self.stdout.write(self.style.SUCCESS("SDE compatibility sync completed."))
         self.stdout.write(self.style.SUCCESS(str(summary)))

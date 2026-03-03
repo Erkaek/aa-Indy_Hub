@@ -37,7 +37,7 @@ class Migration(migrations.Migration):
             options={
                 "verbose_name": "SDE Compat Sync State",
                 "verbose_name_plural": "SDE Compat Sync State",
-                "db_table": "sdeindy_syncstate",
+                "db_table": "indy_hub_sde_sync_state",
                 "default_permissions": (),
             },
         ),

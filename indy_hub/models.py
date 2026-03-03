@@ -2838,7 +2838,7 @@ class SDESyncCompatState(models.Model):
         verbose_name = "SDE Compat Sync State"
         verbose_name_plural = "SDE Compat Sync State"
         default_permissions = ()
-        db_table = "sdeindy_syncstate"
+        db_table = "indy_hub_sde_sync_state"
 
     def __str__(self):
         return f"SDE Compat State (build={self.last_source_build_number})"
