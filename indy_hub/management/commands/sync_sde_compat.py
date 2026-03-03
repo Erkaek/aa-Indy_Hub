@@ -2,6 +2,7 @@
 import os
 
 # Django
+from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
 
 # Alliance Auth
@@ -23,10 +24,19 @@ class Command(BaseCommand):
             default="",
             help="Path to the extracted SDE JSONL folder (defaults to INDY_HUB_SDE_FOLDER or 'eve-sde').",
         )
+        parser.add_argument(
+            "--with-esde-load",
+            action="store_true",
+            help="Also run full `esde_load_sde` before syncing compatibility tables.",
+        )
 
     def handle(self, *args, **options):
         # Django
         from django.conf import settings
+
+        if options.get("with_esde_load", False):
+            self.stdout.write(self.style.NOTICE("Running full eve_sde load (esde_load_sde)..."))
+            call_command("esde_load_sde", verbosity=int(options.get("verbosity", 1)))
 
         sde_folder = (options.get("sde_folder") or "").strip()
         if not sde_folder:
