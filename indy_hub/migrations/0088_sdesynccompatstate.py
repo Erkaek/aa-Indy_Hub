@@ -23,7 +23,10 @@ class Migration(migrations.Migration):
                         serialize=False,
                     ),
                 ),
-                ("last_source_build_number", models.IntegerField(blank=True, null=True)),
+                (
+                    "last_source_build_number",
+                    models.IntegerField(blank=True, null=True),
+                ),
                 (
                     "last_source_release_date",
                     models.DateTimeField(blank=True, null=True),
