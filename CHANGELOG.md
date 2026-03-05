@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Debug Health: added a dedicated `User Debug` tab with user search (username/email/ID) and focused diagnostics per selected Alliance Auth user.
+- Debug Health (user focus): added per-user configuration/debug datasets for character ownership, `CharacterSettings`, `CorporationSharingSetting`, onboarding status, token scopes, and blueprint location cache coverage samples.
+
+### Changed
+
+- Debug Health UI: reorganized diagnostics into dedicated tabs, including separate `Structure Inspector` and `User Debug` tabs for improved readability and faster troubleshooting.
+- Structure Inspector UX: inspector actions now keep the inspector context active (`tab=inspector`) and preserve focus flow after inspect/queue operations.
+- Debug Health navigation: active tab is now resolved server-side and automatically switches to `inspector` when structure inspection/queue feedback is present.
+
+### Fixed
+
+- Material Exchange (Buy): `Confirm Purchase` no longer posts thousands of zero-value `qty_*` fields; zero/empty quantities are excluded from submit payload to prevent `TooManyFieldsSent` on large hangars (issue #53).
+- Structure name resolver: `resolve_location_name` now consistently writes through to `CachedStructureName` (including in-memory-hit paths), preventing central cache gaps after blueprint/location refreshes.
+- Debug metrics stability: removed aggregate alias collisions that could overwrite copy-request counters in the health context.
+- Resolution policy consistency: strengthened int32/int64 handling to avoid unnecessary authenticated structure lookups for public int32 IDs.
+
+### Internal
+
+- Tests: added regression coverage for structure-name DB write-through behavior, including the in-memory cache return path when the DB row is missing.
+
 ## [1.15.1] - 2026-03-03
 
 ### Fixed

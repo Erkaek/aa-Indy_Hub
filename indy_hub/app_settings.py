@@ -45,7 +45,7 @@ SDE_FOLDER = clean_setting(
 
 MANUAL_REFRESH_COOLDOWN_SECONDS = clean_setting(
     "INDY_HUB_MANUAL_REFRESH_COOLDOWN_SECONDS",
-    3600,
+    300,
     min_value=0,
     required_type=int,
 )

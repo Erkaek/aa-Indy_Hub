@@ -1,5 +1,9 @@
+# Standard Library
+from unittest.mock import patch
+
 # Django
 from django.test import TestCase
+from django.utils import timezone
 
 # AA Example App
 from indy_hub.models import (
@@ -145,6 +149,51 @@ class TestMaterialExchangeLocations(TestCase):
             assert cached.name == "C-N4OD - Fountain of Life"
         finally:
             asset_cache.shared_client.fetch_structure_name = original
+
+    def test_int32_location_uses_public_names_without_authed_lookup(self):
+        station_id = 60003760
+
+        with (
+            patch(
+                "indy_hub.services.asset_cache.shared_client.resolve_ids_to_names",
+                return_value={
+                    station_id: "Jita IV - Moon 4 - Caldari Navy Assembly Plant"
+                },
+            ) as mock_public,
+            patch(
+                "indy_hub.services.asset_cache.shared_client.fetch_structure_name"
+            ) as mock_authed,
+        ):
+            mock_authed.side_effect = RuntimeError(
+                "fetch_structure_name should not be called for int32 IDs"
+            )
+            names = resolve_structure_names([station_id], character_id=1)
+
+        assert names[station_id] == "Jita IV - Moon 4 - Caldari Navy Assembly Plant"
+        mock_public.assert_called_once_with([station_id])
+        assert mock_authed.call_count == 0
+
+    def test_recent_int32_placeholder_is_refreshed_immediately(self):
+        station_id = 60000844
+        CachedStructureName.objects.update_or_create(
+            structure_id=station_id,
+            defaults={
+                "name": f"Structure {station_id}",
+                "last_resolved": timezone.now(),
+            },
+        )
+
+        with patch(
+            "indy_hub.services.asset_cache.shared_client.resolve_ids_to_names",
+            return_value={station_id: "Amarr VIII (Oris) - Emperor Family Academy"},
+        ) as mock_public:
+            names = resolve_structure_names([station_id], character_id=1)
+
+        assert names[station_id] == "Amarr VIII (Oris) - Emperor Family Academy"
+        mock_public.assert_called_once_with([station_id])
+
+        cached = CachedStructureName.objects.get(structure_id=station_id)
+        assert cached.name == "Amarr VIII (Oris) - Emperor Family Academy"
 
     def test_resolve_managed_hangar_name_from_cache(self):
         corp_id = 123

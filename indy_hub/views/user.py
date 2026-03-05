@@ -16,7 +16,7 @@ from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
-from django.db import transaction
+from django.db import DatabaseError, transaction
 from django.db.models import (
     Case,
     Count,
@@ -2048,6 +2048,25 @@ def index(request):
     )
     context["current_dashboard"] = "personal"
 
+    sde_state_ready = False
+    try:
+        sde_state = (
+            SDESyncCompatState.objects.filter(pk=1).only("last_synced_at").first()
+        )
+        sde_state_ready = bool(sde_state and sde_state.last_synced_at)
+    except DatabaseError:
+        logger.warning(
+            "Unable to read SDESyncCompatState while rendering index",
+            exc_info=True,
+        )
+        sde_state_ready = False
+
+    if not sde_state_ready:
+        context["sde_blocking_message"] = _(
+            "Indy Hub static data is not loaded yet. Please contact your administrator."
+        )
+        return render(request, "indy_hub/sde_not_ready.html", context)
+
     progress, _created = UserOnboardingProgress.objects.get_or_create(user=request.user)
     intro_key = "overview_intro_seen"
     if not (progress.manual_steps or {}).get(intro_key):
@@ -2814,7 +2833,7 @@ def sync_all_tokens(request, tokens):
             )
             any_scheduled = False
             if blueprint_tokens.exists():
-                scheduled, remaining = request_manual_refresh(
+                scheduled, remaining, reason = request_manual_refresh(
                     MANUAL_REFRESH_KIND_BLUEPRINTS,
                     request.user.id,
                     priority=5,
@@ -2824,6 +2843,13 @@ def sync_all_tokens(request, tokens):
                     messages.success(
                         request,
                         _("Blueprint synchronization scheduled."),
+                    )
+                elif reason == "in_progress":
+                    messages.info(
+                        request,
+                        _(
+                            "Blueprint synchronization is already running. Updated data will appear shortly."
+                        ),
                     )
                 elif remaining is None:
                     messages.warning(
@@ -2837,7 +2863,7 @@ def sync_all_tokens(request, tokens):
                     messages.warning(
                         request,
                         _(
-                            "Blueprint synchronization is on cooldown. Please retry in %(minutes)s minute(s)."
+                            "Blueprint synchronization was requested recently. Please retry in %(minutes)s minute(s)."
                         )
                         % {"minutes": wait_minutes},
                     )
@@ -2848,7 +2874,7 @@ def sync_all_tokens(request, tokens):
                 )
 
             if jobs_tokens.exists():
-                scheduled, remaining = request_manual_refresh(
+                scheduled, remaining, reason = request_manual_refresh(
                     MANUAL_REFRESH_KIND_JOBS,
                     request.user.id,
                     priority=5,
@@ -2858,6 +2884,13 @@ def sync_all_tokens(request, tokens):
                     messages.success(
                         request,
                         _("Industry jobs synchronization scheduled."),
+                    )
+                elif reason == "in_progress":
+                    messages.info(
+                        request,
+                        _(
+                            "Jobs synchronization is already running. Updated data will appear shortly."
+                        ),
                     )
                 elif remaining is None:
                     messages.warning(
@@ -2871,7 +2904,7 @@ def sync_all_tokens(request, tokens):
                     messages.warning(
                         request,
                         _(
-                            "Jobs synchronization is on cooldown. Please retry in %(minutes)s minute(s)."
+                            "Jobs synchronization was requested recently. Please retry in %(minutes)s minute(s)."
                         )
                         % {"minutes": wait_minutes},
                     )
@@ -2907,7 +2940,7 @@ def sync_blueprints(request, tokens):
                 .require_valid()
             )
             if blueprint_tokens.exists():
-                scheduled, remaining = request_manual_refresh(
+                scheduled, remaining, reason = request_manual_refresh(
                     MANUAL_REFRESH_KIND_BLUEPRINTS,
                     request.user.id,
                     priority=5,
@@ -2916,6 +2949,13 @@ def sync_blueprints(request, tokens):
                     messages.success(
                         request,
                         _("Blueprint synchronization scheduled."),
+                    )
+                elif reason == "in_progress":
+                    messages.info(
+                        request,
+                        _(
+                            "Blueprint synchronization is already running. Updated data will appear shortly."
+                        ),
                     )
                 elif remaining is None:
                     messages.warning(
@@ -2929,7 +2969,7 @@ def sync_blueprints(request, tokens):
                     messages.warning(
                         request,
                         _(
-                            "Blueprint synchronization is on cooldown. Please retry in %(minutes)s minute(s)."
+                            "Blueprint synchronization was requested recently. Please retry in %(minutes)s minute(s)."
                         )
                         % {"minutes": wait_minutes},
                     )
@@ -2958,7 +2998,7 @@ def sync_jobs(request, tokens):
                 .require_valid()
             )
             if jobs_tokens.exists():
-                scheduled, remaining = request_manual_refresh(
+                scheduled, remaining, reason = request_manual_refresh(
                     MANUAL_REFRESH_KIND_JOBS,
                     request.user.id,
                     priority=5,
@@ -2967,6 +3007,13 @@ def sync_jobs(request, tokens):
                     messages.success(
                         request,
                         _("Jobs synchronization scheduled."),
+                    )
+                elif reason == "in_progress":
+                    messages.info(
+                        request,
+                        _(
+                            "Jobs synchronization is already running. Updated data will appear shortly."
+                        ),
                     )
                 elif remaining is None:
                     messages.warning(
@@ -2980,7 +3027,7 @@ def sync_jobs(request, tokens):
                     messages.warning(
                         request,
                         _(
-                            "Jobs synchronization is on cooldown. Please retry in %(minutes)s minute(s)."
+                            "Jobs synchronization was requested recently. Please retry in %(minutes)s minute(s)."
                         )
                         % {"minutes": wait_minutes},
                     )

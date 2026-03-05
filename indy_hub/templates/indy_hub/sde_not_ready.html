@@ -1,0 +1,19 @@
+{% extends 'allianceauth/base-bs5.html' %}
+{% load i18n %}
+
+{% block page_title %}{% trans "Indy Hub" %}{% endblock page_title %}
+
+{% block content %}
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-lg-8">
+            <div class="card border-danger shadow-sm">
+                <div class="card-body p-4 text-center">
+                    <h2 class="h4 text-danger mb-3">{% trans "Indy Hub unavailable" %}</h2>
+                    <p class="mb-0">{{ sde_blocking_message|default:_("Indy Hub static data is not loaded yet. Please contact your administrator.") }}</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock content %}

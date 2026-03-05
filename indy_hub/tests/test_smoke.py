@@ -32,6 +32,7 @@ from indy_hub.models import (
     MaterialExchangeBuyOrder,
     MaterialExchangeConfig,
     MaterialExchangeSellOrder,
+    SDESyncCompatState,
     UserOnboardingProgress,
 )
 from indy_hub.notifications import notify_user
@@ -179,6 +180,118 @@ class NavbarBlueprintSharingTests(TestCase):
         response = self.client.get(reverse("indy_hub:index"))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, reverse("indy_hub:bp_copy_fulfill_requests"))
+
+
+class DebugHealthViewTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("debuguser", password="secret123")
+        assign_main_character(self.user, character_id=7003010)
+        grant_indy_permissions(self.user)
+
+        self.admin = User.objects.create_superuser(
+            username="debugadmin",
+            password="secret123",
+            email="debugadmin@example.com",
+        )
+        assign_main_character(self.admin, character_id=7003011)
+
+    def test_debug_health_requires_superuser(self) -> None:
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("indy_hub:debug_health"))
+        self.assertEqual(response.status_code, 404)
+
+        response_json = self.client.get(
+            reverse("indy_hub:debug_health") + "?format=json"
+        )
+        self.assertEqual(response_json.status_code, 404)
+
+    def test_debug_health_renders_for_superuser(self) -> None:
+        self.client.force_login(self.admin)
+        response = self.client.get(reverse("indy_hub:debug_health"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Indy Hub Debug Health")
+
+    def test_debug_health_json_for_superuser(self) -> None:
+        self.client.force_login(self.admin)
+        response = self.client.get(reverse("indy_hub:debug_health") + "?format=json")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertIn("generated_at", payload)
+        self.assertIn("resolver_kpis", payload)
+        self.assertIn("token_metrics", payload)
+
+    @patch(
+        "indy_hub.views.debug.shared_client.resolve_ids_to_names",
+        return_value={60000844: "Amarr VIII (Oris) - Emperor Family Academy"},
+    )
+    def test_debug_health_structure_inspector_html(self, _mock_public_names) -> None:
+        self.client.force_login(self.admin)
+        response = self.client.get(
+            reverse("indy_hub:debug_health") + "?structure_id=60000844"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Inspecteur structure ID")
+        self.assertContains(response, "Amarr VIII (Oris) - Emperor Family Academy")
+
+    @patch(
+        "indy_hub.views.debug.shared_client.resolve_ids_to_names",
+        return_value={60000844: "Amarr VIII (Oris) - Emperor Family Academy"},
+    )
+    def test_debug_health_structure_inspector_json(self, _mock_public_names) -> None:
+        self.client.force_login(self.admin)
+        response = self.client.get(
+            reverse("indy_hub:debug_health") + "?format=json&structure_id=60000844"
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertIn("inspect_data", payload)
+        self.assertEqual(payload["inspect_data"]["structure_id"], 60000844)
+
+    @patch("indy_hub.tasks.location.cache_structure_name.delay")
+    def test_debug_health_queue_structure_refresh(self, mock_delay) -> None:
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            reverse("indy_hub:debug_health"),
+            {
+                "action": "queue_structure_refresh",
+                "structure_id": "60000844",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("queued=1", response.url)
+        self.assertIn("structure_id=60000844", response.url)
+        mock_delay.assert_called_once_with(60000844)
+
+
+class IndexSDEGuardTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("sdeguard", password="secret123")
+        assign_main_character(self.user, character_id=7003002)
+        grant_indy_permissions(self.user)
+        self.client.force_login(self.user)
+
+    def test_index_is_blocked_when_sde_sync_never_ran(self) -> None:
+        SDESyncCompatState.objects.all().delete()
+
+        response = self.client.get(reverse("indy_hub:index"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "indy_hub/sde_not_ready.html")
+        self.assertContains(
+            response,
+            "Indy Hub static data is not loaded yet. Please contact your administrator.",
+        )
+
+    def test_index_loads_normally_when_sde_sync_has_timestamp(self) -> None:
+        SDESyncCompatState.objects.update_or_create(
+            pk=1,
+            defaults={"last_synced_at": timezone.now()},
+        )
+
+        response = self.client.get(reverse("indy_hub:index"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotTemplateUsed(response, "indy_hub/sde_not_ready.html")
 
 
 class BlueprintCopyHistoryAccessTests(TestCase):
@@ -2216,6 +2329,98 @@ class StructureLookupForbiddenCacheTests(TestCase):
             self.assertEqual(mock_fetch.call_count, 1)
 
 
+class StructureLookupDbCacheTests(TestCase):
+    def tearDown(self) -> None:
+        eve_utils._LOCATION_NAME_CACHE.clear()
+
+    def test_resolve_location_name_prefers_cached_structure_name(self) -> None:
+        structure_id = 1_042_090_993_674
+        CachedStructureName.objects.create(
+            structure_id=structure_id,
+            name="Cached Structure Alpha",
+            last_resolved=timezone.now(),
+        )
+
+        with patch(
+            "indy_hub.utils.eve.shared_client.fetch_structure_name"
+        ) as mock_fetch:
+            mock_fetch.side_effect = RuntimeError(
+                "fetch_structure_name should not be called"
+            )
+            result = eve_utils.resolve_location_name(
+                structure_id,
+                character_id=None,
+                owner_user_id=None,
+                force_refresh=False,
+                allow_public=False,
+            )
+
+        self.assertEqual(result, "Cached Structure Alpha")
+
+    def test_in_memory_placeholder_replaced_by_db_value(self) -> None:
+        structure_id = 1_045_667_241_057
+        eve_utils._LOCATION_NAME_CACHE[structure_id] = f"Structure {structure_id}"
+
+        CachedStructureName.objects.create(
+            structure_id=structure_id,
+            name="Cached Structure Beta",
+            last_resolved=timezone.now(),
+        )
+
+        with patch(
+            "indy_hub.utils.eve.shared_client.fetch_structure_name"
+        ) as mock_fetch:
+            mock_fetch.side_effect = RuntimeError(
+                "fetch_structure_name should not be called"
+            )
+            result = eve_utils.resolve_location_name(
+                structure_id,
+                character_id=None,
+                owner_user_id=None,
+                force_refresh=False,
+                allow_public=False,
+            )
+
+        self.assertEqual(result, "Cached Structure Beta")
+
+    def test_resolve_location_name_writes_through_to_central_cache(self) -> None:
+        structure_id = 1_045_667_241_057
+        CachedStructureName.objects.filter(structure_id=structure_id).delete()
+
+        with patch(
+            "indy_hub.utils.eve.shared_client.fetch_structure_name",
+            return_value="Cached Write Through Structure",
+        ):
+            result = eve_utils.resolve_location_name(
+                structure_id,
+                character_id=7001,
+                owner_user_id=None,
+                force_refresh=True,
+                allow_public=False,
+            )
+
+        self.assertEqual(result, "Cached Write Through Structure")
+        cached = CachedStructureName.objects.get(structure_id=structure_id)
+        self.assertEqual(cached.name, "Cached Write Through Structure")
+
+    def test_in_memory_resolved_cache_writes_to_central_cache(self) -> None:
+        structure_id = 1_042_090_993_675
+        eve_utils._LOCATION_NAME_CACHE[structure_id] = "In-memory Structure Gamma"
+        CachedStructureName.objects.filter(structure_id=structure_id).delete()
+
+        result = eve_utils.resolve_location_name(
+            structure_id,
+            character_id=None,
+            owner_user_id=None,
+            force_refresh=False,
+            allow_public=False,
+        )
+
+        self.assertEqual(result, "In-memory Structure Gamma")
+        cached = CachedStructureName.objects.get(structure_id=structure_id)
+        self.assertEqual(cached.name, "In-memory Structure Gamma")
+
+
 class ManualRefreshCooldownTests(TestCase):
     def setUp(self) -> None:
         self.user = User.objects.create_user("manual", password="secret123")
@@ -2230,13 +2435,14 @@ class ManualRefreshCooldownTests(TestCase):
         with patch(
             "indy_hub.tasks.industry.update_blueprints_for_user.apply_async"
         ) as mock_apply:
-            scheduled, remaining = request_manual_refresh(
+            scheduled, remaining, reason = request_manual_refresh(
                 MANUAL_REFRESH_KIND_BLUEPRINTS,
                 self.user.id,
                 check_active=False,
             )
         self.assertTrue(scheduled)
         self.assertIsNone(remaining)
+        self.assertIsNone(reason)
         mock_apply.assert_called_once()
 
         allowed, cooldown = manual_refresh_allowed(
@@ -2245,11 +2451,62 @@ class ManualRefreshCooldownTests(TestCase):
         self.assertFalse(allowed)
         self.assertIsNotNone(cooldown)
 
+    def test_manual_blueprint_refresh_forces_task_refresh(self) -> None:
+        with patch(
+            "indy_hub.tasks.industry.update_blueprints_for_user.apply_async"
+        ) as mock_apply:
+            scheduled, remaining, reason = request_manual_refresh(
+                MANUAL_REFRESH_KIND_BLUEPRINTS,
+                self.user.id,
+                check_active=False,
+                scope="corporation",
+            )
+
+        self.assertTrue(scheduled)
+        self.assertIsNone(remaining)
+        self.assertIsNone(reason)
+        mock_apply.assert_called_once_with(
+            args=(self.user.id,),
+            kwargs={"scope": "corporation", "force_refresh": True},
+            countdown=0,
+            priority=None,
+        )
+
+    def test_manual_refresh_rejects_when_already_in_progress(self) -> None:
+        with (
+            patch(
+                "indy_hub.tasks.industry._get_manual_refresh_cooldown_seconds",
+                return_value=0,
+            ),
+            patch(
+                "indy_hub.tasks.industry.update_blueprints_for_user.apply_async"
+            ) as mock_apply,
+        ):
+            scheduled, remaining, reason = request_manual_refresh(
+                MANUAL_REFRESH_KIND_BLUEPRINTS,
+                self.user.id,
+                check_active=False,
+            )
+            self.assertTrue(scheduled)
+            self.assertIsNone(remaining)
+            self.assertIsNone(reason)
+
+            scheduled_2, remaining_2, reason_2 = request_manual_refresh(
+                MANUAL_REFRESH_KIND_BLUEPRINTS,
+                self.user.id,
+                check_active=False,
+            )
+
+        self.assertFalse(scheduled_2)
+        self.assertIsNone(remaining_2)
+        self.assertEqual(reason_2, "in_progress")
+        mock_apply.assert_called_once()
+
     def test_reset_clears_cooldown(self) -> None:
         with patch(
             "indy_hub.tasks.industry.update_industry_jobs_for_user.apply_async"
         ) as mock_apply:
-            scheduled, _ = request_manual_refresh(
+            scheduled, _, _ = request_manual_refresh(
                 MANUAL_REFRESH_KIND_JOBS,
                 self.user.id,
                 check_active=False,

@@ -23,6 +23,7 @@ from indy_hub.app_settings import (
     ASSET_CACHE_MAX_AGE_MINUTES,
     CHAR_ASSET_CACHE_MAX_AGE_MINUTES,
     DIVISION_CACHE_MAX_AGE_MINUTES,
+    LOCATION_LOOKUP_BUDGET,
     ROLE_SNAPSHOT_STALE_HOURS,
     STRUCTURE_NAME_STALE_HOURS,
 )
@@ -44,13 +45,21 @@ from indy_hub.services.esi_client import (
     shared_client,
 )
 from indy_hub.services.providers import esi_provider
+from indy_hub.utils.eve import PLACEHOLDER_PREFIX as EVE_PLACEHOLDER_PREFIX
 from indy_hub.utils.eve import resolve_location_name
 
 PLACEHOLDER_PREFIX = "Structure "
 
+# Keep in sync with utils.eve placeholder prefix.
+if PLACEHOLDER_PREFIX != EVE_PLACEHOLDER_PREFIX:  # pragma: no cover - defensive
+    PLACEHOLDER_PREFIX = EVE_PLACEHOLDER_PREFIX
+
 # How long we keep placeholder results before retrying a fresh lookup.
 # This prevents hammering ESI for private/forbidden structures.
 STRUCTURE_PLACEHOLDER_TTL = timedelta(hours=6)
+# Public int32 IDs (stations/systems/regions) are generally cheap to resolve without
+# auth, so retry placeholders sooner than private int64 structures.
+PUBLIC_ID_PLACEHOLDER_TTL = timedelta(minutes=15)
 STRUCTURE_NAME_TTL = timedelta(hours=STRUCTURE_NAME_STALE_HOURS)
 
 logger = get_extension_logger(__name__)
@@ -713,7 +722,13 @@ def resolve_structure_names(
         last = known_last_resolved.get(structure_id)
         if not last:
             return True
-        return (now - last) >= STRUCTURE_PLACEHOLDER_TTL
+        # Public int32 ids should recover quickly from transient failures.
+        ttl = (
+            PUBLIC_ID_PLACEHOLDER_TTL
+            if int(structure_id) > 0 and int(structure_id) <= 2_147_483_647
+            else STRUCTURE_PLACEHOLDER_TTL
+        )
+        return (now - last) >= ttl
 
     def _is_stale_name(structure_id: int) -> bool:
         name = str(known.get(structure_id, ""))
@@ -848,8 +863,6 @@ def resolve_structure_names(
 
     # Batch DB writes to optimize performance
     structures_to_cache = []
-    # Standard Library
-    import time
 
     missing_positive = [sid for sid in list(missing) if sid > 0]
     total_to_resolve = len(missing_positive)
@@ -857,15 +870,86 @@ def resolve_structure_names(
     forbidden_attempts = 0
     token_failure_attempts = 0
     direct_resolved = 0
+    rate_limited_attempts = 0
+    rate_limited_retry_after: float | None = None
 
-    # NPC stations have IDs < 61000 and cannot be fetched via /universe/structures/
-    # They should only be resolved via /universe/names/ (public endpoint)
-    npc_station_threshold = 61000
+    # /universe/names/ only accepts int32 values.
+    # Anything <= 2^31-1 is not a player structure ID (structures are int64), so
+    # resolve those via the public endpoint first to avoid unnecessary authed calls.
+    int32_max = 2_147_483_647
+
+    # Resolve public int32 IDs early (NPC stations, solar systems, etc.)
+    public_missing = [sid for sid in missing_positive if sid <= int32_max]
+    if public_missing:
+        try:
+            public_names = shared_client.resolve_ids_to_names(public_missing)
+        except Exception:  # pragma: no cover - defensive fallback
+            public_names = {}
+        for structure_id, name in public_names.items():
+            if not name:
+                continue
+            known[int(structure_id)] = str(name)
+            structures_to_cache.append(
+                {
+                    "structure_id": int(structure_id),
+                    "name": str(name),
+                    "last_resolved": timezone.now(),
+                }
+            )
+            try:
+                if int(structure_id) in missing:
+                    missing.remove(int(structure_id))
+            except ValueError:
+                pass
+
+        # Fallback for unresolved public IDs: try station endpoint via resolver.
+        # Keep this bounded to avoid bursty public ESI traffic if /universe/names/
+        # is degraded.
+        unresolved_public = [sid for sid in public_missing if sid in missing]
+        public_station_fallback_budget = min(max(int(LOCATION_LOOKUP_BUDGET), 0), 20)
+        for sid in unresolved_public[:public_station_fallback_budget]:
+            if int(sid) >= 100_000_000:
+                continue
+            fallback_name = resolve_location_name(
+                int(sid),
+                force_refresh=True,
+                allow_public=True,
+            )
+            if not fallback_name or str(fallback_name).startswith(PLACEHOLDER_PREFIX):
+                continue
+            known[int(sid)] = str(fallback_name)
+            structures_to_cache.append(
+                {
+                    "structure_id": int(sid),
+                    "name": str(fallback_name),
+                    "last_resolved": timezone.now(),
+                }
+            )
+            try:
+                missing.remove(int(sid))
+            except ValueError:
+                pass
+
+    # Keep only int64 structure IDs for authenticated lookups.
+    missing_positive = [sid for sid in missing_positive if sid > int32_max]
+    total_to_resolve = len(missing_positive)
 
     # If async scheduling is enabled and Celery is not eager, avoid doing
     # synchronous per-structure authenticated lookups (these are slow).
     celery_eager = bool(getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False))
     do_sync_esi = (not schedule_async) or celery_eager
+
+    # Keep sync authenticated lookups bounded to avoid hammering ESI during large refreshes.
+    try:
+        sync_lookup_budget = int(LOCATION_LOOKUP_BUDGET)
+    except Exception:
+        sync_lookup_budget = 50
+    sync_lookup_budget = max(sync_lookup_budget, 0)
+
+    # Characters that already failed with 403/token issues during this resolver call.
+    # Skipping them for the remaining structures avoids repeated expensive failures.
+    forbidden_character_ids: set[int] = set()
+    invalid_character_ids: set[int] = set()
 
     for idx, structure_id in enumerate(missing_positive):
         # Update task progress if task is provided
@@ -882,35 +966,37 @@ def resolve_structure_names(
             except Exception as exc:
                 logger.debug("Failed to update task progress: %s", exc)
 
-        # Resolve NPC stations via /universe/stations before falling back.
-        if structure_id < npc_station_threshold:
-            name = resolve_location_name(
-                structure_id,
-                force_refresh=True,
-                allow_public=True,
-            )
-            if name and not str(name).startswith(PLACEHOLDER_PREFIX):
-                known[structure_id] = name
-                structure_payload = {
-                    "structure_id": structure_id,
-                    "name": name,
-                    "last_resolved": timezone.now(),
-                }
-                structures_to_cache.append(structure_payload)
-            continue
-
-        if do_sync_esi:
+        if do_sync_esi and sync_lookup_budget > 0:
             resolved = False
             for cid in candidate_characters:
+                cid = int(cid)
+                if cid in forbidden_character_ids or cid in invalid_character_ids:
+                    continue
                 try:
-                    # Add small delay to avoid ESI rate limit (100 requests per 30 seconds ~= 3.3 per second)
-                    time.sleep(0.3)
                     name = shared_client.fetch_structure_name(structure_id, cid)
                 except ESIForbiddenError:
                     forbidden_attempts += 1
+                    forbidden_character_ids.add(cid)
                     continue
                 except ESITokenError:
                     token_failure_attempts += 1
+                    invalid_character_ids.add(cid)
+                    continue
+                except ESIRateLimitError as exc:
+                    rate_limited_attempts += 1
+                    if exc.retry_after is not None:
+                        try:
+                            retry_after = float(exc.retry_after)
+                        except Exception:
+                            retry_after = None
+                        if retry_after is not None:
+                            rate_limited_retry_after = max(
+                                retry_after,
+                                float(rate_limited_retry_after or 0),
+                            )
+                    # Stop further synchronous auth lookups for this call and
+                    # let placeholder/async flow handle the remaining IDs.
+                    do_sync_esi = False
                     continue
 
                 if not name:
@@ -925,18 +1011,32 @@ def resolve_structure_names(
                 )
                 resolved = True
                 direct_resolved += 1
+                sync_lookup_budget -= 1
                 break
 
             if resolved:
                 missing.remove(structure_id)
 
-    if total_to_resolve and (forbidden_attempts or token_failure_attempts):
+    if total_to_resolve and (
+        forbidden_attempts
+        or token_failure_attempts
+        or rate_limited_attempts
+        or (do_sync_esi and sync_lookup_budget <= 0)
+    ):
         logger.info(
-            "Structure name resolution summary: resolved=%s/%s (direct ESI), forbidden=%s, token_failures=%s",
+            "Structure name resolution summary: resolved=%s/%s (direct ESI), forbidden=%s, token_failures=%s, rate_limited=%s, budget_remaining=%s",
             direct_resolved,
             total_to_resolve,
             forbidden_attempts,
             token_failure_attempts,
+            rate_limited_attempts,
+            sync_lookup_budget,
+        )
+
+    if rate_limited_attempts and rate_limited_retry_after:
+        logger.info(
+            "ESI structure lookups hit rate limit; retry_after≈%.1fs",
+            float(rate_limited_retry_after),
         )
 
     # In async mode, prevent immediate re-queueing by caching placeholders now,
@@ -1000,6 +1100,21 @@ def resolve_structure_names(
                     )
                     if structure_id in missing:
                         missing.remove(structure_id)
+
+    # Persist placeholders for unresolved positive ids even in sync mode.
+    # This keeps results deterministic and avoids repeated expensive retries until TTL expiry.
+    unresolved_positive = [sid for sid in requested_ids if sid > 0 and sid not in known]
+    if unresolved_positive:
+        for sid in unresolved_positive:
+            placeholder = f"{PLACEHOLDER_PREFIX}{int(sid)}"
+            known[int(sid)] = placeholder
+            structures_to_cache.append(
+                {
+                    "structure_id": int(sid),
+                    "name": placeholder,
+                    "last_resolved": now,
+                }
+            )
 
     # Batch update cached structure names
     if structures_to_cache:

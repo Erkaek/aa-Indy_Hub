@@ -331,6 +331,8 @@ MANUAL_REFRESH_KIND_BLUEPRINTS = "blueprints"
 MANUAL_REFRESH_KIND_JOBS = "jobs"
 
 _MANUAL_REFRESH_CACHE_PREFIX = "indy_hub:manual_refresh"
+_MANUAL_REFRESH_INFLIGHT_PREFIX = "indy_hub:manual_refresh_inflight"
+_MANUAL_REFRESH_INFLIGHT_TTL_SECONDS = 15 * 60
 _DEFAULT_BULK_WINDOWS = {
     MANUAL_REFRESH_KIND_BLUEPRINTS: BLUEPRINTS_BULK_WINDOW_MINUTES,
     MANUAL_REFRESH_KIND_JOBS: INDUSTRY_JOBS_BULK_WINDOW_MINUTES,
@@ -780,6 +782,33 @@ def _manual_refresh_cache_key(kind: str, user_id: int, scope: str | None = None)
     return f"{_MANUAL_REFRESH_CACHE_PREFIX}:{kind}:{user_id}:{scope_key}"
 
 
+def _manual_refresh_inflight_key(
+    kind: str, user_id: int, scope: str | None = None
+) -> str:
+    scope_key = (scope or "").lower() or "default"
+    return f"{_MANUAL_REFRESH_INFLIGHT_PREFIX}:{kind}:{user_id}:{scope_key}"
+
+
+def _mark_manual_refresh_inflight(
+    kind: str, user_id: int, scope: str | None = None
+) -> bool:
+    if user_id is None:
+        return False
+    return bool(
+        cache.add(
+            _manual_refresh_inflight_key(kind, user_id, scope),
+            timezone.now().timestamp(),
+            timeout=_MANUAL_REFRESH_INFLIGHT_TTL_SECONDS,
+        )
+    )
+
+
+def _clear_manual_refresh_inflight(
+    kind: str, user_id: int, scope: str | None = None
+) -> None:
+    cache.delete(_manual_refresh_inflight_key(kind, user_id, scope))
+
+
 def _queue_staggered_user_tasks(
     task, user_ids: list[int], *, window_minutes: int, priority: int | None = None
 ) -> int:
@@ -856,10 +885,13 @@ def queue_blueprint_update_for_user(
     countdown: int = 0,
     priority: int | None = None,
     scope: str | None = None,
+    force_refresh: bool = False,
 ) -> None:
     kwargs = {}
     if scope:
         kwargs["scope"] = scope
+    if force_refresh:
+        kwargs["force_refresh"] = True
     update_blueprints_for_user.apply_async(
         args=(user_id,), kwargs=kwargs, countdown=countdown, priority=priority
     )
@@ -887,28 +919,39 @@ def request_manual_refresh(
     priority: int | None = None,
     scope: str | None = None,
     check_active: bool = True,
-) -> tuple[bool, timedelta | None]:
+) -> tuple[bool, timedelta | None, str | None]:
     allowed, remaining = manual_refresh_allowed(kind, user_id, scope)
     if not allowed:
-        return False, remaining
+        return False, remaining, "cooldown"
+
+    if not _mark_manual_refresh_inflight(kind, user_id, scope):
+        return False, None, "in_progress"
 
     if check_active:
         user = User.objects.filter(id=user_id).first()
         if not user:
-            return False, None
+            _clear_manual_refresh_inflight(kind, user_id, scope)
+            return False, None, "inactive_or_missing_scope"
         _refresh_online_status_for_user(user)
         if not _is_user_active(user):
-            return False, None
+            _clear_manual_refresh_inflight(kind, user_id, scope)
+            return False, None, "inactive_or_missing_scope"
 
     if kind == MANUAL_REFRESH_KIND_BLUEPRINTS:
-        queue_blueprint_update_for_user(user_id, priority=priority, scope=scope)
+        queue_blueprint_update_for_user(
+            user_id,
+            priority=priority,
+            scope=scope,
+            force_refresh=True,
+        )
     elif kind == MANUAL_REFRESH_KIND_JOBS:
         queue_industry_job_update_for_user(user_id, priority=priority, scope=scope)
     else:
+        _clear_manual_refresh_inflight(kind, user_id, scope)
         raise ValueError(f"Unknown manual refresh kind: {kind}")
 
     _record_manual_refresh(kind, user_id, scope)
-    return True, None
+    return True, None, None
 
 
 def _get_location_lookup_budget() -> int:
@@ -946,6 +989,10 @@ def update_blueprints_for_user(
     character_id: int | None = None,
     force_refresh: bool = False,
 ):
+    normalized_scope = (scope or "").strip().lower()
+    if normalized_scope not in {"character", "corporation"}:
+        normalized_scope = None
+
     base_scopes = [BLUEPRINT_SCOPE]
     scope_preferences = [
         base_scopes + [STRUCTURE_SCOPE],
@@ -963,260 +1010,261 @@ def update_blueprints_for_user(
         logger.info("Skipping blueprint sync for inactive user %s", user.username)
         return {"success": True, "skipped": "inactive_user"}
 
-    if (
-        not force_refresh
-        and character_id is None
-        and _user_recent_blueprint_sync(user, now=now)
-    ):
-        logger.info(
-            "Skipping blueprint sync for %s: updated within last %s minutes",
-            user.username,
-            int(BLUEPRINT_REFRESH_MIN_AGE.total_seconds() / 60),
-        )
-        return {"success": True, "skipped": "recent_sync"}
-
-    normalized_scope = (scope or "").strip().lower()
-    if normalized_scope not in {"character", "corporation"}:
-        normalized_scope = None
-
-    scope_label = normalized_scope or "all"
-    logger.info(
-        "Blueprint synchronization for %s (scope=%s)",
-        user.username,
-        scope_label,
-    )
-    updated_count = 0
-    deleted_total = 0
-    error_messages: list[str] = []
-    corp_contexts: dict[int, dict[str, int | str]] = {}
-
-    process_characters = normalized_scope in {None, "character"}
-    process_corporations = normalized_scope in {None, "corporation"}
-
-    if process_corporations and user.has_perm("indy_hub.can_manage_corp_bp_requests"):
-        corp_contexts = _collect_corporation_contexts(user, CORP_BLUEPRINT_SCOPE_SET)
-        logger.info(
-            "Corporation context detected for %s: %s",
-            user.username,
-            ", ".join(str(key) for key in corp_contexts.keys()) or "none",
-        )
-        if not corp_contexts:
-            logger.debug(
-                "No corporation context available for %s during a scope=%s synchronization",
+    try:
+        if (
+            not force_refresh
+            and character_id is None
+            and _user_recent_blueprint_sync(user, now=now)
+        ):
+            logger.info(
+                "Skipping blueprint sync for %s: updated within last %s minutes",
                 user.username,
-                scope_label,
+                int(BLUEPRINT_REFRESH_MIN_AGE.total_seconds() / 60),
             )
-    elif normalized_scope == "corporation":
-        message = (
-            "Skipped corporate blueprint synchronization for %s: missing permission"
-            % user.username
+            return {"success": True, "skipped": "recent_sync"}
+
+        scope_label = normalized_scope or "all"
+        logger.info(
+            "Blueprint synchronization for %s (scope=%s)",
+            user.username,
+            scope_label,
         )
-        logger.info(message)
-        error_messages.append(message)
+        updated_count = 0
+        deleted_total = 0
+        error_messages: list[str] = []
+        corp_contexts: dict[int, dict[str, int | str]] = {}
 
-    ownerships = (
-        CharacterOwnership.objects.filter(user=user) if process_characters else []
-    )
-    if character_id and process_characters:
-        ownerships = ownerships.filter(character__character_id=int(character_id))
-    for ownership in ownerships:
-        char_id = ownership.character.character_id
-        character_name = get_character_name(char_id)
-        existing_character_blueprints = Blueprint.objects.filter(
-            owner_user=user,
-            owner_kind=Blueprint.OwnerKind.CHARACTER,
-            character_id=char_id,
-        ).exists()
-        force_char_refresh = force_refresh or not existing_character_blueprints
-        try:
-            # Alliance Auth
-            from esi.models import Token
+        process_characters = normalized_scope in {None, "character"}
+        process_corporations = normalized_scope in {None, "corporation"}
 
-            token_qs = (
-                Token.objects.filter(character_id=char_id, user=user)
-                .require_valid()
-                .select_related("user")
-                .order_by("-created")
+        if process_corporations and user.has_perm(
+            "indy_hub.can_manage_corp_bp_requests"
+        ):
+            corp_contexts = _collect_corporation_contexts(
+                user, CORP_BLUEPRINT_SCOPE_SET
             )
-            chosen_scopes: list[str] | None = None
-            for scope_set in scope_preferences:
-                candidate_qs = token_qs
-                if scope_set:
-                    candidate_qs = candidate_qs.require_scopes(scope_set)
-                if candidate_qs.exists():
-                    chosen_scopes = scope_set
-                    break
-
-            if chosen_scopes is None:
-                message = (
-                    f"{character_name} ({char_id}) has no token for scopes "
-                    f"{', '.join(base_scopes)}"
-                )
-                logger.debug(message)
-                continue
-
-            if STRUCTURE_SCOPE not in chosen_scopes:
+            logger.info(
+                "Corporation context detected for %s: %s",
+                user.username,
+                ", ".join(str(key) for key in corp_contexts.keys()) or "none",
+            )
+            if not corp_contexts:
                 logger.debug(
-                    "Blueprint synchronization for %s using a token without the structure scope",
-                    character_name,
+                    "No corporation context available for %s during a scope=%s synchronization",
+                    user.username,
+                    scope_label,
                 )
-
-            blueprints = shared_client.fetch_character_blueprints(
-                char_id,
-                force_refresh=force_char_refresh,
+        elif normalized_scope == "corporation":
+            message = (
+                "Skipped corporate blueprint synchronization for %s: missing permission"
+                % user.username
             )
-        except ESIUnmodifiedError:
-            logger.debug(
-                "Blueprints not modified for %s (%s); skipping sync",
-                character_name,
-                char_id,
-            )
-            continue
-        except ESITokenError as exc:
-            message = f"Invalid token for {character_name} ({char_id}): {exc}"
-            logger.warning(message)
+            logger.info(message)
             error_messages.append(message)
-            continue
-        except ESIRateLimitError as exc:
-            delay = get_retry_after_seconds(exc)
-            message = f"ESI rate limit hit for {character_name} ({char_id}); retrying in {delay}s: {exc}"
-            logger.warning(message)
-            raise self.retry(countdown=delay)
-        except (ESIForbiddenError, ESIClientError) as exc:
-            message = f"ESI error for {character_name} ({char_id}): {exc}"
-            logger.error(message)
-            error_messages.append(message)
-            continue
-        except Exception as exc:  # pragma: no cover - unexpected
-            message = f"Unexpected error for {character_name} ({char_id}): {exc}"
-            logger.exception(message)
-            error_messages.append(message)
-            continue
 
-        esi_ids = set()
-        try:
-            with transaction.atomic():
-                for bp in blueprints:
-                    item_id = bp.get("item_id")
-                    if item_id is None:
-                        logger.debug(
-                            "Blueprint without item_id ignored for %s (%s)",
-                            character_name,
-                            bp,
-                        )
-                        continue
-                    esi_ids.add(item_id)
-                    location_id = bp.get("location_id")
-                    location_name = resolve_location_name(
-                        location_id,
-                        character_id=char_id,
-                        owner_user_id=user.id,
-                    )
-                    Blueprint.objects.update_or_create(
-                        item_id=item_id,
-                        defaults={
-                            "owner_user": user,
-                            "owner_kind": Blueprint.OwnerKind.CHARACTER,
-                            "corporation_id": None,
-                            "corporation_name": "",
-                            "character_id": char_id,
-                            "blueprint_id": bp.get("blueprint_id"),
-                            "type_id": bp.get("type_id"),
-                            "location_id": location_id,
-                            "location_name": location_name,
-                            "location_flag": bp.get("location_flag", ""),
-                            "quantity": bp.get("quantity"),
-                            "time_efficiency": bp.get("time_efficiency", 0),
-                            "material_efficiency": bp.get("material_efficiency", 0),
-                            "runs": bp.get("runs", 0),
-                            "character_name": character_name,
-                            "type_name": get_type_name(bp.get("type_id")),
-                        },
-                    )
-
-                deleted, _ = (
-                    Blueprint.objects.filter(
-                        owner_user=user,
-                        owner_kind=Blueprint.OwnerKind.CHARACTER,
-                        character_id=char_id,
-                    )
-                    .exclude(item_id__in=esi_ids)
-                    .delete()
-                )
-        except OperationalError as exc:
-            if _is_deadlock_error(exc):
-                delay = 2 * (2**self.request.retries)
-                logger.warning(
-                    "Deadlock syncing blueprints for %s (%s); retrying in %ss",
-                    character_name,
-                    char_id,
-                    delay,
-                )
-                raise self.retry(exc=exc, countdown=delay)
-            raise
-        deleted_total += deleted
-        updated_count += len(blueprints)
-        logger.debug(
-            "Blueprint synchronization finished for %s (%s updated, %s deleted)",
-            character_name,
-            len(blueprints),
-            deleted,
+        ownerships = (
+            CharacterOwnership.objects.filter(user=user) if process_characters else []
         )
-
-    if process_corporations and corp_contexts:
-        for corp_id, context in corp_contexts.items():
-            corp_char_id = context.get("character_id")
-            corp_name = context.get("corporation_name") or str(corp_id)
-            acting_character_name = context.get("character_name") or ""
-
-            if not corp_char_id:
-                logger.debug(
-                    "Incomplete context for corporation %s (missing character_id)",
-                    corp_id,
-                )
-                continue
-
-            existing_corp_blueprints = Blueprint.objects.filter(
-                owner_kind=Blueprint.OwnerKind.CORPORATION,
-                corporation_id=corp_id,
+        if character_id and process_characters:
+            ownerships = ownerships.filter(character__character_id=int(character_id))
+        for ownership in ownerships:
+            char_id = ownership.character.character_id
+            character_name = get_character_name(char_id)
+            existing_character_blueprints = Blueprint.objects.filter(
+                owner_user=user,
+                owner_kind=Blueprint.OwnerKind.CHARACTER,
+                character_id=char_id,
             ).exists()
-            force_corp_refresh = force_refresh or not existing_corp_blueprints
+            force_char_refresh = force_refresh or not existing_character_blueprints
             try:
-                corp_blueprints = shared_client.fetch_corporation_blueprints(
-                    int(corp_id),
-                    character_id=int(corp_char_id),
-                    force_refresh=force_corp_refresh,
+                # Alliance Auth
+                from esi.models import Token
+
+                token_qs = (
+                    Token.objects.filter(character_id=char_id, user=user)
+                    .require_valid()
+                    .select_related("user")
+                    .order_by("-created")
+                )
+                chosen_scopes: list[str] | None = None
+                for scope_set in scope_preferences:
+                    candidate_qs = token_qs
+                    if scope_set:
+                        candidate_qs = candidate_qs.require_scopes(scope_set)
+                    if candidate_qs.exists():
+                        chosen_scopes = scope_set
+                        break
+
+                if chosen_scopes is None:
+                    message = (
+                        f"{character_name} ({char_id}) has no token for scopes "
+                        f"{', '.join(base_scopes)}"
+                    )
+                    logger.debug(message)
+                    continue
+
+                if STRUCTURE_SCOPE not in chosen_scopes:
+                    logger.debug(
+                        "Blueprint synchronization for %s using a token without the structure scope",
+                        character_name,
+                    )
+
+                blueprints = shared_client.fetch_character_blueprints(
+                    char_id,
+                    force_refresh=force_char_refresh,
                 )
             except ESIUnmodifiedError:
                 logger.debug(
-                    "Corporate blueprints not modified for %s (%s); skipping sync",
-                    corp_name,
-                    corp_id,
+                    "Blueprints not modified for %s (%s); skipping sync",
+                    character_name,
+                    char_id,
                 )
                 continue
             except ESITokenError as exc:
-                message = f"Invalid token for corporation {corp_name} ({corp_id}) via {acting_character_name}: {exc}"
+                message = f"Invalid token for {character_name} ({char_id}): {exc}"
                 logger.warning(message)
                 error_messages.append(message)
                 continue
             except ESIRateLimitError as exc:
                 delay = get_retry_after_seconds(exc)
-                message = (
-                    "ESI rate limit hit for corporation "
-                    f"{corp_name} ({corp_id}) via {acting_character_name}; retrying in {delay}s: {exc}"
-                )
+                message = f"ESI rate limit hit for {character_name} ({char_id}); retrying in {delay}s: {exc}"
                 logger.warning(message)
                 raise self.retry(countdown=delay)
             except (ESIForbiddenError, ESIClientError) as exc:
-                message = f"ESI error for corporation {corp_name} ({corp_id}) via {acting_character_name}: {exc}"
+                message = f"ESI error for {character_name} ({char_id}): {exc}"
                 logger.error(message)
                 error_messages.append(message)
                 continue
             except Exception as exc:  # pragma: no cover - unexpected
-                message = f"Unexpected error for corporation {corp_name} ({corp_id}) via {acting_character_name}: {exc}"
+                message = f"Unexpected error for {character_name} ({char_id}): {exc}"
                 logger.exception(message)
                 error_messages.append(message)
                 continue
+
+            esi_ids = set()
+            try:
+                with transaction.atomic():
+                    for bp in blueprints:
+                        item_id = bp.get("item_id")
+                        if item_id is None:
+                            logger.debug(
+                                "Blueprint without item_id ignored for %s (%s)",
+                                character_name,
+                                bp,
+                            )
+                            continue
+                        esi_ids.add(item_id)
+                        location_id = bp.get("location_id")
+                        location_name = resolve_location_name(
+                            location_id,
+                            character_id=char_id,
+                            owner_user_id=user.id,
+                        )
+                        Blueprint.objects.update_or_create(
+                            item_id=item_id,
+                            defaults={
+                                "owner_user": user,
+                                "owner_kind": Blueprint.OwnerKind.CHARACTER,
+                                "corporation_id": None,
+                                "corporation_name": "",
+                                "character_id": char_id,
+                                "blueprint_id": bp.get("blueprint_id"),
+                                "type_id": bp.get("type_id"),
+                                "location_id": location_id,
+                                "location_name": location_name,
+                                "location_flag": bp.get("location_flag", ""),
+                                "quantity": bp.get("quantity"),
+                                "time_efficiency": bp.get("time_efficiency", 0),
+                                "material_efficiency": bp.get("material_efficiency", 0),
+                                "runs": bp.get("runs", 0),
+                                "character_name": character_name,
+                                "type_name": get_type_name(bp.get("type_id")),
+                            },
+                        )
+
+                    deleted, _ = (
+                        Blueprint.objects.filter(
+                            owner_user=user,
+                            owner_kind=Blueprint.OwnerKind.CHARACTER,
+                            character_id=char_id,
+                        )
+                        .exclude(item_id__in=esi_ids)
+                        .delete()
+                    )
+            except OperationalError as exc:
+                if _is_deadlock_error(exc):
+                    delay = 2 * (2**self.request.retries)
+                    logger.warning(
+                        "Deadlock syncing blueprints for %s (%s); retrying in %ss",
+                        character_name,
+                        char_id,
+                        delay,
+                    )
+                    raise self.retry(exc=exc, countdown=delay)
+                raise
+            deleted_total += deleted
+            updated_count += len(blueprints)
+            logger.debug(
+                "Blueprint synchronization finished for %s (%s updated, %s deleted)",
+                character_name,
+                len(blueprints),
+                deleted,
+            )
+
+        if process_corporations and corp_contexts:
+            for corp_id, context in corp_contexts.items():
+                corp_char_id = context.get("character_id")
+                corp_name = context.get("corporation_name") or str(corp_id)
+                acting_character_name = context.get("character_name") or ""
+
+                if not corp_char_id:
+                    logger.debug(
+                        "Incomplete context for corporation %s (missing character_id)",
+                        corp_id,
+                    )
+                    continue
+
+                existing_corp_blueprints = Blueprint.objects.filter(
+                    owner_kind=Blueprint.OwnerKind.CORPORATION,
+                    corporation_id=corp_id,
+                ).exists()
+                force_corp_refresh = force_refresh or not existing_corp_blueprints
+                try:
+                    corp_blueprints = shared_client.fetch_corporation_blueprints(
+                        int(corp_id),
+                        character_id=int(corp_char_id),
+                        force_refresh=force_corp_refresh,
+                    )
+                except ESIUnmodifiedError:
+                    logger.debug(
+                        "Corporate blueprints not modified for %s (%s); skipping sync",
+                        corp_name,
+                        corp_id,
+                    )
+                    continue
+                except ESITokenError as exc:
+                    message = f"Invalid token for corporation {corp_name} ({corp_id}) via {acting_character_name}: {exc}"
+                    logger.warning(message)
+                    error_messages.append(message)
+                    continue
+                except ESIRateLimitError as exc:
+                    delay = get_retry_after_seconds(exc)
+                    message = (
+                        "ESI rate limit hit for corporation "
+                        f"{corp_name} ({corp_id}) via {acting_character_name}; retrying in {delay}s: {exc}"
+                    )
+                    logger.warning(message)
+                    raise self.retry(countdown=delay)
+                except (ESIForbiddenError, ESIClientError) as exc:
+                    message = f"ESI error for corporation {corp_name} ({corp_id}) via {acting_character_name}: {exc}"
+                    logger.error(message)
+                    error_messages.append(message)
+                    continue
+                except Exception as exc:  # pragma: no cover - unexpected
+                    message = f"Unexpected error for corporation {corp_name} ({corp_id}) via {acting_character_name}: {exc}"
+                    logger.exception(message)
+                    error_messages.append(message)
+                    continue
 
             corp_esi_ids: set[int] = set()
             try:
@@ -1288,32 +1336,38 @@ def update_blueprints_for_user(
                 deleted,
             )
 
-    logger.info(
-        "Blueprints synchronized for %s: %s updated, %s deleted",
-        user.username,
-        updated_count,
-        deleted_total,
-    )
-    if error_messages:
-        logger.warning(
-            "Issues during blueprint synchronization %s: %s",
+        logger.info(
+            "Blueprints synchronized for %s: %s updated, %s deleted",
             user.username,
-            "; ".join(error_messages),
+            updated_count,
+            deleted_total,
+        )
+        if error_messages:
+            logger.warning(
+                "Issues during blueprint synchronization %s: %s",
+                user.username,
+                "; ".join(error_messages),
+            )
+
+        emit_analytics_event(
+            task="industry.update_blueprints_for_user",
+            label="completed",
+            result="success",
+            value=max(updated_count, 1),
         )
 
-    emit_analytics_event(
-        task="industry.update_blueprints_for_user",
-        label="completed",
-        result="success",
-        value=max(updated_count, 1),
-    )
-
-    return {
-        "success": True,
-        "blueprints_updated": updated_count,
-        "deleted": deleted_total,
-        "errors": error_messages,
-    }
+        return {
+            "success": True,
+            "blueprints_updated": updated_count,
+            "deleted": deleted_total,
+            "errors": error_messages,
+        }
+    finally:
+        _clear_manual_refresh_inflight(
+            MANUAL_REFRESH_KIND_BLUEPRINTS,
+            int(user_id),
+            normalized_scope,
+        )
 
 
 @shared_task(bind=True, max_retries=3)
@@ -1325,6 +1379,9 @@ def update_industry_jobs_for_user(
     character_id: int | None = None,
     force_refresh: bool = False,
 ):
+    normalized_scope = (scope or "").strip().lower()
+    if normalized_scope not in {"character", "corporation"}:
+        normalized_scope = None
     try:
         user = User.objects.get(id=user_id)
         now = timezone.now()
@@ -1361,9 +1418,6 @@ def update_industry_jobs_for_user(
         ]
         corp_contexts: dict[int, dict[str, int | str]] = {}
 
-        normalized_scope = (scope or "").strip().lower()
-        if normalized_scope not in {"character", "corporation"}:
-            normalized_scope = None
         scope_label = normalized_scope or "all"
         logger.debug(
             "Industry jobs update for %s using scope=%s",
@@ -1906,6 +1960,12 @@ def update_industry_jobs_for_user(
         )
         # Error tracking removed in unified settings
         raise self.retry(exc=e, countdown=60 * (2**self.request.retries))
+    finally:
+        _clear_manual_refresh_inflight(
+            MANUAL_REFRESH_KIND_JOBS,
+            int(user_id),
+            normalized_scope,
+        )
 
 
 @shared_task

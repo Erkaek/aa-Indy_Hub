@@ -1236,7 +1236,7 @@ def personnal_bp_list(request, scope="character"):
                     request.user.username,
                 )
             else:
-                scheduled, remaining = request_manual_refresh(
+                scheduled, remaining, reason = request_manual_refresh(
                     MANUAL_REFRESH_KIND_BLUEPRINTS,
                     request.user.id,
                     priority=5,
@@ -1248,6 +1248,13 @@ def personnal_bp_list(request, scope="character"):
                         request,
                         _(
                             "Blueprint refresh scheduled. Updated data will appear shortly."
+                        ),
+                    )
+                elif reason == "in_progress":
+                    messages.info(
+                        request,
+                        _(
+                            "A blueprint refresh is already running. Updated data will appear shortly."
                         ),
                     )
                 elif remaining is None:
@@ -1262,7 +1269,7 @@ def personnal_bp_list(request, scope="character"):
                     messages.warning(
                         request,
                         _(
-                            "Blueprint data was refreshed recently. Please try again in %(minutes)s minute(s)."
+                            "A blueprint refresh was already requested recently. Please try again in %(minutes)s minute(s)."
                         )
                         % {"minutes": wait_minutes},
                     )
@@ -1760,7 +1767,7 @@ def personnal_job_list(request, scope="character"):
                     request.user.username,
                 )
             else:
-                scheduled, remaining = request_manual_refresh(
+                scheduled, remaining, reason = request_manual_refresh(
                     MANUAL_REFRESH_KIND_JOBS,
                     request.user.id,
                     priority=5,
@@ -1772,6 +1779,13 @@ def personnal_job_list(request, scope="character"):
                         request,
                         _(
                             "Industry jobs refresh scheduled. Updated data will appear shortly."
+                        ),
+                    )
+                elif reason == "in_progress":
+                    messages.info(
+                        request,
+                        _(
+                            "An industry jobs refresh is already running. Updated data will appear shortly."
                         ),
                     )
                 elif remaining is None:
@@ -1786,7 +1800,7 @@ def personnal_job_list(request, scope="character"):
                     messages.warning(
                         request,
                         _(
-                            "Industry data was refreshed recently. Please try again in %(minutes)s minute(s)."
+                            "An industry jobs refresh was already requested recently. Please try again in %(minutes)s minute(s)."
                         )
                         % {"minutes": wait_minutes},
                     )

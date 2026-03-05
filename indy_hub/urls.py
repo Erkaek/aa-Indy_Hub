@@ -8,6 +8,7 @@ from .views.api import (
     menu_badge_count,
     save_production_config,
 )
+from .views.debug import debug_health
 from .views.hubs import (
     settings_hub,
     test_darkly_theme,
@@ -112,6 +113,7 @@ from .views.user import (
 app_name = "indy_hub"
 urlpatterns = [
     path("", index, name="index"),
+    path("debug/health/", debug_health, name="debug_health"),
     path("test-darkly/", test_darkly_theme, name="test_darkly_theme"),
     path("esi/", token_management, name="esi_hub"),
     path("settings/", settings_hub, name="settings_hub"),

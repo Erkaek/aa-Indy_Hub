@@ -13,6 +13,7 @@ from bravado.exception import HTTPError
 from django.apps import apps
 from django.conf import settings
 from django.core.exceptions import AppRegistryNotReady
+from django.utils import timezone
 
 # Alliance Auth
 from allianceauth.eveonline.models import EveCharacter, EveCorporationInfo
@@ -503,6 +504,30 @@ def _invalidate_owner_structure_tokens(owner_user_id: int | None) -> None:
 def _lookup_location_name_in_db(structure_id: int) -> str | None:
     """Return a previously stored location name for the given ID when present."""
 
+    # Prefer the shared persistent structure-name cache when available.
+    # This allows different processes/workers to converge on the same resolved name,
+    # and prevents returning a long-lived in-memory placeholder when DB already
+    # contains the real name.
+    try:
+        cached_model = apps.get_model("indy_hub", "CachedStructureName")
+    except Exception:
+        cached_model = None
+
+    if cached_model is not None:
+        try:
+            cached_name = (
+                cached_model.objects.filter(structure_id=int(structure_id))
+                .values_list("name", flat=True)
+                .first()
+            )
+        except Exception:  # pragma: no cover - defensive fallback
+            cached_name = None
+
+        if cached_name:
+            cached_name = str(cached_name)
+            if cached_name and not cached_name.startswith(PLACEHOLDER_PREFIX):
+                return cached_name
+
     model_specs = (
         ("indy_hub", "Blueprint", "location_id", "location_name"),
         ("indy_hub", "IndustryJob", "station_id", "location_name"),
@@ -543,6 +568,45 @@ def _lookup_location_name_in_db(structure_id: int) -> str | None:
     return None
 
 
+def _store_location_name_in_db(structure_id: int, name: str) -> None:
+    """Persist a resolved/placeholder location name into CachedStructureName."""
+
+    try:
+        cached_model = apps.get_model("indy_hub", "CachedStructureName")
+    except Exception:
+        return
+
+    if cached_model is None:
+        return
+
+    try:
+        existing = (
+            cached_model.objects.filter(structure_id=int(structure_id))
+            .values_list("name", flat=True)
+            .first()
+        )
+    except Exception:  # pragma: no cover - defensive fallback
+        existing = None
+
+    if existing is not None and str(existing) == str(name):
+        return
+
+    try:
+        cached_model.objects.update_or_create(
+            structure_id=int(structure_id),
+            defaults={
+                "name": str(name),
+                "last_resolved": timezone.now(),
+            },
+        )
+    except Exception:  # pragma: no cover - defensive fallback
+        logger.debug(
+            "Unable to persist structure name for %s",
+            structure_id,
+            exc_info=True,
+        )
+
+
 def resolve_location_name(
     structure_id: int | None,
     *,
@@ -564,14 +628,26 @@ def resolve_location_name(
     placeholder_value = f"{PLACEHOLDER_PREFIX}{structure_id}"
 
     cached = _LOCATION_NAME_CACHE.get(structure_id)
-    if cached is not None:
-        if not force_refresh or cached != placeholder_value:
-            return cached
+    if cached is not None and cached != placeholder_value:
+        _store_location_name_in_db(structure_id, cached)
+        return cached
+
+    # If we have a cached placeholder but aren't forcing a refresh, still allow
+    # cheap DB cache reuse to replace the placeholder (no ESI calls).
+    if cached == placeholder_value and not force_refresh:
+        db_name = _lookup_location_name_in_db(structure_id)
+        if db_name:
+            _LOCATION_NAME_CACHE[structure_id] = db_name
+            _store_location_name_in_db(structure_id, db_name)
+            return db_name
+        _store_location_name_in_db(structure_id, cached)
+        return cached
 
     if not force_refresh:
         db_name = _lookup_location_name_in_db(structure_id)
         if db_name:
             _LOCATION_NAME_CACHE[structure_id] = db_name
+            _store_location_name_in_db(structure_id, db_name)
             return db_name
 
     name: str | None = None
@@ -681,7 +757,7 @@ def resolve_location_name(
             )
             return None
 
-    if not is_station:
+    if not is_station and structure_id > 2_147_483_647:
         name = try_structure_lookup(character_id)
 
         if not name and owner_user_id:
@@ -727,4 +803,5 @@ def resolve_location_name(
         name = placeholder_value
 
     _LOCATION_NAME_CACHE[structure_id] = name
+    _store_location_name_in_db(structure_id, name)
     return name

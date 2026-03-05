@@ -706,6 +706,16 @@ class ESIClient:
             try:
                 payload = operation_fn(ids=batch).results()
             except HTTPError as exc:
+                status_code = getattr(exc, "status_code", None)
+                if status_code is None:
+                    response = getattr(exc, "response", None)
+                    status_code = getattr(response, "status_code", None)
+                if status_code == 404:
+                    logger.debug(
+                        "resolve_ids_to_names skipped invalid IDs batch (size=%s)",
+                        len(batch),
+                    )
+                    continue
                 self._handle_http_error(
                     exc,
                     endpoint="/universe/names/",
@@ -715,6 +725,16 @@ class ESIClient:
                 try:
                     payload = operation_fn(body=batch).results()
                 except HTTPError as exc2:
+                    status_code = getattr(exc2, "status_code", None)
+                    if status_code is None:
+                        response = getattr(exc2, "response", None)
+                        status_code = getattr(response, "status_code", None)
+                    if status_code == 404:
+                        logger.debug(
+                            "resolve_ids_to_names skipped invalid IDs batch (size=%s)",
+                            len(batch),
+                        )
+                        continue
                     self._handle_http_error(
                         exc2,
                         endpoint="/universe/names/",
