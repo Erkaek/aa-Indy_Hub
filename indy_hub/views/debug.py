@@ -113,6 +113,84 @@ def debug_health(request):
 
     if request.method == "POST":
         action = str(request.POST.get("action", "") or "").strip()
+
+        def _redirect_bulk_result(
+            *,
+            tab: str,
+            bulk_action: str,
+            requested: int,
+            queued: int,
+        ):
+            query = urlencode(
+                {
+                    "tab": tab,
+                    "bulk_action": bulk_action,
+                    "bulk_requested": int(requested),
+                    "bulk_queued": int(queued),
+                }
+            )
+            return redirect(f"{reverse('indy_hub:debug_health')}?{query}")
+
+        if action in {
+            "queue_placeholders_refresh",
+            "queue_stale_resolved_refresh",
+            "queue_missing_blueprint_locations_refresh",
+        }:
+            # AA Example App
+            from indy_hub.tasks.location import cache_structure_name
+
+            bulk_limit = 25
+            if action == "queue_placeholders_refresh":
+                ids_to_refresh = list(
+                    CachedStructureName.objects.filter(
+                        name__startswith=PLACEHOLDER_PREFIX
+                    )
+                    .order_by("last_resolved")
+                    .values_list("structure_id", flat=True)[:bulk_limit]
+                )
+            elif action == "queue_stale_resolved_refresh":
+                stale_cutoff = timezone.now() - timedelta(
+                    hours=STRUCTURE_NAME_STALE_HOURS
+                )
+                ids_to_refresh = list(
+                    CachedStructureName.objects.exclude(
+                        name__startswith=PLACEHOLDER_PREFIX
+                    )
+                    .filter(last_resolved__lt=stale_cutoff)
+                    .order_by("last_resolved")
+                    .values_list("structure_id", flat=True)[:bulk_limit]
+                )
+            else:
+                ids_to_refresh = list(
+                    Blueprint.objects.exclude(location_id__isnull=True)
+                    .exclude(location_id=0)
+                    .values_list("location_id", flat=True)
+                    .distinct()
+                    .exclude(
+                        location_id__in=CachedStructureName.objects.values_list(
+                            "structure_id", flat=True
+                        )
+                    )[:bulk_limit]
+                )
+
+            queued = 0
+            for sid in ids_to_refresh:
+                try:
+                    cache_structure_name.delay(int(sid))
+                    queued += 1
+                except Exception:
+                    logger.warning(
+                        "Failed to queue structure refresh from debug bulk action",
+                        exc_info=True,
+                    )
+
+            return _redirect_bulk_result(
+                tab="locations",
+                bulk_action=action,
+                requested=len(ids_to_refresh),
+                queued=queued,
+            )
+
         if action == "queue_structure_refresh":
             raw_sid = str(request.POST.get("structure_id", "") or "").strip()
             if raw_sid:
@@ -128,6 +206,7 @@ def debug_health(request):
                         cache_structure_name.delay(int(sid))
                         query = urlencode(
                             {
+                                "tab": "inspector",
                                 "structure_id": int(sid),
                                 "queued": 1,
                             }
@@ -136,6 +215,7 @@ def debug_health(request):
                     except Exception:
                         query = urlencode(
                             {
+                                "tab": "inspector",
                                 "structure_id": int(sid),
                                 "queue_error": 1,
                             }
@@ -576,6 +656,24 @@ def debug_health(request):
     inspect_error = ""
     queue_result = str(request.GET.get("queued", "") or "") == "1"
     queue_error = str(request.GET.get("queue_error", "") or "") == "1"
+    bulk_action = str(request.GET.get("bulk_action", "") or "").strip()
+
+    def _safe_int_query_param(name: str, default: int = 0) -> int:
+        raw = str(request.GET.get(name, "") or "").strip()
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return int(default)
+
+    bulk_requested = max(_safe_int_query_param("bulk_requested", 0), 0)
+    bulk_queued = max(_safe_int_query_param("bulk_queued", 0), 0)
+    bulk_failed = max(bulk_requested - bulk_queued, 0)
+    bulk_action_labels = {
+        "queue_placeholders_refresh": "oldest placeholders",
+        "queue_stale_resolved_refresh": "oldest stale resolved names",
+        "queue_missing_blueprint_locations_refresh": "missing blueprint location IDs",
+    }
+    bulk_action_label = bulk_action_labels.get(bulk_action, "")
 
     if not active_tab:
         if inspect_input or queue_result or queue_error:
@@ -1015,6 +1113,11 @@ def debug_health(request):
         "inspect_error": inspect_error,
         "queue_result": queue_result,
         "queue_error": queue_error,
+        "bulk_action": bulk_action,
+        "bulk_action_label": bulk_action_label,
+        "bulk_requested": bulk_requested,
+        "bulk_queued": bulk_queued,
+        "bulk_failed": bulk_failed,
         "active_tab": active_tab,
         "user_search_query": user_search_query,
         "user_search_results": user_search_results,

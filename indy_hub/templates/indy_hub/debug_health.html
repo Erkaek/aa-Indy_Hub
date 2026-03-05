@@ -338,6 +338,12 @@
         </div>
 
         <div class="tab-pane fade {% if active_tab == 'locations' %}show active{% endif %}" id="locations-pane" role="tabpanel" aria-labelledby="locations-tab" tabindex="0">
+            {% if bulk_action_label %}
+            <div class="alert {% if bulk_queued > 0 %}alert-success{% else %}alert-warning{% endif %}" role="alert">
+                Force refresh queued for {{ bulk_action_label }}: requested {{ bulk_requested }}, queued {{ bulk_queued }}, failed {{ bulk_failed }}.
+            </div>
+            {% endif %}
+
             <div class="accordion mb-4" id="locationsAccordion">
                 <div class="accordion-item">
                     <h2 class="accordion-header" id="locations-assets-header">
@@ -408,6 +414,25 @@
                     </h2>
                     <div id="locations-structures" class="accordion-collapse collapse" aria-labelledby="locations-structures-header" data-bs-parent="#locationsAccordion">
                         <div class="accordion-body">
+                            <div class="d-flex flex-wrap gap-2 mb-3">
+                                <form method="post" class="d-inline">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="action" value="queue_placeholders_refresh">
+                                    <button type="submit" class="btn btn-sm btn-outline-warning">Force refresh oldest placeholders (top 25)</button>
+                                </form>
+                                <form method="post" class="d-inline">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="action" value="queue_stale_resolved_refresh">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">Force refresh stale resolved names (top 25)</button>
+                                </form>
+                                <form method="post" class="d-inline">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="action" value="queue_missing_blueprint_locations_refresh">
+                                    <button type="submit" class="btn btn-sm btn-outline-primary">Force refresh missing blueprint locations (top 25)</button>
+                                </form>
+                            </div>
+                            <div class="small text-muted mb-3">Each action queues at most 25 structure refresh tasks to avoid overloading workers.</div>
+
                             <div class="row g-3">
                                 <div class="col-lg-4">
                                     <div class="card">
