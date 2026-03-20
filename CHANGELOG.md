@@ -7,27 +7,35 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
 
+## [1.15.2] - 2026-03-20
+
 ### Added
 
-- Debug Health: added a dedicated `User Debug` tab with user search (username/email/ID) and focused diagnostics per selected Alliance Auth user.
-- Debug Health (user focus): added per-user configuration/debug datasets for character ownership, `CharacterSettings`, `CorporationSharingSetting`, onboarding status, token scopes, and blueprint location cache coverage samples.
+- Operations safety: added a dedicated `sde_not_ready` blocking page so Indy Hub clearly reports when required SDE compatibility data has not been populated yet.
 
 ### Changed
 
-- Debug Health UI: reorganized diagnostics into dedicated tabs, including separate `Structure Inspector` and `User Debug` tabs for improved readability and faster troubleshooting.
-- Structure Inspector UX: inspector actions now keep the inspector context active (`tab=inspector`) and preserve focus flow after inspect/queue operations.
-- Debug Health navigation: active tab is now resolved server-side and automatically switches to `inspector` when structure inspection/queue feedback is present.
+- Industry sync performance: character and corporation blueprint/job refreshes now batch-resolve location names instead of performing repeated per-row lookups.
+- Manual refresh UX: blueprint/job refresh requests now report distinct queued, already-running, and recent-cooldown states, and the default manual refresh cooldown was reduced from 60 minutes to 5 minutes.
+- Material Exchange (Config): corporation structure cache now recovers faster from empty results, and structure labels are always resolved server-side before persistence.
+- Personal blueprint display: cached placeholder structure names are no longer treated as authoritative labels in the blueprint list.
 
 ### Fixed
 
 - Material Exchange (Buy): `Confirm Purchase` no longer posts thousands of zero-value `qty_*` fields; zero/empty quantities are excluded from submit payload to prevent `TooManyFieldsSent` on large hangars (issue #53).
-- Structure name resolver: `resolve_location_name` now consistently writes through to `CachedStructureName` (including in-memory-hit paths), preventing central cache gaps after blueprint/location refreshes.
-- Debug metrics stability: removed aggregate alias collisions that could overwrite copy-request counters in the health context.
-- Resolution policy consistency: strengthened int32/int64 handling to avoid unnecessary authenticated structure lookups for public int32 IDs.
+- Structure name resolver: `resolve_location_name` now consistently writes through to `CachedStructureName` (including in-memory-hit paths), reuses office-folder/container aliases across cache sources, and avoids central cache gaps after blueprint/location refreshes.
+- Resolution policy consistency: strengthened int32/int64 handling to avoid unnecessary authenticated structure lookups for public int32 IDs and to immediately retry stale public placeholders.
+- Location population: `force_refresh` is now honored consistently for both public stations and structures during bulk location repopulation.
+- Material Exchange (Config): posted `structure_name` values are no longer trusted; existing good names are preserved when live resolution fails.
+- Material Exchange (Contracts): contract structure matching now relies on the shared cache-aware resolver, ignores placeholder labels, and normalizes `Structure > Division` labels before comparison.
+- Personal blueprints: container-root resolution no longer overwrites an already known blueprint location name with a placeholder cache value.
+- ESI public name resolution: `/universe/names/` batches that contain invalid IDs now skip cleanly on `404` instead of aborting the whole batch.
 
 ### Internal
 
-- Tests: added regression coverage for structure-name DB write-through behavior, including the in-memory cache return path when the DB row is missing.
+- Tests: added regression coverage for structure-name DB write-through behavior, office-folder alias reuse, public-station force refresh, server-side structure-name persistence, shared resolver contract matching, and smoke-path refresh guards.
+- Release metadata bump to `1.15.2`.
+- Frontend package metadata aligned to `1.15.2` in `package.json` and `package-lock.json`.
 
 ## [1.15.1] - 2026-03-03
 
