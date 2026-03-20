@@ -74,6 +74,116 @@ _FORBIDDEN_STRUCTURE_CHARACTERS: set[int] = set()
 _STRUCTURE_LOOKUP_PAUSE_UNTIL: float = 0.0
 
 
+def _normalized_location_aliases(
+    location_id: int | None, *, max_depth: int = 3
+) -> tuple[int, ...]:
+    """Return ordered alias IDs that may refer to the same physical location.
+
+    This helps bridge ESI inconsistencies where a location may be represented as:
+    - the canonical station / structure ID
+    - a signed / unsigned int64 variant
+    - an office-folder or container item ID seen in cached assets
+    """
+
+    if not location_id:
+        return ()
+
+    try:
+        root_id = int(location_id)
+    except (TypeError, ValueError):
+        return ()
+
+    aliases: list[int] = []
+    seen: set[int] = set()
+
+    def _push(candidate: int | None, *, frontier: list[int] | None = None) -> None:
+        if candidate is None:
+            return
+        try:
+            normalized = int(candidate)
+        except (TypeError, ValueError):
+            return
+        if normalized == 0 or normalized in seen:
+            return
+        seen.add(normalized)
+        aliases.append(normalized)
+        if frontier is not None:
+            frontier.append(normalized)
+
+    frontier: list[int] = []
+    _push(root_id, frontier=frontier)
+
+    if root_id > 0 and root_id > 9_223_372_036_854_775_807:
+        _push(root_id - 18_446_744_073_709_551_616, frontier=frontier)
+    elif root_id < 0:
+        _push(root_id + 18_446_744_073_709_551_616, frontier=frontier)
+
+    try:
+        cached_corp_asset_model = apps.get_model("indy_hub", "CachedCorporationAsset")
+    except Exception:
+        cached_corp_asset_model = None
+
+    try:
+        cached_char_asset_model = apps.get_model("indy_hub", "CachedCharacterAsset")
+    except Exception:
+        cached_char_asset_model = None
+
+    for _depth in range(max(int(max_depth), 0)):
+        if not frontier:
+            break
+
+        current_frontier = frontier
+        frontier = []
+
+        for current_id in current_frontier:
+            if cached_corp_asset_model is not None:
+                try:
+                    corp_locations = (
+                        cached_corp_asset_model.objects.filter(item_id=current_id)
+                        .exclude(location_id__isnull=True)
+                        .values_list("location_id", flat=True)
+                        .distinct()
+                    )
+                    for related_id in corp_locations:
+                        _push(related_id, frontier=frontier)
+                except Exception:  # pragma: no cover - defensive fallback
+                    logger.debug(
+                        "Unable to inspect cached corporation asset aliases for %s",
+                        current_id,
+                        exc_info=True,
+                    )
+
+            if cached_char_asset_model is not None:
+                try:
+                    char_location_rows = (
+                        cached_char_asset_model.objects.filter(item_id=current_id)
+                        .exclude(location_id__isnull=True)
+                        .values_list("location_id", flat=True)
+                        .distinct()
+                    )
+                    for related_id in char_location_rows:
+                        _push(related_id, frontier=frontier)
+
+                    char_root_rows = (
+                        cached_char_asset_model.objects.filter(
+                            raw_location_id=current_id
+                        )
+                        .exclude(location_id__isnull=True)
+                        .values_list("location_id", flat=True)
+                        .distinct()
+                    )
+                    for related_id in char_root_rows:
+                        _push(related_id, frontier=frontier)
+                except Exception:  # pragma: no cover - defensive fallback
+                    logger.debug(
+                        "Unable to inspect cached character asset aliases for %s",
+                        current_id,
+                        exc_info=True,
+                    )
+
+    return tuple(aliases)
+
+
 def _get_item_type_model():
     """Return eve_sde ItemType model when available, without relying only on import-time globals."""
 
@@ -504,6 +614,8 @@ def _invalidate_owner_structure_tokens(owner_user_id: int | None) -> None:
 def _lookup_location_name_in_db(structure_id: int) -> str | None:
     """Return a previously stored location name for the given ID when present."""
 
+    alias_ids = _normalized_location_aliases(structure_id) or (int(structure_id),)
+
     # Prefer the shared persistent structure-name cache when available.
     # This allows different processes/workers to converge on the same resolved name,
     # and prevents returning a long-lived in-memory placeholder when DB already
@@ -515,16 +627,17 @@ def _lookup_location_name_in_db(structure_id: int) -> str | None:
 
     if cached_model is not None:
         try:
-            cached_name = (
-                cached_model.objects.filter(structure_id=int(structure_id))
-                .values_list("name", flat=True)
-                .first()
-            )
+            cached_rows = {
+                int(row[0]): str(row[1])
+                for row in cached_model.objects.filter(
+                    structure_id__in=alias_ids
+                ).values_list("structure_id", "name")
+            }
         except Exception:  # pragma: no cover - defensive fallback
-            cached_name = None
+            cached_rows = {}
 
-        if cached_name:
-            cached_name = str(cached_name)
+        for alias_id in alias_ids:
+            cached_name = cached_rows.get(int(alias_id))
             if cached_name and not cached_name.startswith(PLACEHOLDER_PREFIX):
                 return cached_name
 
@@ -542,16 +655,16 @@ def _lookup_location_name_in_db(structure_id: int) -> str | None:
         if model is None:
             continue
 
-        filter_kwargs = {id_field: structure_id}
-
         try:
             qs = (
-                model.objects.filter(**filter_kwargs)
+                model.objects.filter(**{f"{id_field}__in": alias_ids})
                 .exclude(**{f"{name_field}__isnull": True})
                 .exclude(**{name_field: ""})
                 .exclude(**{f"{name_field}__startswith": PLACEHOLDER_PREFIX})
             )
-            existing = qs.values_list(name_field, flat=True).first()
+            existing_rows = {
+                int(row[0]): str(row[1]) for row in qs.values_list(id_field, name_field)
+            }
         except Exception:  # pragma: no cover - defensive fallback
             logger.debug(
                 "Unable to reuse stored location for %s via %s.%s",
@@ -560,10 +673,12 @@ def _lookup_location_name_in_db(structure_id: int) -> str | None:
                 model_name,
                 exc_info=True,
             )
-            existing = None
+            existing_rows = {}
 
-        if existing:
-            return str(existing)
+        for alias_id in alias_ids:
+            existing = existing_rows.get(int(alias_id))
+            if existing:
+                return str(existing)
 
     return None
 

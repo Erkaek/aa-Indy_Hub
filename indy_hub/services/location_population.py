@@ -319,6 +319,7 @@ def _resolve_location_name_for_target(
     owners = sorted(target.owners)
     primary_owner_id = owners[0] if owners else None
     name: str | None = None
+    refresh_requested = bool(force_refresh)
 
     for character_id in characters:
         owner_for_character = target.character_owners.get(
@@ -329,7 +330,7 @@ def _resolve_location_name_for_target(
                 location_id,
                 character_id=character_id,
                 owner_user_id=owner_for_character,
-                force_refresh=False,
+                force_refresh=refresh_requested,
             )
         except Exception:  # pragma: no cover - defensive fallback
             logger.debug(
@@ -339,12 +340,14 @@ def _resolve_location_name_for_target(
                 exc_info=True,
             )
             continue
+        finally:
+            refresh_requested = False
 
         if name and not _is_placeholder(name):
             break
 
-    if (not name or _is_placeholder(name)) and not is_station_id(location_id):
-        refresh = force_refresh or (name and _is_placeholder(name))
+    if not name or _is_placeholder(name):
+        refresh = bool(force_refresh or _is_placeholder(name))
         try:
             name = resolve_location_name(
                 location_id,

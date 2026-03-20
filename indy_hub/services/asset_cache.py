@@ -719,6 +719,10 @@ def resolve_structure_names(
         name = str(known.get(structure_id, ""))
         if not name.startswith(PLACEHOLDER_PREFIX):
             return False
+        if int(structure_id) > 0 and int(structure_id) <= 2_147_483_647:
+            # Public int32 IDs are cheap to retry and often recover immediately via
+            # /universe/names/ or the station endpoint, so do not keep placeholders.
+            return True
         last = known_last_resolved.get(structure_id)
         if not last:
             return True
@@ -1150,10 +1154,12 @@ def resolve_structure_names(
             structure_id = folder_to_structure.get(int(folder_item_id))
             if not structure_id:
                 continue
-            base_name = known.get(int(structure_id)) or f"Structure {structure_id}"
+            base_name = (
+                known.get(int(structure_id)) or f"{PLACEHOLDER_PREFIX}{structure_id}"
+            )
             if " > " in base_name:
                 base_name = base_name.split(" > ")[0]
-            if base_name.startswith("Structure "):
+            if base_name.startswith(PLACEHOLDER_PREFIX):
                 continue
 
             division_name = div_map.get(int(division)) or f"Hangar Division {division}"

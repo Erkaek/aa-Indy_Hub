@@ -52,7 +52,6 @@ from allianceauth.services.hooks import get_extension_logger
 # AA Example App
 # Local
 from indy_hub.models import (
-    CachedStructureName,
     ESIContract,
     ESIContractItem,
     MaterialExchangeBuyOrder,
@@ -70,7 +69,6 @@ from indy_hub.notifications import (
     send_discord_webhook,
     send_discord_webhook_with_message_id,
 )
-from indy_hub.services.asset_cache import resolve_structure_names
 from indy_hub.services.esi_client import (
     ESIClientError,
     ESIForbiddenError,
@@ -81,11 +79,12 @@ from indy_hub.services.esi_client import (
     shared_client,
 )
 from indy_hub.utils.analytics import emit_analytics_event
+from indy_hub.utils.eve import PLACEHOLDER_PREFIX, resolve_location_name
 
 logger = get_extension_logger(__name__)
 
-# Cache for structure names to avoid repeated ESI lookups
-_structure_name_cache: dict[int, str] = {}
+# Cache for structure names to avoid repeated lookups within a task run.
+_structure_name_cache: dict[int, str | None] = {}
 
 
 def _normalize_esi_mapping(payload, *, context: str) -> dict | None:
@@ -160,104 +159,75 @@ def _log_buy_order_transactions(order: MaterialExchangeBuyOrder) -> None:
             continue
 
 
-def _get_location_name(
-    location_id: int, esi_client=None, *, corporation_id: int | None = None
-) -> str | None:
-    """Resolve a location name from ESI, with caching and signed/unsigned support."""
-
-    # Handle potential unsigned IDs coming from ESI
-    def to_signed(n: int) -> int:
-        if n > 9223372036854775807:
-            return n - 18446744073709551616
-        return n
-
-    def to_unsigned(n: int) -> int:
-        if n < 0:
-            return n + 18446744073709551616
-        return n
-
-    # Try original ID
-    name = _get_structure_name(location_id, esi_client, corporation_id=corporation_id)
-    if name:
-        return name
-
-    # Try variant (signed/unsigned) via ESI
-    variant = to_signed(location_id) if location_id > 0 else to_unsigned(location_id)
-    if variant != location_id:
-        return _get_structure_name(variant, esi_client, corporation_id=corporation_id)
-
-    return None
+def _is_placeholder_location_name(name: str | None) -> bool:
+    return not name or str(name).startswith(PLACEHOLDER_PREFIX)
 
 
-def _get_structure_name(
-    location_id: int, esi_client, *, corporation_id: int | None = None
-) -> str | None:
-    """
-    Get the name of a structure from ESI, with caching.
+def _normalize_location_match_name(name: str | None) -> str | None:
+    if _is_placeholder_location_name(name):
+        return None
 
-    Returns the structure name or None if lookup fails.
-    Uses cache to avoid repeated ESI calls for the same structure.
-    """
-    if location_id in _structure_name_cache:
-        return _structure_name_cache[location_id]
+    normalized = str(name).strip()
+    if not normalized:
+        return None
 
-    # Prefer persistent DB cache first
-    try:
-        cached = (
-            CachedStructureName.objects.filter(structure_id=int(location_id))
-            .values_list("name", flat=True)
-            .first()
-        )
-        if cached:
-            _structure_name_cache[int(location_id)] = str(cached)
-            return str(cached)
-    except Exception:
-        pass
+    if " > " in normalized:
+        normalized = normalized.split(" > ", 1)[0].strip()
 
-    # Prefer shared Indy Hub resolver (handles corp structure cache + token selection,
-    # and supports managed negative hangar ids when corporation_id is provided).
-    try:
-        resolved = resolve_structure_names(
-            [int(location_id)],
-            corporation_id=int(corporation_id) if corporation_id is not None else None,
-        ).get(int(location_id))
-        if resolved:
-            _structure_name_cache[int(location_id)] = str(resolved)
-            return str(resolved)
-    except Exception:
-        pass
+    return normalized.casefold() or None
 
-    if not esi_client:
+
+def _get_location_name(location_id: int | None) -> str | None:
+    """Resolve a contract location name using the shared cache-aware resolver."""
+
+    if not location_id:
         return None
 
     try:
-        get_structure_info = getattr(esi_client, "get_structure_info", None)
-        if callable(get_structure_info):
-            structure_info = get_structure_info(location_id)
-            structure_name = (
-                structure_info.get("name") if isinstance(structure_info, dict) else None
-            )
-            if structure_name:
-                _structure_name_cache[int(location_id)] = str(structure_name)
-                try:
-                    CachedStructureName.objects.update_or_create(
-                        structure_id=int(location_id),
-                        defaults={
-                            "name": str(structure_name),
-                            "last_resolved": timezone.now(),
-                        },
-                    )
-                except Exception:
-                    pass
-                return str(structure_name)
-    except Exception as exc:
+        normalized_location_id = int(location_id)
+    except (TypeError, ValueError):
+        return None
+
+    if normalized_location_id in _structure_name_cache:
+        return _structure_name_cache[normalized_location_id]
+
+    name: str | None = None
+
+    try:
+        direct_name = resolve_location_name(
+            normalized_location_id,
+            force_refresh=False,
+            allow_public=True,
+        )
+        if not _is_placeholder_location_name(direct_name):
+            name = str(direct_name)
+    except Exception:
         logger.debug(
-            "Failed to fetch structure name for location %s: %s",
-            location_id,
-            exc,
+            "Shared location resolver failed for %s",
+            normalized_location_id,
+            exc_info=True,
         )
 
-    return None
+    _structure_name_cache[normalized_location_id] = name
+    return name
+
+
+def _get_config_location_match_names(config) -> set[str]:
+    names: set[str] = set()
+
+    configured_name = _normalize_location_match_name(
+        getattr(config, "structure_name", None)
+    )
+    if configured_name:
+        names.add(configured_name)
+
+    resolved_name = _normalize_location_match_name(
+        _get_location_name(getattr(config, "structure_id", None))
+    )
+    if resolved_name:
+        names.add(resolved_name)
+
+    return names
 
 
 @shared_task(
@@ -640,17 +610,10 @@ def validate_material_exchange_sell_orders():
         contracts.count(),
     )
 
-    # Create ESI client for structure name lookups
-    try:
-        esi_client = shared_client
-    except Exception:
-        esi_client = None
-        logger.warning("ESI client not available for structure name lookups")
-
     # Process each pending order
     for order in pending_orders:
         try:
-            _validate_sell_order_from_db(config, order, contracts, esi_client)
+            _validate_sell_order_from_db(config, order, contracts)
         except Exception as exc:
             logger.error(
                 "Error validating sell order %s: %s",
@@ -753,15 +716,9 @@ def validate_material_exchange_buy_orders():
         contracts.count(),
     )
 
-    try:
-        esi_client = shared_client
-    except Exception:
-        esi_client = None
-        logger.warning("ESI client not available for structure name lookups")
-
     for order in pending_orders:
         try:
-            _validate_buy_order_from_db(config, order, contracts, esi_client)
+            _validate_buy_order_from_db(config, order, contracts)
         except Exception as exc:
             logger.error(
                 "Error validating buy order %s: %s",
@@ -771,7 +728,7 @@ def validate_material_exchange_buy_orders():
             )
 
 
-def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
+def _validate_sell_order_from_db(config, order, contracts):
     """
     Validate a single sell order against cached database contracts.
 
@@ -998,7 +955,7 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
 
         # Basic criteria
         criteria_match = _matches_sell_order_criteria_db(
-            contract, order, config, seller_character_ids, esi_client
+            contract, order, config, seller_character_ids
         )
         if not criteria_match:
             # Store contract info if it has correct ref but wrong structure
@@ -1457,7 +1414,7 @@ def _validate_sell_order_from_db(config, order, contracts, esi_client=None):
         logger.info("Sell order %s pending: no matching contract yet", order.id)
 
 
-def _validate_buy_order_from_db(config, order, contracts, esi_client=None):
+def _validate_buy_order_from_db(config, order, contracts):
     """Validate a single buy order against cached database contracts."""
 
     order_ref = order.order_reference or f"INDY-{order.id}"
@@ -1618,7 +1575,7 @@ def _validate_buy_order_from_db(config, order, contracts, esi_client=None):
 
         if not has_correct_ref:
             criteria_match_without_ref = _matches_buy_order_criteria_db(
-                contract, order, config, buyer_character_ids, esi_client
+                contract, order, config, buyer_character_ids
             )
             if criteria_match_without_ref and _contract_items_match_order_db(
                 contract, order
@@ -1640,7 +1597,7 @@ def _validate_buy_order_from_db(config, order, contracts, esi_client=None):
             continue
 
         criteria_match = _matches_buy_order_criteria_db(
-            contract, order, config, buyer_character_ids, esi_client
+            contract, order, config, buyer_character_ids
         )
         if not criteria_match:
             contract_status = str(contract.status or "").lower()
@@ -1786,9 +1743,7 @@ def _validate_buy_order_from_db(config, order, contracts, esi_client=None):
     logger.info("Buy order %s pending: no matching contract yet", order.id)
 
 
-def _matches_sell_order_criteria_db(
-    contract, order, config, seller_character_ids, esi_client=None
-):
+def _matches_sell_order_criteria_db(contract, order, config, seller_character_ids):
     """
     Check if a database contract matches sell order basic criteria.
 
@@ -1805,22 +1760,18 @@ def _matches_sell_order_criteria_db(
         return False
 
     # Check location by name to handle signed/unsigned variants and service-module IDs
-    contract_start_name = _get_location_name(
-        contract.start_location_id,
-        esi_client,
-        corporation_id=int(config.corporation_id),
+    contract_start_name = _normalize_location_match_name(
+        _get_location_name(contract.start_location_id)
     )
-    contract_end_name = _get_location_name(
-        contract.end_location_id,
-        esi_client,
-        corporation_id=int(config.corporation_id),
+    contract_end_name = _normalize_location_match_name(
+        _get_location_name(contract.end_location_id)
     )
-    config_location_name = config.structure_name
+    config_location_names = _get_config_location_match_names(config)
 
     # Try name matching first
-    if contract_start_name and contract_start_name == config_location_name:
+    if contract_start_name and contract_start_name in config_location_names:
         return True
-    if contract_end_name and contract_end_name == config_location_name:
+    if contract_end_name and contract_end_name in config_location_names:
         return True
 
     # Fall back to ID matching if name lookup failed
@@ -1832,9 +1783,7 @@ def _matches_sell_order_criteria_db(
     return False
 
 
-def _matches_buy_order_criteria_db(
-    contract, order, config, buyer_character_ids, esi_client=None
-):
+def _matches_buy_order_criteria_db(contract, order, config, buyer_character_ids):
     """Check if a database contract matches buy order basic criteria."""
 
     # Issuer corporation must be the hub corporation
@@ -1845,21 +1794,17 @@ def _matches_buy_order_criteria_db(
     if contract.assignee_id not in buyer_character_ids:
         return False
 
-    contract_start_name = _get_location_name(
-        contract.start_location_id,
-        esi_client,
-        corporation_id=int(config.corporation_id),
+    contract_start_name = _normalize_location_match_name(
+        _get_location_name(contract.start_location_id)
     )
-    contract_end_name = _get_location_name(
-        contract.end_location_id,
-        esi_client,
-        corporation_id=int(config.corporation_id),
+    contract_end_name = _normalize_location_match_name(
+        _get_location_name(contract.end_location_id)
     )
-    config_location_name = config.structure_name
+    config_location_names = _get_config_location_match_names(config)
 
-    if contract_start_name and contract_start_name == config_location_name:
+    if contract_start_name and contract_start_name in config_location_names:
         return True
-    if contract_end_name and contract_end_name == config_location_name:
+    if contract_end_name and contract_end_name in config_location_names:
         return True
 
     if contract.start_location_id == config.structure_id:

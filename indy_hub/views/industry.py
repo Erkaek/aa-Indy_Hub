@@ -79,6 +79,7 @@ from ..utils.discord_actions import (
     decode_action_token,
 )
 from ..utils.eve import (
+    PLACEHOLDER_PREFIX,
     get_character_name,
     get_corporation_name,
     get_corporation_ticker,
@@ -1467,7 +1468,11 @@ def personnal_bp_list(request, scope="character"):
             for structure_id, name in CachedStructureName.objects.filter(
                 structure_id__in=ids
             ).values_list("structure_id", "name"):
-                if structure_id and name:
+                if (
+                    structure_id
+                    and name
+                    and not str(name).startswith(PLACEHOLDER_PREFIX)
+                ):
                     location_map[int(structure_id)] = str(name)
 
         # Bulk load stations and structures with related data

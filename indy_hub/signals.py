@@ -224,7 +224,10 @@ def sync_industry_job_location_name(sender, instance, **kwargs):
 @receiver(post_save, sender=Blueprint)
 def cache_blueprint_data(sender, instance, created, **kwargs):
     """
-    No longer needed: ESI name caching is removed. All lookups are local DB only.
+    Reserved for future post-save blueprint cache hooks.
+
+    Location-name resolution is handled during pre-save through the shared
+    cache-aware resolver.
     """
     pass
 

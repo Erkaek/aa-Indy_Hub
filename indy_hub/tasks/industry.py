@@ -65,7 +65,6 @@ from ..app_settings import (
     ESI_TASK_TARGET_PER_MIN_ROLES,
     ESI_TASK_TARGET_PER_MIN_SKILLS,
     INDUSTRY_JOBS_BULK_WINDOW_MINUTES,
-    LOCATION_LOOKUP_BUDGET,
     MANUAL_REFRESH_COOLDOWN_SECONDS,
     ONLINE_STATUS_STALE_HOURS,
     ROLE_SNAPSHOT_STALE_HOURS,
@@ -80,6 +79,7 @@ from ..models import (
     IndustryJob,
     IndustrySkillSnapshot,
 )
+from ..services.asset_cache import resolve_structure_names
 from ..services.esi_client import (
     ESIClientError,
     ESIForbiddenError,
@@ -97,7 +97,6 @@ from ..utils.eve import (
     get_character_name,
     get_corporation_name,
     get_type_name,
-    resolve_location_name,
 )
 
 logger = get_extension_logger(__name__)
@@ -877,6 +876,7 @@ def reset_manual_refresh_cooldown(
     kind: str, user_id: int, scope: str | None = None
 ) -> None:
     cache.delete(_manual_refresh_cache_key(kind, user_id, scope))
+    _clear_manual_refresh_inflight(kind, user_id, scope)
 
 
 def queue_blueprint_update_for_user(
@@ -954,14 +954,6 @@ def request_manual_refresh(
     return True, None, None
 
 
-def _get_location_lookup_budget() -> int:
-    try:
-        value = int(LOCATION_LOOKUP_BUDGET)
-    except (TypeError, ValueError):
-        value = 50
-    return max(value, 0)
-
-
 def _coerce_job_datetime(value):
     if not value:
         return None
@@ -978,6 +970,45 @@ def _coerce_job_datetime(value):
     if timezone.is_naive(dt):
         dt = timezone.make_aware(dt, timezone.utc)
     return dt
+
+
+def _resolve_location_name_batch(
+    location_ids,
+    *,
+    user,
+    character_id: int | None = None,
+    corporation_id: int | None = None,
+    schedule_async: bool = True,
+) -> dict[int, str]:
+    """Resolve many station / structure names in one cache-aware pass."""
+
+    normalized_ids = {
+        int(location_id)
+        for location_id in (location_ids or [])
+        if location_id not in (None, "")
+    }
+    if not normalized_ids:
+        return {}
+
+    try:
+        resolved = resolve_structure_names(
+            sorted(normalized_ids),
+            character_id=int(character_id) if character_id else None,
+            corporation_id=int(corporation_id) if corporation_id else None,
+            user=user,
+            schedule_async=schedule_async,
+        )
+    except Exception:
+        logger.debug(
+            "Batch location resolution failed for %s locations",
+            len(normalized_ids),
+            exc_info=True,
+        )
+        resolved = {}
+
+    return {
+        int(location_id): str(name) for location_id, name in resolved.items() if name
+    }
 
 
 @shared_task(bind=True, max_retries=3)
@@ -1141,6 +1172,13 @@ def update_blueprints_for_user(
                 error_messages.append(message)
                 continue
 
+            blueprint_location_names = _resolve_location_name_batch(
+                [bp.get("location_id") for bp in blueprints if isinstance(bp, dict)],
+                user=user,
+                character_id=int(char_id),
+                schedule_async=True,
+            )
+
             esi_ids = set()
             try:
                 with transaction.atomic():
@@ -1155,11 +1193,19 @@ def update_blueprints_for_user(
                             continue
                         esi_ids.add(item_id)
                         location_id = bp.get("location_id")
-                        location_name = resolve_location_name(
-                            location_id,
-                            character_id=char_id,
-                            owner_user_id=user.id,
+                        try:
+                            location_key = (
+                                int(location_id) if location_id is not None else None
+                            )
+                        except (TypeError, ValueError):
+                            location_key = None
+                        location_name = (
+                            blueprint_location_names.get(location_key, "")
+                            if location_key is not None
+                            else ""
                         )
+                        if location_key is not None and not location_name:
+                            location_name = f"{PLACEHOLDER_PREFIX}{location_key}"
                         Blueprint.objects.update_or_create(
                             item_id=item_id,
                             defaults={
@@ -1266,6 +1312,18 @@ def update_blueprints_for_user(
                     error_messages.append(message)
                     continue
 
+            corp_blueprint_location_names = _resolve_location_name_batch(
+                [
+                    bp.get("location_id")
+                    for bp in corp_blueprints
+                    if isinstance(bp, dict)
+                ],
+                user=user,
+                character_id=int(corp_char_id),
+                corporation_id=int(corp_id),
+                schedule_async=True,
+            )
+
             corp_esi_ids: set[int] = set()
             try:
                 with transaction.atomic():
@@ -1280,11 +1338,19 @@ def update_blueprints_for_user(
                             continue
                         corp_esi_ids.add(item_id)
                         location_id = bp.get("location_id")
-                        location_name = resolve_location_name(
-                            location_id,
-                            character_id=int(corp_char_id),
-                            owner_user_id=user.id,
+                        try:
+                            location_key = (
+                                int(location_id) if location_id is not None else None
+                            )
+                        except (TypeError, ValueError):
+                            location_key = None
+                        location_name = (
+                            corp_blueprint_location_names.get(location_key, "")
+                            if location_key is not None
+                            else ""
                         )
+                        if location_key is not None and not location_name:
+                            location_name = f"{PLACEHOLDER_PREFIX}{location_key}"
                         Blueprint.objects.update_or_create(
                             item_id=item_id,
                             defaults={
@@ -1408,7 +1474,6 @@ def update_industry_jobs_for_user(
         deleted_total = 0
         error_messages: list[str] = []
         location_cache: dict[int, str] = {}
-        lookup_budget = _get_location_lookup_budget()
         lookup_budget_warned = False
         ownerships = CharacterOwnership.objects.filter(user=user)
         base_scopes = [JOBS_SCOPE]
@@ -1538,6 +1603,19 @@ def update_industry_jobs_for_user(
                 error_messages.append(message)
                 continue
 
+            location_cache.update(
+                _resolve_location_name_batch(
+                    [
+                        job.get("station_id") or job.get("facility_id")
+                        for job in jobs
+                        if isinstance(job, dict)
+                    ],
+                    user=user,
+                    character_id=int(char_id),
+                    schedule_async=True,
+                )
+            )
+
             esi_job_ids = set()
             try:
                 with transaction.atomic():
@@ -1571,33 +1649,10 @@ def update_industry_jobs_for_user(
                                 cached_name = location_cache.get(location_key)
                                 if cached_name is not None:
                                     location_name = cached_name
-                                elif lookup_budget > 0:
-                                    try:
-                                        resolved_name = resolve_location_name(
-                                            location_key,
-                                            character_id=char_id,
-                                            owner_user_id=user.id,
-                                        )
-                                    except Exception:  # pragma: no cover - defensive
-                                        logger.debug(
-                                            "Location resolution failed for %s via %s",
-                                            location_key,
-                                            character_name,
-                                            exc_info=True,
-                                        )
-                                        resolved_name = None
-
-                                    lookup_budget -= 1
-                                    location_name = (
-                                        resolved_name
-                                        if resolved_name
-                                        else f"{PLACEHOLDER_PREFIX}{location_key}"
-                                    )
-                                    location_cache[location_key] = location_name
                                 else:
                                     if not lookup_budget_warned:
                                         logger.warning(
-                                            "Location lookup budget exhausted while syncing industry jobs for %s; remaining locations will use placeholders.",
+                                            "Location name missing from batch resolution while syncing industry jobs for %s; placeholders will be kept until background refresh completes.",
                                             user.username,
                                         )
                                         lookup_budget_warned = True
@@ -1765,6 +1820,20 @@ def update_industry_jobs_for_user(
                     error_messages.append(message)
                     continue
 
+                location_cache.update(
+                    _resolve_location_name_batch(
+                        [
+                            job.get("station_id") or job.get("facility_id")
+                            for job in corp_jobs
+                            if isinstance(job, dict)
+                        ],
+                        user=user,
+                        character_id=int(corp_char_id),
+                        corporation_id=int(corp_id),
+                        schedule_async=True,
+                    )
+                )
+
                 corp_job_ids: set[int] = set()
                 try:
                     with transaction.atomic():
@@ -1799,33 +1868,10 @@ def update_industry_jobs_for_user(
                                     cached_name = location_cache.get(location_key)
                                     if cached_name is not None:
                                         location_name = cached_name
-                                    elif lookup_budget > 0:
-                                        try:
-                                            resolved_name = resolve_location_name(
-                                                location_key,
-                                                character_id=int(corp_char_id),
-                                                owner_user_id=user.id,
-                                            )
-                                        except Exception:  # pragma: no cover
-                                            logger.debug(
-                                                "Location resolution failed for %s via %s",
-                                                location_key,
-                                                acting_character_name,
-                                                exc_info=True,
-                                            )
-                                            resolved_name = None
-
-                                        lookup_budget -= 1
-                                        location_name = (
-                                            resolved_name
-                                            if resolved_name
-                                            else f"{PLACEHOLDER_PREFIX}{location_key}"
-                                        )
-                                        location_cache[location_key] = location_name
                                     else:
                                         if not lookup_budget_warned:
                                             logger.warning(
-                                                "Location lookup budget exhausted while syncing corporate jobs for %s; remaining locations will use placeholders.",
+                                                "Location name missing from batch resolution while syncing corporate jobs for %s; placeholders will be kept until background refresh completes.",
                                                 corp_name,
                                             )
                                             lookup_budget_warned = True

@@ -1085,7 +1085,8 @@ def _get_corp_structures(user, corp_id):
     structures.sort(key=lambda row: str(row.get("name", "")).lower())
 
     result = (structures, assets_scope_missing)
-    cache.set(cache_key, result, 300)
+    cache_ttl = 300 if structures else 30
+    cache.set(cache_key, result, cache_ttl)
     return result
 
 
@@ -1379,7 +1380,6 @@ def _handle_config_save(request, existing_config):
 
     corporation_id = request.POST.get("corporation_id")
     structure_id = request.POST.get("structure_id")
-    structure_name = request.POST.get("structure_name", "")
     hangar_division = request.POST.get("hangar_division")
     sell_markup_percent = request.POST.get("sell_markup_percent", "0")
     sell_markup_base = request.POST.get("sell_markup_base", "buy")
@@ -1468,9 +1468,17 @@ def _handle_config_save(request, existing_config):
         messages.error(request, _("Invalid configuration values: {}").format(e))
         return redirect("indy_hub:material_exchange_config")
 
+    structure_name = f"{PLACEHOLDER_PREFIX}{int(structure_id)}"
+    if existing_config and int(getattr(existing_config, "structure_id", 0) or 0) == int(
+        structure_id
+    ):
+        existing_name = str(getattr(existing_config, "structure_name", "") or "")
+        if existing_name and not existing_name.startswith(PLACEHOLDER_PREFIX):
+            structure_name = existing_name
+
     # Save or update config
     with transaction.atomic():
-        # Best-effort: resolve name server-side to avoid persisting placeholders.
+        # Resolve the structure name server-side only. Never trust the posted label.
         if corporation_id and structure_id:
             try:
                 token_for_names = _get_token_for_corp(
@@ -1487,10 +1495,15 @@ def _handle_config_save(request, existing_config):
                     int(corporation_id),
                     user=request.user,
                 ).get(int(structure_id))
-                if resolved and not str(resolved).startswith("Structure "):
+                if resolved and not str(resolved).startswith(PLACEHOLDER_PREFIX):
                     structure_name = resolved
             except Exception:
-                pass
+                logger.debug(
+                    "Unable to resolve structure name during config save (corp=%s, structure=%s)",
+                    corporation_id,
+                    structure_id,
+                    exc_info=True,
+                )
 
         if existing_config:
             existing_config.corporation_id = corporation_id

@@ -12,6 +12,7 @@ from django.test import TestCase
 # AA Example App
 # Local
 from indy_hub.models import (
+    CachedStructureName,
     MaterialExchangeBuyOrder,
     MaterialExchangeBuyOrderItem,
     MaterialExchangeConfig,
@@ -976,14 +977,10 @@ class StructureNameMatchingTest(TestCase):
             is_included=True,
         )
 
-        # Mock ESI client to return the structure name
-        mock_esi_client = patch(
-            "indy_hub.tasks.material_exchange_contracts.shared_client"
+        CachedStructureName.objects.create(
+            structure_id=1045722708748,
+            name="C-N4OD - Fountain of Life",
         )
-        mock_client_instance = mock_esi_client.start()
-        mock_client_instance.get_structure_info.return_value = {
-            "name": "C-N4OD - Fountain of Life"
-        }
 
         validate_material_exchange_sell_orders()
 
@@ -996,8 +993,6 @@ class StructureNameMatchingTest(TestCase):
 
         # Verify admin notification was sent
         mock_notify_multi.assert_called_once()
-
-        mock_esi_client.stop()
 
     @patch("indy_hub.tasks.material_exchange_contracts._get_user_character_ids")
     def test_contract_falls_back_to_id_matching(self, mock_get_char_ids):
@@ -1037,14 +1032,8 @@ class StructureNameMatchingTest(TestCase):
             is_included=True,
         )
 
-        # Mock ESI client to fail (returns None)
-        with patch(
-            "indy_hub.tasks.material_exchange_contracts.shared_client"
-        ) as mock_client:
-            mock_client.get_structure_info.side_effect = Exception("ESI Error")
-
-            with patch("indy_hub.tasks.material_exchange_contracts.notify_multi"):
-                validate_material_exchange_sell_orders()
+        with patch("indy_hub.tasks.material_exchange_contracts.notify_multi"):
+            validate_material_exchange_sell_orders()
 
         # Check order was approved (matched by ID fallback)
         self.sell_order.refresh_from_db()

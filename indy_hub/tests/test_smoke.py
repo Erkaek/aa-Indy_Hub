@@ -24,6 +24,7 @@ from indy_hub.models import (
     BlueprintCopyOffer,
     BlueprintCopyRequest,
     CachedCharacterAsset,
+    CachedCorporationAsset,
     CachedStructureName,
     CharacterSettings,
     CorporationSharingSetting,
@@ -37,6 +38,10 @@ from indy_hub.models import (
 )
 from indy_hub.notifications import notify_user
 from indy_hub.services.esi_client import ESIForbiddenError
+from indy_hub.services.location_population import (
+    LocationTarget,
+    _resolve_location_name_for_target,
+)
 from indy_hub.tasks.industry import (
     MANUAL_REFRESH_KIND_BLUEPRINTS,
     MANUAL_REFRESH_KIND_JOBS,
@@ -174,6 +179,10 @@ class NavbarBlueprintSharingTests(TestCase):
         self.user = User.objects.create_user("navbaruser", password="secret123")
         assign_main_character(self.user, character_id=7003001)
         grant_indy_permissions(self.user)
+        SDESyncCompatState.objects.update_or_create(
+            pk=1,
+            defaults={"last_synced_at": timezone.now()},
+        )
 
     def test_base_access_user_sees_fulfill_requests_nav_link(self) -> None:
         self.client.force_login(self.user)
@@ -230,7 +239,7 @@ class DebugHealthViewTests(TestCase):
             reverse("indy_hub:debug_health") + "?structure_id=60000844"
         )
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Inspecteur structure ID")
+        self.assertContains(response, "Structure ID Inspector")
         self.assertContains(response, "Amarr VIII (Oris) - Emperor Family Academy")
 
     @patch(
@@ -291,7 +300,11 @@ class IndexSDEGuardTests(TestCase):
         response = self.client.get(reverse("indy_hub:index"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertNotTemplateUsed(response, "indy_hub/sde_not_ready.html")
+        self.assertTemplateUsed(response, "indy_hub/overview_intro.html")
+        self.assertNotContains(
+            response,
+            "Indy Hub static data is not loaded yet. Please contact your administrator.",
+        )
 
 
 class BlueprintCopyHistoryAccessTests(TestCase):
@@ -557,6 +570,35 @@ class LocationNameSignalTests(TestCase):
             owner_user_id=self.user.id,
         )
         self.assertEqual(job.location_name, "Station Gamma")
+
+
+class LocationPopulationTests(TestCase):
+    @patch("indy_hub.services.location_population.resolve_location_name")
+    def test_force_refresh_is_honored_for_public_station(self, mock_resolve):
+        station_id = 60003760
+        mock_resolve.return_value = "Jita IV - Moon 4 - Caldari Navy Assembly Plant"
+
+        target = LocationTarget.empty()
+        target.characters.add(9001)
+        target.character_owners[9001] = 42
+        target.owners.add(42)
+
+        result = _resolve_location_name_for_target(
+            station_id,
+            target,
+            force_refresh=True,
+        )
+
+        self.assertEqual(
+            result,
+            "Jita IV - Moon 4 - Caldari Navy Assembly Plant",
+        )
+        mock_resolve.assert_called_once_with(
+            station_id,
+            character_id=9001,
+            owner_user_id=42,
+            force_refresh=True,
+        )
 
 
 class JobNotificationSignalTests(TestCase):
@@ -2292,7 +2334,7 @@ class StructureLookupForbiddenCacheTests(TestCase):
 
     def test_character_skipped_after_forbidden_error(self) -> None:
         reset_forbidden_structure_lookup_cache()
-        structure_id = 610000001
+        structure_id = 1_046_000_000_001
         character_id = 7001
 
         with patch(
@@ -2383,6 +2425,44 @@ class StructureLookupDbCacheTests(TestCase):
 
         self.assertEqual(result, "Cached Structure Beta")
 
+    def test_resolve_location_name_reuses_office_folder_alias(self) -> None:
+        office_folder_item_id = 1_045_722_708_748
+        structure_id = 1_045_667_241_057
+
+        CachedStructureName.objects.create(
+            structure_id=structure_id,
+            name="Cached Structure Alias",
+            last_resolved=timezone.now(),
+        )
+        CachedCorporationAsset.objects.create(
+            corporation_id=123,
+            item_id=office_folder_item_id,
+            location_id=structure_id,
+            location_flag="OfficeFolder",
+            type_id=27,
+            quantity=1,
+            is_singleton=True,
+            is_blueprint=False,
+        )
+
+        with patch(
+            "indy_hub.utils.eve.shared_client.fetch_structure_name"
+        ) as mock_fetch:
+            mock_fetch.side_effect = RuntimeError(
+                "fetch_structure_name should not be called"
+            )
+            result = eve_utils.resolve_location_name(
+                office_folder_item_id,
+                character_id=None,
+                owner_user_id=None,
+                force_refresh=False,
+                allow_public=False,
+            )
+
+        self.assertEqual(result, "Cached Structure Alias")
+        cached = CachedStructureName.objects.get(structure_id=office_folder_item_id)
+        self.assertEqual(cached.name, "Cached Structure Alias")
+
     def test_resolve_location_name_writes_through_to_central_cache(self) -> None:
         structure_id = 1_045_667_241_057
         CachedStructureName.objects.filter(structure_id=structure_id).delete()
@@ -2426,10 +2506,20 @@ class ManualRefreshCooldownTests(TestCase):
         self.user = User.objects.create_user("manual", password="secret123")
         reset_manual_refresh_cooldown(MANUAL_REFRESH_KIND_BLUEPRINTS, self.user.id)
         reset_manual_refresh_cooldown(MANUAL_REFRESH_KIND_JOBS, self.user.id)
+        reset_manual_refresh_cooldown(
+            MANUAL_REFRESH_KIND_BLUEPRINTS,
+            self.user.id,
+            scope="corporation",
+        )
 
     def tearDown(self) -> None:
         reset_manual_refresh_cooldown(MANUAL_REFRESH_KIND_BLUEPRINTS, self.user.id)
         reset_manual_refresh_cooldown(MANUAL_REFRESH_KIND_JOBS, self.user.id)
+        reset_manual_refresh_cooldown(
+            MANUAL_REFRESH_KIND_BLUEPRINTS,
+            self.user.id,
+            scope="corporation",
+        )
 
     def test_manual_refresh_sets_cooldown(self) -> None:
         with patch(
@@ -2725,7 +2815,7 @@ class PersonnalBlueprintViewTests(TestCase):
         self.client.force_login(self.user)
 
     def test_container_blueprint_location_resolves_when_assets_available(self) -> None:
-        container_item_id = PUBLIC_STATION_ID
+        container_item_id = 3100100001
         root_structure_id = 99000001
         Blueprint.objects.create(
             owner_user=self.user,
@@ -2772,7 +2862,7 @@ class PersonnalBlueprintViewTests(TestCase):
         self.assertEqual(bp.location_path, "Test Structure")
 
     def test_container_blueprint_location_falls_back_without_assets(self) -> None:
-        container_item_id = PUBLIC_STATION_ID
+        container_item_id = 3100100002
         Blueprint.objects.create(
             owner_user=self.user,
             character_id=11,
@@ -2799,6 +2889,56 @@ class PersonnalBlueprintViewTests(TestCase):
         self.assertGreaterEqual(len(page.object_list), 1)
         bp = page.object_list[0]
         self.assertEqual(bp.location_path, "hangar")
+
+    def test_container_blueprint_placeholder_does_not_override_existing_name(
+        self,
+    ) -> None:
+        container_item_id = 3100100003
+        root_structure_id = 99000002
+        Blueprint.objects.create(
+            owner_user=self.user,
+            character_id=11,
+            item_id=91011,
+            blueprint_id=91012,
+            type_id=999001,
+            location_id=container_item_id,
+            location_name="Known Label",
+            location_flag="hangar",
+            quantity=-1,
+            time_efficiency=0,
+            material_efficiency=0,
+            runs=0,
+            character_name="Industrialist",
+            type_name="Polymer Reaction",
+        )
+        CachedCharacterAsset.objects.create(
+            user=self.user,
+            character_id=11,
+            item_id=container_item_id,
+            raw_location_id=root_structure_id,
+            location_id=root_structure_id,
+            location_flag="hangar",
+            type_id=123,
+            quantity=1,
+            synced_at=timezone.now(),
+        )
+        CachedStructureName.objects.create(
+            structure_id=root_structure_id,
+            name=f"Structure {root_structure_id}",
+            last_resolved=timezone.now(),
+        )
+
+        with patch("indy_hub.views.industry.connection") as mock_connection:
+            cursor = mock_connection.cursor.return_value.__enter__.return_value
+            cursor.fetchall.return_value = [(999001,)]
+            response = self.client.get(reverse("indy_hub:personnal_bp_list"))
+
+        self.assertEqual(response.status_code, 200)
+        page = response.context["blueprints"]
+        self.assertGreaterEqual(len(page.object_list), 1)
+        bp = page.object_list[0]
+        self.assertEqual(bp.location_name, "Known Label")
+        self.assertEqual(bp.location_path, str(root_structure_id))
 
     def test_reaction_blueprint_hides_efficiency_bars(self) -> None:
         Blueprint.objects.create(

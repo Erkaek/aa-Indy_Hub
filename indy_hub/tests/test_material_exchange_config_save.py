@@ -1,3 +1,6 @@
+# Standard Library
+from unittest.mock import patch
+
 # Django
 from django.contrib.auth.models import User
 from django.contrib.messages.storage.fallback import FallbackStorage
@@ -106,3 +109,41 @@ class MaterialExchangeConfigSaveCheckboxTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.config.refresh_from_db()
         self.assertFalse(self.config.is_active)
+
+    @patch("indy_hub.views.material_exchange_config._get_token_for_corp")
+    @patch("indy_hub.views.material_exchange_config.resolve_structure_names")
+    def test_structure_name_is_resolved_server_side(
+        self, mock_resolve_structure_names, mock_get_token_for_corp
+    ):
+        mock_get_token_for_corp.return_value = None
+        mock_resolve_structure_names.return_value = {
+            self.config.structure_id: "Authoritative Structure Name"
+        }
+
+        post_data = self._base_post_data()
+        post_data["structure_name"] = "Client Supplied Name"
+
+        request = self._build_request(post_data)
+        response = _handle_config_save(request, self.config)
+
+        self.assertEqual(response.status_code, 302)
+        self.config.refresh_from_db()
+        self.assertEqual(self.config.structure_name, "Authoritative Structure Name")
+
+    @patch("indy_hub.views.material_exchange_config._get_token_for_corp")
+    @patch("indy_hub.views.material_exchange_config.resolve_structure_names")
+    def test_structure_name_does_not_trust_client_value_when_resolution_fails(
+        self, mock_resolve_structure_names, mock_get_token_for_corp
+    ):
+        mock_get_token_for_corp.return_value = None
+        mock_resolve_structure_names.side_effect = RuntimeError("ESI unavailable")
+
+        post_data = self._base_post_data()
+        post_data["structure_name"] = "Client Supplied Name"
+
+        request = self._build_request(post_data)
+        response = _handle_config_save(request, self.config)
+
+        self.assertEqual(response.status_code, 302)
+        self.config.refresh_from_db()
+        self.assertEqual(self.config.structure_name, "Test Structure")
