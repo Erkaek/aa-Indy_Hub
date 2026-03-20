@@ -77,6 +77,24 @@
                 </div>
 
                 <div class="order-summary-actions">
+                    {% if can_cancel %}
+                        <button
+                            type="button"
+                            class="btn btn-outline-dark btn-sm"
+                            title="{% trans 'Paste the in-game Copy All result to compare the contract with this order' %}"
+                            aria-label="{% trans 'Paste and check contract' %}"
+                            data-contract-check-trigger="true"
+                            data-check-url="{% url 'indy_hub:buy_order_check_contract' order.id %}"
+                            data-order-ref="{{ order.order_reference }}"
+                            data-recipient="{{ buyer_main_character }}"
+                            data-location="{{ config.structure_name }}"
+                            data-amount="{{ order.total_price|floatformat:0|intcomma }}"
+                            data-amount-raw="{{ order.total_price|floatformat:0 }}"
+                            data-amount-label="{% trans 'I will pay' %}"
+                        >
+                            <i class="fas fa-paste me-1"></i>{% trans "Paste & Check" %}
+                        </button>
+                    {% endif %}
                     {% if order.status != 'completed' and order.status != 'rejected' and order.status != 'cancelled' %}
                         <a href="{% url 'indy_hub:buy_order_delete' order.id %}" class="btn btn-outline-danger btn-sm">
                             <i class="fas fa-trash me-1"></i>{% trans "Delete" %}
@@ -311,6 +329,8 @@
         </div>
     </div>
 </main>
+
+{% include "indy_hub/material_exchange/includes/contract_check_modal.html" %}
 
 <script>
 function flashCopied(btn) {

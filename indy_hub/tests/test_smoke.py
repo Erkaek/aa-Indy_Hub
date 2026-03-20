@@ -31,8 +31,10 @@ from indy_hub.models import (
     IndustryJob,
     JobNotificationDigestEntry,
     MaterialExchangeBuyOrder,
+    MaterialExchangeBuyOrderItem,
     MaterialExchangeConfig,
     MaterialExchangeSellOrder,
+    MaterialExchangeSellOrderItem,
     SDESyncCompatState,
     UserOnboardingProgress,
 )
@@ -314,6 +316,206 @@ class NavbarMaterialExchangeMyOrdersTests(TestCase):
         self.assertIn(in_progress_label, html)
         self.assertIn(completed_label, html)
         self.assertLess(html.find(in_progress_label), html.find(completed_label))
+
+    def test_my_orders_shows_contract_check_button_for_open_orders(self) -> None:
+        config = MaterialExchangeConfig.objects.create(
+            corporation_id=1234,
+            structure_id=5678,
+            structure_name="C-N4OD - Fountain of Life",
+            is_active=True,
+        )
+        order = MaterialExchangeSellOrder.objects.create(
+            config=config,
+            seller=self.user,
+            status=MaterialExchangeSellOrder.Status.DRAFT,
+            order_reference="INDY-CHECK-BUTTON",
+        )
+
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("indy_hub:my_orders"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response, reverse("indy_hub:sell_order_check_contract", args=[order.id])
+        )
+
+
+class MaterialExchangeContractCheckTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("contractcheck", password="secret123")
+        self.character = assign_main_character(self.user, character_id=7011001)
+        grant_indy_permissions(self.user)
+        self.client.force_login(self.user)
+
+        self.config = MaterialExchangeConfig.objects.create(
+            corporation_id=self.character.corporation_id,
+            structure_id=60003760,
+            structure_name="C-N4OD - Fountain of Life",
+            is_active=True,
+        )
+
+    def test_sell_order_contract_check_reports_success(self) -> None:
+        order = MaterialExchangeSellOrder.objects.create(
+            config=self.config,
+            seller=self.user,
+            status=MaterialExchangeSellOrder.Status.DRAFT,
+            order_reference="INDY-SELL-CHECK",
+        )
+        MaterialExchangeSellOrderItem.objects.create(
+            order=order,
+            type_id=1,
+            type_name="Common Moon Mining Crystal Type A II",
+            quantity=40,
+            unit_price="1410000.00",
+            total_price="56400000.00",
+        )
+
+        response = self.client.post(
+            reverse("indy_hub:sell_order_check_contract", args=[order.id]),
+            {
+                "contract_text": (
+                    "Contract Type\tItem Exchange\n"
+                    "Description\tINDY-SELL-CHECK\n"
+                    "Availability\tPrivate (Test Corp)\n"
+                    "Location\tC-N4OD - Fountain of Life\n"
+                    "I will pay\t0 ISK\n"
+                    "I will receive\t56.400.000 ISK (56,40 Million)\n"
+                    "Items For Sale\tCommon Moon Mining Crystal Type A II x 40\n"
+                    "Items Required\t\n"
+                )
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(len(payload["checks"]), 6)
+
+    def test_buy_order_contract_check_reports_amount_mismatch(self) -> None:
+        order = MaterialExchangeBuyOrder.objects.create(
+            config=self.config,
+            buyer=self.user,
+            status=MaterialExchangeBuyOrder.Status.DRAFT,
+            order_reference="INDY-BUY-CHECK",
+        )
+        MaterialExchangeBuyOrderItem.objects.create(
+            order=order,
+            type_id=2,
+            type_name="Coherent Asteroid Mining Crystal Type A II",
+            quantity=20,
+            unit_price="1200000.00",
+            total_price="24000000.00",
+        )
+
+        response = self.client.post(
+            reverse("indy_hub:buy_order_check_contract", args=[order.id]),
+            {
+                "contract_text": (
+                    "Contract Type\tItem Exchange\n"
+                    "Description\tINDY-BUY-CHECK\n"
+                    f"Availability\tPrivate ({self.character.character_name})\n"
+                    "Location\tC-N4OD - Fountain of Life\n"
+                    "I will pay\t23.000.000 ISK\n"
+                    "I will receive\t0 ISK\n"
+                    "Items For Sale\tCoherent Asteroid Mining Crystal Type A II x 20\n"
+                    "Items Required\t\n"
+                )
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertFalse(payload["ok"])
+        amount_check = next(
+            check for check in payload["checks"] if check["key"] == "amount"
+        )
+        self.assertFalse(amount_check["passed"])
+
+    def test_sell_order_contract_check_reports_missing_and_surplus_items(self) -> None:
+        order = MaterialExchangeSellOrder.objects.create(
+            config=self.config,
+            seller=self.user,
+            status=MaterialExchangeSellOrder.Status.DRAFT,
+            order_reference="INDY-SELL-ITEMS-CHECK",
+        )
+        MaterialExchangeSellOrderItem.objects.create(
+            order=order,
+            type_id=11,
+            type_name="Common Moon Mining Crystal Type A II",
+            quantity=5,
+            unit_price="1410000.00",
+            total_price="7050000.00",
+        )
+
+        response = self.client.post(
+            reverse("indy_hub:sell_order_check_contract", args=[order.id]),
+            {
+                "contract_text": (
+                    "Contract Type\tItem Exchange\n"
+                    "Description\tINDY-SELL-ITEMS-CHECK\n"
+                    "Availability\tPrivate (Test Corp)\n"
+                    "Location\tC-N4OD - Fountain of Life\n"
+                    "I will pay\t0 ISK\n"
+                    "I will receive\t7.050.000 ISK\n"
+                    "Items For Sale\tCommon Moon Mining Crystal Type A II x 3\n"
+                    "Spare Moon Drill Bit x 2\n"
+                    "Items Required\t\n"
+                )
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        items_check = next(
+            check for check in payload["checks"] if check["key"] == "items"
+        )
+        self.assertFalse(items_check["passed"])
+        self.assertEqual(
+            items_check["detail_sections"],
+            [
+                {
+                    "key": "missing",
+                    "label": "Missing from pasted contract",
+                    "items": ["Common Moon Mining Crystal Type A II x 2"],
+                },
+                {
+                    "key": "surplus",
+                    "label": "Surplus in pasted contract",
+                    "items": ["Spare Moon Drill Bit x 2"],
+                },
+            ],
+        )
+
+    def test_sell_order_detail_renders_contract_check_button(self) -> None:
+        order = MaterialExchangeSellOrder.objects.create(
+            config=self.config,
+            seller=self.user,
+            status=MaterialExchangeSellOrder.Status.DRAFT,
+            order_reference="INDY-SELL-DETAIL-CHECK",
+        )
+
+        response = self.client.get(
+            reverse("indy_hub:sell_order_detail", args=[order.id])
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response, reverse("indy_hub:sell_order_check_contract", args=[order.id])
+        )
+
+    def test_buy_order_detail_renders_contract_check_button(self) -> None:
+        order = MaterialExchangeBuyOrder.objects.create(
+            config=self.config,
+            buyer=self.user,
+            status=MaterialExchangeBuyOrder.Status.DRAFT,
+            order_reference="INDY-BUY-DETAIL-CHECK",
+        )
+
+        response = self.client.get(
+            reverse("indy_hub:buy_order_detail", args=[order.id])
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response, reverse("indy_hub:buy_order_check_contract", args=[order.id])
+        )
 
 
 class BlueprintModelClassificationTests(TestCase):

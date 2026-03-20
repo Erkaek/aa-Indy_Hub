@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ### Added
 
 - Operations safety: added a dedicated `sde_not_ready` blocking page so Indy Hub clearly reports when required SDE compatibility data has not been populated yet.
+- Material Exchange (Buy/Sell): added a new in-page contract paste-check helper on order detail and my-orders views so users can paste the in-game `Copy All` export and compare it before validating a contract.
 
 ### Changed
 
@@ -19,6 +20,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Manual refresh UX: blueprint/job refresh requests now report distinct queued, already-running, and recent-cooldown states, and the default manual refresh cooldown was reduced from 60 minutes to 5 minutes.
 - Material Exchange (Config): corporation structure cache now recovers faster from empty results, and structure labels are always resolved server-side before persistence.
 - Personal blueprint display: cached placeholder structure names are no longer treated as authoritative labels in the blueprint list.
+- Material Exchange (Contracts/UI): contract paste-check results now focus on clear mismatch guidance, with compact OK checks, dedicated missing/surplus item lists, in-game copy instructions, automatic checking on paste, and clearer `Paste & Check` actions on buy/sell order pages.
 
 ### Fixed
 
@@ -33,7 +35,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### Internal
 
-- Tests: added regression coverage for structure-name DB write-through behavior, office-folder alias reuse, public-station force refresh, server-side structure-name persistence, shared resolver contract matching, and smoke-path refresh guards.
+- Tests: added regression coverage for structure-name DB write-through behavior, office-folder alias reuse, public-station force refresh, server-side structure-name persistence, shared resolver contract matching, smoke-path refresh guards, and Material Exchange contract paste-check flows.
 - Release metadata bump to `1.15.2`.
 - Frontend package metadata aligned to `1.15.2` in `package.json` and `package-lock.json`.
 

@@ -77,9 +77,11 @@ from .views.material_exchange_config import (
     material_exchange_toggle_active,
 )
 from .views.material_exchange_orders import (
+    buy_order_check_contract,
     buy_order_delete,
     buy_order_detail,
     my_orders,
+    sell_order_check_contract,
     sell_order_delete,
     sell_order_detail,
 )
@@ -378,6 +380,11 @@ urlpatterns = [
         name="sell_order_detail",
     ),
     path(
+        "material-exchange/my-orders/sell/<int:order_id>/check-contract/",
+        sell_order_check_contract,
+        name="sell_order_check_contract",
+    ),
+    path(
         "material-exchange/my-orders/sell/<int:order_id>/delete/",
         sell_order_delete,
         name="sell_order_delete",
@@ -386,6 +393,11 @@ urlpatterns = [
         "material-exchange/my-orders/buy/<int:order_id>/",
         buy_order_detail,
         name="buy_order_detail",
+    ),
+    path(
+        "material-exchange/my-orders/buy/<int:order_id>/check-contract/",
+        buy_order_check_contract,
+        name="buy_order_check_contract",
     ),
     path(
         "material-exchange/my-orders/buy/<int:order_id>/delete/",

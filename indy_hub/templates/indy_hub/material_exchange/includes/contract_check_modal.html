@@ -1,0 +1,481 @@
+{% load i18n %}
+
+<style>
+.contract-check-modal .modal-content {
+    border: 0;
+    border-radius: 1rem;
+}
+
+.contract-check-modal .modal-body {
+    padding-top: 0.75rem;
+}
+
+.contract-check-modal textarea {
+    font-size: 0.83rem;
+    line-height: 1.25;
+    font-family: var(--bs-font-monospace);
+}
+
+.contract-check-help,
+.contract-check-summary,
+.contract-check-tile {
+    border-radius: 0.9rem;
+}
+
+.contract-check-help {
+    background: linear-gradient(135deg, rgba(13, 110, 253, 0.08), rgba(13, 110, 253, 0.03));
+}
+
+.contract-check-summary {
+    border: 0;
+}
+
+.contract-check-results-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.75rem;
+}
+
+.contract-check-tile {
+    background: var(--bs-body-bg);
+    border: 1px solid var(--bs-border-color);
+    border-top: 4px solid var(--bs-border-color);
+    box-shadow: 0 0.35rem 1rem rgba(0, 0, 0, 0.05);
+    height: 100%;
+}
+
+.contract-check-failures {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.contract-check-ok-list {
+    background: var(--bs-body-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.9rem;
+    box-shadow: 0 0.35rem 1rem rgba(0, 0, 0, 0.05);
+    padding: 0.75rem;
+    align-self: start;
+}
+
+.contract-check-ok-list-title {
+    font-size: 0.82rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+}
+
+.contract-check-ok-items {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+}
+
+.contract-check-ok-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.45rem 0.55rem;
+    border-radius: 0.7rem;
+    background: var(--bs-success-bg-subtle);
+    color: var(--bs-success-text-emphasis);
+    font-size: 0.8rem;
+}
+
+.contract-check-ok-item-label {
+    font-weight: 600;
+    line-height: 1.2;
+}
+
+.contract-check-tile.is-ok {
+    border-top-color: var(--bs-success);
+}
+
+.contract-check-tile.is-ko {
+    border-top-color: var(--bs-danger);
+}
+
+.contract-check-tile-body {
+    padding: 0.75rem;
+}
+
+.contract-check-tile-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 0.35rem;
+}
+
+.contract-check-tile-label {
+    font-size: 0.92rem;
+    font-weight: 600;
+    line-height: 1.2;
+}
+
+.contract-check-status {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    padding: 0.25rem 0.55rem;
+    border-radius: 999px;
+}
+
+.contract-check-status.is-ok {
+    color: var(--bs-success-text-emphasis);
+    background: var(--bs-success-bg-subtle);
+}
+
+.contract-check-status.is-ko {
+    color: var(--bs-danger-text-emphasis);
+    background: var(--bs-danger-bg-subtle);
+}
+
+.contract-check-tile-copy {
+    white-space: nowrap;
+}
+
+.contract-check-tile-copy + .contract-check-tile-copy {
+    margin-left: 0.35rem;
+}
+
+.contract-check-detail {
+    font-size: 0.8rem;
+    line-height: 1.35;
+}
+
+.contract-check-detail strong {
+    color: var(--bs-emphasis-color);
+}
+
+.contract-check-detail ul {
+    margin-bottom: 0;
+    padding-left: 1rem;
+}
+
+.contract-check-listbox {
+    margin-top: 0.2rem;
+    padding: 0.45rem 0.55rem;
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.65rem;
+    background: rgba(127, 127, 127, 0.04);
+}
+
+.contract-check-listbox-meta {
+    display: block;
+    margin-bottom: 0.35rem;
+    font-size: 0.72rem;
+    color: var(--bs-secondary-color);
+}
+
+.contract-check-listbox-items {
+    max-height: 9rem;
+    overflow: auto;
+    padding-right: 0.2rem;
+}
+
+.contract-check-diff-sections {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.contract-check-diff-section {
+    padding: 0.65rem 0.75rem;
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.75rem;
+    background: rgba(127, 127, 127, 0.04);
+}
+
+.contract-check-diff-title {
+    font-size: 0.78rem;
+    font-weight: 700;
+    margin-bottom: 0.45rem;
+}
+
+.contract-check-diff-items {
+    list-style: disc;
+    margin: 0;
+    padding-left: 1.1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    font-size: 0.8rem;
+    line-height: 1.35;
+}
+
+@media (min-width: 992px) {
+    .contract-check-results-layout {
+        grid-template-columns: minmax(0, 1fr) 15rem;
+        align-items: start;
+    }
+}
+</style>
+
+<div class="modal fade contract-check-modal" id="contractCheckModal" tabindex="-1" aria-labelledby="contractCheckModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title" id="contractCheckModalLabel">
+                    <i class="fas fa-magnifying-glass-check me-2"></i>{% trans "Check contract before validation" %}
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
+            </div>
+            <form id="contractCheckForm" method="post">
+                <div class="modal-body">
+                    {% csrf_token %}
+                    <div class="card border-0 mb-3 shadow-sm contract-check-help">
+                        <div class="card-body py-2">
+                            <div class="d-flex align-items-start gap-2">
+                                <div class="text-primary fs-5">
+                                    <i class="fas fa-circle-info"></i>
+                                </div>
+                                <div>
+                                    <div class="fw-semibold small mb-1">{% trans "How to copy from the game" %}</div>
+                                    <div class="small text-muted mb-0 lh-sm">
+                                        {% trans "On the Create Contract window, go to step 4/4, then right-click and use Copy All. Paste the full result here: the check starts automatically." %}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <div class="small text-muted mb-2" id="contractCheckOrderMeta"></div>
+                        <label class="form-label small fw-semibold" for="contractCheckTextarea">{% trans "Paste the full in-game contract export" %}</label>
+                        <textarea class="form-control" id="contractCheckTextarea" name="contract_text" rows="7" placeholder="{% trans 'Paste the copied contract data here…' %}" required></textarea>
+                    </div>
+
+                    <div id="contractCheckResult" class="d-none"></div>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    const modalEl = document.getElementById('contractCheckModal');
+    const form = document.getElementById('contractCheckForm');
+    const textarea = document.getElementById('contractCheckTextarea');
+    const resultEl = document.getElementById('contractCheckResult');
+    const metaEl = document.getElementById('contractCheckOrderMeta');
+
+    if (!modalEl || !form || !textarea || !resultEl) {
+        return;
+    }
+
+    const bootstrapModal = window.bootstrap && window.bootstrap.Modal
+        ? new window.bootstrap.Modal(modalEl)
+        : null;
+
+    function escapeHtml(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function renderValue(value) {
+        if (Array.isArray(value)) {
+            if (!value.length) {
+                return '<span class="text-muted">—</span>';
+            }
+            return `
+                <div class="contract-check-listbox">
+                    <span class="contract-check-listbox-meta">${value.length} ${value.length > 1 ? 'entries' : 'entry'}</span>
+                    <div class="contract-check-listbox-items">
+                        <ul class="mb-0 ps-3">${value.map((entry) => `<li>${escapeHtml(entry)}</li>`).join('')}</ul>
+                    </div>
+                </div>`;
+        }
+        if (value === null || value === undefined || value === '') {
+            return '<span class="text-muted">—</span>';
+        }
+        return escapeHtml(value);
+    }
+
+    function renderDetailSections(sections) {
+        if (!Array.isArray(sections) || !sections.length) {
+            return '';
+        }
+
+        return `
+            <div class="contract-check-diff-sections mt-2">
+                ${sections.map((section) => `
+                    <div class="contract-check-diff-section">
+                        <div class="contract-check-diff-title">${escapeHtml(section.label)}</div>
+                        <ul class="contract-check-diff-items">
+                            ${(section.items || []).map((item) => `<li>${escapeHtml(item)}</li>`).join('')}
+                        </ul>
+                    </div>`).join('')}
+            </div>`;
+    }
+
+    async function copyText(value, trigger) {
+        if (!value) {
+            return;
+        }
+
+        try {
+            await navigator.clipboard.writeText(String(value));
+            if (trigger) {
+                const previous = trigger.innerHTML;
+                trigger.innerHTML = '<i class="fas fa-check me-1"></i>{% trans "Copied" %}';
+                setTimeout(() => {
+                    trigger.innerHTML = previous;
+                }, 1400);
+            }
+        } catch (error) {
+            console.error('Failed to copy:', error);
+        }
+    }
+
+    async function performCheck() {
+        if (!form.action) {
+            return;
+        }
+
+        const formData = new FormData(form);
+        textarea.readOnly = true;
+
+        resultEl.classList.remove('d-none');
+        resultEl.innerHTML = `
+            <div class="alert alert-info py-2 px-3 small contract-check-summary" role="alert">
+                <div class="fw-semibold mb-1">{% trans "Checking contract…" %}</div>
+                <div class="mb-0">{% trans "Comparing the pasted contract with this order." %}</div>
+            </div>`;
+
+        try {
+            const response = await fetch(form.action, {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                credentials: 'same-origin'
+            });
+            const payload = await response.json();
+            renderResult(payload);
+        } catch (error) {
+            resultEl.classList.remove('d-none');
+            resultEl.innerHTML = `
+                <div class="alert alert-danger" role="alert">
+                    <div class="fw-semibold mb-1">{% trans "Check failed" %}</div>
+                    <div>${escapeHtml(error && error.message ? error.message : 'Unknown error')}</div>
+                </div>`;
+        } finally {
+            textarea.readOnly = false;
+            textarea.focus();
+        }
+    }
+
+    function renderResult(payload) {
+        const summaryClass = payload.ok ? 'alert-success' : 'alert-warning';
+        const checks = payload.checks || [];
+        const okChecks = checks.filter((check) => check.passed);
+        const failedChecks = checks.filter((check) => !check.passed);
+        const failedHtml = failedChecks.map((check) => {
+            const isItemDiff = check.key === 'items' && Array.isArray(check.detail_sections) && check.detail_sections.length;
+            const statusLine = `
+                <div class="contract-check-tile-header">
+                    <div class="contract-check-tile-label">${escapeHtml(check.label)}</div>
+                    <span class="contract-check-status is-ko">KO</span>
+                </div>`;
+
+            const copyButtonHtml = !isItemDiff && check.copy_value
+                ? `<button type="button" class="btn btn-sm btn-outline-primary contract-check-tile-copy mt-2" data-copy-check-value="${escapeHtml(check.copy_value)}"><i class="fas fa-copy me-1"></i>${escapeHtml(check.copy_label || '{% trans "Copy" %}')}</button>`
+                : '';
+
+            const detailsHtml = isItemDiff
+                ? renderDetailSections(check.detail_sections)
+                : `
+                    <div class="contract-check-detail mt-2"><strong>{% trans "Current value:" %}</strong> ${renderValue(check.actual)}</div>
+                    <div class="contract-check-detail mt-1"><strong>{% trans "Expected value:" %}</strong> ${renderValue(check.expected)}</div>
+                    <div class="contract-check-detail mt-2 text-muted">${escapeHtml(check.message || '')}</div>
+                    <div class="contract-check-detail mt-1 text-muted"><strong>{% trans "Reminder:" %}</strong> ${escapeHtml(check.reminder || '')}</div>`;
+
+            return `
+                <div class="contract-check-tile is-ko">
+                    <div class="contract-check-tile-body">
+                        ${statusLine}
+                        ${detailsHtml}
+                        ${copyButtonHtml}
+                    </div>
+                </div>`;
+        }).join('');
+
+        const okHtml = okChecks.length
+            ? `
+                <aside class="contract-check-ok-list">
+                    <div class="contract-check-ok-list-title">{% trans "OK checks" %}</div>
+                    <ul class="contract-check-ok-items">
+                        ${okChecks.map((check) => `
+                            <li class="contract-check-ok-item">
+                                <span class="contract-check-ok-item-label">${escapeHtml(check.label)}</span>
+                                <span class="contract-check-status is-ok">OK</span>
+                            </li>`).join('')}
+                    </ul>
+                </aside>`
+            : '';
+
+        const failuresWrapper = failedChecks.length
+            ? `<div class="contract-check-failures">${failedHtml}</div>`
+            : '';
+
+        resultEl.classList.remove('d-none');
+        resultEl.innerHTML = `
+            <div class="alert ${summaryClass} py-2 px-3 small contract-check-summary" role="alert">
+                <div class="fw-semibold mb-1">${payload.ok ? 'Contract OK' : 'Contract check failed'}</div>
+                <div class="mb-0">${escapeHtml(payload.summary || '')}</div>
+            </div>
+            <div class="contract-check-results-layout">
+                ${failuresWrapper || '<div></div>'}
+                ${okHtml}
+            </div>`;
+
+        resultEl.querySelectorAll('[data-copy-check-value]').forEach((button) => {
+            button.addEventListener('click', () => {
+                copyText(button.getAttribute('data-copy-check-value'), button);
+            });
+        });
+    }
+
+    document.querySelectorAll('[data-contract-check-trigger="true"]').forEach((button) => {
+        button.addEventListener('click', () => {
+            form.action = button.dataset.checkUrl || '';
+            metaEl.textContent = [
+                button.dataset.orderRef || '',
+                button.dataset.recipient ? `Recipient: ${button.dataset.recipient}` : '',
+                button.dataset.location ? `Location: ${button.dataset.location}` : '',
+                button.dataset.amountLabel && button.dataset.amount ? `${button.dataset.amountLabel}: ${button.dataset.amount} ISK` : ''
+            ].filter(Boolean).join(' • ');
+            textarea.value = '';
+            resultEl.innerHTML = '';
+            resultEl.classList.add('d-none');
+            if (bootstrapModal) {
+                bootstrapModal.show();
+            }
+        });
+    });
+
+    form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        await performCheck();
+    });
+
+    textarea.addEventListener('paste', () => {
+        window.setTimeout(() => {
+            if (textarea.value.trim()) {
+                form.requestSubmit();
+            }
+        }, 0);
+    });
+});
+</script>

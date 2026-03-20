@@ -8,9 +8,10 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.db.models import Count, Q
-from django.http import Http404
+from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.translation import gettext as _
+from django.views.decorators.http import require_POST
 
 # Alliance Auth
 from allianceauth.authentication.models import UserProfile
@@ -25,6 +26,15 @@ from ..models import (
 from ..notifications import delete_discord_webhook_message
 from ..utils.analytics import emit_view_analytics_event
 from ..utils.eve import get_corporation_name
+from ..utils.material_exchange_contract_check import (
+    build_expected_items,
+    collapse_whitespace,
+    normalize_text,
+    parse_contract_export,
+    parse_contract_items,
+    parse_isk_amount,
+    summarize_counter,
+)
 
 # Local
 from .navigation import build_nav_context
@@ -47,6 +57,7 @@ def my_orders(request):
     # Get all sell orders for user with annotated count
     sell_orders = (
         MaterialExchangeSellOrder.objects.filter(seller=request.user)
+        .select_related("config")
         .annotate(items_count=Count("items"))
         .order_by("-created_at")
     )
@@ -54,6 +65,7 @@ def my_orders(request):
     # Get all buy orders for user with annotated count
     buy_orders = (
         MaterialExchangeBuyOrder.objects.filter(buyer=request.user)
+        .select_related("config")
         .annotate(items_count=Count("items"))
         .order_by("-created_at")
     )
@@ -64,6 +76,9 @@ def my_orders(request):
     for order in sell_orders:
         timeline = _build_timeline_breadcrumb(order, "sell")
         is_closed = order.status in {"completed", "rejected", "cancelled"}
+        corporation_name = get_corporation_name(
+            getattr(order.config, "corporation_id", None)
+        )
         all_orders.append(
             {
                 "type": "sell",
@@ -78,12 +93,19 @@ def my_orders(request):
                 "id": order.id,
                 "timeline_breadcrumb": timeline,
                 "progress_width": _calc_progress_width(timeline),
+                "contract_check_enabled": not is_closed,
+                "contract_check_recipient": corporation_name,
+                "contract_check_location": getattr(order.config, "structure_name", "")
+                or "",
+                "contract_check_amount": str(order.total_price),
+                "contract_check_amount_label": _("I will receive"),
             }
         )
 
     for order in buy_orders:
         timeline = _build_timeline_breadcrumb(order, "buy")
         is_closed = order.status in {"completed", "rejected", "cancelled"}
+        buyer_main_character = _resolve_main_character_name(order.buyer)
         all_orders.append(
             {
                 "type": "buy",
@@ -98,6 +120,12 @@ def my_orders(request):
                 "id": order.id,
                 "timeline_breadcrumb": timeline,
                 "progress_width": _calc_progress_width(timeline),
+                "contract_check_enabled": not is_closed,
+                "contract_check_recipient": buyer_main_character,
+                "contract_check_location": getattr(order.config, "structure_name", "")
+                or "",
+                "contract_check_amount": str(order.total_price),
+                "contract_check_amount_label": _("I will pay"),
             }
         )
 
@@ -252,6 +280,298 @@ def buy_order_detail(request, order_id):
     context.update(build_nav_context(request.user, active_tab="material_hub"))
 
     return render(request, "indy_hub/material_exchange/buy_order_detail.html", context)
+
+
+def _build_contract_check_payload(
+    *,
+    order,
+    order_type: str,
+    raw_text: str,
+    recipient_name: str,
+    location_name: str,
+):
+    fields = parse_contract_export(raw_text)
+    expected_items, expected_item_labels = build_expected_items(order.items.all())
+    actual_items, actual_item_labels = parse_contract_items(
+        fields.get("Items For Sale", "")
+    )
+    expected_items_summary = summarize_counter(expected_items, expected_item_labels)
+    actual_items_summary = summarize_counter(actual_items, expected_item_labels)
+
+    if order_type == "sell":
+        amount_label = "I will receive"
+    else:
+        amount_label = "I will pay"
+
+    expected_amount = int(order.total_price)
+    actual_amount = parse_isk_amount(fields.get(amount_label, ""))
+
+    actual_contract_type = fields.get("Contract Type", "")
+    actual_description = fields.get("Description", "")
+    actual_availability = fields.get("Availability", "")
+    actual_location = fields.get("Location", "")
+    expected_reference = order.order_reference or f"INDY-{order.id}"
+    expected_amount_display = f"{expected_amount:,.0f} ISK"
+    actual_amount_display = (
+        f"{actual_amount:,.0f} ISK" if actual_amount is not None else ""
+    )
+
+    checks = []
+
+    contract_type_ok = normalize_text(actual_contract_type) == normalize_text(
+        "Item Exchange"
+    )
+    checks.append(
+        {
+            "key": "contract_type",
+            "label": _("Contract type"),
+            "passed": contract_type_ok,
+            "expected": "Item Exchange",
+            "actual": actual_contract_type,
+            "reminder": _("Use Item Exchange on the contract creation screen."),
+            "copy_value": "Item Exchange",
+            "copy_label": _("Copy contract type"),
+            "message": (
+                _("Contract type is correct.")
+                if contract_type_ok
+                else _("Contract type must be Item Exchange.")
+            ),
+        }
+    )
+
+    description_ok = normalize_text(actual_description) == normalize_text(
+        expected_reference
+    )
+    checks.append(
+        {
+            "key": "description",
+            "label": _("Description"),
+            "passed": description_ok,
+            "expected": expected_reference,
+            "actual": actual_description,
+            "reminder": _(
+                "The Description field must exactly match the order reference."
+            ),
+            "copy_value": expected_reference,
+            "copy_label": _("Copy description"),
+            "message": (
+                _("Description matches the order reference.")
+                if description_ok
+                else _("Description must exactly match the order reference.")
+            ),
+        }
+    )
+
+    normalized_recipient = normalize_text(recipient_name)
+    availability_ok = bool(
+        normalized_recipient
+    ) and normalized_recipient in normalize_text(actual_availability)
+    checks.append(
+        {
+            "key": "availability",
+            "label": _("Availability"),
+            "passed": availability_ok,
+            "expected": recipient_name,
+            "actual": actual_availability,
+            "reminder": _(
+                "Availability must target the recipient shown for this order."
+            ),
+            "copy_value": recipient_name,
+            "copy_label": _("Copy recipient"),
+            "message": (
+                _("Availability points to the expected recipient.")
+                if availability_ok
+                else _("Availability must target the expected recipient.")
+            ),
+        }
+    )
+
+    normalized_location = normalize_text(location_name)
+    actual_location_normalized = normalize_text(actual_location)
+    location_ok = bool(normalized_location) and (
+        actual_location_normalized == normalized_location
+        or normalized_location in actual_location_normalized
+        or actual_location_normalized in normalized_location
+    )
+    checks.append(
+        {
+            "key": "location",
+            "label": _("Location"),
+            "passed": location_ok,
+            "expected": location_name,
+            "actual": actual_location,
+            "reminder": _("Location must be the configured structure for this order."),
+            "copy_value": location_name,
+            "copy_label": _("Copy location"),
+            "message": (
+                _("Location matches the configured structure.")
+                if location_ok
+                else _("Location must match the configured structure.")
+            ),
+        }
+    )
+
+    amount_ok = actual_amount == expected_amount
+    checks.append(
+        {
+            "key": "amount",
+            "label": amount_label,
+            "passed": amount_ok,
+            "expected": expected_amount_display,
+            "actual": actual_amount_display,
+            "reminder": _("The ISK amount must match the order total exactly."),
+            "copy_value": str(expected_amount),
+            "copy_label": _("Copy amount"),
+            "message": (
+                _("Amount matches the order total.")
+                if amount_ok
+                else _("Amount does not match the order total.")
+            ),
+        }
+    )
+
+    expected_only = expected_items - actual_items
+    actual_only = actual_items - expected_items
+    item_detail_sections = []
+    if expected_only:
+        item_detail_sections.append(
+            {
+                "key": "missing",
+                "label": _("Missing from pasted contract"),
+                "items": summarize_counter(expected_only, expected_item_labels),
+            }
+        )
+    if actual_only:
+        item_detail_sections.append(
+            {
+                "key": "surplus",
+                "label": _("Surplus in pasted contract"),
+                "items": summarize_counter(actual_only, actual_item_labels),
+            }
+        )
+
+    expected_items_copy = "\n".join(expected_items_summary)
+    items_ok = expected_items == actual_items and bool(expected_items)
+    checks.append(
+        {
+            "key": "items",
+            "label": _("Item"),
+            "passed": items_ok,
+            "expected": expected_items_summary,
+            "actual": actual_items_summary,
+            "reminder": _(
+                "Items For Sale must contain exactly the same items and quantities as the order."
+            ),
+            "detail_sections": item_detail_sections,
+            "copy_value": expected_items_copy,
+            "copy_label": _("Copy expected items"),
+            "message": (
+                _("Items match the order exactly.")
+                if items_ok
+                else _("Items do not match the order.")
+            ),
+        }
+    )
+
+    ok = all(check["passed"] for check in checks)
+    return {
+        "ok": ok,
+        "summary": (
+            _("Contract looks valid.")
+            if ok
+            else _(
+                "Contract has mismatches that should be fixed before in-game validation."
+            )
+        ),
+        "checks": checks,
+        "expected": {
+            "reference": expected_reference,
+            "recipient": recipient_name,
+            "location": location_name,
+            "contract_type": "Item Exchange",
+            "amount_label": amount_label,
+            "amount": expected_amount,
+            "amount_display": expected_amount_display,
+            "items": expected_items_summary,
+        },
+        "parsed": {
+            "contract_type": actual_contract_type,
+            "description": actual_description,
+            "availability": actual_availability,
+            "location": actual_location,
+        },
+    }
+
+
+def _get_sell_order_for_request(request, order_id):
+    queryset = MaterialExchangeSellOrder.objects.prefetch_related(
+        "items"
+    ).select_related("config", "seller")
+    if request.user.has_perm("indy_hub.can_manage_material_hub"):
+        return get_object_or_404(queryset, id=order_id)
+    return get_object_or_404(queryset, id=order_id, seller=request.user)
+
+
+def _get_buy_order_for_request(request, order_id):
+    queryset = MaterialExchangeBuyOrder.objects.prefetch_related(
+        "items"
+    ).select_related("config", "buyer")
+    if request.user.has_perm("indy_hub.can_manage_material_hub"):
+        return get_object_or_404(queryset, id=order_id)
+    return get_object_or_404(queryset, id=order_id, buyer=request.user)
+
+
+@indy_hub_permission_required("can_access_indy_hub")
+@login_required
+@require_POST
+def sell_order_check_contract(request, order_id):
+    order = _get_sell_order_for_request(request, order_id)
+    raw_text = collapse_whitespace(request.POST.get("contract_text", ""))
+    if not raw_text:
+        return JsonResponse(
+            {
+                "ok": False,
+                "summary": _("Please paste the in-game contract export first."),
+            },
+            status=400,
+        )
+
+    corporation_name = get_corporation_name(
+        getattr(order.config, "corporation_id", None)
+    )
+    payload = _build_contract_check_payload(
+        order=order,
+        order_type="sell",
+        raw_text=request.POST.get("contract_text", ""),
+        recipient_name=corporation_name,
+        location_name=getattr(order.config, "structure_name", "") or "",
+    )
+    return JsonResponse(payload)
+
+
+@indy_hub_permission_required("can_access_indy_hub")
+@login_required
+@require_POST
+def buy_order_check_contract(request, order_id):
+    order = _get_buy_order_for_request(request, order_id)
+    raw_text = collapse_whitespace(request.POST.get("contract_text", ""))
+    if not raw_text:
+        return JsonResponse(
+            {
+                "ok": False,
+                "summary": _("Please paste the in-game contract export first."),
+            },
+            status=400,
+        )
+
+    payload = _build_contract_check_payload(
+        order=order,
+        order_type="buy",
+        raw_text=request.POST.get("contract_text", ""),
+        recipient_name=_resolve_main_character_name(order.buyer),
+        location_name=getattr(order.config, "structure_name", "") or "",
+    )
+    return JsonResponse(payload)
 
 
 def _get_status_class(status):
