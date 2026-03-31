@@ -2145,11 +2145,9 @@ class BlueprintCopyRequestPageTests(TestCase):
         self.assertEqual(response.status_code, 200)
         page_entry = response.context["page_obj"].object_list[0]
         self.assertIn("copy_request_preview", page_entry)
-        self.assertEqual(
-            page_entry["copy_request_preview"]["qualified_provider_count"], 1
-        )
+        self.assertEqual(page_entry["copy_request_preview"]["alerted_owner_count"], 1)
+        self.assertIn("max_runs_per_copy", page_entry["copy_request_preview"])
         self.assertContains(response, "bpCopyRequestModal")
-        self.assertContains(response, "qualified producer(s) will be alerted")
 
     def test_duplicate_submission_is_blocked(self) -> None:
         url = reverse("indy_hub:bp_copy_request_page")
@@ -2199,7 +2197,7 @@ class BlueprintCopyRequestPageTests(TestCase):
             self.assertEqual(open_requests.count(), 1)
             self.assertEqual(mock_notify.call_count, 1)
 
-    def test_submission_above_launch_window_limit_is_rejected(self) -> None:
+    def test_submission_above_max_runs_per_copy_limit_is_rejected(self) -> None:
         url = reverse("indy_hub:bp_copy_request_create")
         post_data = {
             "type_id": 605001,
@@ -2211,7 +2209,7 @@ class BlueprintCopyRequestPageTests(TestCase):
 
         with (
             patch(
-                "indy_hub.views.industry.get_max_manufacturing_runs_before_launch_window",
+                "indy_hub.views.industry.get_max_copy_runs_per_request",
                 return_value=9,
             ),
             patch("indy_hub.views.industry.notify_user") as mock_notify,
@@ -2407,18 +2405,7 @@ class BlueprintCopyRequestPageTests(TestCase):
         recipients = {call.args[0] for call in mock_notify.call_args_list}
         self.assertSetEqual({self.owner, manager}, recipients)
 
-    @patch(
-        "indy_hub.views.industry.fetch_blueprint_skill_requirements",
-        return_value={
-            805001: [{"skill_id": 3402, "level": 4, "skill_name": "Science"}]
-        },
-    )
-    @patch("indy_hub.views.industry.fetch_skill_bonus_attributes", return_value={})
-    def test_notifications_only_target_skill_qualified_producers(
-        self,
-        _mock_skill_bonus_attributes,
-        _mock_skill_requirements,
-    ) -> None:
+    def test_notifications_target_all_eligible_copy_providers(self) -> None:
         corp_id = 2_500_100
         CorporationSharingSetting.objects.create(
             user=self.owner,
@@ -2510,7 +2497,7 @@ class BlueprintCopyRequestPageTests(TestCase):
 
         self.assertRedirects(response, reverse("indy_hub:bp_copy_my_requests"))
         recipients = {call.args[0] for call in mock_notify.call_args_list}
-        self.assertSetEqual({self.owner}, recipients)
+        self.assertSetEqual({self.owner, manager}, recipients)
 
     def test_alliance_scope_shows_corporate_blueprint_for_allied_member(self) -> None:
         corp_id = 2_000_000

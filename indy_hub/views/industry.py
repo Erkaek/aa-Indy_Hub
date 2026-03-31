@@ -77,21 +77,14 @@ from ..services.craft_materials import (
 from ..services.craft_structures import build_craft_structure_planner
 from ..services.craft_times import (
     build_craft_time_map,
-    compute_effective_cycle_seconds,
-    compute_max_runs_before_launch_window,
-    get_max_manufacturing_runs_before_launch_window,
+    get_max_copy_runs_per_request,
 )
 from ..services.esi_client import ESIUnmodifiedError, shared_client
 from ..services.industry_skills import (
-    SKILL_TYPE_IDS,
     SKILLS_SCOPE,
     build_craft_character_advisor,
     build_skill_snapshot_defaults,
     build_user_character_skill_contexts,
-    compute_activity_time_bonus_percent,
-    fetch_blueprint_skill_requirements,
-    fetch_skill_bonus_attributes,
-    missing_skill_requirements,
     skill_snapshot_stale,
 )
 from ..services.industry_structure_import import import_indy_structure_paste
@@ -327,16 +320,6 @@ class UserIdentity:
     corporation_id: int | None
     corporation_name: str
     corporation_ticker: str
-
-
-@dataclass
-class QualifiedCopyProviderSummary:
-    owner_ids: set[int]
-    character_owner_ids: set[int]
-    corporate_members_by_corp: dict[int, set[int]]
-    user_to_corporation: dict[int, int]
-    qualified_provider_count: int
-    best_time_bonus_percent: float
 
 
 def _resolve_user_identity(user: User | None) -> UserIdentity:
@@ -591,122 +574,6 @@ def _eligible_owner_details_for_request(
     )
 
 
-def _qualified_copy_provider_summary_for_request(
-    req: BlueprintCopyRequest,
-    *,
-    eligible_details: EligibleOwnerDetails | None = None,
-) -> QualifiedCopyProviderSummary:
-    details = eligible_details or _eligible_owner_details_for_request(req)
-    candidate_owner_ids = set(details.owner_ids)
-    if not candidate_owner_ids:
-        return QualifiedCopyProviderSummary(
-            owner_ids=set(),
-            character_owner_ids=set(),
-            corporate_members_by_corp={},
-            user_to_corporation={},
-            qualified_provider_count=0,
-            best_time_bonus_percent=0.0,
-        )
-
-    requirements = fetch_blueprint_skill_requirements({int(req.type_id)}).get(
-        int(req.type_id),
-        [],
-    )
-    required_skill_ids = {
-        int(requirement.get("skill_id") or 0)
-        for requirement in requirements
-        if int(requirement.get("skill_id") or 0) > 0
-    }
-    relevant_skill_ids = {
-        SKILL_TYPE_IDS["advanced_industry"],
-        SKILL_TYPE_IDS["science"],
-        SKILL_TYPE_IDS["research"],
-        *required_skill_ids,
-    }
-    skill_bonus_attributes = fetch_skill_bonus_attributes(relevant_skill_ids)
-
-    ownerships = list(
-        CharacterOwnership.objects.filter(
-            user_id__in=candidate_owner_ids
-        ).select_related("character")
-    )
-    character_ids = [
-        ownership.character.character_id
-        for ownership in ownerships
-        if ownership.character and ownership.character.character_id
-    ]
-    snapshots = {
-        snapshot.character_id: snapshot
-        for snapshot in IndustrySkillSnapshot.objects.filter(
-            owner_user_id__in=candidate_owner_ids,
-            character_id__in=character_ids,
-        )
-    }
-
-    qualified_owner_ids: set[int] = set()
-    best_time_bonus_percent = 0.0
-    best_time_bonus_by_owner: dict[int, float] = {}
-
-    for ownership in ownerships:
-        if not ownership.character or not ownership.character.character_id:
-            continue
-
-        snapshot = snapshots.get(int(ownership.character.character_id))
-        if not snapshot or not getattr(snapshot, "skill_levels", None):
-            continue
-
-        skill_levels = getattr(snapshot, "skill_levels", {}) or {}
-        if missing_skill_requirements(skill_levels, requirements):
-            continue
-        if snapshot.research_slots <= 0:
-            continue
-
-        time_bonus_percent = compute_activity_time_bonus_percent(
-            skill_levels,
-            activity_id=IndustryActivityMixin.ACTIVITY_COPYING,
-            required_skill_ids=required_skill_ids,
-            skill_bonus_attributes=skill_bonus_attributes,
-        )
-
-        user_id = int(ownership.user_id)
-        qualified_owner_ids.add(user_id)
-        best_time_bonus_by_owner[user_id] = max(
-            float(best_time_bonus_by_owner.get(user_id, 0.0) or 0.0),
-            float(time_bonus_percent or 0.0),
-        )
-        best_time_bonus_percent = max(
-            best_time_bonus_percent,
-            float(time_bonus_percent or 0.0),
-        )
-
-    filtered_character_owner_ids = (
-        set(details.character_owner_ids) & qualified_owner_ids
-    )
-    filtered_corporate_members_by_corp = {
-        corp_id: {uid for uid in members if uid in qualified_owner_ids}
-        for corp_id, members in details.corporate_members_by_corp.items()
-        if {uid for uid in members if uid in qualified_owner_ids}
-    }
-    filtered_owner_ids = set(filtered_character_owner_ids)
-    for members in filtered_corporate_members_by_corp.values():
-        filtered_owner_ids.update(members)
-
-    filtered_user_to_corporation = {
-        user_id: corp_id
-        for user_id, corp_id in details.user_to_corporation.items()
-        if user_id in filtered_owner_ids
-    }
-
-    return QualifiedCopyProviderSummary(
-        owner_ids=filtered_owner_ids,
-        character_owner_ids=filtered_character_owner_ids,
-        corporate_members_by_corp=filtered_corporate_members_by_corp,
-        user_to_corporation=filtered_user_to_corporation,
-        qualified_provider_count=len(filtered_owner_ids),
-        best_time_bonus_percent=round(best_time_bonus_percent, 2),
-    )
-
-
 def _fetch_blueprint_activity_times(
     blueprint_type_ids: list[int] | set[int] | tuple[int, ...],
 ) -> dict[int, dict[int, int]]:
@@ -756,33 +623,14 @@ def _build_copy_request_preview(
         copies_requested=1,
     )
     eligible_details = _eligible_owner_details_for_request(request_probe)
-    qualified_summary = _qualified_copy_provider_summary_for_request(
-        request_probe,
-        eligible_details=eligible_details,
-    )
 
-    manufacturing_base_time_seconds = (
-        activity_times.get(int(type_id), {}).get(
-            IndustryActivityMixin.ACTIVITY_MANUFACTURING
-        )
-        or 0
-    )
     copy_base_time_seconds = (
         activity_times.get(int(type_id), {}).get(IndustryActivityMixin.ACTIVITY_COPYING)
         or 0
     )
-    max_runs_per_copy = None
-    if manufacturing_base_time_seconds > 0:
-        max_runs_per_copy = compute_max_runs_before_launch_window(
-            compute_effective_cycle_seconds(
-                base_time_seconds=manufacturing_base_time_seconds,
-                time_efficiency=time_efficiency,
-            )
-        )
-
-    per_run_copy_seconds = compute_effective_cycle_seconds(
-        base_time_seconds=copy_base_time_seconds,
-        structure_time_bonus_percent=qualified_summary.best_time_bonus_percent,
+    max_runs_per_copy = get_max_copy_runs_per_request(
+        blueprint_type_id=type_id,
+        time_efficiency=time_efficiency,
     )
 
     return {
@@ -791,14 +639,11 @@ def _build_copy_request_preview(
         "material_efficiency": int(material_efficiency),
         "time_efficiency": int(time_efficiency),
         "copy_base_time_seconds": int(copy_base_time_seconds or 0),
-        "best_time_bonus_percent": float(
-            qualified_summary.best_time_bonus_percent or 0.0
-        ),
-        "per_run_copy_seconds": int(per_run_copy_seconds or 0),
+        "per_run_copy_seconds": int(copy_base_time_seconds or 0),
         "max_runs_per_copy": int(max_runs_per_copy or 0) if max_runs_per_copy else None,
-        "qualified_provider_count": int(qualified_summary.qualified_provider_count),
-        "qualified_owner_ids": sorted(
-            int(owner_id) for owner_id in qualified_summary.owner_ids
+        "alerted_owner_count": int(len(eligible_details.owner_ids)),
+        "alerted_owner_ids": sorted(
+            int(owner_id) for owner_id in eligible_details.owner_ids
         ),
     }
 
@@ -902,11 +747,7 @@ def _notify_blueprint_copy_request_providers(
     from django.contrib.auth.models import User
 
     eligible_details = _eligible_owner_details_for_request(req)
-    qualified_summary = _qualified_copy_provider_summary_for_request(
-        req,
-        eligible_details=eligible_details,
-    )
-    eligible_owner_ids = set(qualified_summary.owner_ids)
+    eligible_owner_ids = set(eligible_details.owner_ids)
     if not eligible_owner_ids:
         return
 
@@ -926,9 +767,9 @@ def _notify_blueprint_copy_request_providers(
         corporate_source_line = ""
 
     muted_user_ids: set[int] = set()
-    direct_user_ids: set[int] = set(qualified_summary.character_owner_ids)
+    direct_user_ids: set[int] = set(eligible_details.character_owner_ids)
 
-    for corp_id, corp_user_ids in qualified_summary.corporate_members_by_corp.items():
+    for corp_id, corp_user_ids in eligible_details.corporate_members_by_corp.items():
         webhooks = NotificationWebhook.get_blueprint_sharing_webhooks(corp_id)
         if not webhooks:
             continue
@@ -4013,22 +3854,16 @@ def bp_copy_request_create(request):
         messages.error(request, _("Invalid blueprint type."))
         return redirect("indy_hub:bp_copy_request_page")
 
-    max_runs_before_launch_window = get_max_manufacturing_runs_before_launch_window(
+    max_runs_per_copy = get_max_copy_runs_per_request(
         blueprint_type_id=type_id,
         time_efficiency=time_efficiency,
     )
-    if (
-        max_runs_before_launch_window is not None
-        and runs_requested > max_runs_before_launch_window
-    ):
+    if max_runs_per_copy is not None and runs_requested > max_runs_per_copy:
         messages.error(
             request,
-            _(
-                "At TE%(te)s, this request is limited to %(max_runs)s run(s) per copy because the resulting BPC must still respect EVE Online's 30-day launch window rule."
-            )
+            _("This blueprint request is limited to %(max_runs)s run(s) per copy.")
             % {
-                "max_runs": max_runs_before_launch_window,
-                "te": time_efficiency,
+                "max_runs": max_runs_per_copy,
             },
         )
         referer = request.headers.get("referer", "")
@@ -4055,34 +3890,6 @@ def bp_copy_request_create(request):
             _("You already have an active request for this blueprint."),
         )
         return redirect("indy_hub:bp_copy_my_requests")
-
-    qualification_probe = BlueprintCopyRequest(
-        requested_by=request.user,
-        requested_by_id=request.user.id,
-        type_id=type_id,
-        material_efficiency=material_efficiency,
-        time_efficiency=time_efficiency,
-        runs_requested=runs_requested,
-        copies_requested=copies_requested,
-    )
-    qualified_summary = _qualified_copy_provider_summary_for_request(
-        qualification_probe
-    )
-    if qualified_summary.qualified_provider_count <= 0:
-        messages.error(
-            request,
-            _(
-                "No qualified producer is currently known for this copy request. The owners may have the blueprint, but no tracked character meets the required copy skills yet."
-            ),
-        )
-        referer = request.headers.get("referer", "")
-        if referer and url_has_allowed_host_and_scheme(
-            url=referer,
-            allowed_hosts={request.get_host()},
-            require_https=request.is_secure(),
-        ):
-            return redirect(referer)
-        return redirect("indy_hub:bp_copy_request_page")
 
     # Create the request
     new_request = BlueprintCopyRequest.objects.create(

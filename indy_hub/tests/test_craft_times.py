@@ -5,7 +5,11 @@ from unittest import TestCase
 from unittest.mock import patch
 
 # AA Example App
-from indy_hub.services.craft_times import build_craft_time_map
+from indy_hub.services.craft_times import (
+    build_craft_time_map,
+    get_blueprint_max_production_limit,
+    get_max_copy_runs_per_request,
+)
 
 
 class _CursorStub:
@@ -28,6 +32,11 @@ class _CursorStub:
 
     def fetchall(self):
         return self._fetchall_result
+
+
+class _ColumnStub:
+    def __init__(self, name: str):
+        self.name = name
 
 
 class BuildCraftTimeMapTests(TestCase):
@@ -137,3 +146,73 @@ class BuildCraftTimeMapTests(TestCase):
             )
 
         self.assertEqual(result[2000]["base_time_seconds"], 0)
+
+    def test_get_max_copy_runs_per_request_prefers_smallest_known_limit(self) -> None:
+        with (
+            patch(
+                "indy_hub.services.craft_times.get_blueprint_max_production_limit",
+                return_value=10,
+            ),
+            patch(
+                "indy_hub.services.craft_times.get_max_manufacturing_runs_before_launch_window",
+                return_value=74,
+            ),
+        ):
+            result = get_max_copy_runs_per_request(
+                blueprint_type_id=16213,
+                time_efficiency=20,
+            )
+
+        self.assertEqual(result, 10)
+
+    def test_get_max_copy_runs_per_request_falls_back_to_native_limit_only(
+        self,
+    ) -> None:
+        with (
+            patch(
+                "indy_hub.services.craft_times.get_blueprint_max_production_limit",
+                return_value=10,
+            ),
+            patch(
+                "indy_hub.services.craft_times.get_max_manufacturing_runs_before_launch_window",
+                return_value=None,
+            ),
+        ):
+            result = get_max_copy_runs_per_request(
+                blueprint_type_id=16213,
+                time_efficiency=20,
+            )
+
+        self.assertEqual(result, 10)
+
+    def test_get_blueprint_max_production_limit_supports_eve_sde_schema(self) -> None:
+        cursor_sequence = iter(
+            [
+                _CursorStub(),
+                _CursorStub(fetchone_result=(10,)),
+            ]
+        )
+
+        with (
+            patch(
+                "indy_hub.services.craft_times.connection.cursor",
+                side_effect=lambda: next(cursor_sequence),
+            ),
+            patch(
+                "indy_hub.services.craft_times.connection.introspection.table_names",
+                return_value=["eve_sde_blueprintactivity"],
+            ),
+            patch(
+                "indy_hub.services.craft_times.connection.introspection.get_table_description",
+                return_value=[
+                    _ColumnStub("id"),
+                    _ColumnStub("activity"),
+                    _ColumnStub("time"),
+                    _ColumnStub("max_production_limit"),
+                    _ColumnStub("blueprint_item_type_id"),
+                ],
+            ),
+        ):
+            result = get_blueprint_max_production_limit(blueprint_type_id=16213)
+
+        self.assertEqual(result, 10)

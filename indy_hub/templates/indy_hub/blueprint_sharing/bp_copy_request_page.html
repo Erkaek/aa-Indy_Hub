@@ -130,10 +130,6 @@
                     </div>
 
                     <div class="bp-request-card__inputs flex-grow-1 d-flex flex-column gap-2 justify-content-center">
-                        <div class="small text-muted">
-                            <i class="fas fa-user-check me-1"></i>
-                            {{ bp.copy_request_preview.qualified_provider_count }} {% trans "qualified producer(s) will be alerted" %}
-                        </div>
                         {% if bp.copy_request_preview.max_runs_per_copy %}
                         <div class="small text-muted">
                             <i class="fas fa-hourglass-half me-1"></i>
@@ -153,9 +149,7 @@
                         data-time-efficiency="{{ bp.time_efficiency }}"
                         data-copy-base-time-seconds="{{ bp.copy_request_preview.copy_base_time_seconds|default:0 }}"
                         data-per-run-copy-seconds="{{ bp.copy_request_preview.per_run_copy_seconds|default:0 }}"
-                        data-best-time-bonus-percent="{{ bp.copy_request_preview.best_time_bonus_percent|default:0 }}"
                         data-max-runs-per-copy="{{ bp.copy_request_preview.max_runs_per_copy|default:'' }}"
-                        data-qualified-provider-count="{{ bp.copy_request_preview.qualified_provider_count|default:0 }}"
                     >
                         <i class="fas fa-paper-plane me-1"></i>{% trans "Request" %}
                     </button>
@@ -262,12 +256,6 @@
                         <div class="small text-muted" id="bpCopyRequestDurationHint"></div>
                     </div>
 
-                    <div class="rounded border p-3">
-                        <div class="small text-muted mb-1">{% trans "Notifications" %}</div>
-                        <div class="fw-semibold" id="bpCopyRequestQualifiedProviders">-</div>
-                        <div class="small text-muted" id="bpCopyRequestQualifiedHint"></div>
-                    </div>
-
                     <div class="alert alert-warning d-none mb-0" id="bpCopyRequestLaunchLimitAlert"></div>
                 </div>
                 <div class="modal-footer">
@@ -345,17 +333,16 @@ function updateCopyRequestModalEstimates() {
 
     document.getElementById('bpCopyRequestDurationValue').textContent = formatDuration(totalDurationSeconds);
 
-    const bonus = Number(modal.dataset.bestTimeBonusPercent || '0') || 0;
     const durationHint = perRunCopySeconds > 0
-        ? `{% trans "Best known qualified producer bonus" %}: ${bonus.toFixed(2)}%`
-        : `{% trans "No copy-time estimate available for this blueprint yet." %}`;
+        ? '{% trans "Base copy duration only. Character skill bonuses are not included." %}'
+        : '{% trans "No copy-time estimate available for this blueprint yet." %}';
     document.getElementById('bpCopyRequestDurationHint').textContent = durationHint;
 
     const alertEl = document.getElementById('bpCopyRequestLaunchLimitAlert');
     const submitBtn = document.getElementById('bpCopyRequestSubmitBtn');
     if (maxRunsPerCopy > 0 && runs > maxRunsPerCopy) {
         alertEl.classList.remove('d-none');
-        alertEl.textContent = `{% trans "At this TE, the request is limited to" %} ${maxRunsPerCopy} {% trans "run(s) per copy." %}`;
+        alertEl.textContent = `{% trans "This blueprint is limited to" %} ${maxRunsPerCopy} {% trans "run(s) per copy." %}`;
         submitBtn.disabled = true;
     } else {
         alertEl.classList.add('d-none');
@@ -393,7 +380,6 @@ document.addEventListener('DOMContentLoaded', function() {
             modal.dataset.typeId = this.dataset.typeId || '';
             modal.dataset.perRunCopySeconds = this.dataset.perRunCopySeconds || '0';
             modal.dataset.maxRunsPerCopy = this.dataset.maxRunsPerCopy || '';
-            modal.dataset.bestTimeBonusPercent = this.dataset.bestTimeBonusPercent || '0';
 
             document.getElementById('bpCopyRequestModalTitle').textContent = this.dataset.typeName || '{% trans "Request blueprint copy" %}';
             document.getElementById('bpCopyRequestModalSubtitle').textContent = `ME ${this.dataset.materialEfficiency || 0} · TE ${this.dataset.timeEfficiency || 0}`;
@@ -402,12 +388,6 @@ document.addEventListener('DOMContentLoaded', function() {
             document.getElementById('bpCopyRequestTe').value = this.dataset.timeEfficiency || '0';
             document.getElementById('bpCopyRequestCopies').value = '1';
             document.getElementById('bpCopyRequestRuns').value = '1';
-
-            const qualifiedProviderCount = Math.max(0, parseInt(this.dataset.qualifiedProviderCount || '0', 10) || 0);
-            document.getElementById('bpCopyRequestQualifiedProviders').textContent = `${qualifiedProviderCount} {% trans "qualified producer(s) will be alerted" %}`;
-            document.getElementById('bpCopyRequestQualifiedHint').textContent = qualifiedProviderCount > 0
-                ? '{% trans "Only owners with a tracked character meeting the copy skill requirements will receive the alert." %}'
-                : '{% trans "No qualified producer is currently known for this copy request." %}';
 
             updateCopyRequestModalEstimates();
         });

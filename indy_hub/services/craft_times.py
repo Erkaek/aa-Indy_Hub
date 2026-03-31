@@ -56,6 +56,53 @@ def compute_max_runs_before_launch_window(
     return max(1, int(ceil(EVE_JOB_LAUNCH_WINDOW_SECONDS / numeric_cycle_seconds)))
 
 
+def get_blueprint_max_production_limit(*, blueprint_type_id: int) -> int | None:
+    numeric_blueprint_type_id = int(blueprint_type_id or 0)
+    if numeric_blueprint_type_id <= 0:
+        return None
+
+    table_names = set(connection.introspection.table_names())
+    if "eve_sde_blueprintactivity" in table_names:
+        table_name = "eve_sde_blueprintactivity"
+    elif "indy_hub_sdeblueprintactivity" in table_names:
+        table_name = "indy_hub_sdeblueprintactivity"
+    else:
+        return None
+
+    with connection.cursor() as cursor:
+        table_description = connection.introspection.get_table_description(
+            cursor,
+            table_name,
+        )
+    available_columns = {column.name for column in table_description}
+    if "max_production_limit" not in available_columns:
+        return None
+    if "blueprint_item_type_id" in available_columns:
+        blueprint_key_column = "blueprint_item_type_id"
+    elif "eve_type_id" in available_columns:
+        blueprint_key_column = "eve_type_id"
+    else:
+        return None
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT MIN(max_production_limit)
+            FROM {table_name}
+            WHERE {blueprint_key_column} = %s
+            AND max_production_limit IS NOT NULL
+            AND max_production_limit > 0
+            """,
+            [numeric_blueprint_type_id],
+        )
+        row = cursor.fetchone()
+
+    max_production_limit = row[0] if row else None
+    if max_production_limit is None:
+        return None
+    return int(max_production_limit)
+
+
 def get_max_manufacturing_runs_before_launch_window(
     *,
     blueprint_type_id: int,
@@ -83,6 +130,30 @@ def get_max_manufacturing_runs_before_launch_window(
         structure_time_bonus_percent=structure_time_bonus_percent,
     )
     return compute_max_runs_before_launch_window(effective_cycle_seconds)
+
+
+def get_max_copy_runs_per_request(
+    *,
+    blueprint_type_id: int,
+    time_efficiency: int | float | None = 0,
+    structure_time_bonus_percent: int | float | None = 0,
+) -> int | None:
+    native_limit = get_blueprint_max_production_limit(
+        blueprint_type_id=blueprint_type_id,
+    )
+    launch_window_limit = get_max_manufacturing_runs_before_launch_window(
+        blueprint_type_id=blueprint_type_id,
+        time_efficiency=time_efficiency,
+        structure_time_bonus_percent=structure_time_bonus_percent,
+    )
+    candidate_limits = [
+        int(limit)
+        for limit in (native_limit, launch_window_limit)
+        if limit is not None and int(limit) > 0
+    ]
+    if not candidate_limits:
+        return None
+    return min(candidate_limits)
 
 
 def build_craft_time_map(
