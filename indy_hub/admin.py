@@ -11,6 +11,9 @@ from .models import (
     CharacterSettings,
     CorporationSharingSetting,
     IndustryJob,
+    IndustryStructure,
+    IndustryStructureRig,
+    IndustrySystemCostIndex,
     MaterialExchangeBuyOrder,
     MaterialExchangeBuyOrderItem,
     MaterialExchangeConfig,
@@ -213,6 +216,113 @@ class IndustryJobAdmin(admin.ModelAdmin):
             },
         ),
     )
+
+
+class IndustryStructureRigInline(admin.TabularInline):
+    model = IndustryStructureRig
+    extra = 0
+    fields = [
+        "slot_index",
+        "rig_type_id",
+        "rig_type_name",
+    ]
+
+
+@admin.register(IndustryStructure)
+class IndustryStructureAdmin(admin.ModelAdmin):
+    list_display = [
+        "name",
+        "solar_system_name",
+        "system_security_band",
+        "structure_type_id",
+        "structure_type_name",
+        "manufacturing_tax_percent",
+        "research_tax_percent",
+        "invention_tax_percent",
+        "composite_reactions_tax_percent",
+        "updated_at",
+    ]
+    list_filter = ["solar_system_name", "structure_type_name"]
+    search_fields = [
+        "name",
+        "solar_system_name",
+        "system_security_band",
+        "structure_type_id",
+        "structure_type_name",
+    ]
+    readonly_fields = ["created_at", "updated_at"]
+    inlines = [IndustryStructureRigInline]
+    fieldsets = (
+        (
+            "Structure",
+            {
+                "fields": (
+                    "name",
+                    "structure_type_id",
+                    "structure_type_name",
+                )
+            },
+        ),
+        (
+            "Location",
+            {
+                "fields": (
+                    "solar_system_id",
+                    "solar_system_name",
+                    "system_security_band",
+                )
+            },
+        ),
+        (
+            "Enabled Activities",
+            {
+                "fields": (
+                    "enable_manufacturing",
+                    "enable_manufacturing_capitals",
+                    "enable_manufacturing_super_capitals",
+                    "enable_research",
+                    "enable_invention",
+                    "enable_biochemical_reactions",
+                    "enable_hybrid_reactions",
+                    "enable_composite_reactions",
+                )
+            },
+        ),
+        (
+            "Taxes",
+            {
+                "fields": (
+                    "manufacturing_tax_percent",
+                    "manufacturing_capitals_tax_percent",
+                    "manufacturing_super_capitals_tax_percent",
+                    "research_tax_percent",
+                    "invention_tax_percent",
+                    "biochemical_reactions_tax_percent",
+                    "hybrid_reactions_tax_percent",
+                    "composite_reactions_tax_percent",
+                )
+            },
+        ),
+        (
+            "Timestamps",
+            {"fields": ("created_at", "updated_at"), "classes": ("collapse",)},
+        ),
+    )
+
+
+@admin.register(IndustrySystemCostIndex)
+class IndustrySystemCostIndexAdmin(admin.ModelAdmin):
+    list_display = [
+        "solar_system_name",
+        "solar_system_id",
+        "activity_id",
+        "cost_index_percent",
+        "source_updated_at",
+        "updated_at",
+    ]
+    list_filter = ["activity_id", "solar_system_name"]
+    search_fields = ["solar_system_name", "solar_system_id"]
+    readonly_fields = ["created_at", "updated_at"]
 
 
 @admin.register(CharacterSettings)

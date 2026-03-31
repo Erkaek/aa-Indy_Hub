@@ -1,0 +1,133 @@
+{% extends "indy_hub/base.html" %}
+{% load i18n %}
+{% load static %}
+
+{% block page_title %}{% if is_personal_copy_edit_mode %}{% trans "Edit Personal Structure" %}{% else %}{% trans "Duplicate Structure" %}{% endif %}{% endblock page_title %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
+<link rel="stylesheet" href="{% static 'indy_hub/css/components.css' %}">
+{% endblock extra_css %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    {% if is_personal_copy_edit_mode %}
+        {% include "indy_hub/partials/page_header.html" with icon_class="fas fa-clone" title=_("Edit Personal Structure") subtitle=_("Update your private structure copy. The structure identity stays locked; only the personal tag and taxes can be changed here.") back_url=structure_registry_url back_label=_("Back to Registry") %}
+    {% else %}
+        {% include "indy_hub/partials/page_header.html" with icon_class="fas fa-clone" title=_("Duplicate Structure") subtitle=_("Create a private structure copy from an existing entry. The structure identity stays locked; only the personal tag and taxes can be changed here.") back_url=structure_registry_url back_label=_("Back to Registry") %}
+    {% endif %}
+
+    <div class="row g-4 align-items-start">
+        <div class="col-12 col-xl-7">
+            <section class="dashboard-section">
+                <div class="card focus-card">
+                    <div class="card-body">
+                        <div class="alert alert-info mb-4">
+                            {% if is_personal_copy_edit_mode %}
+                                {% trans "This is your private structure copy. Hull, system, activities and rigs are locked here; only your personal tag and taxes can be changed." %}
+                            {% else %}
+                                {% trans "A new private structure copy will be created from this shared structure. Hull, system, activities and rigs are copied as-is; only your personal tag and taxes can be changed here." %}
+                            {% endif %}
+                        </div>
+
+                        <div class="row g-3 mb-4">
+                            <div class="col-12 col-md-6"><strong>{% trans "Structure" %}:</strong> {{ source_structure.name }}</div>
+                            <div class="col-12 col-md-6"><strong>{% trans "Type" %}:</strong> {{ source_structure.structure_type_name|default:"-" }}</div>
+                            <div class="col-12 col-md-6"><strong>{% trans "System" %}:</strong> {{ source_structure.solar_system_name|default:"-" }}</div>
+                            <div class="col-12 col-md-6"><strong>{% trans "Security Band" %}:</strong> {{ source_structure.get_system_security_band_display }}</div>
+                            <div class="col-12 col-md-6"><strong>{% trans "Enabled Activities" %}:</strong> {% for activity_label, is_enabled in source_structure.get_enabled_activity_rows %}{% if is_enabled %}<span class="badge text-bg-light border text-dark me-1 mb-1">{{ activity_label }}</span>{% endif %}{% endfor %}</div>
+                        </div>
+
+                        <form method="post" novalidate>
+                            {% csrf_token %}
+                            <div class="row g-3 mb-4">
+                                <div class="col-12">
+                                    <label class="form-label" for="{{ tax_form.personal_tag.id_for_label }}">{% trans "Personal Tag" %}</label>
+                                    {{ tax_form.personal_tag }}
+                                    <div class="form-text">{% trans "The structure name is locked. Use this personal tag to distinguish your own private tax profile." %}</div>
+                                    {% for error in tax_form.personal_tag.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                                </div>
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label" for="{{ tax_form.manufacturing_tax_percent.id_for_label }}">{% trans "Manufacturing Tax %" %}</label>
+                                    {{ tax_form.manufacturing_tax_percent }}
+                                    {% for error in tax_form.manufacturing_tax_percent.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                                </div>
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label" for="{{ tax_form.manufacturing_capitals_tax_percent.id_for_label }}">{% trans "Manufacturing (Capitals) Tax %" %}</label>
+                                    {{ tax_form.manufacturing_capitals_tax_percent }}
+                                    {% for error in tax_form.manufacturing_capitals_tax_percent.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                                </div>
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label" for="{{ tax_form.manufacturing_super_capitals_tax_percent.id_for_label }}">{% trans "Manufacturing (Super-Capitals) Tax %" %}</label>
+                                    {{ tax_form.manufacturing_super_capitals_tax_percent }}
+                                    {% for error in tax_form.manufacturing_super_capitals_tax_percent.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                                </div>
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label" for="{{ tax_form.research_tax_percent.id_for_label }}">{% trans "Research Tax %" %}</label>
+                                    {{ tax_form.research_tax_percent }}
+                                    {% for error in tax_form.research_tax_percent.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                                </div>
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label" for="{{ tax_form.invention_tax_percent.id_for_label }}">{% trans "Invention Tax %" %}</label>
+                                    {{ tax_form.invention_tax_percent }}
+                                    {% for error in tax_form.invention_tax_percent.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                                </div>
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label" for="{{ tax_form.biochemical_reactions_tax_percent.id_for_label }}">{% trans "Biochemical Reactions Tax %" %}</label>
+                                    {{ tax_form.biochemical_reactions_tax_percent }}
+                                    {% for error in tax_form.biochemical_reactions_tax_percent.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                                </div>
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label" for="{{ tax_form.hybrid_reactions_tax_percent.id_for_label }}">{% trans "Hybrid Reactions Tax %" %}</label>
+                                    {{ tax_form.hybrid_reactions_tax_percent }}
+                                    {% for error in tax_form.hybrid_reactions_tax_percent.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                                </div>
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label" for="{{ tax_form.composite_reactions_tax_percent.id_for_label }}">{% trans "Composite Reactions Tax %" %}</label>
+                                    {{ tax_form.composite_reactions_tax_percent }}
+                                    {% for error in tax_form.composite_reactions_tax_percent.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                                </div>
+                            </div>
+
+                            <div class="d-flex flex-wrap gap-2 justify-content-between align-items-center">
+                                <a class="btn btn-outline-secondary" href="{% url 'indy_hub:industry_structure_registry' %}">
+                                    <i class="fas fa-sitemap me-1"></i>{% trans "Cancel" %}
+                                </a>
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-clone me-1"></i>{% if is_personal_copy_edit_mode %}{% trans "Save Personal Copy" %}{% else %}{% trans "Create Personal Copy" %}{% endif %}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <div class="col-12 col-xl-5">
+            <section class="dashboard-section">
+                <div class="card focus-card">
+                    <div class="card-body">
+                        <h3 class="h5 mb-3">{% trans "Copied As-Is" %}</h3>
+                        <div class="border rounded-3 p-3 bg-body-tertiary mb-3">
+                            <div class="fw-semibold mb-2">{% trans "Structure definition" %}</div>
+                            <div class="text-muted small">{% trans "Structure name, structure type, solar system, security band, enabled activities and rigs are preserved from the source entry." %}</div>
+                        </div>
+                        <div class="border rounded-3 p-3 bg-body-tertiary">
+                            <div class="fw-semibold mb-2">{% trans "Installed Rigs" %}</div>
+                            {% if source_structure.rigs.all %}
+                                <ul class="list-unstyled small mb-0">
+                                    {% for rig in source_structure.rigs.all %}
+                                        <li class="mb-1">{% blocktranslate with slot=rig.slot_index rig_name=rig.rig_type_name %}Slot {{ slot }}: {{ rig_name }}{% endblocktranslate %}</li>
+                                    {% empty %}
+                                        <li class="text-muted">{% trans "No rigs recorded for this structure." %}</li>
+                                    {% endfor %}
+                                </ul>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </div>
+</div>
+{% endblock content %}

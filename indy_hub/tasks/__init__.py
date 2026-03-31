@@ -29,11 +29,13 @@ def _import_task_submodules() -> None:
     # Import task submodules so their @shared_task are registered
     from . import housekeeping  # noqa: F401
     from . import industry  # noqa: F401
+    from . import industry_structure_sync  # noqa: F401
     from . import location  # noqa: F401
     from . import material_exchange  # noqa: F401
     from . import material_exchange_contracts  # noqa: F401
     from . import notifications  # noqa: F401
     from . import sde_sync  # noqa: F401
+    from . import system_cost_indices  # noqa: F401
     from . import user  # noqa: F401
 
 
@@ -209,7 +211,6 @@ def setup_periodic_tasks():
         "indy-hub-notify-completed-jobs",
         "indy-hub-check-completed-contracts",
         "indy-hub-validate-sell-orders",
-        "indy-hub-update-system-cost-indices",
         "indy-hub-refresh-production-items",
         "indy-hub-update-character-roles",
         "indy-hub-update-skill-snapshots",
@@ -265,7 +266,6 @@ def remove_periodic_tasks() -> None:
         "indy-hub-notify-completed-jobs",
         "indy-hub-check-completed-contracts",
         "indy-hub-validate-sell-orders",
-        "indy-hub-update-system-cost-indices",
         "indy-hub-refresh-production-items",
         "indy-hub-update-character-roles",
         "indy-hub-update-skill-snapshots",

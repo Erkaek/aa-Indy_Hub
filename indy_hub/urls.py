@@ -3,6 +3,7 @@ from django.urls import path
 
 from .views.api import (
     craft_bp_payload,
+    craft_structure_jump_distances,
     fuzzwork_price,
     load_production_config,
     menu_badge_count,
@@ -38,7 +39,19 @@ from .views.industry import (
 )
 from .views.industry import (
     edit_simulation_name,
-    industry_slot_overview,
+    industry_structure_add,
+    industry_structure_bonus_preview,
+    industry_structure_bulk_import,
+    industry_structure_bulk_update,
+    industry_structure_bulk_update_preview,
+    industry_structure_delete,
+    industry_structure_duplicate,
+    industry_structure_edit,
+    industry_structure_existing_system_structures,
+    industry_structure_registry,
+    industry_structure_rig_advisor,
+    industry_structure_solar_system_cost_indices,
+    industry_structure_solar_system_search,
     personnal_bp_list,
     personnal_job_list,
     production_simulations_list,
@@ -126,7 +139,71 @@ urlpatterns = [
     ),
     path("all-bp/", all_bp_list, name="all_bp_list"),
     path("personnal-jobs/", personnal_job_list, name="personnal_job_list"),
-    path("industry/slots/", industry_slot_overview, name="industry_slot_overview"),
+    path(
+        "industry/structures/",
+        industry_structure_registry,
+        name="industry_structure_registry",
+    ),
+    path(
+        "industry/structures/add/",
+        industry_structure_add,
+        name="industry_structure_add",
+    ),
+    path(
+        "industry/structures/bulk-update/",
+        industry_structure_bulk_update,
+        name="industry_structure_bulk_update",
+    ),
+    path(
+        "industry/structures/bulk-update/preview/",
+        industry_structure_bulk_update_preview,
+        name="industry_structure_bulk_update_preview",
+    ),
+    path(
+        "industry/structures/bulk-import/",
+        industry_structure_bulk_import,
+        name="industry_structure_bulk_import",
+    ),
+    path(
+        "industry/structures/<int:structure_id>/edit/",
+        industry_structure_edit,
+        name="industry_structure_edit",
+    ),
+    path(
+        "industry/structures/<int:structure_id>/duplicate/",
+        industry_structure_duplicate,
+        name="industry_structure_duplicate",
+    ),
+    path(
+        "industry/structures/<int:structure_id>/delete/",
+        industry_structure_delete,
+        name="industry_structure_delete",
+    ),
+    path(
+        "industry/structures/solar-systems/",
+        industry_structure_solar_system_search,
+        name="industry_structure_solar_system_search",
+    ),
+    path(
+        "industry/structures/solar-systems/existing-structures/",
+        industry_structure_existing_system_structures,
+        name="industry_structure_existing_system_structures",
+    ),
+    path(
+        "industry/structures/solar-systems/cost-indices/",
+        industry_structure_solar_system_cost_indices,
+        name="industry_structure_solar_system_cost_indices",
+    ),
+    path(
+        "industry/structures/bonus-preview/",
+        industry_structure_bonus_preview,
+        name="industry_structure_bonus_preview",
+    ),
+    path(
+        "industry/structures/rig-advisor/",
+        industry_structure_rig_advisor,
+        name="industry_structure_rig_advisor",
+    ),
     path(
         "corporation-jobs/",
         personnal_job_list,
@@ -142,6 +219,11 @@ urlpatterns = [
     path("tokens/sync-blueprints/", sync_blueprints, name="sync_blueprints"),
     path("tokens/sync-jobs/", sync_jobs, name="sync_jobs"),
     path("tokens/sync-all/", sync_all_tokens, name="sync_all_tokens"),
+    path(
+        "api/craft-structures/jump-distances/",
+        craft_structure_jump_distances,
+        name="craft_structure_jump_distances",
+    ),
     path("authorize/blueprints/", authorize_blueprints, name="authorize_blueprints"),
     path("authorize/jobs/", authorize_jobs, name="authorize_jobs"),
     path("authorize/assets/", authorize_assets, name="authorize_assets"),

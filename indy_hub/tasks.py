@@ -30,12 +30,16 @@ from .tasks.industry import (  # noqa: F401
     update_type_names,
     update_user_skill_snapshots,
 )
+from .tasks.industry_structure_sync import (  # noqa: F401
+    sync_persisted_industry_structure_registry,
+)
 from .tasks.location import refresh_structure_location  # noqa: F401
 from .tasks.notifications import (  # noqa: F401
     dispatch_job_notification_digests,
     notify_recently_completed_jobs,
 )
 from .tasks.sde_sync import sync_sde_compatibility_data  # noqa: F401
+from .tasks.system_cost_indices import sync_industry_system_cost_indices  # noqa: F401
 from .tasks.user import (  # noqa: F401
     update_character_roles_for_character,
     update_user_roles_snapshots,

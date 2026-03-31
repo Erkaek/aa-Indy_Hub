@@ -64,6 +64,7 @@ from ..models import (
 )
 from ..notifications import build_site_url, notify_user
 from ..services.esi_client import ESIClientError, ESITokenError
+from ..services.industry_skills import build_user_character_skill_contexts
 from ..services.providers import esi_provider
 from ..services.simulations import summarize_simulations
 from ..tasks.industry import (
@@ -2080,33 +2081,23 @@ def index(request):
         from django.db.models import Count
         from django.utils import timezone
 
-        # Alliance Auth
-        from allianceauth.authentication.models import CharacterOwnership
-
-        from ..models import Blueprint, IndustryJob, IndustrySkillSnapshot
+        from ..models import Blueprint, IndustryJob
         from .industry import (
             MANUFACTURING_ACTIVITY_IDS,
             REACTION_ACTIVITY_IDS,
             RESEARCH_ACTIVITY_IDS,
         )
 
-        ownerships = CharacterOwnership.objects.filter(
-            user=request.user
-        ).select_related("character")
+        character_contexts = build_user_character_skill_contexts(
+            request.user,
+            skill_cache_ttl=timedelta(hours=1),
+        )
         character_ids = [
-            ownership.character.character_id
-            for ownership in ownerships
-            if ownership.character
+            int(row.get("character_id") or 0)
+            for row in character_contexts
+            if int(row.get("character_id") or 0) > 0
         ]
         now = timezone.now()
-
-        snapshots = {
-            snapshot.character_id: snapshot
-            for snapshot in IndustrySkillSnapshot.objects.filter(
-                owner_user=request.user,
-                character_id__in=character_ids,
-            )
-        }
 
         active_job_rows = (
             IndustryJob.objects.filter(
@@ -2145,14 +2136,21 @@ def index(request):
         }
 
         for char_id in character_ids:
-            snapshot = snapshots.get(char_id)
-            if not snapshot:
+            row = next(
+                (
+                    character_context
+                    for character_context in character_contexts
+                    if int(character_context.get("character_id") or 0) == char_id
+                ),
+                None,
+            )
+            if not row:
                 continue
 
             totals = {
-                "manufacturing": snapshot.manufacturing_slots,
-                "research": snapshot.research_slots,
-                "reactions": snapshot.reaction_slots,
+                "manufacturing": (row.get("manufacturing") or {}).get("total"),
+                "research": (row.get("research") or {}).get("total"),
+                "reactions": (row.get("reactions") or {}).get("total"),
             }
             used = used_counts.get(char_id) or {
                 "manufacturing": 0,

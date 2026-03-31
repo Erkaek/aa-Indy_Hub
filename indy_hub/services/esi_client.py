@@ -434,6 +434,41 @@ class ESIClient:
                 return str(name)
         return None
 
+    def fetch_industry_systems(self, *, force_refresh: bool = False) -> list[dict]:
+        """Fetch public industry system cost indices from ESI."""
+        try:
+            operation_fn = self._resolve_operation("Industry", "get_industry_systems")
+        except AttributeError as exc:
+            raise ESIClientError(
+                "ESI operation Industry.get_industry_systems is not available"
+            ) from exc
+
+        results_kwargs = None
+        if force_refresh:
+            results_kwargs = {"use_etag": False, "force_refresh": True}
+
+        try:
+            operation_call = operation_fn()
+            if results_kwargs is None:
+                payload = operation_call.results()
+            else:
+                payload = operation_call.results(**results_kwargs)
+        except HTTPNotModified:
+            return []
+        except HTTPError as exc:
+            self._handle_http_error(exc, endpoint="/industry/systems/")
+            raise
+        except Exception as exc:
+            raise ESIClientError(
+                f"ESI request failed for /industry/systems/: {exc}"
+            ) from exc
+
+        if not isinstance(payload, list):
+            raise ESIClientError(
+                f"ESI /industry/systems/ returned an unexpected payload type: {type(payload)}"
+            )
+        return [self._coerce_mapping(item) for item in payload]
+
     def _fetch_paginated(
         self,
         *,

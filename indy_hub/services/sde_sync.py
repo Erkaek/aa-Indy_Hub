@@ -17,6 +17,7 @@ from eve_sde.models import ItemType
 
 # AA Example App
 from indy_hub.models import (
+    SDEBlueprintActivity,
     SDEBlueprintActivityMaterial,
     SDEBlueprintActivityProduct,
     SDEIndustryActivity,
@@ -97,11 +98,11 @@ def _load_market_groups(folder: Path) -> int:
     return len(creates)
 
 
-def _load_industry_rows(folder: Path) -> tuple[int, int, int]:
+def _load_industry_rows(folder: Path) -> tuple[int, int, int, int]:
     file_path = folder / "blueprints.jsonl"
     if not file_path.exists():
         logger.warning("SDE blueprints file missing: %s", file_path)
-        return 0, 0, 0
+        return 0, 0, 0, 0
 
     activities_to_create = [
         SDEIndustryActivity(id=activity_id, name=activity_name)
@@ -116,6 +117,7 @@ def _load_industry_rows(folder: Path) -> tuple[int, int, int]:
 
     products: list[SDEBlueprintActivityProduct] = []
     materials: list[SDEBlueprintActivityMaterial] = []
+    blueprint_activities: list[SDEBlueprintActivity] = []
 
     with file_path.open("r", encoding="utf-8") as stream:
         for line in stream:
@@ -142,6 +144,19 @@ def _load_industry_rows(folder: Path) -> tuple[int, int, int]:
                 material_entries = payload.get("materials") or []
 
                 for activity_id in activity_ids:
+                    try:
+                        activity_time = int(payload.get("time") or 0)
+                    except (TypeError, ValueError):
+                        activity_time = 0
+
+                    blueprint_activities.append(
+                        SDEBlueprintActivity(
+                            eve_type_id=blueprint_type_id,
+                            activity_id=activity_id,
+                            time=max(activity_time, 0),
+                        )
+                    )
+
                     for product in product_entries:
                         try:
                             product_type_id = int(product.get("typeID"))
@@ -188,6 +203,13 @@ def _load_industry_rows(folder: Path) -> tuple[int, int, int]:
             batch_size=5000,
         )
 
+    SDEBlueprintActivity.objects.all().delete()
+    for index in range(0, len(blueprint_activities), 10000):
+        SDEBlueprintActivity.objects.bulk_create(
+            blueprint_activities[index : index + 10000],
+            batch_size=5000,
+        )
+
     SDEBlueprintActivityMaterial.objects.all().delete()
     for index in range(0, len(materials), 10000):
         SDEBlueprintActivityMaterial.objects.bulk_create(
@@ -195,7 +217,12 @@ def _load_industry_rows(folder: Path) -> tuple[int, int, int]:
             batch_size=5000,
         )
 
-    return len(activities_to_create), len(products), len(materials)
+    return (
+        len(activities_to_create),
+        len(products),
+        len(materials),
+        len(blueprint_activities),
+    )
 
 
 def sync_sde_compat_tables(*, sde_folder: str) -> dict[str, int]:
@@ -205,13 +232,19 @@ def sync_sde_compat_tables(*, sde_folder: str) -> dict[str, int]:
 
     with transaction.atomic():
         market_groups_count = _load_market_groups(folder)
-        activities_count, products_count, materials_count = _load_industry_rows(folder)
+        (
+            activities_count,
+            products_count,
+            materials_count,
+            blueprint_activities_count,
+        ) = _load_industry_rows(folder)
 
     summary = {
         "market_groups": market_groups_count,
         "activities": activities_count,
         "products": products_count,
         "materials": materials_count,
+        "blueprint_activities": blueprint_activities_count,
     }
     logger.info("SDE compatibility sync finished: %s", summary)
     return summary

@@ -52,6 +52,7 @@ window.initializeDefaultSwitchStates = window.initializeDefaultSwitchStates || f
 window.CraftBPTabs = {
     initialized: false,
     activeTabId: null,
+    loadingFailsafeTimer: null,
 
 
     // Initialize tab management
@@ -67,10 +68,23 @@ window.CraftBPTabs = {
         this.bindTabEvents();
         this.setDefaultTab();
 
+        if (this.loadingFailsafeTimer) {
+            window.clearTimeout(this.loadingFailsafeTimer);
+        }
+        this.loadingFailsafeTimer = window.setTimeout(() => {
+            console.warn('[IndyHub] Craft workspace loading exceeded expected time; revealing workspace');
+            this.finishLoadingAndShowContent();
+        }, 4000);
+
         // Silently preload the Tree tab to initialize switches, then show the content
         setTimeout(() => {
-            this.preloadTreeTab();
-            this.finishLoadingAndShowContent();
+            try {
+                this.preloadTreeTab();
+            } catch (error) {
+                console.error('[IndyHub] Failed during initial craft workspace hydration', error);
+            } finally {
+                this.finishLoadingAndShowContent();
+            }
         }, 500);
 
     },
@@ -131,30 +145,23 @@ window.CraftBPTabs = {
 
     // Hide all main content except header and loading bar
     hideMainContentExceptHeaderAndLoading: function() {
-        // Example: Hide all .tab-content except header and loading bar
-        document.querySelectorAll('.tab-content, .main-content').forEach(el => {
-            el.style.display = 'none';
-        });
-        // Show header and loading bar if present
-        const header = document.querySelector('.blueprint-hero') || document.querySelector('.blueprint-header');
-        if (header) header.style.display = '';
-        const loading = document.getElementById('bpTabs-loading');
-        if (loading) loading.style.display = '';
+        if (window.CraftBPLoading && typeof window.CraftBPLoading.show === 'function') {
+            window.CraftBPLoading.show({
+                title: __('Preparing production workspace'),
+                message: __('We are synchronising materials, production tree and financial data.'),
+            });
+        }
     },
 
     finishLoadingAndShowContent: function() {
-        const loading = document.getElementById('bpTabs-loading');
-        if (loading) {
-            loading.style.display = 'none';
+        if (this.loadingFailsafeTimer) {
+            window.clearTimeout(this.loadingFailsafeTimer);
+            this.loadingFailsafeTimer = null;
         }
 
-        document.querySelectorAll('.tab-content').forEach(el => {
-            el.style.removeProperty('display');
-        });
-
-        document.querySelectorAll('.main-content').forEach(el => {
-            el.style.removeProperty('display');
-        });
+        if (window.CraftBPLoading && typeof window.CraftBPLoading.hide === 'function') {
+            window.CraftBPLoading.hide();
+        }
 
         // Only reveal the legacy tab rail on pages that actually use it.
         // The redesigned craft page uses the modern tab system (#craftMainTabs)
@@ -221,7 +228,9 @@ window.CraftBPTabs = {
                 }
                 break;
             case 'cycles':
-                if (typeof updateSpecificTabFromTree === 'function') {
+                if (typeof window.updateBuildTabFromState === 'function' && document.getElementById('build-pane')) {
+                    window.updateBuildTabFromState();
+                } else if (typeof updateSpecificTabFromTree === 'function') {
                     updateSpecificTabFromTree('#tab-cycles');
                 }
                 break;

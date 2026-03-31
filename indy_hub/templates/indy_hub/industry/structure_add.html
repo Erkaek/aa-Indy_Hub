@@ -1,0 +1,2028 @@
+{% extends "indy_hub/base.html" %}
+{% load i18n %}
+{% load static %}
+
+{% block page_title %}{{ page_title_text|default:_('Add Structure') }}{% endblock page_title %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
+<link rel="stylesheet" href="{% static 'indy_hub/css/components.css' %}">
+<link rel="stylesheet" href="{% static 'indy_hub/css/industry_structures.css' %}">
+{% endblock extra_css %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    {% include "indy_hub/partials/page_header.html" with icon_class=page_icon_class|default:"fas fa-plus-circle" title=page_title_text|default:_('Add Structure') subtitle=page_subtitle|default:_('Create a new industrial structure entry with its system, activities, taxes and rigs. Bonus previews are resolved automatically from EVE dogma.') back_url=page_back_url|default:structure_registry_url back_label=page_back_label|default:_('Back to Registry') %}
+
+    <div class="structure-shell">
+        <div class="row g-4 align-items-start">
+        <div class="col-12">
+            <section class="dashboard-section">
+                <div class="card shadow-sm structure-section-card">
+                    <div class="card-body p-0">
+                        {% if structure_form.non_field_errors %}
+                            <div class="alert alert-danger m-3 mb-0">
+                                {% for error in structure_form.non_field_errors %}
+                                    <div>{{ error }}</div>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+
+                        <form method="post" novalidate>
+                            {% csrf_token %}
+
+                            {% if is_synced_structure_locked %}
+                                <div class="alert alert-info m-3 mb-0">
+                                    {% trans "This structure is synchronized automatically from corporation ESI. Identity, activities and taxes are locked here; only rigs can be adjusted." %}
+                                </div>
+                            {% endif %}
+
+                            <div class="structure-command-deck px-4 pt-4">
+                                <section class="structure-command-card">
+                                    <div class="structure-command-card__eyebrow">{% trans "Registry mode" %}</div>
+                                    <div class="structure-command-card__value">
+                                        {% if is_synced_structure_locked %}
+                                            {% trans "Synced structure" %}
+                                        {% else %}
+                                            {% trans "Manual workspace" %}
+                                        {% endif %}
+                                    </div>
+                                    <p class="structure-command-card__meta mb-0">
+                                        {% if is_synced_structure_locked %}
+                                            {% trans "Identity and taxes are controlled by ESI sync." %}
+                                        {% else %}
+                                            {% trans "You control identity, services, taxes and rigs from this screen." %}
+                                        {% endif %}
+                                    </p>
+                                </section>
+                                <section class="structure-command-card structure-command-card--focus">
+                                    <div class="structure-command-card__eyebrow">{% trans "Current target" %}</div>
+                                    <div class="structure-command-card__value" id="structure-command-type">{% trans "No structure selected" %}</div>
+                                    <p class="structure-command-card__meta mb-0" id="structure-command-system">{% trans "Pick a solar system to resolve local indexes." %}</p>
+                                </section>
+                                <section class="structure-command-card">
+                                    <div class="structure-command-card__eyebrow">{% trans "Loadout" %}</div>
+                                    <div class="structure-command-card__split">
+                                        <div>
+                                            <strong id="structure-command-services">0</strong>
+                                            <span>{% trans "services" %}</span>
+                                        </div>
+                                        <div>
+                                            <strong id="structure-command-rigs">0/3</strong>
+                                            <span>{% trans "rigs" %}</span>
+                                        </div>
+                                    </div>
+                                    <p class="structure-command-card__meta mb-0">{% trans "The page updates previews from your system, activities and installed rigs." %}</p>
+                                </section>
+                            </div>
+
+                            {% if is_synced_structure_locked %}<fieldset disabled>{% endif %}
+                            <section class="border-bottom structure-zone structure-zone--identity">
+                                <div class="card-header bg-body-tertiary border-0 py-3 px-4 structure-zone__header">
+                                    <div>
+                                        <h3 class="h6 mb-1 structure-zone__title">{% trans "Core Identity" %}</h3>
+                                        <p class="text-muted small mb-0">{% trans "Define the hull, location and registry label before you configure industrial services." %}</p>
+                                    </div>
+                                </div>
+                                <div class="card-body px-4 py-4">
+                                    <div class="structure-identity-layout">
+                                        <div class="structure-identity-form">
+                                            <div class="row g-3">
+                                                <div class="col-12 col-xl-6">
+                                                    <label class="form-label" for="{{ structure_form.structure_type_id.id_for_label }}">{% trans "Structure Type" %}</label>
+                                                    {{ structure_form.structure_type_id }}
+                                                    {% for error in structure_form.structure_type_id.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                                                </div>
+                                                <div class="col-12 col-xl-6">
+                                                    <label class="form-label" for="{{ structure_form.solar_system_name.id_for_label }}">{% trans "Solar System" %}</label>
+                                                    {{ structure_form.solar_system_name }}
+                                                    <datalist id="solar-system-suggestions"></datalist>
+                                                    {% for error in structure_form.solar_system_name.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                                                </div>
+                                                <div class="col-12">
+                                                    <label class="form-label" for="{{ structure_form.name.id_for_label }}">{% trans "Registry Name" %}</label>
+                                                    {{ structure_form.name }}
+                                                    {% for error in structure_form.name.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <aside class="structure-identity-aside">
+                                            <div class="structure-identity-aside__eyebrow">{% trans "Collision check" %}</div>
+                                            <div id="existing-structures-preview" class="structure-existing-preview d-none">
+                                                <div class="structure-existing-preview__header">
+                                                    <div>
+                                                        <h4 class="h6 mb-1">{% trans "Existing Structures With The Same Type" %}</h4>
+                                                        <p class="text-muted small mb-0" id="existing-structures-preview-summary"></p>
+                                                    </div>
+                                                    <span class="badge text-bg-warning d-none" id="existing-structures-same-type-badge"></span>
+                                                </div>
+                                                <div id="existing-structures-duplicate-alert" class="alert alert-danger d-none mb-0 py-2 px-3" role="alert">
+                                                    <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2">
+                                                        <div>
+                                                            <strong>{% trans "Exact registry name already exists." %}</strong>
+                                                            <div class="small">{% trans "Do not recreate an existing structure. Edit the existing entry or create a personal copy instead." %}</div>
+                                                        </div>
+                                                        <div id="existing-structures-duplicate-actions" class="structure-existing-preview__actions"></div>
+                                                    </div>
+                                                </div>
+                                                <div id="existing-structures-preview-body" class="structure-existing-preview__list"></div>
+                                            </div>
+                                            <div class="structure-identity-aside__empty text-muted small" id="structure-identity-aside-empty">
+                                                {% trans "As soon as you pick a structure type and a system, nearby matches will appear here." %}
+                                            </div>
+                                        </aside>
+                                    </div>
+                                </div>
+                            </section>
+
+                            <section class="border-bottom structure-zone structure-zone--services">
+                                <div class="card-header bg-body-tertiary border-0 py-3 px-4 structure-zone__header">
+                                    <div>
+                                        <h3 class="h6 mb-1 structure-zone__title">{% trans "Services And Taxes" %}</h3>
+                                        <p class="text-muted small mb-0">{% trans "Turn on only the services you really offer, then price them inline." %}</p>
+                                    </div>
+                                </div>
+                                <div class="card-body px-4 py-4">
+                                    <div class="structure-services-layout">
+                                        <div class="structure-services-layout__lead">
+                                            <div class="structure-services-layout__eyebrow">{% trans "Service matrix" %}</div>
+                                            <p class="text-muted small mb-0">{% trans "Use this grid like an operations console: toggle the activity, adjust the tax, and keep the loadout lean." %}</p>
+                                            <div class="structure-services-layout__stats">
+                                                <span class="badge text-bg-dark"><span id="structure-command-services-inline">0</span> {% trans "active" %}</span>
+                                                <span class="badge text-bg-light border">{% trans "Tax in %" %}</span>
+                                                <span class="badge text-bg-light border">{% trans "2 decimal precision" %}</span>
+                                            </div>
+                                        </div>
+                                        <div class="structure-activity-list">
+                                        <div class="structure-activity-item rounded-3" data-activity-card="enable_manufacturing">
+                                            <div class="structure-activity-item__main">
+                                                <div class="form-check">{{ structure_form.enable_manufacturing }}<label class="form-check-label" for="{{ structure_form.enable_manufacturing.id_for_label }}">{% trans "Manufacturing" %}</label></div>
+                                            </div>
+                                            <div class="structure-tax-field structure-activity-item__tax rounded-3 border p-3" data-activity-toggle="enable_manufacturing">
+                                                <label class="form-label" for="{{ structure_form.manufacturing_tax_percent.id_for_label }}">{% trans "Tax %" %}</label>
+                                                {{ structure_form.manufacturing_tax_percent }}
+                                                {% for error in structure_form.manufacturing_tax_percent.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                                            </div>
+                                        </div>
+                                        <div class="structure-activity-item rounded-3" data-activity-card="enable_manufacturing_capitals">
+                                            <div class="structure-activity-item__main">
+                                                <div class="form-check">{{ structure_form.enable_manufacturing_capitals }}<label class="form-check-label" for="{{ structure_form.enable_manufacturing_capitals.id_for_label }}">{% trans "Manufacturing (Capitals)" %}</label></div>
+                                            </div>
+                                            <div class="structure-tax-field structure-activity-item__tax rounded-3 border p-3" data-activity-toggle="enable_manufacturing_capitals">
+                                                <label class="form-label" for="{{ structure_form.manufacturing_capitals_tax_percent.id_for_label }}">{% trans "Tax %" %}</label>
+                                                {{ structure_form.manufacturing_capitals_tax_percent }}
+                                                {% for error in structure_form.manufacturing_capitals_tax_percent.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                                            </div>
+                                        </div>
+                                        <div class="structure-activity-item rounded-3" data-activity-card="enable_manufacturing_super_capitals">
+                                            <div class="structure-activity-item__main">
+                                                <div class="form-check">{{ structure_form.enable_manufacturing_super_capitals }}<label class="form-check-label" for="{{ structure_form.enable_manufacturing_super_capitals.id_for_label }}">{% trans "Manufacturing (Super-Capitals)" %}</label></div>
+                                            </div>
+                                            <div class="structure-tax-field structure-activity-item__tax rounded-3 border p-3" data-activity-toggle="enable_manufacturing_super_capitals">
+                                                <label class="form-label" for="{{ structure_form.manufacturing_super_capitals_tax_percent.id_for_label }}">{% trans "Tax %" %}</label>
+                                                {{ structure_form.manufacturing_super_capitals_tax_percent }}
+                                                {% for error in structure_form.manufacturing_super_capitals_tax_percent.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                                            </div>
+                                        </div>
+                                        <div class="structure-activity-item rounded-3" data-activity-card="enable_research">
+                                            <div class="structure-activity-item__main">
+                                                <div class="form-check">{{ structure_form.enable_research }}<label class="form-check-label" for="{{ structure_form.enable_research.id_for_label }}">{% trans "Research" %}</label></div>
+                                            </div>
+                                            <div class="structure-tax-field structure-activity-item__tax rounded-3 border p-3" data-activity-toggle="enable_research">
+                                                <label class="form-label" for="{{ structure_form.research_tax_percent.id_for_label }}">{% trans "Tax %" %}</label>
+                                                {{ structure_form.research_tax_percent }}
+                                                {% for error in structure_form.research_tax_percent.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                                            </div>
+                                        </div>
+                                        <div class="structure-activity-item rounded-3" data-activity-card="enable_invention">
+                                            <div class="structure-activity-item__main">
+                                                <div class="form-check">{{ structure_form.enable_invention }}<label class="form-check-label" for="{{ structure_form.enable_invention.id_for_label }}">{% trans "Invention" %}</label></div>
+                                            </div>
+                                            <div class="structure-tax-field structure-activity-item__tax rounded-3 border p-3" data-activity-toggle="enable_invention">
+                                                <label class="form-label" for="{{ structure_form.invention_tax_percent.id_for_label }}">{% trans "Tax %" %}</label>
+                                                {{ structure_form.invention_tax_percent }}
+                                                {% for error in structure_form.invention_tax_percent.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                                            </div>
+                                        </div>
+                                        <div class="structure-activity-item rounded-3" data-activity-card="enable_biochemical_reactions">
+                                            <div class="structure-activity-item__main">
+                                                <div class="form-check">{{ structure_form.enable_biochemical_reactions }}<label class="form-check-label" for="{{ structure_form.enable_biochemical_reactions.id_for_label }}">{% trans "Biochemical Reactions" %}</label></div>
+                                            </div>
+                                            <div class="structure-tax-field structure-activity-item__tax rounded-3 border p-3" data-activity-toggle="enable_biochemical_reactions">
+                                                <label class="form-label" for="{{ structure_form.biochemical_reactions_tax_percent.id_for_label }}">{% trans "Tax %" %}</label>
+                                                {{ structure_form.biochemical_reactions_tax_percent }}
+                                                {% for error in structure_form.biochemical_reactions_tax_percent.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                                            </div>
+                                        </div>
+                                        <div class="structure-activity-item rounded-3" data-activity-card="enable_hybrid_reactions">
+                                            <div class="structure-activity-item__main">
+                                                <div class="form-check">{{ structure_form.enable_hybrid_reactions }}<label class="form-check-label" for="{{ structure_form.enable_hybrid_reactions.id_for_label }}">{% trans "Hybrid Reactions" %}</label></div>
+                                            </div>
+                                            <div class="structure-tax-field structure-activity-item__tax rounded-3 border p-3" data-activity-toggle="enable_hybrid_reactions">
+                                                <label class="form-label" for="{{ structure_form.hybrid_reactions_tax_percent.id_for_label }}">{% trans "Tax %" %}</label>
+                                                {{ structure_form.hybrid_reactions_tax_percent }}
+                                                {% for error in structure_form.hybrid_reactions_tax_percent.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                                            </div>
+                                        </div>
+                                        <div class="structure-activity-item rounded-3" data-activity-card="enable_composite_reactions">
+                                            <div class="structure-activity-item__main">
+                                                <div class="form-check">{{ structure_form.enable_composite_reactions }}<label class="form-check-label" for="{{ structure_form.enable_composite_reactions.id_for_label }}">{% trans "Composite Reactions" %}</label></div>
+                                            </div>
+                                            <div class="structure-tax-field structure-activity-item__tax rounded-3 border p-3" data-activity-toggle="enable_composite_reactions">
+                                                <label class="form-label" for="{{ structure_form.composite_reactions_tax_percent.id_for_label }}">{% trans "Tax %" %}</label>
+                                                {{ structure_form.composite_reactions_tax_percent }}
+                                                {% for error in structure_form.composite_reactions_tax_percent.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                                            </div>
+                                        </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </section>
+
+                            {% if is_synced_structure_locked %}</fieldset>{% endif %}
+
+                            <section class="structure-zone structure-zone--rigs">
+                                <div class="card-header bg-body-tertiary border-0 py-3 px-4 structure-zone__header">
+                                    <div>
+                                        <h3 class="h6 mb-1 structure-zone__title">{% trans "Rig Loadout" %}</h3>
+                                        <p class="text-muted small mb-0">{% trans "Treat the three rig slots like a fitting rack: choose the exact industrial profile you want on this hull." %}</p>
+                                    </div>
+                                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                                        <button type="button" class="btn btn-sm btn-outline-secondary structure-rig-advisor-trigger" id="rig-advisor-open-button">
+                                            <i class="fas fa-wand-magic-sparkles me-1"></i>{% trans "Deduce Rigs" %}
+                                        </button>
+                                        <span class="badge text-bg-light border">{% trans "3 slots maximum" %}</span>
+                                    </div>
+                                </div>
+                                <div class="card-body px-4 py-4">
+                                    {{ rig_formset.management_form }}
+                                    {% if is_synced_structure_locked %}
+                                        <div class="alert alert-secondary small mb-3">
+                                            {% trans "Rigs remain editable so you can keep local rig assumptions in sync with your production planning." %}
+                                        </div>
+                                    {% endif %}
+                                    <div class="structure-rig-layout">
+                                        <div class="structure-rig-table table-responsive mb-0">
+                                            <table class="table table-sm table-hover align-middle mb-0">
+                                                <thead class="table-light">
+                                                    <tr>
+                                                        <th>{% trans "Slot" %}</th>
+                                                        <th>{% trans "Installed Rig" %}</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {% for rig_form in rig_formset %}
+                                                        <tr>
+                                                            <td>
+                                                                {{ rig_form.slot_index }}
+                                                                <span class="structure-rig-slot">
+                                                                    <span class="structure-rig-slot-badge">{{ rig_form.initial.slot_index|default:forloop.counter }}</span>
+                                                                    <span>{% trans "Rig Slot" %}</span>
+                                                                </span>
+                                                                {% for error in rig_form.slot_index.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                                                            </td>
+                                                            <td>{{ rig_form.rig_type_id }}{% for error in rig_form.rig_type_id.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}</td>
+                                                        </tr>
+                                                        {% if rig_form.non_field_errors %}
+                                                            <tr>
+                                                                <td colspan="2" class="text-danger small">{% for error in rig_form.non_field_errors %}<div>{{ error }}</div>{% endfor %}</td>
+                                                            </tr>
+                                                        {% endif %}
+                                                    {% endfor %}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                        <aside class="structure-rig-note">
+                                            <div class="structure-rig-note__eyebrow">{% trans "Rack status" %}</div>
+                                            <div class="structure-rig-note__value"><span id="structure-command-rigs-inline">0/3</span> {% trans "slots filled" %}</div>
+                                            <p class="text-muted small mb-0">{% trans "Compatible rig options are filtered from the selected engineering structure. The snapshot below refreshes from this rack instantly." %}</p>
+                                        </aside>
+                                    </div>
+                                </div>
+                            </section>
+
+                            <div class="modal fade" id="rig-bonus-detail-modal" tabindex="-1" aria-hidden="true">
+                                <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                                    <div class="modal-content">
+                                        <div class="modal-header">
+                                            <h5 class="modal-title" id="rig-bonus-detail-title">{% trans "Applied Rig Bonuses" %}</h5>
+                                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans "Close" %}"></button>
+                                        </div>
+                                        <div class="modal-body" id="rig-bonus-detail-body"></div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="modal fade" id="rig-advisor-modal" tabindex="-1" aria-hidden="true">
+                                <div class="modal-dialog modal-xl modal-dialog-scrollable">
+                                    <div class="modal-content">
+                                        <div class="modal-header">
+                                            <div>
+                                                <h5 class="modal-title mb-1">{% trans "Deduce Rigs From In-Game Categories" %}</h5>
+                                                <p class="text-muted small mb-0">{% trans "Pick the categories you really build, then apply the most relevant rig suggestion directly to a slot." %}</p>
+                                            </div>
+                                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans "Close" %}"></button>
+                                        </div>
+                                        <div class="modal-body">
+                                            <div class="structure-rig-advisor-intro mb-3">
+                                                <div class="structure-rig-advisor-context">
+                                                    <div class="structure-rig-advisor-context__item">
+                                                        <span class="structure-rig-advisor-context__label">{% trans "Structure" %}</span>
+                                                        <strong id="rig-advisor-context-structure">-</strong>
+                                                    </div>
+                                                    <div class="structure-rig-advisor-context__item">
+                                                        <span class="structure-rig-advisor-context__label">{% trans "System" %}</span>
+                                                        <strong id="rig-advisor-context-system">-</strong>
+                                                    </div>
+                                                    <div class="structure-rig-advisor-context__item">
+                                                        <span class="structure-rig-advisor-context__label">{% trans "Active Services" %}</span>
+                                                        <div id="rig-advisor-context-activities" class="structure-rig-advisor-context__chips"></div>
+                                                    </div>
+                                                </div>
+                                                <div class="structure-rig-advisor-steps">
+                                                    <div class="structure-rig-advisor-step">
+                                                        <span class="structure-rig-advisor-step__index">1</span>
+                                                        <div>
+                                                            <strong>{% trans "Select one activity" %}</strong>
+                                                            <div>{% trans "Start with the exact industrial activity you want to optimize." %}</div>
+                                                        </div>
+                                                    </div>
+                                                    <div class="structure-rig-advisor-step">
+                                                        <span class="structure-rig-advisor-step__index">2</span>
+                                                        <div>
+                                                            <strong>{% trans "Filter categories" %}</strong>
+                                                            <div>{% trans "Then keep only the in-game categories you actually build for that activity." %}</div>
+                                                        </div>
+                                                    </div>
+                                                    <div class="structure-rig-advisor-step">
+                                                        <span class="structure-rig-advisor-step__index">3</span>
+                                                        <div>
+                                                            <strong>{% trans "Pick the rig with the right bonuses" %}</strong>
+                                                            <div>{% trans "Compare each rig card, check its bonuses, then apply the correct rig directly to slot 1, 2 or 3." %}</div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="structure-rig-advisor-activity-picker d-none" id="rig-advisor-activity-picker">
+                                                <div>
+                                                    <div class="structure-rig-advisor-context__label mb-1">{% trans "Activity Focus" %}</div>
+                                                    <p class="text-muted small mb-0">{% trans "Choose one activity to reduce noise before selecting categories." %}</p>
+                                                </div>
+                                                <div id="rig-advisor-activity-options" class="structure-rig-advisor-activity-options"></div>
+                                            </div>
+                                            <div class="structure-rig-advisor-loading d-none" id="rig-advisor-loading">
+                                                <div class="spinner-border spinner-border-sm text-primary" role="status" aria-hidden="true"></div>
+                                            </div>
+                                            <div class="structure-empty-state d-none" id="rig-advisor-empty"></div>
+                                            <div id="rig-advisor-body" class="structure-rig-advisor-body"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="structure-actions px-4 pb-4 pt-2 justify-content-end">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="{{ submit_icon_class|default:'fas fa-plus' }} me-1"></i>{{ submit_label|default:_('Register Structure') }}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <div class="col-12">
+            <section class="dashboard-section structure-preview-stack">
+                <div class="card shadow-sm structure-preview-card structure-preview-card--combined">
+                    <div class="card-header bg-body-tertiary border-0 py-2 px-3 d-flex align-items-start justify-content-between gap-2 flex-wrap structure-zone__header">
+                        <div>
+                            <div class="structure-preview-pane__eyebrow">{% trans "Operational readout" %}</div>
+                            <h3 class="h6 mb-0 structure-zone__title">{% trans "Operational Snapshot" %}</h3>
+                        </div>
+                        <div class="d-flex align-items-center gap-2 flex-wrap">
+                            <span class="badge text-bg-secondary">{% trans "System" %}</span>
+                            <span class="badge text-bg-light border">{% trans "Dogma" %}</span>
+                        </div>
+                    </div>
+                    <div class="card-body px-3 py-3">
+                        <div class="structure-preview-combined-grid">
+                            <section class="structure-preview-pane">
+                                <div class="structure-preview-pane__eyebrow">{% trans "System indexes" %}</div>
+                                <div id="solar-system-cost-index-preview" class="structure-surface rounded-3 border p-2 d-none">
+                                    <div class="d-flex align-items-center justify-content-between mb-2 gap-2 flex-wrap structure-preview-surface-head">
+                                        <div>
+                                            <div class="fw-semibold" id="solar-system-cost-index-title"></div>
+                                            <div class="text-muted small" id="solar-system-cost-index-subtitle"></div>
+                                        </div>
+                                        <span class="badge text-bg-secondary" id="solar-system-security-band"></span>
+                                    </div>
+                                    <div id="solar-system-cost-index-body" class="row row-cols-2 row-cols-md-3 row-cols-xl-4 g-1"></div>
+                                </div>
+                            </section>
+
+                            <section class="structure-preview-pane">
+                                <div class="structure-preview-pane__eyebrow">{% trans "Resolved bonuses" %}</div>
+                                <div id="structure-bonus-preview" class="structure-surface rounded-3 border p-2 d-none">
+                                    <div id="structure-bonus-preview-body" class="row g-1"></div>
+                                </div>
+                            </section>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+        </div>
+    </div>
+</div>
+{% endblock content %}
+
+{% block extra_javascript %}
+{{ block.super }}
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const structureTypeInput = document.getElementById('{{ structure_form.structure_type_id.id_for_label }}');
+        const rigCatalog = {{ rig_option_catalog_json|safe }};
+        const structureCatalog = {{ structure_type_catalog_json|safe }};
+        const solarInput = document.getElementById('{{ structure_form.solar_system_name.id_for_label }}');
+        const suggestionList = document.getElementById('solar-system-suggestions');
+        const searchUrl = '{% url "indy_hub:industry_structure_solar_system_search" %}';
+        const existingStructuresUrl = '{% url "indy_hub:industry_structure_existing_system_structures" %}';
+        const costIndexUrl = '{% url "indy_hub:industry_structure_solar_system_cost_indices" %}';
+        const costIndexPreview = document.getElementById('solar-system-cost-index-preview');
+        const costIndexTitle = document.getElementById('solar-system-cost-index-title');
+        const costIndexSubtitle = document.getElementById('solar-system-cost-index-subtitle');
+        const costIndexSecurityBand = document.getElementById('solar-system-security-band');
+        const costIndexBody = document.getElementById('solar-system-cost-index-body');
+        const bonusPreviewUrl = '{% url "indy_hub:industry_structure_bonus_preview" %}';
+        const rigAdvisorUrl = '{% url "indy_hub:industry_structure_rig_advisor" %}';
+        const bonusPreview = document.getElementById('structure-bonus-preview');
+        const bonusPreviewBody = document.getElementById('structure-bonus-preview-body');
+        const rigBonusDetailModalElement = document.getElementById('rig-bonus-detail-modal');
+        const rigBonusDetailTitle = document.getElementById('rig-bonus-detail-title');
+        const rigBonusDetailBody = document.getElementById('rig-bonus-detail-body');
+        const rigBonusDetailModal = rigBonusDetailModalElement && window.bootstrap
+            ? new window.bootstrap.Modal(rigBonusDetailModalElement)
+            : null;
+        const rigAdvisorModalElement = document.getElementById('rig-advisor-modal');
+        const rigAdvisorModal = rigAdvisorModalElement && window.bootstrap
+            ? new window.bootstrap.Modal(rigAdvisorModalElement)
+            : null;
+        const rigAdvisorOpenButton = document.getElementById('rig-advisor-open-button');
+        const rigAdvisorLoading = document.getElementById('rig-advisor-loading');
+        const rigAdvisorEmpty = document.getElementById('rig-advisor-empty');
+        const rigAdvisorBody = document.getElementById('rig-advisor-body');
+        const rigAdvisorActivityPicker = document.getElementById('rig-advisor-activity-picker');
+        const rigAdvisorActivityOptions = document.getElementById('rig-advisor-activity-options');
+        const existingStructuresPreview = document.getElementById('existing-structures-preview');
+        const existingStructuresPreviewSummary = document.getElementById('existing-structures-preview-summary');
+        const existingStructuresPreviewBody = document.getElementById('existing-structures-preview-body');
+        const existingStructuresSameTypeBadge = document.getElementById('existing-structures-same-type-badge');
+        const existingStructuresDuplicateAlert = document.getElementById('existing-structures-duplicate-alert');
+        const existingStructuresDuplicateActions = document.getElementById('existing-structures-duplicate-actions');
+        const identityAsideEmpty = document.getElementById('structure-identity-aside-empty');
+        const registryNameInput = document.getElementById('{{ structure_form.name.id_for_label }}');
+        const commandType = document.getElementById('structure-command-type');
+        const commandSystem = document.getElementById('structure-command-system');
+        const commandServices = document.getElementById('structure-command-services');
+        const commandServicesInline = document.getElementById('structure-command-services-inline');
+        const commandRigs = document.getElementById('structure-command-rigs');
+        const commandRigsInline = document.getElementById('structure-command-rigs-inline');
+        const rigAdvisorContextStructure = document.getElementById('rig-advisor-context-structure');
+        const rigAdvisorContextSystem = document.getElementById('rig-advisor-context-system');
+        const rigAdvisorContextActivities = document.getElementById('rig-advisor-context-activities');
+        const currentStructureId = Number('{{ structure.id|default:"" }}') || null;
+        const rigSelects = Array.from(document.querySelectorAll('select[name$="-rig_type_id"]'));
+        const activityToggleInputs = {
+            enable_manufacturing: document.getElementById('{{ structure_form.enable_manufacturing.id_for_label }}'),
+            enable_manufacturing_capitals: document.getElementById('{{ structure_form.enable_manufacturing_capitals.id_for_label }}'),
+            enable_manufacturing_super_capitals: document.getElementById('{{ structure_form.enable_manufacturing_super_capitals.id_for_label }}'),
+            enable_research: document.getElementById('{{ structure_form.enable_research.id_for_label }}'),
+            enable_invention: document.getElementById('{{ structure_form.enable_invention.id_for_label }}'),
+            enable_biochemical_reactions: document.getElementById('{{ structure_form.enable_biochemical_reactions.id_for_label }}'),
+            enable_hybrid_reactions: document.getElementById('{{ structure_form.enable_hybrid_reactions.id_for_label }}'),
+            enable_composite_reactions: document.getElementById('{{ structure_form.enable_composite_reactions.id_for_label }}')
+        };
+        const taxFieldWrappers = Array.from(document.querySelectorAll('[data-activity-toggle]'));
+        const activityCards = Array.from(document.querySelectorAll('[data-activity-card]'));
+        let rigAdvisorCacheKey = null;
+        let rigAdvisorCachePayload = null;
+        let rigAdvisorCurrentActivities = [];
+        let rigAdvisorSelectedActivityId = null;
+        let existingStructuresTimer = null;
+        let existingStructuresPayload = {
+            solar_system_name: '',
+            total_count: 0,
+            same_type_count: 0,
+            structures: []
+        };
+
+        function hideExistingStructureDuplicateAlert() {
+            if (existingStructuresDuplicateAlert) {
+                existingStructuresDuplicateAlert.classList.add('d-none');
+            }
+            if (existingStructuresDuplicateActions) {
+                existingStructuresDuplicateActions.innerHTML = '';
+            }
+        }
+
+        function countActiveServices() {
+            return Object.keys(activityToggleInputs).reduce(function (count, fieldName) {
+                const input = activityToggleInputs[fieldName];
+                return count + (input && input.checked ? 1 : 0);
+            }, 0);
+        }
+
+        function countInstalledRigs() {
+            return rigSelects.reduce(function (count, select) {
+                return count + (select && select.value ? 1 : 0);
+            }, 0);
+        }
+
+        function renderCommandDeck() {
+            const structureEntry = getStructureMeta();
+            const activeServices = countActiveServices();
+            const installedRigs = countInstalledRigs();
+            const systemValue = solarInput && solarInput.value.trim()
+                ? solarInput.value.trim()
+                : 'Pick a solar system to resolve local indexes.';
+
+            if (commandType) {
+                commandType.textContent = structureEntry ? structureEntry.name : 'No structure selected';
+            }
+            if (commandSystem) {
+                commandSystem.textContent = systemValue;
+            }
+            if (commandServices) {
+                commandServices.textContent = String(activeServices);
+            }
+            if (commandServicesInline) {
+                commandServicesInline.textContent = String(activeServices);
+            }
+            if (commandRigs) {
+                commandRigs.textContent = installedRigs + '/3';
+            }
+            if (commandRigsInline) {
+                commandRigsInline.textContent = installedRigs + '/3';
+            }
+        }
+
+        function syncIdentityAsideState() {
+            if (!identityAsideEmpty || !existingStructuresPreview) {
+                return;
+            }
+            identityAsideEmpty.classList.toggle('d-none', !existingStructuresPreview.classList.contains('d-none'));
+        }
+
+        function renderExistingStructureDuplicateAlert() {
+            if (!existingStructuresDuplicateAlert || !existingStructuresDuplicateActions || !registryNameInput) {
+                return;
+            }
+
+            function normalizeRegistryName(value) {
+                return String(value || '').replace(/\s+/g, '').toLowerCase();
+            }
+
+            const registryName = registryNameInput.value.trim();
+            if (!registryName) {
+                hideExistingStructureDuplicateAlert();
+                return;
+            }
+
+            const normalizedRegistryName = normalizeRegistryName(registryName);
+
+            const match = (existingStructuresPayload.structures || []).find(function (structure) {
+                return normalizeRegistryName(structure.name) === normalizedRegistryName;
+            });
+
+            if (!match) {
+                hideExistingStructureDuplicateAlert();
+                return;
+            }
+
+            existingStructuresDuplicateAlert.classList.remove('d-none');
+            existingStructuresDuplicateActions.innerHTML = '';
+
+            const editLink = document.createElement('a');
+            editLink.href = match.edit_url;
+            editLink.className = 'structure-existing-preview__action-link structure-existing-preview__action-link--primary';
+            editLink.innerHTML = '<i class="fas fa-pen"></i><span>Edit Entry</span>';
+            existingStructuresDuplicateActions.appendChild(editLink);
+
+            const duplicateLink = document.createElement('a');
+            duplicateLink.href = match.duplicate_url;
+            duplicateLink.className = 'structure-existing-preview__action-link structure-existing-preview__action-link--secondary';
+            duplicateLink.innerHTML = '<i class="fas fa-clone"></i><span>Create Copy</span>';
+            existingStructuresDuplicateActions.appendChild(duplicateLink);
+        }
+
+        function getStructureMeta() {
+            const selectedId = Number(structureTypeInput && structureTypeInput.value);
+            if (!selectedId) {
+                return null;
+            }
+            return structureCatalog.find(function (entry) {
+                return Number(entry.type_id) === selectedId;
+            }) || null;
+        }
+
+        function getDefaultActivityFlags(structureEntry) {
+            if (structureEntry && Number(structureEntry.group_id) === 1406) {
+                return {
+                    enable_manufacturing: false,
+                    enable_manufacturing_capitals: false,
+                    enable_manufacturing_super_capitals: false,
+                    enable_research: false,
+                    enable_invention: false,
+                    enable_biochemical_reactions: true,
+                    enable_hybrid_reactions: true,
+                    enable_composite_reactions: true
+                };
+            }
+            const rigSize = structureEntry && structureEntry.rig_size != null
+                ? Number(structureEntry.rig_size)
+                : 0;
+            return {
+                enable_manufacturing: true,
+                enable_manufacturing_capitals: rigSize >= 3,
+                enable_manufacturing_super_capitals: rigSize >= 4,
+                enable_research: true,
+                enable_invention: true,
+                enable_biochemical_reactions: false,
+                enable_hybrid_reactions: false,
+                enable_composite_reactions: false
+            };
+        }
+
+        function applyDefaultActivityFlags() {
+            const defaults = getDefaultActivityFlags(getStructureMeta());
+            Object.keys(activityToggleInputs).forEach(function (fieldName) {
+                const input = activityToggleInputs[fieldName];
+                if (!input) {
+                    return;
+                }
+                input.checked = Boolean(defaults[fieldName]);
+            });
+        }
+
+        function isRigCompatible(rigEntry, structureEntry) {
+            if (!structureEntry) {
+                return true;
+            }
+            const rigSize = rigEntry.rig_size == null ? null : Number(rigEntry.rig_size);
+            const structureRigSize = structureEntry.rig_size == null ? null : Number(structureEntry.rig_size);
+            const compatibleGroups = Array.isArray(rigEntry.compatible_group_ids)
+                ? rigEntry.compatible_group_ids.map(Number)
+                : [];
+
+            if (rigSize !== null && structureRigSize !== null && rigSize !== structureRigSize) {
+                return false;
+            }
+            if (compatibleGroups.length && compatibleGroups.indexOf(Number(structureEntry.group_id)) === -1) {
+                return false;
+            }
+            return true;
+        }
+
+        function renderRigOptions() {
+            const structureEntry = getStructureMeta();
+
+            rigSelects.forEach(function (select) {
+                const previousValue = select.value;
+                const compatibleRigs = rigCatalog.filter(function (entry) {
+                    return isRigCompatible(entry, structureEntry);
+                });
+                const grouped = compatibleRigs.reduce(function (accumulator, entry) {
+                    const family = entry.family || 'Other';
+                    if (!accumulator[family]) {
+                        accumulator[family] = [];
+                    }
+                    accumulator[family].push(entry);
+                    return accumulator;
+                }, {});
+
+                select.innerHTML = '';
+
+                const emptyOption = document.createElement('option');
+                emptyOption.value = '';
+                emptyOption.textContent = 'No rig';
+                select.appendChild(emptyOption);
+
+                ['Manufacturing', 'Science', 'Reprocessing', 'Reactions'].forEach(function (family) {
+                    if (!grouped[family] || !grouped[family].length) {
+                        return;
+                    }
+                    const group = document.createElement('optgroup');
+                    group.label = family;
+                    grouped[family]
+                        .sort(function (left, right) {
+                            return String(left.name).localeCompare(String(right.name));
+                        })
+                        .forEach(function (entry) {
+                            const option = document.createElement('option');
+                            option.value = String(entry.type_id);
+                            option.textContent = entry.name;
+                            group.appendChild(option);
+                        });
+                    select.appendChild(group);
+                    delete grouped[family];
+                });
+
+                Object.keys(grouped)
+                    .sort(function (left, right) {
+                        return left.localeCompare(right);
+                    })
+                    .forEach(function (family) {
+                        const group = document.createElement('optgroup');
+                        group.label = family;
+                        grouped[family]
+                            .sort(function (left, right) {
+                                return String(left.name).localeCompare(String(right.name));
+                            })
+                            .forEach(function (entry) {
+                                const option = document.createElement('option');
+                                option.value = String(entry.type_id);
+                                option.textContent = entry.name;
+                                group.appendChild(option);
+                            });
+                        select.appendChild(group);
+                    });
+
+                if (Array.from(select.options).some(function (option) { return option.value === previousValue; })) {
+                    select.value = previousValue;
+                } else {
+                    select.value = '';
+                }
+            });
+
+            loadBonusPreview();
+        }
+
+        function getEnabledActivityParams() {
+            const params = new URLSearchParams();
+            Object.keys(activityToggleInputs).forEach(function (fieldName) {
+                const input = activityToggleInputs[fieldName];
+                if (!input) {
+                    return;
+                }
+                params.set(fieldName, input.checked ? '1' : '0');
+            });
+            return params;
+        }
+
+        function invalidateRigAdvisorCache() {
+            rigAdvisorCacheKey = null;
+            rigAdvisorCachePayload = null;
+        }
+
+        function updateRigAdvisorAvailability() {
+            if (!rigAdvisorOpenButton) {
+                return;
+            }
+            const hasStructure = Boolean(structureTypeInput && structureTypeInput.value);
+            const hasSolarSystem = Boolean(solarInput && solarInput.value.trim());
+            const hasActivity = Object.keys(activityToggleInputs).some(function (fieldName) {
+                const input = activityToggleInputs[fieldName];
+                return Boolean(input && input.checked);
+            });
+            rigAdvisorOpenButton.disabled = !(hasStructure && hasSolarSystem && hasActivity);
+            renderCommandDeck();
+        }
+
+        function setRigAdvisorLoading(isLoading) {
+            if (rigAdvisorLoading) {
+                rigAdvisorLoading.classList.toggle('d-none', !isLoading);
+            }
+        }
+
+        function showRigAdvisorEmptyState(message) {
+            if (rigAdvisorActivityPicker) {
+                rigAdvisorActivityPicker.classList.add('d-none');
+            }
+            if (rigAdvisorActivityOptions) {
+                rigAdvisorActivityOptions.innerHTML = '';
+            }
+            if (rigAdvisorBody) {
+                rigAdvisorBody.innerHTML = '';
+            }
+            if (rigAdvisorEmpty) {
+                rigAdvisorEmpty.textContent = message;
+                rigAdvisorEmpty.classList.remove('d-none');
+            }
+        }
+
+        function hideRigAdvisorEmptyState() {
+            if (rigAdvisorEmpty) {
+                rigAdvisorEmpty.classList.add('d-none');
+                rigAdvisorEmpty.textContent = '';
+            }
+        }
+
+        function setRigAdvisorSelectedActivity(activityId) {
+            rigAdvisorSelectedActivityId = activityId;
+            if (!rigAdvisorActivityOptions) {
+                return;
+            }
+            Array.from(rigAdvisorActivityOptions.querySelectorAll('[data-rig-advisor-activity-id]')).forEach(function (button) {
+                const isActive = Number(button.dataset.rigAdvisorActivityId) === Number(activityId);
+                button.classList.toggle('is-active', isActive);
+                button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+            });
+        }
+
+        function metricTotal(metrics) {
+            return (metrics || []).reduce(function (accumulator, metric) {
+                return accumulator + Number(metric.value || 0);
+            }, 0);
+        }
+
+        function compareRigAdvisorOptions(left, right) {
+            const leftTotal = metricTotal(left.metrics || []);
+            const rightTotal = metricTotal(right.metrics || []);
+            if (rightTotal !== leftTotal) {
+                return rightTotal - leftTotal;
+            }
+            if ((left.supported_type_names || []).length !== (right.supported_type_names || []).length) {
+                return (left.supported_type_names || []).length - (right.supported_type_names || []).length;
+            }
+            return String(left.label || '').localeCompare(String(right.label || ''));
+        }
+
+        function splitRigAdvisorSupportedTypes(option, selectedCategories) {
+            return (option.supported_type_names || []).reduce(function (groups, typeName) {
+                if (selectedCategories.has(normalizeCategory(typeName))) {
+                    groups.matched.push(typeName);
+                } else {
+                    groups.other.push(typeName);
+                }
+                return groups;
+            }, {
+                matched: [],
+                other: [],
+            });
+        }
+
+        function buildRigAdvisorFact(label, value) {
+            const item = document.createElement('div');
+            item.className = 'structure-rig-advisor-fact';
+
+            const term = document.createElement('span');
+            term.className = 'structure-rig-advisor-fact__label';
+            term.textContent = label;
+            item.appendChild(term);
+
+            const detail = document.createElement('strong');
+            detail.className = 'structure-rig-advisor-fact__value';
+            detail.textContent = value;
+            item.appendChild(detail);
+
+            return item;
+        }
+
+        function buildRigAdvisorTypeGroup(title, values, isHighlighted) {
+            const group = document.createElement('section');
+            group.className = 'structure-rig-advisor-type-group';
+
+            const heading = document.createElement('div');
+            heading.className = 'structure-rig-advisor-type-group__title';
+            heading.textContent = title;
+            group.appendChild(heading);
+
+            const chips = document.createElement('div');
+            chips.className = 'structure-rig-advisor-supported-types';
+            values.forEach(function (value) {
+                const chip = document.createElement('span');
+                chip.className = 'structure-category-chip';
+                if (isHighlighted) {
+                    chip.classList.add('is-selected');
+                }
+                chip.textContent = value;
+                chips.appendChild(chip);
+            });
+            group.appendChild(chips);
+
+            return group;
+        }
+
+        function buildRigAdvisorMetricsGroup(metrics) {
+            const group = document.createElement('section');
+            group.className = 'structure-rig-advisor-metric-group';
+
+            const title = document.createElement('div');
+            title.className = 'structure-rig-advisor-metric-group__title';
+            title.textContent = 'Rig bonuses';
+            group.appendChild(title);
+
+            const row = document.createElement('div');
+            row.className = 'structure-rig-advisor-metrics';
+            (metrics || []).forEach(function (metric) {
+                const badge = document.createElement('span');
+                badge.className = 'badge structure-activity-badge';
+                badge.textContent = metric.label + ' -' + metric.value + '%';
+                row.appendChild(badge);
+            });
+
+            if (!row.childNodes.length) {
+                const empty = document.createElement('div');
+                empty.className = 'structure-rig-advisor-subtitle';
+                empty.textContent = 'No resolved bonus details for this rig.';
+                group.appendChild(empty);
+                return group;
+            }
+
+            group.appendChild(row);
+            return group;
+        }
+
+        function buildRigAdvisorDecisionNote(selectedCategories, matchedCount, rankIndex) {
+            const note = document.createElement('section');
+            note.className = 'structure-rig-advisor-decision';
+
+            const title = document.createElement('div');
+            title.className = 'structure-rig-advisor-decision__title';
+            title.textContent = 'Why this rig';
+            note.appendChild(title);
+
+            const body = document.createElement('div');
+            body.className = 'structure-rig-advisor-decision__body';
+
+            if (!selectedCategories.size) {
+                body.textContent = rankIndex === 0
+                    ? 'Best starting point: this rig is the strongest general recommendation for the current activity.'
+                    : 'Alternative option: compare this rig if you need a different coverage profile.';
+            } else if (matchedCount === selectedCategories.size && rankIndex === 0) {
+                body.textContent = 'Best starting point: this rig covers every selected blueprint category and ranks first for the current filter.';
+            } else if (matchedCount === selectedCategories.size) {
+                body.textContent = 'Full coverage: this rig matches every selected blueprint category.';
+            } else {
+                body.textContent = 'Partial coverage: this rig matches ' + matchedCount + ' of ' + selectedCategories.size + ' selected blueprint categories.';
+            }
+
+            note.appendChild(body);
+            return note;
+        }
+
+        function normalizeCategory(value) {
+            return String(value || '').trim().toLowerCase();
+        }
+
+        function getActiveActivityLabels() {
+            return Object.keys(activityToggleInputs)
+                .filter(function (fieldName) {
+                    const input = activityToggleInputs[fieldName];
+                    return Boolean(input && input.checked);
+                })
+                .map(function (fieldName) {
+                    const card = document.querySelector('[data-activity-card="' + fieldName + '"] .form-check-label');
+                    return card ? card.textContent.trim() : fieldName;
+                });
+        }
+
+        function renderRigAdvisorContext() {
+            if (rigAdvisorContextStructure) {
+                const structureEntry = getStructureMeta();
+                rigAdvisorContextStructure.textContent = structureEntry ? structureEntry.name : '-';
+            }
+            if (rigAdvisorContextSystem) {
+                rigAdvisorContextSystem.textContent = solarInput && solarInput.value.trim() ? solarInput.value.trim() : '-';
+            }
+            if (rigAdvisorContextActivities) {
+                rigAdvisorContextActivities.innerHTML = '';
+                const labels = getActiveActivityLabels();
+                if (!labels.length) {
+                    const empty = document.createElement('span');
+                    empty.className = 'text-muted small';
+                    empty.textContent = 'No service selected';
+                    rigAdvisorContextActivities.appendChild(empty);
+                } else {
+                    labels.forEach(function (label) {
+                        const badge = document.createElement('span');
+                        badge.className = 'badge text-bg-light border';
+                        badge.textContent = label;
+                        rigAdvisorContextActivities.appendChild(badge);
+                    });
+                }
+            }
+        }
+
+        function applyRigToSlot(rigTypeId, slotIndex) {
+            const targetSelect = rigSelects[slotIndex - 1];
+            if (!targetSelect) {
+                return;
+            }
+            const stringValue = String(rigTypeId);
+            if (!Array.from(targetSelect.options).some(function (option) { return option.value === stringValue; })) {
+                renderRigOptions();
+            }
+            targetSelect.value = stringValue;
+            targetSelect.dispatchEvent(new Event('change', { bubbles: true }));
+            targetSelect.classList.add('structure-rig-slot-applied');
+            window.setTimeout(function () {
+                targetSelect.classList.remove('structure-rig-slot-applied');
+            }, 1200);
+        }
+
+        function buildRigAdvisorCard(option, selectedCategories, rankIndex) {
+            const card = document.createElement('article');
+            card.className = 'structure-rig-advisor-card';
+            if (rankIndex === 0) {
+                card.classList.add('is-top-match');
+            }
+
+            const groupedTypes = splitRigAdvisorSupportedTypes(option, selectedCategories);
+            const matchedCount = groupedTypes.matched.length;
+
+            const header = document.createElement('div');
+            header.className = 'structure-rig-advisor-card-header';
+
+            const titleStack = document.createElement('div');
+            titleStack.className = 'structure-rig-advisor-title-stack';
+
+            const title = document.createElement('div');
+            title.className = 'structure-rig-advisor-title';
+            title.textContent = option.label;
+            titleStack.appendChild(title);
+
+            const subtitle = document.createElement('div');
+            subtitle.className = 'structure-rig-advisor-subtitle';
+            subtitle.textContent = (option.supported_type_names || []).length
+                ? (option.supported_type_names || []).length + ' blueprint categories covered'
+                : 'General purpose recommendation';
+            titleStack.appendChild(subtitle);
+            header.appendChild(titleStack);
+
+            const badgeRow = document.createElement('div');
+            badgeRow.className = 'structure-rig-advisor-card-badges';
+
+            const rankBadge = document.createElement('span');
+            rankBadge.className = 'badge structure-rig-advisor-rank-badge';
+            rankBadge.textContent = rankIndex === 0 ? 'Best match' : '#' + (rankIndex + 1);
+            badgeRow.appendChild(rankBadge);
+
+            const familyBadge = document.createElement('span');
+            familyBadge.className = 'badge structure-meta-badge structure-meta-badge-type';
+            familyBadge.textContent = option.family;
+            badgeRow.appendChild(familyBadge);
+
+            header.appendChild(badgeRow);
+            card.appendChild(header);
+
+            const scoreBar = document.createElement('div');
+            scoreBar.className = 'structure-rig-advisor-score';
+            scoreBar.textContent = selectedCategories.size
+                ? matchedCount + '/' + selectedCategories.size + ' selected categories matched'
+                : 'Showing every compatible blueprint category for this activity';
+            card.appendChild(scoreBar);
+
+            const facts = document.createElement('div');
+            facts.className = 'structure-rig-advisor-facts';
+            facts.appendChild(
+                buildRigAdvisorFact(
+                    selectedCategories.size ? 'Selected coverage' : 'Coverage',
+                    selectedCategories.size ? matchedCount + '/' + selectedCategories.size : 'All categories'
+                )
+            );
+            facts.appendChild(buildRigAdvisorFact('Blueprint categories', String((option.supported_type_names || []).length)));
+            facts.appendChild(buildRigAdvisorFact('Bonus lines', String((option.metrics || []).length)));
+            card.appendChild(facts);
+
+            card.appendChild(buildRigAdvisorDecisionNote(selectedCategories, matchedCount, rankIndex));
+
+            card.appendChild(buildRigAdvisorMetricsGroup(option.metrics || []));
+
+            const coverage = document.createElement('div');
+            coverage.className = 'structure-rig-advisor-coverage';
+            if (groupedTypes.matched.length) {
+                coverage.appendChild(buildRigAdvisorTypeGroup('Matching selected blueprint categories', groupedTypes.matched, true));
+            }
+            if (groupedTypes.other.length || !selectedCategories.size) {
+                coverage.appendChild(
+                    buildRigAdvisorTypeGroup(
+                        selectedCategories.size ? 'Other compatible blueprint categories' : 'Compatible blueprint categories',
+                        selectedCategories.size ? groupedTypes.other : (option.supported_type_names || []),
+                        false
+                    )
+                );
+            }
+            if (coverage.childNodes.length) {
+                card.appendChild(coverage);
+            }
+
+            const actions = document.createElement('div');
+            actions.className = 'structure-rig-advisor-actions';
+            [1, 2, 3].forEach(function (slotIndex) {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'btn btn-sm structure-slot-assign-btn';
+                button.textContent = 'Apply to Slot ' + slotIndex;
+                button.addEventListener('click', function () {
+                    applyRigToSlot(option.rig_type_id, slotIndex);
+                });
+                actions.appendChild(button);
+            });
+            card.appendChild(actions);
+            return card;
+        }
+
+        function renderRigAdvisorRecommendations(container, activity) {
+            const selectedCategories = new Set(
+                Array.from(container.querySelectorAll('[data-category-chip].is-selected')).map(function (chip) {
+                    return normalizeCategory(chip.dataset.categoryChip);
+                })
+            );
+            const resultHost = container.querySelector('[data-rig-advisor-results]');
+            const selectedCountHost = container.querySelector('[data-rig-advisor-selected-count]');
+            const resultCountHost = container.querySelector('[data-rig-advisor-result-count]');
+            resultHost.innerHTML = '';
+
+            if (selectedCountHost) {
+                selectedCountHost.textContent = selectedCategories.size
+                    ? selectedCategories.size + ' categories selected'
+                    : 'All blueprint categories included';
+            }
+
+            const rankedOptions = (activity.rig_options || [])
+                .map(function (option) {
+                    const matchedCount = (option.supported_type_names || []).filter(function (typeName) {
+                        return selectedCategories.has(normalizeCategory(typeName));
+                    }).length;
+                    return {
+                        option: option,
+                        matchedCount: matchedCount,
+                        totalMetrics: metricTotal(option.metrics || []),
+                    };
+                })
+                .filter(function (entry) {
+                    return !selectedCategories.size || entry.matchedCount > 0;
+                })
+                .sort(function (left, right) {
+                    if (right.matchedCount !== left.matchedCount) {
+                        return right.matchedCount - left.matchedCount;
+                    }
+                    if (right.totalMetrics !== left.totalMetrics) {
+                        return right.totalMetrics - left.totalMetrics;
+                    }
+                    if ((left.option.supported_type_names || []).length !== (right.option.supported_type_names || []).length) {
+                        return (left.option.supported_type_names || []).length - (right.option.supported_type_names || []).length;
+                    }
+                    return String(left.option.label).localeCompare(String(right.option.label));
+                });
+
+            if (!rankedOptions.length) {
+                if (resultCountHost) {
+                    resultCountHost.textContent = '0 rigs';
+                }
+                const empty = document.createElement('div');
+                empty.className = 'structure-empty-state';
+                empty.textContent = 'No rig matches the selected categories.';
+                resultHost.appendChild(empty);
+                return;
+            }
+
+            if (resultCountHost) {
+                resultCountHost.textContent = rankedOptions.length + ' possible rigs';
+            }
+
+            rankedOptions.forEach(function (entry, index) {
+                resultHost.appendChild(buildRigAdvisorCard(entry.option, selectedCategories, index));
+            });
+        }
+
+        function buildRigAdvisorSection(activity) {
+            const section = document.createElement('section');
+            section.className = 'structure-rig-advisor-section';
+
+            const header = document.createElement('div');
+            header.className = 'structure-rig-advisor-section-header';
+            const titleBlock = document.createElement('div');
+
+            const title = document.createElement('h4');
+            title.className = 'h6 mb-1';
+            title.textContent = activity.activity_label;
+            titleBlock.appendChild(title);
+
+            const subtitle = document.createElement('div');
+            subtitle.className = 'text-muted small';
+            subtitle.textContent = 'Filter the exact in-game categories you build for this activity, then use the top ranked rig.';
+            titleBlock.appendChild(subtitle);
+            header.appendChild(titleBlock);
+
+            const categoryCount = document.createElement('span');
+            categoryCount.className = 'badge text-bg-light border';
+            categoryCount.textContent = (activity.categories || []).length + ' categories';
+            header.appendChild(categoryCount);
+            section.appendChild(header);
+
+            const layout = document.createElement('div');
+            layout.className = 'structure-rig-advisor-layout';
+
+            const filterPanel = document.createElement('section');
+            filterPanel.className = 'structure-rig-advisor-panel structure-rig-advisor-panel--filters';
+
+            const filterHeader = document.createElement('div');
+            filterHeader.className = 'structure-rig-advisor-panel-header';
+
+            const filterTitleBlock = document.createElement('div');
+            const filterLabel = document.createElement('div');
+            filterLabel.className = 'structure-rig-advisor-panel-label';
+            filterLabel.textContent = 'Blueprint category filter';
+            filterTitleBlock.appendChild(filterLabel);
+
+            const filterTitle = document.createElement('h5');
+            filterTitle.className = 'structure-rig-advisor-panel-title';
+            filterTitle.textContent = 'Select the blueprint categories you really build';
+            filterTitleBlock.appendChild(filterTitle);
+
+            const filterHint = document.createElement('p');
+            filterHint.className = 'structure-rig-advisor-panel-hint';
+            filterHint.textContent = 'Use this list to remove noise. The rig cards on the right will immediately rerank.';
+            filterTitleBlock.appendChild(filterHint);
+            filterHeader.appendChild(filterTitleBlock);
+
+            const filterToolbar = document.createElement('div');
+            filterToolbar.className = 'structure-rig-advisor-panel-toolbar';
+
+            const selectAllButton = document.createElement('button');
+            selectAllButton.type = 'button';
+            selectAllButton.className = 'btn btn-sm btn-outline-secondary';
+            selectAllButton.textContent = 'Select all';
+            filterToolbar.appendChild(selectAllButton);
+
+            const clearButton = document.createElement('button');
+            clearButton.type = 'button';
+            clearButton.className = 'btn btn-sm btn-link';
+            clearButton.textContent = 'Clear';
+            filterToolbar.appendChild(clearButton);
+            filterHeader.appendChild(filterToolbar);
+            filterPanel.appendChild(filterHeader);
+
+            const categoryStatus = document.createElement('div');
+            categoryStatus.className = 'structure-rig-advisor-selection-state';
+            categoryStatus.dataset.rigAdvisorSelectedCount = '1';
+            filterPanel.appendChild(categoryStatus);
+
+            const categoryBar = document.createElement('div');
+            categoryBar.className = 'structure-category-filter-group';
+            (activity.categories || []).forEach(function (categoryName) {
+                const chip = document.createElement('button');
+                chip.type = 'button';
+                chip.className = 'structure-category-chip';
+                chip.dataset.categoryChip = categoryName;
+                chip.textContent = categoryName;
+                chip.addEventListener('click', function () {
+                    chip.classList.toggle('is-selected');
+                    renderRigAdvisorRecommendations(section, activity);
+                });
+                categoryBar.appendChild(chip);
+            });
+            selectAllButton.addEventListener('click', function () {
+                Array.from(categoryBar.querySelectorAll('[data-category-chip]')).forEach(function (chip) {
+                    chip.classList.add('is-selected');
+                });
+                renderRigAdvisorRecommendations(section, activity);
+            });
+            clearButton.addEventListener('click', function () {
+                Array.from(categoryBar.querySelectorAll('[data-category-chip]')).forEach(function (chip) {
+                    chip.classList.remove('is-selected');
+                });
+                renderRigAdvisorRecommendations(section, activity);
+            });
+            filterPanel.appendChild(categoryBar);
+            layout.appendChild(filterPanel);
+
+            const resultsPanel = document.createElement('section');
+            resultsPanel.className = 'structure-rig-advisor-panel structure-rig-advisor-panel--results';
+
+            const resultsHeader = document.createElement('div');
+            resultsHeader.className = 'structure-rig-advisor-panel-header';
+
+            const resultsTitleBlock = document.createElement('div');
+            const resultsLabel = document.createElement('div');
+            resultsLabel.className = 'structure-rig-advisor-panel-label';
+            resultsLabel.textContent = 'Possible rigs';
+            resultsTitleBlock.appendChild(resultsLabel);
+
+            const resultsTitle = document.createElement('h5');
+            resultsTitle.className = 'structure-rig-advisor-panel-title';
+            resultsTitle.textContent = 'Recommended rigs ranked by coverage and bonus';
+            resultsTitleBlock.appendChild(resultsTitle);
+
+            const resultsHint = document.createElement('p');
+            resultsHint.className = 'structure-rig-advisor-panel-hint';
+            resultsHint.textContent = 'Start with the best match, verify the rig bonuses, then confirm the blueprint coverage block before applying it.';
+            resultsTitleBlock.appendChild(resultsHint);
+            resultsHeader.appendChild(resultsTitleBlock);
+
+            const resultsCount = document.createElement('span');
+            resultsCount.className = 'badge text-bg-light border';
+            resultsCount.dataset.rigAdvisorResultCount = '1';
+            resultsHeader.appendChild(resultsCount);
+            resultsPanel.appendChild(resultsHeader);
+
+            const results = document.createElement('div');
+            results.className = 'structure-rig-advisor-results';
+            results.dataset.rigAdvisorResults = '1';
+            resultsPanel.appendChild(results);
+            layout.appendChild(resultsPanel);
+
+            section.appendChild(layout);
+            renderRigAdvisorRecommendations(section, activity);
+            return section;
+        }
+
+        function buildRigAdvisorActivityButton(activity) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'structure-rig-advisor-activity-button';
+            button.dataset.rigAdvisorActivityId = String(activity.activity_id);
+
+            const label = document.createElement('span');
+            label.className = 'structure-rig-advisor-activity-button__label';
+            label.textContent = activity.activity_label;
+            button.appendChild(label);
+
+            const count = document.createElement('span');
+            count.className = 'structure-rig-advisor-activity-button__meta';
+            count.textContent = (activity.categories || []).length + ' categories';
+            button.appendChild(count);
+
+            button.addEventListener('click', function () {
+                setRigAdvisorSelectedActivity(activity.activity_id);
+                renderRigAdvisorSelectedActivity(activity);
+            });
+
+            return button;
+        }
+
+        function renderRigAdvisorActivityPicker(activities) {
+            if (!rigAdvisorActivityPicker || !rigAdvisorActivityOptions) {
+                return;
+            }
+
+            rigAdvisorActivityOptions.innerHTML = '';
+            if (!activities.length) {
+                rigAdvisorActivityPicker.classList.add('d-none');
+                return;
+            }
+
+            rigAdvisorActivityPicker.classList.remove('d-none');
+            activities.forEach(function (activity) {
+                rigAdvisorActivityOptions.appendChild(buildRigAdvisorActivityButton(activity));
+            });
+        }
+
+        function renderRigAdvisorSelectedActivity(activity) {
+            if (!rigAdvisorBody) {
+                return;
+            }
+            rigAdvisorBody.innerHTML = '';
+            rigAdvisorBody.appendChild(buildRigAdvisorSection(activity));
+        }
+
+        function renderRigAdvisor(payload) {
+            if (!rigAdvisorBody) {
+                return;
+            }
+            rigAdvisorBody.innerHTML = '';
+            hideRigAdvisorEmptyState();
+            renderRigAdvisorContext();
+
+            if (!payload || !payload.activities || !payload.activities.length) {
+                rigAdvisorCurrentActivities = [];
+                showRigAdvisorEmptyState('No compatible rig category could be resolved for the current selection.');
+                return;
+            }
+
+            rigAdvisorCurrentActivities = payload.activities.slice();
+            renderRigAdvisorActivityPicker(payload.activities);
+
+            const selectedActivity = payload.activities.find(function (activity) {
+                return Number(activity.activity_id) === Number(rigAdvisorSelectedActivityId);
+            }) || payload.activities[0];
+
+            setRigAdvisorSelectedActivity(selectedActivity.activity_id);
+            renderRigAdvisorSelectedActivity(selectedActivity);
+        }
+
+        function loadRigAdvisor() {
+            if (!rigAdvisorBody || !structureTypeInput || !solarInput) {
+                return;
+            }
+
+            const params = getEnabledActivityParams();
+            params.set('structure_type_id', structureTypeInput.value || '');
+            params.set('solar_system_name', solarInput.value.trim());
+            const cacheKey = params.toString();
+            if (rigAdvisorCacheKey === cacheKey && rigAdvisorCachePayload) {
+                renderRigAdvisor(rigAdvisorCachePayload);
+                if (rigAdvisorModal) {
+                    rigAdvisorModal.show();
+                }
+                return;
+            }
+
+            setRigAdvisorLoading(true);
+            hideRigAdvisorEmptyState();
+            if (rigAdvisorActivityPicker) {
+                rigAdvisorActivityPicker.classList.add('d-none');
+            }
+            if (rigAdvisorActivityOptions) {
+                rigAdvisorActivityOptions.innerHTML = '';
+            }
+            rigAdvisorBody.innerHTML = '';
+
+            fetch(rigAdvisorUrl + '?' + params.toString(), {
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+                .then(function (response) {
+                    return response.ok ? response.json() : { activities: [] };
+                })
+                .then(function (payload) {
+                    rigAdvisorCacheKey = cacheKey;
+                    rigAdvisorCachePayload = payload;
+                    renderRigAdvisor(payload);
+                    if (rigAdvisorModal) {
+                        rigAdvisorModal.show();
+                    }
+                })
+                .catch(function () {
+                    showRigAdvisorEmptyState('Rig deduction is unavailable for the current selection.');
+                    if (rigAdvisorModal) {
+                        rigAdvisorModal.show();
+                    }
+                })
+                .finally(function () {
+                    setRigAdvisorLoading(false);
+                });
+        }
+
+        function clearBonusPreview() {
+            if (!bonusPreview) {
+                return;
+            }
+            bonusPreview.classList.add('d-none');
+            bonusPreviewBody.innerHTML = '';
+        }
+
+        function clearExistingStructuresPreview() {
+            if (!existingStructuresPreview) {
+                return;
+            }
+            existingStructuresPayload = {
+                solar_system_name: '',
+                total_count: 0,
+                same_type_count: 0,
+                structures: []
+            };
+            existingStructuresPreview.classList.add('d-none');
+            if (existingStructuresPreviewSummary) {
+                existingStructuresPreviewSummary.textContent = '';
+            }
+            if (existingStructuresPreviewBody) {
+                existingStructuresPreviewBody.innerHTML = '';
+            }
+            if (existingStructuresSameTypeBadge) {
+                existingStructuresSameTypeBadge.classList.add('d-none');
+                existingStructuresSameTypeBadge.textContent = '';
+            }
+            hideExistingStructureDuplicateAlert();
+            syncIdentityAsideState();
+        }
+
+        function renderExistingStructuresPreview(payload) {
+            if (!existingStructuresPreview || !existingStructuresPreviewSummary || !existingStructuresPreviewBody) {
+                return;
+            }
+
+            existingStructuresPayload = payload || {
+                solar_system_name: '',
+                total_count: 0,
+                same_type_count: 0,
+                structures: []
+            };
+            existingStructuresPreviewBody.innerHTML = '';
+            const totalCount = Number(payload.total_count || 0);
+            const sameTypeCount = Number(payload.same_type_count || 0);
+
+            if (!payload.solar_system_name) {
+                clearExistingStructuresPreview();
+                return;
+            }
+
+            existingStructuresPreview.classList.remove('d-none');
+            syncIdentityAsideState();
+
+            if (totalCount === 0) {
+                existingStructuresPreviewSummary.textContent = 'No structure with this type is registered yet in ' + payload.solar_system_name + '.';
+                const empty = document.createElement('div');
+                empty.className = 'structure-empty-state small';
+                empty.textContent = 'You can create the first one for this structure type in this system.';
+                existingStructuresPreviewBody.appendChild(empty);
+            } else {
+                existingStructuresPreviewSummary.textContent = totalCount + ' structure(s) with the same type already registered in ' + payload.solar_system_name + '.';
+                (payload.structures || []).forEach(function (structure) {
+                    const item = document.createElement('div');
+                    item.className = 'structure-existing-preview__item';
+                    item.classList.add('is-same-type');
+
+                    const name = document.createElement('div');
+                    name.className = 'structure-existing-preview__name';
+                    name.textContent = structure.name;
+                    item.appendChild(name);
+
+                    const meta = document.createElement('div');
+                    meta.className = 'structure-existing-preview__meta';
+
+                    const sourceBadge = document.createElement('span');
+                    sourceBadge.className = structure.is_synced
+                        ? 'badge text-bg-info-subtle border text-info-emphasis'
+                        : 'badge text-bg-light border';
+                    sourceBadge.textContent = structure.is_synced ? 'Synced' : 'Manual';
+                    meta.appendChild(sourceBadge);
+
+                    item.appendChild(meta);
+                    existingStructuresPreviewBody.appendChild(item);
+                });
+            }
+
+            renderExistingStructureDuplicateAlert();
+
+            if (existingStructuresSameTypeBadge) {
+                if (sameTypeCount > 0) {
+                    existingStructuresSameTypeBadge.classList.remove('d-none');
+                    existingStructuresSameTypeBadge.textContent = sameTypeCount + ' found';
+                } else {
+                    existingStructuresSameTypeBadge.classList.add('d-none');
+                    existingStructuresSameTypeBadge.textContent = '';
+                }
+            }
+        }
+
+        function loadExistingStructuresPreview() {
+            const solarSystemName = solarInput ? solarInput.value.trim() : '';
+            const structureTypeId = structureTypeInput ? structureTypeInput.value : '';
+
+            if (!solarSystemName) {
+                clearExistingStructuresPreview();
+                return;
+            }
+
+            const params = new URLSearchParams();
+            params.set('name', solarSystemName);
+            if (structureTypeId) {
+                params.set('structure_type_id', structureTypeId);
+            }
+            if (currentStructureId) {
+                params.set('exclude_structure_id', String(currentStructureId));
+            }
+
+            fetch(existingStructuresUrl + '?' + params.toString(), {
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+                .then(function (response) {
+                    return response.ok ? response.json() : {
+                        solar_system_name: solarSystemName,
+                        total_count: 0,
+                        same_type_count: 0,
+                        structures: []
+                    };
+                })
+                .then(renderExistingStructuresPreview)
+                .catch(clearExistingStructuresPreview);
+        }
+
+        if (registryNameInput) {
+            registryNameInput.addEventListener('input', renderExistingStructureDuplicateAlert);
+            registryNameInput.addEventListener('change', renderExistingStructureDuplicateAlert);
+        }
+
+        function syncVisibleTaxFields() {
+            taxFieldWrappers.forEach(function (wrapper) {
+                const fieldName = wrapper.dataset.activityToggle;
+                const input = activityToggleInputs[fieldName];
+                const isVisible = Boolean(input && input.checked);
+                wrapper.classList.toggle('d-none', !isVisible);
+            });
+
+            activityCards.forEach(function (card) {
+                const fieldName = card.dataset.activityCard;
+                const input = activityToggleInputs[fieldName];
+                card.classList.toggle('is-active', Boolean(input && input.checked));
+            });
+        }
+
+        function buildSupportedTypeTable(supportedTypeRows) {
+            const showCostColumn = supportedTypeRows.some(function (entry) {
+                return (entry.metrics || []).some(function (metric) {
+                    return metric.label === 'Cost';
+                });
+            });
+
+            const metricValue = function (entry, label) {
+                const match = (entry.metrics || []).find(function (metric) {
+                    return metric.label === label;
+                });
+                return match ? '-' + match.value + '%' : '-';
+            };
+
+            const sortedRows = supportedTypeRows.slice().sort(function (left, right) {
+                return String(left.type_name).localeCompare(String(right.type_name));
+            });
+
+            const tableWrapper = document.createElement('div');
+            tableWrapper.className = 'table-responsive';
+
+            const table = document.createElement('table');
+            table.className = 'table table-sm table-striped align-middle mb-0';
+
+            const thead = document.createElement('thead');
+            thead.className = 'table-light';
+            const headRow = document.createElement('tr');
+
+            ['Category', 'ME', 'TE'].forEach(function (label) {
+                const th = document.createElement('th');
+                th.scope = 'col';
+                th.textContent = label;
+                if (label !== 'Category') {
+                    th.className = 'text-end';
+                }
+                headRow.appendChild(th);
+            });
+
+            if (showCostColumn) {
+                const costHead = document.createElement('th');
+                costHead.scope = 'col';
+                costHead.className = 'text-end';
+                costHead.textContent = 'Cost';
+                headRow.appendChild(costHead);
+            }
+
+            thead.appendChild(headRow);
+            table.appendChild(thead);
+
+            const tbody = document.createElement('tbody');
+            sortedRows.forEach(function (entry) {
+                const bodyRow = document.createElement('tr');
+
+                const categoryCell = document.createElement('td');
+                categoryCell.className = 'fw-semibold small';
+                categoryCell.textContent = entry.type_name;
+                bodyRow.appendChild(categoryCell);
+
+                ['ME', 'TE'].forEach(function (label) {
+                    const cell = document.createElement('td');
+                    cell.className = 'text-end text-nowrap small';
+                    cell.textContent = metricValue(entry, label);
+                    bodyRow.appendChild(cell);
+                });
+
+                if (showCostColumn) {
+                    const costCell = document.createElement('td');
+                    costCell.className = 'text-end text-nowrap small';
+                    costCell.textContent = metricValue(entry, 'Cost');
+                    bodyRow.appendChild(costCell);
+                }
+
+                tbody.appendChild(bodyRow);
+            });
+
+            table.appendChild(tbody);
+            tableWrapper.appendChild(table);
+            return tableWrapper;
+        }
+
+        function openRigBonusDetailModal(row) {
+            if (!rigBonusDetailModal || !rigBonusDetailTitle || !rigBonusDetailBody) {
+                return;
+            }
+
+            rigBonusDetailTitle.textContent = row.activity_label + ' rig bonus details';
+            rigBonusDetailBody.innerHTML = '';
+            rigBonusDetailBody.appendChild(buildSupportedTypeTable(row.supported_type_rows || []));
+            rigBonusDetailModal.show();
+        }
+
+        function buildPreviewPill(text, className) {
+            const pill = document.createElement('span');
+            pill.className = className || 'structure-preview-pill';
+            pill.textContent = text;
+            return pill;
+        }
+
+        function buildPreviewMetricRow(metrics, emptyText, extraClassName) {
+            const row = document.createElement('div');
+            row.className = extraClassName || 'structure-preview-pill-row';
+
+            if (!(metrics || []).length) {
+                const empty = document.createElement('span');
+                empty.className = 'text-muted small';
+                empty.textContent = emptyText;
+                row.appendChild(empty);
+                return row;
+            }
+
+            (metrics || []).forEach(function (metric) {
+                row.appendChild(buildPreviewPill(metric.label + ' -' + metric.value + '%', 'structure-preview-pill'));
+            });
+            return row;
+        }
+
+        function buildPreviewInlineLabel(text) {
+            const label = document.createElement('span');
+            label.className = 'structure-preview-inline-label';
+            label.textContent = text;
+            return label;
+        }
+
+        function renderBonusPreview(payload) {
+            if (!bonusPreview || !payload || !payload.rows || !payload.rows.length) {
+                clearBonusPreview();
+                return;
+            }
+
+            bonusPreview.classList.remove('d-none');
+            bonusPreviewBody.innerHTML = '';
+
+            payload.rows.forEach(function (row) {
+                const column = document.createElement('div');
+                column.className = 'col-12';
+
+                const wrapper = document.createElement('article');
+                wrapper.className = 'structure-preview-bonus-row';
+
+                const heading = document.createElement('div');
+                heading.className = 'structure-preview-bonus-row__heading';
+
+                const title = document.createElement('div');
+                title.className = 'structure-preview-bonus-row__title';
+                title.textContent = row.activity_label;
+                heading.appendChild(title);
+                wrapper.appendChild(heading);
+
+                const roleMetrics = document.createElement('div');
+                roleMetrics.className = 'structure-preview-bonus-row__metrics';
+                roleMetrics.appendChild(buildPreviewInlineLabel('Role bonus'));
+                roleMetrics.appendChild(
+                    buildPreviewMetricRow(
+                        row.structure_role_metrics || [],
+                        'No role bonus',
+                        'structure-preview-pill-row'
+                    )
+                );
+                wrapper.appendChild(roleMetrics);
+
+                const supportedTypeRows = row.supported_type_rows || [];
+                const rigLane = document.createElement('div');
+                rigLane.className = 'structure-preview-bonus-row__rigs';
+
+                if (supportedTypeRows.length) {
+                    const detailButton = document.createElement('button');
+                    detailButton.type = 'button';
+                    detailButton.className = 'btn btn-sm btn-outline-secondary structure-preview-detail-button';
+                    detailButton.textContent = 'Rig details';
+                    detailButton.addEventListener('click', function () {
+                        openRigBonusDetailModal(row);
+                    });
+                    rigLane.appendChild(detailButton);
+                } else {
+                    const noRigs = document.createElement('div');
+                    noRigs.className = 'text-muted small';
+                    noRigs.textContent = 'No rig bonus';
+                    rigLane.appendChild(noRigs);
+                }
+
+                wrapper.appendChild(rigLane);
+
+                column.appendChild(wrapper);
+                bonusPreviewBody.appendChild(column);
+            });
+        }
+
+        function loadBonusPreview() {
+            const structureTypeId = structureTypeInput ? structureTypeInput.value : '';
+            const solarSystemName = solarInput ? solarInput.value.trim() : '';
+            const rigTypeIds = rigSelects
+                .map(function (select) { return select.value; })
+                .filter(function (value) { return Boolean(value); });
+
+            if (!structureTypeId || !solarSystemName) {
+                clearBonusPreview();
+                return;
+            }
+
+            const params = new URLSearchParams();
+            params.set('structure_type_id', structureTypeId);
+            params.set('solar_system_name', solarSystemName);
+            rigTypeIds.forEach(function (rigTypeId) {
+                params.append('rig_type_id', rigTypeId);
+            });
+            Object.keys(activityToggleInputs).forEach(function (fieldName) {
+                const input = activityToggleInputs[fieldName];
+                if (!input) {
+                    return;
+                }
+                params.set(fieldName, input.checked ? '1' : '0');
+            });
+
+            fetch(bonusPreviewUrl + '?' + params.toString(), {
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+                .then(function (response) {
+                    return response.ok ? response.json() : { rows: [] };
+                })
+                .then(renderBonusPreview)
+                .catch(clearBonusPreview);
+        }
+
+        function clearCostIndexPreview() {
+            if (!costIndexPreview) {
+                return;
+            }
+            costIndexPreview.classList.add('d-none');
+            costIndexTitle.textContent = '';
+            costIndexSubtitle.textContent = '';
+            costIndexSecurityBand.textContent = '';
+            costIndexBody.innerHTML = '';
+        }
+
+        function renderCostIndexPreview(payload) {
+            if (!payload || !payload.found || !costIndexPreview) {
+                clearCostIndexPreview();
+                return;
+            }
+
+            costIndexPreview.classList.remove('d-none');
+            costIndexTitle.textContent = payload.solar_system_name || '';
+            costIndexSubtitle.textContent = payload.cost_indices && payload.cost_indices.length
+                ? 'Current system cost indices loaded from Indy Hub cache'
+                : 'No system cost index synced yet for this system';
+            costIndexSecurityBand.textContent = payload.security_band || '';
+            costIndexBody.innerHTML = '';
+
+            if (!payload.cost_indices || !payload.cost_indices.length) {
+                const emptyWrapper = document.createElement('div');
+                emptyWrapper.className = 'col-12 text-muted small';
+                emptyWrapper.textContent = 'No cost index available yet.';
+                costIndexBody.appendChild(emptyWrapper);
+                return;
+            }
+
+            payload.cost_indices.forEach(function (entry) {
+                const column = document.createElement('div');
+                const card = document.createElement('article');
+                const label = document.createElement('div');
+                const value = document.createElement('div');
+                const numericValue = Number(entry.cost_index_percent);
+                const formattedValue = Number.isFinite(numericValue)
+                    ? numericValue.toFixed(2)
+                    : entry.cost_index_percent;
+                column.className = 'col';
+                card.className = 'structure-cost-index-card';
+                label.className = 'structure-cost-index-card__label';
+                label.textContent = entry.activity_label;
+                value.className = 'structure-cost-index-card__value';
+                value.textContent = formattedValue + '%';
+                card.appendChild(label);
+                card.appendChild(value);
+                column.appendChild(card);
+                costIndexBody.appendChild(column);
+            });
+        }
+
+        function loadCostIndexPreview() {
+            const systemName = solarInput ? solarInput.value.trim() : '';
+            if (!systemName) {
+                clearCostIndexPreview();
+                return;
+            }
+            fetch(costIndexUrl + '?name=' + encodeURIComponent(systemName), {
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+                .then(function (response) {
+                    return response.ok ? response.json() : { found: false, cost_indices: [] };
+                })
+                .then(renderCostIndexPreview)
+                .catch(clearCostIndexPreview);
+        }
+
+        if (!solarInput || !suggestionList) {
+            return;
+        }
+
+        let lastController = null;
+        let debounceTimer = null;
+
+        solarInput.addEventListener('input', function () {
+            const query = solarInput.value.trim();
+            clearCostIndexPreview();
+            window.clearTimeout(debounceTimer);
+            if (query.length < 2) {
+                suggestionList.innerHTML = '';
+                return;
+            }
+
+            debounceTimer = window.setTimeout(function () {
+                if (lastController) {
+                    lastController.abort();
+                }
+                lastController = new AbortController();
+                fetch(searchUrl + '?q=' + encodeURIComponent(query), {
+                    signal: lastController.signal,
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest'
+                    }
+                })
+                    .then(function (response) {
+                        return response.ok ? response.json() : { results: [] };
+                    })
+                    .then(function (payload) {
+                        suggestionList.innerHTML = '';
+                        (payload.results || []).forEach(function (item) {
+                            const option = document.createElement('option');
+                            option.value = item.name;
+                            option.label = item.name + ' [' + item.security_band + ']';
+                            suggestionList.appendChild(option);
+                        });
+                    })
+                    .catch(function (error) {
+                        if (error.name !== 'AbortError') {
+                            suggestionList.innerHTML = '';
+                        }
+                    });
+            }, 180);
+        });
+
+        solarInput.addEventListener('change', loadCostIndexPreview);
+        solarInput.addEventListener('blur', loadCostIndexPreview);
+        solarInput.addEventListener('change', loadExistingStructuresPreview);
+        solarInput.addEventListener('blur', loadExistingStructuresPreview);
+        solarInput.addEventListener('change', loadBonusPreview);
+        solarInput.addEventListener('blur', loadBonusPreview);
+        solarInput.addEventListener('input', renderCommandDeck);
+
+        rigSelects.forEach(function (select) {
+            select.addEventListener('change', loadBonusPreview);
+            select.addEventListener('change', renderCommandDeck);
+        });
+
+        Object.keys(activityToggleInputs).forEach(function (fieldName) {
+            const input = activityToggleInputs[fieldName];
+            if (input) {
+                input.addEventListener('change', syncVisibleTaxFields);
+                input.addEventListener('change', invalidateRigAdvisorCache);
+                input.addEventListener('change', updateRigAdvisorAvailability);
+                input.addEventListener('change', loadBonusPreview);
+                input.addEventListener('change', renderCommandDeck);
+            }
+        });
+
+        if (structureTypeInput && rigSelects.length) {
+            renderRigOptions();
+            structureTypeInput.addEventListener('change', function () {
+                applyDefaultActivityFlags();
+                syncVisibleTaxFields();
+                invalidateRigAdvisorCache();
+                updateRigAdvisorAvailability();
+                renderRigOptions();
+                loadExistingStructuresPreview();
+                renderCommandDeck();
+            });
+            structureTypeInput.addEventListener('change', loadBonusPreview);
+        }
+
+        syncVisibleTaxFields();
+        updateRigAdvisorAvailability();
+        renderCommandDeck();
+        syncIdentityAsideState();
+
+        if (rigAdvisorOpenButton) {
+            rigAdvisorOpenButton.addEventListener('click', loadRigAdvisor);
+        }
+
+        if (solarInput.value.trim()) {
+            loadCostIndexPreview();
+            loadExistingStructuresPreview();
+            loadBonusPreview();
+        }
+
+        solarInput.addEventListener('input', function () {
+            invalidateRigAdvisorCache();
+            updateRigAdvisorAvailability();
+            if (existingStructuresTimer) {
+                window.clearTimeout(existingStructuresTimer);
+            }
+            existingStructuresTimer = window.setTimeout(loadExistingStructuresPreview, 180);
+        });
+        solarInput.addEventListener('change', invalidateRigAdvisorCache);
+        solarInput.addEventListener('blur', updateRigAdvisorAvailability);
+    });
+</script>
+{% endblock extra_javascript %}

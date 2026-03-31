@@ -89,6 +89,13 @@ from ..services.esi_client import (
     get_retry_after_seconds,
     shared_client,
 )
+from ..services.industry_skills import (
+    SKILLS_SCOPE,
+    build_skill_snapshot_defaults,
+)
+from ..services.industry_skills import (
+    skill_snapshot_stale as industry_skill_snapshot_stale,
+)
 from ..services.location_population import populate_location_names
 from ..utils.analytics import emit_analytics_event
 from ..utils.eve import (
@@ -110,16 +117,7 @@ CORP_ROLES_SCOPE = "esi-characters.read_corporation_roles.v1"
 CORP_STRUCTURES_SCOPE = "esi-corporations.read_structures.v1"
 CORP_ASSETS_SCOPE = "esi-assets.read_corporation_assets.v1"
 CORP_WALLET_SCOPE = "esi-wallet.read_corporation_wallets.v1"
-SKILLS_SCOPE = "esi-skills.read_skills.v1"
 ONLINE_SCOPE = "esi-location.read_online.v1"
-SKILL_TYPE_IDS = {
-    "mass_production": 3387,
-    "advanced_mass_production": 3388,
-    "laboratory_operation": 3406,
-    "advanced_laboratory_operation": 24624,
-    "mass_reactions": 45746,
-    "advanced_mass_reactions": 45748,
-}
 CORP_BLUEPRINT_SCOPE_SET = [
     CORP_BLUEPRINT_SCOPE,
     STRUCTURE_SCOPE,
@@ -2327,10 +2325,9 @@ def update_character_skill_snapshot_for_character(
         character_id=int(character_id)
     ).first()
     table_empty = not IndustrySkillSnapshot.objects.exists()
-    now = timezone.now()
-    snapshot_stale = bool(
-        snapshot
-        and (now - snapshot.last_updated) >= timedelta(hours=SKILL_SNAPSHOT_STALE_HOURS)
+    snapshot_stale = industry_skill_snapshot_stale(
+        snapshot,
+        timedelta(hours=SKILL_SNAPSHOT_STALE_HOURS),
     )
     if snapshot and not snapshot_stale:
         return {"status": "skipped", "reason": "fresh"}
@@ -2379,50 +2376,13 @@ def update_character_skill_snapshot_for_character(
         )
         return {"status": "failed", "reason": str(exc)}
 
-    def _extract_levels(skill_id: int) -> tuple[int, int]:
-        entry = levels.get(skill_id, 0)
-        if isinstance(entry, dict):
-            active_level = int(entry.get("active") or 0)
-            trained_level = int(entry.get("trained") or 0)
-        else:
-            active_level = int(entry or 0)
-            trained_level = active_level
-        return active_level, trained_level
-
-    mass_active, mass_trained = _extract_levels(SKILL_TYPE_IDS["mass_production"])
-    adv_mass_active, adv_mass_trained = _extract_levels(
-        SKILL_TYPE_IDS["advanced_mass_production"]
-    )
-    lab_active, lab_trained = _extract_levels(SKILL_TYPE_IDS["laboratory_operation"])
-    adv_lab_active, adv_lab_trained = _extract_levels(
-        SKILL_TYPE_IDS["advanced_laboratory_operation"]
-    )
-    react_active, react_trained = _extract_levels(SKILL_TYPE_IDS["mass_reactions"])
-    adv_react_active, adv_react_trained = _extract_levels(
-        SKILL_TYPE_IDS["advanced_mass_reactions"]
-    )
-
-    defaults = {
-        "mass_production_level": mass_active,
-        "advanced_mass_production_level": adv_mass_active,
-        "laboratory_operation_level": lab_active,
-        "advanced_laboratory_operation_level": adv_lab_active,
-        "mass_reactions_level": react_active,
-        "advanced_mass_reactions_level": adv_react_active,
-        "trained_mass_production_level": mass_trained,
-        "trained_advanced_mass_production_level": adv_mass_trained,
-        "trained_laboratory_operation_level": lab_trained,
-        "trained_advanced_laboratory_operation_level": adv_lab_trained,
-        "trained_mass_reactions_level": react_trained,
-        "trained_advanced_mass_reactions_level": adv_react_trained,
-    }
     _update_or_create_with_deadlock_retry(
         IndustrySkillSnapshot,
         lookup={
             "owner_user": ownership.user,
             "character_id": int(character_id),
         },
-        defaults=defaults,
+        defaults=build_skill_snapshot_defaults(levels),
     )
     emit_analytics_event(
         task="industry.update_character_skill_snapshot",
