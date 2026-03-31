@@ -424,6 +424,7 @@ class IndustrySkillSnapshot(models.Model):
         User, on_delete=models.CASCADE, related_name="industry_skill_snapshots"
     )
     character_id = models.BigIntegerField(unique=True)
+    skill_levels = models.JSONField(default=dict, blank=True)
     mass_production_level = models.PositiveSmallIntegerField(default=0)
     advanced_mass_production_level = models.PositiveSmallIntegerField(default=0)
     laboratory_operation_level = models.PositiveSmallIntegerField(default=0)
@@ -454,6 +455,11 @@ class IndustrySkillSnapshot(models.Model):
 
     def __str__(self) -> str:
         return f"Skills for {self.character_id}"
+
+    def get_skill_level(self, skill_id: int, *, trained: bool = False) -> int:
+        from .services.industry_skills import get_snapshot_skill_level
+
+        return get_snapshot_skill_level(self, skill_id, trained=trained)
 
     @property
     def manufacturing_slots(self) -> int:
@@ -2749,6 +2755,33 @@ class SDEIndustryActivity(models.Model):
         return f"{self.name} ({self.id})"
 
 
+class SDEBlueprintActivity(models.Model):
+    eve_type = models.ForeignKey(
+        "eve_sde.ItemType",
+        on_delete=models.CASCADE,
+        related_name="+",
+        db_column="eve_type_id",
+    )
+    activity = models.ForeignKey(
+        SDEIndustryActivity,
+        on_delete=models.CASCADE,
+        related_name="blueprints",
+        db_column="activity_id",
+    )
+    time = models.IntegerField(default=0)
+
+    class Meta:
+        verbose_name = "SDE Blueprint Activity"
+        verbose_name_plural = "SDE Blueprint Activities"
+        default_permissions = ()
+        db_table = "indy_hub_sdeblueprintactivity"
+        unique_together = (("eve_type", "activity"),)
+        indexes = [models.Index(fields=["eve_type", "activity"])]
+
+    def __str__(self):
+        return f"{self.eve_type_id} ({self.activity_id}) {self.time}s"
+
+
 class SDEBlueprintActivityProduct(models.Model):
     eve_type = models.ForeignKey(
         "eve_sde.ItemType",
@@ -2825,6 +2858,653 @@ class SDEBlueprintActivityMaterial(models.Model):
             f"{self.eve_type_id} needs {self.material_eve_type_id} "
             f"({self.activity_id}) x{self.quantity}"
         )
+
+
+class IndustryActivityMixin:
+    ACTIVITY_MANUFACTURING = 1
+    ACTIVITY_TE_RESEARCH = 3
+    ACTIVITY_ME_RESEARCH = 4
+    ACTIVITY_COPYING = 5
+    ACTIVITY_INVENTION = 8
+    ACTIVITY_REACTIONS = 9
+    ACTIVITY_REACTIONS_LEGACY = 11
+
+    INDUSTRY_ACTIVITY_CHOICES = [
+        (ACTIVITY_MANUFACTURING, "Manufacturing"),
+        (ACTIVITY_TE_RESEARCH, "TE Research"),
+        (ACTIVITY_ME_RESEARCH, "ME Research"),
+        (ACTIVITY_COPYING, "Copying"),
+        (ACTIVITY_INVENTION, "Invention"),
+        (ACTIVITY_REACTIONS, "Reactions"),
+        (ACTIVITY_REACTIONS_LEGACY, "Reactions (Legacy)"),
+    ]
+
+
+class IndustrySystemCostIndex(models.Model, IndustryActivityMixin):
+    solar_system_id = models.BigIntegerField()
+    solar_system_name = models.CharField(max_length=255)
+    activity_id = models.PositiveSmallIntegerField(
+        choices=IndustryActivityMixin.INDUSTRY_ACTIVITY_CHOICES
+    )
+    cost_index_percent = models.DecimalField(
+        max_digits=8,
+        decimal_places=5,
+        validators=[
+            MinValueValidator(Decimal("0")),
+            MaxValueValidator(Decimal("100")),
+        ],
+    )
+    source_updated_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Industry System Cost Index"
+        verbose_name_plural = "Industry System Cost Indices"
+        default_permissions = ()
+        db_table = "indy_hub_industrysystemcostindex"
+        unique_together = (("solar_system_id", "activity_id"),)
+        indexes = [
+            models.Index(fields=["solar_system_id", "activity_id"]),
+            models.Index(fields=["solar_system_name", "activity_id"]),
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"{self.solar_system_name} ({self.solar_system_id}) - "
+            f"{self.get_activity_id_display()}: {self.cost_index_percent}%"
+        )
+
+    @property
+    def cost_index_ratio(self) -> Decimal:
+        return (self.cost_index_percent or Decimal("0")) / Decimal("100")
+
+
+class IndustryStructure(models.Model):
+    class SecurityBand(models.TextChoices):
+        HIGHSEC = "highsec", _("Highsec")
+        LOWSEC = "lowsec", _("Lowsec")
+        NULLSEC = "nullsec", _("Nullsec / Wormhole")
+
+    class VisibilityScope(models.TextChoices):
+        PUBLIC = "public", _("Shared")
+        PERSONAL = "personal", _("Personal Copy")
+
+    class SyncSource(models.TextChoices):
+        MANUAL = "manual", _("Manual")
+        ESI_CORPORATION = "esi_corporation", _("Corporation ESI")
+
+    ACTIVITY_FIELD_LABELS = (
+        ("enable_manufacturing", "Manufacturing"),
+        ("enable_manufacturing_capitals", "Manufacturing (Capitals)"),
+        ("enable_manufacturing_super_capitals", "Manufacturing (Super-Capitals)"),
+        ("enable_research", "Research"),
+        ("enable_invention", "Invention"),
+        ("enable_biochemical_reactions", "Biochemical Reactions"),
+        ("enable_hybrid_reactions", "Hybrid Reactions"),
+        ("enable_composite_reactions", "Composite Reactions"),
+    )
+
+    TAX_FIELD_LABELS = (
+        ("manufacturing_tax_percent", "Manufacturing"),
+        ("manufacturing_capitals_tax_percent", "Manufacturing (Capitals)"),
+        ("manufacturing_super_capitals_tax_percent", "Manufacturing (Super-Capitals)"),
+        ("research_tax_percent", "Research"),
+        ("invention_tax_percent", "Invention"),
+        ("biochemical_reactions_tax_percent", "Biochemical Reactions"),
+        ("hybrid_reactions_tax_percent", "Hybrid Reactions"),
+        ("composite_reactions_tax_percent", "Composite Reactions"),
+    )
+
+    MANUFACTURING_ACTIVITY_FIELDS = (
+        "enable_manufacturing",
+        "enable_manufacturing_capitals",
+        "enable_manufacturing_super_capitals",
+    )
+
+    REACTION_ACTIVITY_FIELDS = (
+        "enable_biochemical_reactions",
+        "enable_hybrid_reactions",
+        "enable_composite_reactions",
+    )
+
+    MANUFACTURING_TAX_FIELDS = (
+        "manufacturing_tax_percent",
+        "manufacturing_capitals_tax_percent",
+        "manufacturing_super_capitals_tax_percent",
+    )
+
+    REACTION_TAX_FIELDS = (
+        "biochemical_reactions_tax_percent",
+        "hybrid_reactions_tax_percent",
+        "composite_reactions_tax_percent",
+    )
+
+    name = models.CharField(max_length=255)
+    personal_tag = models.CharField(max_length=80, blank=True)
+    structure_type_id = models.BigIntegerField(blank=True, null=True)
+    structure_type_name = models.CharField(max_length=255, blank=True)
+    solar_system_id = models.BigIntegerField(blank=True, null=True)
+    solar_system_name = models.CharField(max_length=255, blank=True)
+    constellation_id = models.BigIntegerField(blank=True, null=True)
+    constellation_name = models.CharField(max_length=255, blank=True)
+    region_id = models.BigIntegerField(blank=True, null=True)
+    region_name = models.CharField(max_length=255, blank=True)
+    system_security_band = models.CharField(
+        max_length=16,
+        choices=SecurityBand.choices,
+        default=SecurityBand.HIGHSEC,
+    )
+    external_structure_id = models.BigIntegerField(blank=True, null=True)
+    owner_corporation_id = models.BigIntegerField(blank=True, null=True)
+    owner_corporation_name = models.CharField(max_length=255, blank=True)
+    sync_source = models.CharField(
+        max_length=32,
+        choices=SyncSource.choices,
+        default=SyncSource.MANUAL,
+    )
+    visibility_scope = models.CharField(
+        max_length=16,
+        choices=VisibilityScope.choices,
+        default=VisibilityScope.PUBLIC,
+    )
+    owner_user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="personal_industry_structures",
+        blank=True,
+        null=True,
+    )
+    source_structure = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        related_name="personal_copies",
+        blank=True,
+        null=True,
+    )
+    enable_manufacturing = models.BooleanField(default=True)
+    enable_manufacturing_capitals = models.BooleanField(default=False)
+    enable_manufacturing_super_capitals = models.BooleanField(default=False)
+    enable_research = models.BooleanField(default=True)
+    enable_invention = models.BooleanField(default=True)
+    enable_biochemical_reactions = models.BooleanField(default=False)
+    enable_hybrid_reactions = models.BooleanField(default=False)
+    enable_composite_reactions = models.BooleanField(default=False)
+    manufacturing_tax_percent = models.DecimalField(
+        max_digits=6,
+        decimal_places=3,
+        default=Decimal("0"),
+        validators=[
+            MinValueValidator(Decimal("0")),
+            MaxValueValidator(Decimal("100")),
+        ],
+    )
+    manufacturing_capitals_tax_percent = models.DecimalField(
+        max_digits=6,
+        decimal_places=3,
+        default=Decimal("0"),
+        validators=[
+            MinValueValidator(Decimal("0")),
+            MaxValueValidator(Decimal("100")),
+        ],
+    )
+    manufacturing_super_capitals_tax_percent = models.DecimalField(
+        max_digits=6,
+        decimal_places=3,
+        default=Decimal("0"),
+        validators=[
+            MinValueValidator(Decimal("0")),
+            MaxValueValidator(Decimal("100")),
+        ],
+    )
+    research_tax_percent = models.DecimalField(
+        max_digits=6,
+        decimal_places=3,
+        default=Decimal("0"),
+        validators=[
+            MinValueValidator(Decimal("0")),
+            MaxValueValidator(Decimal("100")),
+        ],
+    )
+    invention_tax_percent = models.DecimalField(
+        max_digits=6,
+        decimal_places=3,
+        default=Decimal("0"),
+        validators=[
+            MinValueValidator(Decimal("0")),
+            MaxValueValidator(Decimal("100")),
+        ],
+    )
+    biochemical_reactions_tax_percent = models.DecimalField(
+        max_digits=6,
+        decimal_places=3,
+        default=Decimal("0"),
+        validators=[
+            MinValueValidator(Decimal("0")),
+            MaxValueValidator(Decimal("100")),
+        ],
+    )
+    hybrid_reactions_tax_percent = models.DecimalField(
+        max_digits=6,
+        decimal_places=3,
+        default=Decimal("0"),
+        validators=[
+            MinValueValidator(Decimal("0")),
+            MaxValueValidator(Decimal("100")),
+        ],
+    )
+    composite_reactions_tax_percent = models.DecimalField(
+        max_digits=6,
+        decimal_places=3,
+        default=Decimal("0"),
+        validators=[
+            MinValueValidator(Decimal("0")),
+            MaxValueValidator(Decimal("100")),
+        ],
+    )
+    last_synced_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Industry Structure"
+        verbose_name_plural = "Industry Structures"
+        default_permissions = ()
+        db_table = "indy_hub_industrystructure"
+        indexes = [
+            models.Index(fields=["structure_type_id"]),
+            models.Index(fields=["owner_corporation_id", "sync_source"]),
+            models.Index(fields=["external_structure_id"]),
+            models.Index(fields=["constellation_name"]),
+            models.Index(fields=["region_name"]),
+            models.Index(fields=["visibility_scope", "owner_user"]),
+            models.Index(fields=["source_structure"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["name"],
+                condition=models.Q(visibility_scope="public"),
+                name="indy_hub_structure_public_name_uq",
+            ),
+            models.UniqueConstraint(
+                fields=["owner_user", "name", "personal_tag"],
+                condition=models.Q(visibility_scope="personal"),
+                name="indy_hub_structure_personal_owner_name_tag_uq",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        if self.solar_system_name:
+            return f"{self.display_name} [{self.solar_system_name}]"
+        return self.display_name
+
+    @property
+    def display_name(self) -> str:
+        if self.personal_tag:
+            return f"{self.name} [{self.personal_tag}]"
+        return self.name
+
+    def __init__(self, *args, **kwargs):
+        structure_type_id = kwargs.get("structure_type_id")
+        if structure_type_id not in {None, ""}:
+            try:
+                # AA Example App
+                from indy_hub.services.industry_structures import (
+                    get_default_enabled_structure_activities,
+                )
+
+                default_activity_flags = get_default_enabled_structure_activities(
+                    int(structure_type_id)
+                )
+            except Exception:
+                default_activity_flags = {}
+            else:
+                for field_name, field_value in default_activity_flags.items():
+                    kwargs.setdefault(field_name, field_value)
+
+        legacy_research_enabled = any(
+            bool(kwargs.pop(field_name, False))
+            for field_name in (
+                "enable_te_research",
+                "enable_me_research",
+                "enable_copying",
+            )
+        )
+        legacy_reactions_enabled = kwargs.pop("enable_reactions", None)
+        legacy_research_taxes = [
+            kwargs.pop(field_name, None)
+            for field_name in (
+                "te_research_tax_percent",
+                "me_research_tax_percent",
+                "copying_tax_percent",
+            )
+        ]
+        legacy_reactions_tax = kwargs.pop("reactions_tax_percent", None)
+
+        if "enable_research" not in kwargs and legacy_research_enabled:
+            kwargs["enable_research"] = True
+
+        if legacy_reactions_enabled is not None and not any(
+            field_name in kwargs for field_name in self.REACTION_ACTIVITY_FIELDS
+        ):
+            for field_name in self.REACTION_ACTIVITY_FIELDS:
+                kwargs[field_name] = bool(legacy_reactions_enabled)
+
+        if "research_tax_percent" not in kwargs:
+            normalized_research_taxes = [
+                tax for tax in legacy_research_taxes if tax is not None
+            ]
+            if normalized_research_taxes:
+                kwargs["research_tax_percent"] = max(normalized_research_taxes)
+
+        if legacy_reactions_tax is not None and not any(
+            field_name in kwargs for field_name in self.REACTION_TAX_FIELDS
+        ):
+            for field_name in self.REACTION_TAX_FIELDS:
+                kwargs[field_name] = legacy_reactions_tax
+
+        super().__init__(*args, **kwargs)
+
+    @property
+    def enable_te_research(self) -> bool:
+        return self.enable_research
+
+    @enable_te_research.setter
+    def enable_te_research(self, value: bool) -> None:
+        self.enable_research = bool(value)
+
+    @property
+    def enable_me_research(self) -> bool:
+        return self.enable_research
+
+    @enable_me_research.setter
+    def enable_me_research(self, value: bool) -> None:
+        self.enable_research = bool(value)
+
+    @property
+    def enable_copying(self) -> bool:
+        return self.enable_research
+
+    @enable_copying.setter
+    def enable_copying(self, value: bool) -> None:
+        self.enable_research = bool(value)
+
+    @property
+    def enable_reactions(self) -> bool:
+        return any(
+            getattr(self, field_name) for field_name in self.REACTION_ACTIVITY_FIELDS
+        )
+
+    @enable_reactions.setter
+    def enable_reactions(self, value: bool) -> None:
+        for field_name in self.REACTION_ACTIVITY_FIELDS:
+            setattr(self, field_name, bool(value))
+
+    @property
+    def te_research_tax_percent(self) -> Decimal:
+        return self.research_tax_percent
+
+    @te_research_tax_percent.setter
+    def te_research_tax_percent(self, value: Decimal) -> None:
+        self.research_tax_percent = value
+
+    @property
+    def me_research_tax_percent(self) -> Decimal:
+        return self.research_tax_percent
+
+    @me_research_tax_percent.setter
+    def me_research_tax_percent(self, value: Decimal) -> None:
+        self.research_tax_percent = value
+
+    @property
+    def copying_tax_percent(self) -> Decimal:
+        return self.research_tax_percent
+
+    @copying_tax_percent.setter
+    def copying_tax_percent(self, value: Decimal) -> None:
+        self.research_tax_percent = value
+
+    @property
+    def reactions_tax_percent(self) -> Decimal:
+        return max(
+            [
+                getattr(self, field_name) or Decimal("0")
+                for field_name in self.REACTION_TAX_FIELDS
+            ],
+            default=Decimal("0"),
+        )
+
+    @reactions_tax_percent.setter
+    def reactions_tax_percent(self, value: Decimal) -> None:
+        for field_name in self.REACTION_TAX_FIELDS:
+            setattr(self, field_name, value)
+
+    def get_system_cost_index(self, activity_id: int) -> IndustrySystemCostIndex | None:
+        if not self.solar_system_id:
+            return None
+        return IndustrySystemCostIndex.objects.filter(
+            solar_system_id=self.solar_system_id,
+            activity_id=activity_id,
+        ).first()
+
+    def get_resolved_bonuses(self):
+        # AA Example App
+        from indy_hub.services.industry_structures import resolve_structure_bonuses
+
+        return resolve_structure_bonuses(self)
+
+    def get_bonus_multiplier(self, activity_id: int, bonus_field: str) -> Decimal:
+        multiplier = Decimal("1")
+        bonuses = [
+            bonus
+            for bonus in self.get_resolved_bonuses()
+            if bonus.activity_id == activity_id
+        ]
+        for bonus in bonuses:
+            percent = getattr(bonus, bonus_field, Decimal("0")) or Decimal("0")
+            reduction_ratio = percent / Decimal("100")
+            multiplier *= Decimal("1") - reduction_ratio
+        return max(multiplier, Decimal("0"))
+
+    def get_total_bonus_percent(self, activity_id: int, bonus_field: str) -> Decimal:
+        return (
+            Decimal("1") - self.get_bonus_multiplier(activity_id, bonus_field)
+        ) * Decimal("100")
+
+    def get_enabled_activity_ids(self) -> list[int]:
+        activity_ids = []
+        if any(
+            getattr(self, field_name)
+            for field_name in self.MANUFACTURING_ACTIVITY_FIELDS
+        ):
+            activity_ids.append(IndustryActivityMixin.ACTIVITY_MANUFACTURING)
+        if self.enable_research:
+            activity_ids.append(IndustryActivityMixin.ACTIVITY_TE_RESEARCH)
+            activity_ids.append(IndustryActivityMixin.ACTIVITY_ME_RESEARCH)
+            activity_ids.append(IndustryActivityMixin.ACTIVITY_COPYING)
+        if self.enable_invention:
+            activity_ids.append(IndustryActivityMixin.ACTIVITY_INVENTION)
+        if any(
+            getattr(self, field_name) for field_name in self.REACTION_ACTIVITY_FIELDS
+        ):
+            activity_ids.extend(
+                [
+                    IndustryActivityMixin.ACTIVITY_REACTIONS,
+                    IndustryActivityMixin.ACTIVITY_REACTIONS_LEGACY,
+                ]
+            )
+        return activity_ids
+
+    def get_enabled_activity_rows(self) -> list[tuple[str, bool]]:
+        return [
+            (label, bool(getattr(self, field_name)))
+            for field_name, label in self.ACTIVITY_FIELD_LABELS
+        ]
+
+    def _get_max_tax_percent_for_fields(self, field_names: tuple[str, ...]) -> Decimal:
+        enabled_tax_values = [
+            getattr(self, field_name) or Decimal("0") for field_name in field_names
+        ]
+        if not enabled_tax_values:
+            return Decimal("0")
+        return max(enabled_tax_values)
+
+    def _get_tax_percent_for_service_category(self, service_category: str) -> Decimal:
+        field_name = {
+            "manufacturing": "manufacturing_tax_percent",
+            "manufacturing_capitals": "manufacturing_capitals_tax_percent",
+            "manufacturing_super_capitals": "manufacturing_super_capitals_tax_percent",
+            "research": "research_tax_percent",
+            "invention": "invention_tax_percent",
+            "biochemical_reactions": "biochemical_reactions_tax_percent",
+            "hybrid_reactions": "hybrid_reactions_tax_percent",
+            "composite_reactions": "composite_reactions_tax_percent",
+        }.get(service_category)
+        if not field_name:
+            return Decimal("0")
+        return getattr(self, field_name) or Decimal("0")
+
+    def get_activity_tax_percent(
+        self,
+        activity_id: int,
+        *,
+        service_category: str | None = None,
+    ) -> Decimal:
+        if service_category:
+            return self._get_tax_percent_for_service_category(service_category)
+
+        if activity_id == IndustryActivityMixin.ACTIVITY_MANUFACTURING:
+            return self._get_max_tax_percent_for_fields(self.MANUFACTURING_TAX_FIELDS)
+        if activity_id in {
+            IndustryActivityMixin.ACTIVITY_TE_RESEARCH,
+            IndustryActivityMixin.ACTIVITY_ME_RESEARCH,
+            IndustryActivityMixin.ACTIVITY_COPYING,
+        }:
+            return self.research_tax_percent or Decimal("0")
+        if activity_id == IndustryActivityMixin.ACTIVITY_INVENTION:
+            return self.invention_tax_percent or Decimal("0")
+        if activity_id in {
+            IndustryActivityMixin.ACTIVITY_REACTIONS,
+            IndustryActivityMixin.ACTIVITY_REACTIONS_LEGACY,
+        }:
+            return self._get_max_tax_percent_for_fields(self.REACTION_TAX_FIELDS)
+        return Decimal("0")
+
+    def get_activity_tax_rows(self) -> list[tuple[str, Decimal]]:
+        rows = [
+            (
+                "Manufacturing",
+                self.enable_manufacturing,
+                self.manufacturing_tax_percent,
+            ),
+            (
+                "Manufacturing (Capitals)",
+                self.enable_manufacturing_capitals,
+                self.manufacturing_capitals_tax_percent,
+            ),
+            (
+                "Manufacturing (Super-Capitals)",
+                self.enable_manufacturing_super_capitals,
+                self.manufacturing_super_capitals_tax_percent,
+            ),
+            ("Research", self.enable_research, self.research_tax_percent),
+            ("Invention", self.enable_invention, self.invention_tax_percent),
+            (
+                "Biochemical Reactions",
+                self.enable_biochemical_reactions,
+                self.biochemical_reactions_tax_percent,
+            ),
+            (
+                "Hybrid Reactions",
+                self.enable_hybrid_reactions,
+                self.hybrid_reactions_tax_percent,
+            ),
+            (
+                "Composite Reactions",
+                self.enable_composite_reactions,
+                self.composite_reactions_tax_percent,
+            ),
+        ]
+        return [
+            (label, tax_percent)
+            for label, is_enabled, tax_percent in rows
+            if is_enabled
+        ]
+
+    def is_synced_structure(self) -> bool:
+        return bool(
+            self.sync_source == self.SyncSource.ESI_CORPORATION
+            and self.external_structure_id
+        )
+
+    def is_personal_copy(self) -> bool:
+        return bool(
+            self.visibility_scope == self.VisibilityScope.PERSONAL
+            and self.owner_user_id
+        )
+
+    def is_visible_to(self, user: User | None) -> bool:
+        if self.visibility_scope == self.VisibilityScope.PUBLIC:
+            return True
+        if not user or not getattr(user, "is_authenticated", False):
+            return False
+        return self.owner_user_id == user.id
+
+    def get_missing_profile_sections(self) -> list[str]:
+        missing_sections: list[str] = []
+
+        if not self.structure_type_id or not self.solar_system_id:
+            missing_sections.append("Identity")
+
+        if not any(
+            is_enabled for _label, is_enabled in self.get_enabled_activity_rows()
+        ):
+            missing_sections.append("Activities")
+
+        if not self.rigs.exists():
+            missing_sections.append("Rigs")
+
+        has_non_zero_tax = any(
+            (tax_percent or Decimal("0")) > 0
+            for _label, tax_percent in self.get_activity_tax_rows()
+        )
+        if not has_non_zero_tax:
+            missing_sections.append("Taxes")
+
+        return missing_sections
+
+    def is_profile_incomplete(self) -> bool:
+        return bool(self.get_missing_profile_sections())
+
+
+class IndustryStructureRig(models.Model):
+    structure = models.ForeignKey(
+        IndustryStructure,
+        on_delete=models.CASCADE,
+        related_name="rigs",
+    )
+    slot_index = models.PositiveSmallIntegerField(
+        validators=[MinValueValidator(1), MaxValueValidator(3)]
+    )
+    rig_type_id = models.BigIntegerField()
+    rig_type_name = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Industry Structure Rig"
+        verbose_name_plural = "Industry Structure Rigs"
+        default_permissions = ()
+        db_table = "indy_hub_industrystructurerig"
+        unique_together = (("structure", "slot_index"),)
+        indexes = [
+            models.Index(fields=["structure", "slot_index"]),
+            models.Index(fields=["rig_type_id"]),
+        ]
+
+    def __str__(self) -> str:
+        label = self.rig_type_name or self.rig_type_id
+        return f"{self.structure.name} - Slot {self.slot_index}: {label}"
 
 
 class SDESyncCompatState(models.Model):

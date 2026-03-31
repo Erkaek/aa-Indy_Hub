@@ -34,6 +34,13 @@ from allianceauth.services.hooks import get_extension_logger
 from esi.models import Token
 
 # AA Example App
+from indy_hub.forms.industry_structures import (
+    IndustryStructureBulkImportForm,
+    IndustryStructureBulkTaxUpdateForm,
+    IndustryStructureRegistryForm,
+    IndustryStructureRigFormSet,
+    IndustryStructureTaxProfileDuplicateForm,
+)
 from indy_hub.models import CharacterSettings, CorporationSharingSetting
 
 from ..decorators import indy_hub_access_required, indy_hub_permission_required
@@ -43,12 +50,17 @@ from ..models import (
     BlueprintCopyMessage,
     BlueprintCopyOffer,
     BlueprintCopyRequest,
+    IndustryActivityMixin,
     IndustryJob,
     IndustrySkillSnapshot,
+    IndustryStructure,
+    IndustryStructureRig,
+    IndustrySystemCostIndex,
     NotificationWebhook,
     NotificationWebhookMessage,
     ProductionConfig,
     ProductionSimulation,
+    SDEBlueprintActivity,
     SDEMarketGroup,
 )
 from ..notifications import (
@@ -58,7 +70,46 @@ from ..notifications import (
     notify_user,
     send_discord_webhook_with_message_id,
 )
-from ..services.esi_client import ESITokenError, ESIUnmodifiedError, shared_client
+from ..services.craft_materials import (
+    compute_job_material_quantity,
+    is_base_item_material_efficiency_exempt,
+)
+from ..services.craft_structures import build_craft_structure_planner
+from ..services.craft_times import (
+    build_craft_time_map,
+    compute_effective_cycle_seconds,
+    compute_max_runs_before_launch_window,
+    get_max_manufacturing_runs_before_launch_window,
+)
+from ..services.esi_client import ESIUnmodifiedError, shared_client
+from ..services.industry_skills import (
+    SKILL_TYPE_IDS,
+    SKILLS_SCOPE,
+    build_craft_character_advisor,
+    build_skill_snapshot_defaults,
+    build_user_character_skill_contexts,
+    compute_activity_time_bonus_percent,
+    fetch_blueprint_skill_requirements,
+    fetch_skill_bonus_attributes,
+    missing_skill_requirements,
+    skill_snapshot_stale,
+)
+from ..services.industry_structure_import import import_indy_structure_paste
+from ..services.industry_structure_sync import (
+    get_available_structure_sync_targets,
+)
+from ..services.industry_structures import (
+    build_structure_activity_previews,
+    build_structure_rig_advisor_rows,
+    calculate_installation_cost,
+    get_enabled_activity_ids_from_flags,
+    get_industry_rig_catalog,
+    get_structure_type_catalog,
+    get_structure_type_options,
+    resolve_solar_system_reference,
+    sde_item_types_loaded,
+    search_solar_system_options,
+)
 from ..services.simulations import summarize_simulations
 from ..tasks.industry import (
     BLUEPRINT_SCOPE,
@@ -88,16 +139,7 @@ from ..utils.eve import (
 from .navigation import build_nav_context
 
 # ESI skills scope + industry slot calculations
-SKILLS_SCOPE = "esi-skills.read_skills.v1"
 SKILL_CACHE_TTL = timedelta(hours=1)
-SKILL_TYPE_IDS = {
-    "mass_production": 3387,
-    "advanced_mass_production": 3388,
-    "laboratory_operation": 3406,
-    "advanced_laboratory_operation": 24624,
-    "mass_reactions": 45746,
-    "advanced_mass_reactions": 45748,
-}
 MANUFACTURING_ACTIVITY_IDS = {1}
 RESEARCH_ACTIVITY_IDS = {3, 4, 5, 8}
 REACTION_ACTIVITY_IDS = {9, 11}
@@ -201,198 +243,24 @@ def _update_skill_snapshot(
     character_id: int,
     levels: dict[int, dict[str, int]],
 ) -> IndustrySkillSnapshot:
-    def _extract_levels(skill_id: int) -> tuple[int, int]:
-        entry = levels.get(skill_id, 0)
-        if isinstance(entry, dict):
-            active_level = int(entry.get("active") or 0)
-            trained_level = int(entry.get("trained") or 0)
-        else:
-            active_level = int(entry or 0)
-            trained_level = active_level
-        return active_level, trained_level
-
-    mass_active, mass_trained = _extract_levels(SKILL_TYPE_IDS["mass_production"])
-    adv_mass_active, adv_mass_trained = _extract_levels(
-        SKILL_TYPE_IDS["advanced_mass_production"]
-    )
-    lab_active, lab_trained = _extract_levels(SKILL_TYPE_IDS["laboratory_operation"])
-    adv_lab_active, adv_lab_trained = _extract_levels(
-        SKILL_TYPE_IDS["advanced_laboratory_operation"]
-    )
-    react_active, react_trained = _extract_levels(SKILL_TYPE_IDS["mass_reactions"])
-    adv_react_active, adv_react_trained = _extract_levels(
-        SKILL_TYPE_IDS["advanced_mass_reactions"]
-    )
-
     return IndustrySkillSnapshot.objects.update_or_create(
         owner_user=user,
         character_id=character_id,
-        defaults={
-            "mass_production_level": mass_active,
-            "advanced_mass_production_level": adv_mass_active,
-            "laboratory_operation_level": lab_active,
-            "advanced_laboratory_operation_level": adv_lab_active,
-            "mass_reactions_level": react_active,
-            "advanced_mass_reactions_level": adv_react_active,
-            "trained_mass_production_level": mass_trained,
-            "trained_advanced_mass_production_level": adv_mass_trained,
-            "trained_laboratory_operation_level": lab_trained,
-            "trained_advanced_laboratory_operation_level": adv_lab_trained,
-            "trained_mass_reactions_level": react_trained,
-            "trained_advanced_mass_reactions_level": adv_react_trained,
-        },
+        defaults=build_skill_snapshot_defaults(levels),
     )[0]
 
 
 def _skill_snapshot_stale(snapshot: IndustrySkillSnapshot | None) -> bool:
-    if not snapshot:
-        return True
-    return timezone.now() - snapshot.last_updated > SKILL_CACHE_TTL
+    return skill_snapshot_stale(snapshot, SKILL_CACHE_TTL)
 
 
 def _build_slot_overview_rows(user: User) -> list[dict[str, object]]:
-    ownerships = CharacterOwnership.objects.filter(user=user).select_related(
-        "character"
+    return build_user_character_skill_contexts(
+        user,
+        fetch_character_skill_levels=_fetch_character_skill_levels,
+        update_skill_snapshot=_update_skill_snapshot,
+        skill_cache_ttl=SKILL_CACHE_TTL,
     )
-    character_ids = [
-        ownership.character.character_id
-        for ownership in ownerships
-        if ownership.character
-    ]
-    now = timezone.now()
-
-    snapshots = {
-        snapshot.character_id: snapshot
-        for snapshot in IndustrySkillSnapshot.objects.filter(
-            owner_user=user,
-            character_id__in=character_ids,
-        )
-    }
-    skill_token_ids = set(
-        Token.objects.filter(user=user, character_id__in=character_ids)
-        .require_scopes([SKILLS_SCOPE])
-        .require_valid()
-        .values_list("character_id", flat=True)
-    )
-
-    active_job_rows = (
-        IndustryJob.objects.filter(
-            owner_user=user,
-            owner_kind=Blueprint.OwnerKind.CHARACTER,
-            status="active",
-            end_date__gt=now,
-            character_id__in=character_ids,
-        )
-        .values("character_id", "activity_id")
-        .annotate(total=Count("id"))
-    )
-    used_counts: dict[int, dict[str, int]] = {
-        char_id: {"manufacturing": 0, "research": 0, "reactions": 0}
-        for char_id in character_ids
-    }
-    for row in active_job_rows:
-        char_id = int(row.get("character_id") or 0)
-        activity_id = int(row.get("activity_id") or 0)
-        total = int(row.get("total") or 0)
-        if char_id not in used_counts:
-            continue
-        if activity_id in MANUFACTURING_ACTIVITY_IDS:
-            used_counts[char_id]["manufacturing"] += total
-        elif activity_id in RESEARCH_ACTIVITY_IDS:
-            used_counts[char_id]["research"] += total
-        elif activity_id in REACTION_ACTIVITY_IDS:
-            used_counts[char_id]["reactions"] += total
-
-    def _slots_payload(
-        total_value: int | None, used_value: int
-    ) -> dict[str, int | None]:
-        if total_value is None:
-            return {"total": None, "available": None, "used": None, "percent_used": 0}
-        used_clamped = min(max(used_value, 0), total_value)
-        available = max(total_value - used_clamped, 0)
-        percent_used = (
-            int(round((used_clamped / total_value) * 100)) if total_value else 0
-        )
-        return {
-            "total": total_value,
-            "available": available,
-            "used": used_clamped,
-            "percent_used": percent_used,
-        }
-
-    character_rows: list[dict[str, object]] = []
-    for ownership in ownerships:
-        char = ownership.character
-        if not char:
-            continue
-        character_id = char.character_id
-        snapshot = snapshots.get(character_id)
-        skills_missing = character_id not in skill_token_ids
-
-        if not skills_missing:
-            if snapshot is None:
-                try:
-                    levels = _fetch_character_skill_levels(
-                        character_id,
-                        force_refresh=True,
-                    )
-                    snapshot = _update_skill_snapshot(user, character_id, levels)
-                except ESIUnmodifiedError:
-                    skills_missing = True
-                except ESITokenError:
-                    skills_missing = True
-                except Exception as exc:  # pragma: no cover - defensive logging
-                    logger.warning(
-                        "Failed to refresh skills for %s: %s",
-                        character_id,
-                        exc,
-                    )
-                    skills_missing = True
-            elif _skill_snapshot_stale(snapshot):
-                try:
-                    levels = _fetch_character_skill_levels(character_id)
-                    snapshot = _update_skill_snapshot(user, character_id, levels)
-                except ESIUnmodifiedError:
-                    pass
-                except ESITokenError as exc:
-                    logger.warning(
-                        "Failed to refresh skills for %s: %s",
-                        character_id,
-                        exc,
-                    )
-                except Exception as exc:  # pragma: no cover - defensive logging
-                    logger.warning(
-                        "Failed to refresh skills for %s: %s",
-                        character_id,
-                        exc,
-                    )
-
-        if skills_missing:
-            snapshot = None
-
-        totals = {
-            "manufacturing": snapshot.manufacturing_slots if snapshot else None,
-            "research": snapshot.research_slots if snapshot else None,
-            "reactions": snapshot.reaction_slots if snapshot else None,
-        }
-        used = used_counts.get(
-            character_id, {"manufacturing": 0, "research": 0, "reactions": 0}
-        )
-
-        character_rows.append(
-            {
-                "character_id": character_id,
-                "name": get_character_name(character_id),
-                "skills_missing": skills_missing,
-                "manufacturing": _slots_payload(
-                    totals["manufacturing"], used["manufacturing"]
-                ),
-                "research": _slots_payload(totals["research"], used["research"]),
-                "reactions": _slots_payload(totals["reactions"], used["reactions"]),
-            }
-        )
-
-    return character_rows
 
 
 def _build_slot_overview_summary(
@@ -459,6 +327,16 @@ class UserIdentity:
     corporation_id: int | None
     corporation_name: str
     corporation_ticker: str
+
+
+@dataclass
+class QualifiedCopyProviderSummary:
+    owner_ids: set[int]
+    character_owner_ids: set[int]
+    corporate_members_by_corp: dict[int, set[int]]
+    user_to_corporation: dict[int, int]
+    qualified_provider_count: int
+    best_time_bonus_percent: float
 
 
 def _resolve_user_identity(user: User | None) -> UserIdentity:
@@ -713,6 +591,218 @@ def _eligible_owner_details_for_request(
     )
 
 
+def _qualified_copy_provider_summary_for_request(
+    req: BlueprintCopyRequest,
+    *,
+    eligible_details: EligibleOwnerDetails | None = None,
+) -> QualifiedCopyProviderSummary:
+    details = eligible_details or _eligible_owner_details_for_request(req)
+    candidate_owner_ids = set(details.owner_ids)
+    if not candidate_owner_ids:
+        return QualifiedCopyProviderSummary(
+            owner_ids=set(),
+            character_owner_ids=set(),
+            corporate_members_by_corp={},
+            user_to_corporation={},
+            qualified_provider_count=0,
+            best_time_bonus_percent=0.0,
+        )
+
+    requirements = fetch_blueprint_skill_requirements({int(req.type_id)}).get(
+        int(req.type_id),
+        [],
+    )
+    required_skill_ids = {
+        int(requirement.get("skill_id") or 0)
+        for requirement in requirements
+        if int(requirement.get("skill_id") or 0) > 0
+    }
+    relevant_skill_ids = {
+        SKILL_TYPE_IDS["advanced_industry"],
+        SKILL_TYPE_IDS["science"],
+        SKILL_TYPE_IDS["research"],
+        *required_skill_ids,
+    }
+    skill_bonus_attributes = fetch_skill_bonus_attributes(relevant_skill_ids)
+
+    ownerships = list(
+        CharacterOwnership.objects.filter(
+            user_id__in=candidate_owner_ids
+        ).select_related("character")
+    )
+    character_ids = [
+        ownership.character.character_id
+        for ownership in ownerships
+        if ownership.character and ownership.character.character_id
+    ]
+    snapshots = {
+        snapshot.character_id: snapshot
+        for snapshot in IndustrySkillSnapshot.objects.filter(
+            owner_user_id__in=candidate_owner_ids,
+            character_id__in=character_ids,
+        )
+    }
+
+    qualified_owner_ids: set[int] = set()
+    best_time_bonus_percent = 0.0
+    best_time_bonus_by_owner: dict[int, float] = {}
+
+    for ownership in ownerships:
+        if not ownership.character or not ownership.character.character_id:
+            continue
+
+        snapshot = snapshots.get(int(ownership.character.character_id))
+        if not snapshot or not getattr(snapshot, "skill_levels", None):
+            continue
+
+        skill_levels = getattr(snapshot, "skill_levels", {}) or {}
+        if missing_skill_requirements(skill_levels, requirements):
+            continue
+        if snapshot.research_slots <= 0:
+            continue
+
+        time_bonus_percent = compute_activity_time_bonus_percent(
+            skill_levels,
+            activity_id=IndustryActivityMixin.ACTIVITY_COPYING,
+            required_skill_ids=required_skill_ids,
+            skill_bonus_attributes=skill_bonus_attributes,
+        )
+
+        user_id = int(ownership.user_id)
+        qualified_owner_ids.add(user_id)
+        best_time_bonus_by_owner[user_id] = max(
+            float(best_time_bonus_by_owner.get(user_id, 0.0) or 0.0),
+            float(time_bonus_percent or 0.0),
+        )
+        best_time_bonus_percent = max(
+            best_time_bonus_percent,
+            float(time_bonus_percent or 0.0),
+        )
+
+    filtered_character_owner_ids = (
+        set(details.character_owner_ids) & qualified_owner_ids
+    )
+    filtered_corporate_members_by_corp = {
+        corp_id: {uid for uid in members if uid in qualified_owner_ids}
+        for corp_id, members in details.corporate_members_by_corp.items()
+        if {uid for uid in members if uid in qualified_owner_ids}
+    }
+    filtered_owner_ids = set(filtered_character_owner_ids)
+    for members in filtered_corporate_members_by_corp.values():
+        filtered_owner_ids.update(members)
+
+    filtered_user_to_corporation = {
+        user_id: corp_id
+        for user_id, corp_id in details.user_to_corporation.items()
+        if user_id in filtered_owner_ids
+    }
+
+    return QualifiedCopyProviderSummary(
+        owner_ids=filtered_owner_ids,
+        character_owner_ids=filtered_character_owner_ids,
+        corporate_members_by_corp=filtered_corporate_members_by_corp,
+        user_to_corporation=filtered_user_to_corporation,
+        qualified_provider_count=len(filtered_owner_ids),
+        best_time_bonus_percent=round(best_time_bonus_percent, 2),
+    )
+
+
+def _fetch_blueprint_activity_times(
+    blueprint_type_ids: list[int] | set[int] | tuple[int, ...],
+) -> dict[int, dict[int, int]]:
+    numeric_blueprint_type_ids = sorted(
+        {
+            int(blueprint_type_id)
+            for blueprint_type_id in blueprint_type_ids
+            if blueprint_type_id
+        }
+    )
+    if not numeric_blueprint_type_ids:
+        return {}
+
+    rows = SDEBlueprintActivity.objects.filter(
+        eve_type_id__in=numeric_blueprint_type_ids,
+        activity_id__in=[
+            IndustryActivityMixin.ACTIVITY_MANUFACTURING,
+            IndustryActivityMixin.ACTIVITY_COPYING,
+        ],
+    ).values_list("eve_type_id", "activity_id", "time")
+
+    activity_times: dict[int, dict[int, int]] = defaultdict(dict)
+    for blueprint_type_id, activity_id, time_seconds in rows:
+        activity_times[int(blueprint_type_id)][int(activity_id)] = max(
+            0,
+            int(time_seconds or 0),
+        )
+    return activity_times
+
+
+def _build_copy_request_preview(
+    *,
+    requester: User,
+    type_id: int,
+    material_efficiency: int,
+    time_efficiency: int,
+    type_name: str,
+    activity_times: dict[int, dict[int, int]],
+) -> dict[str, object]:
+    request_probe = BlueprintCopyRequest(
+        requested_by=requester,
+        requested_by_id=requester.id,
+        type_id=type_id,
+        material_efficiency=material_efficiency,
+        time_efficiency=time_efficiency,
+        runs_requested=1,
+        copies_requested=1,
+    )
+    eligible_details = _eligible_owner_details_for_request(request_probe)
+    qualified_summary = _qualified_copy_provider_summary_for_request(
+        request_probe,
+        eligible_details=eligible_details,
+    )
+
+    manufacturing_base_time_seconds = (
+        activity_times.get(int(type_id), {}).get(
+            IndustryActivityMixin.ACTIVITY_MANUFACTURING
+        )
+        or 0
+    )
+    copy_base_time_seconds = (
+        activity_times.get(int(type_id), {}).get(IndustryActivityMixin.ACTIVITY_COPYING)
+        or 0
+    )
+    max_runs_per_copy = None
+    if manufacturing_base_time_seconds > 0:
+        max_runs_per_copy = compute_max_runs_before_launch_window(
+            compute_effective_cycle_seconds(
+                base_time_seconds=manufacturing_base_time_seconds,
+                time_efficiency=time_efficiency,
+            )
+        )
+
+    per_run_copy_seconds = compute_effective_cycle_seconds(
+        base_time_seconds=copy_base_time_seconds,
+        structure_time_bonus_percent=qualified_summary.best_time_bonus_percent,
+    )
+
+    return {
+        "type_id": int(type_id),
+        "type_name": type_name,
+        "material_efficiency": int(material_efficiency),
+        "time_efficiency": int(time_efficiency),
+        "copy_base_time_seconds": int(copy_base_time_seconds or 0),
+        "best_time_bonus_percent": float(
+            qualified_summary.best_time_bonus_percent or 0.0
+        ),
+        "per_run_copy_seconds": int(per_run_copy_seconds or 0),
+        "max_runs_per_copy": int(max_runs_per_copy or 0) if max_runs_per_copy else None,
+        "qualified_provider_count": int(qualified_summary.qualified_provider_count),
+        "qualified_owner_ids": sorted(
+            int(owner_id) for owner_id in qualified_summary.owner_ids
+        ),
+    }
+
+
 def _build_blueprint_copy_request_notification_content(
     req: BlueprintCopyRequest,
 ) -> tuple[str, str, str]:
@@ -812,7 +902,11 @@ def _notify_blueprint_copy_request_providers(
     from django.contrib.auth.models import User
 
     eligible_details = _eligible_owner_details_for_request(req)
-    eligible_owner_ids = set(eligible_details.owner_ids)
+    qualified_summary = _qualified_copy_provider_summary_for_request(
+        req,
+        eligible_details=eligible_details,
+    )
+    eligible_owner_ids = set(qualified_summary.owner_ids)
     if not eligible_owner_ids:
         return
 
@@ -832,9 +926,9 @@ def _notify_blueprint_copy_request_providers(
         corporate_source_line = ""
 
     muted_user_ids: set[int] = set()
-    direct_user_ids: set[int] = set(eligible_details.character_owner_ids)
+    direct_user_ids: set[int] = set(qualified_summary.character_owner_ids)
 
-    for corp_id, corp_user_ids in eligible_details.corporate_members_by_corp.items():
+    for corp_id, corp_user_ids in qualified_summary.corporate_members_by_corp.items():
         webhooks = NotificationWebhook.get_blueprint_sharing_webhooks(corp_id)
         if not webhooks:
             continue
@@ -2353,6 +2447,166 @@ def craft_bp(request, type_id):
     ui_version = "v2"
     template_name = "indy_hub/industry/Craft_BP_v2.html"
 
+    is_hydrate_request = str(request.GET.get("_hydrate", "")).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+    is_ajax_refresh = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+    should_render_shell = not is_hydrate_request and not is_ajax_refresh
+
+    if should_render_shell:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT name FROM eve_sde_itemtype WHERE id=%s", [type_id])
+            row = cursor.fetchone()
+            bp_name = row[0] if row else str(type_id)
+
+        next_input = ""
+        if request.GET.get("next"):
+            next_input = (
+                f'<input type="hidden" name="next" value="{request.GET.get("next")}">'
+            )
+
+        craft_controls_html = (
+            '<form id="blueprint-control-form" class="d-flex flex-wrap align-items-center gap-2" method="get" action="">'
+            '<div class="input-group input-group-sm" style="min-width: 260px;">'
+            '<span class="input-group-text fw-semibold"><i class="fas fa-cube me-1"></i>Runs</span>'
+            f'<input type="number" min="1" name="runs" id="runsInput" value="{num_runs}" class="form-control">'
+            '<button class="btn btn-primary" type="submit">Update</button>'
+            "</div>"
+            f'<input type="hidden" name="me" value="{me}">'
+            f'<input type="hidden" name="te" value="{te}">'
+            f'<input type="hidden" name="buy" value="{request.GET.get("buy", "")}">'
+            f"{next_input}"
+            f'<input type="hidden" name="active_tab" id="activeTabInput" value="{active_tab}">'
+            "</form>"
+            '<button id="saveSimulationBtn" class="btn btn-light btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#saveSimulationModal">'
+            '<i class="fas fa-save me-1"></i>Save'
+            "</button>"
+            '<button id="loadSimulationBtn" class="btn btn-light btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#loadSimulationModal">'
+            '<i class="fas fa-folder-open me-1"></i>Load'
+            "</button>"
+        )
+
+        hydrate_query = request.GET.copy()
+        hydrate_query["_hydrate"] = "1"
+        hydrate_url = f"{request.path}?{hydrate_query.urlencode()}"
+
+        blueprint_payload = {
+            "type_id": type_id,
+            "bp_type_id": type_id,
+            "name": bp_name,
+            "num_runs": num_runs,
+            "final_product_qty": None,
+            "product_output_per_cycle": None,
+            "product_type_id": None,
+            "me": me,
+            "te": te,
+            "active_tab": active_tab,
+            "materials": [],
+            "direct_materials": [],
+            "materials_tree": [],
+            "craft_cycles_summary": {},
+            "recipe_map": {},
+            "blueprint_configs_grouped": [],
+            "market_group_map": {},
+            "materials_by_group": {},
+            "structure_planner": {"items": []},
+            "deferred_shell": True,
+            "hydrate_url": hydrate_url,
+            "page": {
+                "ui_version": ui_version,
+                "blueprint_configs": [],
+                "craft_cycles_summary_static": {},
+                "main_bp_info": {},
+                "messages": {
+                    "preparing_workspace": str(_("Preparing production workspace")),
+                    "unable_to_prepare_workspace": str(
+                        _("Unable to prepare production workspace.")
+                    ),
+                    "failed_to_load_workspace_retry": str(
+                        _(
+                            "Failed to load production workspace. Retrying direct page load..."
+                        )
+                    ),
+                    "loading_workspace": str(_("Loading workspace...")),
+                    "me_range_error": str(_("ME must be between 0 and 10")),
+                    "te_range_error": str(_("TE must be between 0 and 20")),
+                    "applied_me": str(_("Applied ME")),
+                    "applied_te": str(_("Applied TE")),
+                    "to": str(_("to")),
+                    "blueprints": str(_("blueprints")),
+                    "max_efficiency_applied": str(_("Max efficiency applied to")),
+                    "applied_owned_bp_parameters": str(
+                        _("Applied owned BP parameters to")
+                    ),
+                    "reset": str(_("Reset")),
+                    "blueprints_default_values": str(_("blueprints to default values")),
+                    "no_blueprints_match_search": str(
+                        _("No blueprints match your search")
+                    ),
+                    "copy_request_guidance": str(_("Recommended request")),
+                    "copy_request_cap": str(_("Max per copy")),
+                    "copy_request_limit_prefix": str(_("This blueprint is limited to")),
+                    "runs_per_copy_suffix": str(_("runs per copy")),
+                    "copies_label": str(_("copies")),
+                    "runs_label": str(_("runs")),
+                },
+                "urls": {
+                    "bp_copy_request_create": reverse(
+                        "indy_hub:bp_copy_request_create"
+                    ),
+                    "fuzzwork_price": reverse("indy_hub:fuzzwork_price"),
+                },
+            },
+            "urls": {
+                "save": reverse("indy_hub:save_production_config"),
+                "load_list": reverse("indy_hub:production_simulations_list"),
+                "load_config": reverse("indy_hub:load_production_config"),
+                "fuzzwork_price": reverse("indy_hub:fuzzwork_price"),
+                "craft_bp_payload": reverse(
+                    "indy_hub:craft_bp_payload", args=[type_id]
+                ),
+                "structure_solar_system_search": reverse(
+                    "indy_hub:industry_structure_solar_system_search"
+                ),
+                "craft_structure_jump_distances": reverse(
+                    "indy_hub:craft_structure_jump_distances"
+                ),
+            },
+        }
+
+        return render(
+            request,
+            template_name,
+            {
+                "ui_version": ui_version,
+                "bp_type_id": type_id,
+                "bp_name": bp_name,
+                "materials": [],
+                "direct_materials": [],
+                "materials_tree": [],
+                "num_runs": num_runs,
+                "product_type_id": None,
+                "final_product_qty": None,
+                "me": me,
+                "te": te,
+                "active_tab": active_tab,
+                "blueprint_configs_grouped": [],
+                "blueprint_configs_json": "[]",
+                "main_bp_info": "{}",
+                "craft_cycles_summary": {},
+                "craft_cycles_summary_json": "{}",
+                "market_group_map": {},
+                "materials_by_group": {},
+                "blueprint_payload": blueprint_payload,
+                "back_url": back_url,
+                "craft_header_controls": mark_safe(craft_controls_html),
+                "deferred_shell": True,
+                **build_nav_context(request.user, active_tab="blueprints"),
+            },
+        )
+
     buy_decisions = set()
     buy_list = request.GET.get("buy", "")
     if buy_list:
@@ -2397,6 +2651,82 @@ def craft_bp(request, type_id):
             f"About to build materials tree with me_te_configs: {me_te_configs}"
         )
 
+        blueprint_product_type_cache: dict[int, int | None] = {}
+        type_meta_cache: dict[int, tuple[int | None, int | None]] = {}
+
+        if type_id:
+            blueprint_product_type_cache[int(type_id)] = (
+                int(product_type_id) if product_type_id else None
+            )
+
+        def get_blueprint_product_type_id(blueprint_type_id: int) -> int | None:
+            blueprint_type_id = int(blueprint_type_id or 0)
+            if blueprint_type_id in blueprint_product_type_cache:
+                return blueprint_product_type_cache[blueprint_type_id]
+
+            with connection.cursor() as lookup_cursor:
+                lookup_cursor.execute(
+                    """
+                    SELECT product_eve_type_id
+                    FROM indy_hub_sdeindustryactivityproduct
+                    WHERE eve_type_id = %s AND activity_id IN (1, 11)
+                    LIMIT 1
+                    """,
+                    [blueprint_type_id],
+                )
+                row = lookup_cursor.fetchone()
+
+            resolved = int(row[0]) if row and row[0] else None
+            blueprint_product_type_cache[blueprint_type_id] = resolved
+            return resolved
+
+        def get_type_meta(type_id_value: int) -> tuple[int | None, int | None]:
+            numeric_type_id = int(type_id_value or 0)
+            if not numeric_type_id:
+                return (None, None)
+            if numeric_type_id in type_meta_cache:
+                return type_meta_cache[numeric_type_id]
+
+            with connection.cursor() as meta_cursor:
+                meta_cursor.execute(
+                    """
+                    SELECT t.meta_group_id_raw, g.category_id
+                    FROM eve_sde_itemtype t
+                    LEFT JOIN eve_sde_itemgroup g ON t.group_id = g.id
+                    WHERE t.id = %s
+                    LIMIT 1
+                    """,
+                    [numeric_type_id],
+                )
+                row = meta_cursor.fetchone()
+
+            meta_group_id = int(row[0]) if row and row[0] is not None else None
+            category_id = int(row[1]) if row and row[1] is not None else None
+            type_meta_cache[numeric_type_id] = (meta_group_id, category_id)
+            return type_meta_cache[numeric_type_id]
+
+        def material_efficiency_applies(
+            blueprint_type_id: int, material_type_id: int
+        ) -> bool:
+            product_type_id_for_blueprint = get_blueprint_product_type_id(
+                blueprint_type_id
+            )
+            if not product_type_id_for_blueprint:
+                return True
+
+            parent_meta_group_id, parent_category_id = get_type_meta(
+                product_type_id_for_blueprint
+            )
+            material_meta_group_id, material_category_id = get_type_meta(
+                material_type_id
+            )
+            return not is_base_item_material_efficiency_exempt(
+                parent_meta_group_id,
+                parent_category_id,
+                material_meta_group_id,
+                material_category_id,
+            )
+
         def get_materials_tree(
             bp_id,
             runs,
@@ -2437,14 +2767,21 @@ def craft_bp(request, type_id):
                     )
                     mats = []
                     for row in cursor.fetchall():
-                        # IMPORTANT: Apply ME rounding per-run (per job/cycle), then multiply.
-                        # Doing ceil((base_qty * runs) * (1 - ME)) underestimates for small quantities.
-                        per_run_qty = ceil((row[2] or 0) * (100 - blueprint_me) / 100)
-                        qty = int(per_run_qty) * int(runs)
+                        material_type_id = int(row[0])
+                        apply_material_efficiency = material_efficiency_applies(
+                            bp_id, material_type_id
+                        )
+                        qty = compute_job_material_quantity(
+                            row[2],
+                            runs,
+                            blueprint_me,
+                            apply_material_efficiency=apply_material_efficiency,
+                        )
                         mat = {
-                            "type_id": row[0],
+                            "type_id": material_type_id,
                             "type_name": row[1],
                             "quantity": qty,
+                            "material_bonus_applicable": apply_material_efficiency,
                             # Default values, will be overwritten if blueprint exists
                             "cycles": None,
                             "produced_per_cycle": None,
@@ -3130,11 +3467,15 @@ def craft_bp(request, type_id):
                 [type_id],
             )
             for row in cursor.fetchall():
-                base_qty = row[2] * num_runs
-                # Apply ME bonus if applicable and round up to integer
-                # Standard Library
-
-                qty = ceil(base_qty * (100 - me) / 100)
+                apply_material_efficiency = material_efficiency_applies(
+                    type_id, int(row[0])
+                )
+                qty = compute_job_material_quantity(
+                    row[2],
+                    num_runs,
+                    me,
+                    apply_material_efficiency=apply_material_efficiency,
+                )
                 direct_materials_list.append(
                     {
                         "type_id": row[0],
@@ -3248,12 +3589,129 @@ def craft_bp(request, type_id):
                 return [_to_serializable(item) for item in value]
             return value
 
+        recipe_map = {}
+        recipe_cache = {}
+        blueprint_me_by_type_id = {int(type_id): int(me or 0)}
+        for bc in blueprint_configs or []:
+            try:
+                blueprint_me_by_type_id[int(bc.get("type_id"))] = int(
+                    bc.get("material_efficiency", 0) or 0
+                )
+            except (TypeError, ValueError):
+                continue
+
+        def build_recipe_entry(blueprint_type_id, blueprint_me=0):
+            cache_key = (int(blueprint_type_id), int(blueprint_me or 0))
+            if cache_key in recipe_cache:
+                return recipe_cache[cache_key]
+
+            with connection.cursor() as recipe_cursor:
+                recipe_cursor.execute(
+                    """
+                    SELECT quantity
+                    FROM indy_hub_sdeindustryactivityproduct
+                    WHERE eve_type_id = %s AND activity_id IN (1, 11)
+                    LIMIT 1
+                    """,
+                    [blueprint_type_id],
+                )
+                output_row = recipe_cursor.fetchone()
+                produced_per_cycle = int((output_row[0] if output_row else 1) or 1)
+
+                recipe_cursor.execute(
+                    """
+                    SELECT material_eve_type_id, quantity
+                    FROM indy_hub_sdeindustryactivitymaterial
+                    WHERE eve_type_id = %s AND activity_id IN (1, 11)
+                    """,
+                    [blueprint_type_id],
+                )
+                adjusted_inputs = []
+                me0_inputs = []
+                for mat_type_id, base_qty_per_cycle in recipe_cursor.fetchall():
+                    raw_qty_per_cycle = int(base_qty_per_cycle or 0)
+                    if raw_qty_per_cycle <= 0:
+                        continue
+                    adjusted_qty_per_cycle = compute_job_material_quantity(
+                        raw_qty_per_cycle,
+                        1,
+                        int(blueprint_me or 0),
+                        apply_material_efficiency=material_efficiency_applies(
+                            blueprint_type_id,
+                            int(mat_type_id),
+                        ),
+                    )
+                    if adjusted_qty_per_cycle > 0:
+                        adjusted_inputs.append(
+                            {
+                                "type_id": int(mat_type_id),
+                                "quantity": int(adjusted_qty_per_cycle),
+                            }
+                        )
+                    me0_inputs.append(
+                        {
+                            "type_id": int(mat_type_id),
+                            "quantity": int(raw_qty_per_cycle),
+                        }
+                    )
+
+            recipe_cache[cache_key] = {
+                "produced_per_cycle": produced_per_cycle,
+                "inputs_per_cycle": adjusted_inputs,
+                "inputs_per_cycle_me0": me0_inputs,
+            }
+            return recipe_cache[cache_key]
+
+        for crafted_type_id in dict(craftables).keys():
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT eve_type_id
+                    FROM indy_hub_sdeindustryactivityproduct
+                    WHERE product_eve_type_id = %s AND activity_id IN (1, 11)
+                    LIMIT 1
+                    """,
+                    [crafted_type_id],
+                )
+                sub_bp_row = cursor.fetchone()
+            if not sub_bp_row:
+                continue
+            sub_blueprint_type_id = int(sub_bp_row[0])
+            recipe_map[int(crafted_type_id)] = build_recipe_entry(
+                sub_blueprint_type_id,
+                blueprint_me_by_type_id.get(sub_blueprint_type_id, 0),
+            )
+
+        if product_type_id:
+            recipe_map.setdefault(
+                int(product_type_id),
+                build_recipe_entry(
+                    int(type_id), blueprint_me_by_type_id.get(int(type_id), 0)
+                ),
+            )
+
+        production_time_map = build_craft_time_map(
+            recipe_map=recipe_map,
+            product_type_id=product_type_id,
+            product_type_name=bp_name,
+            product_output_per_cycle=output_qty_per_run,
+            root_blueprint_type_id=type_id,
+        )
+        craft_character_advisor = build_craft_character_advisor(
+            user=request.user,
+            production_time_map=production_time_map,
+            fetch_character_skill_levels=_fetch_character_skill_levels,
+            update_skill_snapshot=_update_skill_snapshot,
+            skill_cache_ttl=SKILL_CACHE_TTL,
+        )
+
         blueprint_payload = {
             "type_id": type_id,
             "bp_type_id": type_id,
             "name": bp_name,
             "num_runs": num_runs,
             "final_product_qty": final_product_qty,
+            "product_output_per_cycle": output_qty_per_run,
             "product_type_id": product_type_id,
             "me": me,
             "te": te,
@@ -3262,6 +3720,9 @@ def craft_bp(request, type_id):
             "direct_materials": _to_serializable(direct_materials_list),
             "materials_tree": _to_serializable(materials_tree),
             "craft_cycles_summary": _to_serializable(dict(craftables)),
+            "recipe_map": _to_serializable(recipe_map),
+            "production_time_map": _to_serializable(production_time_map),
+            "craft_character_advisor": _to_serializable(craft_character_advisor),
             "blueprint_configs_grouped": (
                 _to_serializable(blueprint_configs_grouped)
                 if blueprint_configs_grouped
@@ -3269,6 +3730,118 @@ def craft_bp(request, type_id):
             ),
             "market_group_map": _to_serializable(market_group_map),
             "materials_by_group": _to_serializable(materials_by_group),
+            "structure_planner": _to_serializable(
+                build_craft_structure_planner(
+                    product_type_id=product_type_id,
+                    product_type_name=bp_name,
+                    product_output_per_cycle=output_qty_per_run,
+                    craft_cycles_summary=dict(craftables),
+                )
+            ),
+            "page": {
+                "ui_version": ui_version,
+                "blueprint_configs": json.loads(
+                    json.dumps(
+                        [
+                            {
+                                "id": bc.get("id"),
+                                "type_id": bc.get("type_id"),
+                                "product_type_id": bc.get("product_type_id"),
+                                "material_efficiency": bc.get("material_efficiency", 0),
+                                "time_efficiency": bc.get("time_efficiency", 0),
+                                "user_material_efficiency": bc.get(
+                                    "user_material_efficiency"
+                                ),
+                                "user_time_efficiency": bc.get("user_time_efficiency"),
+                                "is_owned": bc.get("user_owns", False),
+                                "user_owns": bc.get("user_owns", False),
+                                "is_copy": bc.get("is_copy", False),
+                                "runs_available": bc.get("runs_available", 0),
+                                "shared_copies_available": bool(
+                                    bc.get("shared_copies_available", [])
+                                ),
+                            }
+                            for bc in blueprint_configs
+                        ]
+                    )
+                ),
+                "craft_cycles_summary_static": _to_serializable(
+                    {
+                        str(k): {
+                            "type_id": v.get("type_id"),
+                            "type_name": v.get("type_name"),
+                            "cycles": v.get("cycles", 0),
+                            "total_needed": v.get("total_needed", 0),
+                            "produced_per_cycle": v.get("produced_per_cycle", 0),
+                            "total_produced": v.get("total_produced", 0),
+                            "surplus": v.get("surplus", 0),
+                        }
+                        for k, v in craftables.items()
+                    }
+                ),
+                "main_bp_info": {
+                    "type_id": type_id,
+                    "is_copy": bool(user_bp_map.get(type_id, {}).get("best_copy"))
+                    and not user_bp_map.get(type_id, {}).get("original"),
+                    "runs_available": (
+                        user_bp_map.get(type_id, {}).get("copy_runs_total", 0)
+                        if not user_bp_map.get(type_id, {}).get("original")
+                        else None
+                    ),
+                },
+                "messages": {
+                    "preparing_workspace": str(_("Preparing production workspace")),
+                    "unable_to_prepare_workspace": str(
+                        _("Unable to prepare production workspace.")
+                    ),
+                    "failed_to_load_workspace_retry": str(
+                        _(
+                            "Failed to load production workspace. Retrying direct page load..."
+                        )
+                    ),
+                    "loading_workspace": str(_("Loading workspace...")),
+                    "me_range_error": str(_("ME must be between 0 and 10")),
+                    "te_range_error": str(_("TE must be between 0 and 20")),
+                    "applied_me": str(_("Applied ME")),
+                    "applied_te": str(_("Applied TE")),
+                    "to": str(_("to")),
+                    "blueprints": str(_("blueprints")),
+                    "max_efficiency_applied": str(_("Max efficiency applied to")),
+                    "applied_owned_bp_parameters": str(
+                        _("Applied owned BP parameters to")
+                    ),
+                    "reset": str(_("Reset")),
+                    "blueprints_default_values": str(_("blueprints to default values")),
+                    "no_blueprints_match_search": str(
+                        _("No blueprints match your search")
+                    ),
+                    "best_character": str(_("Best character")),
+                    "skill_bonus": str(_("Skill bonus")),
+                    "slots_available": str(_("Slots available")),
+                    "slots_total": str(_("Total slots")),
+                    "no_eligible_character": str(
+                        _("No eligible character can currently run this activity.")
+                    ),
+                    "skills_data_missing": str(
+                        _(
+                            "Some characters are missing skill data. Refresh skills to improve this estimate."
+                        )
+                    ),
+                    "character_capability_summary": str(
+                        _("Character production capability")
+                    ),
+                    "eligible_items": str(_("Eligible items")),
+                    "blocked_items": str(_("Blocked items")),
+                    "available_now": str(_("available now")),
+                    "using_total_slots": str(_("using total slots")),
+                },
+                "urls": {
+                    "bp_copy_request_create": reverse(
+                        "indy_hub:bp_copy_request_create"
+                    ),
+                    "fuzzwork_price": reverse("indy_hub:fuzzwork_price"),
+                },
+            },
             "urls": {
                 "save": reverse("indy_hub:save_production_config"),
                 "load_list": reverse("indy_hub:production_simulations_list"),
@@ -3276,6 +3849,12 @@ def craft_bp(request, type_id):
                 "fuzzwork_price": reverse("indy_hub:fuzzwork_price"),
                 "craft_bp_payload": reverse(
                     "indy_hub:craft_bp_payload", args=[type_id]
+                ),
+                "structure_solar_system_search": reverse(
+                    "indy_hub:industry_structure_solar_system_search"
+                ),
+                "craft_structure_jump_distances": reverse(
+                    "indy_hub:craft_structure_jump_distances"
                 ),
             },
         }
@@ -3376,6 +3955,7 @@ def craft_bp(request, type_id):
             "blueprint_payload": blueprint_payload,
             "back_url": back_url,
             "craft_header_controls": mark_safe(craft_controls_html),
+            "deferred_shell": False,
             **build_nav_context(request.user, active_tab="blueprints"),
         }
         return render(request, template_name, context)
@@ -3402,6 +3982,7 @@ def craft_bp(request, type_id):
                 "materials_tree": [],
                 "num_runs": 1,
                 "product_type_id": None,
+                "deferred_shell": False,
                 "me": 0,
                 "te": 0,
                 "back_url": back_url,
@@ -3432,6 +4013,33 @@ def bp_copy_request_create(request):
         messages.error(request, _("Invalid blueprint type."))
         return redirect("indy_hub:bp_copy_request_page")
 
+    max_runs_before_launch_window = get_max_manufacturing_runs_before_launch_window(
+        blueprint_type_id=type_id,
+        time_efficiency=time_efficiency,
+    )
+    if (
+        max_runs_before_launch_window is not None
+        and runs_requested > max_runs_before_launch_window
+    ):
+        messages.error(
+            request,
+            _(
+                "At TE%(te)s, this request is limited to %(max_runs)s run(s) per copy because the resulting BPC must still respect EVE Online's 30-day launch window rule."
+            )
+            % {
+                "max_runs": max_runs_before_launch_window,
+                "te": time_efficiency,
+            },
+        )
+        referer = request.headers.get("referer", "")
+        if referer and url_has_allowed_host_and_scheme(
+            url=referer,
+            allowed_hosts={request.get_host()},
+            require_https=request.is_secure(),
+        ):
+            return redirect(referer)
+        return redirect("indy_hub:bp_copy_request_page")
+
     # Check if user already has an active request for this exact blueprint
     existing_request = BlueprintCopyRequest.objects.filter(
         requested_by=request.user,
@@ -3447,6 +4055,34 @@ def bp_copy_request_create(request):
             _("You already have an active request for this blueprint."),
         )
         return redirect("indy_hub:bp_copy_my_requests")
+
+    qualification_probe = BlueprintCopyRequest(
+        requested_by=request.user,
+        requested_by_id=request.user.id,
+        type_id=type_id,
+        material_efficiency=material_efficiency,
+        time_efficiency=time_efficiency,
+        runs_requested=runs_requested,
+        copies_requested=copies_requested,
+    )
+    qualified_summary = _qualified_copy_provider_summary_for_request(
+        qualification_probe
+    )
+    if qualified_summary.qualified_provider_count <= 0:
+        messages.error(
+            request,
+            _(
+                "No qualified producer is currently known for this copy request. The owners may have the blueprint, but no tracked character meets the required copy skills yet."
+            ),
+        )
+        referer = request.headers.get("referer", "")
+        if referer and url_has_allowed_host_and_scheme(
+            url=referer,
+            allowed_hosts={request.get_host()},
+            require_https=request.is_secure(),
+        ):
+            return redirect(referer)
+        return redirect("indy_hub:bp_copy_request_page")
 
     # Create the request
     new_request = BlueprintCopyRequest.objects.create(
@@ -3664,6 +4300,17 @@ def bp_copy_request_page(request):
     te_options = list(range(0, 21, 2))  # 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20
     paginator = Paginator(bp_list, per_page)
     page_obj = paginator.get_page(page)
+    page_blueprint_type_ids = [entry["type_id"] for entry in page_obj.object_list]
+    activity_times = _fetch_blueprint_activity_times(page_blueprint_type_ids)
+    for entry in page_obj.object_list:
+        entry["copy_request_preview"] = _build_copy_request_preview(
+            requester=request.user,
+            type_id=int(entry["type_id"]),
+            material_efficiency=int(entry["material_efficiency"]),
+            time_efficiency=int(entry["time_efficiency"]),
+            type_name=str(entry["type_name"]),
+            activity_times=activity_times,
+        )
     page_range = paginator.get_elided_page_range(
         number=page_obj.number, on_each_side=5, on_ends=1
     )
@@ -3686,6 +4333,27 @@ def bp_copy_request_page(request):
     return render(
         request, "indy_hub/blueprint_sharing/bp_copy_request_page.html", context
     )
+
+
+def _fetch_item_base_prices(type_ids: list[int]) -> dict[int, Decimal]:
+    normalized_type_ids = sorted({int(type_id) for type_id in type_ids if type_id})
+    if not normalized_type_ids:
+        return {}
+
+    placeholders = ", ".join(["%s"] * len(normalized_type_ids))
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"SELECT id, base_price FROM eve_sde_itemtype WHERE id IN ({placeholders})",
+            normalized_type_ids,
+        )
+        return {
+            int(type_id): Decimal(str(base_price or 0))
+            for type_id, base_price in cursor.fetchall()
+        }
+
+
+def _normalize_structure_lookup_name(value: str | None) -> str:
+    return str(value or "").strip().casefold()
 
 
 @indy_hub_access_required
@@ -3805,6 +4473,34 @@ def bp_copy_fulfill_requests(request):
         bp_index[key].append(bp)
         if bp.item_id is not None:
             bp_item_map[bp.item_id] = key
+
+    visible_copying_structures = [
+        structure
+        for structure in _get_visible_industry_structures_queryset(request.user)
+        .prefetch_related("rigs")
+        .order_by("name", "id")
+        if IndustryActivityMixin.ACTIVITY_COPYING
+        in structure.get_enabled_activity_ids()
+    ]
+    structure_by_location_id: dict[int, IndustryStructure] = {}
+    structures_by_location_name: dict[str, list[IndustryStructure]] = defaultdict(list)
+    visible_copying_system_indices = {
+        int(cost_index.solar_system_id): cost_index
+        for cost_index in IndustrySystemCostIndex.objects.filter(
+            solar_system_id__in=[
+                structure.solar_system_id
+                for structure in visible_copying_structures
+                if structure.solar_system_id
+            ],
+            activity_id=IndustryActivityMixin.ACTIVITY_COPYING,
+        )
+    }
+    for structure in visible_copying_structures:
+        if structure.external_structure_id:
+            structure_by_location_id[int(structure.external_structure_id)] = structure
+        normalized_name = _normalize_structure_lookup_name(structure.name)
+        if normalized_name:
+            structures_by_location_name[normalized_name].append(structure)
 
     status_meta = {
         "awaiting_response": {
@@ -4029,6 +4725,12 @@ def bp_copy_fulfill_requests(request):
         .order_by("-created_at")
         .distinct()
     )
+    blueprint_base_prices = _fetch_item_base_prices(
+        list(qset.values_list("type_id", flat=True))
+    )
+    copy_cost_breakdown_cache: dict[
+        tuple[int, int], tuple[IndustryStructure, Any] | None
+    ] = {}
 
     requests_to_fulfill = []
     for req in qset:
@@ -4324,6 +5026,97 @@ def bp_copy_fulfill_requests(request):
             show_offer_actions = False
 
         type_name = get_type_name(req.type_id)
+        copy_cost = None
+        estimated_item_value = blueprint_base_prices.get(int(req.type_id), Decimal("0"))
+        copies_requested = max(int(getattr(req, "copies_requested", 1) or 1), 1)
+        if estimated_item_value > 0 and visible_copying_structures:
+            matched_structures: list[IndustryStructure] = []
+            seen_structure_ids: set[int] = set()
+
+            for blueprint in matching_blueprints:
+                matched_structure = None
+                if blueprint.location_id:
+                    matched_structure = structure_by_location_id.get(
+                        int(blueprint.location_id)
+                    )
+                if matched_structure is None:
+                    location_name = _normalize_structure_lookup_name(
+                        getattr(blueprint, "location_name", "")
+                    )
+                    if location_name:
+                        candidates = structures_by_location_name.get(location_name, [])
+                        if candidates:
+                            matched_structure = candidates[0]
+                if matched_structure is None:
+                    continue
+                if int(matched_structure.id) in seen_structure_ids:
+                    continue
+                seen_structure_ids.add(int(matched_structure.id))
+                matched_structures.append(matched_structure)
+
+            selected_structure = None
+            selected_breakdown = None
+            candidate_groups = [matched_structures] if matched_structures else []
+            candidate_groups.append(visible_copying_structures)
+
+            for candidate_structures in candidate_groups:
+                for structure in candidate_structures:
+                    cache_key = (int(req.type_id), int(structure.id))
+                    if cache_key not in copy_cost_breakdown_cache:
+                        system_cost_index = visible_copying_system_indices.get(
+                            int(structure.solar_system_id or 0)
+                        )
+                        if system_cost_index is None:
+                            copy_cost_breakdown_cache[cache_key] = None
+                        else:
+                            try:
+                                breakdown = calculate_installation_cost(
+                                    structure=structure,
+                                    activity_id=IndustryActivityMixin.ACTIVITY_COPYING,
+                                    estimated_item_value=estimated_item_value,
+                                    system_cost_index=system_cost_index,
+                                )
+                            except ValidationError:
+                                copy_cost_breakdown_cache[cache_key] = None
+                            else:
+                                copy_cost_breakdown_cache[cache_key] = (
+                                    structure,
+                                    breakdown,
+                                )
+
+                    cached_breakdown = copy_cost_breakdown_cache.get(cache_key)
+                    if cached_breakdown is None:
+                        continue
+
+                    cached_structure, breakdown = cached_breakdown
+                    if (
+                        selected_breakdown is None
+                        or breakdown.total_installation_cost
+                        < selected_breakdown.total_installation_cost
+                    ):
+                        selected_structure = cached_structure
+                        selected_breakdown = breakdown
+
+                if selected_structure is not None and selected_breakdown is not None:
+                    break
+
+            if selected_structure is not None and selected_breakdown is not None:
+                copy_cost = {
+                    "structure_name": selected_structure.name,
+                    "solar_system_name": selected_structure.solar_system_name,
+                    "estimated_item_value": selected_breakdown.estimated_item_value,
+                    "system_cost_index_percent": selected_breakdown.system_cost_index_percent,
+                    "job_cost_bonus_percent": selected_breakdown.total_job_cost_bonus_percent,
+                    "facility_tax_percent": selected_breakdown.facility_tax_percent,
+                    "scc_surcharge_percent": selected_breakdown.scc_surcharge_percent,
+                    "per_copy_installation_cost": selected_breakdown.total_installation_cost,
+                    "total_installation_cost": (
+                        selected_breakdown.total_installation_cost * copies_requested
+                    ),
+                    "copies_requested": copies_requested,
+                    "uses_fallback_structure": not bool(matched_structures),
+                }
+
         scope_modal_payload = {
             "requestId": req.id,
             "typeName": type_name,
@@ -4377,6 +5170,7 @@ def bp_copy_fulfill_requests(request):
                 "all_copies_busy": all_copies_busy,
                 "busy_until": busy_until,
                 "busy_overdue": busy_overdue,
+                "copy_cost": copy_cost,
                 "chat": offer_chat_payload,
                 "chat_preview": (
                     offer_chat_payload.get("preview", []) if offer_chat_payload else []
@@ -6009,15 +6803,1614 @@ def edit_simulation_name(request, simulation_id):
     return render(request, "indy_hub/industry/edit_simulation_name.html", context)
 
 
-@indy_hub_access_required
-@login_required
-def industry_slot_overview(request):
-    emit_view_analytics_event(view_name="industry.slot_overview", request=request)
-    character_rows = _build_slot_overview_rows(request.user)
+def _get_industry_structure_rows():
+    return _get_industry_structure_rows_for_filters({})
+
+
+def _get_visible_industry_structures_queryset(user: User | None):
+    queryset = IndustryStructure.objects.all()
+    if user and getattr(user, "is_authenticated", False):
+        return queryset.filter(
+            Q(visibility_scope=IndustryStructure.VisibilityScope.PUBLIC)
+            | Q(
+                visibility_scope=IndustryStructure.VisibilityScope.PERSONAL,
+                owner_user=user,
+            )
+        )
+    return queryset.filter(visibility_scope=IndustryStructure.VisibilityScope.PUBLIC)
+
+
+def _get_visible_public_industry_structures_queryset():
+    return IndustryStructure.objects.filter(
+        visibility_scope=IndustryStructure.VisibilityScope.PUBLIC
+    )
+
+
+def _get_industry_structure_queryset_for_scope(user: User | None, scope: str):
+    visible_queryset = _get_visible_industry_structures_queryset(user)
+    if scope == "public":
+        return visible_queryset.filter(
+            visibility_scope=IndustryStructure.VisibilityScope.PUBLIC
+        )
+    if scope == "personal":
+        return visible_queryset.filter(
+            visibility_scope=IndustryStructure.VisibilityScope.PERSONAL,
+        )
+    return visible_queryset
+
+
+def _get_accessible_industry_structure_or_404(user: User | None, structure_id: int):
+    return get_object_or_404(
+        _get_visible_industry_structures_queryset(user),
+        pk=structure_id,
+    )
+
+
+def _get_structure_registry_filter_options(
+    user: User | None,
+) -> dict[str, list[tuple[str, str]]]:
+    visible_queryset = _get_visible_industry_structures_queryset(user)
+    region_options = [
+        ("", _("All regions")),
+        *[
+            (str(name), str(name))
+            for name in visible_queryset.exclude(region_name="")
+            .values_list("region_name", flat=True)
+            .distinct()
+            .order_by("region_name")
+        ],
+    ]
+    constellation_options = [
+        ("", _("All constellations")),
+        *[
+            (str(name), str(name))
+            for name in visible_queryset.exclude(constellation_name="")
+            .values_list("constellation_name", flat=True)
+            .distinct()
+            .order_by("constellation_name")
+        ],
+    ]
+    return {
+        "security_band": [
+            ("", _("All security bands")),
+            *[
+                (str(value), str(label))
+                for value, label in IndustryStructure.SecurityBand.choices
+            ],
+        ],
+        "region_name": region_options,
+        "constellation_name": constellation_options,
+        "structure_type_id": [
+            ("", _("All structure types")),
+            *[
+                (str(type_id), str(label))
+                for type_id, label in get_structure_type_options()
+            ],
+        ],
+        "activity": [
+            ("", _("All activities")),
+            ("enable_manufacturing", _("Manufacturing")),
+            ("enable_manufacturing_capitals", _("Manufacturing (Capitals)")),
+            (
+                "enable_manufacturing_super_capitals",
+                _("Manufacturing (Super-Capitals)"),
+            ),
+            ("enable_research", _("Research")),
+            ("enable_invention", _("Invention")),
+            ("enable_biochemical_reactions", _("Biochemical Reactions")),
+            ("enable_hybrid_reactions", _("Hybrid Reactions")),
+            ("enable_composite_reactions", _("Composite Reactions")),
+        ],
+        "completion": [
+            ("", _("All completion states")),
+            ("complete", _("Complete profiles")),
+            ("incomplete", _("Need setup")),
+        ],
+        "scope": [
+            ("all", _("All visible structures")),
+            ("public", _("Shared structures")),
+            ("personal", _("My personal copies")),
+        ],
+    }
+
+
+def _get_structure_registry_current_filters(request) -> dict[str, str]:
+    filter_options = _get_structure_registry_filter_options(request.user)
+    current_filters = {
+        "search": str(request.GET.get("search") or "").strip(),
+        "security_band": str(request.GET.get("security_band") or "").strip(),
+        "region_name": str(request.GET.get("region_name") or "").strip(),
+        "constellation_name": str(request.GET.get("constellation_name") or "").strip(),
+        "structure_type_id": str(request.GET.get("structure_type_id") or "").strip(),
+        "activity": str(request.GET.get("activity") or "").strip(),
+        "completion": str(request.GET.get("completion") or "").strip(),
+        "scope": str(request.GET.get("scope") or "all").strip(),
+    }
+    current_filters["activity"] = {
+        "manufacturing": "enable_manufacturing",
+        "manufacturing_capitals": "enable_manufacturing_capitals",
+        "manufacturing_super_capitals": "enable_manufacturing_super_capitals",
+        "research": "enable_research",
+        "reactions": "enable_reactions",
+    }.get(current_filters["activity"], current_filters["activity"])
+    for filter_name in [
+        "security_band",
+        "region_name",
+        "constellation_name",
+        "structure_type_id",
+        "activity",
+        "completion",
+        "scope",
+    ]:
+        valid_values = {value for value, _label in filter_options[filter_name]}
+        if current_filters[filter_name] not in valid_values:
+            current_filters[filter_name] = "all" if filter_name == "scope" else ""
+    return current_filters
+
+
+def _build_structure_registry_active_filter_badges(
+    current_filters: dict[str, str],
+    filter_options: dict[str, list[tuple[str, str]]],
+) -> list[dict[str, str]]:
+    option_maps = {
+        filter_name: {value: label for value, label in options}
+        for filter_name, options in filter_options.items()
+    }
+    filter_labels = {
+        "search": _("Search"),
+        "security_band": _("Security"),
+        "region_name": _("Region"),
+        "constellation_name": _("Constellation"),
+        "structure_type_id": _("Structure Type"),
+        "activity": _("Activity"),
+        "completion": _("Completion"),
+        "scope": _("Visibility"),
+    }
+    active_badges: list[dict[str, str]] = []
+
+    for filter_name, filter_value in current_filters.items():
+        if not filter_value:
+            continue
+        if filter_name == "scope" and filter_value == "all":
+            continue
+        badge_value = filter_value
+        if filter_name != "search":
+            badge_value = str(
+                option_maps.get(filter_name, {}).get(filter_value, filter_value)
+            )
+        cleared_filters = {
+            key: value
+            for key, value in current_filters.items()
+            if key != filter_name and value
+        }
+        clear_url = reverse("indy_hub:industry_structure_registry")
+        if cleared_filters:
+            clear_url = f"{clear_url}?{urlencode(cleared_filters)}"
+        active_badges.append(
+            {
+                "label": str(filter_labels[filter_name]),
+                "value": str(badge_value),
+                "clear_url": clear_url,
+            }
+        )
+
+    return active_badges
+
+
+def _get_industry_structure_rows_for_filters(
+    current_filters: dict[str, str],
+    *,
+    user: User | None = None,
+):
+    structures = _get_industry_structure_queryset_for_scope(
+        user,
+        current_filters.get("scope") or "all",
+    ).prefetch_related("rigs")
+    search_query = str(current_filters.get("search") or "").strip()
+    if search_query:
+        structures = structures.filter(
+            Q(name__icontains=search_query)
+            | Q(solar_system_name__icontains=search_query)
+            | Q(constellation_name__icontains=search_query)
+            | Q(region_name__icontains=search_query)
+            | Q(structure_type_name__icontains=search_query)
+            | Q(owner_corporation_name__icontains=search_query)
+        )
+
+    security_band = current_filters.get("security_band")
+    if security_band:
+        structures = structures.filter(system_security_band=security_band)
+
+    region_name = current_filters.get("region_name")
+    if region_name:
+        structures = structures.filter(region_name=region_name)
+
+    constellation_name = current_filters.get("constellation_name")
+    if constellation_name:
+        structures = structures.filter(constellation_name=constellation_name)
+
+    structure_type_id = current_filters.get("structure_type_id")
+    if structure_type_id:
+        try:
+            structures = structures.filter(structure_type_id=int(structure_type_id))
+        except (TypeError, ValueError):
+            pass
+
+    activity_filter = current_filters.get("activity")
+    if activity_filter in {
+        "enable_manufacturing",
+        "enable_manufacturing_capitals",
+        "enable_manufacturing_super_capitals",
+        "enable_research",
+        "enable_invention",
+        "enable_biochemical_reactions",
+        "enable_hybrid_reactions",
+        "enable_composite_reactions",
+    }:
+        structures = structures.filter(**{activity_filter: True})
+    elif activity_filter == "enable_reactions":
+        structures = structures.filter(
+            Q(enable_biochemical_reactions=True)
+            | Q(enable_hybrid_reactions=True)
+            | Q(enable_composite_reactions=True)
+        )
+    elif activity_filter in {
+        "enable_te_research",
+        "enable_me_research",
+        "enable_copying",
+    }:
+        structures = structures.filter(enable_research=True)
+
+    structures = structures.order_by("name")
+    structure_rows = []
+    activity_labels = dict(IndustryActivityMixin.INDUSTRY_ACTIVITY_CHOICES)
+    activity_group_sort_order = {
+        "manufacturing": 1,
+        "research": 2,
+        "invention": 3,
+        "reactions": 4,
+    }
+    for structure in structures:
+        enabled_activity_ids = set(
+            get_enabled_activity_ids_from_flags(
+                {
+                    "enable_manufacturing": structure.enable_manufacturing,
+                    "enable_manufacturing_capitals": structure.enable_manufacturing_capitals,
+                    "enable_manufacturing_super_capitals": structure.enable_manufacturing_super_capitals,
+                    "enable_research": structure.enable_research,
+                    "enable_invention": structure.enable_invention,
+                    "enable_biochemical_reactions": structure.enable_biochemical_reactions,
+                    "enable_hybrid_reactions": structure.enable_hybrid_reactions,
+                    "enable_composite_reactions": structure.enable_composite_reactions,
+                },
+                structure_type_id=structure.structure_type_id,
+            )
+        )
+        grouped_bonuses = {}
+        resolved_bonuses = sorted(
+            [
+                bonus
+                for bonus in structure.get_resolved_bonuses()
+                if bonus.activity_id in enabled_activity_ids
+            ],
+            key=lambda bonus: (bonus.activity_id, bonus.source, bonus.label),
+        )
+        present_activity_ids = {bonus.activity_id for bonus in resolved_bonuses}
+        should_collapse_research_bonuses = {
+            IndustryActivityMixin.ACTIVITY_TE_RESEARCH,
+            IndustryActivityMixin.ACTIVITY_ME_RESEARCH,
+            IndustryActivityMixin.ACTIVITY_COPYING,
+        }.issubset(present_activity_ids)
+        for bonus in resolved_bonuses:
+            if bonus.activity_id == IndustryActivityMixin.ACTIVITY_MANUFACTURING:
+                activity_group_key = "manufacturing"
+                activity_group_label = "Manufacturing"
+            elif bonus.activity_id in {
+                IndustryActivityMixin.ACTIVITY_TE_RESEARCH,
+                IndustryActivityMixin.ACTIVITY_ME_RESEARCH,
+                IndustryActivityMixin.ACTIVITY_COPYING,
+            }:
+                if should_collapse_research_bonuses:
+                    activity_group_key = "research"
+                    activity_group_label = "Research"
+                else:
+                    activity_group_key = f"activity_{bonus.activity_id}"
+                    activity_group_label = activity_labels.get(
+                        bonus.activity_id,
+                        str(bonus.activity_id),
+                    )
+            elif bonus.activity_id == IndustryActivityMixin.ACTIVITY_INVENTION:
+                activity_group_key = "invention"
+                activity_group_label = "Invention"
+            elif bonus.activity_id in {
+                IndustryActivityMixin.ACTIVITY_REACTIONS,
+                IndustryActivityMixin.ACTIVITY_REACTIONS_LEGACY,
+            }:
+                activity_group_key = "reactions"
+                activity_group_label = "Reactions"
+            else:
+                activity_group_key = f"activity_{bonus.activity_id}"
+                activity_group_label = activity_labels.get(
+                    bonus.activity_id,
+                    str(bonus.activity_id),
+                )
+
+            activity_group = grouped_bonuses.setdefault(
+                activity_group_key,
+                {
+                    "activity_id": bonus.activity_id,
+                    "activity_label": activity_group_label,
+                    "sort_order": activity_group_sort_order.get(
+                        activity_group_key,
+                        bonus.activity_id,
+                    ),
+                    "rows": {},
+                },
+            )
+            activity_rows = activity_group["rows"]
+            summary = activity_rows.setdefault(
+                (bonus.source, bonus.label),
+                {
+                    "source": bonus.source,
+                    "label": bonus.label,
+                    "material_efficiency_percent": Decimal("0"),
+                    "time_efficiency_percent": Decimal("0"),
+                    "job_cost_percent": Decimal("0"),
+                },
+            )
+            summary["material_efficiency_percent"] = max(
+                summary["material_efficiency_percent"],
+                bonus.material_efficiency_percent or Decimal("0"),
+            )
+            summary["time_efficiency_percent"] = max(
+                summary["time_efficiency_percent"],
+                bonus.time_efficiency_percent or Decimal("0"),
+            )
+            summary["job_cost_percent"] = max(
+                summary["job_cost_percent"],
+                bonus.job_cost_percent or Decimal("0"),
+            )
+        normalized_grouped_bonuses = [
+            {
+                "activity_id": activity_group["activity_id"],
+                "activity_label": activity_group["activity_label"],
+                "rows": list(activity_group["rows"].values()),
+            }
+            for activity_group in sorted(
+                grouped_bonuses.values(),
+                key=lambda activity_group: (
+                    activity_group["sort_order"],
+                    activity_group["activity_label"],
+                ),
+            )
+        ]
+        structure_rows.append(
+            {
+                "structure": structure,
+                "display_name": structure.display_name,
+                "rigs": list(structure.rigs.all().order_by("slot_index")),
+                "grouped_bonuses": normalized_grouped_bonuses,
+                "missing_profile_sections": structure.get_missing_profile_sections(),
+                "is_profile_incomplete": structure.is_profile_incomplete(),
+            }
+        )
+
+    completion_filter = current_filters.get("completion")
+    if completion_filter == "incomplete":
+        structure_rows = [row for row in structure_rows if row["is_profile_incomplete"]]
+    elif completion_filter == "complete":
+        structure_rows = [
+            row for row in structure_rows if not row["is_profile_incomplete"]
+        ]
+
+    return structure_rows
+
+
+def _get_structure_filter_corporation_choices(
+    user: User | None,
+) -> list[tuple[int, str]]:
+    corporation_rows = (
+        _get_visible_industry_structures_queryset(user)
+        .exclude(owner_corporation_id__isnull=True)
+        .exclude(owner_corporation_name="")
+        .values_list("owner_corporation_id", "owner_corporation_name")
+        .distinct()
+        .order_by("owner_corporation_name")
+    )
+    return [
+        (int(corporation_id), str(corporation_name))
+        for corporation_id, corporation_name in corporation_rows
+        if corporation_id is not None and corporation_name
+    ]
+
+
+def _get_structure_filter_solar_system_choices(
+    user: User | None,
+) -> list[tuple[str, str]]:
+    return [
+        (str(name), str(name))
+        for name in _get_visible_industry_structures_queryset(user)
+        .exclude(solar_system_name="")
+        .values_list("solar_system_name", flat=True)
+        .distinct()
+        .order_by("solar_system_name")
+    ]
+
+
+def _get_structure_filter_constellation_choices(
+    user: User | None,
+) -> list[tuple[str, str]]:
+    return [
+        (str(name), str(name))
+        for name in _get_visible_industry_structures_queryset(user)
+        .exclude(constellation_name="")
+        .values_list("constellation_name", flat=True)
+        .distinct()
+        .order_by("constellation_name")
+    ]
+
+
+def _get_structure_filter_region_choices(user: User | None) -> list[tuple[str, str]]:
+    return [
+        (str(name), str(name))
+        for name in _get_visible_industry_structures_queryset(user)
+        .exclude(region_name="")
+        .values_list("region_name", flat=True)
+        .distinct()
+        .order_by("region_name")
+    ]
+
+
+def _build_bulk_tax_form(user: User | None, *, data=None):
+    return IndustryStructureBulkTaxUpdateForm(
+        data,
+        corporation_choices=_get_structure_filter_corporation_choices(user),
+        solar_system_choices=_get_structure_filter_solar_system_choices(user),
+        constellation_choices=_get_structure_filter_constellation_choices(user),
+        region_choices=_get_structure_filter_region_choices(user),
+    )
+
+
+def _build_bulk_tax_preview_form(user: User | None, *, data=None):
+    return IndustryStructureBulkTaxUpdateForm(
+        data,
+        corporation_choices=_get_structure_filter_corporation_choices(user),
+        solar_system_choices=_get_structure_filter_solar_system_choices(user),
+        constellation_choices=_get_structure_filter_constellation_choices(user),
+        region_choices=_get_structure_filter_region_choices(user),
+        enforce_tax_selection=False,
+    )
+
+
+def _get_bulk_tax_target_queryset(cleaned_data, *, user: User | None):
+    queryset = _get_visible_industry_structures_queryset(user)
+
+    source_scope = cleaned_data.get("source_scope")
+    if source_scope == IndustryStructureBulkTaxUpdateForm.SOURCE_SCOPE_SYNCED:
+        queryset = queryset.filter(
+            sync_source=IndustryStructure.SyncSource.ESI_CORPORATION
+        )
+    elif source_scope == IndustryStructureBulkTaxUpdateForm.SOURCE_SCOPE_MANUAL:
+        queryset = queryset.exclude(
+            sync_source=IndustryStructure.SyncSource.ESI_CORPORATION
+        )
+
+    solar_system_name = cleaned_data.get("solar_system_name")
+    if solar_system_name:
+        queryset = queryset.filter(solar_system_name=solar_system_name)
+
+    constellation_name = cleaned_data.get("constellation_name")
+    if constellation_name:
+        queryset = queryset.filter(constellation_name=constellation_name)
+
+    region_name = cleaned_data.get("region_name")
+    if region_name:
+        queryset = queryset.filter(region_name=region_name)
+
+    system_security_band = cleaned_data.get("system_security_band")
+    if system_security_band:
+        queryset = queryset.filter(system_security_band=system_security_band)
+
+    structure_type_id = cleaned_data.get("structure_type_id")
+    if structure_type_id:
+        queryset = queryset.filter(structure_type_id=int(structure_type_id))
+
+    owner_corporation_id = cleaned_data.get("owner_corporation_id")
+    if owner_corporation_id:
+        queryset = queryset.filter(owner_corporation_id=int(owner_corporation_id))
+
+    return queryset
+
+
+def _count_bulk_tax_eligible_structures(
+    queryset, tax_updates, *, only_when_zero: bool
+) -> int:
+    eligible_count = 0
+    for structure in queryset:
+        for field_name, field_value in tax_updates.items():
+            current_value = getattr(structure, field_name) or Decimal("0")
+            if only_when_zero and current_value > 0:
+                continue
+            if current_value != field_value:
+                eligible_count += 1
+                break
+    return eligible_count
+
+
+def _get_bulk_tax_preview_payload(
+    cleaned_data, *, user: User | None
+) -> dict[str, object]:
+    queryset = _get_bulk_tax_target_queryset(cleaned_data, user=user)
+    matched_count = queryset.count()
+    tax_updates = {
+        field_name: cleaned_data[field_name]
+        for field_name in IndustryStructureBulkTaxUpdateForm.tax_field_names
+        if cleaned_data.get(field_name) is not None
+    }
+    only_when_zero = bool(cleaned_data.get("only_when_zero"))
+
+    if not tax_updates:
+        return {
+            "matched_count": matched_count,
+            "eligible_count": 0,
+            "structure_names": [],
+            "has_tax_updates": False,
+            "message": _("Set at least one tax value to preview affected structures."),
+        }
+
+    structure_names: list[str] = []
+    for structure in queryset.order_by("name"):
+        for field_name, field_value in tax_updates.items():
+            current_value = getattr(structure, field_name) or Decimal("0")
+            if only_when_zero and current_value > 0:
+                continue
+            if current_value != field_value:
+                structure_names.append(structure.name)
+                break
+
+    eligible_count = len(structure_names)
+    return {
+        "matched_count": matched_count,
+        "eligible_count": eligible_count,
+        "structure_names": structure_names,
+        "has_tax_updates": True,
+        "message": (
+            _("No structure currently matches the selected bulk tax filters.")
+            if not structure_names
+            else ""
+        ),
+    }
+
+
+def _user_can_manage_industry_structure_sync(user: User) -> bool:
+    return bool(
+        user
+        and getattr(user, "is_authenticated", False)
+        and user.is_active
+        and (user.is_staff or user.is_superuser)
+    )
+
+
+def _build_structure_rig_initial_data(structure: IndustryStructure | None = None):
+    rigs_by_slot = {}
+    if structure is not None:
+        rigs_by_slot = {rig.slot_index: rig for rig in structure.rigs.all()}
+    return [
+        {
+            "slot_index": slot_index,
+            "rig_type_id": getattr(rigs_by_slot.get(slot_index), "rig_type_id", None),
+        }
+        for slot_index in range(1, 4)
+    ]
+
+
+def _build_structure_rig_formset(
+    *, structure: IndustryStructure | None = None, data=None
+):
+    structure_type_id = None if structure is None else structure.structure_type_id
+    if data is not None:
+        return IndustryStructureRigFormSet(
+            data,
+            prefix="rigs",
+            structure_type_id=data.get("structure_type_id") or structure_type_id,
+        )
+    return IndustryStructureRigFormSet(
+        prefix="rigs",
+        structure_type_id=structure_type_id,
+        initial=_build_structure_rig_initial_data(structure),
+    )
+
+
+def _set_structure_form_read_only(structure_form) -> None:
+    for field in structure_form.fields.values():
+        field.disabled = True
+        field.widget.attrs["disabled"] = "disabled"
+
+
+def _save_structure_rigs(structure: IndustryStructure, rig_formset) -> int:
+    structure.rigs.all().delete()
+    created_rig_count = 0
+    for rig_form in rig_formset:
+        cleaned_data = getattr(rig_form, "cleaned_data", None) or {}
+        if not cleaned_data or cleaned_data.get("is_empty"):
+            continue
+        if "slot_index" not in cleaned_data or "rig_type_id" not in cleaned_data:
+            continue
+        IndustryStructureRig.objects.create(
+            structure=structure,
+            slot_index=cleaned_data["slot_index"],
+            rig_type_id=cleaned_data["rig_type_id"],
+            rig_type_name=cleaned_data["rig_type_name"],
+        )
+        created_rig_count += 1
+    return created_rig_count
+
+
+def _generate_duplicate_structure_name(source_structure: IndustryStructure) -> str:
+    base_name = _("%(name)s Copy") % {"name": source_structure.name}
+    if not IndustryStructure.objects.filter(name=base_name).exists():
+        return str(base_name)
+
+    suffix = 2
+    while True:
+        candidate = _("%(name)s Copy %(suffix)s") % {
+            "name": source_structure.name,
+            "suffix": suffix,
+        }
+        if not IndustryStructure.objects.filter(name=candidate).exists():
+            return str(candidate)
+        suffix += 1
+
+
+def _build_next_personal_structure_tag(
+    owner_user: User,
+    source_structure: IndustryStructure,
+) -> str:
+    base_source_structure = source_structure.source_structure or source_structure
+    username = str(getattr(owner_user, "username", "") or "user").strip() or "user"
+    tag_prefix = f"{username} - "
+    next_suffix = 1
+
+    existing_tags = IndustryStructure.objects.filter(
+        visibility_scope=IndustryStructure.VisibilityScope.PERSONAL,
+        owner_user=owner_user,
+        source_structure=base_source_structure,
+    ).values_list("personal_tag", flat=True)
+
+    for personal_tag in existing_tags:
+        normalized_tag = str(personal_tag or "").strip()
+        if not normalized_tag.startswith(tag_prefix):
+            continue
+        try:
+            suffix = int(normalized_tag[len(tag_prefix) :])
+        except (TypeError, ValueError):
+            continue
+        next_suffix = max(next_suffix, suffix + 1)
+
+    return f"{username} - {next_suffix}"
+
+
+def _build_structure_add_page_context(request, structure_form, rig_formset):
     context = {
-        "characters": character_rows,
+        "structure_form": structure_form,
+        "rig_formset": rig_formset,
+        "structure_type_catalog_json": json.dumps(get_structure_type_catalog()),
+        "rig_option_catalog_json": json.dumps(get_industry_rig_catalog()),
+        "structure_registry_url": reverse("indy_hub:industry_structure_registry"),
         "back_to_industry_url": reverse("indy_hub:personnal_job_list"),
-        "skills_scope": SKILLS_SCOPE,
     }
     context.update(build_nav_context(request.user, active_tab="industry"))
-    return render(request, "indy_hub/industry/slot_overview.html", context)
+    return context
+
+
+def _build_structure_edit_page_context(request, structure, structure_form, rig_formset):
+    context = _build_structure_add_page_context(request, structure_form, rig_formset)
+    is_synced_structure_locked = structure.is_synced_structure()
+    context.update(
+        {
+            "page_icon_class": "fas fa-pen",
+            "page_title_text": (
+                _("Manage Structure")
+                if is_synced_structure_locked
+                else _("Edit Structure")
+            ),
+            "page_subtitle": (
+                _(
+                    "Automatically synchronized structures keep their identity, activities and taxes locked. Only installed rigs can be edited here."
+                )
+                if is_synced_structure_locked
+                else _(
+                    "Update the registered structure, its enabled activities and installed rigs."
+                )
+            ),
+            "page_back_url": reverse("indy_hub:industry_structure_registry"),
+            "page_back_label": _("Back to Registry"),
+            "submit_label": _("Save Changes"),
+            "submit_icon_class": "fas fa-save",
+            "structure": structure,
+            "is_edit_mode": True,
+            "is_synced_structure_locked": is_synced_structure_locked,
+        }
+    )
+    return context
+
+
+def _build_structure_duplicate_page_context(
+    request,
+    *,
+    source_structure: IndustryStructure,
+    tax_form,
+    personal_structure: IndustryStructure | None = None,
+    is_edit_mode: bool = False,
+):
+    context = {
+        "source_structure": source_structure,
+        "personal_structure": personal_structure,
+        "is_personal_copy_edit_mode": is_edit_mode,
+        "tax_form": tax_form,
+        "structure_registry_url": reverse("indy_hub:industry_structure_registry"),
+        "back_to_industry_url": reverse("indy_hub:personnal_job_list"),
+    }
+    context.update(build_nav_context(request.user, active_tab="industry"))
+    return context
+
+
+def _build_structure_registry_page_context(
+    request,
+    *,
+    bulk_import_form=None,
+    bulk_tax_form=None,
+    bulk_tax_confirmation=None,
+):
+    current_filters = _get_structure_registry_current_filters(request)
+    structure_filter_options = _get_structure_registry_filter_options(request.user)
+    active_filter_badges = _build_structure_registry_active_filter_badges(
+        current_filters,
+        structure_filter_options,
+    )
+    structure_rows = _get_industry_structure_rows_for_filters(
+        current_filters,
+        user=request.user,
+    )
+    total_structure_count = _get_industry_structure_queryset_for_scope(
+        request.user,
+        current_filters.get("scope") or "all",
+    ).count()
+    can_manage_structure_sync = _user_can_manage_industry_structure_sync(request.user)
+    auto_sync_targets = (
+        get_available_structure_sync_targets() if can_manage_structure_sync else []
+    )
+    context = {
+        "structure_rows": structure_rows,
+        "filtered_structure_count": len(structure_rows),
+        "total_structure_count": total_structure_count,
+        "add_structure_url": reverse("indy_hub:industry_structure_add"),
+        "back_to_industry_url": reverse("indy_hub:personnal_job_list"),
+        "bulk_import_form": bulk_import_form or IndustryStructureBulkImportForm(),
+        "bulk_tax_form": bulk_tax_form or _build_bulk_tax_form(request.user),
+        "bulk_tax_confirmation": bulk_tax_confirmation,
+        "auto_sync_corporations_count": len(auto_sync_targets),
+        "authorize_corp_all_url": reverse("indy_hub:authorize_corp_all"),
+        "can_manage_structure_sync": can_manage_structure_sync,
+        "current_filters": current_filters,
+        "structure_filter_options": structure_filter_options,
+        "active_filter_badges": active_filter_badges,
+        "has_active_filters": any(
+            value
+            for key, value in current_filters.items()
+            if key != "scope" or value != "all"
+        ),
+        "synced_structure_count": sum(
+            1 for row in structure_rows if row["structure"].is_synced_structure()
+        ),
+        "incomplete_structure_count": sum(
+            1 for row in structure_rows if row["is_profile_incomplete"]
+        ),
+    }
+    context.update(build_nav_context(request.user, active_tab="industry"))
+    return context
+
+
+@indy_hub_access_required
+@login_required
+def industry_structure_add(request):
+    emit_view_analytics_event(
+        view_name="industry.structure_add",
+        request=request,
+    )
+
+    if request.method == "POST":
+        structure_form = IndustryStructureRegistryForm(request.POST)
+        rig_formset = IndustryStructureRigFormSet(
+            request.POST,
+            prefix="rigs",
+            structure_type_id=request.POST.get("structure_type_id") or None,
+        )
+
+        if structure_form.is_valid() and rig_formset.is_valid():
+            structure = structure_form.save(commit=False)
+            structure.visibility_scope = IndustryStructure.VisibilityScope.PUBLIC
+            structure.owner_user = None
+            structure.personal_tag = ""
+            structure.source_structure = None
+            structure.save()
+
+            created_rig_count = _save_structure_rigs(structure, rig_formset)
+
+            messages.success(
+                request,
+                _(
+                    "Structure registry entry created successfully. "
+                    "Rigs saved: %(count)s."
+                )
+                % {"count": created_rig_count},
+            )
+            return redirect("indy_hub:industry_structure_registry")
+    else:
+        structure_form = IndustryStructureRegistryForm()
+        rig_formset = _build_structure_rig_formset()
+
+    if not sde_item_types_loaded():
+        messages.warning(
+            request,
+            _(
+                "eve_sde item types are not loaded yet. Load the SDE before registering structures and rigs."
+            ),
+        )
+
+    context = _build_structure_add_page_context(
+        request=request,
+        structure_form=structure_form,
+        rig_formset=rig_formset,
+    )
+    return render(
+        request,
+        "indy_hub/industry/structure_add.html",
+        context,
+    )
+
+
+@indy_hub_access_required
+@login_required
+def industry_structure_edit(request, structure_id):
+    structure = _get_accessible_industry_structure_or_404(request.user, structure_id)
+    if structure.is_personal_copy():
+        emit_view_analytics_event(
+            view_name="industry.structure_personal_copy_edit",
+            request=request,
+        )
+        if request.method == "POST":
+            tax_form = IndustryStructureTaxProfileDuplicateForm(
+                request.POST,
+                instance=structure,
+                owner_user=request.user,
+            )
+            if tax_form.is_valid():
+                structure.personal_tag = tax_form.cleaned_data["personal_tag"]
+                for field_name, _label in IndustryStructure.TAX_FIELD_LABELS:
+                    setattr(structure, field_name, tax_form.cleaned_data[field_name])
+                structure.save()
+                messages.success(
+                    request,
+                    _("Personal structure updated successfully."),
+                )
+                return redirect(
+                    f'{reverse("indy_hub:industry_structure_registry")}?scope=personal'
+                )
+        else:
+            tax_form = IndustryStructureTaxProfileDuplicateForm(
+                instance=structure,
+                owner_user=request.user,
+            )
+
+        context = _build_structure_duplicate_page_context(
+            request,
+            source_structure=structure.source_structure or structure,
+            personal_structure=structure,
+            tax_form=tax_form,
+            is_edit_mode=True,
+        )
+        return render(
+            request,
+            "indy_hub/industry/structure_duplicate.html",
+            context,
+        )
+
+    is_synced_structure_locked = structure.is_synced_structure()
+    emit_view_analytics_event(
+        view_name="industry.structure_edit",
+        request=request,
+    )
+
+    if request.method == "POST":
+        rig_formset = _build_structure_rig_formset(
+            structure=structure, data=request.POST
+        )
+        if is_synced_structure_locked:
+            structure_form = IndustryStructureRegistryForm(instance=structure)
+            _set_structure_form_read_only(structure_form)
+        else:
+            structure_form = IndustryStructureRegistryForm(
+                request.POST, instance=structure
+            )
+
+        if rig_formset.is_valid() and (
+            is_synced_structure_locked or structure_form.is_valid()
+        ):
+            if not is_synced_structure_locked:
+                structure = structure_form.save(commit=False)
+                structure.save()
+            saved_rig_count = _save_structure_rigs(structure, rig_formset)
+            messages.success(
+                request,
+                (
+                    _("Structure updated successfully. Rigs saved: %(count)s.")
+                    if not is_synced_structure_locked
+                    else _(
+                        "Synchronized structure updated successfully. Rigs saved: %(count)s."
+                    )
+                    % {"count": saved_rig_count}
+                ),
+            )
+            return redirect("indy_hub:industry_structure_registry")
+    else:
+        structure_form = IndustryStructureRegistryForm(instance=structure)
+        if is_synced_structure_locked:
+            _set_structure_form_read_only(structure_form)
+        rig_formset = _build_structure_rig_formset(structure=structure)
+
+    context = _build_structure_edit_page_context(
+        request,
+        structure,
+        structure_form,
+        rig_formset,
+    )
+    return render(request, "indy_hub/industry/structure_add.html", context)
+
+
+@indy_hub_access_required
+@login_required
+def industry_structure_duplicate(request, structure_id):
+    source_structure = _get_accessible_industry_structure_or_404(
+        request.user, structure_id
+    )
+    emit_view_analytics_event(
+        view_name="industry.structure_duplicate",
+        request=request,
+    )
+    suggested_personal_tag = _build_next_personal_structure_tag(
+        request.user,
+        source_structure,
+    )
+
+    if request.method == "POST":
+        tax_form = IndustryStructureTaxProfileDuplicateForm(
+            request.POST,
+            instance=source_structure,
+            owner_user=request.user,
+            suggested_personal_tag=suggested_personal_tag,
+        )
+        if tax_form.is_valid():
+            duplicated_structure = IndustryStructure.objects.create(
+                name=source_structure.name,
+                personal_tag=tax_form.cleaned_data["personal_tag"],
+                structure_type_id=source_structure.structure_type_id,
+                structure_type_name=source_structure.structure_type_name,
+                solar_system_id=source_structure.solar_system_id,
+                solar_system_name=source_structure.solar_system_name,
+                constellation_id=source_structure.constellation_id,
+                constellation_name=source_structure.constellation_name,
+                region_id=source_structure.region_id,
+                region_name=source_structure.region_name,
+                system_security_band=source_structure.system_security_band,
+                owner_corporation_id=source_structure.owner_corporation_id,
+                owner_corporation_name=source_structure.owner_corporation_name,
+                sync_source=IndustryStructure.SyncSource.MANUAL,
+                visibility_scope=IndustryStructure.VisibilityScope.PERSONAL,
+                owner_user=request.user,
+                source_structure=source_structure,
+                enable_manufacturing=source_structure.enable_manufacturing,
+                enable_manufacturing_capitals=source_structure.enable_manufacturing_capitals,
+                enable_manufacturing_super_capitals=source_structure.enable_manufacturing_super_capitals,
+                enable_research=source_structure.enable_research,
+                enable_invention=source_structure.enable_invention,
+                enable_biochemical_reactions=source_structure.enable_biochemical_reactions,
+                enable_hybrid_reactions=source_structure.enable_hybrid_reactions,
+                enable_composite_reactions=source_structure.enable_composite_reactions,
+                manufacturing_tax_percent=tax_form.cleaned_data[
+                    "manufacturing_tax_percent"
+                ],
+                manufacturing_capitals_tax_percent=tax_form.cleaned_data[
+                    "manufacturing_capitals_tax_percent"
+                ],
+                manufacturing_super_capitals_tax_percent=tax_form.cleaned_data[
+                    "manufacturing_super_capitals_tax_percent"
+                ],
+                research_tax_percent=tax_form.cleaned_data["research_tax_percent"],
+                invention_tax_percent=tax_form.cleaned_data["invention_tax_percent"],
+                biochemical_reactions_tax_percent=tax_form.cleaned_data[
+                    "biochemical_reactions_tax_percent"
+                ],
+                hybrid_reactions_tax_percent=tax_form.cleaned_data[
+                    "hybrid_reactions_tax_percent"
+                ],
+                composite_reactions_tax_percent=tax_form.cleaned_data[
+                    "composite_reactions_tax_percent"
+                ],
+            )
+            for rig in source_structure.rigs.all().order_by("slot_index"):
+                IndustryStructureRig.objects.create(
+                    structure=duplicated_structure,
+                    slot_index=rig.slot_index,
+                    rig_type_id=rig.rig_type_id,
+                    rig_type_name=rig.rig_type_name,
+                )
+
+            messages.success(
+                request,
+                _("Personal structure copy created successfully as %(name)s.")
+                % {"name": duplicated_structure.display_name},
+            )
+            return redirect(
+                f'{reverse("indy_hub:industry_structure_registry")}?scope=personal'
+            )
+    else:
+        tax_form = IndustryStructureTaxProfileDuplicateForm(
+            instance=source_structure,
+            owner_user=request.user,
+            suggested_personal_tag=suggested_personal_tag,
+        )
+
+    context = _build_structure_duplicate_page_context(
+        request,
+        source_structure=source_structure,
+        tax_form=tax_form,
+    )
+    return render(
+        request,
+        "indy_hub/industry/structure_duplicate.html",
+        context,
+    )
+
+
+@indy_hub_access_required
+@login_required
+def industry_structure_delete(request, structure_id):
+    structure = _get_accessible_industry_structure_or_404(request.user, structure_id)
+    emit_view_analytics_event(
+        view_name="industry.structure_delete",
+        request=request,
+    )
+
+    if request.method == "POST":
+        structure_name = structure.display_name
+        structure.delete()
+        messages.success(
+            request,
+            _("Structure %(name)s deleted successfully.") % {"name": structure_name},
+        )
+        return redirect("indy_hub:industry_structure_registry")
+
+    context = {
+        "structure": structure,
+        "structure_registry_url": reverse("indy_hub:industry_structure_registry"),
+        "back_to_industry_url": reverse("indy_hub:personnal_job_list"),
+    }
+    context.update(build_nav_context(request.user, active_tab="industry"))
+    return render(
+        request,
+        "indy_hub/industry/confirm_delete_structure.html",
+        context,
+    )
+
+
+@indy_hub_access_required
+@login_required
+def industry_structure_registry(request):
+    emit_view_analytics_event(
+        view_name="industry.structure_registry",
+        request=request,
+    )
+
+    if not sde_item_types_loaded():
+        messages.warning(
+            request,
+            _(
+                "eve_sde item types are not loaded yet. Load the SDE before browsing structure bonuses."
+            ),
+        )
+
+    context = _build_structure_registry_page_context(request)
+    return render(
+        request,
+        "indy_hub/industry/structure_registry.html",
+        context,
+    )
+
+
+@indy_hub_access_required
+@login_required
+@require_http_methods(["POST"])
+def industry_structure_bulk_import(request):
+    emit_view_analytics_event(
+        view_name="industry.structure_bulk_import",
+        request=request,
+    )
+
+    bulk_import_form = IndustryStructureBulkImportForm(request.POST)
+    if not bulk_import_form.is_valid():
+        context = _build_structure_registry_page_context(request)
+        context["bulk_import_form"] = bulk_import_form
+        return render(
+            request,
+            "indy_hub/industry/structure_registry.html",
+            context,
+            status=200,
+        )
+
+    summary = import_indy_structure_paste(
+        bulk_import_form.cleaned_data["raw_text"],
+        update_existing_manual=bool(
+            bulk_import_form.cleaned_data.get("update_existing_manual")
+        ),
+    )
+    if summary["created"] or summary["updated"]:
+        messages.success(
+            request,
+            _(
+                "Bulk import completed. Created: %(created)s, updated: %(updated)s, skipped: %(skipped)s."
+            )
+            % {
+                "created": summary["created"],
+                "updated": summary["updated"],
+                "skipped": summary["skipped"],
+            },
+        )
+    else:
+        messages.warning(
+            request,
+            _(
+                "Bulk import did not add any structure. Processed: %(processed)s, skipped: %(skipped)s."
+            )
+            % {
+                "processed": summary["processed"],
+                "skipped": summary["skipped"],
+            },
+        )
+
+    warning_messages = list(summary.get("warnings") or [])
+    for warning_message in warning_messages[:10]:
+        messages.warning(request, warning_message)
+    if len(warning_messages) > 10:
+        messages.warning(
+            request,
+            _("Additional import warnings were omitted: %(count)s more.")
+            % {"count": len(warning_messages) - 10},
+        )
+    return redirect("indy_hub:industry_structure_registry")
+
+
+@indy_hub_access_required
+@login_required
+@require_http_methods(["POST"])
+def industry_structure_bulk_update(request):
+    emit_view_analytics_event(
+        view_name="industry.structure_bulk_update",
+        request=request,
+    )
+
+    bulk_tax_form = _build_bulk_tax_form(request.user, data=request.POST)
+    if not bulk_tax_form.is_valid():
+        context = _build_structure_registry_page_context(
+            request,
+            bulk_tax_form=bulk_tax_form,
+        )
+        return render(request, "indy_hub/industry/structure_registry.html", context)
+
+    queryset = _get_bulk_tax_target_queryset(
+        bulk_tax_form.cleaned_data,
+        user=request.user,
+    )
+
+    tax_updates = bulk_tax_form.get_tax_updates()
+    only_when_zero = bool(bulk_tax_form.cleaned_data.get("only_when_zero"))
+    matched_count = queryset.count()
+    eligible_count = _count_bulk_tax_eligible_structures(
+        queryset,
+        tax_updates,
+        only_when_zero=only_when_zero,
+    )
+
+    if not bulk_tax_form.cleaned_data.get("confirm_apply"):
+        confirmation_message = (
+            _(
+                "Warning: you are about to apply the configured taxes to %(count)s structure(s) that currently have zero tax for at least one selected category."
+            )
+            if only_when_zero
+            else _(
+                "Warning: you are about to apply the configured taxes to %(count)s matched structure(s)."
+            )
+        ) % {"count": eligible_count}
+        context = _build_structure_registry_page_context(
+            request,
+            bulk_tax_form=bulk_tax_form,
+            bulk_tax_confirmation={
+                "message": confirmation_message,
+                "matched_count": matched_count,
+                "eligible_count": eligible_count,
+                "only_when_zero": only_when_zero,
+            },
+        )
+        return render(request, "indy_hub/industry/structure_registry.html", context)
+
+    updated_count = 0
+    for structure in queryset:
+        changed_fields: list[str] = []
+        for field_name, field_value in tax_updates.items():
+            current_value = getattr(structure, field_name) or Decimal("0")
+            if only_when_zero and current_value > 0:
+                continue
+            if current_value != field_value:
+                setattr(structure, field_name, field_value)
+                changed_fields.append(field_name)
+        if changed_fields:
+            structure.save(update_fields=[*changed_fields, "updated_at"])
+            updated_count += 1
+
+    messages.success(
+        request,
+        _(
+            "Bulk tax update applied to %(updated)s structure(s) out of %(matched)s matched."
+        )
+        % {"updated": updated_count, "matched": matched_count},
+    )
+    return redirect("indy_hub:industry_structure_registry")
+
+
+@indy_hub_access_required
+@login_required
+def industry_structure_bulk_update_preview(request):
+    bulk_tax_form = _build_bulk_tax_preview_form(request.user, data=request.GET or None)
+    if not bulk_tax_form.is_valid():
+        return JsonResponse(
+            {
+                "matched_count": 0,
+                "eligible_count": 0,
+                "structure_names": [],
+                "has_tax_updates": False,
+                "message": _("Unable to preview the selected bulk tax filters."),
+            },
+            status=400,
+        )
+
+    return JsonResponse(
+        _get_bulk_tax_preview_payload(
+            bulk_tax_form.cleaned_data,
+            user=request.user,
+        )
+    )
+
+
+@indy_hub_access_required
+@login_required
+def industry_structure_solar_system_search(request):
+    query = (request.GET.get("q") or "").strip()
+    return JsonResponse(
+        {
+            "results": search_solar_system_options(query),
+        }
+    )
+
+
+@indy_hub_access_required
+@login_required
+def industry_structure_existing_system_structures(request):
+    solar_system_name = (request.GET.get("name") or "").strip()
+    raw_structure_type_id = request.GET.get("structure_type_id")
+    raw_exclude_structure_id = request.GET.get("exclude_structure_id")
+
+    try:
+        structure_type_id = (
+            int(raw_structure_type_id) if raw_structure_type_id else None
+        )
+    except (TypeError, ValueError):
+        structure_type_id = None
+
+    try:
+        exclude_structure_id = (
+            int(raw_exclude_structure_id) if raw_exclude_structure_id else None
+        )
+    except (TypeError, ValueError):
+        exclude_structure_id = None
+
+    if not solar_system_name or structure_type_id is None:
+        return JsonResponse(
+            {
+                "solar_system_name": "",
+                "total_count": 0,
+                "same_type_count": 0,
+                "structures": [],
+            }
+        )
+
+    queryset = _get_visible_public_industry_structures_queryset().filter(
+        solar_system_name__iexact=solar_system_name,
+        structure_type_id=structure_type_id,
+    )
+    if exclude_structure_id is not None:
+        queryset = queryset.exclude(pk=exclude_structure_id)
+
+    structures = list(
+        queryset.order_by("name").values(
+            "id",
+            "name",
+            "structure_type_id",
+            "structure_type_name",
+            "sync_source",
+        )
+    )
+    payload_rows = [
+        {
+            "id": int(row["id"]),
+            "name": str(row["name"]),
+            "structure_type_name": str(row.get("structure_type_name") or "-"),
+            "is_same_type": bool(
+                structure_type_id is not None
+                and row.get("structure_type_id") == structure_type_id
+            ),
+            "is_synced": row.get("sync_source")
+            == IndustryStructure.SyncSource.ESI_CORPORATION,
+            "edit_url": reverse("indy_hub:industry_structure_edit", args=[row["id"]]),
+            "duplicate_url": reverse(
+                "indy_hub:industry_structure_duplicate", args=[row["id"]]
+            ),
+        }
+        for row in structures
+    ]
+    return JsonResponse(
+        {
+            "solar_system_name": solar_system_name,
+            "total_count": len(payload_rows),
+            "same_type_count": len(payload_rows),
+            "structures": payload_rows,
+        }
+    )
+
+
+@indy_hub_access_required
+@login_required
+def industry_structure_solar_system_cost_indices(request):
+    solar_system_name = (request.GET.get("name") or "").strip()
+    solar_system_reference = resolve_solar_system_reference(
+        solar_system_name=solar_system_name or None,
+    )
+    if solar_system_reference is None:
+        return JsonResponse({"found": False, "cost_indices": []})
+
+    solar_system_id, resolved_name, security_band = solar_system_reference
+    ordered_activity_ids = [
+        IndustrySystemCostIndex.ACTIVITY_MANUFACTURING,
+        IndustrySystemCostIndex.ACTIVITY_TE_RESEARCH,
+        IndustrySystemCostIndex.ACTIVITY_ME_RESEARCH,
+        IndustrySystemCostIndex.ACTIVITY_COPYING,
+        IndustrySystemCostIndex.ACTIVITY_INVENTION,
+        IndustrySystemCostIndex.ACTIVITY_REACTIONS,
+    ]
+    rows_by_activity = {
+        row.activity_id: row
+        for row in IndustrySystemCostIndex.objects.filter(
+            solar_system_id=solar_system_id,
+        )
+    }
+
+    cost_indices = []
+    for activity_id in ordered_activity_ids:
+        row = rows_by_activity.get(activity_id)
+        if row is None:
+            continue
+        cost_indices.append(
+            {
+                "activity_id": activity_id,
+                "activity_label": row.get_activity_id_display(),
+                "cost_index_percent": str(row.cost_index_percent),
+            }
+        )
+
+    return JsonResponse(
+        {
+            "found": True,
+            "solar_system_id": solar_system_id,
+            "solar_system_name": resolved_name,
+            "security_band": security_band,
+            "cost_indices": cost_indices,
+        }
+    )
+
+
+@indy_hub_access_required
+@login_required
+def industry_structure_bonus_preview(request):
+    structure_type_id = request.GET.get("structure_type_id")
+    solar_system_name = (request.GET.get("solar_system_name") or "").strip()
+    raw_rig_type_ids = request.GET.getlist("rig_type_id")
+    enabled_activity_flags = {
+        "enable_manufacturing": request.GET.get("enable_manufacturing") == "1",
+        "enable_manufacturing_capitals": request.GET.get(
+            "enable_manufacturing_capitals"
+        )
+        == "1",
+        "enable_manufacturing_super_capitals": request.GET.get(
+            "enable_manufacturing_super_capitals"
+        )
+        == "1",
+        "enable_research": request.GET.get("enable_research") == "1",
+        "enable_invention": request.GET.get("enable_invention") == "1",
+        "enable_biochemical_reactions": request.GET.get("enable_biochemical_reactions")
+        == "1",
+        "enable_hybrid_reactions": request.GET.get("enable_hybrid_reactions") == "1",
+        "enable_composite_reactions": request.GET.get("enable_composite_reactions")
+        == "1",
+    }
+
+    try:
+        resolved_structure_type_id = (
+            int(structure_type_id) if structure_type_id else None
+        )
+    except (TypeError, ValueError):
+        resolved_structure_type_id = None
+
+    rig_type_ids = []
+    for raw_value in raw_rig_type_ids:
+        try:
+            rig_type_ids.append(int(raw_value))
+        except (TypeError, ValueError):
+            continue
+
+    previews = build_structure_activity_previews(
+        structure_type_id=resolved_structure_type_id,
+        solar_system_name=solar_system_name,
+        rig_type_ids=rig_type_ids,
+        enabled_activity_flags=enabled_activity_flags,
+    )
+
+    def _metric_entries(summary):
+        metrics = [
+            ("ME", summary.material_efficiency_percent),
+            ("TE", summary.time_efficiency_percent),
+            ("Cost", summary.job_cost_percent),
+        ]
+        return [
+            {
+                "label": label,
+                "value": f"{value:.3f}",
+            }
+            for label, value in metrics
+            if value > 0
+        ]
+
+    return JsonResponse(
+        {
+            "rows": [
+                {
+                    "activity_id": preview.activity_id,
+                    "activity_label": preview.activity_label,
+                    "system_cost_index_percent": f"{preview.system_cost_index_percent:.2f}",
+                    "structure_role_metrics": (
+                        _metric_entries(preview.structure_role_bonus)
+                        if preview.structure_role_bonus is not None
+                        else []
+                    ),
+                    "supported_type_rows": [
+                        {
+                            "type_name": row.type_name,
+                            "metrics": _metric_entries(row),
+                        }
+                        for row in preview.supported_type_rows
+                        if _metric_entries(row)
+                    ],
+                    "rig_profiles": [
+                        {
+                            "label": profile.label,
+                            "supported_types_label": profile.supported_types_label,
+                            "supported_type_names": list(profile.supported_type_names),
+                            "metrics": _metric_entries(profile),
+                        }
+                        for profile in preview.rig_profiles
+                        if _metric_entries(profile)
+                    ],
+                }
+                for preview in previews
+            ]
+        }
+    )
+
+
+@indy_hub_access_required
+@login_required
+def industry_structure_rig_advisor(request):
+    structure_type_id = request.GET.get("structure_type_id")
+    solar_system_name = (request.GET.get("solar_system_name") or "").strip()
+    enabled_activity_flags = {
+        "enable_manufacturing": request.GET.get("enable_manufacturing") == "1",
+        "enable_manufacturing_capitals": request.GET.get(
+            "enable_manufacturing_capitals"
+        )
+        == "1",
+        "enable_manufacturing_super_capitals": request.GET.get(
+            "enable_manufacturing_super_capitals"
+        )
+        == "1",
+        "enable_research": request.GET.get("enable_research") == "1",
+        "enable_invention": request.GET.get("enable_invention") == "1",
+        "enable_biochemical_reactions": request.GET.get("enable_biochemical_reactions")
+        == "1",
+        "enable_hybrid_reactions": request.GET.get("enable_hybrid_reactions") == "1",
+        "enable_composite_reactions": request.GET.get("enable_composite_reactions")
+        == "1",
+    }
+
+    try:
+        resolved_structure_type_id = (
+            int(structure_type_id) if structure_type_id else None
+        )
+    except (TypeError, ValueError):
+        resolved_structure_type_id = None
+
+    rows = build_structure_rig_advisor_rows(
+        structure_type_id=resolved_structure_type_id,
+        solar_system_name=solar_system_name,
+        enabled_activity_flags=enabled_activity_flags,
+    )
+
+    def _metric_entries(row):
+        metrics = [
+            ("ME", row.material_efficiency_percent),
+            ("TE", row.time_efficiency_percent),
+            ("Cost", row.job_cost_percent),
+        ]
+        return [
+            {
+                "label": label,
+                "value": f"{value:.3f}",
+            }
+            for label, value in metrics
+            if value > 0
+        ]
+
+    grouped: dict[int, dict[str, object]] = {}
+    for row in rows:
+        activity_payload = grouped.setdefault(
+            row.activity_id,
+            {
+                "activity_id": row.activity_id,
+                "activity_label": row.activity_label,
+                "categories": set(),
+                "rig_options": [],
+            },
+        )
+        activity_payload["categories"].update(row.supported_type_names)
+        activity_payload["rig_options"].append(
+            {
+                "rig_type_id": row.rig_type_id,
+                "label": row.label,
+                "family": row.family,
+                "supported_types_label": row.supported_types_label,
+                "supported_type_names": list(row.supported_type_names),
+                "metrics": _metric_entries(row),
+            }
+        )
+
+    activities = []
+    for activity in grouped.values():
+        activity["categories"] = sorted(activity["categories"])
+        activity["rig_options"].sort(
+            key=lambda entry: (
+                entry["family"],
+                entry["label"],
+                entry["supported_type_names"],
+            )
+        )
+        activities.append(activity)
+
+    activities.sort(key=lambda entry: entry["activity_id"])
+    return JsonResponse({"activities": activities})

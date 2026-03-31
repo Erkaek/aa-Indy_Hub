@@ -2,6 +2,7 @@
 
 # Standard Library
 from datetime import timedelta
+from decimal import Decimal
 from unittest import skip
 from unittest.mock import patch
 
@@ -29,6 +30,9 @@ from indy_hub.models import (
     CharacterSettings,
     CorporationSharingSetting,
     IndustryJob,
+    IndustrySkillSnapshot,
+    IndustryStructure,
+    IndustrySystemCostIndex,
     JobNotificationDigestEntry,
     MaterialExchangeBuyOrder,
     MaterialExchangeBuyOrderItem,
@@ -1054,6 +1058,73 @@ class BlueprintCopyFulfillViewTests(TestCase):
         self.assertEqual(entry["personal_blueprints"], 1)
         self.assertEqual(entry["corporate_blueprints"], 0)
 
+    @patch("indy_hub.views.industry._fetch_item_base_prices")
+    def test_request_shows_estimated_copy_cost_for_matching_structure(
+        self,
+        mock_fetch_item_base_prices,
+    ) -> None:
+        mock_fetch_item_base_prices.return_value = {987654: Decimal("1000000")}
+        blueprint = Blueprint.objects.create(
+            owner_user=self.user,
+            character_id=42,
+            item_id=1002,
+            blueprint_id=2002,
+            type_id=987654,
+            location_id=1_036_001,
+            location_name="Test Raitaru",
+            location_flag="hangar",
+            quantity=-1,
+            time_efficiency=10,
+            material_efficiency=5,
+            runs=0,
+            character_name="Capsuleer",
+            type_name="Test Blueprint",
+        )
+        IndustryStructure.objects.create(
+            name="Test Raitaru",
+            structure_type_id=35825,
+            structure_type_name="Raitaru",
+            solar_system_id=30000142,
+            solar_system_name="Jita",
+            external_structure_id=1_036_001,
+            enable_research=True,
+            research_tax_percent=Decimal("0.500"),
+            visibility_scope=IndustryStructure.VisibilityScope.PUBLIC,
+        )
+        IndustrySystemCostIndex.objects.create(
+            solar_system_id=30000142,
+            solar_system_name="Jita",
+            activity_id=5,
+            cost_index_percent=Decimal("5.00000"),
+        )
+
+        buyer = User.objects.create_user("requester_cost", password="test12345")
+        BlueprintCopyRequest.objects.create(
+            type_id=blueprint.type_id,
+            material_efficiency=blueprint.material_efficiency,
+            time_efficiency=blueprint.time_efficiency,
+            requested_by=buyer,
+            runs_requested=2,
+            copies_requested=2,
+        )
+
+        response = self.client.get(reverse("indy_hub:bp_copy_fulfill_requests"))
+
+        self.assertEqual(response.status_code, 200)
+        entry = response.context["requests"][0]
+        self.assertIsNotNone(entry["copy_cost"])
+        self.assertEqual(entry["copy_cost"]["structure_name"], "Test Raitaru")
+        self.assertEqual(
+            entry["copy_cost"]["per_copy_installation_cost"],
+            Decimal("95000"),
+        )
+        self.assertEqual(
+            entry["copy_cost"]["total_installation_cost"],
+            Decimal("190000"),
+        )
+        self.assertContains(response, "Estimated copy cost")
+        self.assertContains(response, "190,000 ISK")
+
     def test_self_request_hidden_without_corporate_source(self) -> None:
         blueprint = Blueprint.objects.create(
             owner_user=self.user,
@@ -1712,14 +1783,14 @@ class BlueprintCopyFulfillViewTests(TestCase):
             character_name="Capsuleer",
             type_name="Busy Blueprint",
         )
-        buyer = User.objects.create_user("busy_requester", password="test12345")
+        buyer = User.objects.create_user("self_requester", password="test12345")
         BlueprintCopyRequest.objects.create(
             type_id=blueprint.type_id,
             material_efficiency=blueprint.material_efficiency,
             time_efficiency=blueprint.time_efficiency,
             requested_by=buyer,
-            runs_requested=3,
-            copies_requested=2,
+            runs_requested=2,
+            copies_requested=1,
         )
 
         IndustryJob.objects.create(
@@ -2040,6 +2111,7 @@ class BlueprintCopyRequestPageTests(TestCase):
         )
 
         self.owner = User.objects.create_user("supplier", password="supply123")
+        assign_main_character(self.owner, character_id=501)
         CharacterSettings.objects.create(
             user=self.owner,
             character_id=0,
@@ -2061,6 +2133,23 @@ class BlueprintCopyRequestPageTests(TestCase):
             character_name="Supplier",
             type_name="Duplicated Widget Blueprint",
         )
+        IndustrySkillSnapshot.objects.create(
+            owner_user=self.owner,
+            character_id=501,
+            skill_levels={"3402": {"active": 4, "trained": 4}},
+        )
+
+    def test_request_page_uses_modal_preview(self) -> None:
+        response = self.client.get(reverse("indy_hub:bp_copy_request_page"))
+
+        self.assertEqual(response.status_code, 200)
+        page_entry = response.context["page_obj"].object_list[0]
+        self.assertIn("copy_request_preview", page_entry)
+        self.assertEqual(
+            page_entry["copy_request_preview"]["qualified_provider_count"], 1
+        )
+        self.assertContains(response, "bpCopyRequestModal")
+        self.assertContains(response, "qualified producer(s) will be alerted")
 
     def test_duplicate_submission_is_blocked(self) -> None:
         url = reverse("indy_hub:bp_copy_request_page")
@@ -2109,6 +2198,38 @@ class BlueprintCopyRequestPageTests(TestCase):
 
             self.assertEqual(open_requests.count(), 1)
             self.assertEqual(mock_notify.call_count, 1)
+
+    def test_submission_above_launch_window_limit_is_rejected(self) -> None:
+        url = reverse("indy_hub:bp_copy_request_create")
+        post_data = {
+            "type_id": 605001,
+            "material_efficiency": 8,
+            "time_efficiency": 12,
+            "runs_requested": 10,
+            "copies_requested": 75,
+        }
+
+        with (
+            patch(
+                "indy_hub.views.industry.get_max_manufacturing_runs_before_launch_window",
+                return_value=9,
+            ),
+            patch("indy_hub.views.industry.notify_user") as mock_notify,
+        ):
+            response = self.client.post(url, post_data, headers={"referer": url})
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], url)
+        self.assertFalse(
+            BlueprintCopyRequest.objects.filter(
+                type_id=605001,
+                material_efficiency=8,
+                time_efficiency=12,
+                requested_by=self.user,
+                fulfilled=False,
+            ).exists()
+        )
+        self.assertEqual(mock_notify.call_count, 0)
 
     def test_everyone_scope_shows_blueprint(self) -> None:
         settings = CharacterSettings.objects.get(user=self.owner, character_id=0)
@@ -2266,6 +2387,17 @@ class BlueprintCopyRequestPageTests(TestCase):
             "copies_requested": 1,
         }
 
+        IndustrySkillSnapshot.objects.create(
+            owner_user=self.owner,
+            character_id=303010,
+            skill_levels={"3402": {"active": 4, "trained": 4}},
+        )
+        IndustrySkillSnapshot.objects.create(
+            owner_user=manager,
+            character_id=403010,
+            skill_levels={"3402": {"active": 4, "trained": 4}},
+        )
+
         with patch("indy_hub.views.industry.notify_user") as mock_notify:
             response = self.client.post(
                 reverse("indy_hub:bp_copy_request_page"), post_data
@@ -2274,6 +2406,111 @@ class BlueprintCopyRequestPageTests(TestCase):
         self.assertRedirects(response, reverse("indy_hub:bp_copy_my_requests"))
         recipients = {call.args[0] for call in mock_notify.call_args_list}
         self.assertSetEqual({self.owner, manager}, recipients)
+
+    @patch(
+        "indy_hub.views.industry.fetch_blueprint_skill_requirements",
+        return_value={
+            805001: [{"skill_id": 3402, "level": 4, "skill_name": "Science"}]
+        },
+    )
+    @patch("indy_hub.views.industry.fetch_skill_bonus_attributes", return_value={})
+    def test_notifications_only_target_skill_qualified_producers(
+        self,
+        _mock_skill_bonus_attributes,
+        _mock_skill_requirements,
+    ) -> None:
+        corp_id = 2_500_100
+        CorporationSharingSetting.objects.create(
+            user=self.owner,
+            corporation_id=corp_id,
+            corporation_name="Qualified Industries",
+            share_scope=CharacterSettings.SCOPE_CORPORATION,
+            allow_copy_requests=True,
+        )
+
+        supplier_character, _ = EveCharacter.objects.get_or_create(
+            character_id=303110,
+            defaults={
+                "character_name": "QualifiedSupplier",
+                "corporation_id": corp_id,
+                "corporation_name": "Qualified Industries",
+                "corporation_ticker": "QI",
+            },
+        )
+        CharacterOwnership.objects.update_or_create(
+            user=self.owner,
+            character=supplier_character,
+            defaults={
+                "owner_hash": f"hash-{supplier_character.character_id}-{self.owner.id}",
+            },
+        )
+
+        Blueprint.objects.create(
+            owner_user=self.owner,
+            owner_kind=Blueprint.OwnerKind.CORPORATION,
+            corporation_id=corp_id,
+            corporation_name="Qualified Industries",
+            item_id=9153001,
+            blueprint_id=9153002,
+            type_id=805001,
+            location_id=PUBLIC_STATION_ID,
+            location_flag="corp_hangar",
+            quantity=-1,
+            time_efficiency=12,
+            material_efficiency=10,
+            runs=0,
+            type_name="Qualified Blueprint",
+        )
+
+        manager = User.objects.create_user("qualifiedmanager", password="manage123")
+        assign_main_character(manager, character_id=403110)
+        grant_indy_permissions(manager, "can_manage_corp_bp_requests")
+        manager_character = EveCharacter.objects.get(character_id=403110)
+        manager_character.corporation_id = corp_id
+        manager_character.corporation_name = "Qualified Industries"
+        manager_character.corporation_ticker = "QI"
+        manager_character.save(
+            update_fields=[
+                "corporation_id",
+                "corporation_name",
+                "corporation_ticker",
+            ]
+        )
+        CharacterOwnership.objects.update_or_create(
+            user=manager,
+            character=manager_character,
+            defaults={
+                "owner_hash": f"hash-{manager_character.character_id}-{manager.id}",
+            },
+        )
+
+        IndustrySkillSnapshot.objects.create(
+            owner_user=self.owner,
+            character_id=303110,
+            skill_levels={"3402": {"active": 4, "trained": 5}},
+        )
+        IndustrySkillSnapshot.objects.create(
+            owner_user=manager,
+            character_id=403110,
+            skill_levels={"3402": {"active": 2, "trained": 5}},
+        )
+
+        post_data = {
+            "type_id": 805001,
+            "material_efficiency": 10,
+            "time_efficiency": 12,
+            "runs_requested": 1,
+            "copies_requested": 1,
+        }
+
+        with patch("indy_hub.views.industry.notify_user") as mock_notify:
+            response = self.client.post(
+                reverse("indy_hub:bp_copy_request_page"), post_data
+            )
+
+        self.assertRedirects(response, reverse("indy_hub:bp_copy_my_requests"))
+        recipients = {call.args[0] for call in mock_notify.call_args_list}
+        self.assertSetEqual({self.owner}, recipients)
 
     def test_alliance_scope_shows_corporate_blueprint_for_allied_member(self) -> None:
         corp_id = 2_000_000

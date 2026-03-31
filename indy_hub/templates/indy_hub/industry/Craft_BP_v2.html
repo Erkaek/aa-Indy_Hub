@@ -13,31 +13,41 @@
 
 {% block content %}
 <div class="container-fluid py-4">
-    <div class="dev-alert alert alert-warning d-flex align-items-center gap-3 mb-4" role="alert">
-        <i class="fas fa-exclamation-triangle fa-lg"></i>
-        <div>
-            <h3 class="h6 fw-semibold mb-1 text-uppercase">{% trans "Active development" %}</h3>
-            <p class="mb-0 small">{% trans "This crafting workspace is under active development. Please don't rely on the displayed data for production decisions yet." %}</p>
-        </div>
-    </div>
-
     {% include "indy_hub/partials/page_header.html" with icon_class="fas fa-tools" title=bp_name subtitle=_("Production workspace") back_url=back_url back_label=_("Back") header_controls=craft_header_controls %}
 
-    <div class="d-flex justify-content-end mb-3">
-        <span id="simulationStatus" class="badge bg-secondary d-none"></span>
+    <div id="craftPendingRefreshNotice" class="small text-danger fw-semibold mb-3 d-none" role="status" aria-live="polite">
+        <i class="fas fa-circle-exclamation me-1"></i>
+        Changes pending. Switch tabs to refresh calculations.
     </div>
 
-    <div id="bpTabs-loading" class="border border-warning-subtle bg-warning-subtle rounded-3 p-4 mb-4">
-        <div class="d-flex align-items-center gap-3">
-            <div class="spinner-border text-warning" role="status" style="width:2.5rem;height:2.5rem;">
-                <span class="visually-hidden">{% trans "Loading..." %}</span>
-            </div>
+    <div id="bpTabs-loading" class="craft-bp-loading-inline" aria-live="polite" aria-busy="true">
+        <svg class="craft-bp-loading-spinner" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <g>
+                <circle cx="12" cy="12" r="10" fill="none" stroke-width="1" stroke-linecap="round">
+                    <animate attributeName="stroke-dasharray" dur="1.5s" calcMode="spline" values="0 150;42 150;42 150;42 150" keyTimes="0;0.475;0.95;1" keySplines="0.42,0,0.58,1;0.42,0,0.58,1;0.42,0,0.58,1" repeatCount="indefinite" />
+                    <animate attributeName="stroke-dashoffset" dur="1.5s" calcMode="spline" values="0;-16;-59;-59" keyTimes="0;0.475;0.95;1" keySplines="0.42,0,0.58,1;0.42,0,0.58,1;0.42,0,0.58,1" repeatCount="indefinite" />
+                </circle>
+                <animateTransform attributeName="transform" type="rotate" dur="2s" values="0 12 12;360 12 12" repeatCount="indefinite" />
+            </g>
+        </svg>
+        <span id="craft-bp-loading-message" class="craft-bp-loading-inline__text">{% trans "Preparing production workspace" %}</span>
+    </div>
+
+    {% if deferred_shell %}
+    <div id="craft-bp-workspace" class="craft-bp-workspace is-loading" aria-hidden="true"></div>
+    {% else %}
+    <div id="craft-bp-workspace" class="craft-bp-workspace is-loading" aria-hidden="true">
+        <div class="dev-alert alert alert-warning d-flex align-items-center gap-3 mb-4" role="alert">
+            <i class="fas fa-exclamation-triangle fa-lg"></i>
             <div>
-                <h6 class="mb-1 text-warning fw-semibold">{% trans "Preparing simulation workspace" %}</h6>
-                <p class="mb-0 text-muted small">{% trans "We are synchronising materials, production tree and financial data." %}</p>
+                <h3 class="h6 fw-semibold mb-1 text-uppercase">{% trans "Active development" %}</h3>
+                <p class="mb-0 small">{% trans "This crafting workspace is under active development. Please don't rely on the displayed data for production decisions yet." %}</p>
             </div>
         </div>
-    </div>
+
+        <div class="d-flex justify-content-end mb-3">
+            <span id="simulationStatus" class="badge bg-secondary d-none"></span>
+        </div>
 
     {% with current_tab=active_tab|default:'materials' %}
 
@@ -73,9 +83,27 @@
                 </button>
             </li>
             <li class="nav-item" role="presentation">
+                <button class="nav-link" id="timing-tab-btn" data-bs-toggle="tab" data-bs-target="#timing-pane" type="button" role="tab" aria-controls="timing-pane" data-tab-name="timing">
+                    <i class="fas fa-clock"></i>
+                    <span>{% trans "Timing" %}</span>
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="steps-tab-btn" data-bs-toggle="tab" data-bs-target="#steps-pane" type="button" role="tab" aria-controls="steps-pane" data-tab-name="steps">
+                    <i class="fas fa-list-check"></i>
+                    <span>{% trans "Steps" %}</span>
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="structure-tab-btn" data-bs-toggle="tab" data-bs-target="#structure-pane" type="button" role="tab" aria-controls="structure-pane" data-tab-name="structure">
+                    <i class="fas fa-industry"></i>
+                    <span>{% trans "Structure" %}</span>
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
                 <button class="nav-link" id="configure-tab-btn" data-bs-toggle="tab" data-bs-target="#configure-pane" type="button" role="tab" aria-controls="configure-pane" data-tab-name="configure">
                     <i class="fas fa-sliders-h"></i>
-                    <span>{% trans "Configure" %}</span>
+                    <span>{% trans "Blueprints" %}</span>
                 </button>
             </li>
             <li class="nav-item" role="presentation">
@@ -194,7 +222,7 @@
                                 {% if materials_by_group %}
                                     {% for group_id, group in materials_by_group.items %}
                                     <div class="craft-group-card collapsed">
-                                        <div class="craft-group-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                                        <div class="craft-group-header" data-craft-group-toggle>
                                             <span>
                                                 <i class="fas fa-chevron-down craft-group-toggle me-2"></i>
                                                 <i class="fas fa-layer-group text-primary me-2"></i>{{ group.group_name|default:_("Other") }}
@@ -244,6 +272,17 @@
                         <div class="craft-kpi craft-kpi-lg">
                             <span class="craft-kpi-label">{% trans "Total Cost" %}</span>
                             <span class="craft-kpi-value text-danger" id="financialSummaryCost">0 ISK</span>
+                            <div class="mt-2">
+                                <button
+                                    type="button"
+                                    class="btn btn-outline-primary btn-sm"
+                                    id="structureSummaryDetailsBtn"
+                                    data-bs-toggle="modal"
+                                    data-bs-target="#structureInstallationDetailsModal"
+                                >
+                                    <i class="fas fa-list-ul me-1"></i>{% trans "Installation details" %}
+                                </button>
+                            </div>
                         </div>
                         <div class="craft-kpi craft-kpi-lg">
                             <span class="craft-kpi-label">{% trans "Total Revenue" %}</span>
@@ -262,6 +301,9 @@
                             <span class="craft-kpi-label">{% trans "Margin" %}</span>
                             <span class="craft-kpi-value" id="financialSummaryMargin">0%</span>
                         </div>
+                    </div>
+                    <div id="structureSummaryEmpty" class="alert alert-info mb-0 mt-3 d-none">
+                        <i class="fas fa-info-circle me-2"></i>{% trans "Assign a structure to produced items to include installation costs." %}
                     </div>
                 </div>
 
@@ -517,7 +559,74 @@
                 {% endif %}
             </div>
 
-            <!-- ========== CONFIGURE TAB (V2) ========== -->
+            <div class="tab-pane fade" id="timing-pane" role="tabpanel" aria-labelledby="timing-tab-btn">
+                <div class="alert alert-info mb-0">{% trans "Open this tab to review per-item production durations." %}</div>
+            </div>
+
+            <div class="tab-pane fade" id="steps-pane" role="tabpanel" aria-labelledby="steps-tab-btn">
+                <div class="alert alert-info mb-0">{% trans "Open this tab to review the recommended production sequence." %}</div>
+            </div>
+
+            <div class="tab-pane fade" id="structure-pane" role="tabpanel" aria-labelledby="structure-tab-btn">
+                <section class="craft-section mb-4">
+                    <div class="craft-section-header-with-actions">
+                        <h3 class="craft-section-title">
+                            <i class="fas fa-industry text-primary"></i> {% trans "Structure Planner" %}
+                        </h3>
+                        <div class="d-flex flex-wrap align-items-center gap-2">
+                            <div class="input-group input-group-sm" style="min-width: 320px;">
+                                <span class="input-group-text">
+                                    <i class="fas fa-location-crosshairs"></i>
+                                </span>
+                                <input
+                                    type="text"
+                                    id="structureMotherSystemInput"
+                                    class="form-control"
+                                    list="structureMotherSystemSuggestions"
+                                    placeholder="{% trans 'Main production system' %}"
+                                    autocomplete="off"
+                                >
+                                <datalist id="structureMotherSystemSuggestions"></datalist>
+                            </div>
+                            <button type="button" id="structureMotherSystemValidate" class="btn btn-sm btn-primary">
+                                <i class="fas fa-route me-1"></i>{% trans "Validate" %}
+                            </button>
+                        </div>
+                    </div>
+                    <div id="structureMotherSystemStatus" class="small text-muted mt-2"></div>
+                    <div id="structurePlannerSummary" class="craft-structure-summary-grid"></div>
+                </section>
+
+                <section class="craft-section">
+                    <div class="craft-section-header-with-actions">
+                        <h3 class="craft-section-title">
+                            <i class="fas fa-route text-info"></i> {% trans "Assignments" %}
+                        </h3>
+                    </div>
+                    <div id="structurePlannerEmpty" class="alert alert-info d-none mb-0">
+                        <i class="fas fa-info-circle me-2"></i>{% trans "No compatible structures are currently available for this craft plan." %}
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle mb-0 craft-structure-table">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>{% trans "Item" %}</th>
+                                    <th>{% trans "Recommended" %}</th>
+                                    <th>{% trans "Selected Structure" %}</th>
+                                    <th class="text-end">ME</th>
+                                    <th class="text-end">TE</th>
+                                    <th class="text-end">{% trans "Job" %}</th>
+                                    <th class="text-end">{% trans "Tax" %}</th>
+                                    <th>{% trans "Distance" %}</th>
+                                </tr>
+                            </thead>
+                            <tbody id="structurePlannerRows"></tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+
+            <!-- ========== BLUEPRINTS TAB (V2) ========== -->
             <div class="tab-pane fade" id="configure-pane" role="tabpanel" aria-labelledby="configure-tab-btn">
                 <section class="craft-section mb-4">
                     <h3 class="craft-section-title"><i class="fas fa-magic text-primary"></i> {% trans "Quick Presets" %}</h3>
@@ -676,7 +785,7 @@
                                                                 >
                                                             </div>
 
-                                                            <button type="button" class="btn btn-sm btn-primary w-100" onclick="requestBlueprintCopy({{ bc.type_id }}, this)" style="font-size: 0.8rem; padding: 0.25rem;">
+                                                            <button type="button" class="btn btn-sm btn-primary w-100" data-request-blueprint-copy="{{ bc.type_id }}" style="font-size: 0.8rem; padding: 0.25rem;">
                                                                 <i class="fas fa-paper-plane me-1"></i>{% trans "Request" %}
                                                             </button>
                                                         </div>
@@ -753,595 +862,68 @@
     </div>
 </div>
 
+<div class="modal fade" id="structureInstallationDetailsModal" tabindex="-1" aria-labelledby="structureInstallationDetailsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="structureInstallationDetailsModalLabel">{% trans "Installation Cost Details" %}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
+            </div>
+            <div class="modal-body">
+                <div class="craft-kpi-row mb-3">
+                    <div class="craft-kpi craft-kpi-sm">
+                        <span class="craft-kpi-label">{% trans "Estimated Item Value" %}</span>
+                        <span class="craft-kpi-value" id="structureSummaryEstimatedValue">0 ISK</span>
+                    </div>
+                    <div class="craft-kpi craft-kpi-sm">
+                        <span class="craft-kpi-label">{% trans "Job Cost" %}</span>
+                        <span class="craft-kpi-value" id="structureSummaryJobCost">0 ISK</span>
+                    </div>
+                    <div class="craft-kpi craft-kpi-sm">
+                        <span class="craft-kpi-label">{% trans "Facility Tax" %}</span>
+                        <span class="craft-kpi-value" id="structureSummaryFacilityTax">0 ISK</span>
+                    </div>
+                    <div class="craft-kpi craft-kpi-sm">
+                        <span class="craft-kpi-label">{% trans "SCC Surcharge" %}</span>
+                        <span class="craft-kpi-value" id="structureSummaryScc">0 ISK</span>
+                    </div>
+                    <div class="craft-kpi craft-kpi-sm">
+                        <span class="craft-kpi-label">{% trans "Installation Total" %}</span>
+                        <span class="craft-kpi-value" id="structureSummaryInstallationModal">0 ISK</span>
+                    </div>
+                </div>
+                <div id="structureSummaryModalEmpty" class="alert alert-info mb-3 d-none">
+                    <i class="fas fa-info-circle me-2"></i>{% trans "Assign a structure to produced items to include installation costs." %}
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>{% trans "Item" %}</th>
+                                <th>{% trans "Structure" %}</th>
+                                <th class="text-end">{% trans "Cycles" %}</th>
+                                <th>{% trans "Breakdown" %}</th>
+                                <th class="text-end">{% trans "Cost" %}</th>
+                            </tr>
+                        </thead>
+                        <tbody id="structureCostRows"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endif %}
 {% endblock content %}
 
 {% block extra_javascript %}
 {{ blueprint_payload|json_script:"blueprint-payload" }}
-
-<script>
-(function() {
-    const payloadEl = document.getElementById('blueprint-payload');
-    if (payloadEl) {
-        try {
-            const data = JSON.parse(payloadEl.textContent);
-            window.BLUEPRINT_DATA = Object.assign({}, data, {
-                save_url: data.urls ? data.urls.save : undefined,
-                load_url: data.urls ? data.urls.load_list : undefined,
-                load_config_url: data.urls ? data.urls.load_config : undefined,
-                fuzzwork_price_url: data.urls ? data.urls.fuzzwork_price : undefined
-            });
-        } catch (error) {
-            console.error('Failed to parse blueprint payload:', error);
-            window.BLUEPRINT_DATA = window.BLUEPRINT_DATA || {};
-        }
-    } else {
-        window.BLUEPRINT_DATA = window.BLUEPRINT_DATA || {};
-    }
-
-    // Optional debug mode for verbose console logging (used by Craft BP + Run optimized).
-    // Enable by appending &indy_debug=1 (or &debug=1) to the URL.
-    // Note: be tolerant of malformed URLs (e.g. a second '?indy_debug=1' appended).
-    try {
-        const params = new URLSearchParams(window.location.search);
-        const href = String(window.location && window.location.href ? window.location.href : '');
-        const enabled =
-            params.get('indy_debug') === '1' ||
-            params.get('debug') === '1' ||
-            href.includes('indy_debug=1') ||
-            href.includes('debug=1');
-
-        if (enabled) {
-            window.INDY_HUB_DEBUG = true;
-            if (typeof console !== 'undefined' && typeof console.log === 'function') {
-                console.log('[IndyHub] Debug enabled (INDY_HUB_DEBUG=true)');
-            }
-        }
-    } catch (e) {
-        // ignore
-    }
-})();
-</script>
-
+<script src="{% static 'indy_hub/js/craft_bp_page.js' %}"></script>
+{% if not deferred_shell %}
 <script src="{% static 'indy_hub/js/craft_bp_simulation_api.js' %}"></script>
 <script src="{% static 'indy_hub/js/craft_bp_active_tab.js' %}"></script>
 <script src="{% static 'indy_hub/js/craft_bp.js' %}"></script>
 <script src="{% static 'indy_hub/js/craft_bp_inline.js' %}"></script>
-
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    // Blueprint copy request function
-    window.requestBlueprintCopy = function(typeId, button) {
-        const select = document.getElementById(`bpCopySelect${typeId}`);
-        if (!select) return;
-
-        const [me, te] = select.value.split(',');
-
-        const runsValue = Math.max(1, parseInt(document.getElementById(`bpRunsRequested${typeId}`)?.value || '300', 10) || 300);
-        const copiesValue = Math.max(1, parseInt(document.getElementById(`bpCopiesRequested${typeId}`)?.value || '1', 10) || 1);
-
-        // Create and submit form
-        const form = document.createElement('form');
-        form.method = 'POST';
-        form.action = '{% url "indy_hub:bp_copy_request_create" %}';
-
-        // CSRF token
-        const csrfInput = document.createElement('input');
-        csrfInput.type = 'hidden';
-        csrfInput.name = 'csrfmiddlewaretoken';
-        csrfInput.value = '{{ csrf_token }}';
-        form.appendChild(csrfInput);
-
-        // Type ID
-        const typeIdInput = document.createElement('input');
-        typeIdInput.type = 'hidden';
-        typeIdInput.name = 'type_id';
-        typeIdInput.value = typeId;
-        form.appendChild(typeIdInput);
-
-        // ME
-        const meInput = document.createElement('input');
-        meInput.type = 'hidden';
-        meInput.name = 'material_efficiency';
-        meInput.value = me;
-        form.appendChild(meInput);
-
-        // TE
-        const teInput = document.createElement('input');
-        teInput.type = 'hidden';
-        teInput.name = 'time_efficiency';
-        teInput.value = te;
-        form.appendChild(teInput);
-
-        // Runs
-        const runsInput = document.createElement('input');
-        runsInput.type = 'hidden';
-        runsInput.name = 'runs_requested';
-        runsInput.value = String(runsValue);
-        form.appendChild(runsInput);
-
-        // Copies
-        const copiesInput = document.createElement('input');
-        copiesInput.type = 'hidden';
-        copiesInput.name = 'copies_requested';
-        copiesInput.value = String(copiesValue);
-        form.appendChild(copiesInput);
-
-        document.body.appendChild(form);
-        form.submit();
-    };
-
-    // Active tab tracking for form submission
-    const controlForm = document.getElementById('blueprint-control-form');
-    const activeTabInput = document.getElementById('activeTabInput');
-
-    if (controlForm && activeTabInput) {
-        controlForm.addEventListener('submit', function() {
-            const activeTab = document.querySelector('#bpTabs .nav-link.active');
-            if (activeTab) {
-                const target = activeTab.getAttribute('data-bs-target');
-                if (target) {
-                    activeTabInput.value = target.replace('#tab-', '');
-                }
-            }
-        });
-    }
-
-    // Materials group expand/collapse controls
-    const expandMaterialsBtn = document.getElementById('expand-materials');
-    const collapseMaterialsBtn = document.getElementById('collapse-materials');
-
-    if (expandMaterialsBtn) {
-        expandMaterialsBtn.addEventListener('click', function() {
-            document.querySelectorAll('.craft-group-card').forEach(card => {
-                card.classList.remove('collapsed');
-            });
-        });
-    }
-
-    if (collapseMaterialsBtn) {
-        collapseMaterialsBtn.addEventListener('click', function() {
-            document.querySelectorAll('.craft-group-card').forEach(card => {
-                card.classList.add('collapsed');
-            });
-        });
-    }
-
-    // Bulk ME/TE actions with toast feedback
-    const applyBulkMEBtn = document.getElementById('applyBulkME');
-    const applyBulkTEBtn = document.getElementById('applyBulkTE');
-    const bulkToast = document.getElementById('bulkActionToast');
-    const toastMessage = document.getElementById('toastMessage');
-
-    function showToast(message, isSuccess = true) {
-        if (bulkToast && toastMessage) {
-            toastMessage.textContent = message;
-            bulkToast.classList.remove('bg-success', 'bg-danger');
-            bulkToast.classList.add(isSuccess ? 'bg-success' : 'bg-danger');
-            const toast = new window.bootstrap.Toast(bulkToast);
-            toast.show();
-        }
-    }
-
-    if (applyBulkMEBtn) {
-        applyBulkMEBtn.addEventListener('click', function() {
-            const value = document.getElementById('bulkMEValue').value;
-            if (value < 0 || value > 10) {
-                showToast('{% trans "ME must be between 0 and 10" %}', false);
-                return;
-            }
-            let count = 0;
-            document.querySelectorAll('.bp-me-input').forEach(input => {
-                input.value = value;
-                input.dispatchEvent(new Event('change', { bubbles: true }));
-                count++;
-            });
-            showToast(`{% trans "Applied ME" %} ${value} {% trans "to" %} ${count} {% trans "blueprints" %}`);
-        });
-    }
-
-    if (applyBulkTEBtn) {
-        applyBulkTEBtn.addEventListener('click', function() {
-            const value = document.getElementById('bulkTEValue').value;
-            if (value < 0 || value > 20) {
-                showToast('{% trans "TE must be between 0 and 20" %}', false);
-                return;
-            }
-            let count = 0;
-            document.querySelectorAll('.bp-te-input').forEach(input => {
-                input.value = value;
-                input.dispatchEvent(new Event('change', { bubbles: true }));
-                count++;
-            });
-            showToast(`{% trans "Applied TE" %} ${value} {% trans "to" %} ${count} {% trans "blueprints" %}`);
-        });
-    }
-
-    // Preset buttons
-    const presetMaxBtn = document.getElementById('presetMaxEfficiency');
-    const presetOwnedBtn = document.getElementById('presetOwnedEfficiency');
-    const presetResetBtn = document.getElementById('presetResetEfficiency');
-
-    const blueprintConfigs = {{ blueprint_configs_json|safe }};
-    const blueprintConfigsByTypeId = new Map(
-        (Array.isArray(blueprintConfigs) ? blueprintConfigs : []).map(bc => [Number(bc.type_id), bc])
-    );
-
-    if (presetMaxBtn) {
-        presetMaxBtn.addEventListener('click', function() {
-            let count = 0;
-            document.querySelectorAll('.bp-me-input').forEach(input => {
-                input.value = 10;
-                input.dispatchEvent(new Event('change', { bubbles: true }));
-                count++;
-            });
-            document.querySelectorAll('.bp-te-input').forEach(input => {
-                input.value = 20;
-                input.dispatchEvent(new Event('change', { bubbles: true }));
-            });
-            showToast(`{% trans "Max efficiency applied to" %} ${count} {% trans "blueprints" %}`);
-        });
-    }
-
-    if (presetOwnedBtn) {
-        presetOwnedBtn.addEventListener('click', function() {
-            let count = 0;
-            document.querySelectorAll('.bp-me-input').forEach(input => {
-                const card = input.closest('.craft-bp-card');
-                const typeId = card.getAttribute('data-blueprint-type-id');
-                const bp = blueprintConfigsByTypeId.get(Number(typeId));
-                if (bp && bp.is_owned && bp.user_material_efficiency != null) {
-                    input.value = bp.user_material_efficiency;
-                } else {
-                    input.value = 0;
-                }
-                input.dispatchEvent(new Event('change', { bubbles: true }));
-                count++;
-            });
-            document.querySelectorAll('.bp-te-input').forEach(input => {
-                const card = input.closest('.craft-bp-card');
-                const typeId = card.getAttribute('data-blueprint-type-id');
-                const bp = blueprintConfigsByTypeId.get(Number(typeId));
-                if (bp && bp.is_owned && bp.user_time_efficiency != null) {
-                    input.value = bp.user_time_efficiency;
-                } else {
-                    input.value = 0;
-                }
-                input.dispatchEvent(new Event('change', { bubbles: true }));
-            });
-            showToast(`{% trans "Applied owned BP parameters to" %} ${count} {% trans "blueprints" %}`);
-        });
-    }
-
-    if (presetResetBtn) {
-        presetResetBtn.addEventListener('click', function() {
-            let count = 0;
-            document.querySelectorAll('.bp-me-input').forEach(input => {
-                input.value = 0;
-                input.dispatchEvent(new Event('change', { bubbles: true }));
-                count++;
-            });
-            document.querySelectorAll('.bp-te-input').forEach(input => {
-                input.value = 0;
-                input.dispatchEvent(new Event('change', { bubbles: true }));
-            });
-            showToast(`{% trans "Reset" %} ${count} {% trans "blueprints to default values" %}`);
-        });
-    }
-
-    // Expand/Collapse all config (safe with Bootstrap 5)
-    const expandAllConfigBtn = document.getElementById('expandAllConfig');
-    const collapseAllConfigBtn = document.getElementById('collapseAllConfig');
-
-    if (expandAllConfigBtn) {
-        expandAllConfigBtn.addEventListener('click', function() {
-            if (!window.bootstrap || !window.bootstrap.Collapse) {
-                return;
-            }
-            document.querySelectorAll('#blueprintConfigAccordion .accordion-collapse').forEach(el => {
-                window.bootstrap.Collapse.getOrCreateInstance(el, { toggle: false }).show();
-            });
-        });
-    }
-
-    if (collapseAllConfigBtn) {
-        collapseAllConfigBtn.addEventListener('click', function() {
-            if (!window.bootstrap || !window.bootstrap.Collapse) {
-                return;
-            }
-            document.querySelectorAll('#blueprintConfigAccordion .accordion-collapse.show').forEach(el => {
-                window.bootstrap.Collapse.getOrCreateInstance(el, { toggle: false }).hide();
-            });
-        });
-    }
-
-    // Blueprint search and filter
-    const searchInput = document.getElementById('blueprintSearchInput');
-    const clearSearchBtn = document.getElementById('clearSearch');
-
-    if (searchInput) {
-        function filterBlueprints(query) {
-            const searchTerm = query.toLowerCase();
-            let totalVisible = 0;
-
-            document.querySelectorAll('#blueprintConfigAccordion .accordion-item').forEach(item => {
-                const groupName = item.querySelector('.accordion-button')?.textContent?.toLowerCase() || '';
-                const configs = item.querySelectorAll('.craft-bp-card, .craft-config-item');
-                let visibleInGroup = 0;
-
-                configs.forEach(config => {
-                    const itemName = (
-                        config.querySelector('.card-title')?.textContent?.toLowerCase() ||
-                        config.querySelector('.craft-config-name')?.textContent?.toLowerCase() ||
-                        ''
-                    );
-                    const matches = searchTerm === '' || groupName.includes(searchTerm) || itemName.includes(searchTerm);
-                    config.style.display = matches ? '' : 'none';
-                    if (matches) visibleInGroup++;
-                    totalVisible += matches ? 1 : 0;
-                });
-
-                const showGroup = visibleInGroup > 0;
-                item.style.display = showGroup ? '' : 'none';
-            });
-
-            const noResultsMsg = document.getElementById('blueprintNoResults');
-            if (totalVisible === 0 && searchTerm !== '') {
-                if (!noResultsMsg) {
-                    const msg = document.createElement('div');
-                    msg.id = 'blueprintNoResults';
-                    msg.className = 'alert alert-info mt-3';
-                    msg.innerHTML = '<i class="fas fa-search me-2"></i>{% trans "No blueprints match your search" %}';
-                    document.querySelector('#blueprintConfigAccordion')?.parentElement?.appendChild(msg);
-                }
-            } else if (noResultsMsg) {
-                noResultsMsg.remove();
-            }
-        }
-
-        searchInput.addEventListener('input', function() {
-            filterBlueprints(this.value);
-        });
-
-        if (clearSearchBtn) {
-            clearSearchBtn.addEventListener('click', function() {
-                searchInput.value = '';
-                filterBlueprints('');
-                searchInput.focus();
-            });
-        }
-    }
-
-    // CSV Export functionality
-    const exportPurchaseBtn = document.getElementById('exportPurchaseCSV');
-    const exportShoppingBtn = document.getElementById('exportShoppingCSV');
-
-    function exportTableToCSV(tableId, filename) {
-        const table = document.querySelector(tableId);
-        if (!table) return;
-
-        const rows = Array.from(table.querySelectorAll('tr'));
-        const csv = rows.map(row => {
-            const cells = Array.from(row.querySelectorAll('th, td'));
-            return cells.map(cell => {
-                const text = cell.textContent.trim().replace(/"/g, '""');
-                return `"${text}"`;
-            }).join(',');
-        }).join('\n');
-
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
-        link.download = filename;
-        link.click();
-    }
-
-    if (exportPurchaseBtn) {
-        exportPurchaseBtn.addEventListener('click', function() {
-            exportTableToCSV('#financialItemsBody', 'purchase_planner.csv');
-        });
-    }
-
-    if (exportShoppingBtn) {
-        exportShoppingBtn.addEventListener('click', function() {
-            exportTableToCSV('#needed-table', 'shopping_list.csv');
-        });
-    }
-
-    // Load Fuzzwork from alert
-    const loadFuzzworkFromAlert = document.getElementById('loadFuzzworkFromAlert');
-    if (loadFuzzworkFromAlert) {
-        loadFuzzworkFromAlert.addEventListener('click', function() {
-            document.getElementById('loadFuzzworkBtn')?.click();
-        });
-    }
-
-    // Calculate quick stats
-    function updateQuickStats() {
-        const bpCount = document.querySelectorAll('.craft-bp-card, .craft-config-item').length;
-        document.getElementById('totalBlueprintsCount').textContent = bpCount || '-';
-
-        const matCount = document.querySelectorAll('.craft-item-row').length;
-        document.getElementById('totalMaterialsCount').textContent = matCount || '-';
-    }
-
-    updateQuickStats();
-
-    // ========== RUNS VALIDATION ==========
-    function validateBlueprintRuns() {
-        const blueprintConfigs = {{ blueprint_configs_json|safe }};
-        const cyclesSummary = {{ craft_cycles_summary_json|safe }} || {};
-        const mainBpInfo = {{ main_bp_info|safe }};
-        const mainBpTypeId = (() => {
-            const fromInfo = mainBpInfo ? Number(mainBpInfo.type_id) : 0;
-            if (fromInfo) return fromInfo;
-            const fromContext = Number({{ bp_type_id|default:"0" }});
-            if (fromContext) return fromContext;
-            const match = window.location.pathname.match(/\/(\d+)\/?$/);
-            return match ? Number(match[1]) : 0;
-        })();
-        const runsInputEl = document.getElementById('runsInput');
-        const mainNumRuns = runsInputEl ? Number(runsInputEl.value) || 0 : Number({{ num_runs|default:0 }});
-
-        const mainAvailableRuns = mainBpInfo && mainBpInfo.is_copy && mainBpInfo.runs_available != null
-            ? Number(mainBpInfo.runs_available) || 0
-            : null;
-
-        document.querySelectorAll('.runs-validation-alert').forEach(el => el.innerHTML = '');
-        document.querySelectorAll('.blueprint-sharing-section[data-bp-owned-copy="1"]').forEach(el => el.classList.add('d-none'));
-
-        blueprintConfigs.forEach(bp => {
-            const userOwns = Boolean(bp.user_owns);
-            const isCopyOwned = userOwns && Boolean(bp.is_copy) && bp.runs_available != null;
-            const isNotOwned = !userOwns;
-
-            if (!isCopyOwned && !isNotOwned) return;
-
-            const productId = bp.product_type_id || bp.type_id;
-            let cyclesData = cyclesSummary[productId] || cyclesSummary[String(productId)];
-            let calculatedCycles = cyclesData ? (Number(cyclesData.cycles) || 0) : null;
-            let availableRuns = isCopyOwned ? (Number(bp.runs_available) || 0) : 0;
-
-            if (!cyclesData && mainBpInfo && Number(bp.type_id) === mainBpTypeId) {
-                calculatedCycles = mainNumRuns;
-                if (mainAvailableRuns !== null) {
-                    availableRuns = mainAvailableRuns;
-                }
-            }
-
-            if (calculatedCycles === null) return;
-
-            if (calculatedCycles > availableRuns) {
-                const shortfallRuns = calculatedCycles - availableRuns;
-                const alertContainer = document.querySelector(`.runs-validation-alert[data-bp-type-id="${bp.type_id}"]`);
-
-                if (alertContainer) {
-                    alertContainer.innerHTML = `
-                        <div class="alert alert-warning py-1 px-2 mb-2 text-center" style="font-size: 0.8rem;">
-                            <i class="fas fa-exclamation-triangle me-1"></i>
-                            <strong>Missing ${shortfallRuns} run(s)</strong>
-                        </div>
-                    `;
-                }
-
-                const requestContainer = document.querySelector(`.blueprint-sharing-section[data-bp-owned-copy="1"][data-bp-type-id="${bp.type_id}"]`);
-                if (requestContainer) {
-                    requestContainer.classList.remove('d-none');
-                }
-
-                const runsInput = document.getElementById(`bpRunsRequested${bp.type_id}`);
-                if (runsInput) {
-                    const current = parseInt(runsInput.value || '0', 10) || 0;
-                    if (!current || current === 300) {
-                        runsInput.value = String(Math.max(1, shortfallRuns));
-                    }
-                }
-            }
-        });
-    }
-
-    validateBlueprintRuns();
-
-    const runsInputControl = document.getElementById('runsInput');
-    if (runsInputControl) {
-        runsInputControl.addEventListener('change', () => {
-            if (window.CraftBP && typeof window.CraftBP.recalculate === 'function') {
-                window.CraftBP.recalculate()
-                    .finally(() => {
-                        validateBlueprintRuns();
-                    });
-            } else {
-                validateBlueprintRuns();
-            }
-        });
-    }
-
-    document.addEventListener('change', function(e) {
-        if (e.target.classList.contains('bp-me-input') || e.target.classList.contains('bp-te-input')) {
-            if (window.CraftBP && typeof window.CraftBP.recalculate === 'function') {
-                window.CraftBP.recalculate().then(() => {
-                    validateBlueprintRuns();
-                }).catch(() => {
-                    validateBlueprintRuns();
-                });
-            }
-        }
-    }, true);
-
-    if (window.CraftBP && typeof window.CraftBP.init === 'function') {
-        window.CraftBP.init({
-            productTypeId: '{{ product_type_id|default:0 }}',
-            fuzzworkPriceUrl: '{% url "indy_hub:fuzzwork_price" %}'
-        });
-    }
-
-    const recalcBtn = document.getElementById('recalcNowBtn');
-    if (recalcBtn) {
-        recalcBtn.addEventListener('click', function() {
-            if (window.CraftBP && typeof window.CraftBP.recalculate === 'function') {
-                window.CraftBP.recalculate().then(() => {
-                    validateBlueprintRuns();
-                }).catch(() => {
-                    validateBlueprintRuns();
-                });
-            } else {
-                setTimeout(validateBlueprintRuns, 300);
-            }
-        });
-    }
-
-    // ========== TAB PERSISTENCE ==========
-    const STORAGE_KEY = 'craftBP_{{ ui_version|default:"v2" }}_activeTab_{{ bp_type_id|default:"default" }}';
-    const tabButtons = document.querySelectorAll('#craftMainTabs .nav-link');
-    const tabPanes = document.querySelectorAll('#craftMainTabsContent .tab-pane');
-
-    function showTab(tabBtn) {
-        if (!tabBtn) return;
-
-        // Prefer Bootstrap's Tab API so that shown.bs.tab events fire (needed by other JS like Run optimized)
-        if (window.bootstrap && window.bootstrap.Tab && typeof window.bootstrap.Tab.getOrCreateInstance === 'function') {
-            window.bootstrap.Tab.getOrCreateInstance(tabBtn).show();
-            return;
-        }
-
-        // Fallback: manual class toggle
-        tabButtons.forEach(btn => btn.classList.remove('active'));
-        tabPanes.forEach(pane => pane.classList.remove('show', 'active'));
-
-        tabBtn.classList.add('active');
-        const targetId = tabBtn.getAttribute('data-bs-target');
-        if (targetId) {
-            const targetPane = document.querySelector(targetId);
-            if (targetPane) {
-                targetPane.classList.add('show', 'active');
-            }
-        }
-    }
-
-    function restoreActiveTab() {
-        const savedTab = localStorage.getItem(STORAGE_KEY);
-        if (!savedTab) {
-            showTab(tabButtons.length > 0 ? tabButtons[0] : null);
-            return;
-        }
-
-        const tabBtn = document.querySelector(`#craftMainTabs .nav-link[data-tab-name="${savedTab}"]`);
-        if (tabBtn) {
-            showTab(tabBtn);
-        } else {
-            showTab(tabButtons.length > 0 ? tabButtons[0] : null);
-        }
-    }
-
-    tabButtons.forEach(button => {
-        button.addEventListener('click', function() {
-            const tabName = this.getAttribute('data-tab-name');
-            if (tabName) {
-                localStorage.setItem(STORAGE_KEY, tabName);
-            }
-        });
-    });
-
-    restoreActiveTab();
-});
-</script>
+{% endif %}
 {% endblock extra_javascript %}

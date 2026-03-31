@@ -7,6 +7,95 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
 
+## [2.0.0-dev] - 2026-03-31
+
+### Added
+
+- Industry Structures: added a full Structure Registry for industrial planning, with manual structure profiles, corporation-synced entries, personal copies, detailed bonus inspection, and direct add, edit, duplicate, and delete flows.
+- Industry Structures: added live solar-system lookup, same-system duplicate detection, dogma-backed bonus previews, a rig deduction helper, bulk tax completion tools, and bulk import from copied `/indy/` text exports.
+- Industry Structures: added automatic synchronization of public system cost indices and background refresh for persisted corporation-synced structures.
+- Craft Planning: added a structure planner to the craft workspace so users can compare recommended structures per item, including installation-cost awareness and jump-distance data.
+- Craft Planning: added a character advisor to show which tracked characters can build each step and how many industry lines they currently have available.
+- Blueprint Sharing: added estimated copy creation cost on the fulfill queue and a modal-driven copy request flow with duration estimates and qualified producer counts.
+- Operations safety: added a dedicated `sde_not_ready` page when required SDE compatibility data is missing.
+- Material Exchange: added a contract paste-check helper on buy and sell order detail pages and on the My Orders view.
+
+### Changed
+
+- Craft workspace: redesigned the main craft blueprint experience with a richer planning shell, clearer production summaries, better tab and state persistence, and stronger handling for large planning sessions.
+- Industry skills: timing, slot, and qualification logic now relies on active skill levels and stores fuller skill snapshots, making industrial recommendations more realistic.
+- Blueprint Sharing: copy requests now notify only blueprint owners who also have at least one skill-qualified character able to produce the requested copy.
+- Blueprint Sharing: request cards now focus on availability and qualified producers, while detailed copy and run input moved into a dedicated modal.
+- Refresh workflows: blueprint and job refresh feedback is clearer, distinguishes queued, already-running, and cooldown states, and reduces repeated lookup work behind the scenes.
+- Material Exchange: contract verification guidance is clearer and more actionable, with dedicated mismatch sections, automatic checking after paste, and simpler review flows.
+- Structure management: corporation structure data can now be used as a true planning registry instead of a static list, including completion tracking for entries that still need taxes, rigs, or activity details.
+
+### Fixed
+
+- Structure naming and location handling: resolved several cases where placeholder or stale location names could overwrite better structure labels.
+- Material Exchange forms: large buy and sell flows avoid oversized submissions by dropping useless zero-value quantity fields.
+- Material Exchange contract matching: comparisons now handle structure names, cache reuse, and copied contract text more reliably.
+- Blueprint Sharing: launch-window limits are communicated more clearly, and non-qualified producers are no longer alerted for copy requests they cannot fulfill.
+- System data recovery: caches and refresh paths recover more cleanly after empty or reset states, including structure, asset, and location data.
+- ESI public name resolution: invalid IDs no longer break whole public-name batches during resolution.
+
+### Internal
+
+- Added broad regression coverage for structure registry flows, system cost index sync, structure sync tasks, craft payloads, jump distances, craft timing, industry skill handling, copy request behavior, fulfill cost display, and Material Exchange contract checks.
+- Frontend craft assets were refactored substantially to support the new planner, advisor, modal, and registry workflows.
+
+### Update
+
+To apply this release safely, use the sequence matching your deployment type.
+
+#### Bare Metal
+
+1. Update Indy Hub:
+
+- `pip install --upgrade indy-hub`
+
+2. Apply database migrations:
+
+- `python manage.py migrate`
+
+3. Refresh static assets:
+
+- `python manage.py collectstatic --noinput`
+
+4. Restart Alliance Auth web and Celery services.
+
+1. If Indy Hub shows the `sde_not_ready` page after the upgrade, refresh the compatibility data:
+
+- `python manage.py sync_sde_compat`
+
+6. Let background tasks run, or trigger your usual refresh flow, so the new industry system cost indices and synced structure data can populate.
+
+1. Open the Structure Registry and review newly synced or imported structures, especially taxes, enabled activities, and rigs, before relying on the new planner recommendations.
+
+#### Docker
+
+1. Upgrade Indy Hub in the application container:
+
+- `docker compose exec allianceauth_gunicorn auth pip install --upgrade indy-hub`
+
+2. Apply database migrations:
+
+- `docker compose exec allianceauth_gunicorn auth migrate`
+
+3. Refresh static assets:
+
+- `docker compose exec allianceauth_gunicorn auth collectstatic --noinput`
+
+4. Restart Alliance Auth containers and workers.
+
+1. If Indy Hub shows the `sde_not_ready` page after the upgrade, refresh the compatibility data:
+
+- `docker compose exec allianceauth_gunicorn auth sync_sde_compat`
+
+6. Let scheduled tasks catch up, or trigger your normal refresh flow, so system cost indices and synced structure entries are filled in.
+
+1. Review the Structure Registry after the upgrade and complete any missing taxes, activities, or rig assumptions before using structure recommendations for production planning.
+
 ## [1.15.2] - 2026-03-20
 
 ### Added

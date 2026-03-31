@@ -312,11 +312,62 @@ html[data-theme="darkly"] .craft-hero .header-bg {
     padding: 0.35rem 0.75rem;
 }
 
-#bpTabs-loading {
-    border-radius: 1.25rem;
-    border: 1px solid rgb(250 204 21 / 40%) !important;
-    background: linear-gradient(135deg, #fff7d6, #fee4a4) !important;
-    box-shadow: 0 14px 32px rgb(250 204 21 / 35%);
+.craft-bp-workspace {
+    transition: opacity 0.18s ease, visibility 0.18s ease;
+}
+
+.craft-bp-workspace.is-loading {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.craft-bp-loading-inline {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    padding: 2rem 1rem;
+    margin-bottom: 1.5rem;
+    transition: opacity 0.18s ease, visibility 0.18s ease;
+}
+
+.craft-bp-loading-inline.is-hidden {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    display: none;
+}
+
+.craft-bp-loading-spinner {
+    width: 2.5rem;
+    height: 2.5rem;
+    display: block;
+    flex: 0 0 auto;
+    color: var(--bs-warning-text-emphasis, #b45309);
+    animation: craftBpSpinnerRotate 1.4s linear infinite;
+    transform-origin: 50% 50%;
+}
+
+@keyframes craftBpSpinnerRotate {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.craft-bp-loading-inline__text {
+    font-weight: 600;
+    color: var(--bs-secondary-color);
+}
+
+@media (max-width: 575.98px) {
+    .craft-bp-loading-inline {
+        flex-direction: column;
+        text-align: center;
+    }
 }
 
 .blueprint-main {
@@ -531,6 +582,7 @@ html[data-theme="darkly"] .blueprint-tab.active .tab-icon {
 #materials-tab.blueprint-tab .tab-icon { background: rgba(2, 132, 199, 0.13); color: #0369a1; }
 #tree-tab.blueprint-tab .tab-icon { background: rgba(22, 163, 74, 0.14); color: #15803d; }
 #cycles-tab.blueprint-tab .tab-icon { background: rgba(100, 116, 139, 0.14); color: #475569; }
+#structure-tab.blueprint-tab .tab-icon { background: rgba(14, 116, 144, 0.14); color: #0f766e; }
 #financial-tab.blueprint-tab .tab-icon { background: rgba(251, 191, 36, 0.18); color: #b45309; }
 #needed-tab.blueprint-tab .tab-icon { background: rgba(2, 132, 199, 0.13); color: #0369a1; }
 #config-tab.blueprint-tab .tab-icon { background: rgba(220, 38, 38, 0.16); color: #b91c1c; }
@@ -538,6 +590,7 @@ html[data-theme="darkly"] .blueprint-tab.active .tab-icon {
 #materials-tab.blueprint-tab.active { background: linear-gradient(135deg, #0284c7, #38bdf8); }
 #tree-tab.blueprint-tab.active { background: linear-gradient(135deg, #16a34a, #4ade80); }
 #cycles-tab.blueprint-tab.active { background: linear-gradient(135deg, #334155, #64748b); }
+#structure-tab.blueprint-tab.active { background: linear-gradient(135deg, #0f766e, #14b8a6); }
 #financial-tab.blueprint-tab.active { background: linear-gradient(135deg, #facc15, #fbbf24); color: var(--bs-body-color); }
 #financial-tab.blueprint-tab.active .tab-title,
 #financial-tab.blueprint-tab.active .tab-subtitle,
@@ -550,6 +603,57 @@ html[data-theme="darkly"] .blueprint-tab.active .tab-icon {
 
 html[data-theme="darkly"] #financial-tab.blueprint-tab.active .tab-icon {
     background: rgba(var(--bs-warning-rgb), 0.22);
+}
+
+.craft-structure-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem;
+}
+
+.craft-structure-summary-card {
+    border: 1px solid rgba(15, 118, 110, 0.18);
+    border-radius: 1rem;
+    background: linear-gradient(180deg, rgba(20, 184, 166, 0.08), rgba(var(--bs-body-bg-rgb), 0.92));
+    padding: 1rem 1.1rem;
+    box-shadow: 0 14px 28px rgb(15 23 42 / 8%);
+}
+
+.craft-structure-summary-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #0f766e;
+    margin-bottom: 0.45rem;
+}
+
+.craft-structure-summary-value {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin-bottom: 0.35rem;
+}
+
+.craft-structure-summary-meta {
+    font-size: 0.85rem;
+    color: var(--bs-secondary-color);
+}
+
+.craft-structure-table select.form-select {
+    min-width: 280px;
+}
+
+.craft-structure-financial-summary {
+    border: 1px solid rgba(15, 118, 110, 0.12);
+    border-radius: 1rem;
+    padding: 1rem;
+    background: rgba(15, 118, 110, 0.03);
+}
+
+@media (max-width: 767.98px) {
+    .craft-structure-table select.form-select {
+        min-width: 220px;
+    }
 }
 
 /* Tab intro cards */

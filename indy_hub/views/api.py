@@ -6,6 +6,8 @@ These views handle API calls, external data fetching, and service integrations.
 
 # Standard Library
 import json
+import re
+from datetime import timedelta
 from decimal import Decimal
 from math import ceil
 
@@ -28,12 +30,24 @@ from ..models import (
     ProductionConfig,
     ProductionSimulation,
 )
+from ..services.craft_materials import (
+    compute_job_material_quantity,
+    is_base_item_material_efficiency_exempt,
+)
+from ..services.craft_structures import (
+    build_craft_structure_planner,
+    compute_solar_system_jump_distances,
+)
+from ..services.craft_times import build_craft_time_map
+from ..services.industry_skills import build_craft_character_advisor
+from ..services.industry_structures import resolve_solar_system_reference
 from ..utils.analytics import emit_view_analytics_event
 from ..utils.menu_badge import compute_menu_badge_count
 
 logger = get_extension_logger(__name__)
 
 MENU_BADGE_CACHE_TTL_SECONDS = 45
+SKILL_CACHE_TTL = timedelta(hours=1)
 
 
 def _to_serializable(value):
@@ -169,9 +183,139 @@ def craft_bp_payload(request, type_id: int):
             }
 
     # Exact per-cycle recipes for craftable items (keyed by product type_id).
-    # This avoids approximating recipes from tree occurrences in the frontend.
+    # We expose both the currently configured input quantities and the raw ME 0
+    # quantities because industry install cost uses the unmodified job inputs.
     recipe_map: dict[int, dict[str, object]] = {}
     recipe_cache: dict[tuple[int, int], dict[str, object]] = {}
+    blueprint_product_type_cache: dict[int, int | None] = {}
+    type_meta_cache: dict[int, tuple[int | None, int | None]] = {}
+
+    if type_id:
+        blueprint_product_type_cache[int(type_id)] = (
+            int(product_type_id) if product_type_id else None
+        )
+
+    def get_blueprint_product_type_id(blueprint_type_id: int) -> int | None:
+        blueprint_type_id = int(blueprint_type_id or 0)
+        if blueprint_type_id in blueprint_product_type_cache:
+            return blueprint_product_type_cache[blueprint_type_id]
+
+        with connection.cursor() as lookup_cursor:
+            lookup_cursor.execute(
+                """
+                SELECT product_eve_type_id
+                FROM indy_hub_sdeindustryactivityproduct
+                WHERE eve_type_id = %s AND activity_id IN (1, 11)
+                LIMIT 1
+                """,
+                [blueprint_type_id],
+            )
+            row = lookup_cursor.fetchone()
+
+        resolved = int(row[0]) if row and row[0] else None
+        blueprint_product_type_cache[blueprint_type_id] = resolved
+        return resolved
+
+    def get_type_meta(type_id_value: int) -> tuple[int | None, int | None]:
+        numeric_type_id = int(type_id_value or 0)
+        if not numeric_type_id:
+            return (None, None)
+        if numeric_type_id in type_meta_cache:
+            return type_meta_cache[numeric_type_id]
+
+        with connection.cursor() as meta_cursor:
+            meta_cursor.execute(
+                """
+                SELECT t.meta_group_id_raw, g.category_id
+                FROM eve_sde_itemtype t
+                LEFT JOIN eve_sde_itemgroup g ON t.group_id = g.id
+                WHERE t.id = %s
+                LIMIT 1
+                """,
+                [numeric_type_id],
+            )
+            row = meta_cursor.fetchone()
+
+        meta_group_id = int(row[0]) if row and row[0] is not None else None
+        category_id = int(row[1]) if row and row[1] is not None else None
+        type_meta_cache[numeric_type_id] = (meta_group_id, category_id)
+        return type_meta_cache[numeric_type_id]
+
+    def material_efficiency_applies(
+        blueprint_type_id: int, material_type_id: int
+    ) -> bool:
+        product_type_id_for_blueprint = get_blueprint_product_type_id(blueprint_type_id)
+        if not product_type_id_for_blueprint:
+            return True
+
+        parent_meta_group_id, parent_category_id = get_type_meta(
+            product_type_id_for_blueprint
+        )
+        material_meta_group_id, material_category_id = get_type_meta(material_type_id)
+        return not is_base_item_material_efficiency_exempt(
+            parent_meta_group_id,
+            parent_category_id,
+            material_meta_group_id,
+            material_category_id,
+        )
+
+    def build_recipe_entry(
+        blueprint_type_id: int, blueprint_me: int = 0
+    ) -> dict[str, object]:
+        cache_key = (int(blueprint_type_id), int(blueprint_me))
+        if cache_key in recipe_cache:
+            return recipe_cache[cache_key]
+
+        with connection.cursor() as recipe_cursor:
+            recipe_cursor.execute(
+                """
+                SELECT quantity
+                FROM indy_hub_sdeindustryactivityproduct
+                WHERE eve_type_id = %s AND activity_id IN (1, 11)
+                LIMIT 1
+                """,
+                [blueprint_type_id],
+            )
+            output_row = recipe_cursor.fetchone()
+            produced_per_cycle = int((output_row[0] if output_row else 1) or 1)
+
+            recipe_cursor.execute(
+                """
+                SELECT material_eve_type_id, quantity
+                FROM indy_hub_sdeindustryactivitymaterial
+                WHERE eve_type_id = %s AND activity_id IN (1, 11)
+                """,
+                [blueprint_type_id],
+            )
+            adjusted_inputs = []
+            me0_inputs = []
+            for mat_type_id, base_qty_per_cycle in recipe_cursor.fetchall():
+                raw_qty_per_cycle = int(base_qty_per_cycle or 0)
+                if raw_qty_per_cycle <= 0:
+                    continue
+                adjusted_qty_per_cycle = ceil(
+                    raw_qty_per_cycle * (100 - int(blueprint_me or 0)) / 100
+                )
+                if adjusted_qty_per_cycle > 0:
+                    adjusted_inputs.append(
+                        {
+                            "type_id": int(mat_type_id),
+                            "quantity": int(adjusted_qty_per_cycle),
+                        }
+                    )
+                me0_inputs.append(
+                    {
+                        "type_id": int(mat_type_id),
+                        "quantity": int(raw_qty_per_cycle),
+                    }
+                )
+
+        recipe_cache[cache_key] = {
+            "produced_per_cycle": produced_per_cycle,
+            "inputs_per_cycle": adjusted_inputs,
+            "inputs_per_cycle_me0": me0_inputs,
+        }
+        return recipe_cache[cache_key]
 
     def get_materials_tree(
         bp_id,
@@ -203,14 +347,21 @@ def craft_bp_payload(request, type_id: int):
 
             mats = []
             for row in cursor.fetchall():
-                # IMPORTANT: ME rounding must be applied per-run (per job/cycle), then multiplied.
-                # Doing ceil((base * runs) * (1 - ME)) underestimates for small base quantities.
-                per_run_qty = ceil((row[2] or 0) * (100 - blueprint_me) / 100)
-                qty = int(per_run_qty) * int(runs)
+                material_type_id = int(row[0])
+                apply_material_efficiency = material_efficiency_applies(
+                    bp_id, material_type_id
+                )
+                qty = compute_job_material_quantity(
+                    row[2],
+                    runs,
+                    blueprint_me,
+                    apply_material_efficiency=apply_material_efficiency,
+                )
                 mat = {
-                    "type_id": row[0],
+                    "type_id": material_type_id,
                     "type_name": row[1],
                     "quantity": qty,
+                    "material_bonus_applicable": apply_material_efficiency,
                     "cycles": None,
                     "produced_per_cycle": None,
                     "total_produced": None,
@@ -254,46 +405,13 @@ def craft_bp_payload(request, type_id: int):
                         sub_bp_config = (me_te_map or {}).get(sub_bp_id, {})
                         sub_bp_me = sub_bp_config.get("me", 0)
 
-                        # Build exact per-cycle recipe for this craftable output (mat["type_id"]).
-                        # Cache by (blueprint_id, blueprint_me) because ME changes the rounded per-cycle quantities.
-                        cache_key = (int(sub_bp_id), int(sub_bp_me))
-                        if cache_key not in recipe_cache:
-                            with connection.cursor() as recipe_cursor:
-                                recipe_cursor.execute(
-                                    """
-                                    SELECT material_eve_type_id, quantity
-                                    FROM indy_hub_sdeindustryactivitymaterial
-                                    WHERE eve_type_id = %s AND activity_id IN (1, 11)
-                                    """,
-                                    [sub_bp_id],
-                                )
-                                inputs = []
-                                for (
-                                    mat_type_id,
-                                    base_qty_per_cycle,
-                                ) in recipe_cursor.fetchall():
-                                    qty_per_cycle = ceil(
-                                        (base_qty_per_cycle or 0)
-                                        * (100 - sub_bp_me)
-                                        / 100
-                                    )
-                                    if qty_per_cycle <= 0:
-                                        continue
-                                    inputs.append(
-                                        {
-                                            "type_id": int(mat_type_id),
-                                            "quantity": int(qty_per_cycle),
-                                        }
-                                    )
-                            recipe_cache[cache_key] = {
-                                "produced_per_cycle": int(output_qty or 1),
-                                "inputs_per_cycle": inputs,
-                            }
-
                         # Key recipe map by produced item type_id (not blueprint id)
                         produced_type_id = int(mat["type_id"])
                         if produced_type_id not in recipe_map:
-                            recipe_map[produced_type_id] = recipe_cache[cache_key]
+                            recipe_map[produced_type_id] = build_recipe_entry(
+                                int(sub_bp_id),
+                                int(sub_bp_me or 0),
+                            )
 
                         mat["sub_materials"] = get_materials_tree(
                             sub_bp_id,
@@ -312,6 +430,25 @@ def craft_bp_payload(request, type_id: int):
 
     materials_tree = get_materials_tree(type_id, num_runs, me, me_te_map=me_te_configs)
 
+    if product_type_id:
+        recipe_map.setdefault(
+            int(product_type_id),
+            build_recipe_entry(int(type_id), int(me or 0)),
+        )
+
+    production_time_map = build_craft_time_map(
+        recipe_map=recipe_map,
+        product_type_id=product_type_id,
+        product_type_name="",
+        product_output_per_cycle=output_qty_per_run,
+        root_blueprint_type_id=type_id,
+    )
+    craft_character_advisor = build_craft_character_advisor(
+        user=request.user,
+        production_time_map=production_time_map,
+        skill_cache_ttl=SKILL_CACHE_TTL,
+    )
+
     payload = {
         "type_id": type_id,
         "bp_type_id": type_id,
@@ -320,15 +457,93 @@ def craft_bp_payload(request, type_id: int):
         "te": te,
         "product_type_id": product_type_id,
         "output_qty_per_run": output_qty_per_run,
+        "product_output_per_cycle": output_qty_per_run,
         "final_product_qty": final_product_qty,
         "materials_tree": _to_serializable(materials_tree),
         "recipe_map": _to_serializable(recipe_map),
+        "production_time_map": _to_serializable(production_time_map),
+        "craft_character_advisor": _to_serializable(craft_character_advisor),
+        "structure_planner": _to_serializable(
+            build_craft_structure_planner(
+                product_type_id=product_type_id,
+                product_type_name="",
+                product_output_per_cycle=output_qty_per_run,
+                craft_cycles_summary={},
+            )
+        ),
     }
 
     if debug_enabled:
         payload["_debug"] = _to_serializable(debug_info)
 
     return JsonResponse(payload)
+
+
+def _parse_target_system_ids(raw_values: list[str]) -> list[int]:
+    target_ids: list[int] = []
+    seen_ids: set[int] = set()
+    for raw_value in raw_values:
+        for part in re.split(r"[\s,]+", str(raw_value or "")):
+            if not part:
+                continue
+            try:
+                target_id = int(part)
+            except (TypeError, ValueError):
+                continue
+            if target_id <= 0 or target_id in seen_ids:
+                continue
+            seen_ids.add(target_id)
+            target_ids.append(target_id)
+    return target_ids
+
+
+@indy_hub_access_required
+@indy_hub_permission_required("can_access_indy_hub")
+@login_required
+@require_http_methods(["GET"])
+def craft_structure_jump_distances(request):
+    solar_system_id = request.GET.get("solar_system_id")
+    solar_system_name = str(request.GET.get("solar_system_name", "")).strip()
+
+    try:
+        resolved_system_id = (
+            int(solar_system_id) if solar_system_id not in (None, "") else None
+        )
+    except (TypeError, ValueError):
+        resolved_system_id = None
+
+    origin_reference = resolve_solar_system_reference(
+        solar_system_id=resolved_system_id,
+        solar_system_name=solar_system_name or None,
+    )
+    if origin_reference is None:
+        return JsonResponse({"error": "solar_system_not_found"}, status=404)
+
+    target_system_ids = _parse_target_system_ids(
+        request.GET.getlist("target_system_ids")
+    )
+    if not target_system_ids:
+        return JsonResponse({"error": "target_system_ids_required"}, status=400)
+
+    origin_id, origin_name, origin_security_band = origin_reference
+    jump_distances = compute_solar_system_jump_distances(origin_id, target_system_ids)
+
+    return JsonResponse(
+        {
+            "origin": {
+                "solar_system_id": origin_id,
+                "solar_system_name": origin_name,
+                "security_band": origin_security_band,
+            },
+            "distances": [
+                {
+                    "solar_system_id": target_system_id,
+                    "jumps": jump_distances.get(target_system_id),
+                }
+                for target_system_id in target_system_ids
+            ],
+        }
+    )
 
 
 @indy_hub_access_required
@@ -345,6 +560,7 @@ def fuzzwork_price(request):
     """
     type_id = request.GET.get("type_id")
     full = str(request.GET.get("full", "")).strip().lower() in {"1", "true", "yes"}
+    price_source = str(request.GET.get("price_source", "market")).strip().lower()
     if not type_id:
         return JsonResponse({"error": "type_id parameter required"}, status=400)
 
@@ -356,8 +572,32 @@ def fuzzwork_price(request):
 
         # Remove duplicates and join back
         unique_type_ids = list(set(type_ids))
+        if price_source == "adjusted":
+            from ..services.market_prices import fetch_adjusted_prices
+
+            adjusted_prices = fetch_adjusted_prices(unique_type_ids, timeout=10)
+            if full:
+                return JsonResponse(
+                    {
+                        str(tid): {
+                            "adjusted_price": float(
+                                price_data.get("adjusted_price", 0)
+                            ),
+                            "average_price": float(price_data.get("average_price", 0)),
+                        }
+                        for tid, price_data in adjusted_prices.items()
+                    }
+                )
+
+            return JsonResponse(
+                {
+                    str(tid): float(price_data.get("adjusted_price", 0))
+                    for tid, price_data in adjusted_prices.items()
+                }
+            )
+
         # Local
-        from ..services.fuzzwork import FuzzworkError, fetch_fuzzwork_aggregates
+        from ..services.fuzzwork import fetch_fuzzwork_aggregates
 
         # Fetch price data from Fuzzwork API
         data = fetch_fuzzwork_aggregates(unique_type_ids, timeout=10)
@@ -384,12 +624,14 @@ def fuzzwork_price(request):
 
         return JsonResponse(result)
 
-    except FuzzworkError as e:
-        logger.error(f"Error fetching price data from Fuzzwork: {e}")
-        return JsonResponse({"error": "Unable to fetch price data"}, status=503)
     except (ValueError, KeyError) as e:
         logger.error(f"Error parsing price data: {e}")
         return JsonResponse({"error": "Invalid data received"}, status=500)
+    except Exception as e:
+        if e.__class__.__name__ in {"FuzzworkError", "MarketPriceError"}:
+            logger.error("Error fetching price data: %s", e)
+            return JsonResponse({"error": "Unable to fetch price data"}, status=503)
+        raise
 
 
 @indy_hub_access_required

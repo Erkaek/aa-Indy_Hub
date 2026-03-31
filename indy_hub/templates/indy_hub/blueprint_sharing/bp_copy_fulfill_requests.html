@@ -183,6 +183,29 @@
                         {% for name in req.corporation_names %}<span class="fulfill-owner fulfill-owner--corp">{{ name }}</span>{% endfor %}
                     </div>
                     {% endif %}
+                    {% if req.copy_cost %}
+                    <div class="fulfill-meta-item fulfill-meta-item--cost">
+                        <i class="fas fa-coins"></i>
+                        <span>
+                            {% trans "Estimated copy cost" %}
+                            <strong>{{ req.copy_cost.total_installation_cost|floatformat:0|intcomma }} ISK</strong>
+                        </span>
+                        <span class="fulfill-owner fulfill-owner--corp">{{ req.copy_cost.structure_name }}</span>
+                    </div>
+                    <div class="fulfill-meta-item fulfill-meta-item--cost">
+                        <i class="fas fa-calculator"></i>
+                        <span>
+                            EIV {{ req.copy_cost.estimated_item_value|floatformat:0|intcomma }}
+                            · SCI {{ req.copy_cost.system_cost_index_percent|floatformat:2 }}%
+                            · Bonus -{{ req.copy_cost.job_cost_bonus_percent|floatformat:2 }}%
+                            · Tax {{ req.copy_cost.facility_tax_percent|floatformat:2 }}%
+                            · SCC {{ req.copy_cost.scc_surcharge_percent|floatformat:0 }}%
+                            {% if req.copy_cost.copies_requested > 1 %}
+                            · {{ req.copy_cost.per_copy_installation_cost|floatformat:0|intcomma }} ISK / {% trans "copy" %}
+                            {% endif %}
+                        </span>
+                    </div>
+                    {% endif %}
                 </div>
                 <div class="fulfill-card__time">
                     <i class="far fa-clock"></i>

@@ -1,0 +1,812 @@
+{% extends "indy_hub/base.html" %}
+{% load i18n %}
+{% load static %}
+
+{% block page_title %}{% trans "Structure Registry" %}{% endblock page_title %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
+<link rel="stylesheet" href="{% static 'indy_hub/css/components.css' %}">
+<link rel="stylesheet" href="{% static 'indy_hub/css/industry_structures.css' %}">
+{% endblock extra_css %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    {% include "indy_hub/partials/page_header.html" with icon_class="fas fa-sitemap" title=_("Structure Registry") subtitle=_("Browse the structures already saved in Indy Hub and inspect their resolved hull and rig bonuses.") back_url=back_to_industry_url back_label=_("Back to Jobs") %}
+
+    <div class="d-grid gap-3">
+        <section class="border border-primary-subtle rounded bg-primary-subtle p-3">
+            <form method="get" class="row g-2 align-items-end">
+                <div class="col-12 col-lg">
+                    <label class="form-label small text-primary-emphasis fw-semibold mb-1" for="structureSearch">{% trans "Search" %}</label>
+                    <input type="text" name="search" value="{{ current_filters.search }}" class="form-control form-control-sm" id="structureSearch" placeholder="{% trans 'Structure, system, type, corporation...' %}">
+                    <input type="hidden" name="scope" value="{{ current_filters.scope }}">
+                    <input type="hidden" name="security_band" value="{{ current_filters.security_band }}">
+                    <input type="hidden" name="region_name" value="{{ current_filters.region_name }}">
+                    <input type="hidden" name="constellation_name" value="{{ current_filters.constellation_name }}">
+                    <input type="hidden" name="activity" value="{{ current_filters.activity }}">
+                    <input type="hidden" name="structure_type_id" value="{{ current_filters.structure_type_id }}">
+                    <input type="hidden" name="completion" value="{{ current_filters.completion }}">
+                </div>
+                <div class="col-12 col-lg-auto d-flex flex-wrap gap-2 justify-content-lg-end">
+                    <button type="submit" class="btn btn-sm btn-primary">
+                        <i class="fas fa-filter me-1"></i>{% trans "Apply" %}
+                    </button>
+                    {% if has_active_filters %}
+                        <a class="btn btn-sm btn-outline-secondary" href="{% url 'indy_hub:industry_structure_registry' %}">
+                            <i class="fas fa-rotate-left me-1"></i>{% trans "Reset" %}
+                        </a>
+                    {% endif %}
+                    <div class="dropdown">
+                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-sliders me-1"></i>{% trans "Tools" %}
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#bulkTaxCompletionModal"><i class="fas fa-layer-group me-2"></i>{% trans "Bulk Taxes" %}</button></li>
+                            <li><button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#bulkStructureImportModal"><i class="fas fa-paste me-2"></i>{% trans "Import /indy/" %}</button></li>
+                            {% if can_manage_structure_sync and not auto_sync_corporations_count %}
+                                <li><a class="dropdown-item" href="{{ authorize_corp_all_url }}"><i class="fas fa-key me-2"></i>{% trans "Authorize Corporation ESI" %}</a></li>
+                            {% endif %}
+                        </ul>
+                    </div>
+                    <a class="btn btn-sm btn-primary" href="{% url 'indy_hub:industry_structure_add' %}">
+                        <i class="fas fa-plus me-1"></i>{% trans "Add Structure" %}
+                    </a>
+                </div>
+            </form>
+
+            <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mt-3 pt-3 border-top">
+                <div class="d-flex flex-wrap gap-2 align-items-center small">
+                    <span class="badge text-bg-primary">{{ filtered_structure_count }} {% trans "shown" %}</span>
+                    {% if has_active_filters %}
+                        <span class="badge text-bg-light border">{{ total_structure_count }} {% trans "overall" %}</span>
+                    {% endif %}
+                    <span class="badge text-bg-info-subtle border text-info-emphasis">{{ synced_structure_count }} {% trans "synced" %}</span>
+                    <span class="badge text-bg-warning-subtle border text-warning-emphasis">{{ incomplete_structure_count }} {% trans "need setup" %}</span>
+                    {% if can_manage_structure_sync and auto_sync_corporations_count %}
+                        <span class="badge text-bg-light border">{{ auto_sync_corporations_count }} {% trans "auto-sync corporation(s)" %}</span>
+                    {% endif %}
+                </div>
+                <div class="accordion accordion-flush" id="structureFiltersAccordion">
+                    <div class="accordion-item bg-transparent border-0">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button {% if not has_active_filters %}collapsed{% endif %} py-1 px-0 bg-transparent shadow-none small fw-semibold text-primary" type="button" data-bs-toggle="collapse" data-bs-target="#structureFiltersPanel" aria-expanded="{% if has_active_filters %}true{% else %}false{% endif %}" aria-controls="structureFiltersPanel">
+                                {% trans "Advanced Filters" %}
+                            </button>
+                        </h2>
+                    </div>
+                </div>
+            </div>
+
+            <div class="d-flex flex-wrap gap-2 mt-3">
+                <a class="btn btn-sm {% if current_filters.scope == 'all' %}btn-primary{% else %}btn-outline-primary{% endif %}" href="{% url 'indy_hub:industry_structure_registry' %}?{% if current_filters.search %}search={{ current_filters.search|urlencode }}&amp;{% endif %}{% if current_filters.security_band %}security_band={{ current_filters.security_band|urlencode }}&amp;{% endif %}{% if current_filters.region_name %}region_name={{ current_filters.region_name|urlencode }}&amp;{% endif %}{% if current_filters.constellation_name %}constellation_name={{ current_filters.constellation_name|urlencode }}&amp;{% endif %}{% if current_filters.activity %}activity={{ current_filters.activity|urlencode }}&amp;{% endif %}{% if current_filters.structure_type_id %}structure_type_id={{ current_filters.structure_type_id|urlencode }}&amp;{% endif %}{% if current_filters.completion %}completion={{ current_filters.completion|urlencode }}&amp;{% endif %}scope=all">{% trans "All Visible" %}</a>
+                <a class="btn btn-sm {% if current_filters.scope == 'public' %}btn-primary{% else %}btn-outline-primary{% endif %}" href="{% url 'indy_hub:industry_structure_registry' %}?{% if current_filters.search %}search={{ current_filters.search|urlencode }}&amp;{% endif %}{% if current_filters.security_band %}security_band={{ current_filters.security_band|urlencode }}&amp;{% endif %}{% if current_filters.region_name %}region_name={{ current_filters.region_name|urlencode }}&amp;{% endif %}{% if current_filters.constellation_name %}constellation_name={{ current_filters.constellation_name|urlencode }}&amp;{% endif %}{% if current_filters.activity %}activity={{ current_filters.activity|urlencode }}&amp;{% endif %}{% if current_filters.structure_type_id %}structure_type_id={{ current_filters.structure_type_id|urlencode }}&amp;{% endif %}{% if current_filters.completion %}completion={{ current_filters.completion|urlencode }}&amp;{% endif %}scope=public">{% trans "Shared Structures" %}</a>
+                <a class="btn btn-sm {% if current_filters.scope == 'personal' %}btn-primary{% else %}btn-outline-primary{% endif %}" href="{% url 'indy_hub:industry_structure_registry' %}?{% if current_filters.search %}search={{ current_filters.search|urlencode }}&amp;{% endif %}{% if current_filters.security_band %}security_band={{ current_filters.security_band|urlencode }}&amp;{% endif %}{% if current_filters.region_name %}region_name={{ current_filters.region_name|urlencode }}&amp;{% endif %}{% if current_filters.constellation_name %}constellation_name={{ current_filters.constellation_name|urlencode }}&amp;{% endif %}{% if current_filters.activity %}activity={{ current_filters.activity|urlencode }}&amp;{% endif %}{% if current_filters.structure_type_id %}structure_type_id={{ current_filters.structure_type_id|urlencode }}&amp;{% endif %}{% if current_filters.completion %}completion={{ current_filters.completion|urlencode }}&amp;{% endif %}scope=personal">{% trans "My Personal Copies" %}</a>
+            </div>
+
+            <div id="structureFiltersPanel" class="accordion-collapse collapse {% if has_active_filters %}show{% endif %}" data-bs-parent="#structureFiltersAccordion">
+                <div class="pt-3">
+                    <form method="get" class="row g-2 align-items-end border-top pt-3">
+                        <input type="hidden" name="search" value="{{ current_filters.search }}">
+                        <input type="hidden" name="scope" value="{{ current_filters.scope }}">
+                        <div class="col-6 col-md-3">
+                            <label class="form-label small text-info-emphasis fw-semibold mb-1" for="structureRegionFilter">{% trans "Region" %}</label>
+                            <select name="region_name" class="form-select form-select-sm" id="structureRegionFilter">
+                                {% for value, label in structure_filter_options.region_name %}
+                                    <option value="{{ value }}" {% if current_filters.region_name == value %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <label class="form-label small text-info-emphasis fw-semibold mb-1" for="structureConstellationFilter">{% trans "Constellation" %}</label>
+                            <select name="constellation_name" class="form-select form-select-sm" id="structureConstellationFilter">
+                                {% for value, label in structure_filter_options.constellation_name %}
+                                    <option value="{{ value }}" {% if current_filters.constellation_name == value %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <label class="form-label small text-info-emphasis fw-semibold mb-1" for="structureSecurityFilter">{% trans "Security" %}</label>
+                            <select name="security_band" class="form-select form-select-sm" id="structureSecurityFilter">
+                                {% for value, label in structure_filter_options.security_band %}
+                                    <option value="{{ value }}" {% if current_filters.security_band == value %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <label class="form-label small text-info-emphasis fw-semibold mb-1" for="structureActivityFilter">{% trans "Activity" %}</label>
+                            <select name="activity" class="form-select form-select-sm" id="structureActivityFilter">
+                                {% for value, label in structure_filter_options.activity %}
+                                    <option value="{{ value }}" {% if current_filters.activity == value %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <label class="form-label small text-info-emphasis fw-semibold mb-1" for="structureTypeFilter">{% trans "Structure Type" %}</label>
+                            <select name="structure_type_id" class="form-select form-select-sm" id="structureTypeFilter">
+                                {% for value, label in structure_filter_options.structure_type_id %}
+                                    <option value="{{ value }}" {% if current_filters.structure_type_id == value %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <label class="form-label small text-info-emphasis fw-semibold mb-1" for="structureCompletionFilter">{% trans "Completion" %}</label>
+                            <select name="completion" class="form-select form-select-sm" id="structureCompletionFilter">
+                                {% for value, label in structure_filter_options.completion %}
+                                    <option value="{{ value }}" {% if current_filters.completion == value %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-12 d-flex flex-wrap gap-2 justify-content-end">
+                            {% if has_active_filters %}
+                                <a class="btn btn-sm btn-outline-secondary" href="{% url 'indy_hub:industry_structure_registry' %}">
+                                    <i class="fas fa-rotate-left me-1"></i>{% trans "Clear All" %}
+                                </a>
+                            {% endif %}
+                            <button type="submit" class="btn btn-sm btn-primary">
+                                <i class="fas fa-filter me-1"></i>{% trans "Apply Advanced Filters" %}
+                            </button>
+                        </div>
+                    </form>
+
+                    {% if has_active_filters %}
+                        <div class="small fw-semibold text-primary-emphasis mt-3">{% trans "Active Filters" %}</div>
+                        <div class="d-flex flex-wrap gap-2 align-items-center mt-3">
+                            {% for badge in active_filter_badges %}
+                                <span class="badge rounded-pill text-bg-light border d-inline-flex align-items-center gap-2 px-3 py-2">
+                                    <span><strong>{{ badge.label }}:</strong> {{ badge.value }}</span>
+                                    <a class="link-secondary text-decoration-none" href="{{ badge.clear_url }}" aria-label="{% blocktrans with label=badge.label value=badge.value %}Clear filter {{ label }} {{ value }}{% endblocktrans %}">
+                                        <i class="fas fa-times"></i>
+                                    </a>
+                                </span>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <div class="d-flex align-items-center gap-2 mb-3">
+                <h3 class="h5 mb-0 text-primary">{% trans "Registered Structures" %}</h3>
+                <span class="badge text-bg-light border text-primary-emphasis">{{ filtered_structure_count }}</span>
+            </div>
+
+            {% if structure_rows %}
+                <div class="table-responsive border border-primary-subtle rounded bg-body">
+                    <table class="table table-sm table-striped table-hover align-middle mb-0">
+                        <thead class="table-primary">
+                            <tr>
+                                <th class="w-50">{% trans "Structure" %}</th>
+                                <th>{% trans "Enabled Activities" %}</th>
+                                <th>{% trans "Status" %}</th>
+                                <th class="text-end">{% trans "Actions" %}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        {% for row in structure_rows %}
+                            <tr>
+                                <td class="py-3 align-top">
+                                    <div class="d-grid gap-1">
+                                        <div class="fw-semibold">{{ row.display_name }}</div>
+                                        <div class="small text-body-secondary d-flex flex-wrap align-items-center gap-2">
+                                            <span>{{ row.structure.structure_type_name|default:"-" }}</span>
+                                            <span class="text-body-tertiary">/</span>
+                                            <span>{{ row.structure.solar_system_name|default:"-" }}</span>
+                                            <span class="text-body-tertiary">/</span>
+                                            <span>{% trans "System Type" %}: {{ row.structure.get_system_security_band_display }}</span>
+                                        </div>
+                                        {% if row.structure.constellation_name or row.structure.region_name %}
+                                            <div class="small text-body-secondary d-flex flex-wrap align-items-center gap-2">
+                                                {% if row.structure.constellation_name %}
+                                                    <span>{% trans "Constellation" %}: {{ row.structure.constellation_name }}</span>
+                                                {% endif %}
+                                                {% if row.structure.constellation_name and row.structure.region_name %}
+                                                    <span class="text-body-tertiary">/</span>
+                                                {% endif %}
+                                                {% if row.structure.region_name %}
+                                                    <span>{% trans "Region" %}: {{ row.structure.region_name }}</span>
+                                                {% endif %}
+                                            </div>
+                                        {% endif %}
+                                        <div class="d-flex flex-wrap gap-2 align-items-center mt-2">
+                                            {% if row.structure.is_personal_copy %}
+                                                <span class="badge text-bg-primary-subtle border text-primary-emphasis">{% trans "Personal Copy" %}</span>
+                                                <span class="badge text-bg-light border">{{ row.structure.owner_user.username }}</span>
+                                            {% endif %}
+                                            {% if row.structure.is_synced_structure %}
+                                                <span class="badge text-bg-info-subtle border text-info-emphasis">{% trans "Auto Sync" %}</span>
+                                            {% else %}
+                                                <span class="badge text-bg-light border">{% trans "Manual" %}</span>
+                                            {% endif %}
+                                            {% if row.structure.owner_corporation_name %}
+                                                <span class="badge text-bg-light border">{{ row.structure.owner_corporation_name }}</span>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="py-3 align-top">
+                                    <div class="d-flex flex-wrap gap-1">
+                                        {% for activity_label, is_enabled in row.structure.get_enabled_activity_rows %}
+                                            {% if is_enabled %}<span class="badge text-bg-primary">{{ activity_label }}</span>{% endif %}
+                                        {% endfor %}
+                                    </div>
+                                </td>
+                                <td class="py-3 align-top">
+                                    {% if row.is_profile_incomplete %}
+                                        <div class="d-grid gap-2">
+                                            <span class="badge text-bg-warning-subtle border text-warning-emphasis d-inline-flex align-items-center justify-content-center">
+                                                <i class="fas fa-triangle-exclamation me-1"></i>{% trans "Setup needed" %}
+                                            </span>
+                                            <div class="d-flex flex-wrap gap-1">
+                                                {% for section in row.missing_profile_sections %}
+                                                    <span class="badge rounded-pill text-bg-warning-subtle border text-warning-emphasis">{{ section }}</span>
+                                                {% endfor %}
+                                            </div>
+                                        </div>
+                                    {% else %}
+                                        <span class="badge text-bg-success-subtle border text-success-emphasis d-inline-flex align-items-center">
+                                            <i class="fas fa-circle-check me-1"></i>{% trans "Complete" %}
+                                        </span>
+                                    {% endif %}
+                                </td>
+                                <td class="py-3 align-top text-end">
+                                    <div class="dropdown">
+                                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                            {% trans "Actions" %}
+                                        </button>
+                                        <ul class="dropdown-menu dropdown-menu-end">
+                                            <li><button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#structureDetailModal{{ forloop.counter }}"><i class="fas fa-eye me-2"></i>{% trans "View" %}</button></li>
+                                            <li><a class="dropdown-item" href="{% url 'indy_hub:industry_structure_edit' row.structure.id %}"><i class="fas fa-pen me-2"></i>{% if row.structure.is_personal_copy %}{% trans "Edit Taxes" %}{% else %}{% trans "Edit" %}{% endif %}</a></li>
+                                            <li><a class="dropdown-item" href="{% url 'indy_hub:industry_structure_duplicate' row.structure.id %}"><i class="fas fa-clone me-2"></i>{% trans "Duplicate" %}</a></li>
+                                            <li><hr class="dropdown-divider"></li>
+                                            <li><a class="dropdown-item text-danger" href="{% url 'indy_hub:industry_structure_delete' row.structure.id %}"><i class="fas fa-trash me-2"></i>{% trans "Delete" %}</a></li>
+                                        </ul>
+                                    </div>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                {% for row in structure_rows %}
+                    <div class="modal fade" id="structureDetailModal{{ forloop.counter }}" tabindex="-1" aria-hidden="true">
+                                <div class="modal-dialog modal-xl modal-dialog-scrollable">
+                                    <div class="modal-content">
+                                        <div class="modal-header">
+                                            <div>
+                                                <h5 class="modal-title mb-1">{{ row.display_name }}</h5>
+                                                <div class="structure-registry-meta">
+                                                    {% if row.structure.is_personal_copy %}<span class="badge text-bg-primary">{% trans "Personal Copy" %}</span>{% endif %}
+                                                    {% if row.structure.is_synced_structure %}<span class="badge text-bg-info">{% trans "Synced" %}</span>{% else %}<span class="badge text-bg-dark">{% trans "Manual" %}</span>{% endif %}
+                                                    <span class="badge text-bg-light border">{{ row.structure.structure_type_name|default:"-" }}</span>
+                                                    {% if row.structure.solar_system_name %}<span class="badge text-bg-light border">{{ row.structure.solar_system_name }}</span>{% endif %}
+                                                    {% if row.structure.personal_tag %}<span class="badge text-bg-light border">{{ row.structure.personal_tag }}</span>{% endif %}
+                                                    {% if row.structure.owner_corporation_name %}<span class="badge text-bg-light border">{{ row.structure.owner_corporation_name }}</span>{% endif %}
+                                                    <span class="badge text-bg-secondary">{{ row.structure.get_system_security_band_display }}</span>
+                                                    {% for activity_label, is_enabled in row.structure.get_enabled_activity_rows %}
+                                                        {% if is_enabled %}<span class="badge text-bg-primary">{{ activity_label }}</span>{% endif %}
+                                                    {% endfor %}
+                                                </div>
+                                            </div>
+                                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
+                                        </div>
+                                        <div class="modal-body structure-registry-body">
+                                            <section class="structure-surface rounded-3 border p-3">
+                                                <div class="structure-surface-title">
+                                                    <h4 class="h6 mb-0">{% trans "Profile Overview" %}</h4>
+                                                </div>
+                                                <div class="structure-definition-grid">
+                                                    <div class="structure-definition-item rounded-3 border bg-body-tertiary p-3"><strong>{% trans "Type" %}</strong>{{ row.structure.structure_type_name|default:"-" }}</div>
+                                                    <div class="structure-definition-item rounded-3 border bg-body-tertiary p-3"><strong>{% trans "System" %}</strong>{{ row.structure.solar_system_name|default:"-" }}</div>
+                                                    <div class="structure-definition-item rounded-3 border bg-body-tertiary p-3"><strong>{% trans "Constellation" %}</strong>{{ row.structure.constellation_name|default:"-" }}</div>
+                                                    <div class="structure-definition-item rounded-3 border bg-body-tertiary p-3"><strong>{% trans "Region" %}</strong>{{ row.structure.region_name|default:"-" }}</div>
+                                                    <div class="structure-definition-item rounded-3 border bg-body-tertiary p-3"><strong>{% trans "Security Band" %}</strong>{{ row.structure.get_system_security_band_display }}</div>
+                                                    <div class="structure-definition-item rounded-3 border bg-body-tertiary p-3"><strong>{% trans "Source" %}</strong>{% if row.structure.is_synced_structure %}{% trans "Corporation ESI" %}{% else %}{% trans "Manual" %}{% endif %}</div>
+                                                    <div class="structure-definition-item rounded-3 border bg-body-tertiary p-3"><strong>{% trans "Enabled Activities" %}</strong>{% for activity_label, is_enabled in row.structure.get_enabled_activity_rows %}{% if is_enabled %}<span class="badge text-bg-light border me-1 mb-1">{{ activity_label }}</span>{% endif %}{% endfor %}</div>
+                                                </div>
+                                            </section>
+
+                                            {% if row.missing_profile_sections %}
+                                                <section class="structure-surface rounded-3 border p-3">
+                                                    <div class="structure-surface-title">
+                                                        <h4 class="h6 mb-0">{% trans "Completion Status" %}</h4>
+                                                    </div>
+                                                    <div class="d-flex flex-wrap gap-2">
+                                                        {% for missing_label in row.missing_profile_sections %}
+                                                            <span class="badge text-bg-warning">{{ missing_label }}</span>
+                                                        {% endfor %}
+                                                    </div>
+                                                </section>
+                                            {% endif %}
+
+                                            <section class="structure-surface rounded-3 border p-3">
+                                                <div class="structure-surface-title">
+                                                    <h4 class="h6 mb-0">{% trans "Activity Taxes" %}</h4>
+                                                </div>
+                                                <div class="structure-table-wrap table-responsive">
+                                                    <table class="table table-sm table-hover align-middle mb-0">
+                                                        <thead class="table-light">
+                                                            <tr>
+                                                                <th>{% trans "Activity" %}</th>
+                                                                <th class="text-end">{% trans "Tax" %}</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {% for activity_label, tax_percent in row.structure.get_activity_tax_rows %}
+                                                                <tr>
+                                                                    <td>{{ activity_label }}</td>
+                                                                    <td class="text-end">{{ tax_percent }}%</td>
+                                                                </tr>
+                                                            {% endfor %}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </section>
+
+                                            <section class="structure-surface rounded-3 border p-3">
+                                                <div class="structure-surface-title">
+                                                    <h4 class="h6 mb-0">{% trans "Installed Rigs" %}</h4>
+                                                </div>
+                                                {% if row.rigs %}
+                                                    <div class="structure-table-wrap table-responsive">
+                                                        <table class="table table-sm table-hover align-middle mb-0">
+                                                            <thead class="table-light">
+                                                                <tr>
+                                                                    <th>{% trans "Slot" %}</th>
+                                                                    <th>{% trans "Rig" %}</th>
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody>
+                                                                {% for rig in row.rigs %}
+                                                                    <tr>
+                                                                        <td>{{ rig.slot_index }}</td>
+                                                                        <td>{{ rig.rig_type_name|default:"-" }}</td>
+                                                                    </tr>
+                                                                {% endfor %}
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                {% else %}
+                                                    <p class="text-muted mb-0">{% trans "No rigs recorded for this structure." %}</p>
+                                                {% endif %}
+                                            </section>
+
+                                            {% if row.grouped_bonuses %}
+                                                {% for activity_group in row.grouped_bonuses %}
+                                                    <section class="structure-surface rounded-3 border p-3">
+                                                        <div class="structure-surface-title">
+                                                            <h4 class="h6 mb-0">{{ activity_group.activity_label }}</h4>
+                                                        </div>
+                                                        <div class="structure-table-wrap table-responsive">
+                                                            <table class="table table-sm table-hover align-middle mb-0">
+                                                                <thead class="table-light">
+                                                                    <tr>
+                                                                        <th>{% trans "Source" %}</th>
+                                                                        <th>{% trans "Label" %}</th>
+                                                                        <th class="text-end">{% trans "ME" %}</th>
+                                                                        <th class="text-end">{% trans "TE" %}</th>
+                                                                        <th class="text-end">{% trans "Cost" %}</th>
+                                                                    </tr>
+                                                                </thead>
+                                                                <tbody>
+                                                                    {% for bonus in activity_group.rows %}
+                                                                        <tr>
+                                                                            <td>{{ bonus.source|title }}</td>
+                                                                            <td>{{ bonus.label }}</td>
+                                                                            <td class="text-end">{% if bonus.material_efficiency_percent %}-{{ bonus.material_efficiency_percent|floatformat:3 }}%{% else %}-{% endif %}</td>
+                                                                            <td class="text-end">{% if bonus.time_efficiency_percent %}-{{ bonus.time_efficiency_percent|floatformat:3 }}%{% else %}-{% endif %}</td>
+                                                                            <td class="text-end">{% if bonus.job_cost_percent %}-{{ bonus.job_cost_percent|floatformat:3 }}%{% else %}-{% endif %}</td>
+                                                                        </tr>
+                                                                    {% endfor %}
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+                                                    </section>
+                                                {% endfor %}
+                                            {% else %}
+                                                <div class="structure-empty-state text-muted">
+                                                    {% trans "No supported dogma bonus could be derived for this structure yet." %}
+                                                </div>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                {% endfor %}
+            {% else %}
+                <div class="structure-empty-state text-muted d-flex flex-column gap-3 align-items-start">
+                    {% if has_active_filters %}
+                        <div>{% trans "No structure matches the current filters." %}</div>
+                        <a class="btn btn-outline-secondary" href="{% url 'indy_hub:industry_structure_registry' %}">
+                            <i class="fas fa-rotate-left me-1"></i>{% trans "Clear Filters" %}
+                        </a>
+                    {% else %}
+                        <div>{% trans "No structure has been registered yet." %}</div>
+                        <a class="btn btn-primary" href="{% url 'indy_hub:industry_structure_add' %}">
+                            <i class="fas fa-plus me-1"></i>{% trans "Add the first structure" %}
+                        </a>
+                    {% endif %}
+                </div>
+            {% endif %}
+        </section>
+
+        <div class="modal fade" id="bulkTaxCompletionModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-xl modal-dialog-scrollable">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <div>
+                            <h5 class="modal-title mb-1">{% trans "Bulk Tax Completion" %}</h5>
+                            <p class="text-muted mb-0">{% trans "Apply one or more tax values to filtered structure groups. This is intended for quickly filling the complementary information missing from synced entries." %}</p>
+                        </div>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
+                    </div>
+                    <div class="modal-body">
+                        <form method="post" action="{% url 'indy_hub:industry_structure_bulk_update' %}" class="structure-bulk-form" data-bulk-tax-form="true" data-bulk-tax-preview-url="{% url 'indy_hub:industry_structure_bulk_update_preview' %}">
+                            {% csrf_token %}
+                            {{ bulk_tax_form.confirm_apply }}
+                            {% if bulk_tax_form.non_field_errors %}
+                                <div class="alert alert-danger">
+                                    {% for error in bulk_tax_form.non_field_errors %}
+                                        <div>{{ error }}</div>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+                            {% if bulk_tax_confirmation %}
+                                <div class="alert alert-warning">
+                                    <div class="fw-semibold mb-1">{{ bulk_tax_confirmation.message }}</div>
+                                    <div class="small text-body-secondary">
+                                        {% blocktrans with matched=bulk_tax_confirmation.matched_count eligible=bulk_tax_confirmation.eligible_count %}Matched structures: {{ matched }}. Structures that will actually be updated: {{ eligible }}.{% endblocktrans %}
+                                    </div>
+                                </div>
+                            {% endif %}
+                            <div class="row g-3 mb-3">
+                                <div class="col-12 col-md-6 structure-compact-field">
+                                    <label class="form-label" for="{{ bulk_tax_form.source_scope.id_for_label }}">{% trans "Source" %}</label>
+                                    {{ bulk_tax_form.source_scope }}
+                                </div>
+                                <div class="col-12 col-md-6 structure-compact-field">
+                                    <label class="form-label" for="{{ bulk_tax_form.solar_system_name.id_for_label }}">{% trans "Solar System" %}</label>
+                                    {{ bulk_tax_form.solar_system_name }}
+                                </div>
+                                <div class="col-12 col-md-6 structure-compact-field">
+                                    <label class="form-label" for="{{ bulk_tax_form.constellation_name.id_for_label }}">{% trans "Constellation" %}</label>
+                                    {{ bulk_tax_form.constellation_name }}
+                                </div>
+                                <div class="col-12 col-md-6 structure-compact-field">
+                                    <label class="form-label" for="{{ bulk_tax_form.region_name.id_for_label }}">{% trans "Region" %}</label>
+                                    {{ bulk_tax_form.region_name }}
+                                </div>
+                                <div class="col-12 col-md-6 structure-compact-field">
+                                    <label class="form-label" for="{{ bulk_tax_form.system_security_band.id_for_label }}">{% trans "Security Band" %}</label>
+                                    {{ bulk_tax_form.system_security_band }}
+                                </div>
+                                <div class="col-12 col-md-6 structure-compact-field">
+                                    <label class="form-label" for="{{ bulk_tax_form.structure_type_id.id_for_label }}">{% trans "Structure Type" %}</label>
+                                    {{ bulk_tax_form.structure_type_id }}
+                                </div>
+                            </div>
+                            <div class="row g-3 mb-3">
+                                <div class="col-12 col-sm-6 col-xl-4 structure-compact-field">
+                                    <label class="form-label" for="{{ bulk_tax_form.manufacturing_tax_percent.id_for_label }}">{% trans "Manufacturing Tax %" %}</label>
+                                    {{ bulk_tax_form.manufacturing_tax_percent }}
+                                </div>
+                                <div class="col-12 col-sm-6 col-xl-4 structure-compact-field">
+                                    <label class="form-label" for="{{ bulk_tax_form.manufacturing_capitals_tax_percent.id_for_label }}">{% trans "Manufacturing (Capitals) Tax %" %}</label>
+                                    {{ bulk_tax_form.manufacturing_capitals_tax_percent }}
+                                </div>
+                                <div class="col-12 col-sm-6 col-xl-4 structure-compact-field">
+                                    <label class="form-label" for="{{ bulk_tax_form.manufacturing_super_capitals_tax_percent.id_for_label }}">{% trans "Manufacturing (Super-Capitals) Tax %" %}</label>
+                                    {{ bulk_tax_form.manufacturing_super_capitals_tax_percent }}
+                                </div>
+                                <div class="col-12 col-sm-6 col-xl-4 structure-compact-field">
+                                    <label class="form-label" for="{{ bulk_tax_form.research_tax_percent.id_for_label }}">{% trans "Research Tax %" %}</label>
+                                    {{ bulk_tax_form.research_tax_percent }}
+                                </div>
+                                <div class="col-12 col-sm-6 col-xl-4 structure-compact-field">
+                                    <label class="form-label" for="{{ bulk_tax_form.invention_tax_percent.id_for_label }}">{% trans "Invention Tax %" %}</label>
+                                    {{ bulk_tax_form.invention_tax_percent }}
+                                </div>
+                                <div class="col-12 col-sm-6 col-xl-4 structure-compact-field">
+                                    <label class="form-label" for="{{ bulk_tax_form.biochemical_reactions_tax_percent.id_for_label }}">{% trans "Biochemical Reactions Tax %" %}</label>
+                                    {{ bulk_tax_form.biochemical_reactions_tax_percent }}
+                                </div>
+                                <div class="col-12 col-sm-6 col-xl-4 structure-compact-field">
+                                    <label class="form-label" for="{{ bulk_tax_form.hybrid_reactions_tax_percent.id_for_label }}">{% trans "Hybrid Reactions Tax %" %}</label>
+                                    {{ bulk_tax_form.hybrid_reactions_tax_percent }}
+                                </div>
+                                <div class="col-12 col-sm-6 col-xl-4 structure-compact-field">
+                                    <label class="form-label" for="{{ bulk_tax_form.composite_reactions_tax_percent.id_for_label }}">{% trans "Composite Reactions Tax %" %}</label>
+                                    {{ bulk_tax_form.composite_reactions_tax_percent }}
+                                </div>
+                            </div>
+                            <div class="border rounded bg-body-tertiary p-3 mb-3" data-bulk-tax-preview-panel="true">
+                                <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
+                                    <strong>{% trans "Preview" %}</strong>
+                                    <span class="badge text-bg-primary" data-bulk-tax-preview-count="true">0</span>
+                                </div>
+                                <div class="small text-body-secondary mb-2" data-bulk-tax-preview-message="true">
+                                    {% trans "Set filters and tax values to preview affected structures." %}
+                                </div>
+                                <div class="small fw-semibold mb-2" data-bulk-tax-preview-list-title="true" hidden>
+                                    {% trans "Structures that will be updated" %}
+                                </div>
+                                <div class="border rounded bg-body overflow-auto p-2" style="max-height: 180px;" data-bulk-tax-preview-list-wrap="true" hidden>
+                                    <ul class="list-unstyled mb-0 small" data-bulk-tax-preview-list="true"></ul>
+                                </div>
+                            </div>
+                            <div class="structure-bulk-footer">
+                                <div class="form-check mb-0">
+                                    {{ bulk_tax_form.only_when_zero }}
+                                    <label class="form-check-label" for="{{ bulk_tax_form.only_when_zero.id_for_label }}">{% trans "Only fill empty or zero taxes" %}</label>
+                                </div>
+                                <button
+                                    class="btn btn-primary structure-bulk-submit"
+                                    type="submit"
+                                    onclick="document.getElementById('{{ bulk_tax_form.confirm_apply.id_for_label }}').value = '{% if bulk_tax_confirmation %}1{% else %}0{% endif %}';"
+                                >
+                                    <i class="fas fa-layer-group me-1"></i>{% if bulk_tax_confirmation %}{% trans "Confirm Bulk Taxes" %}{% else %}{% trans "Apply Bulk Taxes" %}{% endif %}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal fade" id="bulkStructureImportModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-xl modal-dialog-scrollable">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <div>
+                            <h5 class="modal-title mb-1">{% trans "Bulk Import From Copied /indy/ Data" %}</h5>
+                            <p class="text-muted mb-0">{% trans "Paste a copied structure listing from an alliance auth /indy/ page. The importer creates manual structures, skips corrupted blocks safely and can optionally refresh matching manual entries." %}</p>
+                        </div>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
+                    </div>
+                    <div class="modal-body">
+                        <form method="post" action="{% url 'indy_hub:industry_structure_bulk_import' %}" class="structure-bulk-form">
+                            {% csrf_token %}
+                            {% if bulk_import_form.non_field_errors %}
+                                <div class="alert alert-danger">
+                                    {% for error in bulk_import_form.non_field_errors %}
+                                        <div>{{ error }}</div>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+                            <div class="alert alert-info d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+                                <span class="fw-semibold">how to manual data coyp</span>
+                                <button
+                                    type="button"
+                                    class="btn btn-sm btn-outline-primary rounded-pill"
+                                    data-structure-import-help-trigger="true"
+                                >
+                                    <i class="fas fa-image me-1"></i>{% trans "Open help" %}
+                                </button>
+                            </div>
+                            <div class="mb-3 structure-compact-field">
+                                <label class="form-label" for="{{ bulk_import_form.raw_text.id_for_label }}">{% trans "Copied /indy/ Data" %}</label>
+                                {{ bulk_import_form.raw_text }}
+                                {% for error in bulk_import_form.raw_text.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                            </div>
+                            <div class="alert alert-secondary small mb-3">
+                                {% trans "Safety rules: matching manual structures are updated by default, unknown solar systems are skipped, unknown rigs are ignored, duplicate names in the same paste are skipped, and synchronized structures are never overwritten by this importer." %}
+                            </div>
+                            <div class="structure-bulk-footer">
+                                <div class="form-check mb-0">
+                                    {{ bulk_import_form.update_existing_manual }}
+                                    <label class="form-check-label" for="{{ bulk_import_form.update_existing_manual.id_for_label }}">{% trans "Update existing manual structures when names match" %}</label>
+                                </div>
+                                <button class="btn btn-primary structure-bulk-submit" type="submit">
+                                    <i class="fas fa-file-import me-1"></i>{% trans "Import Structures" %}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal fade" id="bulkStructureImportHelpModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">how to manual data coyp</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
+                    </div>
+                    <div class="modal-body text-center">
+                        <img
+                            src="{% static 'indy_hub/img/industry/structures/indy copy data.png' %}"
+                            alt="{% trans 'Example showing the raw /indy/ data to copy before import.' %}"
+                            class="img-fluid rounded border"
+                        >
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock content %}
+
+{% block extra_javascript %}
+{{ block.super }}
+{% if bulk_tax_form.errors or bulk_tax_confirmation %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    var modalElement = document.getElementById("bulkTaxCompletionModal");
+    if (!modalElement || !window.bootstrap) {
+        return;
+    }
+    window.bootstrap.Modal.getOrCreateInstance(modalElement).show();
+});
+</script>
+{% endif %}
+{% if bulk_import_form.errors %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    var modalElement = document.getElementById("bulkStructureImportModal");
+    if (!modalElement || !window.bootstrap) {
+        return;
+    }
+    window.bootstrap.Modal.getOrCreateInstance(modalElement).show();
+});
+</script>
+{% endif %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    if (!window.bootstrap) {
+        return;
+    }
+
+    var importModalElement = document.getElementById("bulkStructureImportModal");
+    var helpModalElement = document.getElementById("bulkStructureImportHelpModal");
+    var helpTrigger = document.querySelector("[data-structure-import-help-trigger='true']");
+
+    if (!importModalElement || !helpModalElement || !helpTrigger) {
+        return;
+    }
+
+    var importModal = window.bootstrap.Modal.getOrCreateInstance(importModalElement);
+    var helpModal = window.bootstrap.Modal.getOrCreateInstance(helpModalElement);
+    var reopenImportModalAfterHelp = false;
+
+    helpTrigger.addEventListener("click", function () {
+        reopenImportModalAfterHelp = importModalElement.classList.contains("show");
+
+        if (!reopenImportModalAfterHelp) {
+            helpModal.show();
+            return;
+        }
+
+        importModalElement.addEventListener(
+            "hidden.bs.modal",
+            function handleImportHidden() {
+                importModalElement.removeEventListener("hidden.bs.modal", handleImportHidden);
+                helpModal.show();
+            },
+            { once: true }
+        );
+
+        importModal.hide();
+    });
+
+    helpModalElement.addEventListener("hidden.bs.modal", function () {
+        if (!reopenImportModalAfterHelp) {
+            return;
+        }
+
+        reopenImportModalAfterHelp = false;
+        importModal.show();
+    });
+});
+</script>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    var bulkTaxForm = document.querySelector("[data-bulk-tax-form='true']");
+    if (!bulkTaxForm || !window.fetch) {
+        return;
+    }
+
+    var previewUrl = bulkTaxForm.getAttribute("data-bulk-tax-preview-url");
+    var countElement = bulkTaxForm.querySelector("[data-bulk-tax-preview-count='true']");
+    var messageElement = bulkTaxForm.querySelector("[data-bulk-tax-preview-message='true']");
+    var listTitleElement = bulkTaxForm.querySelector("[data-bulk-tax-preview-list-title='true']");
+    var listWrapElement = bulkTaxForm.querySelector("[data-bulk-tax-preview-list-wrap='true']");
+    var listElement = bulkTaxForm.querySelector("[data-bulk-tax-preview-list='true']");
+    var previewTimer = null;
+
+    function renderPreview(payload) {
+        if (countElement) {
+            countElement.textContent = String(payload.eligible_count || 0);
+        }
+
+        if (messageElement) {
+            if (!payload.has_tax_updates) {
+                messageElement.textContent = payload.message || "";
+            } else if ((payload.eligible_count || 0) > 0) {
+                messageElement.textContent = "";
+            } else {
+                messageElement.textContent = payload.message || "";
+            }
+        }
+
+        if (listElement) {
+            listElement.innerHTML = "";
+            (payload.structure_names || []).forEach(function (name) {
+                var item = document.createElement("li");
+                item.className = "py-1 border-bottom";
+                item.textContent = name;
+                listElement.appendChild(item);
+            });
+        }
+
+        var hasStructures = Boolean(payload.structure_names && payload.structure_names.length);
+        if (listTitleElement) {
+            listTitleElement.hidden = !hasStructures;
+        }
+        if (listWrapElement) {
+            listWrapElement.hidden = !hasStructures;
+        }
+    }
+
+    async function fetchPreview() {
+        if (!previewUrl) {
+            return;
+        }
+
+        var formData = new FormData(bulkTaxForm);
+        formData.delete("csrfmiddlewaretoken");
+        formData.delete("confirm_apply");
+
+        var params = new URLSearchParams();
+        formData.forEach(function (value, key) {
+            if (value === null || value === "") {
+                return;
+            }
+            params.append(key, value);
+        });
+
+        try {
+            var response = await fetch(previewUrl + "?" + params.toString(), {
+                credentials: "same-origin",
+                headers: {
+                    "X-Requested-With": "XMLHttpRequest"
+                }
+            });
+            var payload = await response.json();
+            renderPreview(payload);
+        } catch (_error) {
+            renderPreview({
+                eligible_count: 0,
+                structure_names: [],
+                has_tax_updates: false,
+                message: "Unable to preview affected structures right now."
+            });
+        }
+    }
+
+    function schedulePreviewRefresh() {
+        if (previewTimer) {
+            window.clearTimeout(previewTimer);
+        }
+        previewTimer = window.setTimeout(fetchPreview, 150);
+    }
+
+    bulkTaxForm.querySelectorAll("select, input").forEach(function (element) {
+        var eventName = element.type === "number" || element.type === "text" ? "input" : "change";
+        element.addEventListener(eventName, schedulePreviewRefresh);
+        if (eventName !== "change") {
+            element.addEventListener("change", schedulePreviewRefresh);
+        }
+    });
+
+    var bulkTaxModalElement = document.getElementById("bulkTaxCompletionModal");
+    if (bulkTaxModalElement) {
+        bulkTaxModalElement.addEventListener("shown.bs.modal", fetchPreview);
+    }
+
+    fetchPreview();
+});
+</script>
+{% endblock extra_javascript %}

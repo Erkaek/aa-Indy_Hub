@@ -131,6 +131,9 @@
                     </a></li>
                     {% endif %}
                     <li><hr class="dropdown-divider"></li>
+                    <li><a class="dropdown-item" href="{% url 'indy_hub:industry_structure_registry' %}">
+                        <i class="fas fa-sitemap me-2"></i>{% trans "Structure Registry" %}
+                    </a></li>
                     <li><a class="dropdown-item" href="{% url 'indy_hub:production_simulations_list' %}">
                         <i class="fas fa-flask me-2"></i>{% trans "Production Simulations" %}
                     </a></li>

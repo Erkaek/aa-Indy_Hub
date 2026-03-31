@@ -107,13 +107,7 @@
         <div class="bp-request-grid__container">
             {% for bp in page_obj.object_list %}
             <div class="bp-request-card">
-                <form method="post" class="d-flex flex-column h-100 gap-2">
-                    {% csrf_token %}
-                    <input type="hidden" name="type_id" value="{{ bp.type_id }}">
-                    <input type="hidden" name="material_efficiency" value="{{ bp.material_efficiency }}">
-                    <input type="hidden" name="time_efficiency" value="{{ bp.time_efficiency }}">
-
-                    {# Blueprint Info #}
+                <div class="d-flex flex-column h-100 gap-2">
                     <div class="bp-request-card__header">
                         <img
                             src="https://images.evetech.net/types/{{ bp.type_id }}/bp?size=64"
@@ -135,25 +129,37 @@
                         </div>
                     </div>
 
-                    {# Input Fields #}
-                    <div class="bp-request-card__inputs flex-grow-1 d-flex flex-column gap-2">
-                        <div class="bp-request-card__inputs-row">
-                            <div class="bp-request-card__input-group">
-                                <label class="bp-request-card__input-label">{% trans "Copies" %}</label>
-                                <input type="number" name="copies_requested" min="1" value="1" class="form-control form-control-sm text-center" placeholder="1">
-                            </div>
-                            <div class="bp-request-card__input-group">
-                                <label class="bp-request-card__input-label">{% trans "Runs" %}</label>
-                                <input type="number" name="runs_requested" min="1" value="1" class="form-control form-control-sm text-center" placeholder="1">
-                            </div>
+                    <div class="bp-request-card__inputs flex-grow-1 d-flex flex-column gap-2 justify-content-center">
+                        <div class="small text-muted">
+                            <i class="fas fa-user-check me-1"></i>
+                            {{ bp.copy_request_preview.qualified_provider_count }} {% trans "qualified producer(s) will be alerted" %}
                         </div>
+                        {% if bp.copy_request_preview.max_runs_per_copy %}
+                        <div class="small text-muted">
+                            <i class="fas fa-hourglass-half me-1"></i>
+                            {% trans "Max runs per copy" %}: {{ bp.copy_request_preview.max_runs_per_copy }}
+                        </div>
+                        {% endif %}
                     </div>
 
-                    {# Action Button #}
-                    <button type="submit" class="btn btn-sm bp-action bp-action--request w-100">
+                    <button
+                        type="button"
+                        class="btn btn-sm bp-action bp-action--request w-100 js-copy-request-open"
+                        data-bs-toggle="modal"
+                        data-bs-target="#bpCopyRequestModal"
+                        data-type-id="{{ bp.type_id }}"
+                        data-type-name="{{ bp.type_name }}"
+                        data-material-efficiency="{{ bp.material_efficiency }}"
+                        data-time-efficiency="{{ bp.time_efficiency }}"
+                        data-copy-base-time-seconds="{{ bp.copy_request_preview.copy_base_time_seconds|default:0 }}"
+                        data-per-run-copy-seconds="{{ bp.copy_request_preview.per_run_copy_seconds|default:0 }}"
+                        data-best-time-bonus-percent="{{ bp.copy_request_preview.best_time_bonus_percent|default:0 }}"
+                        data-max-runs-per-copy="{{ bp.copy_request_preview.max_runs_per_copy|default:'' }}"
+                        data-qualified-provider-count="{{ bp.copy_request_preview.qualified_provider_count|default:0 }}"
+                    >
                         <i class="fas fa-paper-plane me-1"></i>{% trans "Request" %}
                     </button>
-                </form>
+                </div>
             </div>
             {% endfor %}
         </div>
@@ -222,6 +228,57 @@
     {% endif %}
 </div>
 
+<div class="modal fade" id="bpCopyRequestModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <form method="post" action="{% url 'indy_hub:bp_copy_request_create' %}" id="bpCopyRequestModalForm">
+                {% csrf_token %}
+                <div class="modal-header">
+                    <div>
+                        <h5 class="modal-title" id="bpCopyRequestModalTitle">{% trans "Request blueprint copy" %}</h5>
+                        <div class="small text-muted" id="bpCopyRequestModalSubtitle"></div>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
+                </div>
+                <div class="modal-body d-flex flex-column gap-3">
+                    <input type="hidden" name="type_id" id="bpCopyRequestTypeId">
+                    <input type="hidden" name="material_efficiency" id="bpCopyRequestMe">
+                    <input type="hidden" name="time_efficiency" id="bpCopyRequestTe">
+
+                    <div class="row g-3">
+                        <div class="col-6">
+                            <label for="bpCopyRequestCopies" class="form-label">{% trans "Copies" %}</label>
+                            <input type="number" min="1" value="1" name="copies_requested" id="bpCopyRequestCopies" class="form-control">
+                        </div>
+                        <div class="col-6">
+                            <label for="bpCopyRequestRuns" class="form-label">{% trans "Runs / copy" %}</label>
+                            <input type="number" min="1" value="1" name="runs_requested" id="bpCopyRequestRuns" class="form-control">
+                        </div>
+                    </div>
+
+                    <div class="rounded border p-3 bg-light-subtle">
+                        <div class="small text-muted mb-1">{% trans "Estimated copy duration" %}</div>
+                        <div class="fw-semibold" id="bpCopyRequestDurationValue">-</div>
+                        <div class="small text-muted" id="bpCopyRequestDurationHint"></div>
+                    </div>
+
+                    <div class="rounded border p-3">
+                        <div class="small text-muted mb-1">{% trans "Notifications" %}</div>
+                        <div class="fw-semibold" id="bpCopyRequestQualifiedProviders">-</div>
+                        <div class="small text-muted" id="bpCopyRequestQualifiedHint"></div>
+                    </div>
+
+                    <div class="alert alert-warning d-none mb-0" id="bpCopyRequestLaunchLimitAlert"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{% trans "Cancel" %}</button>
+                    <button type="submit" class="btn btn-primary" id="bpCopyRequestSubmitBtn">{% trans "Send request" %}</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <script>
 function sortBlueprints(sortBy) {
     const container = document.querySelector('.bp-request-grid__container');
@@ -255,6 +312,58 @@ function sortBlueprints(sortBy) {
     cards.forEach(card => container.appendChild(card));
 }
 
+function formatDuration(totalSeconds) {
+    const seconds = Math.max(0, parseInt(totalSeconds || 0, 10) || 0);
+    if (!seconds) {
+        return '-';
+    }
+
+    const days = Math.floor(seconds / 86400);
+    const hours = Math.floor((seconds % 86400) / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const parts = [];
+
+    if (days) parts.push(`${days}d`);
+    if (hours) parts.push(`${hours}h`);
+    if (minutes) parts.push(`${minutes}m`);
+    if (!parts.length) parts.push(`${seconds}s`);
+
+    return parts.join(' ');
+}
+
+function updateCopyRequestModalEstimates() {
+    const modal = document.getElementById('bpCopyRequestModal');
+    if (!modal || !modal.dataset.typeId) {
+        return;
+    }
+
+    const copies = Math.max(1, parseInt(document.getElementById('bpCopyRequestCopies').value || '1', 10) || 1);
+    const runs = Math.max(1, parseInt(document.getElementById('bpCopyRequestRuns').value || '1', 10) || 1);
+    const perRunCopySeconds = Math.max(0, parseInt(modal.dataset.perRunCopySeconds || '0', 10) || 0);
+    const maxRunsPerCopy = parseInt(modal.dataset.maxRunsPerCopy || '0', 10) || 0;
+    const totalDurationSeconds = perRunCopySeconds > 0 ? perRunCopySeconds * copies * runs : 0;
+
+    document.getElementById('bpCopyRequestDurationValue').textContent = formatDuration(totalDurationSeconds);
+
+    const bonus = Number(modal.dataset.bestTimeBonusPercent || '0') || 0;
+    const durationHint = perRunCopySeconds > 0
+        ? `{% trans "Best known qualified producer bonus" %}: ${bonus.toFixed(2)}%`
+        : `{% trans "No copy-time estimate available for this blueprint yet." %}`;
+    document.getElementById('bpCopyRequestDurationHint').textContent = durationHint;
+
+    const alertEl = document.getElementById('bpCopyRequestLaunchLimitAlert');
+    const submitBtn = document.getElementById('bpCopyRequestSubmitBtn');
+    if (maxRunsPerCopy > 0 && runs > maxRunsPerCopy) {
+        alertEl.classList.remove('d-none');
+        alertEl.textContent = `{% trans "At this TE, the request is limited to" %} ${maxRunsPerCopy} {% trans "run(s) per copy." %}`;
+        submitBtn.disabled = true;
+    } else {
+        alertEl.classList.add('d-none');
+        alertEl.textContent = '';
+        submitBtn.disabled = false;
+    }
+}
+
 // Auto-submit search filter with debounce
 document.addEventListener('DOMContentLoaded', function() {
     const searchInput = document.getElementById('bp-request-search');
@@ -276,6 +385,38 @@ document.addEventListener('DOMContentLoaded', function() {
         select.addEventListener('change', function() {
             form.submit();
         });
+    });
+
+    document.querySelectorAll('.js-copy-request-open').forEach(button => {
+        button.addEventListener('click', function() {
+            const modal = document.getElementById('bpCopyRequestModal');
+            modal.dataset.typeId = this.dataset.typeId || '';
+            modal.dataset.perRunCopySeconds = this.dataset.perRunCopySeconds || '0';
+            modal.dataset.maxRunsPerCopy = this.dataset.maxRunsPerCopy || '';
+            modal.dataset.bestTimeBonusPercent = this.dataset.bestTimeBonusPercent || '0';
+
+            document.getElementById('bpCopyRequestModalTitle').textContent = this.dataset.typeName || '{% trans "Request blueprint copy" %}';
+            document.getElementById('bpCopyRequestModalSubtitle').textContent = `ME ${this.dataset.materialEfficiency || 0} · TE ${this.dataset.timeEfficiency || 0}`;
+            document.getElementById('bpCopyRequestTypeId').value = this.dataset.typeId || '';
+            document.getElementById('bpCopyRequestMe').value = this.dataset.materialEfficiency || '0';
+            document.getElementById('bpCopyRequestTe').value = this.dataset.timeEfficiency || '0';
+            document.getElementById('bpCopyRequestCopies').value = '1';
+            document.getElementById('bpCopyRequestRuns').value = '1';
+
+            const qualifiedProviderCount = Math.max(0, parseInt(this.dataset.qualifiedProviderCount || '0', 10) || 0);
+            document.getElementById('bpCopyRequestQualifiedProviders').textContent = `${qualifiedProviderCount} {% trans "qualified producer(s) will be alerted" %}`;
+            document.getElementById('bpCopyRequestQualifiedHint').textContent = qualifiedProviderCount > 0
+                ? '{% trans "Only owners with a tracked character meeting the copy skill requirements will receive the alert." %}'
+                : '{% trans "No qualified producer is currently known for this copy request." %}';
+
+            updateCopyRequestModalEstimates();
+        });
+    });
+
+    ['bpCopyRequestCopies', 'bpCopyRequestRuns'].forEach(id => {
+        const input = document.getElementById(id);
+        if (!input) return;
+        input.addEventListener('input', updateCopyRequestModalEstimates);
     });
 });
 

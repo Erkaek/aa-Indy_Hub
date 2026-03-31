@@ -42,13 +42,18 @@
         return window.BLUEPRINT_DATA || {};
     }
 
-    const payload = resolveBlueprintPayload();
-    const marketGroupMap = payload.market_group_map || {};
+    let payload = resolveBlueprintPayload();
+    let marketGroupMap = payload.market_group_map || {};
+    let structurePlannerPayload = payload.structure_planner || payload.structurePlanner || {};
+    let rootProductTypeId = Number(payload.product_type_id || payload.productTypeId || 0);
+    let rootProductOutputPerCycle = normalizeQuantity(payload.product_output_per_cycle || payload.productOutputPerCycle || 0);
 
     const materialsMap = new Map();
     const treeMap = new Map();
     const switchesMap = new Map();
     const pricesMap = new Map();
+    const structureItemsMap = new Map();
+    const structureAssignmentsMap = new Map();
 
     const tabsState = {
         materials: { dirty: true, lastUpdate: null },
@@ -69,6 +74,11 @@
         changeCount: 0,
         lastUpdate: null
     };
+
+    function readStructureItems() {
+        const items = structurePlannerPayload.items;
+        return Array.isArray(items) ? items : [];
+    }
 
     function readValue(source, primaryKey, secondaryKey) {
         if (!source || typeof source !== 'object') {
@@ -108,6 +118,10 @@
             return 0;
         }
         return Math.ceil(num);
+    }
+
+    function cloneNodeWithQuantity(node, quantity) {
+        return Object.assign({}, node, { quantity: normalizeQuantity(quantity) });
     }
 
     function ingestTree(nodes, parentId = null) {
@@ -264,28 +278,148 @@
         });
     }
 
-    ingestTree(Array.isArray(payload.materials_tree) ? payload.materials_tree : []);
-    ingestFlatMaterials(Array.isArray(payload.materials) ? payload.materials : []);
-    ingestFlatMaterials(Array.isArray(payload.direct_materials) ? payload.direct_materials : []);
-    ingestMaterialsByGroup(payload.materials_by_group || payload.materialsByGroup);
+    function resetStateFromPayload(nextPayload, options) {
+        const normalizedPayload = (nextPayload && typeof nextPayload === 'object') ? nextPayload : {};
+        const config = Object.assign({
+            preservePrices: true,
+            preserveStructures: true,
+            preserveSwitches: false,
+        }, options || {});
 
-    treeMap.forEach((entry) => {
-        if (entry.craftable) {
+        const preservedPrices = new Map();
+        const preservedAssignments = new Map();
+        const preservedSwitches = new Map();
+
+        if (config.preservePrices) {
+            pricesMap.forEach((value, typeId) => {
+                preservedPrices.set(Number(typeId), Object.assign({}, value));
+            });
+        }
+        if (config.preserveStructures) {
+            structureAssignmentsMap.forEach((value, typeId) => {
+                preservedAssignments.set(Number(typeId), Number(value) || null);
+            });
+        }
+        if (config.preserveSwitches) {
+            switchesMap.forEach((value, typeId) => {
+                preservedSwitches.set(Number(typeId), Object.assign({}, value));
+            });
+        }
+
+        payload = normalizedPayload;
+        marketGroupMap = payload.market_group_map || {};
+        structurePlannerPayload = payload.structure_planner || payload.structurePlanner || {};
+        rootProductTypeId = Number(payload.product_type_id || payload.productTypeId || 0);
+        rootProductOutputPerCycle = normalizeQuantity(payload.product_output_per_cycle || payload.productOutputPerCycle || 0);
+
+        materialsMap.clear();
+        treeMap.clear();
+        switchesMap.clear();
+        pricesMap.clear();
+        structureItemsMap.clear();
+        structureAssignmentsMap.clear();
+
+        ingestTree(Array.isArray(payload.materials_tree) ? payload.materials_tree : []);
+        ingestFlatMaterials(Array.isArray(payload.materials) ? payload.materials : []);
+        ingestFlatMaterials(Array.isArray(payload.direct_materials) ? payload.direct_materials : []);
+        ingestMaterialsByGroup(payload.materials_by_group || payload.materialsByGroup);
+
+        if (rootProductTypeId) {
+            const rootProductName = payload.name || '';
+            if (!materialsMap.has(rootProductTypeId)) {
+                materialsMap.set(rootProductTypeId, {
+                    typeId: rootProductTypeId,
+                    typeName: rootProductName,
+                    quantity: normalizeQuantity(payload.final_product_qty || payload.finalProductQty || 0),
+                    marketGroup: null,
+                    groupId: null,
+                    producedPerCycle: rootProductOutputPerCycle
+                });
+            }
+            if (!treeMap.has(rootProductTypeId)) {
+                treeMap.set(rootProductTypeId, {
+                    typeId: rootProductTypeId,
+                    typeName: rootProductName,
+                    quantity: normalizeQuantity(payload.final_product_qty || payload.finalProductQty || 0),
+                    parentIds: new Set(),
+                    children: new Set(),
+                    craftable: Array.isArray(payload.materials_tree) && payload.materials_tree.length > 0
+                });
+            }
+        }
+
+        readStructureItems().forEach((item) => {
+            const typeId = Number(readValue(item, 'type_id', 'typeId'));
+            if (!typeId) {
+                return;
+            }
+            const options = Array.isArray(item.options) ? item.options : [];
+            const optionsMap = new Map();
+            options.forEach((option) => {
+                const structureId = Number(readValue(option, 'structure_id', 'structureId'));
+                if (!structureId) {
+                    return;
+                }
+                optionsMap.set(structureId, Object.assign({}, option, { structureId }));
+            });
+            const normalizedItem = Object.assign({}, item, {
+                typeId,
+                typeName: readValue(item, 'type_name', 'typeName') || '',
+                recommendedStructureId: Number(readValue(item, 'recommended_structure_id', 'recommendedStructureId')) || null,
+                optionsMap
+            });
+            structureItemsMap.set(typeId, normalizedItem);
+
+            let selectedStructureId = normalizedItem.recommendedStructureId;
+            if (!selectedStructureId && options.length > 0) {
+                selectedStructureId = Number(readValue(options[0], 'structure_id', 'structureId')) || null;
+            }
+
+            const preservedStructureId = preservedAssignments.get(typeId);
+            if (preservedStructureId && optionsMap.has(preservedStructureId)) {
+                selectedStructureId = preservedStructureId;
+            }
+
+            if (selectedStructureId && optionsMap.has(selectedStructureId)) {
+                structureAssignmentsMap.set(typeId, selectedStructureId);
+            }
+        });
+
+        treeMap.forEach((entry) => {
+            if (!entry.craftable) {
+                return;
+            }
+
+            const preserved = preservedSwitches.get(entry.typeId);
             switchesMap.set(entry.typeId, {
                 typeId: entry.typeId,
                 typeName: entry.typeName,
-                state: 'prod'
+                state: preserved && preserved.state ? preserved.state : 'prod'
             });
+        });
+
+        materialsMap.forEach((_, typeId) => {
+            const preserved = preservedPrices.get(typeId);
+            pricesMap.set(typeId, preserved ? Object.assign({ fuzzwork: 0, real: 0, sale: 0 }, preserved) : { fuzzwork: 0, real: 0, sale: 0 });
+        });
+
+        if (payload.product_type_id && !pricesMap.has(payload.product_type_id)) {
+            pricesMap.set(payload.product_type_id, { fuzzwork: 0, real: 0, sale: 0 });
         }
-    });
 
-    materialsMap.forEach((_, typeId) => {
-        pricesMap.set(typeId, { fuzzwork: 0, real: 0, sale: 0 });
-    });
-
-    if (payload.product_type_id && !pricesMap.has(payload.product_type_id)) {
-        pricesMap.set(payload.product_type_id, { fuzzwork: 0, real: 0, sale: 0 });
+        configState.meLevel = payload.me || 0;
+        configState.teLevel = payload.te || 0;
+        metaState.changeCount += 1;
+        metaState.lastUpdate = new Date().toISOString();
+        markTabsDirty(['materials', 'tree', 'cycles', 'financial', 'needed', 'config']);
+        ensureSimulationGlobals();
     }
+
+    resetStateFromPayload(payload, {
+        preservePrices: false,
+        preserveStructures: false,
+        preserveSwitches: false,
+    });
 
     function ensureSimulationGlobals() {
         window.SimulationState = window.SimulationState || {};
@@ -296,6 +430,8 @@
         window.SimulationState.tabs = tabsState;
         window.SimulationState.config = configState;
         window.SimulationState.meta = metaState;
+        window.SimulationState.structureItems = structureItemsMap;
+        window.SimulationState.structureAssignments = structureAssignmentsMap;
     }
 
     ensureSimulationGlobals();
@@ -419,6 +555,51 @@
         return entry ? entry.state : null;
     }
 
+    function getStructureAssignment(typeId) {
+        return structureAssignmentsMap.get(Number(typeId)) || null;
+    }
+
+    function getStructureItem(typeId) {
+        return structureItemsMap.get(Number(typeId)) || null;
+    }
+
+    function getStructureOption(typeId, structureId) {
+        const item = getStructureItem(typeId);
+        if (!item || !item.optionsMap) {
+            return null;
+        }
+        const resolvedStructureId = Number(structureId || getStructureAssignment(typeId) || 0);
+        if (!resolvedStructureId) {
+            return null;
+        }
+        return item.optionsMap.get(resolvedStructureId) || null;
+    }
+
+    function getStructureMaterialBonus(typeId) {
+        const option = getStructureOption(typeId);
+        if (!option) {
+            return 0;
+        }
+        const bonus = Number(readValue(option, 'material_bonus_percent', 'materialBonusPercent')) || 0;
+        return bonus > 0 ? bonus : 0;
+    }
+
+    function adjustChildrenForStructure(children, typeId) {
+        const materialBonusPercent = getStructureMaterialBonus(typeId);
+        if (!(materialBonusPercent > 0) || !Array.isArray(children) || children.length === 0) {
+            return Array.isArray(children) ? children : [];
+        }
+        const multiplier = Math.max(0, 1 - (materialBonusPercent / 100));
+        return children.map((child) => {
+            const quantity = normalizeQuantity(readValue(child, 'quantity', 'qty'));
+            const materialBonusApplicable = readValue(child, 'material_bonus_applicable', 'materialBonusApplicable');
+            if (materialBonusApplicable === false) {
+                return cloneNodeWithQuantity(child, quantity);
+            }
+            return cloneNodeWithQuantity(child, Math.ceil(quantity * multiplier));
+        });
+    }
+
     function computeDemandFromPayloadTree() {
         const leafNeeds = new Map();
         const buyCraftables = new Map();
@@ -455,7 +636,7 @@
                     }
                     // Produced craftable: we need its inputs.
                     addToCounter(prodCraftables, typeId, qty);
-                    walk(children, false);
+                    walk(adjustChildrenForStructure(children, typeId), false);
                     return;
                 }
 
@@ -464,7 +645,12 @@
             });
         };
 
-        walk(Array.isArray(payload.materials_tree) ? payload.materials_tree : [], false);
+        if (rootProductTypeId && Array.isArray(payload.materials_tree) && payload.materials_tree.length > 0) {
+            addToCounter(prodCraftables, rootProductTypeId, normalizeQuantity(payload.final_product_qty || payload.finalProductQty || 0));
+            walk(adjustChildrenForStructure(payload.materials_tree, rootProductTypeId), false);
+        } else {
+            walk(Array.isArray(payload.materials_tree) ? payload.materials_tree : [], false);
+        }
         return { leafNeeds, buyCraftables, prodCraftables };
     }
 
@@ -564,7 +750,7 @@
 
             const treeEntry = treeMap.get(Number(typeId));
             const materialEntry = materialsMap.get(Number(typeId));
-            const typeName = (materialEntry && materialEntry.typeName) || (treeEntry && treeEntry.typeName) || '';
+            const typeName = (materialEntry && materialEntry.typeName) || (treeEntry && treeEntry.typeName) || (typeId === rootProductTypeId ? (payload.name || '') : '');
             const marketGroupInfo = readMarketGroup(typeId);
             const marketGroup = marketGroupInfo && marketGroupInfo.groupName ? marketGroupInfo.groupName : null;
 
@@ -576,6 +762,9 @@
             if (!producedPerCycle) {
                 const entry = payload.craft_cycles_summary && (payload.craft_cycles_summary[String(typeId)] || payload.craft_cycles_summary[typeId]);
                 producedPerCycle = normalizeQuantity(entry ? (entry.produced_per_cycle || entry.producedPerCycle || 0) : 0);
+            }
+            if (!producedPerCycle && typeId === rootProductTypeId) {
+                producedPerCycle = rootProductOutputPerCycle;
             }
 
             const cycles = producedPerCycle > 0 ? Math.ceil(totalNeeded / producedPerCycle) : 0;
@@ -686,6 +875,10 @@
         refreshFromDom: deriveStateFromDom,
         initializeSwitchStates: deriveStateFromDom,
         initializeDefaultSwitchStates: deriveStateFromDom,
+        replacePayload: (nextPayload, options) => {
+            resetStateFromPayload(nextPayload, options);
+            return payload;
+        },
         setSwitchState,
         markSwitch: setSwitchState,
         getSwitchState: (typeId) => {
@@ -700,6 +893,29 @@
         setPrice,
         setConfig,
         getConfig,
+        getStructurePlanner: () => structurePlannerPayload,
+        getStructureItems: () => Array.from(structureItemsMap.values()).map((item) => {
+            const selectedStructureId = getStructureAssignment(item.typeId);
+            return Object.assign({}, item, {
+                selectedStructureId,
+                selected_structure_id: selectedStructureId,
+                options: Array.from(item.optionsMap.values())
+            });
+        }),
+        getStructureAssignment,
+        getStructureOption,
+        setStructureAssignment: (typeId, structureId) => {
+            const numericTypeId = Number(typeId);
+            const numericStructureId = Number(structureId);
+            const item = getStructureItem(numericTypeId);
+            if (!item || !item.optionsMap || !item.optionsMap.has(numericStructureId)) {
+                return;
+            }
+            structureAssignmentsMap.set(numericTypeId, numericStructureId);
+            metaState.changeCount += 1;
+            metaState.lastUpdate = new Date().toISOString();
+            markTabsDirty(['materials', 'financial', 'needed', 'cycles']);
+        },
         markTabsDirty,
         markTabDirty: (tabName) => markTabsDirty([tabName]),
         markTabsDirtyBulk: markTabsDirty,
@@ -719,7 +935,9 @@
             prices: pricesMap,
             tabs: tabsState,
             config: configState,
-            meta: metaState
+            meta: metaState,
+            structureItems: structureItemsMap,
+            structureAssignments: structureAssignmentsMap
         })
     };
 
