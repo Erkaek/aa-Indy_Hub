@@ -46,9 +46,9 @@
 
     <div class="me-hub-banner" role="note">
         <i class="fas fa-map-marker-alt" aria-hidden="true"></i>
-        <span class="me-hub-banner-label">{% trans "Hub Location" %}:</span>
-        {% if config.structure_name %}
-        <span class="me-hub-banner-value">{{ config.structure_name }}</span>
+        <span class="me-hub-banner-label">{% trans "Accepted Locations" %}:</span>
+        {% if accepted_location_summary %}
+        <span class="me-hub-banner-value">{{ accepted_location_summary }}</span>
         {% else %}
         <span class="me-hub-banner-value">{% blocktrans with location=config.structure_id %}{{ location }}{% endblocktrans %}</span>
         {% endif %}

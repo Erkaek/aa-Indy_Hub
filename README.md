@@ -50,6 +50,7 @@ ______________________________________________________________________
 - **django-eveonline-sde** (base SDE data)
 - **Celery** (for background sync and notifications)
 - *(Optional)* Director characters for corporate dashboards
+- *(Optional)* [`aa-charlink`](https://apps.allianceauth.org/apps/detail/aa-charlink) to let users authorize Indy Hub scopes through CharLink
 - *(Optional)* [`aadiscordbot`](https://apps.allianceauth.org/apps/detail/allianceauth-discordbot) (preferred) or [`discordnotify`](https://apps.allianceauth.org/apps/detail/aa-discordnotify) for Discord notifications
 
 ______________________________________________________________________
@@ -127,7 +128,7 @@ Add to your `conf/requirements.txt` (Always use current versions)
 
 ```text
 django-eveonline-sde==0.0.1b3
-indy-hub==1.15.2
+indy-hub==1.16.0
 ```
 
 Run migrations and collect static files:
@@ -159,6 +160,7 @@ exit
 
 - Set permissions in Alliance Auth (see [Permissions](#permissions)).
 - Authorize ESI tokens for blueprints and industry jobs.
+- If `aa-charlink` is installed, Indy Hub is auto-discovered by CharLink and exposes three login options: personal Indy Hub scopes, corporation admin scopes, and Material Exchange scopes. The two admin options are intentionally not selected by default because they request broader corporation access.
 
 ______________________________________________________________________
 
@@ -255,7 +257,7 @@ systemctl restart allianceauth
 Update Versions in `conf/requirements.txt` (Always use current versions)
 
 ```text
-indy-hub==1.15.2
+indy-hub==1.16.0
 
 
 ```

@@ -10,6 +10,7 @@ from django.test import TestCase
 
 # AA Example App
 from indy_hub.models import (
+    IndustryActivityMixin,
     IndustryStructure,
     IndustryStructureRig,
     IndustrySystemCostIndex,
@@ -160,6 +161,32 @@ class IndustryStructureCalculationTests(TestCase):
                 activity_id=1,
                 estimated_item_value=Decimal("250000"),
             )
+
+    @patch("indy_hub.services.industry_structures.get_type_snapshot")
+    def test_copying_installation_cost_uses_jcb_based_tax_and_scc(
+        self, mock_snapshot
+    ) -> None:
+        mock_snapshot.return_value = None
+        self.structure.research_tax_percent = Decimal("2.500")
+        self.structure.save(update_fields=["research_tax_percent"])
+        IndustrySystemCostIndex.objects.create(
+            solar_system_id=self.structure.solar_system_id,
+            solar_system_name=self.structure.solar_system_name,
+            activity_id=IndustryActivityMixin.ACTIVITY_COPYING,
+            cost_index_percent=Decimal("5.00000"),
+        )
+
+        breakdown = calculate_installation_cost(
+            structure=self.structure,
+            activity_id=IndustryActivityMixin.ACTIVITY_COPYING,
+            estimated_item_value=Decimal("50000"),
+        )
+
+        self.assertEqual(breakdown.base_job_cost, Decimal("50"))
+        self.assertEqual(breakdown.adjusted_job_cost, Decimal("50"))
+        self.assertEqual(breakdown.facility_tax, Decimal("25"))
+        self.assertEqual(breakdown.scc_surcharge, Decimal("40"))
+        self.assertEqual(breakdown.total_installation_cost, Decimal("115"))
 
     def test_basic_component_rigs_cover_construction_components(self) -> None:
         supported_types = _supported_type_names_for_effect(

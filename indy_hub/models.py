@@ -676,6 +676,10 @@ class BlueprintCopyRequest(models.Model):
 
 
 class BlueprintCopyOffer(models.Model):
+    class ProposalRole(models.TextChoices):
+        BUYER = "buyer", "Buyer"
+        SELLER = "seller", "Builder"
+
     request = models.ForeignKey(
         "BlueprintCopyRequest", on_delete=models.CASCADE, related_name="offers"
     )
@@ -704,6 +708,18 @@ class BlueprintCopyOffer(models.Model):
         blank=True,
         null=True,
     )
+    proposed_amount = models.DecimalField(
+        max_digits=20,
+        decimal_places=2,
+        blank=True,
+        null=True,
+    )
+    proposed_by_role = models.CharField(
+        max_length=16,
+        choices=ProposalRole.choices,
+        blank=True,
+    )
+    proposed_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
         unique_together = ("request", "owner")
@@ -1296,6 +1312,16 @@ class CorporationSharingSetting(models.Model):
         choices=CharacterSettings.COPY_SHARING_SCOPE_CHOICES,
         default=CharacterSettings.SCOPE_NONE,
     )
+    blueprint_catalog_scope = models.CharField(
+        max_length=20,
+        choices=CharacterSettings.COPY_SHARING_SCOPE_CHOICES,
+        default=CharacterSettings.SCOPE_NONE,
+    )
+    job_catalog_scope = models.CharField(
+        max_length=20,
+        choices=CharacterSettings.COPY_SHARING_SCOPE_CHOICES,
+        default=CharacterSettings.SCOPE_NONE,
+    )
 
     # Corporation job alerts preferences (per user, per corporation)
     corp_jobs_notify_frequency = models.CharField(
@@ -1343,6 +1369,16 @@ class CorporationSharingSetting(models.Model):
             raise ValueError(f"Invalid copy sharing scope: {scope}")
         self.share_scope = scope
         self.allow_copy_requests = scope != CharacterSettings.SCOPE_NONE
+
+    def set_blueprint_catalog_scope(self, scope: str) -> None:
+        if scope not in dict(CharacterSettings.COPY_SHARING_SCOPE_CHOICES):
+            raise ValueError(f"Invalid blueprint catalog scope: {scope}")
+        self.blueprint_catalog_scope = scope
+
+    def set_job_catalog_scope(self, scope: str) -> None:
+        if scope not in dict(CharacterSettings.COPY_SHARING_SCOPE_CHOICES):
+            raise ValueError(f"Invalid job catalog scope: {scope}")
+        self.job_catalog_scope = scope
 
     def set_authorized_characters(self, character_ids) -> None:
         """Replace the manual authorization list with the provided character IDs."""
@@ -1898,6 +1934,20 @@ class MaterialExchangeConfig(models.Model):
             "List of market group IDs allowed for selling. Empty = all industry market groups allowed."
         ),
     )
+    allowed_type_ids_buy = models.JSONField(
+        blank=True,
+        default=list,
+        help_text=_(
+            "List of specific type IDs explicitly allowed for buying. Combined with market groups."
+        ),
+    )
+    allowed_type_ids_sell = models.JSONField(
+        blank=True,
+        default=list,
+        help_text=_(
+            "List of specific type IDs explicitly allowed for selling. Combined with market groups."
+        ),
+    )
 
     # Stock sync
     last_stock_sync = models.DateTimeField(blank=True, null=True)
@@ -1918,6 +1968,39 @@ class MaterialExchangeConfig(models.Model):
 
     def __str__(self):
         return f"Material Exchange Config (Corp {self.corporation_id})"
+
+
+class MaterialExchangeAcceptedLocation(models.Model):
+    """Accepted delivery and storage locations for a Material Exchange config."""
+
+    config = models.ForeignKey(
+        MaterialExchangeConfig,
+        on_delete=models.CASCADE,
+        related_name="accepted_locations",
+    )
+    structure_id = models.BigIntegerField(
+        help_text=_("Accepted structure or station ID for the hub")
+    )
+    structure_name = models.CharField(max_length=255, blank=True)
+    hangar_division = models.IntegerField(
+        default=1,
+        validators=[MinValueValidator(1), MaxValueValidator(7)],
+        help_text=_("Corp hangar division (1-7) for this accepted location"),
+    )
+    sort_order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = _("Material Exchange Accepted Location")
+        verbose_name_plural = _("Material Exchange Accepted Locations")
+        default_permissions = ()
+        ordering = ["sort_order", "id"]
+        unique_together = (("config", "structure_id", "hangar_division"),)
+
+    def __str__(self):
+        label = (self.structure_name or "").strip() or f"Structure {self.structure_id}"
+        return f"{label} / Hangar {self.hangar_division}"
 
 
 class CachedCorporationAsset(models.Model):

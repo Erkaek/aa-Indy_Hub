@@ -4,10 +4,11 @@
 {% block page_title %}{% trans "Request Blueprint Copy" %}{% endblock %}
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
-<link rel="stylesheet" href="{% static 'indy_hub/css/bp_copy_list.css' %}">
+<link rel="stylesheet" href="{% static 'indy_hub/css/bp_copy_list.css' %}?v=20260413-2335">
+<link rel="stylesheet" href="{% static 'indy_hub/css/bp_copy_fulfill_page.css' %}?v=20260418-1400">
 {% endblock %}
 {% block content %}
-<div class="container-fluid py-4">
+<div class="container-fluid py-4 fulfill-page">
     {# Page Header #}
     <div class="page-header mb-4">
         <i class="fas fa-copy header-bg"></i>
@@ -31,16 +32,16 @@
     </div>
 
     {# Results Counter & Filters #}
-    <section class="mb-4">
-        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
+    <section class="mb-3">
+        <div class="rp-toolbar">
             <div class="bp-request-counter">
                 <span class="text-muted small">
                     <i class="fas fa-filter me-1"></i>
                     <strong>{{ page_obj.paginator.count }}</strong> {% trans "blueprint(s)" %}
                 </span>
             </div>
-            <div class="bp-request-sort">
-                <span class="bp-request-sort__label me-2">
+            <div class="bp-request-sort d-flex align-items-center gap-2">
+                <span class="bp-request-sort__label">
                     <i class="fas fa-sort me-1"></i>{% trans "Order by:" %}
                 </span>
                 <div class="btn-group btn-group-sm" role="group">
@@ -57,7 +58,7 @@
             </div>
         </div>
 
-        <div class="bp-request-filters">
+        <div class="bp-request-filters fwp-section" style="padding: 0.75rem 0.85rem;">
             <form method="get" class="bp-request-filters__form">
                 <div class="bp-request-filters__inputs">
                     <div class="bp-request-filters__field">

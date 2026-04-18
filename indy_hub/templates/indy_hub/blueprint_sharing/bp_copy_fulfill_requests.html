@@ -7,14 +7,13 @@
 
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
-<link rel="stylesheet" href="{% static 'indy_hub/css/bp_copy_list.css' %}">
-<link rel="stylesheet" href="{% static 'indy_hub/css/chat.css' %}?v=20260118-2040">
+<link rel="stylesheet" href="{% static 'indy_hub/css/bp_copy_list.css' %}?v=20260413-2335">
+<link rel="stylesheet" href="{% static 'indy_hub/css/chat.css' %}?v=20260418-1100">
+<link rel="stylesheet" href="{% static 'indy_hub/css/bp_copy_fulfill_page.css' %}?v=20260418-1400">
 {% endblock %}
 
 {% block content %}
-<div class="container-fluid py-4">
-    <div data-auto-open-chat="{{ auto_open_chat_id|default:'' }}"></div>
-    {# Page Header #}
+<div class="container-fluid py-4 fulfill-page fulfill-page--requests" data-auto-open-chat="{{ auto_open_chat_id|default:'' }}">
     <div class="page-header mb-4">
         <i class="fas fa-handshake header-bg"></i>
         <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
@@ -26,260 +25,515 @@
                 <p class="description mb-0">{% trans "Review outstanding requests, respond with offers, and manage deliveries." %}</p>
             </div>
             <div class="d-flex flex-column align-items-end gap-1">
-                <a href="{% url 'indy_hub:index' %}" class="btn btn-outline-light">
+                {% if perms.indy_hub.can_manage_corp_bp_requests %}
+                <a href="{% url 'indy_hub:bp_copy_history' %}" class="btn btn-outline-secondary btn-sm">
+                    <i class="fas fa-history me-1"></i>{% trans "History" %}
+                </a>
+                {% endif %}
+                <a href="{% url 'indy_hub:index' %}" class="btn btn-outline-light btn-sm">
                     <i class="fas fa-arrow-left me-1"></i>{% trans "Back to Overview" %}
                 </a>
             </div>
         </div>
     </div>
 
-    {% if perms.indy_hub.can_manage_corp_bp_requests %}
-    <div class="bp-request-filters__actions justify-content-end mb-3">
-        <a href="{% url 'indy_hub:bp_copy_history' %}" class="btn btn-primary">
-            <i class="fas fa-history me-1"></i>{% trans "History" %}
-        </a>
-    </div>
-    {% endif %}
-
     {% if has_requests %}
-    {# Metric Tiles #}
-    <div class="row g-3 mb-4">
-        <div class="col-md-6">
-            <a href="?status=all{% if include_self_requests %}&include_self=1{% endif %}" class="metric-tile-link">
-                <div class="metric-tile bg-gradient-primary">
-                    <div>
-                        <p class="label text-primary mb-1">
-                            <i class="fas fa-inbox me-2"></i>{% trans "Total Requests" %}
-                        </p>
-                        <div class="metric-value text-primary">{{ metrics.total|default:0 }}</div>
-                    </div>
-                    <div class="metric-icon text-primary">
-                        <i class="fas fa-list"></i>
-                    </div>
-                </div>
-            </a>
-        </div>
-        <div class="col-md-6">
-            <a href="?status=awaiting_response{% if include_self_requests %}&include_self=1{% endif %}" class="metric-tile-link">
-                <div class="metric-tile bg-gradient-warning">
-                    <div>
-                        <p class="label text-warning mb-1">
-                            <i class="fas fa-bell me-2"></i>{% trans "Awaiting Response" %}
-                        </p>
-                        <div class="metric-value text-warning">{{ metrics.awaiting_response|default:0 }}</div>
-                    </div>
-                    <div class="metric-icon text-warning">
-                        <i class="fas fa-clock"></i>
-                    </div>
-                </div>
-            </a>
-        </div>
-        <div class="col-md-6">
-            <a href="?status=waiting_on_buyer{% if include_self_requests %}&include_self=1{% endif %}" class="metric-tile-link">
-                <div class="metric-tile bg-gradient-info">
-                    <div>
-                        <p class="label text-info mb-1">
-                            <i class="fas fa-hourglass-half me-2"></i>{% trans "Waiting on Buyer" %}
-                        </p>
-                        <div class="metric-value text-info">{{ metrics.waiting_on_buyer|default:0 }}</div>
-                    </div>
-                    <div class="metric-icon text-info">
-                        <i class="fas fa-hourglass"></i>
-                    </div>
-                </div>
-            </a>
-        </div>
-        <div class="col-md-6">
-            <a href="?status=ready_to_deliver{% if include_self_requests %}&include_self=1{% endif %}" class="metric-tile-link">
-                <div class="metric-tile bg-gradient-success">
-                    <div>
-                        <p class="label text-success mb-1">
-                            <i class="fas fa-check-circle me-2"></i>{% trans "Ready to Deliver" %}
-                        </p>
-                        <div class="metric-value text-success">{{ metrics.ready_to_deliver|default:0 }}</div>
-                    </div>
-                    <div class="metric-icon text-success">
-                        <i class="fas fa-truck"></i>
-                    </div>
-                </div>
-            </a>
-        </div>
-    </div>
+    <div class="fulfill-reference-shell" data-fulfill-workspace>
 
-    {# Filters #}
-    <form method="get" class="d-flex flex-wrap align-items-end gap-2 mb-3">
-        <div>
-            <label for="bp-copy-filter-status" class="form-label small text-muted mb-1">{% trans "Display" %}</label>
-            <select id="bp-copy-filter-status" name="status" class="form-select form-select-sm" onchange="this.form.submit()">
-                <option value="all" {% if active_filter == 'all' %}selected{% endif %}>{% trans "All" %}</option>
-                <option value="awaiting_response" {% if active_filter == 'awaiting_response' %}selected{% endif %}>{% trans "Awaiting response" %}</option>
-                <option value="waiting_on_buyer" {% if active_filter == 'waiting_on_buyer' %}selected{% endif %}>{% trans "Waiting on buyer" %}</option>
-                <option value="waiting_on_you" {% if active_filter == 'waiting_on_you' %}selected{% endif %}>{% trans "Waiting on you" %}</option>
-                <option value="ready_to_deliver" {% if active_filter == 'ready_to_deliver' %}selected{% endif %}>{% trans "Ready to deliver" %}</option>
-                <option value="offer_rejected" {% if active_filter == 'offer_rejected' %}selected{% endif %}>{% trans "Offer rejected" %}</option>
-                {% if include_self_requests %}
-                <option value="self_request" {% if active_filter == 'self_request' %}selected{% endif %}>{% trans "My tracked requests" %}</option>
-                {% endif %}
-            </select>
-        </div>
-        <div class="form-check ms-1">
-            <input class="form-check-input" type="checkbox" id="bp-copy-filter-self" name="include_self" value="1" {% if include_self_requests %}checked{% endif %} onchange="this.form.submit()">
-            <label class="form-check-label small" for="bp-copy-filter-self">{% trans "Include my own requests" %}</label>
-        </div>
-    </form>
+        {# ── Sidebar: request queue ─────────────────────────────── #}
+        <aside class="fulfill-reference-sidebar">
+            <div class="fulfill-reference-sidebar__panel">
+                <div class="fulfill-reference-sidebar__topbar">
+                    <span class="fulfill-reference-sidebar__title">{% trans "Requests" %}</span>
+                    {% if perms.indy_hub.can_manage_corp_bp_requests %}
+                    <a href="{% url 'indy_hub:bp_copy_history' %}" class="btn btn-outline-secondary btn-sm">
+                        <i class="fas fa-history me-1"></i>{% trans "History" %}
+                    </a>
+                    {% endif %}
+                </div>
 
-    {# Requests List - Horizontal Card Layout #}
-    <div class="fulfill-requests-list">
-        {% if not requests %}
-        <div class="p-4 text-center text-muted">
-            <i class="fas fa-filter me-1"></i>{% trans "No requests match this filter." %}
-        </div>
-        {% endif %}
+                <div class="fulfill-reference-sidebar__search">
+                    <label for="fulfill-request-search" class="visually-hidden">{% trans "Search requests" %}</label>
+                    <i class="fas fa-search" aria-hidden="true"></i>
+                    <input
+                        id="fulfill-request-search"
+                        type="search"
+                        class="form-control"
+                        placeholder="{% trans 'Search requests...' %}"
+                        data-fulfill-search
+                    >
+                </div>
 
-        {% for req in requests %}
-        <div class="fulfill-card">
-            {# Left: Icon #}
-            <div class="fulfill-card__icon">
-                <img
-                    src="{{ req.icon_url }}"
-                    alt="{{ req.type_name }}"
-                    loading="lazy"
-                    onerror="this.onerror=null;this.src='https://images.evetech.net/types/{{ req.type_id }}/icon?size=64'"
-                >
+                <form method="get" class="fulfill-reference-sidebar__filters">
+                    <select id="bp-copy-filter-status" name="status" class="form-select form-select-sm" onchange="this.form.submit()">
+                        <option value="all" {% if active_filter == 'all' %}selected{% endif %}>{% trans "All" %}</option>
+                        <option value="awaiting_response" {% if active_filter == 'awaiting_response' %}selected{% endif %}>{% trans "Awaiting response" %}</option>
+                        <option value="waiting_on_buyer" {% if active_filter == 'waiting_on_buyer' %}selected{% endif %}>{% trans "Waiting on buyer" %}</option>
+                        <option value="waiting_on_you" {% if active_filter == 'waiting_on_you' %}selected{% endif %}>{% trans "Waiting on you" %}</option>
+                        <option value="ready_to_deliver" {% if active_filter == 'ready_to_deliver' %}selected{% endif %}>{% trans "Ready to deliver" %}</option>
+                        <option value="offer_rejected" {% if active_filter == 'offer_rejected' %}selected{% endif %}>{% trans "Offer rejected" %}</option>
+                        {% if include_self_requests %}
+                        <option value="self_request" {% if active_filter == 'self_request' %}selected{% endif %}>{% trans "My tracked requests" %}</option>
+                        {% endif %}
+                    </select>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="bp-copy-filter-self" name="include_self" value="1" {% if include_self_requests %}checked{% endif %} onchange="this.form.submit()">
+                        <label class="form-check-label" for="bp-copy-filter-self">{% trans "Include my own requests" %}</label>
+                    </div>
+                </form>
+
+                <div class="fulfill-reference-sidebar__list" data-fulfill-list>
+                    {% for req in requests %}
+                    <button
+                        type="button"
+                        class="fulfill-request-item"
+                        data-fulfill-request-item
+                        data-request-id="{{ req.id }}"
+                        data-chat-id="{% if req.chat %}{{ req.chat.id }}{% endif %}"
+                        data-search="{{ req.type_name }} {{ req.requester_character|default:req.requester }} {{ req.requester_corporation|default:'' }} {{ req.requester_bp_source_label }} {{ req.status_label }}"
+                        aria-pressed="false"
+                    >
+                        <div class="fulfill-request-item__icon">
+                            <img
+                                src="{{ req.icon_url }}"
+                                alt="{{ req.type_name }}"
+                                loading="lazy"
+                                onerror="this.onerror=null;this.src='https://images.evetech.net/types/{{ req.type_id }}/icon?size=64'"
+                            >
+                        </div>
+                        <div class="fulfill-request-item__body">
+                            <div class="fulfill-request-item__titles">
+                                <h3>{{ req.type_name }}</h3>
+                                <p class="fulfill-request-item__requester">{{ req.requester_character|default:req.requester }}</p>
+                                <p class="fulfill-request-item__summary">{{ req.copies_requested }}× · {{ req.runs_requested }} {% trans "runs" %}</p>
+                            </div>
+                            <div class="fulfill-request-item__chips">
+                                <span class="fulfill-spec fulfill-spec--me">ME {{ req.material_efficiency }}</span>
+                                <span class="fulfill-spec fulfill-spec--te">TE {{ req.time_efficiency }}</span>
+                            </div>
+                            <div class="fulfill-request-item__footer">
+                                <span class="fulfill-status {{ req.status_class }}">{{ req.status_label }}</span>
+                                <span class="fulfill-request-item__time">{{ req.created_at|naturaltime }}</span>
+                            </div>
+                            {% if req.chat and req.chat.has_unread %}
+                            <div class="fulfill-request-item__unread">
+                                <i class="fas fa-circle fa-xs"></i>{% trans "Unread" %}
+                            </div>
+                            {% endif %}
+                        </div>
+                    </button>
+                    {% empty %}
+                    <div class="fulfill-reference-sidebar__empty">
+                        <i class="fas fa-filter me-2"></i>{% trans "No requests match this filter." %}
+                    </div>
+                    {% endfor %}
+                </div>
+
+                <div class="fulfill-reference-sidebar__empty d-none" data-fulfill-search-empty>
+                    <i class="fas fa-search me-2"></i>{% trans "No requests match your search." %}
+                </div>
             </div>
+        </aside>
 
-            {# Center: Info #}
-            <div class="fulfill-card__info">
-                <div class="fulfill-card__main">
-                    <h3 class="fulfill-card__title">{{ req.type_name }}</h3>
-                    <div class="fulfill-card__specs">
-                        <span class="fulfill-spec fulfill-spec--me">ME {{ req.material_efficiency }}</span>
-                        <span class="fulfill-spec fulfill-spec--te">TE {{ req.time_efficiency }}</span>
-                        <span class="fulfill-spec fulfill-spec--copies">{{ req.copies_requested }} {% trans "copies" %} · {{ req.runs_requested }} {% trans "runs / copy" %}</span>
+        {# ── Workbench ───────────────────────────────────────────── #}
+        <section class="fulfill-reference-workbench">
+            {% for req in requests %}
+            <article
+                class="fulfill-workbench-panel{% if forloop.first %} is-active{% endif %}"
+                data-fulfill-panel="{{ req.id }}"
+                data-copy-base-time-seconds="{{ req.copy_base_time_seconds|default:0 }}"
+                data-copy-runs-requested="{{ req.runs_requested }}"
+                data-copy-copies-requested="{{ req.copies_requested }}"
+                {% if not forloop.first %}hidden{% endif %}
+            >
+                {# Identity header strip #}
+                <div class="fwp-header">
+                    <div class="fwp-header__brand">
+                        <div class="fwp-header__icon">
+                            <img
+                                src="{{ req.icon_url }}"
+                                alt="{{ req.type_name }}"
+                                loading="lazy"
+                                onerror="this.onerror=null;this.src='https://images.evetech.net/types/{{ req.type_id }}/icon?size=64'"
+                            >
+                        </div>
+                        <div class="fwp-header__identity">
+                            <h2>{{ req.type_name }}</h2>
+                            <div class="fwp-header__chips">
+                                <span class="fulfill-spec fulfill-spec--me">ME {{ req.material_efficiency }}</span>
+                                <span class="fulfill-spec fulfill-spec--te">TE {{ req.time_efficiency }}</span>
+                                <span class="fulfill-status {{ req.status_class }}">{{ req.status_label }}</span>
+                                {% if req.chat and req.chat.has_unread %}
+                                <span class="fwp-unread-badge"><i class="fas fa-circle fa-xs me-1"></i>{% trans "Unread" %}</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="fwp-header__stats">
+                        <div class="fwp-stat">
+                            <span>{% trans "Buyer" %}</span>
+                            <strong>{{ req.requester_character|default:req.requester }}</strong>
+                        </div>
+                        <div class="fwp-stat">
+                            <span>{% trans "Copies" %}</span>
+                            <strong>{{ req.copies_requested }}× · {{ req.runs_requested }} {% trans "runs" %}</strong>
+                        </div>
+                        <div class="fwp-stat">
+                            <span>{% trans "Source" %}</span>
+                            <strong>{{ req.requester_bp_source_label }}</strong>
+                        </div>
+                        <div class="fwp-stat">
+                            <span>{% trans "Opened" %}</span>
+                            <strong>{{ req.created_at|naturaltime }}</strong>
+                        </div>
                     </div>
                 </div>
-                <div class="fulfill-card__meta">
-                    <div class="fulfill-meta-item">
-                        <i class="fas fa-user"></i>
-                        <span>{{ req.requester_character|default:req.requester }}</span>
+
+                {# Body: chat (left/center) + panel column (right) #}
+                <div class="fwp-body">
+
+                    {# Chat column #}
+                    <div class="fwp-chat-col">
+                        {% if req.chat %}
+                        {% with req_id=req.id|stringformat:"s" %}
+                        {% with chat_shell_id="bpChatInline-"|add:req_id chat_input_id="bpChatInput-"|add:req_id %}
                         <button
                             type="button"
-                            class="btn btn-sm btn-outline-secondary bp-request-card__copy-button fulfill-copy-btn"
-                            data-copy-value="{{ req.requester_character|default:req.requester }}"
-                            aria-label="{% trans 'Copy character name' %}"
-                            data-copy-success-label="{% trans 'Copied!' %}"
-                            data-copy-error-label="{% trans 'Unable to copy' %}"
+                            class="d-none bp-chat-trigger"
+                            data-chat-autoload-trigger
+                            data-chat-target="{{ chat_shell_id }}"
+                            data-chat-fetch-url="{{ req.chat.fetch_url }}"
+                            data-chat-send-url="{{ req.chat.send_url }}"
+                            data-chat-role="seller"
+                            data-chat-type-name="{{ req.type_name }}"
+                            data-chat-type-id="{{ req.type_id }}"
+                            data-chat-id="{{ req.chat.id }}"
+                        ></button>
+                        <section
+                            class="bp-chat-inline bp-chat-shell fwp-chat-shell"
+                            id="{{ chat_shell_id }}"
+                            data-chat-modal
+                            data-chat-inline
+                            data-request-id="{{ req.id }}"
                         >
-                            <i class="fas fa-copy"></i>
-                        </button>
-                        {% if req.requester_corporation %}
-                        <span class="fulfill-corp">{{ req.requester_corporation_ticker|default:req.requester_corporation }}</span>
-                        {% endif %}
-                    </div>
-                    {% if req.personal_source_names or req.corporation_names %}
-                    <div class="fulfill-meta-item fulfill-meta-item--owners">
-                        <i class="fas fa-warehouse"></i>
-                        {% for name in req.personal_source_names %}<span class="fulfill-owner">{{ name }}</span>{% endfor %}
-                        {% for name in req.corporation_names %}<span class="fulfill-owner fulfill-owner--corp">{{ name }}</span>{% endfor %}
-                    </div>
-                    {% endif %}
-                    {% if req.copy_cost %}
-                    <div class="fulfill-meta-item fulfill-meta-item--cost">
-                        <i class="fas fa-coins"></i>
-                        <span>
-                            {% trans "Estimated copy cost" %}
-                            <strong>{{ req.copy_cost.total_installation_cost|floatformat:0|intcomma }} ISK</strong>
-                        </span>
-                        <span class="fulfill-owner fulfill-owner--corp">{{ req.copy_cost.structure_name }}</span>
-                    </div>
-                    <div class="fulfill-meta-item fulfill-meta-item--cost">
-                        <i class="fas fa-calculator"></i>
-                        <span>
-                            EIV {{ req.copy_cost.estimated_item_value|floatformat:0|intcomma }}
-                            · SCI {{ req.copy_cost.system_cost_index_percent|floatformat:2 }}%
-                            · Bonus -{{ req.copy_cost.job_cost_bonus_percent|floatformat:2 }}%
-                            · Tax {{ req.copy_cost.facility_tax_percent|floatformat:2 }}%
-                            · SCC {{ req.copy_cost.scc_surcharge_percent|floatformat:0 }}%
-                            {% if req.copy_cost.copies_requested > 1 %}
-                            · {{ req.copy_cost.per_copy_installation_cost|floatformat:0|intcomma }} ISK / {% trans "copy" %}
-                            {% endif %}
-                        </span>
-                    </div>
-                    {% endif %}
-                </div>
-                <div class="fulfill-card__time">
-                    <i class="far fa-clock"></i>
-                    <span>{{ req.created_at|naturaltime }}</span>
-                </div>
-            </div>
+                            <div class="bp-chat-surface bp-chat-surface--inline">
+                                <div class="bp-chat-body">
+                                    <div class="bp-chat-summary" data-chat-summary></div>
 
-            {# Right: Status & Actions #}
-            <div class="fulfill-card__actions">
-                <div class="fulfill-card__status">
-                    <span class="fulfill-status {{ req.status_class }}">{{ req.status_label }}</span>
-                </div>
-                <div class="fulfill-card__buttons">
-                    {% if req.show_offer_actions %}
-                    <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}">
-                        {% csrf_token %}
-                        <input type="hidden" name="action" value="accept">
-                        <input type="hidden" name="source_scope" value="{{ req.default_scope }}" data-scope-input data-request-id="{{ req.id }}" data-scope-default="{{ req.default_scope }}">
-                        <button type="submit" class="fulfill-btn fulfill-btn--accept" {% if req.has_dual_sources %}data-scope-trigger="true" data-scope-required="true" data-request-id="{{ req.id }}" data-scope-script-id="bp-scope-options-{{ req.id }}" data-scope-action="accept" data-scope-action-label="{% trans 'Accept for free' %}"{% endif %}>
-                            <i class="fas fa-check"></i> {% trans "Accept" %}
-                        </button>
-                    </form>
-                    <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}">
-                        {% csrf_token %}
-                        <input type="hidden" name="action" value="conditional">
-                        <input type="hidden" name="source_scope" value="{{ req.default_scope }}" data-scope-input data-request-id="{{ req.id }}" data-scope-default="{{ req.default_scope }}">
-                        <button type="submit" class="fulfill-btn fulfill-btn--condition" {% if req.has_dual_sources %}data-scope-trigger="true" data-scope-required="true" data-request-id="{{ req.id }}" data-scope-script-id="bp-scope-options-{{ req.id }}" data-scope-action="conditional" data-scope-action-label="{% trans 'Accept with conditions' %}"{% endif %}>
-                            <i class="fas fa-handshake"></i> {% trans "Negotiate" %}
-                        </button>
-                    </form>
-                    <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}">
-                        {% csrf_token %}
-                        <input type="hidden" name="action" value="reject">
-                        <input type="hidden" name="source_scope" value="{{ req.default_scope }}" data-scope-input data-request-id="{{ req.id }}" data-scope-default="{{ req.default_scope }}">
-                        <button type="submit" class="fulfill-btn fulfill-btn--decline" onclick="return confirm('{% trans 'Decline this request?' %}')" {% if req.has_dual_sources %}data-scope-trigger="true" data-scope-required="true" data-request-id="{{ req.id }}" data-scope-script-id="bp-scope-options-{{ req.id }}" data-scope-action="reject" data-scope-action-label="{% trans 'Decline' %}"{% endif %}>
-                            <i class="fas fa-times"></i> {% trans "Decline" %}
-                        </button>
-                    </form>
-                    {% endif %}
-                    {% if req.can_mark_delivered %}
-                    <form method="post" action="{% url 'indy_hub:bp_mark_copy_delivered' req.id %}">
-                        {% csrf_token %}
-                        <button type="submit" class="fulfill-btn fulfill-btn--deliver" onclick="return confirm('{% trans 'Mark this request as delivered?' %}')">
-                            <i class="fas fa-truck"></i> {% trans "Delivered" %}
-                        </button>
-                    </form>
-                    {% endif %}
-                    {% if req.chat %}
-                    <button type="button" class="fulfill-btn fulfill-btn--chat bp-chat-trigger" data-chat-fetch-url="{{ req.chat.fetch_url }}" data-chat-send-url="{{ req.chat.send_url }}" data-chat-role="seller" data-chat-type-name="{{ req.type_name }}" data-chat-type-id="{{ req.type_id }}" data-chat-id="{{ req.chat.id }}">
-                        <i class="fas fa-comments"></i> {% trans "Chat" %}
-                    </button>
-                    {% endif %}
-                </div>
+                                    <div class="alert alert-warning d-none bp-chat-status" role="status" data-chat-status></div>
+
+                                    <div class="bp-chat-actions d-none" data-chat-actions>
+                                        <div class="bp-chat-proposal">
+                                            <div class="bp-chat-proposal__summary">
+                                                <div class="bp-chat-proposal__intro">
+                                                    <div class="small" data-chat-action-status></div>
+                                                    <div class="bp-chat-proposal__hint" data-chat-action-hint></div>
+                                                </div>
+                                                <div class="bp-chat-proposal__current d-none" data-chat-proposal-current>
+                                                    <span class="bp-chat-proposal__label">{% trans "Current proposal" %}</span>
+                                                    <strong data-chat-proposal-amount></strong>
+                                                </div>
+                                            </div>
+                                            <form class="bp-chat-proposal-form" data-chat-proposal-form>
+                                                <label class="visually-hidden" for="{{ chat_input_id }}Proposal">{% trans "Proposal amount" %}</label>
+                                                <div class="input-group input-group-sm">
+                                                    <input
+                                                        id="{{ chat_input_id }}Proposal"
+                                                        type="number"
+                                                        min="0"
+                                                        step="0.01"
+                                                        class="form-control"
+                                                        inputmode="decimal"
+                                                        placeholder="{% trans 'Enter amount in ISK' %}"
+                                                        data-chat-proposal-input
+                                                    >
+                                                    <span class="input-group-text">ISK</span>
+                                                    <button type="submit" class="btn btn-primary" data-chat-proposal-submit>
+                                                        <i class="fas fa-coins me-1"></i>{% trans "Send proposal" %}
+                                                    </button>
+                                                </div>
+                                            </form>
+                                        </div>
+                                    </div>
+
+                                    <div class="bp-chat-message-list" data-chat-messages></div>
+                                </div>
+
+                                <div class="bp-chat-footer">
+                                    <form class="bp-chat-form" data-chat-form>
+                                        {% csrf_token %}
+                                        <label for="{{ chat_input_id }}" class="visually-hidden">{% trans "Message" %}</label>
+                                        <textarea
+                                            id="{{ chat_input_id }}"
+                                            class="form-control bp-chat-input"
+                                            rows="2"
+                                            maxlength="2000"
+                                            data-chat-input
+                                            placeholder="{% trans 'Type your message...' %}"
+                                            required
+                                        ></textarea>
+                                        <button type="submit" class="btn btn-primary bp-chat-send">
+                                            <i class="fas fa-paper-plane"></i>
+                                            <span class="d-none d-sm-inline ms-1">{% trans "Send" %}</span>
+                                        </button>
+                                    </form>
+                                </div>
+                            </div>
+                        </section>
+                        {% endwith %}
+                        {% endwith %}
+                        {% else %}
+                        <div class="fwp-chat-empty">
+                            <div class="fwp-chat-empty__icon">
+                                <i class="fas fa-comments"></i>
+                            </div>
+                            <p class="fwp-section__eyebrow">{% trans "No thread yet" %}</p>
+                            <h3>{% trans "No negotiation started" %}</h3>
+                            <p>{% trans "Use the Actions panel to send a proposal. The conversation will appear here." %}</p>
+                        </div>
+                        {% endif %}
+                    </div>{# /fwp-chat-col #}
+
+                    {# Panel column: Actions + Estimates + Availability #}
+                    <div class="fwp-panel-col">
+
+                        {# Actions #}
+                        <div class="fwp-section fwp-section--actions">
+                            <div class="fwp-section__head">
+                                <h3 class="fwp-section__title">{% trans "Actions" %}</h3>
+                            </div>
+                            {% if req.status_hint %}
+                            <p class="fwp-section__hint">{{ req.status_hint }}</p>
+                            {% endif %}
+                            <div class="fulfill-reference-actions">
+                                {% if req.show_offer_actions %}
+                                <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="action" value="accept">
+                                    <input type="hidden" name="source_scope" value="{{ req.default_scope }}" data-scope-input data-request-id="{{ req.id }}" data-scope-default="{{ req.default_scope }}">
+                                    <button type="submit" class="fulfill-btn fulfill-btn--accept" {% if req.has_dual_sources %}data-scope-trigger="true" data-scope-required="true" data-request-id="{{ req.id }}" data-scope-script-id="bp-scope-options-{{ req.id }}" data-scope-action="accept" data-scope-action-label="{% trans 'Accept for free' %}"{% endif %}>
+                                        <i class="fas fa-check"></i>{% trans "Accept for free" %}
+                                    </button>
+                                </form>
+                                <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="action" value="conditional">
+                                    <input type="hidden" name="source_scope" value="{{ req.default_scope }}" data-scope-input data-request-id="{{ req.id }}" data-scope-default="{{ req.default_scope }}">
+                                    <label class="fwp-section__label-sm" for="proposal-amount-{{ req.id }}">{% trans "Propose amount" %}</label>
+                                    <div class="fulfill-offer-bar">
+                                        <input
+                                            id="proposal-amount-{{ req.id }}"
+                                            type="number"
+                                            name="proposed_amount"
+                                            min="0"
+                                            step="0.01"
+                                            class="form-control form-control-sm"
+                                            inputmode="decimal"
+                                            placeholder="{% trans 'Amount in ISK' %}"
+                                            required
+                                        >
+                                        <button type="submit" class="fulfill-btn fulfill-btn--condition" {% if req.has_dual_sources %}data-scope-trigger="true" data-scope-required="true" data-request-id="{{ req.id }}" data-scope-script-id="bp-scope-options-{{ req.id }}" data-scope-action="conditional" data-scope-action-label="{% trans 'Send proposal' %}"{% endif %}>
+                                            <i class="fas fa-coins"></i>{% trans "Propose" %}
+                                        </button>
+                                    </div>
+                                </form>
+                                <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="action" value="reject">
+                                    <input type="hidden" name="source_scope" value="{{ req.default_scope }}" data-scope-input data-request-id="{{ req.id }}" data-scope-default="{{ req.default_scope }}">
+                                    <button type="submit" class="fulfill-btn fulfill-btn--decline" onclick="return confirm('{% trans 'Decline this request?' %}')" {% if req.has_dual_sources %}data-scope-trigger="true" data-scope-required="true" data-request-id="{{ req.id }}" data-scope-script-id="bp-scope-options-{{ req.id }}" data-scope-action="reject" data-scope-action-label="{% trans 'Decline' %}"{% endif %}>
+                                        <i class="fas fa-times"></i>{% trans "Decline" %}
+                                    </button>
+                                </form>
+                                {% endif %}
+                                {% if req.show_negotiation_actions and req.chat.decision_url %}
+                                {% if req.negotiation_notice %}
+                                <div class="fulfill-reference-note">
+                                    <i class="fas fa-info-circle"></i>
+                                    <span>{{ req.negotiation_notice }}</span>
+                                </div>
+                                {% endif %}
+                                {% if req.negotiation_can_accept %}
+                                <form method="post" action="{{ req.chat.decision_url }}">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="decision" value="accept">
+                                    <input type="hidden" name="viewer_role" value="seller">
+                                    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                                    <button type="submit" class="fulfill-btn fulfill-btn--accept">
+                                        <i class="fas fa-check"></i>{% trans "Confirm amount" %}
+                                    </button>
+                                </form>
+                                {% endif %}
+                                <form method="post" action="{{ req.chat.decision_url }}">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="decision" value="reject">
+                                    <input type="hidden" name="viewer_role" value="seller">
+                                    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                                    <button type="submit" class="fulfill-btn fulfill-btn--decline" onclick="return confirm('{% trans 'Decline this negotiation?' %}')" {% if not req.negotiation_can_decline %}disabled{% endif %}>
+                                        <i class="fas fa-times"></i>{% trans "Decline negotiation" %}
+                                    </button>
+                                </form>
+                                {% endif %}
+                                {% if req.can_mark_delivered %}
+                                <form method="post" action="{% url 'indy_hub:bp_mark_copy_delivered' req.id %}">
+                                    {% csrf_token %}
+                                    <button type="submit" class="fulfill-btn fulfill-btn--deliver" onclick="return confirm('{% trans 'Mark this request as delivered?' %}')">
+                                        <i class="fas fa-truck"></i>{% trans "Mark delivered" %}
+                                    </button>
+                                </form>
+                                {% endif %}
+                            </div>
+                        </div>{# /fwp-section--actions #}
+
+                        {# Estimates & Setup #}
+                        {% if req.copy_structure_options or req.copy_producer_options or req.copy_duration or req.copy_cost %}
+                        <div class="fwp-section fwp-section--estimates">
+                            <div class="fwp-section__head">
+                                <div>
+                                    <p class="fwp-section__eyebrow">{% trans "Planning" %}</p>
+                                    <h3 class="fwp-section__title">{% trans "Estimate & Setup" %}</h3>
+                                </div>
+                                <span class="fwp-section__badge"><i class="fas fa-sliders-h"></i>{% trans "Live" %}</span>
+                            </div>
+                            <div class="fwp-setup-fields">
+                                {% if req.copy_structure_options %}
+                                <div class="fwp-setup-field">
+                                    <label class="fwp-setup-field__label">
+                                        <i class="fas fa-industry"></i><span>{% trans "Copy structure" %}</span>
+                                    </label>
+                                    <select class="form-select form-select-sm" data-copy-structure-select data-request-id="{{ req.id }}">
+                                        {% for option in req.copy_structure_options %}
+                                        <option
+                                            value="{{ option.id }}"
+                                            {% if option.id == req.copy_structure_selected_id %}selected{% endif %}
+                                            data-structure-name="{{ option.structure_name }}"
+                                            data-solar-system-name="{{ option.solar_system_name|default:'' }}"
+                                            data-time-bonus-percent="{{ option.structure_time_bonus_percent }}"
+                                            data-total-installation-cost="{{ option.total_installation_cost }}"
+                                            data-per-copy-installation-cost="{{ option.per_copy_installation_cost }}"
+                                            data-system-cost-index-percent="{{ option.system_cost_index_percent }}"
+                                            data-facility-tax-percent="{{ option.facility_tax_percent }}"
+                                            data-scc-surcharge-percent="{{ option.scc_surcharge_percent }}"
+                                            data-job-cost-bonus-percent="{{ option.job_cost_bonus_percent }}"
+                                            data-estimated-item-value="{{ option.estimated_item_value }}"
+                                            data-uses-fallback-structure="{% if option.uses_fallback_structure %}1{% else %}0{% endif %}"
+                                        >{{ option.structure_name }}{% if option.solar_system_name %} · {{ option.solar_system_name }}{% endif %}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                {% endif %}
+                                {% if req.copy_producer_options %}
+                                <div class="fwp-setup-field">
+                                    <label class="fwp-setup-field__label">
+                                        <i class="fas fa-user-cog"></i><span>{% trans "Producer character" %}</span>
+                                    </label>
+                                    <select class="form-select form-select-sm" data-copy-producer-select data-request-id="{{ req.id }}">
+                                        {% for option in req.copy_producer_options %}
+                                        <option
+                                            value="{{ option.id }}"
+                                            {% if option.id == req.copy_producer_selected_id %}selected{% endif %}
+                                            data-character-time-bonus-percent="{{ option.time_bonus_percent }}"
+                                        >{{ option.name }} · -{{ option.time_bonus_label }}% · {{ option.available_slots }}/{{ option.total_slots }} {% trans "slots" %}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                {% endif %}
+                            </div>
+                            <div class="fwp-estimate-row">
+                                {% if req.copy_duration %}
+                                <div class="fwp-estimate-card fwp-estimate-card--time">
+                                    <span class="fwp-estimate-card__icon"><i class="fas fa-clock"></i></span>
+                                    <div>
+                                        <p class="fwp-section__eyebrow">{% trans "Time estimate" %}</p>
+                                        <strong class="fwp-estimate-card__value" data-copy-duration-total>{{ req.copy_duration.total_duration_display }}</strong>
+                                        <p class="fwp-section__hint-sm" data-copy-duration-meta>{{ req.copy_duration.meta_label }}</p>
+                                    </div>
+                                </div>
+                                {% endif %}
+                                {% if req.copy_cost %}
+                                <div class="fwp-estimate-card fwp-estimate-card--cost">
+                                    <span class="fwp-estimate-card__icon"><i class="fas fa-wallet"></i></span>
+                                    <div>
+                                        <p class="fwp-section__eyebrow">{% trans "Install estimate" %}</p>
+                                        <strong class="fwp-estimate-card__value" data-copy-estimate-total>{{ req.copy_cost.total_installation_cost|floatformat:0|intcomma }} ISK</strong>
+                                        <p class="fwp-section__hint-sm" data-copy-estimate-structure>{{ req.copy_cost.structure_name }}{% if req.copy_cost.solar_system_name %} · {{ req.copy_cost.solar_system_name }}{% endif %}</p>
+                                        <p class="fwp-section__hint-sm" data-copy-estimate-meta>{% blocktrans with index=req.copy_cost.system_cost_index_percent|floatformat:2 tax=req.copy_cost.facility_tax_percent|floatformat:2 surcharge=req.copy_cost.scc_surcharge_percent|floatformat:2 %}SCI {{ index }}% · Tax {{ tax }}% · SCC {{ surcharge }}%{% endblocktrans %}</p>
+                                    </div>
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>{# /fwp-section--estimates #}
+                        {% endif %}
+
+                        {# Availability #}
+                        <div class="fwp-section fwp-section--availability">
+                            <h3 class="fwp-section__title">{% trans "Availability" %}</h3>
+                            <div class="fwp-detail-list">
+                                <div class="fwp-detail-row">
+                                    <span>{% trans "BP source" %}</span>
+                                    <strong>
+                                        {% if req.personal_blueprints and req.corporate_blueprints %}{% trans "BP user + BP corp" %}
+                                        {% elif req.corporate_blueprints %}{% trans "BP corp" %}
+                                        {% else %}{% trans "BP user" %}{% endif %}
+                                    </strong>
+                                </div>
+                                <div class="fwp-detail-row">
+                                    <span>{% trans "Available" %}</span>
+                                    <strong>{{ req.available_blueprints }}/{{ req.owned_blueprints }} {% trans "originals" %}</strong>
+                                </div>
+                                <div class="fwp-detail-row">
+                                    <span>{% trans "Blocking jobs" %}</span>
+                                    <strong>{{ req.active_copy_jobs }}</strong>
+                                </div>
+                                {% if req.busy_until %}
+                                <div class="fwp-detail-row">
+                                    <span>{% trans "Busy until" %}</span>
+                                    <strong>{{ req.busy_until|date:"Y-m-d H:i" }}</strong>
+                                </div>
+                                {% endif %}
+                            </div>
+                            <div class="fwp-tags">
+                                {% if req.personal_blueprints %}<span class="fulfill-owner fulfill-owner--personal">{% trans "BP user" %}: {{ req.personal_blueprints }}</span>{% endif %}
+                                {% if req.corporate_blueprints %}<span class="fulfill-owner fulfill-owner--corp">{% trans "BP corp" %}: {{ req.corporate_blueprints }}</span>{% endif %}
+                            </div>
+                            {% if req.personal_source_names or req.corporation_names %}
+                            <div class="fwp-tags">
+                                {% for name in req.personal_source_names %}<span class="fulfill-owner">{{ name }}</span>{% endfor %}
+                                {% for name in req.corporation_names %}<span class="fulfill-owner fulfill-owner--corp">{{ name }}</span>{% endfor %}
+                            </div>
+                            {% endif %}
+                        </div>{# /fwp-section--availability #}
+
+                    </div>{# /fwp-panel-col #}
+
+                </div>{# /fwp-body #}
+
+                {% if req.has_dual_sources %}
+                {% with req_id=req.id|stringformat:"s" %}
+                {% with scope_script_id="bp-scope-options-"|add:req_id %}
+                {{ req.scope_modal_payload|json_script:scope_script_id }}
+                {% endwith %}
+                {% endwith %}
+                {% endif %}
+
+            </article>
+            {% empty %}
+            <div class="fulfill-reference-empty">
+                <i class="fas fa-filter fa-lg mb-2"></i>
+                <h3>{% trans "No requests match this filter." %}</h3>
+                <p>{% trans "Adjust the selected state or include your own requests to expand the board." %}</p>
             </div>
-            {% if req.has_dual_sources %}
-            {% with req_id=req.id|stringformat:"s" %}
-            {% with scope_script_id="bp-scope-options-"|add:req_id %}
-            {{ req.scope_modal_payload|json_script:scope_script_id }}
-            {% endwith %}
-            {% endwith %}
-            {% endif %}
-        </div>
-        {% endfor %}
-    </div>
+            {% endfor %}
+        </section>{# /fulfill-reference-workbench #}
+
+    </div>{# /fulfill-reference-shell #}
     {% else %}
-    {# Empty State #}
-    <div class="empty-state">
-        <i class="fas fa-inbox"></i>
+    <div class="fwp-empty-state">
+        <div class="fwp-empty-state__icon"><i class="fas fa-inbox"></i></div>
         <h3>{% trans "No copy requests" %}</h3>
-        <p class="text-muted">{% trans "Check back soon for new requests to fulfill." %}</p>
+        <p>{% trans "Check back soon for new requests to fulfill." %}</p>
     </div>
     {% endif %}
-</div>
-
 <div class="modal fade" id="bpScopeSelectModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
@@ -316,8 +570,7 @@
         </div>
     </div>
 </div>
-
-{% include "indy_hub/includes/bp_chat_modal.html" %}
+</div>
 {% endblock %}
 
 {% block extra_javascript %}
@@ -333,6 +586,6 @@
         }
     });
 </script>
-    <script src="{% static 'indy_hub/js/bp_copy_chat.js' %}?v=20260118-2230"></script>
-<script src="{% static 'indy_hub/js/bp_copy_fulfill.js' %}?v=20260118-2040"></script>
+<script src="{% static 'indy_hub/js/bp_copy_chat.js' %}?v=20260412-1915"></script>
+<script src="{% static 'indy_hub/js/bp_copy_fulfill.js' %}?v=20260413-2118"></script>
 {% endblock %}

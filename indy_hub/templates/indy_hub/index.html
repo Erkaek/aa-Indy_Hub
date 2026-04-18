@@ -105,51 +105,63 @@
                 </div>
             </section>
 
-            {% if can_manage_corp_bp_requests %}
+            {% if can_manage_corp_bp_requests or can_view_corporation_blueprints or can_view_corporation_jobs %}
             <section class="dashboard-section">
                 <header class="section-heading">
                     <div>
                         <h3>{% trans "Corporation" %}</h3>
-                        <p class="text-muted small mb-0">{% trans "Corporate overview counters." %}</p>
+                        <p class="text-muted small mb-0">{% if can_manage_corp_bp_requests %}{% trans "Corporate overview counters." %}{% else %}{% trans "Browse the shared corporation pages you are allowed to view." %}{% endif %}</p>
                     </div>
                 </header>
 
                 <div class="card focus-card">
                     <div class="card-body p-4">
                         <div class="share-metrics">
+                            {% if can_manage_corp_bp_requests or can_view_corporation_blueprints %}
                             <div class="share-metric">
                                 <div>
                                     <span class="share-metric-label"><i class="fas fa-building me-2"></i>{% trans "Corporation blueprints" %}</span>
-                                    <p class="text-muted small mb-0">{% trans "Originals and copies." %}</p>
-                                    {% if not has_corp_blueprint_tokens %}
+                                    <p class="text-muted small mb-0">{% if can_manage_corp_bp_requests %}{% trans "Originals and copies." %}{% else %}{% trans "Read-only access to the corporate catalog you are allowed to browse." %}{% endif %}</p>
+                                    {% if can_manage_corp_bp_requests and not has_corp_blueprint_tokens %}
                                     <p class="text-danger small mb-0">{% trans "ESI: missing corporation blueprint scopes (no valid token detected)." %}</p>
                                     {% endif %}
                                 </div>
                                 <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
+                                    {% if can_manage_corp_bp_requests %}
                                     <span class="badge rounded-pill bg-info-subtle text-info">{% trans "Originals" %}: {{ corp_original_blueprints|default:0 }}</span>
                                     <span class="badge rounded-pill bg-info-subtle text-info">{% trans "Copies" %}: {{ corp_copy_blueprints|default:0 }}</span>
+                                    {% else %}
+                                    <span class="badge rounded-pill bg-secondary-subtle text-secondary">{% trans "Read-only" %}</span>
+                                    {% endif %}
                                     <a class="btn btn-sm btn-outline-info" href="{% url 'indy_hub:corporation_bp_list' %}">
                                         {% trans "Open" %}
                                     </a>
                                 </div>
                             </div>
+                            {% endif %}
 
+                            {% if can_manage_corp_bp_requests or can_view_corporation_jobs %}
                             <div class="share-metric">
                                 <div>
                                     <span class="share-metric-label"><i class="fas fa-building me-2"></i>{% trans "Corporation jobs" %}</span>
-                                    <p class="text-muted small mb-0">{% trans "Active slots and completions." %}</p>
-                                    {% if not has_corp_job_tokens %}
+                                    <p class="text-muted small mb-0">{% if can_manage_corp_bp_requests %}{% trans "Active slots and completions." %}{% else %}{% trans "Read-only access to the corporation jobs page you are allowed to browse." %}{% endif %}</p>
+                                    {% if can_manage_corp_bp_requests and not has_corp_job_tokens %}
                                     <p class="text-danger small mb-0">{% trans "ESI: missing corporation job scopes (no valid token detected)." %}</p>
                                     {% endif %}
                                 </div>
                                 <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
+                                    {% if can_manage_corp_bp_requests %}
                                     <span class="badge rounded-pill bg-info-subtle text-info">{% trans "Active" %}: {{ corp_active_jobs_count|default:0 }}</span>
                                     <span class="badge rounded-pill bg-info-subtle text-info">{% trans "Completed" %}: {{ corp_jobs_completed|default:0 }}</span>
+                                    {% else %}
+                                    <span class="badge rounded-pill bg-secondary-subtle text-secondary">{% trans "Read-only" %}</span>
+                                    {% endif %}
                                     <a class="btn btn-sm btn-outline-info" href="{% url 'indy_hub:corporation_job_list' %}">
                                         {% trans "Open" %}
                                     </a>
                                 </div>
                             </div>
+                            {% endif %}
                         </div>
                     </div>
                 </div>

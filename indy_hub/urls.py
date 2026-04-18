@@ -117,7 +117,9 @@ from .views.user import (
     sync_blueprints,
     sync_jobs,
     toggle_copy_sharing,
+    toggle_corporation_blueprint_catalog,
     toggle_corporation_copy_sharing,
+    toggle_corporation_job_catalog,
     toggle_corporation_job_notifications,
     toggle_job_notifications,
     token_management,
@@ -362,6 +364,16 @@ urlpatterns = [
         "toggle-corporation-copy-sharing/",
         toggle_corporation_copy_sharing,
         name="toggle_corporation_copy_sharing",
+    ),
+    path(
+        "toggle-corporation-blueprint-catalog/",
+        toggle_corporation_blueprint_catalog,
+        name="toggle_corporation_blueprint_catalog",
+    ),
+    path(
+        "toggle-corporation-job-catalog/",
+        toggle_corporation_job_catalog,
+        name="toggle_corporation_job_catalog",
     ),
     path("toggle-copy-sharing/", toggle_copy_sharing, name="toggle_copy_sharing"),
     path(

@@ -7,46 +7,67 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
 
-## [2.0.0-dev] - 2026-03-31
+## [1.16.0] - 2026-04-07
 
 ### Added
 
-- Industry Structures: added a full Structure Registry for industrial planning, with manual structure profiles, corporation-synced entries, personal copies, detailed bonus inspection, and direct add, edit, duplicate, and delete flows.
-- Industry Structures: added live solar-system lookup, same-system duplicate detection, dogma-backed bonus previews, a rig deduction helper, bulk tax completion tools, and bulk import from copied `/indy/` text exports.
-- Industry Structures: added automatic synchronization of public system cost indices and background refresh for persisted corporation-synced structures.
-- Craft Planning: added a structure planner to the craft workspace so users can compare recommended structures per item, including installation-cost awareness and jump-distance data.
-- Craft Planning: added a character advisor to show which tracked characters can build each step and how many industry lines they currently have available.
-- Blueprint Sharing: added estimated copy creation cost on the fulfill queue and a modal-driven copy request flow with duration estimates and qualified producer counts.
-- Operations safety: added a dedicated `sde_not_ready` page when required SDE compatibility data is missing.
-- Material Exchange: added a contract paste-check helper on buy and sell order detail pages and on the My Orders view.
+- Operations safety: added a dedicated `sde_not_ready` blocking page so Indy Hub clearly reports when required SDE compatibility data has not been populated yet.
+- Material Exchange (Buy/Sell): added a new in-page contract paste-check helper on order detail and my-orders views so users can paste the in-game `Copy All` export and compare it before validating a contract.
+- Blueprint Sharing: copy-request negotiations now support structured ISK proposals and counter-proposals directly in chat, with tracked buyer/builder confirmation states and dedicated accept/decline actions.
+- Alliance Auth integration: added native `aa-charlink` hook support so CharLink can authorize Indy Hub personal scopes, corporation admin scopes, and Material Exchange scopes directly.
+- Corporation access controls: added per-corporation page visibility settings for the corporation blueprints and corporation jobs pages, with `Corporation`, `Alliance`, and `Everyone` read-only access modes.
+- Industry Structures: added a full structure registry with manual create/edit/duplicate/delete flows, bulk update and bulk import actions, solar-system helpers, bonus previews, and rig advisor tooling.
+- Industry data: added persisted industry structure and solar-system cost-index models plus periodic synchronization for both datasets so craft calculations can rely on stored structure bonuses and current SCI data.
+- Material Exchange (Sell): added a paste-import mode on the sell page so users can paste an in-game item list, preview accepted, rejected, and unknown lines, and create a sell order from the accepted items only.
+- Material Exchange (Config): hub configuration now supports multiple accepted locations plus explicit BUY/SELL item allowlists that can supplement the market-group filters.
 
 ### Changed
 
-- Craft workspace: redesigned the main craft blueprint experience with a richer planning shell, clearer production summaries, better tab and state persistence, and stronger handling for large planning sessions.
-- Industry skills: timing, slot, and qualification logic now relies on active skill levels and stores fuller skill snapshots, making industrial recommendations more realistic.
-- Blueprint Sharing: copy requests now notify only blueprint owners who also have at least one skill-qualified character able to produce the requested copy.
-- Blueprint Sharing: request cards now focus on availability and qualified producers, while detailed copy and run input moved into a dedicated modal.
-- Refresh workflows: blueprint and job refresh feedback is clearer, distinguishes queued, already-running, and cooldown states, and reduces repeated lookup work behind the scenes.
-- Material Exchange: contract verification guidance is clearer and more actionable, with dedicated mismatch sections, automatic checking after paste, and simpler review flows.
-- Structure management: corporation structure data can now be used as a true planning registry instead of a static list, including completion tracking for entries that still need taxes, rigs, or activity details.
+- Blueprint Sharing: copy requests now show a live base copy-duration estimate before submission, recalculated from requested copies and runs, so users can see how long large requests may take without skill or structure bonuses.
+- Blueprint Sharing: copy requests now also enforce the blueprint's maximum runs-per-copy limit during submission instead of only exposing the preview values.
+- Blueprint Sharing: fulfill, request-history, and my-requests pages were reworked into negotiation workspaces with thread sidebars, richer status summaries, inline actions, and a clearer buyer/builder handoff flow.
+- Blueprint Sharing: fulfill request details now show live copy installation and time estimates for matching structures, plus recommended producer characters and slot context derived from copying skills, structure bonuses, taxes, and adjusted item values.
+- Craft Planning (Financial Simulation): the main profitability breakdown now shows material cost, installation cost, and facility tax explicitly, so taxes are visible directly in the simulation while remaining included correctly in total cost, profit, and margin.
+- Craft Planning: added a structure planner tab with recommended facilities, distance-aware assignment, job/tax previews, live SCI usage, and best-character skill/slot context for production decisions.
+- Industry sync performance: character and corporation blueprint/job refreshes now batch-resolve location names instead of performing repeated per-row lookups.
+- Manual refresh UX: blueprint/job refresh requests now report distinct queued, already-running, and recent-cooldown states, and the default manual refresh cooldown was reduced from 60 minutes to 5 minutes.
+- Material Exchange (Config): corporation structure cache now recovers faster from empty results, and structure labels are always resolved server-side before persistence.
+- Material Exchange (Buy/Sell/Contracts): stock lookup, order screens, contract validation, and local `Paste & Check` helpers now accept any configured hub location instead of only the primary structure.
+- Personal blueprint display: cached placeholder structure names are no longer treated as authoritative labels in the blueprint list.
+- User and craft skill contexts: skill snapshots are now reused to surface character skill levels, time bonuses, and available industry slots across the dashboard and craft planning flows.
+- Corporation navigation and dashboard: corporation blueprint/job entry points now appear for eligible read-only viewers, not only for corporation managers.
+- Settings UX: the corporation settings area now separates page access from operational controls, with a dedicated matrix for blueprint/job page visibility and a clearer operations section for copy sharing and job alerts.
+- Corporation settings performance: corporation page-access and sharing updates now validate corporations from local membership data and cache instead of rebuilding live corporation-role status on every click.
+- Industry slots summary: dashboard and jobs slot-overview summaries now count active corporation jobs against the installing character's slots, so mixed personal/corporation activity is reflected more accurately.
+- Material Exchange (Contracts/UI): contract paste-check results now focus on clear mismatch guidance, with compact OK checks, dedicated missing/surplus item lists, in-game copy instructions, automatic checking on paste, and clearer `Paste & Check` actions on buy/sell order pages.
+- Material Exchange (Transactions): transaction history and stats pages now use aggregated order snapshots and full multi-item totals, with clearer activity, volume, and net-flow summaries.
 
 ### Fixed
 
-- Structure naming and location handling: resolved several cases where placeholder or stale location names could overwrite better structure labels.
-- Material Exchange forms: large buy and sell flows avoid oversized submissions by dropping useless zero-value quantity fields.
-- Material Exchange contract matching: comparisons now handle structure names, cache reuse, and copied contract text more reliably.
-- Blueprint Sharing: launch-window limits are communicated more clearly, and non-qualified producers are no longer alerted for copy requests they cannot fulfill.
-- System data recovery: caches and refresh paths recover more cleanly after empty or reset states, including structure, asset, and location data.
-- ESI public name resolution: invalid IDs no longer break whole public-name batches during resolution.
+- Material Exchange (Buy): `Confirm Purchase` no longer posts thousands of zero-value `qty_*` fields; zero/empty quantities are excluded from submit payload to prevent `TooManyFieldsSent` on large hangars (issue #53).
+- Structure name resolver: `resolve_location_name` now consistently writes through to `CachedStructureName` (including in-memory-hit paths), reuses office-folder/container aliases across cache sources, and avoids central cache gaps after blueprint/location refreshes.
+- Resolution policy consistency: strengthened int32/int64 handling to avoid unnecessary authenticated structure lookups for public int32 IDs and to immediately retry stale public placeholders.
+- Location population: `force_refresh` is now honored consistently for both public stations and structures during bulk location repopulation.
+- Material Exchange (Config): posted `structure_name` values are no longer trusted; existing good names are preserved when live resolution fails.
+- Material Exchange (Contracts): contract structure matching now relies on the shared cache-aware resolver, ignores placeholder labels, and normalizes `Structure > Division` labels before comparison.
+- Material Exchange (Anomalies): item mismatch notes, anomaly modals, and admin/Discord notifications now resolve item names through SDE before rendering mismatch details, so raw `Type <id>` placeholders are only used when no real name can be found.
+- Material Exchange (Transactions): completing or reprocessing buy and sell orders now upserts a single transaction snapshot and updates stock only once, preventing duplicate transaction rows and repeated stock adjustments on retries.
+- Corporation settings: changing corporation sharing or page visibility no longer triggers unnecessary live corporation-role ESI checks when local role and membership data are already available.
+- Corporation settings UI: badge and hint updates now refresh immediately across the redesigned settings layout without requiring a page reload.
+- Corporation jobs visibility: the corporation jobs slot overview now reflects corporation jobs installed by the user's characters while ignoring jobs installed by other pilots.
+- Industry navigation: the personal jobs page now keeps the Corporation Jobs navbar entry visible for users who have read-only access to corporation jobs.
+- Personal blueprints: container-root resolution no longer overwrites an already known blueprint location name with a placeholder cache value.
+- ESI public name resolution: `/universe/names/` batches that contain invalid IDs now skip cleanly on `404` instead of aborting the whole batch.
 
 ### Internal
 
-- Added broad regression coverage for structure registry flows, system cost index sync, structure sync tasks, craft payloads, jump distances, craft timing, industry skill handling, copy request behavior, fulfill cost display, and Material Exchange contract checks.
-- Frontend craft assets were refactored substantially to support the new planner, advisor, modal, and registry workflows.
+- Tests: added regression coverage for structure-name DB write-through behavior, office-folder alias reuse, public-station force refresh, server-side structure-name persistence, shared resolver contract matching, smoke-path refresh guards, Material Exchange contract paste-check flows, sell paste-import, transaction snapshot aggregation, multi-location config persistence, local contract-check multi-location matching, industry structure registry workflows, system cost index sync, craft structure planning, craft timing, industry skills, copy-request guard rails, negotiation proposal flows, corporation blueprint/job page visibility across `Corporation`, `Alliance`, and `Everyone` scopes, corporation settings performance guards, corporation-jobs slot-overview summaries, dashboard slot summaries that include corporation jobs, CharLink hook registration, and Material Exchange mismatch-name rendering.
+- Release metadata bump to `1.16.0`.
+- Frontend package metadata aligned to `1.16.0` in `package.json` and `package-lock.json`.
 
-### Update
+### Update from 1.15.1
 
-To apply this release safely, use the sequence matching your deployment type.
+To update an existing `1.15.1` installation to `1.16.0`, use the sequence matching your deployment type.
 
 #### Bare Metal
 
@@ -62,71 +83,33 @@ To apply this release safely, use the sequence matching your deployment type.
 
 - `python manage.py collectstatic --noinput`
 
-4. Restart Alliance Auth web and Celery services.
-
-1. If Indy Hub shows the `sde_not_ready` page after the upgrade, refresh the compatibility data:
+4. Populate or refresh Indy Hub SDE compatibility data:
 
 - `python manage.py sync_sde_compat`
 
-6. Let background tasks run, or trigger your usual refresh flow, so the new industry system cost indices and synced structure data can populate.
-
-1. Open the Structure Registry and review newly synced or imported structures, especially taxes, enabled activities, and rigs, before relying on the new planner recommendations.
+5. Restart the Alliance Auth server/services.
 
 #### Docker
 
-1. Upgrade Indy Hub in the application container:
+1. Update the pinned package version in `conf/requirements.txt` to `indy-hub==1.16.0`.
 
-- `docker compose exec allianceauth_gunicorn auth pip install --upgrade indy-hub`
+1. Install/upgrade the package in the application container:
 
-2. Apply database migrations:
+- `docker compose exec allianceauth_gunicorn bash -c "pip install --upgrade indy-hub"`
+
+3. Apply database migrations:
 
 - `docker compose exec allianceauth_gunicorn auth migrate`
 
-3. Refresh static assets:
+4. Refresh static assets:
 
 - `docker compose exec allianceauth_gunicorn auth collectstatic --noinput`
 
-4. Restart Alliance Auth containers and workers.
-
-1. If Indy Hub shows the `sde_not_ready` page after the upgrade, refresh the compatibility data:
+5. Populate or refresh Indy Hub SDE compatibility data:
 
 - `docker compose exec allianceauth_gunicorn auth sync_sde_compat`
 
-6. Let scheduled tasks catch up, or trigger your normal refresh flow, so system cost indices and synced structure entries are filled in.
-
-1. Review the Structure Registry after the upgrade and complete any missing taxes, activities, or rig assumptions before using structure recommendations for production planning.
-
-## [1.15.2] - 2026-03-20
-
-### Added
-
-- Operations safety: added a dedicated `sde_not_ready` blocking page so Indy Hub clearly reports when required SDE compatibility data has not been populated yet.
-- Material Exchange (Buy/Sell): added a new in-page contract paste-check helper on order detail and my-orders views so users can paste the in-game `Copy All` export and compare it before validating a contract.
-
-### Changed
-
-- Industry sync performance: character and corporation blueprint/job refreshes now batch-resolve location names instead of performing repeated per-row lookups.
-- Manual refresh UX: blueprint/job refresh requests now report distinct queued, already-running, and recent-cooldown states, and the default manual refresh cooldown was reduced from 60 minutes to 5 minutes.
-- Material Exchange (Config): corporation structure cache now recovers faster from empty results, and structure labels are always resolved server-side before persistence.
-- Personal blueprint display: cached placeholder structure names are no longer treated as authoritative labels in the blueprint list.
-- Material Exchange (Contracts/UI): contract paste-check results now focus on clear mismatch guidance, with compact OK checks, dedicated missing/surplus item lists, in-game copy instructions, automatic checking on paste, and clearer `Paste & Check` actions on buy/sell order pages.
-
-### Fixed
-
-- Material Exchange (Buy): `Confirm Purchase` no longer posts thousands of zero-value `qty_*` fields; zero/empty quantities are excluded from submit payload to prevent `TooManyFieldsSent` on large hangars (issue #53).
-- Structure name resolver: `resolve_location_name` now consistently writes through to `CachedStructureName` (including in-memory-hit paths), reuses office-folder/container aliases across cache sources, and avoids central cache gaps after blueprint/location refreshes.
-- Resolution policy consistency: strengthened int32/int64 handling to avoid unnecessary authenticated structure lookups for public int32 IDs and to immediately retry stale public placeholders.
-- Location population: `force_refresh` is now honored consistently for both public stations and structures during bulk location repopulation.
-- Material Exchange (Config): posted `structure_name` values are no longer trusted; existing good names are preserved when live resolution fails.
-- Material Exchange (Contracts): contract structure matching now relies on the shared cache-aware resolver, ignores placeholder labels, and normalizes `Structure > Division` labels before comparison.
-- Personal blueprints: container-root resolution no longer overwrites an already known blueprint location name with a placeholder cache value.
-- ESI public name resolution: `/universe/names/` batches that contain invalid IDs now skip cleanly on `404` instead of aborting the whole batch.
-
-### Internal
-
-- Tests: added regression coverage for structure-name DB write-through behavior, office-folder alias reuse, public-station force refresh, server-side structure-name persistence, shared resolver contract matching, smoke-path refresh guards, and Material Exchange contract paste-check flows.
-- Release metadata bump to `1.15.2`.
-- Frontend package metadata aligned to `1.15.2` in `package.json` and `package-lock.json`.
+6. Restart Alliance Auth containers/services as required by your deployment.
 
 ## [1.15.1] - 2026-03-03
 

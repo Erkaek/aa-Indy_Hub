@@ -9,7 +9,7 @@ from typing import Any
 
 # Django
 from django.db import connection
-from django.db.models import Count
+from django.db.models import Count, Q
 from django.utils import timezone
 
 # Alliance Auth
@@ -235,12 +235,20 @@ def build_user_character_skill_contexts(
     active_job_rows = (
         IndustryJob.objects.filter(
             owner_user=user,
-            owner_kind=Blueprint.OwnerKind.CHARACTER,
             status="active",
             end_date__gt=now,
-            character_id__in=character_ids,
         )
-        .values("character_id", "activity_id")
+        .filter(
+            Q(
+                owner_kind=Blueprint.OwnerKind.CHARACTER,
+                character_id__in=character_ids,
+            )
+            | Q(
+                owner_kind=Blueprint.OwnerKind.CORPORATION,
+                installer_id__in=character_ids,
+            )
+        )
+        .values("owner_kind", "character_id", "installer_id", "activity_id")
         .annotate(total=Count("id"))
     )
     used_counts: dict[int, dict[str, int]] = {
@@ -248,7 +256,10 @@ def build_user_character_skill_contexts(
         for char_id in character_ids
     }
     for row in active_job_rows:
-        char_id = int(row.get("character_id") or 0)
+        if row.get("owner_kind") == Blueprint.OwnerKind.CORPORATION:
+            char_id = int(row.get("installer_id") or 0)
+        else:
+            char_id = int(row.get("character_id") or 0)
         activity_id = int(row.get("activity_id") or 0)
         total = int(row.get("total") or 0)
         if char_id not in used_counts:
@@ -508,7 +519,7 @@ def compute_activity_time_bonus_percent(
         for skill_id in (required_skill_ids or [])
         if int(skill_id or 0) > 0
     }
-    total_bonus = 0.0
+    bonus_components: list[float] = []
 
     for skill_id, attribute_values in (skill_bonus_attributes or {}).items():
         level = get_skill_level_from_mapping(skill_levels, int(skill_id))
@@ -519,7 +530,7 @@ def compute_activity_time_bonus_percent(
             numeric_activity_id in MANUFACTURING_ACTIVITY_IDS | RESEARCH_ACTIVITY_IDS
             and "advancedIndustrySkillIndustryJobTimeBonus" in attribute_values
         ):
-            total_bonus += (
+            bonus_components.append(
                 _normalized_bonus_percent(
                     attribute_values["advancedIndustrySkillIndustryJobTimeBonus"]
                 )
@@ -531,7 +542,7 @@ def compute_activity_time_bonus_percent(
                 int(skill_id) == SKILL_TYPE_IDS["industry"]
                 or int(skill_id) in required_skill_id_set
             ):
-                total_bonus += (
+                bonus_components.append(
                     _normalized_bonus_percent(
                         attribute_values["manufacturingTimeBonus"]
                     )
@@ -539,13 +550,13 @@ def compute_activity_time_bonus_percent(
                 )
         elif numeric_activity_id == IndustryActivityMixin.ACTIVITY_COPYING:
             if "copySpeedBonus" in attribute_values:
-                total_bonus += (
+                bonus_components.append(
                     _normalized_bonus_percent(attribute_values["copySpeedBonus"])
                     * level
                 )
         elif numeric_activity_id == IndustryActivityMixin.ACTIVITY_TE_RESEARCH:
             if "blueprintmanufactureTimeBonus" in attribute_values:
-                total_bonus += (
+                bonus_components.append(
                     _normalized_bonus_percent(
                         attribute_values["blueprintmanufactureTimeBonus"]
                     )
@@ -553,7 +564,7 @@ def compute_activity_time_bonus_percent(
                 )
         elif numeric_activity_id == IndustryActivityMixin.ACTIVITY_ME_RESEARCH:
             if "mineralNeedResearchBonus" in attribute_values:
-                total_bonus += (
+                bonus_components.append(
                     _normalized_bonus_percent(
                         attribute_values["mineralNeedResearchBonus"]
                     )
@@ -561,11 +572,16 @@ def compute_activity_time_bonus_percent(
                 )
         elif numeric_activity_id in REACTION_ACTIVITY_IDS:
             if "reactionTimeBonus" in attribute_values:
-                total_bonus += (
+                bonus_components.append(
                     _normalized_bonus_percent(attribute_values["reactionTimeBonus"])
                     * level
                 )
 
+    multiplier = 1.0
+    for component in bonus_components:
+        multiplier *= max(0.0, 1 - (float(component or 0) / 100.0))
+
+    total_bonus = (1 - multiplier) * 100 if bonus_components else 0.0
     return round(total_bonus, 2)
 
 

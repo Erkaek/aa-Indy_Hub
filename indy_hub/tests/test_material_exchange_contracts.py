@@ -3,6 +3,7 @@ Tests for Material Exchange contract validation system
 """
 
 # Standard Library
+from types import SimpleNamespace
 from unittest.mock import patch
 
 # Django
@@ -13,6 +14,7 @@ from django.test import TestCase
 # Local
 from indy_hub.models import (
     CachedStructureName,
+    MaterialExchangeAcceptedLocation,
     MaterialExchangeBuyOrder,
     MaterialExchangeBuyOrderItem,
     MaterialExchangeConfig,
@@ -21,6 +23,8 @@ from indy_hub.models import (
 )
 from indy_hub.tasks.material_exchange_contracts import (
     _extract_contract_id,
+    _matches_buy_order_criteria_db,
+    _matches_sell_order_criteria_db,
     validate_material_exchange_buy_orders,
     validate_material_exchange_sell_orders,
 )
@@ -251,6 +255,98 @@ class ContractValidationTaskTest(TestCase):
         # User is not notified when no contracts are cached (just a warning log)
         mock_notify_user.assert_not_called()
 
+
+class ContractLocationMatchingTests(TestCase):
+    def setUp(self):
+        self.config = MaterialExchangeConfig.objects.create(
+            corporation_id=123456789,
+            structure_id=60003760,
+            structure_name="Primary Structure",
+            hangar_division=1,
+            is_active=True,
+        )
+        self.seller = User.objects.create_user(username="test_seller_secondary")
+        self.buyer = User.objects.create_user(username="test_buyer_secondary")
+        self.sell_order = MaterialExchangeSellOrder.objects.create(
+            config=self.config,
+            seller=self.seller,
+            status=MaterialExchangeSellOrder.Status.DRAFT,
+        )
+        self.sell_item = MaterialExchangeSellOrderItem.objects.create(
+            order=self.sell_order,
+            type_id=34,
+            type_name="Tritanium",
+            quantity=1000,
+            unit_price=5.5,
+            total_price=5500,
+        )
+        self.buy_order = MaterialExchangeBuyOrder.objects.create(
+            config=self.config,
+            buyer=self.buyer,
+            status=MaterialExchangeBuyOrder.Status.DRAFT,
+        )
+        self.buy_item = MaterialExchangeBuyOrderItem.objects.create(
+            order=self.buy_order,
+            type_id=34,
+            type_name="Tritanium",
+            quantity=500,
+            unit_price=6.0,
+            total_price=3000,
+            stock_available_at_creation=1000,
+        )
+        MaterialExchangeAcceptedLocation.objects.create(
+            config=self.config,
+            structure_id=60003760,
+            structure_name="Primary Structure",
+            hangar_division=1,
+            sort_order=0,
+        )
+        MaterialExchangeAcceptedLocation.objects.create(
+            config=self.config,
+            structure_id=60003761,
+            structure_name="Secondary Structure",
+            hangar_division=2,
+            sort_order=1,
+        )
+
+    def test_sell_matching_accepts_secondary_location_id(self):
+        contract = SimpleNamespace(
+            issuer_id=90000001,
+            assignee_id=self.config.corporation_id,
+            start_location_id=60003761,
+            end_location_id=60003761,
+        )
+
+        matches = _matches_sell_order_criteria_db(
+            contract,
+            order=None,
+            config=self.config,
+            seller_character_ids=[90000001],
+        )
+
+        self.assertTrue(matches)
+
+    def test_buy_matching_accepts_secondary_location_name(self):
+        contract = SimpleNamespace(
+            issuer_corporation_id=self.config.corporation_id,
+            assignee_id=90000002,
+            start_location_id=70000001,
+            end_location_id=70000001,
+        )
+
+        with patch(
+            "indy_hub.tasks.material_exchange_contracts._get_location_name",
+            return_value="Secondary Structure",
+        ):
+            matches = _matches_buy_order_criteria_db(
+                contract,
+                order=None,
+                config=self.config,
+                buyer_character_ids=[90000002],
+            )
+
+        self.assertTrue(matches)
+
     @patch("indy_hub.tasks.material_exchange_contracts._get_user_character_ids")
     @patch("indy_hub.tasks.material_exchange_contracts.notify_user")
     @patch("indy_hub.tasks.material_exchange_contracts.notify_multi")
@@ -460,11 +556,12 @@ class ContractValidationTaskTest(TestCase):
         self.assertEqual(self.sell_order.esi_contract_id, contract.contract_id)
         self.assertIn("accepted in-game despite anomaly", self.sell_order.notes)
 
+    @patch("indy_hub.tasks.material_exchange_contracts.get_type_name")
     @patch("indy_hub.tasks.material_exchange_contracts._get_user_character_ids")
     @patch("indy_hub.tasks.material_exchange_contracts.notify_user")
     @patch("indy_hub.tasks.material_exchange_contracts.notify_multi")
     def test_validate_sell_orders_items_mismatch_notification_includes_deltas(
-        self, mock_notify_multi, mock_notify_user, mock_user_chars
+        self, mock_notify_multi, mock_notify_user, mock_user_chars, mock_get_type_name
     ):
         """Sell mismatch notifications should include exact missing and surplus quantities."""
         # AA Example App
@@ -476,6 +573,11 @@ class ContractValidationTaskTest(TestCase):
 
         seller_char_id = 111111111
         mock_user_chars.return_value = [seller_char_id]
+        mock_get_type_name.side_effect = lambda type_id: {
+            36: "Mexallon",
+            35: "Pyerite",
+            37: "Isogen",
+        }.get(int(type_id), str(type_id))
 
         MaterialExchangeSellOrderItem.objects.create(
             order=self.sell_order,
@@ -512,7 +614,7 @@ class ContractValidationTaskTest(TestCase):
         ESIContractItem.objects.create(
             contract=mismatch_contract,
             record_id=42011,
-            type_id=34,
+            type_id=36,
             quantity=1000,
             is_included=True,
         )
@@ -541,6 +643,8 @@ class ContractValidationTaskTest(TestCase):
         self.assertIn("- 7 Pyerite", self.sell_order.notes)
         self.assertIn("Surplus:", self.sell_order.notes)
         self.assertIn("- 3 Isogen", self.sell_order.notes)
+        self.assertIn("- 1,000 Mexallon", self.sell_order.notes)
+        self.assertNotIn("Type 36", self.sell_order.notes)
 
         self.assertTrue(mock_notify_user.called)
         notify_message = mock_notify_user.call_args[0][2]
@@ -548,7 +652,12 @@ class ContractValidationTaskTest(TestCase):
         self.assertIn("- 7 Pyerite", notify_message)
         self.assertIn("Surplus:", notify_message)
         self.assertIn("- 3 Isogen", notify_message)
+        self.assertIn("- 1,000 Mexallon", notify_message)
+        self.assertNotIn("Type 36", notify_message)
         mock_notify_multi.assert_called()
+        admin_message = mock_notify_multi.call_args[0][2]
+        self.assertIn("- 1,000 Mexallon", admin_message)
+        self.assertNotIn("Type 36", admin_message)
 
 
 class BuyOrderValidationTaskTest(TestCase):
@@ -806,9 +915,10 @@ class BuyOrderValidationTaskTest(TestCase):
     @patch(
         "indy_hub.tasks.material_exchange_contracts._notify_material_exchange_admins"
     )
+    @patch("indy_hub.tasks.material_exchange_contracts.get_type_name")
     @patch("indy_hub.tasks.material_exchange_contracts._get_user_character_ids")
     def test_validate_buy_order_pending_mismatch_notification_includes_deltas(
-        self, mock_user_chars, mock_notify_admins
+        self, mock_user_chars, mock_get_type_name, mock_notify_admins
     ):
         """Buy pending mismatch alert should include exact missing and surplus quantities."""
         # Standard Library
@@ -827,6 +937,11 @@ class BuyOrderValidationTaskTest(TestCase):
 
         buyer_char_id = 999999999
         mock_user_chars.return_value = [buyer_char_id]
+        mock_get_type_name.side_effect = lambda type_id: {
+            36: "Mexallon",
+            35: "Pyerite",
+            37: "Isogen",
+        }.get(int(type_id), str(type_id))
 
         MaterialExchangeBuyOrderItem.objects.create(
             order=self.buy_order,
@@ -865,7 +980,7 @@ class BuyOrderValidationTaskTest(TestCase):
         ESIContractItem.objects.create(
             contract=pending_contract,
             record_id=5,
-            type_id=34,
+            type_id=36,
             quantity=500,
             is_included=True,
         )
@@ -900,6 +1015,8 @@ class BuyOrderValidationTaskTest(TestCase):
         self.assertIn("- 7 Pyerite", self.buy_order.notes)
         self.assertIn("Surplus:", self.buy_order.notes)
         self.assertIn("- 3 Isogen", self.buy_order.notes)
+        self.assertIn("- 500 Mexallon", self.buy_order.notes)
+        self.assertNotIn("Type 36", self.buy_order.notes)
 
         self.assertTrue(mock_notify_admins.called)
         admin_message = mock_notify_admins.call_args[0][2]
@@ -907,6 +1024,8 @@ class BuyOrderValidationTaskTest(TestCase):
         self.assertIn("- 7 Pyerite", admin_message)
         self.assertIn("Surplus:", admin_message)
         self.assertIn("- 3 Isogen", admin_message)
+        self.assertIn("- 500 Mexallon", admin_message)
+        self.assertNotIn("Type 36", admin_message)
 
 
 class StructureNameMatchingTest(TestCase):

@@ -1,6 +1,8 @@
 """Material Exchange Configuration views."""
 
 # Standard Library
+import json
+import re
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 
@@ -25,6 +27,7 @@ from ..app_settings import ROLE_SNAPSHOT_STALE_HOURS
 from ..decorators import indy_hub_permission_required, tokens_required
 from ..models import (
     CharacterRoles,
+    MaterialExchangeAcceptedLocation,
     MaterialExchangeConfig,
     MaterialExchangeSettings,
 )
@@ -89,6 +92,141 @@ FORCED_INCLUDED_ITEMGROUP_IDS: set[int] = {
     649,
     340,
 }
+
+
+def _split_filter_tokens(raw_value: str) -> list[str]:
+    if not raw_value:
+        return []
+    return [
+        chunk.strip()
+        for chunk in re.split(r"[,;\n\r]+", str(raw_value))
+        if chunk.strip()
+    ]
+
+
+def _get_material_exchange_config_locations(
+    config: MaterialExchangeConfig | None,
+) -> list[dict[str, int | str]]:
+    if not config:
+        return []
+
+    rows: list[dict[str, int | str]] = []
+    try:
+        for location in config.accepted_locations.all().order_by("sort_order", "id"):
+            rows.append(
+                {
+                    "structure_id": int(location.structure_id),
+                    "structure_name": str(location.structure_name or ""),
+                    "hangar_division": int(location.hangar_division),
+                }
+            )
+    except Exception:
+        rows = []
+
+    if rows:
+        return rows
+
+    structure_id = getattr(config, "structure_id", None)
+    hangar_division = getattr(config, "hangar_division", None)
+    if not structure_id or not hangar_division:
+        return []
+
+    return [
+        {
+            "structure_id": int(structure_id),
+            "structure_name": str(getattr(config, "structure_name", "") or ""),
+            "hangar_division": int(hangar_division),
+        }
+    ]
+
+
+def _hydrate_material_exchange_locations(
+    locations: list[dict[str, int | str]],
+    hangar_divisions: dict[int, str] | dict[str, str],
+) -> list[dict[str, int | str]]:
+    hydrated: list[dict[str, int | str]] = []
+    for index, location in enumerate(locations):
+        structure_id = int(location.get("structure_id") or 0)
+        hangar_division = int(location.get("hangar_division") or 0)
+        hydrated.append(
+            {
+                "structure_id": structure_id,
+                "structure_name": str(location.get("structure_name") or "").strip()
+                or f"Structure {structure_id}",
+                "hangar_division": hangar_division,
+                "hangar_label": (
+                    hangar_divisions.get(hangar_division)
+                    or hangar_divisions.get(str(hangar_division))
+                    or f"Hangar Division {hangar_division}"
+                ),
+                "sort_order": index,
+            }
+        )
+    return hydrated
+
+
+def _get_selected_type_choices(type_ids: list[int]) -> list[dict[str, int | str]]:
+    if not type_ids:
+        return []
+
+    try:
+        # Alliance Auth (External Libs)
+        from eve_sde.models import ItemType
+
+        names_by_id = {
+            int(type_id): str(name or type_id)
+            for type_id, name in ItemType.objects.filter(id__in=type_ids).values_list(
+                "id", "name"
+            )
+        }
+    except Exception as exc:
+        logger.warning("Failed to resolve explicit item filter labels: %s", exc)
+        names_by_id = {}
+
+    return [
+        {
+            "id": int(type_id),
+            "name": names_by_id.get(int(type_id), str(type_id)),
+            "label": f"{names_by_id.get(int(type_id), str(type_id))} ({int(type_id)})",
+        }
+        for type_id in sorted({int(type_id) for type_id in type_ids if type_id})
+    ]
+
+
+def _resolve_specific_type_ids(raw_tokens: list[str]) -> tuple[list[int], list[str]]:
+    if not raw_tokens:
+        return [], []
+
+    try:
+        # Alliance Auth (External Libs)
+        from eve_sde.models import ItemType
+    except Exception as exc:
+        logger.warning("Failed to import eve_sde.ItemType: %s", exc)
+        return [], list(raw_tokens)
+
+    allowed_group_ids = _get_industry_market_group_ids()
+    resolved_ids: set[int] = set()
+    unresolved: list[str] = []
+
+    for token in raw_tokens:
+        candidate = token.strip()
+        if not candidate:
+            continue
+
+        item = None
+        if candidate.isdigit():
+            item = ItemType.objects.filter(id=int(candidate)).first()
+        if item is None:
+            item = ItemType.objects.filter(name__iexact=candidate).first()
+
+        group_id = int(getattr(item, "group_id", 0) or 0) if item else 0
+        if not item or (allowed_group_ids and group_id not in allowed_group_ids):
+            unresolved.append(candidate)
+            continue
+
+        resolved_ids.add(int(item.id))
+
+    return sorted(resolved_ids), unresolved
 
 
 @login_required
@@ -271,6 +409,11 @@ def material_exchange_config(request, tokens):
                 current_corp_ticker = corp.get("ticker", "")
                 break
 
+    accepted_locations = _hydrate_material_exchange_locations(
+        _get_material_exchange_config_locations(config),
+        hangar_divisions,
+    )
+
     if request.method == "POST":
         if request.POST.get("delete_config") == "1":
             if config:
@@ -306,6 +449,30 @@ def material_exchange_config(request, tokens):
         if config
         else []
     )
+    selected_type_ids_buy = (
+        sorted(
+            {
+                int(type_id)
+                for type_id in list(getattr(config, "allowed_type_ids_buy", []) or [])
+                if str(type_id).isdigit()
+            }
+        )
+        if config
+        else []
+    )
+    selected_type_ids_sell = (
+        sorted(
+            {
+                int(type_id)
+                for type_id in list(getattr(config, "allowed_type_ids_sell", []) or [])
+                if str(type_id).isdigit()
+            }
+        )
+        if config
+        else []
+    )
+    selected_type_choices_buy = _get_selected_type_choices(selected_type_ids_buy)
+    selected_type_choices_sell = _get_selected_type_choices(selected_type_ids_sell)
 
     market_group_search_index = {}
     try:
@@ -322,6 +489,7 @@ def material_exchange_config(request, tokens):
         "assets_scope_missing": assets_scope_missing,
         "current_corp_ticker": current_corp_ticker,
         "current_hangar_name": current_hangar_name,
+        "accepted_locations": accepted_locations,
         "hangar_divisions": (
             hangar_divisions
             if (hangar_divisions or division_scope_missing)
@@ -331,6 +499,14 @@ def material_exchange_config(request, tokens):
         "market_group_choices": market_group_choices,
         "selected_market_groups_buy": selected_market_groups_buy,
         "selected_market_groups_sell": selected_market_groups_sell,
+        "selected_type_choices_buy": selected_type_choices_buy,
+        "selected_type_choices_sell": selected_type_choices_sell,
+        "allowed_type_ids_buy_text": "\n".join(
+            choice["name"] for choice in selected_type_choices_buy
+        ),
+        "allowed_type_ids_sell_text": "\n".join(
+            choice["name"] for choice in selected_type_choices_sell
+        ),
         "market_group_search_index": market_group_search_index,
     }
 
@@ -1385,6 +1561,11 @@ def _handle_config_save(request, existing_config):
     sell_markup_base = request.POST.get("sell_markup_base", "buy")
     buy_markup_percent = request.POST.get("buy_markup_percent", "5")
     buy_markup_base = request.POST.get("buy_markup_base", "buy")
+    accepted_locations_json = (
+        request.POST.get("accepted_locations_json") or ""
+    ).strip()
+    allowed_type_ids_buy_text = request.POST.get("allowed_type_ids_buy_text", "")
+    allowed_type_ids_sell_text = request.POST.get("allowed_type_ids_sell_text", "")
     allowed_market_groups_buy_csv = request.POST.get(
         "allowed_market_groups_buy_csv", ""
     )
@@ -1397,6 +1578,47 @@ def _handle_config_save(request, existing_config):
             return []
         return [chunk.strip() for chunk in str(raw_csv).split(",") if chunk.strip()]
 
+    raw_locations: list[dict[str, int | str]] = []
+    if accepted_locations_json:
+        try:
+            parsed_locations = json.loads(accepted_locations_json)
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            messages.error(
+                request, _("Invalid accepted locations payload: {}").format(exc)
+            )
+            return redirect("indy_hub:material_exchange_config")
+
+        if not isinstance(parsed_locations, list):
+            messages.error(request, _("Accepted locations payload must be a list."))
+            return redirect("indy_hub:material_exchange_config")
+
+        for index, entry in enumerate(parsed_locations):
+            if not isinstance(entry, dict):
+                continue
+            try:
+                raw_locations.append(
+                    {
+                        "structure_id": int(
+                            entry.get("structure_id") or entry.get("id") or 0
+                        ),
+                        "structure_name": str(entry.get("structure_name") or ""),
+                        "hangar_division": int(entry.get("hangar_division") or 0),
+                        "sort_order": index,
+                    }
+                )
+            except (TypeError, ValueError):
+                continue
+
+    if not raw_locations and structure_id and hangar_division:
+        raw_locations = [
+            {
+                "structure_id": int(structure_id),
+                "structure_name": "",
+                "hangar_division": int(hangar_division),
+                "sort_order": 0,
+            }
+        ]
+
     allowed_market_groups_buy_raw = _parse_csv_values(allowed_market_groups_buy_csv)
     if not allowed_market_groups_buy_raw:
         allowed_market_groups_buy_raw = request.POST.getlist(
@@ -1408,6 +1630,15 @@ def _handle_config_save(request, existing_config):
         allowed_market_groups_sell_raw = request.POST.getlist(
             "allowed_market_groups_sell"
         )
+
+    allowed_type_ids_buy_csv = request.POST.get("allowed_type_ids_buy_csv", "")
+    allowed_type_ids_sell_csv = request.POST.get("allowed_type_ids_sell_csv", "")
+    allowed_type_ids_buy_raw = _parse_csv_values(allowed_type_ids_buy_csv)
+    if not allowed_type_ids_buy_raw:
+        allowed_type_ids_buy_raw = _split_filter_tokens(allowed_type_ids_buy_text)
+    allowed_type_ids_sell_raw = _parse_csv_values(allowed_type_ids_sell_csv)
+    if not allowed_type_ids_sell_raw:
+        allowed_type_ids_sell_raw = _split_filter_tokens(allowed_type_ids_sell_text)
 
     enforce_jita_price_bounds = request.POST.get("enforce_jita_price_bounds") == "on"
 
@@ -1431,16 +1662,10 @@ def _handle_config_save(request, existing_config):
     try:
         if not corporation_id:
             raise ValueError("Corporation ID is required")
-        if not structure_id:
-            raise ValueError("Structure ID is required")
-        if not hangar_division:
-            raise ValueError(
-                "Hangar division is required. Please ensure the divisions scope token is added and a division is selected."
-            )
+        if not raw_locations:
+            raise ValueError("At least one accepted location is required")
 
         corporation_id = int(corporation_id)
-        structure_id = int(structure_id)
-        hangar_division = int(hangar_division)
         sell_markup_percent = _parse_decimal(sell_markup_percent, "0")
         buy_markup_percent = _parse_decimal(buy_markup_percent, "5")
 
@@ -1460,14 +1685,57 @@ def _handle_config_save(request, existing_config):
 
         allowed_market_groups_buy = _parse_group_ids(allowed_market_groups_buy_raw)
         allowed_market_groups_sell = _parse_group_ids(allowed_market_groups_sell_raw)
+        allowed_type_ids_buy, unresolved_buy = _resolve_specific_type_ids(
+            allowed_type_ids_buy_raw
+        )
+        allowed_type_ids_sell, unresolved_sell = _resolve_specific_type_ids(
+            allowed_type_ids_sell_raw
+        )
 
-        if not (1 <= hangar_division <= 7):
-            raise ValueError("Hangar division must be between 1 and 7")
+        if unresolved_buy:
+            raise ValueError(
+                "Unknown or unsupported BUY items: {}".format(", ".join(unresolved_buy))
+            )
+        if unresolved_sell:
+            raise ValueError(
+                "Unknown or unsupported SELL items: {}".format(
+                    ", ".join(unresolved_sell)
+                )
+            )
+
+        normalized_locations: list[dict[str, int | str]] = []
+        seen_locations: set[tuple[int, int]] = set()
+        for index, location in enumerate(raw_locations):
+            location_structure_id = int(location.get("structure_id") or 0)
+            location_hangar_division = int(location.get("hangar_division") or 0)
+            if not location_structure_id:
+                raise ValueError("Structure ID is required for every accepted location")
+            if not (1 <= location_hangar_division <= 7):
+                raise ValueError("Hangar division must be between 1 and 7")
+
+            location_key = (location_structure_id, location_hangar_division)
+            if location_key in seen_locations:
+                continue
+            seen_locations.add(location_key)
+            normalized_locations.append(
+                {
+                    "structure_id": location_structure_id,
+                    "structure_name": str(location.get("structure_name") or ""),
+                    "hangar_division": location_hangar_division,
+                    "sort_order": index,
+                }
+            )
+
+        if not normalized_locations:
+            raise ValueError("At least one accepted location is required")
 
     except (ValueError, TypeError, InvalidOperation) as e:
         messages.error(request, _("Invalid configuration values: {}").format(e))
         return redirect("indy_hub:material_exchange_config")
 
+    primary_location = normalized_locations[0]
+    structure_id = int(primary_location["structure_id"])
+    hangar_division = int(primary_location["hangar_division"])
     structure_name = f"{PLACEHOLDER_PREFIX}{int(structure_id)}"
     if existing_config and int(getattr(existing_config, "structure_id", 0) or 0) == int(
         structure_id
@@ -1476,9 +1744,24 @@ def _handle_config_save(request, existing_config):
         if existing_name and not existing_name.startswith(PLACEHOLDER_PREFIX):
             structure_name = existing_name
 
+    previous_locations = [
+        (int(row["structure_id"]), int(row["hangar_division"]))
+        for row in _get_material_exchange_config_locations(existing_config)
+    ]
+    new_locations = [
+        (int(row["structure_id"]), int(row["hangar_division"]))
+        for row in normalized_locations
+    ]
+    previous_primary = previous_locations[0] if previous_locations else None
+    new_primary = new_locations[0] if new_locations else None
+    needs_additional_location_sync = bool(existing_config) and (
+        previous_locations != new_locations and previous_primary == new_primary
+    )
+
     # Save or update config
     with transaction.atomic():
         # Resolve the structure name server-side only. Never trust the posted label.
+        structure_name_map: dict[int, str] = {}
         if corporation_id and structure_id:
             try:
                 token_for_names = _get_token_for_corp(
@@ -1489,44 +1772,67 @@ def _handle_config_save(request, existing_config):
                     if token_for_names
                     else None
                 )
-                resolved = resolve_structure_names(
-                    [int(structure_id)],
+                structure_name_map = resolve_structure_names(
+                    [int(row["structure_id"]) for row in normalized_locations],
                     character_id_for_names,
                     int(corporation_id),
                     user=request.user,
-                ).get(int(structure_id))
+                )
+                resolved = structure_name_map.get(int(structure_id))
                 if resolved and not str(resolved).startswith(PLACEHOLDER_PREFIX):
                     structure_name = resolved
             except Exception:
                 logger.debug(
-                    "Unable to resolve structure name during config save (corp=%s, structure=%s)",
+                    "Unable to resolve structure names during config save (corp=%s)",
                     corporation_id,
-                    structure_id,
                     exc_info=True,
                 )
 
+        for location in normalized_locations:
+            resolved_name = structure_name_map.get(int(location["structure_id"]))
+            if resolved_name and not str(resolved_name).startswith(PLACEHOLDER_PREFIX):
+                location["structure_name"] = str(resolved_name)
+            elif not str(location.get("structure_name") or "").strip():
+                location["structure_name"] = (
+                    f"{PLACEHOLDER_PREFIX}{int(location['structure_id'])}"
+                )
+
         if existing_config:
-            existing_config.corporation_id = corporation_id
-            existing_config.structure_id = structure_id
-            existing_config.structure_name = structure_name
-            existing_config.hangar_division = hangar_division
-            existing_config.sell_markup_percent = sell_markup_percent
-            existing_config.sell_markup_base = sell_markup_base
-            existing_config.buy_markup_percent = buy_markup_percent
-            existing_config.buy_markup_base = buy_markup_base
-            existing_config.enforce_jita_price_bounds = enforce_jita_price_bounds
-            existing_config.notify_admins_on_sell_anomaly = (
-                notify_admins_on_sell_anomaly
+            config_obj = existing_config
+            config_obj.corporation_id = corporation_id
+            config_obj.structure_id = structure_id
+            config_obj.structure_name = structure_name
+            config_obj.hangar_division = hangar_division
+            config_obj.sell_markup_percent = sell_markup_percent
+            config_obj.sell_markup_base = sell_markup_base
+            config_obj.buy_markup_percent = buy_markup_percent
+            config_obj.buy_markup_base = buy_markup_base
+            config_obj.enforce_jita_price_bounds = enforce_jita_price_bounds
+            config_obj.notify_admins_on_sell_anomaly = notify_admins_on_sell_anomaly
+            config_obj.allowed_market_groups_buy = allowed_market_groups_buy
+            config_obj.allowed_market_groups_sell = allowed_market_groups_sell
+            config_obj.allowed_type_ids_buy = allowed_type_ids_buy
+            config_obj.allowed_type_ids_sell = allowed_type_ids_sell
+            config_obj.is_active = is_active
+            config_obj.save()
+            config_obj.accepted_locations.all().delete()
+            MaterialExchangeAcceptedLocation.objects.bulk_create(
+                [
+                    MaterialExchangeAcceptedLocation(
+                        config=config_obj,
+                        structure_id=int(location["structure_id"]),
+                        structure_name=str(location.get("structure_name") or ""),
+                        hangar_division=int(location["hangar_division"]),
+                        sort_order=int(location.get("sort_order") or 0),
+                    )
+                    for location in normalized_locations
+                ]
             )
-            existing_config.allowed_market_groups_buy = allowed_market_groups_buy
-            existing_config.allowed_market_groups_sell = allowed_market_groups_sell
-            existing_config.is_active = is_active
-            existing_config.save()
             messages.success(
                 request, _("Material Exchange configuration updated successfully.")
             )
         else:
-            MaterialExchangeConfig.objects.create(
+            config_obj = MaterialExchangeConfig.objects.create(
                 corporation_id=corporation_id,
                 structure_id=structure_id,
                 structure_name=structure_name,
@@ -1539,13 +1845,40 @@ def _handle_config_save(request, existing_config):
                 notify_admins_on_sell_anomaly=notify_admins_on_sell_anomaly,
                 allowed_market_groups_buy=allowed_market_groups_buy,
                 allowed_market_groups_sell=allowed_market_groups_sell,
+                allowed_type_ids_buy=allowed_type_ids_buy,
+                allowed_type_ids_sell=allowed_type_ids_sell,
                 is_active=is_active,
+            )
+            MaterialExchangeAcceptedLocation.objects.bulk_create(
+                [
+                    MaterialExchangeAcceptedLocation(
+                        config=config_obj,
+                        structure_id=int(location["structure_id"]),
+                        structure_name=str(location.get("structure_name") or ""),
+                        hangar_division=int(location["hangar_division"]),
+                        sort_order=int(location.get("sort_order") or 0),
+                    )
+                    for location in normalized_locations
+                ]
             )
             messages.success(
                 request, _("Material Exchange configuration created successfully.")
             )
 
+        if needs_additional_location_sync:
+            transaction.on_commit(_run_material_exchange_follow_up_sync)
+
     return redirect("indy_hub:material_exchange_index")
+
+
+def _run_material_exchange_follow_up_sync() -> None:
+    from ..tasks.material_exchange import (
+        sync_material_exchange_prices,
+        sync_material_exchange_stock,
+    )
+
+    sync_material_exchange_stock()
+    sync_material_exchange_prices()
 
 
 @login_required

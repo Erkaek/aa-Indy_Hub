@@ -19,6 +19,189 @@
         return text;
     }
 
+    function initFulfillChatHeightSync() {
+        var desktopQuery = null;
+        if (typeof window.matchMedia === "function") {
+            desktopQuery = window.matchMedia("(min-width: 1200px)");
+        }
+
+        var shells = Array.prototype.slice.call(
+            document.querySelectorAll(".fulfill-reference-shell")
+        );
+        if (!shells.length) {
+            return;
+        }
+
+        function resetChatHeight(chat) {
+            if (!chat) {
+                return;
+            }
+            chat.style.removeProperty("height");
+            chat.style.removeProperty("min-height");
+            chat.style.removeProperty("max-height");
+        }
+
+        function syncShell(shell) {
+            if (!shell) {
+                return;
+            }
+
+            var chat = shell.querySelector(".fulfill-reference-chat");
+            if (!chat) {
+                return;
+            }
+
+            if (desktopQuery && !desktopQuery.matches) {
+                resetChatHeight(chat);
+                return;
+            }
+
+            var availability = shell.querySelector(
+                ".fulfill-reference-sidecard--availability"
+            );
+            if (!availability) {
+                resetChatHeight(chat);
+                return;
+            }
+
+            var chatRect = chat.getBoundingClientRect();
+            var availabilityRect = availability.getBoundingClientRect();
+            var targetHeight = Math.round(availabilityRect.bottom - chatRect.top);
+
+            if (!isFinite(targetHeight) || targetHeight <= 0) {
+                resetChatHeight(chat);
+                return;
+            }
+
+            chat.style.setProperty("height", targetHeight + "px");
+            chat.style.setProperty("min-height", targetHeight + "px");
+            chat.style.setProperty("max-height", targetHeight + "px");
+        }
+
+        var rafId = 0;
+        function scheduleSync() {
+            if (rafId) {
+                window.cancelAnimationFrame(rafId);
+            }
+            rafId = window.requestAnimationFrame(function () {
+                rafId = 0;
+                shells.forEach(syncShell);
+            });
+        }
+
+        scheduleSync();
+        window.addEventListener("resize", scheduleSync);
+        window.addEventListener("load", scheduleSync);
+
+        if (desktopQuery) {
+            if (typeof desktopQuery.addEventListener === "function") {
+                desktopQuery.addEventListener("change", scheduleSync);
+            } else if (typeof desktopQuery.addListener === "function") {
+                desktopQuery.addListener(scheduleSync);
+            }
+        }
+
+        if (typeof window.ResizeObserver === "function") {
+            var observer = new window.ResizeObserver(scheduleSync);
+            shells.forEach(function (shell) {
+                observer.observe(shell);
+
+                var rail = shell.querySelector(".fulfill-reference-rail");
+                if (rail) {
+                    observer.observe(rail);
+                }
+
+                var actions = shell.querySelector(
+                    ".fulfill-reference-sidecard--actions"
+                );
+                if (actions) {
+                    observer.observe(actions);
+                }
+
+                var availability = shell.querySelector(
+                    ".fulfill-reference-sidecard--availability"
+                );
+                if (availability) {
+                    observer.observe(availability);
+                }
+            });
+        }
+
+        window.setTimeout(scheduleSync, 120);
+        window.setTimeout(scheduleSync, 360);
+    }
+
+    function formatNumber(value, fractionDigits) {
+        var number = Number(value || 0);
+        if (!isFinite(number)) {
+            number = 0;
+        }
+        return number.toLocaleString(undefined, {
+            minimumFractionDigits: fractionDigits,
+            maximumFractionDigits: fractionDigits,
+        });
+    }
+
+    function formatISK(value) {
+        return formatNumber(value, 0) + " ISK";
+    }
+
+    function formatPercent(value) {
+        return formatNumber(value, 2) + "%";
+    }
+
+    function formatDurationCompact(totalSeconds) {
+        var seconds = Math.max(0, parseInt(totalSeconds || 0, 10) || 0);
+        if (!seconds) {
+            return "-";
+        }
+
+        var days = Math.floor(seconds / 86400);
+        var hours = Math.floor((seconds % 86400) / 3600);
+        var minutes = Math.floor((seconds % 3600) / 60);
+        var parts = [];
+
+        if (days) {
+            parts.push(days + "d");
+        }
+        if (hours) {
+            parts.push(hours + "h");
+        }
+        if (minutes) {
+            parts.push(minutes + "m");
+        }
+        if (!parts.length) {
+            parts.push(seconds + "s");
+        }
+
+        return parts.join(" ");
+    }
+
+    function computeEffectiveCycleSeconds(
+        baseTimeSeconds,
+        characterTimeBonusPercent,
+        structureTimeBonusPercent
+    ) {
+        var numericBaseTime = Math.max(0, parseInt(baseTimeSeconds || 0, 10) || 0);
+        if (!numericBaseTime) {
+            return 0;
+        }
+
+        var characterMultiplier = Math.max(
+            0,
+            1 - (Number(characterTimeBonusPercent || 0) / 100)
+        );
+        var structureMultiplier = Math.max(
+            0,
+            1 - (Number(structureTimeBonusPercent || 0) / 100)
+        );
+
+        return Math.max(
+            1,
+            Math.ceil(numericBaseTime * characterMultiplier * structureMultiplier)
+        );
+    }
+
     function fallbackCopy(value) {
         return new Promise(function (resolve, reject) {
             var textarea = document.createElement("textarea");
@@ -685,9 +868,308 @@
         });
     }
 
+    function initFulfillWorkspace() {
+        var roots = Array.prototype.slice.call(
+            document.querySelectorAll("[data-fulfill-workspace]")
+        );
+        if (!roots.length) {
+            return;
+        }
+        var autoOpenRoot = document.querySelector("[data-auto-open-chat]");
+
+        roots.forEach(function (root) {
+            var items = Array.prototype.slice.call(
+                root.querySelectorAll("[data-fulfill-request-item]")
+            );
+            var panels = Array.prototype.slice.call(
+                root.querySelectorAll("[data-fulfill-panel]")
+            );
+            var searchInput = root.querySelector("[data-fulfill-search]");
+            var searchEmpty = root.querySelector("[data-fulfill-search-empty]");
+
+            if (!items.length || !panels.length) {
+                return;
+            }
+
+            function findPanel(requestId) {
+                return panels.find(function (panel) {
+                    return panel.getAttribute("data-fulfill-panel") === String(requestId);
+                }) || null;
+            }
+
+            function visibleItems() {
+                return items.filter(function (item) {
+                    return !item.hidden;
+                });
+            }
+
+            function closeInactiveChats(activeRequestId) {
+                var shells = root.querySelectorAll("[data-chat-inline]");
+                shells.forEach(function (shell) {
+                    if (shell.getAttribute("data-request-id") === String(activeRequestId)) {
+                        return;
+                    }
+                    shell.dispatchEvent(new CustomEvent("indyhub:chat-close"));
+                });
+            }
+
+            function activateRequest(requestId, options) {
+                var resolvedId = String(requestId);
+                var selectedPanel = findPanel(resolvedId);
+                if (!selectedPanel) {
+                    return;
+                }
+
+                items.forEach(function (item) {
+                    var isActive = item.getAttribute("data-request-id") === resolvedId;
+                    item.classList.toggle("is-active", isActive);
+                    item.setAttribute("aria-pressed", isActive ? "true" : "false");
+                });
+
+                panels.forEach(function (panel) {
+                    var isActive = panel.getAttribute("data-fulfill-panel") === resolvedId;
+                    panel.classList.toggle("is-active", isActive);
+                    panel.hidden = !isActive;
+                });
+
+                closeInactiveChats(resolvedId);
+
+                var shouldAutoload = !options || options.autoloadChat !== false;
+                if (!shouldAutoload) {
+                    return;
+                }
+
+                var trigger = selectedPanel.querySelector("[data-chat-autoload-trigger]");
+                if (!trigger) {
+                    return;
+                }
+
+                var shellId = trigger.getAttribute("data-chat-target");
+                var shell = shellId ? document.getElementById(shellId) : null;
+                if (shell && shell.dataset.chatLoaded === "1") {
+                    return;
+                }
+                trigger.click();
+            }
+
+            function applySearchFilter() {
+                var term = searchInput
+                    ? String(searchInput.value || "").trim().toLowerCase()
+                    : "";
+                var matchCount = 0;
+
+                items.forEach(function (item) {
+                    var haystack = String(item.getAttribute("data-search") || "").toLowerCase();
+                    var matches = !term || haystack.indexOf(term) !== -1;
+                    item.hidden = !matches;
+                    if (matches) {
+                        matchCount += 1;
+                    }
+                });
+
+                if (searchEmpty) {
+                    searchEmpty.classList.toggle("d-none", matchCount !== 0);
+                }
+
+                var activeItem = items.find(function (item) {
+                    return item.classList.contains("is-active") && !item.hidden;
+                });
+
+                if (!activeItem) {
+                    var firstVisible = visibleItems()[0];
+                    if (firstVisible) {
+                        activateRequest(firstVisible.getAttribute("data-request-id"), {
+                            autoloadChat: true,
+                        });
+                    }
+                }
+            }
+
+            items.forEach(function (item) {
+                item.addEventListener("click", function () {
+                    activateRequest(item.getAttribute("data-request-id"), {
+                        autoloadChat: true,
+                    });
+                });
+            });
+
+            if (searchInput) {
+                searchInput.addEventListener("input", applySearchFilter);
+            }
+
+            var autoChatId = autoOpenRoot
+                ? autoOpenRoot.getAttribute("data-auto-open-chat")
+                : "";
+            if (autoChatId) {
+                var autoItem = items.find(function (item) {
+                    return item.getAttribute("data-chat-id") === String(autoChatId);
+                });
+                if (autoItem) {
+                    activateRequest(autoItem.getAttribute("data-request-id"), {
+                        autoloadChat: true,
+                    });
+                    applySearchFilter();
+                    return;
+                }
+
+                var autoPanel = panels.find(function (panel) {
+                    return Boolean(
+                        panel.querySelector(
+                            '[data-chat-id="' + String(autoChatId) + '"]'
+                        )
+                    );
+                });
+                if (autoPanel) {
+                    activateRequest(autoPanel.getAttribute("data-fulfill-panel"), {
+                        autoloadChat: false,
+                    });
+                    applySearchFilter();
+                    return;
+                }
+            }
+
+            var firstVisibleItem = visibleItems()[0];
+            if (firstVisibleItem) {
+                activateRequest(firstVisibleItem.getAttribute("data-request-id"), {
+                    autoloadChat: true,
+                });
+            }
+
+            applySearchFilter();
+        });
+    }
+
+    function initCopyStructureSelectors() {
+        var panels = document.querySelectorAll("[data-fulfill-panel]");
+        if (!panels.length) {
+            return;
+        }
+
+        function updateEstimate(panel) {
+            if (!panel) {
+                return;
+            }
+            var select = panel.querySelector("[data-copy-structure-select]");
+            var option = select ? select.options[select.selectedIndex] : null;
+            var producerSelect = panel.querySelector("[data-copy-producer-select]");
+            var producerOption = producerSelect
+                ? producerSelect.options[producerSelect.selectedIndex]
+                : null;
+
+            var totalEl = panel.querySelector("[data-copy-estimate-total]");
+            var structureEl = panel.querySelector("[data-copy-estimate-structure]");
+            var metaEl = panel.querySelector("[data-copy-estimate-meta]");
+            var durationTotalEl = panel.querySelector("[data-copy-duration-total]");
+            var durationMetaEl = panel.querySelector("[data-copy-duration-meta]");
+
+            if (totalEl && option) {
+                totalEl.textContent = formatISK(
+                    option.getAttribute("data-total-installation-cost") || 0
+                );
+            }
+
+            if (structureEl && option) {
+                var structureName = option.getAttribute("data-structure-name") || "";
+                var solarSystemName = option.getAttribute("data-solar-system-name") || "";
+                structureEl.textContent = solarSystemName
+                    ? structureName + " · " + solarSystemName
+                    : structureName;
+            }
+
+            if (metaEl && option) {
+                var costIndex = option.getAttribute("data-system-cost-index-percent") || 0;
+                var tax = option.getAttribute("data-facility-tax-percent") || 0;
+                var surcharge = option.getAttribute("data-scc-surcharge-percent") || 0;
+                metaEl.textContent = [
+                    "SCI " + formatPercent(costIndex),
+                    __("Tax") + " " + formatPercent(tax),
+                    "SCC " + formatPercent(surcharge),
+                ].join(" · ");
+            }
+
+            if (durationTotalEl) {
+                var baseTimeSeconds = panel.getAttribute("data-copy-base-time-seconds") || 0;
+                var runsRequested = Math.max(
+                    1,
+                    parseInt(panel.getAttribute("data-copy-runs-requested") || 1, 10) || 1
+                );
+                var copiesRequested = Math.max(
+                    1,
+                    parseInt(panel.getAttribute("data-copy-copies-requested") || 1, 10) || 1
+                );
+                var structureTimeBonus = option
+                    ? option.getAttribute("data-time-bonus-percent") || 0
+                    : 0;
+                var characterTimeBonus = producerOption
+                    ? producerOption.getAttribute("data-character-time-bonus-percent") || 0
+                    : 0;
+                var effectiveCycleSeconds = computeEffectiveCycleSeconds(
+                    baseTimeSeconds,
+                    characterTimeBonus,
+                    structureTimeBonus
+                );
+                var perCopyDurationSeconds = effectiveCycleSeconds * runsRequested;
+                var totalDurationSeconds = perCopyDurationSeconds * copiesRequested;
+
+                durationTotalEl.textContent = formatDurationCompact(totalDurationSeconds);
+            }
+
+            if (durationMetaEl) {
+                var structureBonus = Number(
+                    option ? option.getAttribute("data-time-bonus-percent") || 0 : 0
+                );
+                var characterBonus = Number(
+                    producerOption
+                        ? producerOption.getAttribute("data-character-time-bonus-percent") || 0
+                        : 0
+                );
+                var durationParts = [
+                    __("Per copy") + " " + formatDurationCompact(perCopyDurationSeconds),
+                ];
+
+                if (structureBonus > 0) {
+                    durationParts.push(
+                        __("Structure bonus") + " -" + formatPercent(structureBonus)
+                    );
+                }
+
+                if (characterBonus > 0) {
+                    durationParts.push(
+                        __("Character bonus") + " -" + formatPercent(characterBonus)
+                    );
+                } else {
+                    durationParts.push(__("Character skills not included."));
+                }
+                durationMetaEl.textContent = durationParts.join(" · ");
+            }
+        }
+
+        panels.forEach(function (panel) {
+            var structureSelect = panel.querySelector("[data-copy-structure-select]");
+            var producerSelect = panel.querySelector("[data-copy-producer-select]");
+
+            updateEstimate(panel);
+
+            if (structureSelect) {
+                structureSelect.addEventListener("change", function () {
+                    updateEstimate(panel);
+                });
+            }
+
+            if (producerSelect) {
+                producerSelect.addEventListener("change", function () {
+                    updateEstimate(panel);
+                });
+            }
+        });
+    }
+
     document.addEventListener("DOMContentLoaded", function () {
+        initFulfillChatHeightSync();
         initCopyButtons();
         initScopeSelector();
         initConditionalToggles();
+        initFulfillWorkspace();
+        initCopyStructureSelectors();
     });
 })();

@@ -1,5 +1,5 @@
 {% load i18n %}
-<div class="modal fade bp-chat-modal" id="bpChatModal" tabindex="-1" aria-hidden="true" data-chat-modal>
+<div class="modal fade bp-chat-modal bp-chat-shell" id="bpChatModal" tabindex="-1" aria-hidden="true" data-chat-modal>
     <div class="modal-dialog modal-dialog-scrollable modal-fullscreen-sm-down bp-chat-dialog">
         <div class="modal-content bp-chat-surface">
             <div class="modal-header bp-chat-header">
@@ -15,17 +15,37 @@
 
                 <div class="alert alert-warning d-none bp-chat-status" role="status" data-chat-status></div>
 
-                <div class="bp-chat-actions alert alert-secondary d-none" data-chat-actions>
-                    <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2">
-                        <div class="small" data-chat-action-status></div>
-                        <div class="bp-chat-action-buttons">
-                            <button type="button" class="btn btn-success btn-sm" data-chat-accept>
-                                <i class="fas fa-check me-1"></i>{% trans "Accept" %}
-                            </button>
-                            <button type="button" class="btn btn-outline-danger btn-sm" data-chat-reject>
-                                <i class="fas fa-times me-1"></i>{% trans "Reject" %}
-                            </button>
+                <div class="bp-chat-actions d-none" data-chat-actions>
+                    <div class="bp-chat-proposal">
+                        <div class="bp-chat-proposal__summary">
+                            <div class="bp-chat-proposal__intro">
+                                <div class="small" data-chat-action-status></div>
+                                <div class="bp-chat-proposal__hint" data-chat-action-hint></div>
+                            </div>
+                            <div class="bp-chat-proposal__current d-none" data-chat-proposal-current>
+                                <span class="bp-chat-proposal__label">{% trans "Current proposal" %}</span>
+                                <strong data-chat-proposal-amount></strong>
+                            </div>
                         </div>
+                        <form class="bp-chat-proposal-form" data-chat-proposal-form>
+                            <label class="visually-hidden" for="bpChatProposal">{% trans "Proposal amount" %}</label>
+                            <div class="input-group input-group-sm">
+                                <input
+                                    id="bpChatProposal"
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    class="form-control"
+                                    inputmode="decimal"
+                                    placeholder="{% trans 'Enter amount in ISK' %}"
+                                    data-chat-proposal-input
+                                >
+                                <span class="input-group-text">ISK</span>
+                                <button type="submit" class="btn btn-primary" data-chat-proposal-submit>
+                                    <i class="fas fa-coins me-1"></i>{% trans "Send proposal" %}
+                                </button>
+                            </div>
+                        </form>
                     </div>
                 </div>
 

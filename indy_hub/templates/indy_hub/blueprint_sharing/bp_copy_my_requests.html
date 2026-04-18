@@ -7,14 +7,14 @@
 
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
-<link rel="stylesheet" href="{% static 'indy_hub/css/bp_copy_list.css' %}">
-<link rel="stylesheet" href="{% static 'indy_hub/css/chat.css' %}?v=20260118-2040">
+<link rel="stylesheet" href="{% static 'indy_hub/css/bp_copy_list.css' %}?v=20260413-2335">
+<link rel="stylesheet" href="{% static 'indy_hub/css/chat.css' %}?v=20260418-1100">
+<link rel="stylesheet" href="{% static 'indy_hub/css/bp_copy_fulfill_page.css' %}?v=20260418-1400">
 {% endblock %}
 
 {% block content %}
-<div class="container-fluid py-4">
-    <div data-auto-open-chat="{{ auto_open_chat_id|default:'' }}"></div>
-    {# Page Header #}
+<div class="container-fluid py-4 fulfill-page" data-auto-open-chat="{{ auto_open_chat_id|default:'' }}">
+
     <div class="page-header mb-4">
         <i class="fas fa-clipboard-list header-bg"></i>
         <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
@@ -23,7 +23,7 @@
                     <i class="fas fa-clipboard-list me-2"></i>
                     {% trans "My Copy Requests" %}
                 </h2>
-                <p class="description mb-0">{% trans "Monitor each request, respond to offers, and follow delivery progress." %}</p>
+                <p class="description mb-0">{% trans "Track negotiations, confirm agreements, and follow delivery progress from one workspace." %}</p>
             </div>
             <a href="{% url 'indy_hub:index' %}" class="btn btn-outline-light">
                 <i class="fas fa-arrow-left me-1"></i>{% trans "Back to Overview" %}
@@ -31,265 +31,538 @@
         </div>
     </div>
 
-    {# Metric Tiles #}
-    <div class="row g-3 mb-4">
-        <div class="col-md-6">
-            <a href="?status=open" class="metric-tile-link">
-                <div class="metric-tile bg-gradient-info">
-                    <div>
-                        <p class="label text-info mb-1">
-                            <i class="fas fa-hourglass-half me-2"></i>{% trans "Waiting for Builders" %}
-                        </p>
-                        <div class="metric-value text-info">{{ metrics.open|default:0 }}</div>
-                    </div>
-                    <div class="metric-icon text-info">
-                        <i class="fas fa-clock"></i>
-                    </div>
-                </div>
-            </a>
-        </div>
-        <div class="col-md-6">
-            <a href="?status=action_required" class="metric-tile-link">
-                <div class="metric-tile bg-gradient-warning">
-                    <div>
-                        <p class="label text-warning mb-1">
-                            <i class="fas fa-exclamation-circle me-2"></i>{% trans "Your Action" %}
-                        </p>
-                        <div class="metric-value text-warning">{{ metrics.action_required|default:0 }}</div>
-                    </div>
-                    <div class="metric-icon text-warning">
-                        <i class="fas fa-bell"></i>
-                    </div>
-                </div>
-            </a>
-        </div>
-        <div class="col-md-6">
-            <a href="?status=awaiting_delivery" class="metric-tile-link">
-                <div class="metric-tile bg-gradient-success">
-                    <div>
-                        <p class="label text-success mb-1">
-                            <i class="fas fa-shipping-fast me-2"></i>{% trans "In Delivery" %}
-                        </p>
-                        <div class="metric-value text-success">{{ metrics.awaiting_delivery|default:0 }}</div>
-                    </div>
-                    <div class="metric-icon text-success">
-                        <i class="fas fa-truck"></i>
-                    </div>
-                </div>
-            </a>
-        </div>
-        <div class="col-md-6">
-            <a href="?status=delivered" class="metric-tile-link">
-                <div class="metric-tile bg-gradient-secondary">
-                    <div>
-                        <p class="label text-secondary mb-1">
-                            <i class="fas fa-check-double me-2"></i>{% trans "Completed" %}
-                        </p>
-                        <div class="metric-value text-secondary">{{ metrics.delivered|default:0 }}</div>
-                    </div>
-                    <div class="metric-icon text-secondary">
-                        <i class="fas fa-inbox"></i>
-                    </div>
-                </div>
-            </a>
-        </div>
+    {# Metric tiles #}
+    <div class="mrp-metric-grid">
+        <a href="?status=open" class="mrp-metric">
+            <div>
+                <p class="mrp-metric__label">{% trans "Waiting for Builders" %}</p>
+                <p class="mrp-metric__value">{{ metrics.open|default:0 }}</p>
+                <span class="mrp-metric__hint">{% trans "Requests with no confirmed provider yet." %}</span>
+            </div>
+            <span class="mrp-metric__icon"><i class="fas fa-hourglass-half"></i></span>
+        </a>
+        <a href="?status=action_required" class="mrp-metric">
+            <div>
+                <p class="mrp-metric__label">{% trans "Your Action" %}</p>
+                <p class="mrp-metric__value">{{ metrics.action_required|default:0 }}</p>
+                <span class="mrp-metric__hint">{% trans "Conditional proposals or agreements waiting on you." %}</span>
+            </div>
+            <span class="mrp-metric__icon"><i class="fas fa-bell"></i></span>
+        </a>
+        <a href="?status=awaiting_delivery" class="mrp-metric">
+            <div>
+                <p class="mrp-metric__label">{% trans "In Delivery" %}</p>
+                <p class="mrp-metric__value">{{ metrics.awaiting_delivery|default:0 }}</p>
+                <span class="mrp-metric__hint">{% trans "Accepted requests now moving toward completion." %}</span>
+            </div>
+            <span class="mrp-metric__icon"><i class="fas fa-truck"></i></span>
+        </a>
+        <a href="#bp-request-pane-history" class="mrp-metric"
+            onclick="event.preventDefault(); document.getElementById('bp-request-tab-history').click();">
+            <div>
+                <p class="mrp-metric__label">{% trans "Completed" %}</p>
+                <p class="mrp-metric__value">{{ metrics.delivered|default:0 }}</p>
+                <span class="mrp-metric__hint">{% trans "Delivered blueprint copy requests." %}</span>
+            </div>
+            <span class="mrp-metric__icon"><i class="fas fa-check-double"></i></span>
+        </a>
     </div>
 
     {# Tabs #}
-    <ul class="nav nav-tabs bp-request-tabs mb-3" id="bp-request-tabs" role="tablist">
+    <ul class="nav mrp-tabs" id="bp-request-tabs" role="tablist">
         <li class="nav-item" role="presentation">
-            <button
-                class="nav-link active"
-                id="bp-request-tab-active"
-                data-bs-toggle="tab"
-                data-bs-target="#bp-request-pane-active"
-                type="button"
-                role="tab"
-                aria-controls="bp-request-pane-active"
-                aria-selected="true"
-            >
+            <button class="nav-link active" id="bp-request-tab-active" data-bs-toggle="tab" data-bs-target="#bp-request-pane-active" type="button" role="tab" aria-controls="bp-request-pane-active" aria-selected="true">
                 <i class="fas fa-stream me-1"></i>{% trans "Active" %}
             </button>
         </li>
         <li class="nav-item" role="presentation">
-            <button
-                class="nav-link"
-                id="bp-request-tab-history"
-                data-bs-toggle="tab"
-                data-bs-target="#bp-request-pane-history"
-                type="button"
-                role="tab"
-                aria-controls="bp-request-pane-history"
-                aria-selected="false"
-            >
+            <button class="nav-link" id="bp-request-tab-history" data-bs-toggle="tab" data-bs-target="#bp-request-pane-history" type="button" role="tab" aria-controls="bp-request-pane-history" aria-selected="false">
                 <i class="fas fa-history me-1"></i>{% trans "History" %}
             </button>
         </li>
     </ul>
 
     <div class="tab-content" id="bp-request-tab-content">
-        {# Active Tab #}
-        <div
-            class="tab-pane fade show active"
-            id="bp-request-pane-active"
-            role="tabpanel"
-            aria-labelledby="bp-request-tab-active"
-        >
-            <form method="get" class="d-flex flex-wrap align-items-end gap-2 mb-3">
-                <div>
-                    <label for="bp-my-filter-status" class="form-label small text-muted mb-1">{% trans "Display" %}</label>
-                    <select id="bp-my-filter-status" name="status" class="form-select form-select-sm" onchange="this.form.submit()">
-                        <option value="all" {% if active_filter == 'all' %}selected{% endif %}>{% trans "All" %}</option>
-                        <option value="open" {% if active_filter == 'open' %}selected{% endif %}>{% trans "Waiting for builders" %}</option>
-                        <option value="action_required" {% if active_filter == 'action_required' %}selected{% endif %}>{% trans "Your action needed" %}</option>
-                        <option value="awaiting_delivery" {% if active_filter == 'awaiting_delivery' %}selected{% endif %}>{% trans "In progress" %}</option>
-                        <option value="waiting_on_builder" {% if active_filter == 'waiting_on_builder' %}selected{% endif %}>{% trans "Waiting on builder" %}</option>
-                        <option value="waiting_on_you" {% if active_filter == 'waiting_on_you' %}selected{% endif %}>{% trans "Confirm agreement" %}</option>
-                    </select>
-                </div>
-            </form>
+
+        {# ── Active tab ──────────────────────────────────────────────── #}
+        <div class="tab-pane fade show active" id="bp-request-pane-active" role="tabpanel" aria-labelledby="bp-request-tab-active">
             {% if my_requests %}
-            <div class="fulfill-requests-list">
-                {% for req in my_requests %}
-                {% if not req.is_history %}
-                <div class="fulfill-card">
-                    <div class="fulfill-card__icon">
-                        <img
-                            src="{{ req.icon_url }}"
-                            alt="{{ req.type_name }}"
-                            loading="lazy"
-                            onerror="this.onerror=null;this.src='https://images.evetech.net/types/{{ req.type_id }}/icon?size=64'"
-                        >
-                    </div>
+            <div class="fulfill-reference-shell" data-fulfill-workspace>
 
-                    <div class="fulfill-card__info">
-                        <div class="fulfill-card__main">
-                            <h3 class="fulfill-card__title">{{ req.type_name }}</h3>
-                            <div class="fulfill-card__specs">
-                                <span class="fulfill-spec fulfill-spec--me">ME {{ req.material_efficiency }}</span>
-                                <span class="fulfill-spec fulfill-spec--te">TE {{ req.time_efficiency }}</span>
-                                <span class="fulfill-spec fulfill-spec--copies">{{ req.copies_requested }} {% trans "copies" %} · {{ req.runs_requested }} {% trans "runs" %}</span>
+                <aside class="fulfill-reference-sidebar">
+                    <div class="fulfill-reference-sidebar__panel">
+                        <div class="fulfill-reference-sidebar__topbar">
+                            <span class="fulfill-spec"><i class="fas fa-user me-1"></i>{% trans "Buyer workspace" %}</span>
+                            <span class="fulfill-spec"><i class="fas fa-layer-group me-1"></i>{{ my_requests|length }} {% trans "active" %}</span>
+                        </div>
+
+                        <div class="fulfill-reference-sidebar__header">
+                            <h3>{% trans "Active requests" %}</h3>
+                            <p>{% trans "Pick a request to inspect its negotiations, current status, and next action." %}</p>
+                        </div>
+
+                        <div class="fulfill-reference-sidebar__tabs">
+                            <a href="?status=all" class="fulfill-reference-tab{% if active_filter == 'all' %} is-active{% endif %}">{% trans "All" %}</a>
+                            <a href="?status=open" class="fulfill-reference-tab{% if active_filter == 'open' %} is-active{% endif %}">{% trans "Awaiting" %}</a>
+                            <a href="?status=action_required" class="fulfill-reference-tab{% if active_filter == 'action_required' %} is-active{% endif %}">{% trans "Action" %}</a>
+                            <a href="?status=awaiting_delivery" class="fulfill-reference-tab{% if active_filter == 'awaiting_delivery' %} is-active{% endif %}">{% trans "Delivery" %}</a>
+                        </div>
+
+                        <form method="get" class="fulfill-reference-sidebar__filters">
+                            <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">
+                                <option value="all" {% if active_filter == 'all' %}selected{% endif %}>{% trans "All" %}</option>
+                                <option value="open" {% if active_filter == 'open' %}selected{% endif %}>{% trans "Waiting for builders" %}</option>
+                                <option value="action_required" {% if active_filter == 'action_required' %}selected{% endif %}>{% trans "Your action needed" %}</option>
+                                <option value="awaiting_delivery" {% if active_filter == 'awaiting_delivery' %}selected{% endif %}>{% trans "In progress" %}</option>
+                                <option value="waiting_on_builder" {% if active_filter == 'waiting_on_builder' %}selected{% endif %}>{% trans "Waiting on builder" %}</option>
+                                <option value="waiting_on_you" {% if active_filter == 'waiting_on_you' %}selected{% endif %}>{% trans "Confirm agreement" %}</option>
+                            </select>
+                        </form>
+
+                        <div class="fulfill-reference-sidebar__search">
+                            <label for="my-request-search-active" class="visually-hidden">{% trans "Search requests" %}</label>
+                            <i class="fas fa-search" aria-hidden="true"></i>
+                            <input id="my-request-search-active" type="search" class="form-control" placeholder="{% trans 'Search requests...' %}" data-fulfill-search>
+                        </div>
+
+                        <div class="fulfill-reference-sidebar__list" data-fulfill-list>
+                            {% for req in my_requests %}
+                            <button
+                                type="button"
+                                class="fulfill-request-item"
+                                data-fulfill-request-item
+                                data-request-id="{{ req.id }}"
+                                data-chat-id="{% if req.chat_actions %}{{ req.chat_actions.0.chat.id }}{% endif %}"
+                                data-search="{{ req.type_name }} {{ req.status_label }} {{ req.status_hint }} {{ req.accepted_offer.owner_username|default:'' }}"
+                                aria-pressed="false"
+                            >
+                                <div class="fulfill-request-item__icon">
+                                    <img src="{{ req.icon_url }}" alt="{{ req.type_name }}" loading="lazy" onerror="this.onerror=null;this.src='https://images.evetech.net/types/{{ req.type_id }}/icon?size=64'">
+                                </div>
+                                <div class="fulfill-request-item__body">
+                                    <div class="fulfill-request-item__titles">
+                                        <h3>{{ req.type_name }}</h3>
+                                        <p class="fulfill-request-item__requester">{{ req.copies_requested }} {% trans "copies" %} · {{ req.runs_requested }} {% trans "runs / copy" %}</p>
+                                        <p class="fulfill-request-item__meta-line">{{ req.status_hint }}</p>
+                                    </div>
+                                    <div class="fulfill-request-item__chips">
+                                        <span class="fulfill-spec fulfill-spec--me">ME {{ req.material_efficiency }}</span>
+                                        <span class="fulfill-spec fulfill-spec--te">TE {{ req.time_efficiency }}</span>
+                                    </div>
+                                    <div class="fulfill-request-item__footer">
+                                        <span class="fulfill-status {{ req.status_class|default:'bg-secondary' }}">{{ req.status_label }}</span>
+                                        <span class="fulfill-request-item__time">{{ req.created_at|naturaltime }}</span>
+                                    </div>
+                                    {% if req.chat_actions %}
+                                    <div class="fulfill-request-item__unread">
+                                        <i class="fas fa-comments"></i>{{ req.chat_actions|length }} {% trans "thread(s)" %}
+                                    </div>
+                                    {% endif %}
+                                </div>
+                            </button>
+                            {% endfor %}
+                        </div>
+
+                        <div class="fulfill-reference-sidebar__empty d-none" data-fulfill-search-empty>
+                            <i class="fas fa-search me-2"></i>{% trans "No requests match your search." %}
+                        </div>
+                    </div>
+                </aside>
+
+                <section class="fulfill-reference-workbench">
+                    {% for req in my_requests %}
+                    <article class="fulfill-workbench-panel{% if forloop.first %} is-active{% endif %}" data-fulfill-panel="{{ req.id }}" {% if not forloop.first %}hidden{% endif %}>
+
+                        {# Header strip #}
+                        <div class="fwp-header">
+                            <div class="fwp-header__brand">
+                                <div class="fwp-header__icon">
+                                    <img src="{{ req.icon_url }}" alt="{{ req.type_name }}" loading="lazy" onerror="this.onerror=null;this.src='https://images.evetech.net/types/{{ req.type_id }}/icon?size=64'">
+                                </div>
+                                <div class="fwp-header__identity">
+                                    <h2>{{ req.type_name }}</h2>
+                                    <div class="fwp-header__chips">
+                                        <span class="fulfill-spec fulfill-spec--me">ME {{ req.material_efficiency }}</span>
+                                        <span class="fulfill-spec fulfill-spec--te">TE {{ req.time_efficiency }}</span>
+                                        <span class="fulfill-spec">{{ req.copies_requested }} {% trans "copies" %} · {{ req.runs_requested }} {% trans "runs" %}</span>
+                                        <span class="fulfill-status {{ req.status_class|default:'bg-secondary' }}">{{ req.status_label }}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="fwp-header__stats">
+                                <div class="fwp-stat">
+                                    <span>{% trans "Opened" %}</span>
+                                    <strong>{{ req.created_at|naturaltime }}</strong>
+                                </div>
+                                <div class="fwp-stat">
+                                    <span>{% trans "Threads" %}</span>
+                                    <strong>{{ req.chat_actions|length }}</strong>
+                                </div>
+                                <div class="fwp-stat">
+                                    <span>{% trans "Stage" %}</span>
+                                    <strong>{{ req.status_hint }}</strong>
+                                </div>
                             </div>
                         </div>
-                        <div class="fulfill-card__meta">
-                            <div class="fulfill-meta-item fulfill-meta-item--time">
-                                <i class="far fa-clock"></i>
-                                <span>{{ req.created_at|naturaltime }}</span>
-                            </div>
-                            {% if req.accepted_offer %}
-                            <span class="badge bg-success"><i class="fas fa-handshake me-1"></i>{% trans "Accepted" %}</span>
-                            {% elif req.cond_accepted %}
-                            <span class="badge bg-info"><i class="fas fa-file-signature me-1"></i>{% trans "Conditions Accepted" %}</span>
-                            {% elif req.cond_waiting_builder %}
-                            <span class="badge bg-warning"><i class="fas fa-hourglass-half me-1"></i>{% trans "Awaiting Confirmation" %}</span>
-                            {% elif req.cond_waiting_buyer %}
-                            <span class="badge bg-info"><i class="fas fa-handshake me-1"></i>{% trans "Ready to Accept" %}</span>
-                            {% elif req.cond_offers %}
-                            <span class="badge bg-warning"><i class="fas fa-comments me-1"></i>{% trans "Offers Pending" %}</span>
-                            {% endif %}
-                        </div>
-                    </div>
 
-                    <div class="fulfill-card__actions">
-                        <div class="fulfill-card__status">
-                            <span class="fulfill-status {{ req.status_class|default:'bg-secondary' }}">{{ req.status_label }}</span>
+                        {# Body: thread col | panel col #}
+                        <div class="fwp-body">
+
+                            {# Thread list column (left) #}
+                            <div class="fwp-chat-col fwp-chat-col--threads">
+                                {% if req.chat_actions %}
+                                <div class="fwp-chat-shell">
+                                    <div class="mrp-thread-list">
+                                        {% for action in req.chat_actions %}
+                                        <div class="mrp-thread">
+                                            <div class="mrp-thread__head">
+                                                <div class="flex-grow-1 min-w-0">
+                                                    <p class="mrp-thread__eyebrow">{% trans "Builder thread" %}</p>
+                                                    <p class="mrp-thread__label">{{ action.builder_label }}</p>
+                                                    {% if action.chat.preview %}
+                                                    <p class="mrp-thread__summary">{{ action.chat.preview }}</p>
+                                                    {% else %}
+                                                    <p class="mrp-thread__summary">{% trans "Open the thread to review the latest proposal and messages." %}</p>
+                                                    {% endif %}
+                                                </div>
+                                                <div class="d-flex flex-column align-items-end gap-2 flex-shrink-0">
+                                                    {% if action.chat.has_unread %}
+                                                    <span class="badge text-bg-primary">{% trans "Unread" %}</span>
+                                                    {% endif %}
+                                                    {% if action.chat.last_message_display %}
+                                                    <span class="mrp-thread__meta">{{ action.chat.last_message_display }}</span>
+                                                    {% endif %}
+                                                </div>
+                                            </div>
+                                            <div class="mrp-thread__actions">
+                                                <button
+                                                    type="button"
+                                                    class="fulfill-btn fulfill-btn--condition bp-chat-trigger"
+                                                    style="width: auto; min-width: 0;"
+                                                    data-chat-fetch-url="{{ action.chat.fetch_url }}"
+                                                    data-chat-send-url="{{ action.chat.send_url }}"
+                                                    data-chat-role="buyer"
+                                                    data-chat-type-name="{{ req.type_name }}"
+                                                    data-chat-type-id="{{ req.type_id }}"
+                                                    data-chat-id="{{ action.chat.id }}"
+                                                >
+                                                    <i class="fas fa-comments"></i>{% trans "Open chat" %}
+                                                </button>
+                                            </div>
+                                        </div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                                {% else %}
+                                <div class="fwp-chat-empty">
+                                    <div class="fwp-chat-empty__icon"><i class="fas fa-comments"></i></div>
+                                    <h3>{% trans "No builder thread yet" %}</h3>
+                                    <p>{% trans "When a provider makes a conditional offer or confirms your request, the negotiation thread will appear here." %}</p>
+                                </div>
+                                {% endif %}
+                            </div>
+
+                            {# Panel column (right) #}
+                            <div class="fwp-panel-col">
+
+                                {# Actions #}
+                                <section class="fwp-section fwp-section--actions">
+                                    <div class="fwp-section__head">
+                                        <div>
+                                            <p class="fwp-section__eyebrow">{% trans "Next step" %}</p>
+                                            <h3 class="fwp-section__title">{% trans "Request controls" %}</h3>
+                                        </div>
+                                        <span class="fwp-section__badge"><i class="fas fa-user me-1"></i>{% trans "Buyer" %}</span>
+                                    </div>
+                                    <p class="fwp-section__hint">{{ req.status_hint }}</p>
+                                    {% if req.accepted_offer %}
+                                    <div class="mrp-note">
+                                        <i class="fas fa-handshake"></i>
+                                        <div>
+                                            <strong>{% trans "Builder accepted your request." %}</strong>
+                                            {% blocktrans with owner=req.accepted_offer.owner_username %}Accepted by {{ owner }}. Coordinate the final handoff from the conversation panel.{% endblocktrans %}
+                                        </div>
+                                    </div>
+                                    {% endif %}
+                                    {% if req.cond_waiting_buyer %}
+                                    <div class="mrp-note">
+                                        <i class="fas fa-file-signature"></i>
+                                        <div>
+                                            <strong>{% trans "Agreement waiting on you." %}</strong>
+                                            {% trans "A builder accepted the terms. Open the matching conversation to confirm the agreement." %}
+                                        </div>
+                                    </div>
+                                    {% elif req.cond_waiting_builder %}
+                                    <div class="mrp-note">
+                                        <i class="fas fa-hourglass-half"></i>
+                                        <div>
+                                            <strong>{% trans "Builder confirmation pending." %}</strong>
+                                            {% trans "You already accepted a proposal. Waiting for the builder to confirm from the same conversation." %}
+                                        </div>
+                                    </div>
+                                    {% elif req.cond_offers %}
+                                    <div class="mrp-note">
+                                        <i class="fas fa-comments-dollar"></i>
+                                        <div>
+                                            <strong>{% trans "Conditional offers available." %}</strong>
+                                            {% blocktrans count count=req.cond_offers|length %}Review the open negotiation below and pick the offer that fits you best.{% plural %}Review the {{ count }} open negotiations below and pick the offer that fits you best.{% endblocktrans %}
+                                        </div>
+                                    </div>
+                                    {% endif %}
+                                    <div class="fulfill-reference-actions">
+                                        {% if req.can_cancel %}
+                                        <form method="post" action="{% url 'indy_hub:bp_cancel_copy_request' req.id %}">
+                                            {% csrf_token %}
+                                            <button type="submit" class="fulfill-btn fulfill-btn--decline" onclick="return confirm('{% trans "Cancel this request?" %}')">
+                                                <i class="fas fa-times"></i>{% trans "Cancel request" %}
+                                            </button>
+                                        </form>
+                                        {% endif %}
+                                    </div>
+                                </section>
+
+                                {# Overview snapshot #}
+                                <section class="fwp-section">
+                                    <div class="fwp-section__head">
+                                        <div>
+                                            <p class="fwp-section__eyebrow">{% trans "Snapshot" %}</p>
+                                            <h3 class="fwp-section__title">{% trans "Request overview" %}</h3>
+                                        </div>
+                                        <span class="fwp-section__badge"><i class="fas fa-eye me-1"></i>{% trans "Live" %}</span>
+                                    </div>
+                                    <div class="fwp-detail-list">
+                                        <div class="fwp-detail-row">
+                                            <span>{% trans "Requested" %}</span>
+                                            <strong>{{ req.created_at|date:"Y-m-d H:i" }}</strong>
+                                        </div>
+                                        <div class="fwp-detail-row">
+                                            <span>{% trans "Copies" %}</span>
+                                            <strong>{{ req.copies_requested }}</strong>
+                                        </div>
+                                        <div class="fwp-detail-row">
+                                            <span>{% trans "Runs / copy" %}</span>
+                                            <strong>{{ req.runs_requested }}</strong>
+                                        </div>
+                                        <div class="fwp-detail-row">
+                                            <span>{% trans "Negotiations" %}</span>
+                                            <strong>{{ req.chat_actions|length }}</strong>
+                                        </div>
+                                    </div>
+                                </section>
+
+                                {# Offer state #}
+                                <section class="fwp-section">
+                                    <h3 class="fwp-section__title">{% trans "Offer state" %}</h3>
+                                    <div class="fwp-detail-list">
+                                        <div class="fwp-detail-row">
+                                            <span>{% trans "Status" %}</span>
+                                            <strong>{{ req.status_label }}</strong>
+                                        </div>
+                                        <div class="fwp-detail-row">
+                                            <span>{% trans "Builder" %}</span>
+                                            <strong>{% if req.accepted_offer %}{{ req.accepted_offer.owner_username }}{% else %}{% trans "None yet" %}{% endif %}</strong>
+                                        </div>
+                                        <div class="fwp-detail-row">
+                                            <span>{% trans "Pending offers" %}</span>
+                                            <strong>{{ req.cond_offers|length }}</strong>
+                                        </div>
+                                        <div class="fwp-detail-row">
+                                            <span>{% trans "Delivery" %}</span>
+                                            <strong>{% if req.delivered %}{% trans "Completed" %}{% elif req.status_key == 'awaiting_delivery' %}{% trans "In progress" %}{% else %}{% trans "Not started" %}{% endif %}</strong>
+                                        </div>
+                                    </div>
+                                </section>
+
+                            </div>
                         </div>
-                        <div class="fulfill-card__buttons">
-                            {% if req.chat_actions %}
-                                {% for action in req.chat_actions %}
-                                <button
-                                    type="button"
-                                    class="fulfill-btn fulfill-btn--chat bp-chat-trigger"
-                                    data-chat-fetch-url="{{ action.chat.fetch_url }}"
-                                    data-chat-send-url="{{ action.chat.send_url }}"
-                                    data-chat-role="buyer"
-                                    data-chat-type-name="{{ req.type_name }}"
-                                    data-chat-type-id="{{ req.type_id }}"
-                                    data-chat-id="{{ action.chat.id }}"
-                                >
-                                    <i class="fas fa-comments"></i>{% trans "Open chat" %}
-                                </button>
-                                {% endfor %}
-                            {% endif %}
-                            {% if req.can_cancel %}
-                            <form method="post" action="{% url 'indy_hub:bp_cancel_copy_request' req.id %}">
-                                {% csrf_token %}
-                                <button
-                                    type="submit"
-                                    class="fulfill-btn fulfill-btn--decline"
-                                    onclick="return confirm('{% trans "Cancel this request?" %}')"
-                                >
-                                    <i class="fas fa-times"></i>{% trans "Cancel" %}
-                                </button>
-                            </form>
-                            {% endif %}
-                        </div>
-                    </div>
-                </div>
-                {% endif %}
-                {% endfor %}
+                    </article>
+                    {% endfor %}
+                </section>
             </div>
             {% else %}
-            <div class="empty-state">
-                <i class="fas fa-inbox"></i>
+            <div class="fwp-empty-state">
+                <div class="fwp-empty-state__icon"><i class="fas fa-inbox"></i></div>
                 <h3>{% trans "No active requests" %}</h3>
-                <p class="text-muted">{% trans "Create a new copy request to get started." %}</p>
+                <p>{% trans "Create a new copy request to get started." %}</p>
             </div>
             {% endif %}
         </div>
 
-        {# History Tab #}
-        <div
-            class="tab-pane fade"
-            id="bp-request-pane-history"
-            role="tabpanel"
-            aria-labelledby="bp-request-tab-history"
-        >
+        {# ── History tab ─────────────────────────────────────────────── #}
+        <div class="tab-pane fade" id="bp-request-pane-history" role="tabpanel" aria-labelledby="bp-request-tab-history">
             {% if history_requests %}
-            <div class="fulfill-requests-list">
-                {% for req in history_requests %}
-                <div class="fulfill-card">
-                    <div class="fulfill-card__icon">
-                        <img
-                            src="https://images.evetech.net/types/{{ req.type_id }}/bp?size=64"
-                            alt="{{ req.type_name }}"
-                            loading="lazy"
-                            onerror="this.onerror=null;this.src='https://images.evetech.net/types/{{ req.type_id }}/icon?size=64'"
-                        >
+            <div class="fulfill-reference-shell" data-fulfill-workspace>
+
+                <aside class="fulfill-reference-sidebar">
+                    <div class="fulfill-reference-sidebar__panel">
+                        <div class="fulfill-reference-sidebar__topbar">
+                            <span class="fulfill-spec"><i class="fas fa-archive me-1"></i>{% trans "Delivered archive" %}</span>
+                            <span class="fulfill-spec"><i class="fas fa-check-double me-1"></i>{{ history_requests|length }} {% trans "closed" %}</span>
+                        </div>
+
+                        <div class="fulfill-reference-sidebar__header">
+                            <h3>{% trans "History" %}</h3>
+                            <p>{% trans "Review completed requests and keep a quick reference of what was already delivered." %}</p>
+                        </div>
+
+                        <div class="fulfill-reference-sidebar__search">
+                            <label for="my-request-search-history" class="visually-hidden">{% trans "Search history" %}</label>
+                            <i class="fas fa-search" aria-hidden="true"></i>
+                            <input id="my-request-search-history" type="search" class="form-control" placeholder="{% trans 'Search delivered requests...' %}" data-fulfill-search>
+                        </div>
+
+                        <div class="fulfill-reference-sidebar__list" data-fulfill-list>
+                            {% for req in history_requests %}
+                            <button
+                                type="button"
+                                class="fulfill-request-item"
+                                data-fulfill-request-item
+                                data-request-id="history-{{ req.id }}"
+                                data-search="{{ req.type_name }} {{ req.status_label }} {{ req.status_hint }}"
+                                aria-pressed="false"
+                            >
+                                <div class="fulfill-request-item__icon">
+                                    <img src="https://images.evetech.net/types/{{ req.type_id }}/bp?size=64" alt="{{ req.type_name }}" loading="lazy" onerror="this.onerror=null;this.src='https://images.evetech.net/types/{{ req.type_id }}/icon?size=64'">
+                                </div>
+                                <div class="fulfill-request-item__body">
+                                    <div class="fulfill-request-item__titles">
+                                        <h3>{{ req.type_name }}</h3>
+                                        <p class="fulfill-request-item__requester">{{ req.copies_requested }} {% trans "copies" %} · {{ req.runs_requested }} {% trans "runs / copy" %}</p>
+                                        <p class="fulfill-request-item__meta-line">{{ req.status_hint }}</p>
+                                    </div>
+                                    <div class="fulfill-request-item__chips">
+                                        <span class="fulfill-spec fulfill-spec--me">ME {{ req.material_efficiency }}</span>
+                                        <span class="fulfill-spec fulfill-spec--te">TE {{ req.time_efficiency }}</span>
+                                    </div>
+                                    <div class="fulfill-request-item__footer">
+                                        <span class="fulfill-status bg-secondary">{{ req.status_label }}</span>
+                                        <span class="fulfill-request-item__time">{{ req.closed_at|naturaltime }}</span>
+                                    </div>
+                                </div>
+                            </button>
+                            {% endfor %}
+                        </div>
+
+                        <div class="fulfill-reference-sidebar__empty d-none" data-fulfill-search-empty>
+                            <i class="fas fa-search me-2"></i>{% trans "No history entry matches your search." %}
+                        </div>
                     </div>
-                    <div class="fulfill-card__info">
-                        <div class="fulfill-card__main">
-                            <h3 class="fulfill-card__title">{{ req.type_name }}</h3>
-                            <div class="fulfill-card__specs">
-                                <span class="fulfill-spec fulfill-spec--me">ME {{ req.material_efficiency }}</span>
-                                <span class="fulfill-spec fulfill-spec--te">TE {{ req.time_efficiency }}</span>
-                                <span class="fulfill-spec fulfill-spec--copies">{{ req.copies_requested }} {% trans "copies" %} · {{ req.runs_requested }} {% trans "runs" %}</span>
+                </aside>
+
+                <section class="fulfill-reference-workbench">
+                    {% for req in history_requests %}
+                    <article class="fulfill-workbench-panel{% if forloop.first %} is-active{% endif %}" data-fulfill-panel="history-{{ req.id }}" {% if not forloop.first %}hidden{% endif %}>
+
+                        {# Header strip #}
+                        <div class="fwp-header">
+                            <div class="fwp-header__brand">
+                                <div class="fwp-header__icon">
+                                    <img src="https://images.evetech.net/types/{{ req.type_id }}/bp?size=64" alt="{{ req.type_name }}" loading="lazy" onerror="this.onerror=null;this.src='https://images.evetech.net/types/{{ req.type_id }}/icon?size=64'">
+                                </div>
+                                <div class="fwp-header__identity">
+                                    <h2>{{ req.type_name }}</h2>
+                                    <div class="fwp-header__chips">
+                                        <span class="fulfill-spec fulfill-spec--me">ME {{ req.material_efficiency }}</span>
+                                        <span class="fulfill-spec fulfill-spec--te">TE {{ req.time_efficiency }}</span>
+                                        <span class="fulfill-spec">{{ req.copies_requested }} {% trans "copies" %} · {{ req.runs_requested }} {% trans "runs" %}</span>
+                                        <span class="fulfill-status bg-secondary">{{ req.status_label }}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="fwp-header__stats">
+                                <div class="fwp-stat">
+                                    <span>{% trans "Closed" %}</span>
+                                    <strong>{{ req.closed_at|naturaltime }}</strong>
+                                </div>
+                                <div class="fwp-stat">
+                                    <span>{% trans "Copies" %}</span>
+                                    <strong>{{ req.copies_requested }}</strong>
+                                </div>
+                                <div class="fwp-stat">
+                                    <span>{% trans "Runs / copy" %}</span>
+                                    <strong>{{ req.runs_requested }}</strong>
+                                </div>
                             </div>
                         </div>
-                        <div class="fulfill-card__time">
-                            <i class="far fa-clock"></i>
-                            <span>{{ req.closed_at|naturaltime }}</span>
+
+                        {# Body #}
+                        <div class="fwp-body">
+                            <div class="fwp-chat-col fwp-chat-col--threads">
+                                <div class="fwp-chat-shell">
+                                    <div class="mrp-thread-list">
+                                        <div class="mrp-note">
+                                            <i class="fas fa-calendar-check"></i>
+                                            <div>
+                                                <strong>{% trans "Closed at" %}</strong>
+                                                {{ req.closed_at|date:"Y-m-d H:i" }}
+                                            </div>
+                                        </div>
+                                        <div class="mrp-note">
+                                            <i class="fas fa-clone"></i>
+                                            <div>
+                                                <strong>{% trans "Delivered package" %}</strong>
+                                                {{ req.copies_requested }} {% trans "copies" %} · {{ req.runs_requested }} {% trans "runs / copy" %}
+                                            </div>
+                                        </div>
+                                        <div class="mrp-note">
+                                            <i class="fas fa-box-open"></i>
+                                            <div>
+                                                <strong>{% trans "Completion note" %}</strong>
+                                                {{ req.status_hint }}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="fwp-panel-col">
+                                <section class="fwp-section">
+                                    <div class="fwp-section__head">
+                                        <div>
+                                            <p class="fwp-section__eyebrow">{% trans "Reference" %}</p>
+                                            <h3 class="fwp-section__title">{% trans "Delivered request" %}</h3>
+                                        </div>
+                                        <span class="fwp-section__badge"><i class="fas fa-check me-1"></i>{% trans "Archive" %}</span>
+                                    </div>
+                                    <div class="fwp-detail-list">
+                                        <div class="fwp-detail-row">
+                                            <span>{% trans "Type" %}</span>
+                                            <strong>{{ req.type_name }}</strong>
+                                        </div>
+                                        <div class="fwp-detail-row">
+                                            <span>{% trans "ME / TE" %}</span>
+                                            <strong>ME {{ req.material_efficiency }} · TE {{ req.time_efficiency }}</strong>
+                                        </div>
+                                        <div class="fwp-detail-row">
+                                            <span>{% trans "Copies" %}</span>
+                                            <strong>{{ req.copies_requested }}</strong>
+                                        </div>
+                                        <div class="fwp-detail-row">
+                                            <span>{% trans "Runs" %}</span>
+                                            <strong>{{ req.runs_requested }}</strong>
+                                        </div>
+                                        <div class="fwp-detail-row">
+                                            <span>{% trans "Closed" %}</span>
+                                            <strong>{{ req.closed_at|date:"Y-m-d H:i" }}</strong>
+                                        </div>
+                                    </div>
+                                </section>
+                            </div>
                         </div>
-                    </div>
-                    <div class="fulfill-card__actions">
-                        <div class="fulfill-card__status">
-                            <span class="fulfill-status bg-secondary">{{ req.status_label }}</span>
-                        </div>
-                        <div class="fulfill-card__buttons">
-                            <span class="fulfill-spec fulfill-spec--copies"><i class="fas fa-check me-1"></i>{% trans "Completed" %}</span>
-                        </div>
-                    </div>
-                </div>
-                {% endfor %}
+
+                    </article>
+                    {% endfor %}
+                </section>
             </div>
             {% else %}
-            <div class="empty-state">
-                <i class="fas fa-history"></i>
+            <div class="fwp-empty-state">
+                <div class="fwp-empty-state__icon"><i class="fas fa-history"></i></div>
                 <h3>{% trans "No history" %}</h3>
-                <p class="text-muted">{% trans "Completed requests will appear here." %}</p>
+                <p>{% trans "Completed requests will appear here once deliveries close." %}</p>
             </div>
             {% endif %}
         </div>
+
     </div>
 </div>
 
@@ -299,13 +572,33 @@
 {% block extra_javascript %}
 {{ block.super }}
 <script>
-<script src="{% static 'indy_hub/js/bp_copy_chat.js' %}?v=20260118-2230"></script>
+    window.indyChatDefaults = Object.assign({}, window.indyChatDefaults || {}, {
+        viewerRole: 'buyer',
         labels: {
             buyer: '{% trans "You" %}',
             seller: '{% trans "Builder" %}',
-            system: '{% trans "System" %}'
+            system: '{% trans "System" %}',
+            you: '{% trans "You" %}'
+        }
+    });
+
+    document.addEventListener('DOMContentLoaded', function () {
+        var autoOpen = document.querySelector('[data-auto-open-chat]');
+        var chatId = autoOpen ? String(autoOpen.getAttribute('data-auto-open-chat') || '') : '';
+        if (!chatId) return;
+
+        var matchingTrigger = null;
+        document.querySelectorAll('.bp-chat-trigger[data-chat-id]').forEach(function (trigger) {
+            if (!matchingTrigger && String(trigger.getAttribute('data-chat-id')) === chatId) {
+                matchingTrigger = trigger;
+            }
+        });
+
+        if (matchingTrigger) {
+            matchingTrigger.click();
         }
     });
 </script>
-<script src="{% static 'indy_hub/js/bp_copy_chat.js' %}?v=20260118-2230"></script>
+<script src="{% static 'indy_hub/js/bp_copy_chat.js' %}?v=20260413-0010"></script>
+<script src="{% static 'indy_hub/js/bp_copy_fulfill.js' %}?v=20260413-2118"></script>
 {% endblock %}

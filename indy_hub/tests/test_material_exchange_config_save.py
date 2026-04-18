@@ -1,4 +1,5 @@
 # Standard Library
+import json
 from unittest.mock import patch
 
 # Django
@@ -8,7 +9,7 @@ from django.contrib.sessions.middleware import SessionMiddleware
 from django.test import RequestFactory, TestCase
 
 # AA Example App
-from indy_hub.models import MaterialExchangeConfig
+from indy_hub.models import MaterialExchangeAcceptedLocation, MaterialExchangeConfig
 from indy_hub.views.material_exchange_config import _handle_config_save
 
 
@@ -147,3 +148,61 @@ class MaterialExchangeConfigSaveCheckboxTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.config.refresh_from_db()
         self.assertEqual(self.config.structure_name, "Test Structure")
+
+    @patch("indy_hub.views.material_exchange_config._resolve_specific_type_ids")
+    @patch("indy_hub.views.material_exchange_config._get_token_for_corp")
+    @patch("indy_hub.views.material_exchange_config.resolve_structure_names")
+    def test_save_persists_multiple_locations_and_specific_type_filters(
+        self,
+        mock_resolve_structure_names,
+        mock_get_token_for_corp,
+        mock_resolve_specific_type_ids,
+    ):
+        mock_get_token_for_corp.return_value = None
+        mock_resolve_structure_names.return_value = {
+            60000001: "Primary Structure",
+            60000002: "Secondary Structure",
+        }
+        mock_resolve_specific_type_ids.side_effect = [([34], []), ([35, 36], [])]
+
+        post_data = self._base_post_data()
+        post_data["accepted_locations_json"] = json.dumps(
+            [
+                {
+                    "structure_id": 60000001,
+                    "structure_name": "Wrong Primary",
+                    "hangar_division": 1,
+                },
+                {
+                    "structure_id": 60000002,
+                    "structure_name": "Wrong Secondary",
+                    "hangar_division": 3,
+                },
+            ]
+        )
+        post_data["allowed_type_ids_buy_text"] = "Tritanium"
+        post_data["allowed_type_ids_sell_text"] = "Pyerite\nMexallon"
+
+        request = self._build_request(post_data)
+        response = _handle_config_save(request, self.config)
+
+        self.assertEqual(response.status_code, 302)
+        self.config.refresh_from_db()
+        self.assertEqual(self.config.structure_id, 60000001)
+        self.assertEqual(self.config.structure_name, "Primary Structure")
+        self.assertEqual(self.config.hangar_division, 1)
+        self.assertEqual(self.config.allowed_type_ids_buy, [34])
+        self.assertEqual(self.config.allowed_type_ids_sell, [35, 36])
+
+        locations = list(
+            MaterialExchangeAcceptedLocation.objects.filter(config=self.config)
+            .order_by("sort_order", "id")
+            .values_list("structure_id", "structure_name", "hangar_division")
+        )
+        self.assertEqual(
+            locations,
+            [
+                (60000001, "Primary Structure", 1),
+                (60000002, "Secondary Structure", 3),
+            ],
+        )

@@ -87,7 +87,7 @@
                             data-check-url="{% url 'indy_hub:buy_order_check_contract' order.id %}"
                             data-order-ref="{{ order.order_reference }}"
                             data-recipient="{{ buyer_main_character }}"
-                            data-location="{{ config.structure_name }}"
+                            data-location="{{ accepted_location_summary }}"
                             data-amount="{{ order.total_price|floatformat:0|intcomma }}"
                             data-amount-raw="{{ order.total_price|floatformat:0 }}"
                             data-amount-label="{% trans 'I will pay' %}"
@@ -161,7 +161,7 @@
                                         </li>
                                         <li>
                                             <strong>{% trans "Location:" %}</strong>
-                                            {{ config.structure_name }}
+                                            {{ accepted_location_summary }}
                                         </li>
                                         <li>
                                             <strong>{% trans "Price:" %}</strong>

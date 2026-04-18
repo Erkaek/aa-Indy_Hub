@@ -20,7 +20,7 @@
                     <i class="fas fa-exchange-alt me-2"></i>
                     {% trans "Material Exchange" %}
                 </h2>
-                <p class="description mb-0">{% trans "Configure corp hangar location and pricing rules." %}</p>
+                <p class="description mb-0">{% trans "Configure accepted hub locations, pricing rules, and item filters." %}</p>
             </div>
                 <div class="d-flex flex-column align-items-end gap-2 me-header-actions">
                     <a href="{% url 'indy_hub:material_exchange_index' %}" class="btn btn-outline-light me-header-btn">
@@ -65,9 +65,18 @@
                     <span class="text-muted">{% trans "Current:" %}</span>
                     <span class="fw-semibold">"{% if current_corp_ticker %}{{ current_corp_ticker }}{% else %}{{ config.corporation_id }}{% endif %}"</span>
                     <span class="text-muted mx-1">•</span>
-                    <span class="fw-semibold">{{ config.structure_name|default:config.structure_id }}</span>
-                    <span class="text-muted mx-1">•</span>
-                    <span class="fw-semibold">"{{ current_hangar_name|default:config.hangar_division }}"</span>
+                    {% if accepted_locations %}
+                        <span class="fw-semibold">
+                            {% for location in accepted_locations %}
+                                {% if not forloop.first %}<span class="text-muted mx-1">/</span>{% endif %}
+                                {{ location.structure_name }} · {{ location.hangar_label }}
+                            {% endfor %}
+                        </span>
+                    {% else %}
+                        <span class="fw-semibold">{{ config.structure_name|default:config.structure_id }}</span>
+                        <span class="text-muted mx-1">•</span>
+                        <span class="fw-semibold">"{{ current_hangar_name|default:config.hangar_division }}"</span>
+                    {% endif %}
                 </div>
                 <div class="d-flex flex-wrap align-items-center gap-2">
                     {% if config.enforce_jita_price_bounds %}
@@ -97,6 +106,7 @@
     {% endif %}
 
     {{ market_group_search_index|json_script:"marketGroupSearchIndex" }}
+    {{ accepted_locations|json_script:"acceptedLocationsData" }}
 
     <section class="dashboard-section mb-3">
         <div class="card focus-card">
@@ -107,9 +117,9 @@
                     <div class="d-flex flex-wrap align-items-center gap-2 mb-3 small text-muted me-steps-header">
                         <span class="badge bg-secondary me-step-badge">1</span><span>{% trans "Corporation" %}</span>
                         <i class="fas fa-arrow-right opacity-50"></i>
-                        <span class="badge bg-secondary me-step-badge">2</span><span>{% trans "Structure" %}</span>
+                        <span class="badge bg-secondary me-step-badge">2</span><span>{% trans "Location Picker" %}</span>
                         <i class="fas fa-arrow-right opacity-50"></i>
-                        <span class="badge bg-secondary me-step-badge">3</span><span>{% trans "Hangar" %}</span>
+                        <span class="badge bg-secondary me-step-badge">3</span><span>{% trans "Accepted Locations" %}</span>
                         <i class="fas fa-arrow-right opacity-50"></i>
                         <span class="badge bg-secondary me-step-badge">4</span><span>{% trans "Pricing" %}</span>
                         <i class="fas fa-arrow-right opacity-50"></i>
@@ -175,16 +185,16 @@
                             <div class="d-flex align-items-center gap-2 mb-2">
                                 <span class="badge bg-secondary me-step-badge">2</span>
                                 <h5 class="fw-semibold mb-0">
-                                    <i class="fas fa-warehouse me-1 text-muted"></i>{% trans "Structure" %}
+                                    <i class="fas fa-warehouse me-1 text-muted"></i>{% trans "Location Picker" %}
                                     <button
                                         type="button"
                                         class="me-help-icon"
-                                        aria-label="Help: Structure"
+                                        aria-label="Help: Location Picker"
                                         data-bs-toggle="popover"
                                         data-bs-trigger="hover focus"
                                         data-bs-placement="right"
-                                        title="Structure"
-                                        data-bs-content="Pick the structure that contains your hub inventory.">
+                                        title="Location Picker"
+                                        data-bs-content="Pick a structure and hangar, then add it to the accepted locations list.">
                                         <i class="fas fa-info-circle"></i>
                                     </button>
                                 </h5>
@@ -207,6 +217,7 @@
                                 </button>
                             </div>
                             <input type="hidden" name="structure_name" id="structureName" value="{{ config.structure_name|default:'' }}">
+                            <input type="hidden" name="accepted_locations_json" id="acceptedLocationsJson" value="">
 
                             <div id="assetsScopeInfo" class="mt-2">
                                 <div class="alert alert-warning py-2 mb-0 d-none" id="assetsScopeMissingNotice">
@@ -225,23 +236,23 @@
                         </div>
                     </div>
 
-                    <!-- Step 3: Hangar Division -->
+                    <!-- Step 3: Accepted Locations -->
                     <div class="col-lg-4">
                         <div class="card focus-card h-100 me-step-card">
                             <div class="card-body p-2">
                             <div class="d-flex align-items-center gap-2 mb-2">
                                 <span class="badge bg-secondary me-step-badge">3</span>
                                 <h5 class="fw-semibold mb-0">
-                                    <i class="fas fa-box-open me-1 text-muted"></i>{% trans "Hangar" %}
+                                    <i class="fas fa-box-open me-1 text-muted"></i>{% trans "Accepted Locations" %}
                                     <button
                                         type="button"
                                         class="me-help-icon"
-                                        aria-label="Help: Hangar"
+                                        aria-label="Help: Accepted Locations"
                                         data-bs-toggle="popover"
                                         data-bs-trigger="hover focus"
                                         data-bs-placement="right"
-                                        title="Hangar"
-                                        data-bs-content="Choose the corporate hangar division used for hub stock.">
+                                        title="Accepted Locations"
+                                        data-bs-content="The first location is the primary hub. Additional locations are also accepted for stock and contract checks.">
                                         <i class="fas fa-info-circle"></i>
                                     </button>
                                 </h5>
@@ -254,6 +265,21 @@
                                 </option>
                                 {% endfor %}
                             </select>
+                            <div class="d-grid mt-2">
+                                <button type="button" class="btn btn-outline-primary btn-sm" id="addAcceptedLocationBtn">
+                                    <i class="fas fa-plus me-1"></i>{% trans "Add Accepted Location" %}
+                                </button>
+                            </div>
+                            <div class="small text-muted mt-2">
+                                {% trans "The first location in the list is used as the primary legacy location. Additional locations are accepted too." %}
+                            </div>
+                            <div class="mt-2">
+                                <div class="small text-muted mb-1">{% trans "Configured locations" %}</div>
+                                <div id="acceptedLocationsEmpty" class="alert alert-warning py-2 mb-2 d-none">
+                                    <small><i class="fas fa-exclamation-triangle me-1"></i>{% trans "Add at least one accepted location before saving." %}</small>
+                                </div>
+                                <div id="acceptedLocationsList" class="d-flex flex-column gap-2"></div>
+                            </div>
                             <div id="divisionScopeInfo" class="mt-2">
                                 <div class="alert alert-warning py-2 mb-0 d-none" id="divisionScopeMissingNotice">
                                     <small><i class="fas fa-warning me-1"></i>{% trans "Division names need esi-corporations.read_divisions.v1 for this corporation." %}</small>
@@ -515,6 +541,46 @@
                                         </div>
                                     </div>
                                 {% endif %}
+                                <div class="row g-3 mt-1">
+                                    <div class="col-lg-6">
+                                        <label class="form-label fw-semibold"><span class="me-pill-success"><i class="fas fa-plus"></i> {% trans "SELL - Specific Items" %}</span></label>
+                                        <textarea
+                                            class="form-control form-control-sm"
+                                            id="allowedTypeIdsSellText"
+                                            name="allowed_type_ids_sell_text"
+                                            rows="5"
+                                            placeholder="{% trans 'One item name or type ID per line' %}">{{ allowed_type_ids_sell_text }}</textarea>
+                                        <div class="form-text">
+                                            {% trans "These items are added to the SELL allowlist even if their market group is not selected above." %}
+                                        </div>
+                                        {% if selected_type_choices_sell %}
+                                            <div class="d-flex flex-wrap gap-1 mt-2">
+                                                {% for choice in selected_type_choices_sell %}
+                                                    <span class="badge text-bg-success-subtle border">{{ choice.label }}</span>
+                                                {% endfor %}
+                                            </div>
+                                        {% endif %}
+                                    </div>
+                                    <div class="col-lg-6">
+                                        <label class="form-label fw-semibold"><span class="me-pill-info"><i class="fas fa-plus"></i> {% trans "BUY - Specific Items" %}</span></label>
+                                        <textarea
+                                            class="form-control form-control-sm"
+                                            id="allowedTypeIdsBuyText"
+                                            name="allowed_type_ids_buy_text"
+                                            rows="5"
+                                            placeholder="{% trans 'One item name or type ID per line' %}">{{ allowed_type_ids_buy_text }}</textarea>
+                                        <div class="form-text">
+                                            {% trans "These items are added to the BUY allowlist even if their market group is not selected above." %}
+                                        </div>
+                                        {% if selected_type_choices_buy %}
+                                            <div class="d-flex flex-wrap gap-1 mt-2">
+                                                {% for choice in selected_type_choices_buy %}
+                                                    <span class="badge text-bg-info-subtle border">{{ choice.label }}</span>
+                                                {% endfor %}
+                                            </div>
+                                        {% endif %}
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -577,6 +643,10 @@ document.addEventListener('DOMContentLoaded', function() {
     const structureSelect = document.getElementById('structureSelect');
     const structureName = document.getElementById('structureName');
     const hangarSelect = document.getElementById('hangarSelect');
+    const acceptedLocationsJson = document.getElementById('acceptedLocationsJson');
+    const acceptedLocationsList = document.getElementById('acceptedLocationsList');
+    const acceptedLocationsEmpty = document.getElementById('acceptedLocationsEmpty');
+    const addAcceptedLocationBtn = document.getElementById('addAcceptedLocationBtn');
     const submitBtn = document.getElementById('submitBtn');
     const initialStructureId = "{{ config.structure_id|default:'' }}";
     const initialHangarDivision = "{{ config.hangar_division|default:'' }}";
@@ -585,6 +655,77 @@ document.addEventListener('DOMContentLoaded', function() {
     let assetsScopeMissing = {{ assets_scope_missing|yesno:"true,false" }};
     const divisionScopeMissingNotice = document.getElementById('divisionScopeMissingNotice');
     const assetsScopeMissingNotice = document.getElementById('assetsScopeMissingNotice');
+    let acceptedLocations = [];
+
+    try {
+        acceptedLocations = JSON.parse(document.getElementById('acceptedLocationsData').textContent || '[]');
+    } catch (error) {
+        acceptedLocations = [];
+    }
+
+    const getHangarLabel = (division) => {
+        const numericDivision = parseInt(division, 10);
+        return hangarDivisions[numericDivision] || hangarDivisions[String(numericDivision)] || `Hangar Division ${numericDivision}`;
+    };
+
+    const syncPrimaryLocationInputs = () => {
+        const primaryLocation = acceptedLocations[0];
+        if (primaryLocation) {
+            structureSelect.value = String(primaryLocation.structure_id || '');
+            structureName.value = primaryLocation.structure_name || '';
+            hangarSelect.value = String(primaryLocation.hangar_division || '');
+            acceptedLocationsJson.value = JSON.stringify(acceptedLocations);
+            return;
+        }
+
+        acceptedLocationsJson.value = '[]';
+    };
+
+    const renderAcceptedLocations = () => {
+        if (!acceptedLocationsList) {
+            return;
+        }
+
+        acceptedLocationsList.innerHTML = '';
+        acceptedLocationsEmpty.classList.toggle('d-none', acceptedLocations.length > 0);
+
+        acceptedLocations.forEach((location, index) => {
+            const row = document.createElement('div');
+            row.className = 'border rounded-3 px-2 py-2 d-flex flex-wrap justify-content-between align-items-center gap-2';
+            row.innerHTML = `
+                <div class="d-flex flex-column gap-1">
+                    <div class="fw-semibold">
+                        ${location.structure_name || `Structure ${location.structure_id}`}
+                        ${index === 0 ? '<span class="badge bg-primary ms-2">{% trans "Primary" %}</span>' : ''}
+                    </div>
+                    <div class="small text-muted">${getHangarLabel(location.hangar_division)} · ${location.structure_id}</div>
+                </div>
+                <div class="d-flex flex-wrap gap-2">
+                    ${index > 0 ? `<button type="button" class="btn btn-outline-secondary btn-sm" data-action="make-primary" data-index="${index}">{% trans "Make Primary" %}</button>` : ''}
+                    <button type="button" class="btn btn-outline-danger btn-sm" data-action="remove-location" data-index="${index}">{% trans "Remove" %}</button>
+                </div>
+            `;
+            acceptedLocationsList.appendChild(row);
+        });
+
+        syncPrimaryLocationInputs();
+        updateSubmitButton();
+    };
+
+    const updateAcceptedLocationNamesFromOptions = () => {
+        acceptedLocations = acceptedLocations.map((location) => {
+            const match = Array.from(structureSelect.options).find(
+                (option) => option.value === String(location.structure_id)
+            );
+            if (!match) {
+                return location;
+            }
+            return {
+                ...location,
+                structure_name: match.getAttribute('data-name') || match.textContent || location.structure_name,
+            };
+        });
+    };
 
     // Initialize scope notices based on server-rendered flags
     if (divisionScopeMissing && divisionScopeMissingNotice) {
@@ -602,9 +743,11 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     const updateSubmitButton = () => {
-        if (hangarSelect.disabled || divisionScopeMissing) {
+        if (hangarSelect.disabled || divisionScopeMissing || acceptedLocations.length === 0) {
             submitBtn.disabled = true;
-            submitBtn.title = "{% trans 'Please add a divisions token to save configuration' %}";
+            submitBtn.title = acceptedLocations.length === 0
+                ? "{% trans 'Add at least one accepted location before saving' %}"
+                : "{% trans 'Please add a divisions token to save configuration' %}";
         } else {
             submitBtn.disabled = false;
             submitBtn.title = "";
@@ -743,6 +886,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 } else {
                     rebuildHangarOptions('');
                 }
+                updateAcceptedLocationNamesFromOptions();
+                renderAcceptedLocations();
                 updateSubmitButton();
             })
             .catch(error => {
@@ -754,7 +899,59 @@ document.addEventListener('DOMContentLoaded', function() {
             });
     };
 
+    if (addAcceptedLocationBtn) {
+        addAcceptedLocationBtn.addEventListener('click', function() {
+            if (!structureSelect.value || !hangarSelect.value) {
+                alert('{% trans "Select a structure and hangar before adding a location." %}');
+                return;
+            }
+
+            const nextLocation = {
+                structure_id: parseInt(structureSelect.value, 10),
+                structure_name: structureName.value || structureSelect.options[structureSelect.selectedIndex]?.textContent || `Structure ${structureSelect.value}`,
+                hangar_division: parseInt(hangarSelect.value, 10),
+            };
+            const exists = acceptedLocations.some((location) => (
+                parseInt(location.structure_id, 10) === nextLocation.structure_id
+                && parseInt(location.hangar_division, 10) === nextLocation.hangar_division
+            ));
+            if (exists) {
+                alert('{% trans "This accepted location is already in the list." %}');
+                return;
+            }
+
+            acceptedLocations.push(nextLocation);
+            renderAcceptedLocations();
+        });
+    }
+
+    if (acceptedLocationsList) {
+        acceptedLocationsList.addEventListener('click', function(event) {
+            const button = event.target.closest('button[data-action]');
+            if (!button) {
+                return;
+            }
+
+            const index = parseInt(button.getAttribute('data-index') || '-1', 10);
+            if (!Number.isInteger(index) || index < 0 || index >= acceptedLocations.length) {
+                return;
+            }
+
+            const action = button.getAttribute('data-action');
+            if (action === 'remove-location') {
+                acceptedLocations.splice(index, 1);
+            } else if (action === 'make-primary' && index > 0) {
+                const [selectedLocation] = acceptedLocations.splice(index, 1);
+                acceptedLocations.unshift(selectedLocation);
+            }
+
+            renderAcceptedLocations();
+        });
+    }
+
     corpSelect.addEventListener('change', function() {
+        acceptedLocations = [];
+        renderAcceptedLocations();
         fetchStructures(corpSelect.value, false);
     });
 
@@ -766,15 +963,27 @@ document.addEventListener('DOMContentLoaded', function() {
         rebuildHangarOptions(selectedOption.getAttribute('data-flags'));
     }
 
+    renderAcceptedLocations();
     updateSubmitButton();
 });
 
 function validateForm() {
     const hangarSelect = document.getElementById('hangarSelect');
-    const submitBtn = document.getElementById('submitBtn');
+    const acceptedLocationsJson = document.getElementById('acceptedLocationsJson');
+    let acceptedLocations = [];
 
-    if (hangarSelect.disabled || !hangarSelect.value) {
+    try {
+        acceptedLocations = JSON.parse(acceptedLocationsJson.value || '[]');
+    } catch (error) {
+        acceptedLocations = [];
+    }
+
+    if (hangarSelect.disabled) {
         alert('{% trans "Please add a divisions token and select a hangar division before saving." %}');
+        return false;
+    }
+    if (!acceptedLocations.length) {
+        alert('{% trans "Add at least one accepted location before saving." %}');
         return false;
     }
     return true;

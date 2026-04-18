@@ -9,7 +9,7 @@
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
 <link rel="stylesheet" href="{% static 'indy_hub/css/blueprints.css' %}">
-<link rel="stylesheet" href="{% static 'indy_hub/css/material_exchange.css' %}">
+<link rel="stylesheet" href="{% static 'indy_hub/css/material_exchange.css' %}?v=20260418-1530">
 {% endblock extra_css %}
 
 {% block content %}
@@ -96,8 +96,8 @@
             <div class="me-instruction-chip" role="status">
                 <i class="fas fa-exclamation-circle" aria-hidden="true"></i>
                 <div>
-                    <div class="me-instruction-title">{% trans "Enter the quantities you want to sell." %}</div>
-                    <div class="me-instruction-sub">{% trans "Make sure you have the items in your hangar." %}</div>
+                    <div class="me-instruction-title">{% trans "Choose how you want to build your sell order." %}</div>
+                    <div class="me-instruction-sub">{% trans "Use the standard quantity table or paste an in-game copied item list." %}</div>
                 </div>
             </div>
 
@@ -142,13 +142,13 @@
             {% endif %}
         </div>
 
-        {% if materials %}
+        {% if materials or sell_paste_catalog %}
         <div class="row g-4">
             <div class="col-lg-8">
                 <div class="glass-panel p-4">
                     <h5 class="mb-4">
                         <i class="fas fa-warehouse me-2"></i>
-                        {% trans "Your Materials at" %} {{ config.structure_name }}
+                        {% trans "Your Materials at" %} {{ accepted_location_summary|default:config.structure_name }}
                     </h5>
                     {% if character_tabs %}
                     <div class="me-character-tabs mb-3">
@@ -201,95 +201,194 @@
                     {% endif %}
                     <form method="post" id="sellForm">
                         {% csrf_token %}
-                        <div class="d-flex align-items-stretch gap-3 mb-3">
-                            <div class="d-flex flex-column justify-content-center" role="radiogroup" aria-label="{% trans 'Search mode' %}">
-                                <div class="form-check">
-                                    <input class="form-check-input" type="radio" name="sellSearchMode" id="sellSearchModeItem" value="item" checked>
-                                    <label class="form-check-label" for="sellSearchModeItem">{% trans "Item" %}</label>
+                        <input type="hidden" name="sell_input_mode" id="sellInputModeField" value="manual">
+                        <input type="hidden" name="paste_quantities_json" id="sellPasteQuantitiesJson" value="">
+
+                        <div class="me-sell-mode-switch mb-4" role="radiogroup" aria-label="{% trans 'Sell order input mode' %}">
+                            <label class="me-sell-mode-option" for="sellInputModeManual">
+                                <input class="form-check-input" type="radio" name="sellInputModeSelector" id="sellInputModeManual" value="manual" checked>
+                                <span>
+                                    <strong>{% trans "Manual selection" %}</strong>
+                                    <small>{% trans "Pick quantities directly from your visible assets." %}</small>
+                                </span>
+                            </label>
+                            <label class="me-sell-mode-option" for="sellInputModePaste">
+                                <input class="form-check-input" type="radio" name="sellInputModeSelector" id="sellInputModePaste" value="paste">
+                                <span>
+                                    <strong>{% trans "Paste import" %}</strong>
+                                    <small>{% trans "Paste an in-game list and let the page classify it." %}</small>
+                                </span>
+                            </label>
+                        </div>
+
+                        <div class="me-paste-panel d-none mb-4" data-sell-mode-panel="paste">
+                            <div class="row g-3">
+                                <div class="col-xl-7">
+                                    <label class="form-label fw-semibold" for="sellPasteTextarea">{% trans "Paste an in-game item list" %}</label>
+                                    <textarea
+                                        class="form-control me-paste-textarea"
+                                        id="sellPasteTextarea"
+                                        rows="9"
+                                        placeholder="{% trans 'Example: Tritanium x 25000 or Tritanium<TAB>25000' %}"></textarea>
+                                    <div class="form-text mt-2">
+                                        {% trans "Accepted items are added to the order automatically. Rejected and unknown lines are ignored." %}
+                                    </div>
+                                    <div class="d-flex flex-wrap gap-2 mt-3">
+                                        <button type="button" class="btn btn-outline-light btn-sm" id="sellPasteClearButton">
+                                            <i class="fas fa-eraser me-1"></i>{% trans "Clear pasted text" %}
+                                        </button>
+                                    </div>
                                 </div>
-                                <div class="form-check">
-                                    <input class="form-check-input" type="radio" name="sellSearchMode" id="sellSearchModeCategory" value="category">
-                                    <label class="form-check-label" for="sellSearchModeCategory">{% trans "Category" %}</label>
+                                <div class="col-xl-5">
+                                    <div class="me-paste-summary-grid">
+                                        <div class="me-paste-summary-card is-accepted">
+                                            <div class="me-paste-summary-label">{% trans "Accepted" %}</div>
+                                            <div class="me-paste-summary-value" id="sellPasteAcceptedCount">0</div>
+                                        </div>
+                                        <div class="me-paste-summary-card is-rejected">
+                                            <div class="me-paste-summary-label">{% trans "Not Bought" %}</div>
+                                            <div class="me-paste-summary-value" id="sellPasteRejectedCount">0</div>
+                                        </div>
+                                        <div class="me-paste-summary-card is-unknown">
+                                            <div class="me-paste-summary-label">{% trans "Unknown" %}</div>
+                                            <div class="me-paste-summary-value" id="sellPasteUnknownCount">0</div>
+                                        </div>
+                                        <div class="me-paste-summary-card is-total">
+                                            <div class="me-paste-summary-label">{% trans "Accepted payout" %}</div>
+                                            <div class="me-paste-summary-value" id="sellPasteAcceptedValue">0 ISK</div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
-                            <div class="input-group">
-                                <span class="input-group-text"><i class="fas fa-search"></i></span>
-                                <input
-                                    type="text"
-                                    id="sellSearchInput"
-                                    class="form-control"
-                                    placeholder="{% trans 'Search by item or category' %}"
-                                    aria-label="{% trans 'Search by item or category' %}">
+
+                            <div class="me-paste-results d-none" id="sellPasteResults">
+                                <div class="me-paste-results-grid">
+                                    <section class="me-paste-result-card">
+                                        <div class="me-paste-result-header">
+                                            <h6 class="mb-0">{% trans "Accepted items" %}</h6>
+                                            <span class="badge text-bg-success" id="sellPasteAcceptedBadge">0</span>
+                                        </div>
+                                        <div class="me-paste-empty" id="sellPasteAcceptedEmpty">{% trans "No accepted items in the pasted text yet." %}</div>
+                                        <div class="me-paste-result-list" id="sellPasteAcceptedList"></div>
+                                    </section>
+                                    <section class="me-paste-result-card">
+                                        <div class="me-paste-result-header">
+                                            <h6 class="mb-0">{% trans "Not bought by the hub" %}</h6>
+                                            <span class="badge text-bg-warning text-dark" id="sellPasteRejectedBadge">0</span>
+                                        </div>
+                                        <div class="me-paste-empty" id="sellPasteRejectedEmpty">{% trans "No rejected items in the pasted text." %}</div>
+                                        <div class="me-paste-result-list" id="sellPasteRejectedList"></div>
+                                    </section>
+                                    <section class="me-paste-result-card">
+                                        <div class="me-paste-result-header">
+                                            <h6 class="mb-0">{% trans "Unknown items or lines" %}</h6>
+                                            <span class="badge text-bg-secondary" id="sellPasteUnknownBadge">0</span>
+                                        </div>
+                                        <div class="me-paste-empty" id="sellPasteUnknownEmpty">{% trans "No unknown lines in the pasted text." %}</div>
+                                        <div class="me-paste-result-list" id="sellPasteUnknownList"></div>
+                                    </section>
+                                </div>
                             </div>
                         </div>
-                        <div class="table-responsive">
-                            <table class="table table-hover stock-table align-middle">
-                                <thead>
-                                    <tr>
-                                        <th class="stock-col-icon"></th>
-                                        <th>{% trans "Item" %}</th>
-                                        <th class="text-end">{% trans "You Own" %}</th>
-                                        <th class="text-end">{% trans "Unit Price" %}</th>
-                                        <th class="text-center stock-col-qty">{% trans "Quantity" %}</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {% for item in materials %}
-                                    <tr class="stock-row"
-                                        data-type-id="{{ item.type_id }}"
-                                        data-type-name="{{ item.type_name }}"
-                                        data-group-name="{{ item.group_name|default:'' }}"
-                                        data-unit-price="{{ item.buy_price_from_member|floatformat:2 }}"
-                                        data-max-qty="{{ item.user_quantity }}">
-                                        <td>
-                                            <img
-                                                src="{{ item.image_url }}"
-                                                alt="{{ item.type_name }}"
-                                                class="item-icon">
-                                        </td>
-                                        <td>
-                                            <div class="fw-semibold text-body">{{ item.type_name }}</div>
-                                            <div class="small text-body-secondary">{{ item.group_name|default:_('Other') }}</div>
-                                        </td>
-                                        <td class="text-end">
-                                            <span class="badge bg-success">{{ item.user_quantity|intcomma }}</span>
-                                        </td>
-                                        <td class="text-end text-success fw-semibold">
-                                            {{ item.buy_price_from_member|floatformat:2|intcomma }} ISK
-                                        </td>
-                                        <td class="text-center">
-                                            <div class="qty-cell">
-                                                <div class="qty-input-row">
-                                                    <input
-                                                        type="number"
-                                                        name="qty_{{ item.type_id }}"
-                                                        id="qty-{{ item.type_id }}"
-                                                        class="form-control qty-input"
-                                                        min="0"
-                                                        max="{{ item.user_quantity }}"
-                                                        value="0"
-                                                        data-type-id="{{ item.type_id }}"
-                                                        data-max="{{ item.user_quantity }}">
-                                                    <div class="qty-btns" role="group" aria-label="{% trans 'Quantity shortcuts' %}">
-                                                        <button type="button" class="btn btn-secondary btn-sm qty-btn" data-action="zero" title="{% trans 'Zero' %}" aria-label="{% trans 'Zero' %}">
-                                                            <i class="fas fa-ban" aria-hidden="true"></i>
-                                                        </button>
-                                                        <button type="button" class="btn btn-secondary btn-sm qty-btn" data-action="max">{% trans "Max" %}</button>
+
+                        <div data-sell-mode-panel="manual">
+                            {% if materials %}
+                            <div class="d-flex align-items-stretch gap-3 mb-3">
+                                <div class="d-flex flex-column justify-content-center" role="radiogroup" aria-label="{% trans 'Search mode' %}">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="radio" name="sellSearchMode" id="sellSearchModeItem" value="item" checked>
+                                        <label class="form-check-label" for="sellSearchModeItem">{% trans "Item" %}</label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="radio" name="sellSearchMode" id="sellSearchModeCategory" value="category">
+                                        <label class="form-check-label" for="sellSearchModeCategory">{% trans "Category" %}</label>
+                                    </div>
+                                </div>
+                                <div class="input-group">
+                                    <span class="input-group-text"><i class="fas fa-search"></i></span>
+                                    <input
+                                        type="text"
+                                        id="sellSearchInput"
+                                        class="form-control"
+                                        placeholder="{% trans 'Search by item or category' %}"
+                                        aria-label="{% trans 'Search by item or category' %}">
+                                </div>
+                            </div>
+                            <div class="table-responsive">
+                                <table class="table table-hover stock-table align-middle">
+                                    <thead>
+                                        <tr>
+                                            <th class="stock-col-icon"></th>
+                                            <th>{% trans "Item" %}</th>
+                                            <th class="text-end">{% trans "You Own" %}</th>
+                                            <th class="text-end">{% trans "Unit Price" %}</th>
+                                            <th class="text-center stock-col-qty">{% trans "Quantity" %}</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for item in materials %}
+                                        <tr class="stock-row"
+                                            data-type-id="{{ item.type_id }}"
+                                            data-type-name="{{ item.type_name }}"
+                                            data-group-name="{{ item.group_name|default:'' }}"
+                                            data-unit-price="{{ item.buy_price_from_member|floatformat:2 }}"
+                                            data-max-qty="{{ item.user_quantity }}">
+                                            <td>
+                                                <img
+                                                    src="{{ item.image_url }}"
+                                                    alt="{{ item.type_name }}"
+                                                    class="item-icon">
+                                            </td>
+                                            <td>
+                                                <div class="fw-semibold text-body">{{ item.type_name }}</div>
+                                                <div class="small text-body-secondary">{{ item.group_name|default:_('Other') }}</div>
+                                            </td>
+                                            <td class="text-end">
+                                                <span class="badge bg-success">{{ item.user_quantity|intcomma }}</span>
+                                            </td>
+                                            <td class="text-end text-success fw-semibold">
+                                                {{ item.buy_price_from_member|floatformat:2|intcomma }} ISK
+                                            </td>
+                                            <td class="text-center">
+                                                <div class="qty-cell">
+                                                    <div class="qty-input-row">
+                                                        <input
+                                                            type="number"
+                                                            name="qty_{{ item.type_id }}"
+                                                            id="qty-{{ item.type_id }}"
+                                                            class="form-control qty-input"
+                                                            min="0"
+                                                            max="{{ item.user_quantity }}"
+                                                            value="0"
+                                                            data-type-id="{{ item.type_id }}"
+                                                            data-max="{{ item.user_quantity }}">
+                                                        <div class="qty-btns" role="group" aria-label="{% trans 'Quantity shortcuts' %}">
+                                                            <button type="button" class="btn btn-secondary btn-sm qty-btn" data-action="zero" title="{% trans 'Zero' %}" aria-label="{% trans 'Zero' %}">
+                                                                <i class="fas fa-ban" aria-hidden="true"></i>
+                                                            </button>
+                                                            <button type="button" class="btn btn-secondary btn-sm qty-btn" data-action="max">{% trans "Max" %}</button>
+                                                        </div>
+                                                    </div>
+                                                    <div class="qty-error" id="error-{{ item.type_id }}">
+                                                        {% trans "Max:" %} {{ item.user_quantity|intcomma }}
                                                     </div>
                                                 </div>
-                                                <div class="qty-error" id="error-{{ item.type_id }}">
-                                                    {% trans "Max:" %} {{ item.user_quantity|intcomma }}
-                                                </div>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                        <div id="sellSearchEmpty" class="alert alert-warning mt-3 d-none mb-0">
-                            <i class="fas fa-search me-2"></i>
-                            {% trans "No matching items for your search." %}
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div id="sellSearchEmpty" class="alert alert-warning mt-3 d-none mb-0">
+                                <i class="fas fa-search me-2"></i>
+                                {% trans "No matching items for your search." %}
+                            </div>
+                            {% else %}
+                            <div class="alert alert-warning mb-0">
+                                <i class="fas fa-exclamation-triangle me-2"></i>
+                                {% trans "No accepted items are currently available for manual selection on this character." %}
+                            </div>
+                            {% endif %}
                         </div>
                     </form>
                 </div>
@@ -337,6 +436,8 @@
         {% endif %}
 </div>
 
+    {{ sell_paste_catalog|json_script:"sellPasteCatalogData" }}
+
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const cleanUrl = new URL(window.location.href);
@@ -345,10 +446,39 @@ document.addEventListener('DOMContentLoaded', function() {
         window.history.replaceState({}, document.title, cleanUrl.toString());
     }
 
-    const qtyInputs = document.querySelectorAll('.qty-input');
+    const qtyInputs = Array.from(document.querySelectorAll('.qty-input'));
     const sellSearchInput = document.getElementById('sellSearchInput');
     const sellSearchModeInputs = document.querySelectorAll('input[name="sellSearchMode"]');
     const stockRows = document.querySelectorAll('.stock-row');
+    const sellForm = document.getElementById('sellForm');
+    const sellInputModeInputs = document.querySelectorAll('input[name="sellInputModeSelector"]');
+    const sellInputModeField = document.getElementById('sellInputModeField');
+    const sellModePanels = document.querySelectorAll('[data-sell-mode-panel]');
+    const sellPasteTextarea = document.getElementById('sellPasteTextarea');
+    const sellPasteClearButton = document.getElementById('sellPasteClearButton');
+    const sellPasteQuantitiesJson = document.getElementById('sellPasteQuantitiesJson');
+    const sellPasteResults = document.getElementById('sellPasteResults');
+    const sellPasteCatalogNode = document.getElementById('sellPasteCatalogData');
+    const sellPasteCatalog = new Map();
+
+    if (sellPasteCatalogNode) {
+        try {
+            JSON.parse(sellPasteCatalogNode.textContent || '[]').forEach(item => {
+                if (item && item.name_key) {
+                    sellPasteCatalog.set(item.name_key, item);
+                }
+            });
+        } catch (error) {
+            console.error('Failed to parse sell paste catalog:', error);
+        }
+    }
+
+    const sellPasteMessages = {
+        notBought: '{% trans "Not bought by the hub" %}',
+        insufficient: '{% trans "Quantity exceeds what is available on the selected character" %}',
+        unknown: '{% trans "Unknown item or unsupported line" %}',
+        parseError: '{% trans "Could not read this line" %}'
+    };
 
     const sellSearchPlaceholderByMode = {
         item: '{% trans "Search item" %}',
@@ -439,6 +569,322 @@ document.addEventListener('DOMContentLoaded', function() {
             minimumFractionDigits: 0,
             maximumFractionDigits: 0
         }).format(num);
+    }
+
+    function collapseWhitespace(value) {
+        return String(value || '').replace(/\s+/g, ' ').trim();
+    }
+
+    function normalizePasteName(value) {
+        return collapseWhitespace(value).toLocaleLowerCase();
+    }
+
+    function parseQuantityToken(value) {
+        const token = String(value || '').trim();
+        if (!token || !/^[\d\s,.\u00A0]+$/.test(token)) {
+            return null;
+        }
+        const digits = token.replace(/\D/g, '');
+        if (!digits) {
+            return null;
+        }
+        const quantity = Number.parseInt(digits, 10);
+        return Number.isFinite(quantity) && quantity > 0 ? quantity : null;
+    }
+
+    function parsePasteLine(rawLine) {
+        const normalizedLine = collapseWhitespace(rawLine);
+        if (!normalizedLine) {
+            return null;
+        }
+
+        const tabColumns = String(rawLine || '')
+            .split('\t')
+            .map(column => collapseWhitespace(column))
+            .filter(Boolean);
+        if (tabColumns.length >= 2) {
+            const numericColumns = tabColumns
+                .map((column, index) => ({ index, quantity: parseQuantityToken(column) }))
+                .filter(column => column.quantity !== null);
+            if (numericColumns.length === 1) {
+                const quantityColumn = numericColumns[0];
+                const name = collapseWhitespace(
+                    tabColumns
+                        .filter((column, index) => index !== quantityColumn.index)
+                        .join(' ')
+                );
+                if (name) {
+                    return { name, quantity: quantityColumn.quantity };
+                }
+            }
+
+            const lastColumnQuantity = parseQuantityToken(tabColumns[tabColumns.length - 1]);
+            if (lastColumnQuantity !== null) {
+                const name = collapseWhitespace(tabColumns.slice(0, -1).join(' '));
+                if (name) {
+                    return { name, quantity: lastColumnQuantity };
+                }
+            }
+        }
+
+        let matched = normalizedLine.match(/^(.*?)\s+x\s+([\d\s,.\u00A0]+)$/i);
+        if (matched) {
+            const name = collapseWhitespace(matched[1]);
+            const quantity = parseQuantityToken(matched[2]);
+            if (name && quantity !== null) {
+                return { name, quantity };
+            }
+        }
+
+        matched = normalizedLine.match(/^([\d\s,.\u00A0]+)\s+x?\s+(.+)$/i);
+        if (matched) {
+            const quantity = parseQuantityToken(matched[1]);
+            const name = collapseWhitespace(matched[2]);
+            if (name && quantity !== null) {
+                return { name, quantity };
+            }
+        }
+
+        const lastSpaceIndex = normalizedLine.lastIndexOf(' ');
+        if (lastSpaceIndex > 0) {
+            const maybeQuantity = parseQuantityToken(normalizedLine.slice(lastSpaceIndex + 1));
+            const name = collapseWhitespace(normalizedLine.slice(0, lastSpaceIndex));
+            if (name && maybeQuantity !== null) {
+                return { name, quantity: maybeQuantity };
+            }
+        }
+
+        return { error: normalizedLine };
+    }
+
+    function buildPasteEntries(rawText) {
+        const aggregatedEntries = new Map();
+        const parseErrors = [];
+
+        String(rawText || '')
+            .replace(/\r/g, '')
+            .split('\n')
+            .forEach(rawLine => {
+                const parsedLine = parsePasteLine(rawLine);
+                if (!parsedLine) {
+                    return;
+                }
+                if (parsedLine.error) {
+                    parseErrors.push(parsedLine.error);
+                    return;
+                }
+
+                const key = normalizePasteName(parsedLine.name);
+                const existing = aggregatedEntries.get(key);
+                if (existing) {
+                    existing.quantity += parsedLine.quantity;
+                    return;
+                }
+
+                aggregatedEntries.set(key, {
+                    key,
+                    label: parsedLine.name,
+                    quantity: parsedLine.quantity
+                });
+            });
+
+        return {
+            entries: Array.from(aggregatedEntries.values()),
+            parseErrors
+        };
+    }
+
+    function renderPasteList(containerId, emptyId, items, formatter) {
+        const container = document.getElementById(containerId);
+        const emptyState = document.getElementById(emptyId);
+        if (!container || !emptyState) {
+            return;
+        }
+
+        if (!items.length) {
+            container.innerHTML = '';
+            emptyState.classList.remove('d-none');
+            return;
+        }
+
+        emptyState.classList.add('d-none');
+        container.innerHTML = items.map(item => formatter(item)).join('');
+    }
+
+    function applyPasteQuantities(quantitiesByType) {
+        qtyInputs.forEach(input => {
+            input.value = 0;
+            input.classList.remove('is-invalid');
+            const errorDiv = document.getElementById('error-' + input.dataset.typeId);
+            if (errorDiv) {
+                errorDiv.style.display = 'none';
+            }
+        });
+
+        Object.entries(quantitiesByType).forEach(([typeId, quantity]) => {
+            const input = document.getElementById('qty-' + typeId);
+            if (input) {
+                input.value = quantity;
+            }
+        });
+
+        if (sellPasteQuantitiesJson) {
+            sellPasteQuantitiesJson.value = JSON.stringify(quantitiesByType);
+        }
+        updateInvoice();
+    }
+
+    function updatePasteImport() {
+        if (!sellPasteTextarea) {
+            return;
+        }
+
+        const rawText = sellPasteTextarea.value || '';
+        const collapsedText = collapseWhitespace(rawText);
+        if (!collapsedText) {
+            applyPasteQuantities({});
+            if (sellPasteResults) {
+                sellPasteResults.classList.add('d-none');
+            }
+            ['Accepted', 'Rejected', 'Unknown'].forEach(prefix => {
+                const countNode = document.getElementById('sellPaste' + prefix + 'Count');
+                const badgeNode = document.getElementById('sellPaste' + prefix + 'Badge');
+                if (countNode) {
+                    countNode.textContent = '0';
+                }
+                if (badgeNode) {
+                    badgeNode.textContent = '0';
+                }
+            });
+            const acceptedValueNode = document.getElementById('sellPasteAcceptedValue');
+            if (acceptedValueNode) {
+                acceptedValueNode.textContent = '0 ISK';
+            }
+            return;
+        }
+
+        const parsed = buildPasteEntries(rawText);
+        const acceptedItems = [];
+        const rejectedItems = [];
+        const unknownItems = parsed.parseErrors.map(line => ({
+            label: line,
+            detail: sellPasteMessages.parseError
+        }));
+        const quantitiesByType = {};
+        let acceptedTotalCents = 0;
+
+        parsed.entries.forEach(entry => {
+            const catalogItem = sellPasteCatalog.get(entry.key);
+            if (!catalogItem) {
+                unknownItems.push({
+                    label: `${entry.label} x ${entry.quantity.toLocaleString()}`,
+                    detail: sellPasteMessages.unknown
+                });
+                return;
+            }
+
+            if (catalogItem.status !== 'accepted') {
+                rejectedItems.push({
+                    label: `${catalogItem.type_name} x ${entry.quantity.toLocaleString()}`,
+                    detail: sellPasteMessages.notBought
+                });
+                return;
+            }
+
+            if (entry.quantity > Number.parseInt(catalogItem.available_qty, 10)) {
+                rejectedItems.push({
+                    label: `${catalogItem.type_name} x ${entry.quantity.toLocaleString()}`,
+                    detail: `${sellPasteMessages.insufficient} (${catalogItem.available_qty.toLocaleString()})`
+                });
+                return;
+            }
+
+            const unitPriceCents = toCents(catalogItem.unit_price);
+            const subtotalCents = unitPriceCents * entry.quantity;
+            acceptedTotalCents += subtotalCents;
+            quantitiesByType[String(catalogItem.type_id)] = entry.quantity;
+            acceptedItems.push({
+                label: catalogItem.type_name,
+                quantity: entry.quantity,
+                unitPrice: Number.parseFloat(catalogItem.unit_price || '0'),
+                subtotalCents
+            });
+        });
+
+        applyPasteQuantities(quantitiesByType);
+
+        if (sellPasteResults) {
+            sellPasteResults.classList.remove('d-none');
+        }
+
+        const acceptedCountNode = document.getElementById('sellPasteAcceptedCount');
+        const rejectedCountNode = document.getElementById('sellPasteRejectedCount');
+        const unknownCountNode = document.getElementById('sellPasteUnknownCount');
+        const acceptedBadgeNode = document.getElementById('sellPasteAcceptedBadge');
+        const rejectedBadgeNode = document.getElementById('sellPasteRejectedBadge');
+        const unknownBadgeNode = document.getElementById('sellPasteUnknownBadge');
+        const acceptedValueNode = document.getElementById('sellPasteAcceptedValue');
+
+        if (acceptedCountNode) {
+            acceptedCountNode.textContent = acceptedItems.length.toLocaleString();
+        }
+        if (rejectedCountNode) {
+            rejectedCountNode.textContent = rejectedItems.length.toLocaleString();
+        }
+        if (unknownCountNode) {
+            unknownCountNode.textContent = unknownItems.length.toLocaleString();
+        }
+        if (acceptedBadgeNode) {
+            acceptedBadgeNode.textContent = acceptedItems.length.toLocaleString();
+        }
+        if (rejectedBadgeNode) {
+            rejectedBadgeNode.textContent = rejectedItems.length.toLocaleString();
+        }
+        if (unknownBadgeNode) {
+            unknownBadgeNode.textContent = unknownItems.length.toLocaleString();
+        }
+        if (acceptedValueNode) {
+            acceptedValueNode.textContent = formatWholeISK(Math.ceil(acceptedTotalCents / 100)) + ' ISK';
+        }
+
+        renderPasteList('sellPasteAcceptedList', 'sellPasteAcceptedEmpty', acceptedItems, item => `
+            <article class="me-paste-line me-paste-line-accepted">
+                <div>
+                    <div class="me-paste-line-title">${item.label}</div>
+                    <div class="me-paste-line-meta">${item.quantity.toLocaleString()} × ${formatNumber(item.unitPrice)} ISK</div>
+                </div>
+                <div class="me-paste-line-value text-success">${formatNumber(item.subtotalCents / 100)} ISK</div>
+            </article>
+        `);
+        renderPasteList('sellPasteRejectedList', 'sellPasteRejectedEmpty', rejectedItems, item => `
+            <article class="me-paste-line me-paste-line-rejected">
+                <div>
+                    <div class="me-paste-line-title">${item.label}</div>
+                    <div class="me-paste-line-meta">${item.detail}</div>
+                </div>
+            </article>
+        `);
+        renderPasteList('sellPasteUnknownList', 'sellPasteUnknownEmpty', unknownItems, item => `
+            <article class="me-paste-line me-paste-line-unknown">
+                <div>
+                    <div class="me-paste-line-title">${item.label}</div>
+                    <div class="me-paste-line-meta">${item.detail}</div>
+                </div>
+            </article>
+        `);
+    }
+
+    function syncSellInputMode() {
+        const selectedMode = document.querySelector('input[name="sellInputModeSelector"]:checked')?.value || 'manual';
+        if (sellInputModeField) {
+            sellInputModeField.value = selectedMode;
+        }
+        sellModePanels.forEach(panel => {
+            panel.classList.toggle('d-none', panel.dataset.sellModePanel !== selectedMode);
+        });
+        if (selectedMode === 'paste') {
+            updatePasteImport();
+        }
     }
 
     function toCents(value) {
@@ -558,8 +1004,24 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
+    sellInputModeInputs.forEach(input => {
+        input.addEventListener('change', syncSellInputMode);
+    });
+
+    if (sellPasteTextarea) {
+        sellPasteTextarea.addEventListener('input', updatePasteImport);
+    }
+
+    if (sellPasteClearButton) {
+        sellPasteClearButton.addEventListener('click', function() {
+            if (sellPasteTextarea) {
+                sellPasteTextarea.value = '';
+            }
+            updatePasteImport();
+        });
+    }
+
     // Prevent form submission if any quantity exceeds stock
-    const sellForm = document.getElementById('sellForm');
     if (sellForm) {
         sellForm.addEventListener('submit', function(e) {
             let hasError = false;
@@ -595,6 +1057,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (hasInvoice) {
         updateInvoice();
     }
+    syncSellInputMode();
 
     // Live asset refresh progress (per character)
     {% if assets_refreshing %}

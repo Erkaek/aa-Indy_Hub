@@ -2,6 +2,7 @@
 
 # Standard Library
 import hashlib
+import json
 from decimal import ROUND_CEILING, Decimal
 
 # Django
@@ -35,7 +36,6 @@ from ..models import (
     MaterialExchangeSellOrderItem,
     MaterialExchangeSettings,
     MaterialExchangeStock,
-    MaterialExchangeTransaction,
     SDEMarketGroup,
 )
 from ..services.asset_cache import get_corp_divisions_cached, get_user_assets_cached
@@ -54,7 +54,9 @@ from ..tasks.material_exchange import (
 )
 from ..utils.analytics import emit_view_analytics_event
 from ..utils.eve import batch_cache_type_names, get_type_name
+from ..utils.material_exchange_contract_check import normalize_text
 from ..utils.material_exchange_pricing import compute_buy_price_from_member
+from ..utils.material_exchange_transactions import upsert_material_exchange_transaction
 from .navigation import build_nav_context
 
 logger = get_extension_logger(__name__)
@@ -264,6 +266,72 @@ def _get_material_exchange_config() -> MaterialExchangeConfig | None:
     return MaterialExchangeConfig.objects.first()
 
 
+def _get_material_exchange_accepted_locations(
+    config: MaterialExchangeConfig | None,
+) -> list[dict[str, int | str]]:
+    if not config:
+        return []
+
+    rows: list[dict[str, int | str]] = []
+    try:
+        for location in config.accepted_locations.all().order_by("sort_order", "id"):
+            rows.append(
+                {
+                    "structure_id": int(location.structure_id),
+                    "structure_name": str(location.structure_name or ""),
+                    "hangar_division": int(location.hangar_division),
+                }
+            )
+    except Exception:
+        rows = []
+
+    if rows:
+        return rows
+
+    structure_id = getattr(config, "structure_id", None)
+    hangar_division = getattr(config, "hangar_division", None)
+    if not structure_id or not hangar_division:
+        return []
+
+    return [
+        {
+            "structure_id": int(structure_id),
+            "structure_name": str(getattr(config, "structure_name", "") or ""),
+            "hangar_division": int(hangar_division),
+        }
+    ]
+
+
+def _get_material_exchange_location_ids(config: MaterialExchangeConfig) -> list[int]:
+    location_ids: list[int] = []
+    for location in _get_material_exchange_accepted_locations(config):
+        try:
+            structure_id = int(location.get("structure_id") or 0)
+        except (TypeError, ValueError):
+            structure_id = 0
+        if structure_id and structure_id not in location_ids:
+            location_ids.append(structure_id)
+    return location_ids
+
+
+def _get_material_exchange_location_label(location: dict[str, int | str]) -> str:
+    structure_id = int(location.get("structure_id") or 0)
+    structure_name = str(location.get("structure_name") or "").strip()
+    hangar_division = int(location.get("hangar_division") or 0)
+    label = structure_name or f"Structure {structure_id}"
+    if hangar_division > 0:
+        return f"{label} / Hangar {hangar_division}"
+    return label
+
+
+def _get_material_exchange_location_summary(config: MaterialExchangeConfig) -> str:
+    labels = [
+        _get_material_exchange_location_label(location)
+        for location in _get_material_exchange_accepted_locations(config)
+    ]
+    return ", ".join(label for label in labels if label)
+
+
 def _normalize_stock_type_names(stock_items: list[MaterialExchangeStock]) -> None:
     """Replace numeric/empty stock type names with local eve_sde names when available."""
 
@@ -380,7 +448,7 @@ def _expand_market_group_ids(group_ids: set[int]) -> set[int]:
 def _get_allowed_type_ids_for_config(
     config: MaterialExchangeConfig, mode: str
 ) -> set[int] | None:
-    """Resolve allowed ItemType IDs for the given mode using ItemGroup IDs."""
+    """Resolve allowed ItemType IDs for the given mode using groups plus explicit IDs."""
 
     if mode not in {"sell", "buy"}:
         return None
@@ -391,13 +459,24 @@ def _get_allowed_type_ids_for_config(
             if mode == "sell"
             else config.allowed_market_groups_buy
         )
+        raw_type_ids = (
+            config.allowed_type_ids_sell
+            if mode == "sell"
+            else config.allowed_type_ids_buy
+        )
         group_ids = {int(x) for x in (raw_group_ids or [])}
-        if not group_ids:
+        explicit_type_ids = {int(x) for x in (raw_type_ids or [])}
+        if not group_ids and not explicit_type_ids:
             return set()
 
-        groups_key = ",".join(map(str, sorted(group_ids)))
+        cache_signature = "|".join(
+            [
+                ",".join(map(str, sorted(group_ids))),
+                ",".join(map(str, sorted(explicit_type_ids))),
+            ]
+        )
         groups_hash = hashlib.md5(
-            groups_key.encode("utf-8"), usedforsecurity=False
+            cache_signature.encode("utf-8"), usedforsecurity=False
         ).hexdigest()
         cache_key = (
             "indy_hub:material_exchange:allowed_type_ids:v4:" f"{mode}:{groups_hash}"
@@ -409,9 +488,13 @@ def _get_allowed_type_ids_for_config(
         # Alliance Auth (External Libs)
         from eve_sde.models import ItemType
 
-        allowed_type_ids = set(
-            ItemType.objects.filter(group_id__in=group_ids).values_list("id", flat=True)
-        )
+        allowed_type_ids = set(explicit_type_ids)
+        if group_ids:
+            allowed_type_ids.update(
+                ItemType.objects.filter(group_id__in=group_ids).values_list(
+                    "id", flat=True
+                )
+            )
         cache.set(cache_key, list(allowed_type_ids), 3600)
         return allowed_type_ids
     except Exception as exc:
@@ -435,9 +518,12 @@ def _get_material_exchange_admins() -> list[User]:
 
 
 def _fetch_user_assets_for_structure(
-    user, structure_id: int, *, allow_refresh: bool = True
+    user,
+    structure_id: int | list[int] | tuple[int, ...] | set[int],
+    *,
+    allow_refresh: bool = True,
 ) -> tuple[dict[int, int], bool]:
-    """Return aggregated asset quantities for the user's characters at a structure using cache."""
+    """Return aggregated asset quantities for the user's characters at one or more structures using cache."""
 
     aggregated, _by_character, scope_missing = _fetch_user_assets_for_structure_data(
         user, structure_id, allow_refresh=allow_refresh
@@ -446,17 +532,28 @@ def _fetch_user_assets_for_structure(
 
 
 def _fetch_user_assets_for_structure_data(
-    user, structure_id: int, *, allow_refresh: bool = True
+    user,
+    structure_id: int | list[int] | tuple[int, ...] | set[int],
+    *,
+    allow_refresh: bool = True,
 ) -> tuple[dict[int, int], dict[int, dict[int, int]], bool]:
-    """Return aggregated and per-character asset quantities at a structure using cache."""
+    """Return aggregated and per-character asset quantities at one or more structures using cache."""
 
     assets, scope_missing = get_user_assets_cached(user, allow_refresh=allow_refresh)
+    if isinstance(structure_id, (list, tuple, set)):
+        structure_ids = {
+            int(location_id)
+            for location_id in structure_id
+            if str(location_id).isdigit() and int(location_id) > 0
+        }
+    else:
+        structure_ids = {int(structure_id)} if int(structure_id) > 0 else set()
 
     aggregated: dict[int, int] = {}
     by_character: dict[int, dict[int, int]] = {}
     for asset in assets:
         try:
-            if int(asset.get("location_id", 0)) != int(structure_id):
+            if int(asset.get("location_id", 0)) not in structure_ids:
                 continue
         except (TypeError, ValueError):
             continue
@@ -842,6 +939,100 @@ def _fetch_fuzzwork_prices(type_ids: list[int]) -> dict[int, dict[str, Decimal]]
         return {}
 
 
+def _extract_submitted_sell_quantities(request) -> dict[int, int]:
+    """Return submitted sell quantities from manual inputs or paste-import JSON."""
+
+    submitted_quantities: dict[int, int] = {}
+    for key, value in request.POST.items():
+        if not key.startswith("qty_"):
+            continue
+        type_id_str = key[4:]
+        if not type_id_str.isdigit():
+            continue
+        qty_raw = (value or "").strip()
+        if not qty_raw:
+            continue
+        try:
+            qty = int(qty_raw)
+        except Exception:
+            continue
+        if qty <= 0:
+            continue
+        submitted_quantities[int(type_id_str)] = qty
+
+    if submitted_quantities or request.POST.get("sell_input_mode") != "paste":
+        return submitted_quantities
+
+    raw_payload = (request.POST.get("paste_quantities_json") or "").strip()
+    if not raw_payload:
+        return submitted_quantities
+
+    try:
+        payload = json.loads(raw_payload)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return submitted_quantities
+
+    if not isinstance(payload, dict):
+        return submitted_quantities
+
+    for raw_type_id, raw_qty in payload.items():
+        try:
+            type_id = int(raw_type_id)
+            qty = int(raw_qty)
+        except (TypeError, ValueError):
+            continue
+        if type_id <= 0 or qty <= 0:
+            continue
+        submitted_quantities[type_id] = qty
+
+    return submitted_quantities
+
+
+def _build_sell_paste_catalog(
+    raw_assets_by_type: dict[int, int], accepted_materials: list[dict]
+) -> list[dict]:
+    """Return the active character asset catalog used by the sell paste-import mode."""
+
+    if not raw_assets_by_type:
+        return []
+
+    batch_cache_type_names(raw_assets_by_type.keys())
+    group_map = _get_group_map(list(raw_assets_by_type.keys()))
+    accepted_by_type_id = {
+        int(item["type_id"]): item for item in accepted_materials if item.get("type_id")
+    }
+
+    catalog: list[dict] = []
+    for type_id, available_qty in raw_assets_by_type.items():
+        if int(available_qty or 0) <= 0:
+            continue
+
+        type_name = get_type_name(type_id)
+        accepted_item = accepted_by_type_id.get(int(type_id))
+        status = "accepted" if accepted_item else "rejected"
+        unit_price = ""
+        if accepted_item:
+            unit_price = format(Decimal(accepted_item["buy_price_from_member"]), ".2f")
+
+        catalog.append(
+            {
+                "type_id": int(type_id),
+                "type_name": type_name,
+                "name_key": normalize_text(type_name),
+                "group_name": group_map.get(type_id, "Other"),
+                "available_qty": int(available_qty),
+                "status": status,
+                "reason": "" if accepted_item else "not_bought",
+                "unit_price": unit_price,
+            }
+        )
+
+    catalog.sort(
+        key=lambda item: (item["status"] != "accepted", item["type_name"].casefold())
+    )
+    return catalog
+
+
 @login_required
 @indy_hub_permission_required("can_access_indy_hub")
 def material_exchange_index(request):
@@ -876,11 +1067,16 @@ def material_exchange_index(request):
     # Stats (based on the user's visible sell items)
     stock_count = 0
     total_stock_value = 0
+    accepted_locations = _get_material_exchange_accepted_locations(config)
+    accepted_location_ids = _get_material_exchange_location_ids(config)
+    accepted_location_summary = _get_material_exchange_location_summary(config)
 
     try:
         # Avoid blocking ESI calls on index page; use cached data only
         user_assets, scope_missing = _fetch_user_assets_for_structure(
-            request.user, int(config.structure_id), allow_refresh=False
+            request.user,
+            accepted_location_ids or [int(config.structure_id)],
+            allow_refresh=False,
         )
 
         if scope_missing:
@@ -1016,6 +1212,8 @@ def material_exchange_index(request):
         "admin_sell_orders": admin_sell_orders,
         "admin_buy_orders": admin_buy_orders,
         "status_filter": status_filter,
+        "accepted_locations": accepted_locations,
+        "accepted_location_summary": accepted_location_summary,
         "nav_context": _build_nav_context(request.user),
     }
 
@@ -1100,6 +1298,7 @@ def material_exchange_sell(request, tokens):
         messages.warning(request, _("Material Exchange is not configured."))
         return redirect("indy_hub:material_exchange_index")
     materials_with_qty: list[dict] = []
+    sell_paste_catalog: list[dict] = []
     assets_refreshing = False
 
     sell_last_update = (
@@ -1156,8 +1355,13 @@ def material_exchange_sell(request, tokens):
             )
 
     if request.method == "POST":
+        accepted_location_ids = _get_material_exchange_location_ids(config)
+        accepted_location_summary = _get_material_exchange_location_summary(
+            config
+        ) or str(config.structure_name or config.structure_id)
         user_assets, scope_missing = _fetch_user_assets_for_structure(
-            request.user, config.structure_id
+            request.user,
+            accepted_location_ids or [int(config.structure_id)],
         )
         if scope_missing:
             # Avoid transient flash messaging for missing scopes; the page already
@@ -1168,7 +1372,7 @@ def material_exchange_sell(request, tokens):
         if not user_assets:
             messages.error(
                 request,
-                _("No items available to sell at this location."),
+                _("No items available to sell at the accepted locations."),
             )
             return redirect("indy_hub:material_exchange_sell")
 
@@ -1198,30 +1402,18 @@ def material_exchange_sell(request, tokens):
                 )
             return redirect("indy_hub:material_exchange_sell")
 
-        # Parse submitted quantities from the form. Do not iterate over `user_assets` here:
-        # doing so can silently drop items if assets changed or a type was filtered out.
-        submitted_quantities: dict[int, int] = {}
-        for key, value in request.POST.items():
-            if not key.startswith("qty_"):
-                continue
-            type_id_str = key[4:]
-            if not type_id_str.isdigit():
-                continue
-            qty_raw = (value or "").strip()
-            if not qty_raw:
-                continue
-            try:
-                qty = int(qty_raw)
-            except Exception:
-                continue
-            if qty <= 0:
-                continue
-            submitted_quantities[int(type_id_str)] = qty
+        submitted_quantities = _extract_submitted_sell_quantities(request)
 
         if not submitted_quantities:
             messages.error(
                 request,
-                _("Please enter a quantity greater than 0 for at least one item."),
+                (
+                    _("Paste a list containing at least one accepted item.")
+                    if request.POST.get("sell_input_mode") == "paste"
+                    else _(
+                        "Please enter a quantity greater than 0 for at least one item."
+                    )
+                ),
             )
             return redirect("indy_hub:material_exchange_sell")
 
@@ -1237,7 +1429,7 @@ def material_exchange_sell(request, tokens):
                 type_name = get_type_name(type_id)
                 errors.append(
                     _(
-                        f"{type_name} is no longer available at {config.structure_name}. Please refresh the page and try again."
+                        f"{type_name} is no longer available at {accepted_location_summary}. Please refresh the page and try again."
                     )
                 )
                 continue
@@ -1246,7 +1438,7 @@ def material_exchange_sell(request, tokens):
                 type_name = get_type_name(type_id)
                 errors.append(
                     _(
-                        f"Insufficient {type_name} in {config.structure_name}. You have: {user_qty:,}, requested: {qty:,}"
+                        f"Insufficient {type_name} in {accepted_location_summary}. You have: {user_qty:,}, requested: {qty:,}"
                     )
                 )
                 continue
@@ -1392,10 +1584,14 @@ def material_exchange_sell(request, tokens):
     user_assets, user_assets_by_character, scope_missing = (
         _fetch_user_assets_for_structure_data(
             request.user,
-            config.structure_id,
+            _get_material_exchange_location_ids(config) or [int(config.structure_id)],
             allow_refresh=allow_refresh,
         )
     )
+    raw_user_assets_by_character = {
+        character_id: dict(char_assets)
+        for character_id, char_assets in user_assets_by_character.items()
+    }
     if sell_assets_progress.get("error") == "no_assets_fetched" and (
         has_cached_assets or user_assets
     ):
@@ -1462,11 +1658,13 @@ def material_exchange_sell(request, tokens):
             ).lower(),
         )
         for character_id in sorted_characters:
+            raw_character_assets = raw_user_assets_by_character.get(character_id, {})
             character_assets = user_assets_by_character.get(character_id, {})
+            raw_count = sum(1 for qty in raw_character_assets.values() if qty > 0)
             tab_count = sum(
                 1 for type_id in character_assets if _is_sellable_type(type_id)
             )
-            if tab_count <= 0:
+            if raw_count <= 0:
                 continue
             character_tabs.append(
                 {
@@ -1474,7 +1672,7 @@ def material_exchange_sell(request, tokens):
                     "name": character_names_map.get(
                         character_id, _("Character %(id)s") % {"id": character_id}
                     ),
-                    "item_count": tab_count,
+                    "item_count": tab_count or raw_count,
                     "url": f"{sell_page_base_url}?character={character_id}",
                     "portrait_url": (
                         f"https://images.evetech.net/characters/{character_id}/portrait?size=128"
@@ -1507,6 +1705,14 @@ def material_exchange_sell(request, tokens):
             assets_for_display = user_assets_by_character[selected_character_id]
         else:
             assets_for_display = {}
+
+        if (
+            selected_character_id
+            and selected_character_id in raw_user_assets_by_character
+        ):
+            raw_assets_for_display = raw_user_assets_by_character[selected_character_id]
+        else:
+            raw_assets_for_display = {}
 
         active_character_tab_data = next(
             (
@@ -1559,11 +1765,14 @@ def material_exchange_sell(request, tokens):
             f"SELL DEBUG: Final materials_with_qty count: {len(materials_with_qty)}"
         )
         materials_with_qty.sort(key=lambda x: x["type_name"])
+        sell_paste_catalog = _build_sell_paste_catalog(
+            raw_assets_for_display, materials_with_qty
+        )
 
         if pre_filter_count > 0 and not materials_with_qty and not message_shown:
             messages.info(
                 request,
-                _("No accepted items available to sell at this location."),
+                _("No accepted items available to sell at the accepted locations."),
             )
     else:
         if scope_missing and not message_shown:
@@ -1576,7 +1785,7 @@ def material_exchange_sell(request, tokens):
         elif not message_shown:
             messages.info(
                 request,
-                _("No items available to sell at this location."),
+                _("No items available to sell at the accepted locations."),
             )
 
     # Show loading spinner only while the refresh task is running.
@@ -1587,6 +1796,8 @@ def material_exchange_sell(request, tokens):
 
     context = {
         "config": config,
+        "accepted_location_summary": _get_material_exchange_location_summary(config),
+        "accepted_locations": _get_material_exchange_accepted_locations(config),
         "materials": materials_with_qty,
         "character_tabs": character_tabs if user_assets else [],
         "active_character_tab": active_character_tab if user_assets else "",
@@ -1594,6 +1805,7 @@ def material_exchange_sell(request, tokens):
         "corporation_name": corporation_name,
         "assets_refreshing": assets_refreshing,
         "sell_assets_progress": sell_assets_progress,
+        "sell_paste_catalog": sell_paste_catalog,
         "sell_last_update": sell_last_update,
         "sell_next_refresh_minutes": _minutes_until_refresh(sell_last_update),
         "nav_context": _build_nav_context(request.user),
@@ -1630,6 +1842,8 @@ def material_exchange_buy(request, tokens):
         messages.warning(request, _("Material Exchange is not configured."))
         return redirect("indy_hub:material_exchange_index")
     stock_refreshing = False
+    accepted_locations = _get_material_exchange_accepted_locations(config)
+    accepted_location_summary = _get_material_exchange_location_summary(config)
 
     corp_assets_scope_missing = False
     try:
@@ -1913,15 +2127,28 @@ def material_exchange_buy(request, tokens):
         div_map, _div_scope_missing = get_corp_divisions_cached(
             int(config.corporation_id), allow_refresh=False
         )
-        hangar_division_label = (
-            div_map.get(int(config.hangar_division)) if div_map else None
-        )
+        accepted_location_rows = []
+        for location in accepted_locations:
+            hangar_division = int(location.get("hangar_division") or 0)
+            hangar_label = div_map.get(hangar_division) if div_map else None
+            accepted_location_rows.append(
+                {
+                    "structure_name": str(location.get("structure_name") or "").strip()
+                    or f"Structure {int(location.get('structure_id') or 0)}",
+                    "hangar_label": (hangar_label or "").strip()
+                    or f"Hangar Division {hangar_division}",
+                }
+            )
     except Exception:
-        hangar_division_label = None
+        accepted_location_rows = []
 
-    hangar_division_label = (
-        hangar_division_label or ""
-    ).strip() or f"Hangar Division {int(config.hangar_division)}"
+    if not accepted_location_rows:
+        accepted_location_rows = [
+            {
+                "structure_name": str(config.structure_name or config.structure_id),
+                "hangar_label": f"Hangar Division {int(config.hangar_division)}",
+            }
+        ]
 
     context = {
         "config": config,
@@ -1929,7 +2156,8 @@ def material_exchange_buy(request, tokens):
         "stock_refreshing": stock_refreshing,
         "buy_stock_progress": buy_stock_progress,
         "corp_assets_scope_missing": corp_assets_scope_missing,
-        "hangar_division_label": hangar_division_label,
+        "accepted_locations": accepted_location_rows,
+        "accepted_location_summary": accepted_location_summary,
         "buy_last_update": buy_last_update,
         "buy_next_refresh_minutes": _minutes_until_refresh(buy_last_update),
         "nav_context": _build_nav_context(request.user),
@@ -2132,22 +2360,15 @@ def material_exchange_complete_sell(request, order_id):
         order.status = "completed"
         order.save()
 
-        # Create transaction log for each item and update stock
-        for item in order.items.all():
-            # Create transaction log
-            MaterialExchangeTransaction.objects.create(
-                config=order.config,
-                transaction_type="sell",
-                sell_order=order,
-                user=order.seller,
-                type_id=item.type_id,
-                type_name=item.type_name,
-                quantity=item.quantity,
-                unit_price=item.unit_price,
-                total_price=item.total_price,
+        _transaction, created = upsert_material_exchange_transaction(order)
+        if not created:
+            messages.success(
+                request, _(f"Sell order #{order.id} completed and transaction logged.")
             )
+            return redirect("indy_hub:material_exchange_index")
 
-            # Update stock (add quantity)
+        # Update stock once when the transaction record is first created.
+        for item in order.items.all():
             stock_item, _created = MaterialExchangeStock.objects.get_or_create(
                 config=order.config,
                 type_id=item.type_id,
@@ -2303,20 +2524,12 @@ def _complete_buy_order(order, *, delivered_by=None, delivery_method=None):
         order.status = MaterialExchangeBuyOrder.Status.COMPLETED
         order.save()
 
-        # Create transaction log for each item and update stock
-        for item in order.items.all():
-            MaterialExchangeTransaction.objects.create(
-                config=order.config,
-                transaction_type="buy",
-                buy_order=order,
-                user=order.buyer,
-                type_id=item.type_id,
-                type_name=item.type_name,
-                quantity=item.quantity,
-                unit_price=item.unit_price,
-                total_price=item.total_price,
-            )
+        _transaction, created = upsert_material_exchange_transaction(order)
+        if not created:
+            return
 
+        # Update stock once when the transaction record is first created.
+        for item in order.items.all():
             try:
                 stock_item = order.config.stock_items.get(type_id=item.type_id)
                 stock_item.quantity = max(stock_item.quantity - item.quantity, 0)

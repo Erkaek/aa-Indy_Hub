@@ -42,6 +42,52 @@ from .navigation import build_nav_context
 logger = get_extension_logger(__name__)
 
 
+def _get_material_exchange_config_locations(config) -> list[dict[str, int | str]]:
+    rows: list[dict[str, int | str]] = []
+    try:
+        for location in config.accepted_locations.all().order_by("sort_order", "id"):
+            rows.append(
+                {
+                    "structure_id": int(location.structure_id),
+                    "structure_name": str(location.structure_name or ""),
+                    "hangar_division": int(location.hangar_division),
+                }
+            )
+    except Exception:
+        rows = []
+
+    if rows:
+        return rows
+
+    structure_id = getattr(config, "structure_id", None)
+    hangar_division = getattr(config, "hangar_division", None)
+    if not structure_id or not hangar_division:
+        return []
+
+    return [
+        {
+            "structure_id": int(structure_id),
+            "structure_name": str(getattr(config, "structure_name", "") or ""),
+            "hangar_division": int(hangar_division),
+        }
+    ]
+
+
+def _get_material_exchange_location_names(config) -> list[str]:
+    names: list[str] = []
+    for location in _get_material_exchange_config_locations(config):
+        structure_id = int(location.get("structure_id") or 0)
+        structure_name = str(location.get("structure_name") or "").strip()
+        candidate = structure_name or f"Structure {structure_id}"
+        if candidate and candidate not in names:
+            names.append(candidate)
+    return names
+
+
+def _get_material_exchange_location_summary(config) -> str:
+    return ", ".join(_get_material_exchange_location_names(config))
+
+
 @indy_hub_permission_required("can_access_indy_hub")
 @login_required
 def my_orders(request):
@@ -95,8 +141,9 @@ def my_orders(request):
                 "progress_width": _calc_progress_width(timeline),
                 "contract_check_enabled": not is_closed,
                 "contract_check_recipient": corporation_name,
-                "contract_check_location": getattr(order.config, "structure_name", "")
-                or "",
+                "contract_check_location": _get_material_exchange_location_summary(
+                    order.config
+                ),
                 "contract_check_amount": str(order.total_price),
                 "contract_check_amount_label": _("I will receive"),
             }
@@ -122,8 +169,9 @@ def my_orders(request):
                 "progress_width": _calc_progress_width(timeline),
                 "contract_check_enabled": not is_closed,
                 "contract_check_recipient": buyer_main_character,
-                "contract_check_location": getattr(order.config, "structure_name", "")
-                or "",
+                "contract_check_location": _get_material_exchange_location_summary(
+                    order.config
+                ),
                 "contract_check_amount": str(order.total_price),
                 "contract_check_amount_label": _("I will pay"),
             }
@@ -213,6 +261,7 @@ def sell_order_detail(request, order_id):
         "order": order,
         "config": config,
         "corporation_name": corporation_name,
+        "accepted_location_summary": _get_material_exchange_location_summary(config),
         "items": items,
         "timeline": timeline,
         "timeline_breadcrumb": timeline_breadcrumb,
@@ -270,6 +319,7 @@ def buy_order_detail(request, order_id):
     context = {
         "order": order,
         "config": config,
+        "accepted_location_summary": _get_material_exchange_location_summary(config),
         "items": items,
         "timeline": timeline,
         "timeline_breadcrumb": timeline_breadcrumb,
@@ -289,6 +339,7 @@ def _build_contract_check_payload(
     raw_text: str,
     recipient_name: str,
     location_name: str,
+    accepted_location_names: list[str] | None = None,
 ):
     fields = parse_contract_export(raw_text)
     expected_items, expected_item_labels = build_expected_items(order.items.all())
@@ -388,10 +439,17 @@ def _build_contract_check_payload(
 
     normalized_location = normalize_text(location_name)
     actual_location_normalized = normalize_text(actual_location)
-    location_ok = bool(normalized_location) and (
-        actual_location_normalized == normalized_location
-        or normalized_location in actual_location_normalized
-        or actual_location_normalized in normalized_location
+    accepted_location_names = accepted_location_names or []
+    normalized_locations = [
+        normalize_text(name) for name in accepted_location_names if normalize_text(name)
+    ]
+    if normalized_location and normalized_location not in normalized_locations:
+        normalized_locations.append(normalized_location)
+    location_ok = bool(normalized_locations) and any(
+        actual_location_normalized == candidate
+        or candidate in actual_location_normalized
+        or actual_location_normalized in candidate
+        for candidate in normalized_locations
     )
     checks.append(
         {
@@ -400,13 +458,15 @@ def _build_contract_check_payload(
             "passed": location_ok,
             "expected": location_name,
             "actual": actual_location,
-            "reminder": _("Location must be the configured structure for this order."),
+            "reminder": _(
+                "Location must match one of the configured accepted locations for this order."
+            ),
             "copy_value": location_name,
             "copy_label": _("Copy location"),
             "message": (
-                _("Location matches the configured structure.")
+                _("Location matches one of the configured accepted locations.")
                 if location_ok
-                else _("Location must match the configured structure.")
+                else _("Location must match one of the configured accepted locations.")
             ),
         }
     )
@@ -539,12 +599,14 @@ def sell_order_check_contract(request, order_id):
     corporation_name = get_corporation_name(
         getattr(order.config, "corporation_id", None)
     )
+    accepted_location_names = _get_material_exchange_location_names(order.config)
     payload = _build_contract_check_payload(
         order=order,
         order_type="sell",
         raw_text=request.POST.get("contract_text", ""),
         recipient_name=corporation_name,
-        location_name=getattr(order.config, "structure_name", "") or "",
+        location_name=_get_material_exchange_location_summary(order.config),
+        accepted_location_names=accepted_location_names,
     )
     return JsonResponse(payload)
 
@@ -564,12 +626,14 @@ def buy_order_check_contract(request, order_id):
             status=400,
         )
 
+    accepted_location_names = _get_material_exchange_location_names(order.config)
     payload = _build_contract_check_payload(
         order=order,
         order_type="buy",
         raw_text=request.POST.get("contract_text", ""),
         recipient_name=_resolve_main_character_name(order.buyer),
-        location_name=getattr(order.config, "structure_name", "") or "",
+        location_name=_get_material_exchange_location_summary(order.config),
+        accepted_location_names=accepted_location_names,
     )
     return JsonResponse(payload)
 

@@ -18,7 +18,7 @@ from allianceauth.authentication.models import CharacterOwnership, UserProfile
 from allianceauth.eveonline.models import EveCharacter
 
 # AA Example App
-from indy_hub.auth_hooks import IndyHubMenu
+from indy_hub.auth_hooks import IndyHubMenu, register_charlink_hook
 from indy_hub.models import (
     Blueprint,
     BlueprintCopyChat,
@@ -29,6 +29,7 @@ from indy_hub.models import (
     CachedStructureName,
     CharacterSettings,
     CorporationSharingSetting,
+    IndustryActivityMixin,
     IndustryJob,
     IndustrySkillSnapshot,
     IndustryStructure,
@@ -180,6 +181,32 @@ class NavigationMenuBadgeTests(TestCase):
         )
 
 
+class AuthHookTests(TestCase):
+    def test_register_charlink_hook_returns_module_path(self) -> None:
+        self.assertEqual(register_charlink_hook(), "indy_hub.thirdparty.charlink_hook")
+
+    def test_charlink_hook_imports_when_charlink_is_installed(self) -> None:
+        # Standard Library
+        import importlib
+        import importlib.util
+
+        # Django
+        from django.apps import apps
+
+        if importlib.util.find_spec("charlink") is None:
+            self.skipTest("charlink is not installed")
+        if not apps.is_installed("charlink"):
+            self.skipTest("charlink is not enabled in INSTALLED_APPS")
+
+        module = importlib.import_module("indy_hub.thirdparty.charlink_hook")
+
+        self.assertEqual(module.app_import.app_label, "indy_hub")
+        self.assertEqual(
+            [item.unique_id for item in module.app_import.imports],
+            ["personal", "corporation", "materialhub"],
+        )
+
+
 class NavbarBlueprintSharingTests(TestCase):
     def setUp(self) -> None:
         self.user = User.objects.create_user("navbaruser", password="secret123")
@@ -279,6 +306,25 @@ class NavbarMaterialExchangeMyOrdersTests(TestCase):
         self.assertEqual(response.status_code, 200)
         # This URL is part of the Indy Hub navbar, not the page body.
         self.assertContains(response, reverse("indy_hub:all_bp_list"))
+
+
+class NavbarIndustryJobsTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("jobsnavbaruser", password="secret123")
+        assign_main_character(self.user, character_id=7011001)
+        grant_indy_permissions(self.user)
+        CorporationSharingSetting.objects.create(
+            user=self.user,
+            corporation_id=2_000_000,
+            corporation_name="Test Corp",
+            job_catalog_scope=CharacterSettings.SCOPE_EVERYONE,
+        )
+
+    def test_personal_jobs_page_keeps_corporation_jobs_nav_link(self) -> None:
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("indy_hub:personnal_job_list"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, reverse("indy_hub:corporation_job_list"))
 
     def test_my_orders_lists_in_progress_before_completed(self) -> None:
         config = MaterialExchangeConfig.objects.create(
@@ -1058,12 +1104,55 @@ class BlueprintCopyFulfillViewTests(TestCase):
         self.assertEqual(entry["personal_blueprints"], 1)
         self.assertEqual(entry["corporate_blueprints"], 0)
 
-    @patch("indy_hub.views.industry._fetch_item_base_prices")
+    @patch("indy_hub.views.industry.build_craft_character_advisor")
+    @patch("indy_hub.views.industry.compute_effective_cycle_seconds")
+    @patch("indy_hub.views.industry._fetch_blueprint_activity_times")
+    @patch("indy_hub.views.industry._build_copy_estimated_item_values")
     def test_request_shows_estimated_copy_cost_for_matching_structure(
         self,
-        mock_fetch_item_base_prices,
+        mock_build_copy_estimated_item_values,
+        mock_fetch_blueprint_activity_times,
+        mock_compute_effective_cycle_seconds,
+        mock_build_craft_character_advisor,
     ) -> None:
-        mock_fetch_item_base_prices.return_value = {987654: Decimal("1000000")}
+        mock_build_copy_estimated_item_values.return_value = {
+            987654: {
+                "product_type_id": 654987,
+                "unit_value": Decimal("500000"),
+                "estimated_item_value": Decimal("1000000"),
+                "source": "adjusted_price",
+                "runs_requested": 2,
+            }
+        }
+        mock_fetch_blueprint_activity_times.return_value = {
+            987654: {IndustryActivityMixin.ACTIVITY_COPYING: 3600}
+        }
+        mock_compute_effective_cycle_seconds.return_value = 3060
+        mock_build_craft_character_advisor.return_value = {
+            "items": {
+                "987654": {
+                    "eligible_characters": [
+                        {
+                            "character_id": 42,
+                            "name": "Capsuleer",
+                            "time_bonus_percent": 15.0,
+                            "available_slots": 4,
+                            "total_slots": 5,
+                            "used_slots": 1,
+                        }
+                    ],
+                    "blocked_characters": [],
+                    "best_character": {
+                        "character_id": 42,
+                        "name": "Capsuleer",
+                        "time_bonus_percent": 15.0,
+                        "available_slots": 4,
+                        "total_slots": 5,
+                        "used_slots": 1,
+                    },
+                }
+            }
+        }
         blueprint = Blueprint.objects.create(
             owner_user=self.user,
             character_id=42,
@@ -1114,16 +1203,27 @@ class BlueprintCopyFulfillViewTests(TestCase):
         entry = response.context["requests"][0]
         self.assertIsNotNone(entry["copy_cost"])
         self.assertEqual(entry["copy_cost"]["structure_name"], "Test Raitaru")
+        self.assertEqual(len(entry["copy_structure_options"]), 1)
+        self.assertEqual(
+            entry["copy_structure_options"][0]["structure_name"],
+            "Test Raitaru",
+        )
         self.assertEqual(
             entry["copy_cost"]["per_copy_installation_cost"],
-            Decimal("95000"),
+            Decimal("1900"),
         )
         self.assertEqual(
             entry["copy_cost"]["total_installation_cost"],
-            Decimal("190000"),
+            Decimal("3800"),
         )
-        self.assertContains(response, "Estimated copy cost")
-        self.assertContains(response, "190,000 ISK")
+        self.assertContains(response, "Install estimate")
+        self.assertContains(response, "3,800 ISK")
+        self.assertContains(response, "Producer character")
+        self.assertContains(response, "Capsuleer")
+        self.assertContains(response, "Time estimate")
+        self.assertContains(response, "3h 24m")
+        self.assertContains(response, "Copy structure")
+        self.assertContains(response, "Test Raitaru · Jita")
 
     def test_self_request_hidden_without_corporate_source(self) -> None:
         blueprint = Blueprint.objects.create(
@@ -3152,6 +3252,133 @@ class DashboardNotificationCountsTests(TestCase):
         self.assertEqual(response.context["copy_fulfill_count"], 1)
 
 
+class DashboardUnusedSlotsSummaryTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("slotforeman", password="test12345")
+        self.character = assign_main_character(self.user, character_id=101222)
+        grant_indy_permissions(self.user, "can_manage_corp_bp_requests")
+        self.client.force_login(self.user)
+        SDESyncCompatState.objects.update_or_create(
+            pk=1,
+            defaults={"last_synced_at": timezone.now()},
+        )
+        UserOnboardingProgress.objects.update_or_create(
+            user=self.user,
+            defaults={"manual_steps": {"overview_intro_seen": True}},
+        )
+
+    def test_dashboard_counts_active_corporation_jobs_against_installer_slots(
+        self,
+    ) -> None:
+        now = timezone.now()
+        IndustryJob.objects.create(
+            owner_user=self.user,
+            owner_kind=Blueprint.OwnerKind.CHARACTER,
+            character_id=self.character.character_id,
+            job_id=9100001,
+            installer_id=self.character.character_id,
+            station_id=PUBLIC_STATION_ID,
+            location_name="Personal Factory",
+            activity_id=1,
+            blueprint_id=7100001,
+            blueprint_type_id=7100002,
+            runs=1,
+            status="active",
+            duration=3600,
+            start_date=now,
+            end_date=now + timedelta(hours=1),
+            activity_name="Manufacturing",
+            blueprint_type_name="Personal Job Blueprint",
+            product_type_name="Personal Job Product",
+            character_name="Slot Foreman",
+        )
+        IndustryJob.objects.create(
+            owner_user=self.user,
+            owner_kind=Blueprint.OwnerKind.CORPORATION,
+            corporation_id=2_000_000,
+            corporation_name="Test Corp",
+            character_id=None,
+            job_id=9100002,
+            installer_id=self.character.character_id,
+            station_id=PUBLIC_STATION_ID,
+            location_name="Corp Factory",
+            activity_id=1,
+            blueprint_id=7100011,
+            blueprint_type_id=7100012,
+            runs=1,
+            status="active",
+            duration=3600,
+            start_date=now,
+            end_date=now + timedelta(hours=1),
+            activity_name="Manufacturing",
+            blueprint_type_name="Corporate Job Blueprint",
+            product_type_name="Corporate Job Product",
+            character_name="Director Alt",
+        )
+
+        with patch(
+            "indy_hub.views.user.build_user_character_skill_contexts",
+            return_value=[
+                {
+                    "character_id": self.character.character_id,
+                    "manufacturing": {"total": 10},
+                    "research": {"total": 0},
+                    "reactions": {"total": 0},
+                }
+            ],
+        ):
+            response = self.client.get(reverse("indy_hub:index"))
+
+        self.assertEqual(response.status_code, 200)
+        summary = response.context["unused_slots_summary"]
+        self.assertEqual(summary["manufacturing"]["total"], 10)
+        self.assertEqual(summary["manufacturing"]["available"], 8)
+
+    def test_dashboard_ignores_corporation_jobs_from_other_installers(self) -> None:
+        now = timezone.now()
+        IndustryJob.objects.create(
+            owner_user=self.user,
+            owner_kind=Blueprint.OwnerKind.CORPORATION,
+            corporation_id=2_000_000,
+            corporation_name="Test Corp",
+            character_id=None,
+            job_id=9100012,
+            installer_id=99999999,
+            station_id=PUBLIC_STATION_ID,
+            location_name="Corp Factory",
+            activity_id=1,
+            blueprint_id=7100021,
+            blueprint_type_id=7100022,
+            runs=1,
+            status="active",
+            duration=3600,
+            start_date=now,
+            end_date=now + timedelta(hours=1),
+            activity_name="Manufacturing",
+            blueprint_type_name="Other Pilot Corp Job Blueprint",
+            product_type_name="Other Pilot Corp Job Product",
+            character_name="Other Pilot",
+        )
+
+        with patch(
+            "indy_hub.views.user.build_user_character_skill_contexts",
+            return_value=[
+                {
+                    "character_id": self.character.character_id,
+                    "manufacturing": {"total": 10},
+                    "research": {"total": 0},
+                    "reactions": {"total": 0},
+                }
+            ],
+        ):
+            response = self.client.get(reverse("indy_hub:index"))
+
+        self.assertEqual(response.status_code, 200)
+        summary = response.context["unused_slots_summary"]
+        self.assertEqual(summary["manufacturing"]["total"], 10)
+        self.assertEqual(summary["manufacturing"]["available"], 10)
+
+
 class PersonnalBlueprintViewTests(TestCase):
     def setUp(self) -> None:
         self.user = User.objects.create_user("industrialist", password="secret123")
@@ -3351,6 +3578,330 @@ class PersonnalBlueprintViewTests(TestCase):
         visible_type_ids = {bp.type_id for bp in page_obj}
         self.assertIn(705002, visible_type_ids)
 
+    def test_corporation_blueprints_visible_to_shared_catalog_viewer(self) -> None:
+        provider = User.objects.create_user(
+            "corp_provider_shared", password="secret123"
+        )
+        assign_main_character(provider, character_id=102102)
+        grant_indy_permissions(provider, "can_manage_corp_bp_requests")
+
+        viewer = User.objects.create_user("corp_viewer_shared", password="secret123")
+        assign_main_character(viewer, character_id=102103)
+        grant_indy_permissions(viewer)
+
+        corp_id = 2_000_000
+        CorporationSharingSetting.objects.create(
+            user=provider,
+            corporation_id=corp_id,
+            corporation_name="Test Corp",
+            blueprint_catalog_scope=CharacterSettings.SCOPE_CORPORATION,
+        )
+        Blueprint.objects.create(
+            owner_user=provider,
+            owner_kind=Blueprint.OwnerKind.CORPORATION,
+            corporation_id=corp_id,
+            corporation_name="Test Corp",
+            item_id=9052101,
+            blueprint_id=9052102,
+            type_id=705102,
+            location_id=PUBLIC_STATION_ID,
+            location_flag="corp_hangar",
+            quantity=-1,
+            time_efficiency=12,
+            material_efficiency=8,
+            runs=0,
+            type_name="Shared Catalog Blueprint",
+        )
+
+        self.client.force_login(viewer)
+        with patch("indy_hub.views.industry.connection") as mock_connection:
+            cursor = mock_connection.cursor.return_value.__enter__.return_value
+            cursor.fetchall.return_value = [(705102,)]
+
+            response = self.client.get(reverse("indy_hub:corporation_bp_list"))
+
+        self.assertEqual(response.status_code, 200)
+        page_obj = response.context["blueprints"]
+        visible_type_ids = {bp.type_id for bp in page_obj}
+        self.assertIn(705102, visible_type_ids)
+
+    def test_corporation_blueprints_visible_to_alliance_catalog_viewer(self) -> None:
+        provider = User.objects.create_user(
+            "corp_provider_alliance", password="secret123"
+        )
+        provider_character = assign_main_character(provider, character_id=102112)
+        grant_indy_permissions(provider, "can_manage_corp_bp_requests")
+        provider_character.corporation_id = 2_000_000
+        provider_character.corporation_name = "Test Corp"
+        provider_character.alliance_id = 5_000_000
+        provider_character.alliance_name = "Alliance Umbrella"
+        provider_character.save(
+            update_fields=[
+                "corporation_id",
+                "corporation_name",
+                "alliance_id",
+                "alliance_name",
+            ]
+        )
+
+        viewer = User.objects.create_user("corp_viewer_alliance", password="secret123")
+        viewer_character = assign_main_character(viewer, character_id=102113)
+        grant_indy_permissions(viewer)
+        viewer_character.corporation_id = 2_100_000
+        viewer_character.corporation_name = "Ally Corp"
+        viewer_character.alliance_id = 5_000_000
+        viewer_character.alliance_name = "Alliance Umbrella"
+        viewer_character.save(
+            update_fields=[
+                "corporation_id",
+                "corporation_name",
+                "alliance_id",
+                "alliance_name",
+            ]
+        )
+
+        CorporationSharingSetting.objects.create(
+            user=provider,
+            corporation_id=2_000_000,
+            corporation_name="Test Corp",
+            blueprint_catalog_scope=CharacterSettings.SCOPE_ALLIANCE,
+        )
+        Blueprint.objects.create(
+            owner_user=provider,
+            owner_kind=Blueprint.OwnerKind.CORPORATION,
+            corporation_id=2_000_000,
+            corporation_name="Test Corp",
+            item_id=9052111,
+            blueprint_id=9052112,
+            type_id=705112,
+            location_id=PUBLIC_STATION_ID,
+            location_flag="corp_hangar",
+            quantity=-1,
+            time_efficiency=12,
+            material_efficiency=8,
+            runs=0,
+            type_name="Alliance Catalog Blueprint",
+        )
+
+        self.client.force_login(viewer)
+        with patch("indy_hub.views.industry.connection") as mock_connection:
+            cursor = mock_connection.cursor.return_value.__enter__.return_value
+            cursor.fetchall.return_value = [(705112,)]
+
+            response = self.client.get(reverse("indy_hub:corporation_bp_list"))
+
+        self.assertEqual(response.status_code, 200)
+        page_obj = response.context["blueprints"]
+        visible_type_ids = {bp.type_id for bp in page_obj}
+        self.assertIn(705112, visible_type_ids)
+
+    def test_corporation_blueprints_visible_to_everyone_catalog_viewer(self) -> None:
+        provider = User.objects.create_user(
+            "corp_provider_everyone", password="secret123"
+        )
+        assign_main_character(provider, character_id=102122)
+        grant_indy_permissions(provider, "can_manage_corp_bp_requests")
+
+        viewer = User.objects.create_user("corp_viewer_everyone", password="secret123")
+        viewer_character = assign_main_character(viewer, character_id=102123)
+        grant_indy_permissions(viewer)
+        viewer_character.corporation_id = 2_200_000
+        viewer_character.corporation_name = "Neutral Corp"
+        viewer_character.alliance_id = 6_000_000
+        viewer_character.alliance_name = "Neutral Alliance"
+        viewer_character.save(
+            update_fields=[
+                "corporation_id",
+                "corporation_name",
+                "alliance_id",
+                "alliance_name",
+            ]
+        )
+
+        CorporationSharingSetting.objects.create(
+            user=provider,
+            corporation_id=2_000_000,
+            corporation_name="Test Corp",
+            blueprint_catalog_scope=CharacterSettings.SCOPE_EVERYONE,
+        )
+        Blueprint.objects.create(
+            owner_user=provider,
+            owner_kind=Blueprint.OwnerKind.CORPORATION,
+            corporation_id=2_000_000,
+            corporation_name="Test Corp",
+            item_id=9052121,
+            blueprint_id=9052122,
+            type_id=705122,
+            location_id=PUBLIC_STATION_ID,
+            location_flag="corp_hangar",
+            quantity=-1,
+            time_efficiency=12,
+            material_efficiency=8,
+            runs=0,
+            type_name="Public Catalog Blueprint",
+        )
+
+        self.client.force_login(viewer)
+        with patch("indy_hub.views.industry.connection") as mock_connection:
+            cursor = mock_connection.cursor.return_value.__enter__.return_value
+            cursor.fetchall.return_value = [(705122,)]
+
+            response = self.client.get(reverse("indy_hub:corporation_bp_list"))
+
+        self.assertEqual(response.status_code, 200)
+        page_obj = response.context["blueprints"]
+        visible_type_ids = {bp.type_id for bp in page_obj}
+        self.assertIn(705122, visible_type_ids)
+
+    def test_corporation_blueprints_redirect_without_catalog_access(self) -> None:
+        provider = User.objects.create_user(
+            "corp_provider_private", password="secret123"
+        )
+        assign_main_character(provider, character_id=102202)
+        grant_indy_permissions(provider, "can_manage_corp_bp_requests")
+
+        viewer = User.objects.create_user("corp_viewer_private", password="secret123")
+        assign_main_character(viewer, character_id=102203)
+        grant_indy_permissions(viewer)
+
+        Blueprint.objects.create(
+            owner_user=provider,
+            owner_kind=Blueprint.OwnerKind.CORPORATION,
+            corporation_id=2_000_000,
+            corporation_name="Test Corp",
+            item_id=9052201,
+            blueprint_id=9052202,
+            type_id=705202,
+            location_id=PUBLIC_STATION_ID,
+            location_flag="corp_hangar",
+            quantity=-1,
+            time_efficiency=10,
+            material_efficiency=6,
+            runs=0,
+            type_name="Private Catalog Blueprint",
+        )
+
+        self.client.force_login(viewer)
+        response = self.client.get(reverse("indy_hub:corporation_bp_list"))
+
+        self.assertRedirects(response, reverse("indy_hub:personnal_bp_list"))
+
+
+class CorporationBlueprintCatalogSettingsTests(TestCase):
+    def test_manager_can_update_corporation_blueprint_catalog_scope(self) -> None:
+        # Standard Library
+        import json
+
+        manager = User.objects.create_user("catalog_manager", password="secret123")
+        assign_main_character(manager, character_id=102301)
+        grant_indy_permissions(manager, "can_manage_corp_bp_requests")
+        self.client.force_login(manager)
+
+        with patch(
+            "indy_hub.views.user._collect_corporation_scope_status",
+            side_effect=AssertionError(
+                "settings POST should not collect corp scope status"
+            ),
+        ):
+            response = self.client.post(
+                reverse("indy_hub:toggle_corporation_blueprint_catalog"),
+                data=json.dumps(
+                    {
+                        "corporation_id": 2_000_000,
+                        "scope": CharacterSettings.SCOPE_CORPORATION,
+                    }
+                ),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        setting = CorporationSharingSetting.objects.get(
+            user=manager,
+            corporation_id=2_000_000,
+        )
+        self.assertEqual(
+            setting.blueprint_catalog_scope,
+            CharacterSettings.SCOPE_CORPORATION,
+        )
+
+
+class CorporationCopySharingSettingsTests(TestCase):
+    def test_manager_can_update_corporation_copy_scope_without_role_refresh(
+        self,
+    ) -> None:
+        # Standard Library
+        import json
+
+        manager = User.objects.create_user("copy_scope_manager", password="secret123")
+        assign_main_character(manager, character_id=102399)
+        grant_indy_permissions(manager, "can_manage_corp_bp_requests")
+        self.client.force_login(manager)
+
+        with patch(
+            "indy_hub.views.user._collect_corporation_scope_status",
+            side_effect=AssertionError(
+                "settings POST should not collect corp scope status"
+            ),
+        ):
+            response = self.client.post(
+                reverse("indy_hub:toggle_corporation_copy_sharing"),
+                data=json.dumps(
+                    {
+                        "corporation_id": 2_000_000,
+                        "scope": CharacterSettings.SCOPE_CORPORATION,
+                    }
+                ),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        setting = CorporationSharingSetting.objects.get(
+            user=manager,
+            corporation_id=2_000_000,
+        )
+        self.assertEqual(
+            setting.share_scope,
+            CharacterSettings.SCOPE_CORPORATION,
+        )
+
+
+class CorporationJobCatalogSettingsTests(TestCase):
+    def test_manager_can_update_corporation_job_catalog_scope(self) -> None:
+        # Standard Library
+        import json
+
+        manager = User.objects.create_user("job_catalog_manager", password="secret123")
+        assign_main_character(manager, character_id=102302)
+        grant_indy_permissions(manager, "can_manage_corp_bp_requests")
+        self.client.force_login(manager)
+
+        with patch(
+            "indy_hub.views.user._collect_corporation_scope_status",
+            side_effect=AssertionError(
+                "settings POST should not collect corp scope status"
+            ),
+        ):
+            response = self.client.post(
+                reverse("indy_hub:toggle_corporation_job_catalog"),
+                data=json.dumps(
+                    {
+                        "corporation_id": 2_000_000,
+                        "scope": CharacterSettings.SCOPE_CORPORATION,
+                    }
+                ),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        setting = CorporationSharingSetting.objects.get(
+            user=manager,
+            corporation_id=2_000_000,
+        )
+        self.assertEqual(
+            setting.job_catalog_scope,
+            CharacterSettings.SCOPE_CORPORATION,
+        )
+
 
 class CorporationJobListViewTests(TestCase):
     def test_corporation_jobs_visible_across_users_in_same_corp(self) -> None:
@@ -3397,6 +3948,364 @@ class CorporationJobListViewTests(TestCase):
         page_obj = response.context["jobs"]
         visible_job_ids = {job.job_id for job in page_obj}
         self.assertIn(9900001, visible_job_ids)
+
+    def test_corporation_jobs_visible_to_shared_catalog_viewer(self) -> None:
+        provider = User.objects.create_user(
+            "corpjob_provider_shared", password="secret123"
+        )
+        assign_main_character(provider, character_id=103101)
+        grant_indy_permissions(provider, "can_manage_corp_bp_requests")
+
+        viewer = User.objects.create_user("corpjob_viewer_shared", password="secret123")
+        assign_main_character(viewer, character_id=103102)
+        grant_indy_permissions(viewer)
+
+        start = timezone.now()
+        end = start + timedelta(hours=1)
+        corp_id = 2_000_000
+
+        CorporationSharingSetting.objects.create(
+            user=provider,
+            corporation_id=corp_id,
+            corporation_name="Test Corp",
+            job_catalog_scope=CharacterSettings.SCOPE_CORPORATION,
+        )
+        IndustryJob.objects.create(
+            owner_user=provider,
+            owner_kind=Blueprint.OwnerKind.CORPORATION,
+            corporation_id=corp_id,
+            corporation_name="Test Corp",
+            character_id=103101,
+            job_id=9900101,
+            installer_id=provider.id,
+            station_id=PUBLIC_STATION_ID,
+            location_name="Corp Factory",
+            activity_id=1,
+            blueprint_id=6010001,
+            blueprint_type_id=6010002,
+            runs=1,
+            status="active",
+            duration=3600,
+            start_date=start,
+            end_date=end,
+            activity_name="Manufacturing",
+            blueprint_type_name="Shared Corporate Job Blueprint",
+            product_type_name="Shared Corporate Job Product",
+            character_name="Corp Job Provider",
+        )
+
+        self.client.force_login(viewer)
+        response = self.client.get(reverse("indy_hub:corporation_job_list"))
+
+        self.assertEqual(response.status_code, 200)
+        page_obj = response.context["jobs"]
+        visible_job_ids = {job.job_id for job in page_obj}
+        self.assertIn(9900101, visible_job_ids)
+
+    def test_corporation_jobs_visible_to_alliance_catalog_viewer(self) -> None:
+        provider = User.objects.create_user(
+            "corpjob_provider_alliance", password="secret123"
+        )
+        provider_character = assign_main_character(provider, character_id=103111)
+        grant_indy_permissions(provider, "can_manage_corp_bp_requests")
+        provider_character.corporation_id = 2_000_000
+        provider_character.corporation_name = "Test Corp"
+        provider_character.alliance_id = 5_000_000
+        provider_character.alliance_name = "Alliance Umbrella"
+        provider_character.save(
+            update_fields=[
+                "corporation_id",
+                "corporation_name",
+                "alliance_id",
+                "alliance_name",
+            ]
+        )
+
+        viewer = User.objects.create_user(
+            "corpjob_viewer_alliance", password="secret123"
+        )
+        viewer_character = assign_main_character(viewer, character_id=103112)
+        grant_indy_permissions(viewer)
+        viewer_character.corporation_id = 2_100_000
+        viewer_character.corporation_name = "Ally Corp"
+        viewer_character.alliance_id = 5_000_000
+        viewer_character.alliance_name = "Alliance Umbrella"
+        viewer_character.save(
+            update_fields=[
+                "corporation_id",
+                "corporation_name",
+                "alliance_id",
+                "alliance_name",
+            ]
+        )
+
+        start = timezone.now()
+        end = start + timedelta(hours=1)
+        CorporationSharingSetting.objects.create(
+            user=provider,
+            corporation_id=2_000_000,
+            corporation_name="Test Corp",
+            job_catalog_scope=CharacterSettings.SCOPE_ALLIANCE,
+        )
+        IndustryJob.objects.create(
+            owner_user=provider,
+            owner_kind=Blueprint.OwnerKind.CORPORATION,
+            corporation_id=2_000_000,
+            corporation_name="Test Corp",
+            character_id=103111,
+            job_id=9900111,
+            installer_id=provider.id,
+            station_id=PUBLIC_STATION_ID,
+            location_name="Corp Factory",
+            activity_id=1,
+            blueprint_id=6010011,
+            blueprint_type_id=6010012,
+            runs=1,
+            status="active",
+            duration=3600,
+            start_date=start,
+            end_date=end,
+            activity_name="Manufacturing",
+            blueprint_type_name="Alliance Corporate Job Blueprint",
+            product_type_name="Alliance Corporate Job Product",
+            character_name="Corp Job Provider",
+        )
+
+        self.client.force_login(viewer)
+        response = self.client.get(reverse("indy_hub:corporation_job_list"))
+
+        self.assertEqual(response.status_code, 200)
+        page_obj = response.context["jobs"]
+        visible_job_ids = {job.job_id for job in page_obj}
+        self.assertIn(9900111, visible_job_ids)
+
+    def test_corporation_jobs_visible_to_everyone_catalog_viewer(self) -> None:
+        provider = User.objects.create_user(
+            "corpjob_provider_everyone", password="secret123"
+        )
+        assign_main_character(provider, character_id=103121)
+        grant_indy_permissions(provider, "can_manage_corp_bp_requests")
+
+        viewer = User.objects.create_user(
+            "corpjob_viewer_everyone", password="secret123"
+        )
+        viewer_character = assign_main_character(viewer, character_id=103122)
+        grant_indy_permissions(viewer)
+        viewer_character.corporation_id = 2_200_000
+        viewer_character.corporation_name = "Neutral Corp"
+        viewer_character.alliance_id = 6_000_000
+        viewer_character.alliance_name = "Neutral Alliance"
+        viewer_character.save(
+            update_fields=[
+                "corporation_id",
+                "corporation_name",
+                "alliance_id",
+                "alliance_name",
+            ]
+        )
+
+        start = timezone.now()
+        end = start + timedelta(hours=1)
+        CorporationSharingSetting.objects.create(
+            user=provider,
+            corporation_id=2_000_000,
+            corporation_name="Test Corp",
+            job_catalog_scope=CharacterSettings.SCOPE_EVERYONE,
+        )
+        IndustryJob.objects.create(
+            owner_user=provider,
+            owner_kind=Blueprint.OwnerKind.CORPORATION,
+            corporation_id=2_000_000,
+            corporation_name="Test Corp",
+            character_id=103121,
+            job_id=9900121,
+            installer_id=provider.id,
+            station_id=PUBLIC_STATION_ID,
+            location_name="Corp Factory",
+            activity_id=1,
+            blueprint_id=6010021,
+            blueprint_type_id=6010022,
+            runs=1,
+            status="active",
+            duration=3600,
+            start_date=start,
+            end_date=end,
+            activity_name="Manufacturing",
+            blueprint_type_name="Public Corporate Job Blueprint",
+            product_type_name="Public Corporate Job Product",
+            character_name="Corp Job Provider",
+        )
+
+        self.client.force_login(viewer)
+        response = self.client.get(reverse("indy_hub:corporation_job_list"))
+
+        self.assertEqual(response.status_code, 200)
+        page_obj = response.context["jobs"]
+        visible_job_ids = {job.job_id for job in page_obj}
+        self.assertIn(9900121, visible_job_ids)
+
+    def test_corporation_jobs_redirect_without_catalog_access(self) -> None:
+        provider = User.objects.create_user(
+            "corpjob_provider_private", password="secret123"
+        )
+        assign_main_character(provider, character_id=103201)
+        grant_indy_permissions(provider, "can_manage_corp_bp_requests")
+
+        viewer = User.objects.create_user(
+            "corpjob_viewer_private", password="secret123"
+        )
+        assign_main_character(viewer, character_id=103202)
+        grant_indy_permissions(viewer)
+
+        start = timezone.now()
+        end = start + timedelta(hours=1)
+
+        IndustryJob.objects.create(
+            owner_user=provider,
+            owner_kind=Blueprint.OwnerKind.CORPORATION,
+            corporation_id=2_000_000,
+            corporation_name="Test Corp",
+            character_id=103201,
+            job_id=9900201,
+            installer_id=provider.id,
+            station_id=PUBLIC_STATION_ID,
+            location_name="Corp Factory",
+            activity_id=1,
+            blueprint_id=6011001,
+            blueprint_type_id=6011002,
+            runs=1,
+            status="active",
+            duration=3600,
+            start_date=start,
+            end_date=end,
+            activity_name="Manufacturing",
+            blueprint_type_name="Private Corporate Job Blueprint",
+            product_type_name="Private Corporate Job Product",
+            character_name="Corp Job Provider",
+        )
+
+        self.client.force_login(viewer)
+        response = self.client.get(reverse("indy_hub:corporation_job_list"))
+
+        self.assertRedirects(response, reverse("indy_hub:personnal_job_list"))
+
+    def test_corporation_jobs_slot_overview_counts_corp_jobs_for_installer(
+        self,
+    ) -> None:
+        manager = User.objects.create_user(
+            "corpjob_slots_manager", password="secret123"
+        )
+        manager_character = assign_main_character(manager, character_id=103301)
+        grant_indy_permissions(manager, "can_manage_corp_bp_requests")
+        IndustrySkillSnapshot.objects.create(
+            owner_user=manager,
+            character_id=manager_character.character_id,
+            mass_production_level=4,
+            advanced_mass_production_level=0,
+            laboratory_operation_level=0,
+            advanced_laboratory_operation_level=0,
+            mass_reactions_level=0,
+            advanced_mass_reactions_level=0,
+            skill_levels={"3387": {"active": 4, "trained": 4}},
+        )
+
+        start = timezone.now()
+        end = start + timedelta(hours=1)
+        IndustryJob.objects.create(
+            owner_user=manager,
+            owner_kind=Blueprint.OwnerKind.CORPORATION,
+            corporation_id=2_000_000,
+            corporation_name="Test Corp",
+            character_id=None,
+            job_id=9900301,
+            installer_id=manager_character.character_id,
+            station_id=PUBLIC_STATION_ID,
+            location_name="Corp Factory",
+            activity_id=1,
+            blueprint_id=6012001,
+            blueprint_type_id=6012002,
+            runs=1,
+            status="active",
+            duration=3600,
+            start_date=start,
+            end_date=end,
+            activity_name="Manufacturing",
+            blueprint_type_name="Slot Count Corp Job Blueprint",
+            product_type_name="Slot Count Corp Job Product",
+            character_name="Corp Slot Manager",
+        )
+
+        self.client.force_login(manager)
+        with patch(
+            "indy_hub.services.industry_skills.Token.objects.filter"
+        ) as mock_token_filter:
+            mock_token_filter.return_value.require_scopes.return_value.require_valid.return_value.values_list.return_value = [
+                manager_character.character_id
+            ]
+            response = self.client.get(reverse("indy_hub:corporation_job_list"))
+
+        self.assertEqual(response.status_code, 200)
+        summary = response.context["slot_overview_summary"]
+        self.assertEqual(summary["manufacturing"]["total"], 5)
+        self.assertEqual(summary["manufacturing"]["available"], 4)
+        self.assertEqual(summary["manufacturing"]["used"], 1)
+
+    def test_corporation_jobs_slot_overview_ignores_other_installers(self) -> None:
+        manager = User.objects.create_user("corpjob_slots_other", password="secret123")
+        manager_character = assign_main_character(manager, character_id=103302)
+        grant_indy_permissions(manager, "can_manage_corp_bp_requests")
+        IndustrySkillSnapshot.objects.create(
+            owner_user=manager,
+            character_id=manager_character.character_id,
+            mass_production_level=4,
+            advanced_mass_production_level=0,
+            laboratory_operation_level=0,
+            advanced_laboratory_operation_level=0,
+            mass_reactions_level=0,
+            advanced_mass_reactions_level=0,
+            skill_levels={"3387": {"active": 4, "trained": 4}},
+        )
+
+        start = timezone.now()
+        end = start + timedelta(hours=1)
+        IndustryJob.objects.create(
+            owner_user=manager,
+            owner_kind=Blueprint.OwnerKind.CORPORATION,
+            corporation_id=2_000_000,
+            corporation_name="Test Corp",
+            character_id=None,
+            job_id=9900302,
+            installer_id=99999999,
+            station_id=PUBLIC_STATION_ID,
+            location_name="Corp Factory",
+            activity_id=1,
+            blueprint_id=6012011,
+            blueprint_type_id=6012012,
+            runs=1,
+            status="active",
+            duration=3600,
+            start_date=start,
+            end_date=end,
+            activity_name="Manufacturing",
+            blueprint_type_name="Other Installer Corp Job Blueprint",
+            product_type_name="Other Installer Corp Job Product",
+            character_name="Other Installer",
+        )
+
+        self.client.force_login(manager)
+        with patch(
+            "indy_hub.services.industry_skills.Token.objects.filter"
+        ) as mock_token_filter:
+            mock_token_filter.return_value.require_scopes.return_value.require_valid.return_value.values_list.return_value = [
+                manager_character.character_id
+            ]
+            response = self.client.get(reverse("indy_hub:corporation_job_list"))
+
+        self.assertEqual(response.status_code, 200)
+        summary = response.context["slot_overview_summary"]
+        self.assertEqual(summary["manufacturing"]["total"], 5)
+        self.assertEqual(summary["manufacturing"]["available"], 5)
+        self.assertEqual(summary["manufacturing"]["used"], 0)
 
 
 class BlueprintCopyMyRequestsViewTests(TestCase):

@@ -13,6 +13,10 @@ from allianceauth.services.hooks import get_extension_logger
 # Local
 from ..decorators import indy_hub_permission_required
 from ..models import MaterialExchangeConfig, MaterialExchangeSettings
+from ..services.corporation_blueprint_visibility import (
+    can_view_corporation_blueprints,
+    can_view_corporation_jobs,
+)
 from ..utils.analytics import emit_view_analytics_event
 from .navigation import build_nav_context
 from .user import _build_dashboard_context
@@ -25,6 +29,8 @@ logger = get_extension_logger(__name__)
 def settings_hub(request):
     emit_view_analytics_event(view_name="settings_hub", request=request)
     can_manage_corp = request.user.has_perm("indy_hub.can_manage_corp_bp_requests")
+    can_view_corporation_bp = can_view_corporation_blueprints(request.user)
+    can_view_corporation_jobs_flag = can_view_corporation_jobs(request.user)
     can_manage_material_hub = request.user.has_perm("indy_hub.can_manage_material_hub")
 
     logger.debug(
@@ -39,6 +45,8 @@ def settings_hub(request):
         {
             "can_manage_material_hub": can_manage_material_hub,
             "can_manage_corp": can_manage_corp,
+            "can_view_corporation_blueprints": can_view_corporation_bp,
+            "can_view_corporation_jobs": can_view_corporation_jobs_flag,
         }
     )
 
@@ -65,6 +73,8 @@ def settings_hub(request):
             request.user,
             active_tab="settings",
             can_manage_corp=can_manage_corp,
+            can_view_corporation_bp=can_view_corporation_bp,
+            can_view_corporation_jobs_flag=can_view_corporation_jobs_flag,
             material_hub_enabled=context["material_exchange_enabled"],
         )
     )

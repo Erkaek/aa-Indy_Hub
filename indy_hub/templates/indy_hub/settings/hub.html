@@ -193,47 +193,75 @@
                 <header class="section-heading">
                     <div>
                         <h3>{% trans "Corporations" %}</h3>
-                        <p class="text-muted small mb-0">{% trans "Manage job alerts and sharing per corporation." %}</p>
+                        <p class="text-muted small mb-0">{% trans "Configure blueprint sharing, page access, and job alerts per corporation." %}</p>
                     </div>
                 </header>
 
                 {% if corporation_settings_controls %}
                 {% with corp_count=corporation_settings_controls|length %}
+                <div class="card focus-card mb-4">
+                    <div class="card-body p-3 p-lg-4">
+                        <div class="d-flex flex-column gap-3">
+                            <div>
+                                <h4 class="h6 mb-1">{% trans "Page access" %}</h4>
+                                <p class="text-muted small mb-0">{% trans "Choose who can open each corporation page." %}</p>
+                            </div>
+                            <div class="corp-page-access-matrix">
+                                <div class="corp-page-access-head">
+                                    <div class="corp-page-access-head-cell">{% trans "Corporation" %}</div>
+                                    <div class="corp-page-access-head-cell">{% trans "Blueprints page" %}</div>
+                                    <div class="corp-page-access-head-cell">{% trans "Jobs page" %}</div>
+                                </div>
+                                {% for corp in corporation_settings_controls %}
+                                <div class="corp-page-access-row">
+                                    <div class="corp-page-access-corp">
+                                        <div class="fw-semibold">{{ corp.corporation_name }}</div>
+                                    </div>
+                                    <div class="corp-page-access-control" data-corp-id="{{ corp.corporation_id }}">
+                                        <div class="corp-page-access-meta">
+                                            <span class="corp-page-access-mobile-title"><i class="fas fa-book-open me-2"></i>{% trans "Blueprints page" %}</span>
+                                            <span class="badge rounded-pill corp-catalog-badge {{ corp.catalog_badge_class|default:'bg-danger-subtle text-danger' }}">{{ corp.catalog_status_label }}</span>
+                                        </div>
+                                        <div class="share-mode-group corp-catalog-mode-group d-flex align-items-stretch gap-2" data-corp-id="{{ corp.corporation_id }}" role="group" aria-label="{% blocktrans with name=corp.corporation_name %}{{ name }} blueprint catalog visibility{% endblocktrans %}" data-current-scope="{{ corp.blueprint_catalog_scope }}">
+                                            <button type="button" class="share-mode-chip flex-fill {% if corp.blueprint_catalog_scope == 'none' %}is-active{% endif %}" data-share-scope="none" aria-pressed="{% if corp.blueprint_catalog_scope == 'none' %}true{% else %}false{% endif %}"><i class="fas fa-user-shield"></i><span>{% trans "Managers" %}</span></button>
+                                            <button type="button" class="share-mode-chip flex-fill {% if corp.blueprint_catalog_scope == 'corporation' %}is-active{% endif %}" data-share-scope="corporation" aria-pressed="{% if corp.blueprint_catalog_scope == 'corporation' %}true{% else %}false{% endif %}"><i class="fas fa-building"></i><span>{% trans "Corp" %}</span></button>
+                                            <button type="button" class="share-mode-chip flex-fill {% if corp.blueprint_catalog_scope == 'alliance' %}is-active{% endif %}" data-share-scope="alliance" aria-pressed="{% if corp.blueprint_catalog_scope == 'alliance' %}true{% else %}false{% endif %}"><i class="fas fa-people-group"></i><span>{% trans "Alliance" %}</span></button>
+                                            <button type="button" class="share-mode-chip flex-fill {% if corp.blueprint_catalog_scope == 'everyone' %}is-active{% endif %}" data-share-scope="everyone" aria-pressed="{% if corp.blueprint_catalog_scope == 'everyone' %}true{% else %}false{% endif %}"><i class="fas fa-globe"></i><span>{% trans "All" %}</span></button>
+                                        </div>
+                                    </div>
+                                    <div class="corp-page-access-control" data-corp-id="{{ corp.corporation_id }}">
+                                        <div class="corp-page-access-meta">
+                                            <span class="corp-page-access-mobile-title"><i class="fas fa-briefcase me-2"></i>{% trans "Jobs page" %}</span>
+                                            <span class="badge rounded-pill corp-job-catalog-badge {{ corp.job_catalog_badge_class|default:'bg-danger-subtle text-danger' }}">{{ corp.job_catalog_status_label }}</span>
+                                        </div>
+                                        <div class="share-mode-group corp-job-catalog-mode-group d-flex align-items-stretch gap-2" data-corp-id="{{ corp.corporation_id }}" role="group" aria-label="{% blocktrans with name=corp.corporation_name %}{{ name }} jobs page visibility{% endblocktrans %}" data-current-scope="{{ corp.job_catalog_scope }}">
+                                            <button type="button" class="share-mode-chip flex-fill {% if corp.job_catalog_scope == 'none' %}is-active{% endif %}" data-share-scope="none" aria-pressed="{% if corp.job_catalog_scope == 'none' %}true{% else %}false{% endif %}"><i class="fas fa-user-shield"></i><span>{% trans "Managers" %}</span></button>
+                                            <button type="button" class="share-mode-chip flex-fill {% if corp.job_catalog_scope == 'corporation' %}is-active{% endif %}" data-share-scope="corporation" aria-pressed="{% if corp.job_catalog_scope == 'corporation' %}true{% else %}false{% endif %}"><i class="fas fa-building"></i><span>{% trans "Corp" %}</span></button>
+                                            <button type="button" class="share-mode-chip flex-fill {% if corp.job_catalog_scope == 'alliance' %}is-active{% endif %}" data-share-scope="alliance" aria-pressed="{% if corp.job_catalog_scope == 'alliance' %}true{% else %}false{% endif %}"><i class="fas fa-people-group"></i><span>{% trans "Alliance" %}</span></button>
+                                            <button type="button" class="share-mode-chip flex-fill {% if corp.job_catalog_scope == 'everyone' %}is-active{% endif %}" data-share-scope="everyone" aria-pressed="{% if corp.job_catalog_scope == 'everyone' %}true{% else %}false{% endif %}"><i class="fas fa-globe"></i><span>{% trans "All" %}</span></button>
+                                        </div>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <header class="section-heading">
+                    <div>
+                        <h4>{% trans "Operations" %}</h4>
+                        <p class="text-muted small mb-0">{% trans "Manage copy sharing and job alerts per corporation." %}</p>
+                    </div>
+                </header>
                 <div class="accordion" id="corporationSettingsAccordion">
                     {% for corp in corporation_settings_controls %}
                     <div class="accordion-item focus-card mb-2">
                         <h2 class="accordion-header" id="corp-heading-{{ corp.corporation_id }}">
                             <button class="accordion-button {% if corp_count == 1 and forloop.first %}{% else %}collapsed{% endif %}" type="button" data-bs-toggle="collapse" data-bs-target="#corp-collapse-{{ corp.corporation_id }}" aria-expanded="{% if corp_count == 1 and forloop.first %}true{% else %}false{% endif %}" aria-controls="corp-collapse-{{ corp.corporation_id }}">
-                                <div class="d-flex align-items-center gap-3 w-100">
+                                <div class="d-flex flex-column align-items-start w-100">
                                     <div class="fw-semibold">{{ corp.corporation_name }}</div>
-                                    <div class="d-flex align-items-center gap-2 flex-grow-1 justify-content-center">
-                                        <span class="badge rounded-pill corp-header-jobs-badge {% if corp.jobs_frequency == 'disabled' %}bg-danger-subtle text-danger{% elif corp.jobs_frequency == 'immediate' %}bg-success-subtle text-success{% elif corp.jobs_frequency == 'daily' %}bg-info-subtle text-info{% elif corp.jobs_frequency == 'weekly' %}bg-warning-subtle text-warning{% elif corp.jobs_frequency == 'monthly' %}bg-secondary-subtle text-secondary-emphasis{% elif corp.jobs_frequency == 'custom' or corp.jobs_frequency == 'custom_hours' %}bg-light-subtle text-body{% else %}bg-info-subtle text-info{% endif %}" data-corp-id="{{ corp.corporation_id }}">
-                                            <i class="fas fa-bell fa-xs me-1"></i>
-                                            <span class="corp-header-jobs-label">
-                                            {% if corp.jobs_frequency == 'disabled' %}
-                                                {% trans "Muted" %}
-                                            {% elif corp.jobs_frequency == 'immediate' %}
-                                                {% trans "Instant" %}
-                                            {% elif corp.jobs_frequency == 'daily' %}
-                                                {% trans "Daily" %}
-                                            {% elif corp.jobs_frequency == 'weekly' %}
-                                                {% trans "Weekly" %}
-                                            {% elif corp.jobs_frequency == 'monthly' %}
-                                                {% trans "Monthly" %}
-                                            {% elif corp.jobs_frequency == 'custom_hours' %}
-                                                {{ corp.jobs_custom_hours }}h
-                                            {% elif corp.jobs_frequency == 'custom' %}
-                                                {{ corp.jobs_custom_days }}d
-                                            {% else %}
-                                                {{ corp.jobs_frequency }}
-                                            {% endif %}
-                                            </span>
-                                        </span>
-                                        <span class="badge rounded-pill corp-header-share-badge {{ corp.badge_class|default:'bg-danger-subtle text-danger' }}" data-corp-id="{{ corp.corporation_id }}">
-                                            <i class="fas fa-share-nodes fa-xs me-1"></i>
-                                            <span class="corp-header-share-label">{{ corp.status_label }}</span>
-                                        </span>
-                                    </div>
+                                    <div class="text-muted small">{% trans "Copy sharing and job alerts" %}</div>
                                 </div>
                             </button>
                         </h2>
@@ -241,10 +269,30 @@
                             <div class="accordion-body">
                                 <div class="row g-3">
                                     <div class="col-12 col-lg-6 d-flex">
+                                        <div class="corp-share-control border rounded-4 p-3 bg-body-tertiary bg-opacity-25 w-100 h-100 d-flex flex-column" data-corp-id="{{ corp.corporation_id }}">
+                                            <div class="settings-domain-row">
+                                                <div class="settings-domain-copy">
+                                                    <span class="share-metric-label"><i class="fas fa-share-nodes me-2"></i>{% trans "Copy sharing" %}</span>
+                                                    <p class="text-muted small mb-0 corp-share-hint">{{ corp.status_hint }}</p>
+                                                </div>
+                                                <span class="badge rounded-pill corp-share-badge {{ corp.badge_class|default:'bg-danger-subtle text-danger' }}">{{ corp.status_label }}</span>
+                                            </div>
+                                            <div class="share-mode-group corp-share-mode-group mt-2 d-flex align-items-stretch gap-2" data-corp-id="{{ corp.corporation_id }}" data-has-blueprint-scope="{{ corp.has_blueprint_scope|yesno:'true,false' }}" role="group" aria-label="{% blocktrans with name=corp.corporation_name %}{{ name }} blueprint sharing scope{% endblocktrans %}" data-current-scope="{{ corp.share_scope }}">
+                                                <button type="button" class="share-mode-chip flex-fill {% if corp.share_scope == 'none' %}is-active{% endif %}" data-share-scope="none" aria-pressed="{% if corp.share_scope == 'none' %}true{% else %}false{% endif %}"><i class="fas fa-lock"></i><span>{% trans "Private" %}</span></button>
+                                                <button type="button" class="share-mode-chip flex-fill {% if corp.share_scope == 'corporation' %}is-active{% endif %}" data-share-scope="corporation" aria-pressed="{% if corp.share_scope == 'corporation' %}true{% else %}false{% endif %}"><i class="fas fa-building"></i><span>{% trans "Corporation" %}</span></button>
+                                                <button type="button" class="share-mode-chip flex-fill {% if corp.share_scope == 'alliance' %}is-active{% endif %}" data-share-scope="alliance" aria-pressed="{% if corp.share_scope == 'alliance' %}true{% else %}false{% endif %}"><i class="fas fa-people-group"></i><span>{% trans "Alliance" %}</span></button>
+                                                <button type="button" class="share-mode-chip flex-fill {% if corp.share_scope == 'everyone' %}is-active{% endif %}" data-share-scope="everyone" aria-pressed="{% if corp.share_scope == 'everyone' %}true{% else %}false{% endif %}"><i class="fas fa-globe"></i><span>{% trans "Everyone" %}</span></button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="col-12 col-lg-6 d-flex">
                                         <div class="corp-job-alert-control border rounded-4 p-3 bg-body-tertiary bg-opacity-25 w-100 h-100 d-flex flex-column" data-corp-id="{{ corp.corporation_id }}">
-                                            <div class="mb-2">
-                                                <span class="share-metric-label"><i class="fas fa-bell me-2"></i>{% trans "Job alerts" %}</span>
-                                                <p class="text-muted small mb-0 corp-notify-hint">{{ corp.jobs_hint }}</p>
+                                            <div class="settings-domain-row">
+                                                <div class="settings-domain-copy">
+                                                    <span class="share-metric-label"><i class="fas fa-bell me-2"></i>{% trans "Job alerts" %}</span>
+                                                    <p class="text-muted small mb-0 corp-notify-hint">{{ corp.jobs_hint }}</p>
+                                                </div>
                                             </div>
                                             <div class="notification-preference flex-grow-1" id="corp-job-notification-controls-{{ corp.corporation_id }}">
                                                 <div
@@ -295,27 +343,6 @@
                                                         <i class="fas fa-save me-1"></i>{% trans "Save cadence" %}
                                                     </button>
                                                 </div>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div class="col-12 col-lg-6 d-flex">
-                                        <div class="corp-share-control border rounded-4 p-3 bg-body-tertiary bg-opacity-25 w-100 h-100" data-corp-id="{{ corp.corporation_id }}">
-                                            <div class="mb-2">
-                                                <div class="d-flex align-items-start justify-content-between gap-3">
-                                                    <div>
-                                                        <span class="share-metric-label"><i class="fas fa-share-nodes me-2"></i>{% trans "Copy sharing" %}</span>
-                                                        <p class="text-muted small mb-0 corp-share-hint">{{ corp.status_hint }}</p>
-                                                    </div>
-                                                    <span class="badge rounded-pill corp-share-badge {{ corp.badge_class|default:'bg-danger-subtle text-danger' }}">{{ corp.status_label }}</span>
-                                                    </span>
-                                                </div>
-                                            </div>
-                                            <div class="share-mode-group corp-share-mode-group mt-2 d-flex align-items-stretch gap-2" data-corp-id="{{ corp.corporation_id }}" data-has-blueprint-scope="{{ corp.has_blueprint_scope|yesno:'true,false' }}" role="group" aria-label="{% blocktrans with name=corp.corporation_name %}{{ name }} blueprint sharing scope{% endblocktrans %}" data-current-scope="{{ corp.share_scope }}">
-                                                <button type="button" class="share-mode-chip flex-fill {% if corp.share_scope == 'none' %}is-active{% endif %}" data-share-scope="none" aria-pressed="{% if corp.share_scope == 'none' %}true{% else %}false{% endif %}"><i class="fas fa-lock"></i><span>{% trans "Private" %}</span></button>
-                                                <button type="button" class="share-mode-chip flex-fill {% if corp.share_scope == 'corporation' %}is-active{% endif %}" data-share-scope="corporation" aria-pressed="{% if corp.share_scope == 'corporation' %}true{% else %}false{% endif %}"><i class="fas fa-building"></i><span>{% trans "Corporation" %}</span></button>
-                                                <button type="button" class="share-mode-chip flex-fill {% if corp.share_scope == 'alliance' %}is-active{% endif %}" data-share-scope="alliance" aria-pressed="{% if corp.share_scope == 'alliance' %}true{% else %}false{% endif %}"><i class="fas fa-people-group"></i><span>{% trans "Alliance" %}</span></button>
-                                                <button type="button" class="share-mode-chip flex-fill {% if corp.share_scope == 'everyone' %}is-active{% endif %}" data-share-scope="everyone" aria-pressed="{% if corp.share_scope == 'everyone' %}true{% else %}false{% endif %}"><i class="fas fa-globe"></i><span>{% trans "Everyone" %}</span></button>
                                             </div>
                                         </div>
                                     </div>
@@ -470,7 +497,11 @@ window.updateJobNotificationsUrl = '{% url 'indy_hub:toggle_job_notifications' %
 window.updateCorporationJobNotificationsUrl = '{% url 'indy_hub:toggle_corporation_job_notifications' %}';
 window.toggleCopySharingUrl = '{% url 'indy_hub:toggle_copy_sharing' %}';
 window.toggleCorporationCopySharingUrl = '{% url 'indy_hub:toggle_corporation_copy_sharing' %}';
+window.toggleCorporationBlueprintCatalogUrl = '{% url 'indy_hub:toggle_corporation_blueprint_catalog' %}';
+window.toggleCorporationJobCatalogUrl = '{% url 'indy_hub:toggle_corporation_job_catalog' %}';
 window.copySharingStates = JSON.parse('{{ copy_sharing_states_json|default:"{}"|escapejs }}');
+window.blueprintCatalogStates = JSON.parse('{{ blueprint_catalog_states_json|default:"{}"|escapejs }}');
+window.jobCatalogStates = JSON.parse('{{ job_catalog_states_json|default:"{}"|escapejs }}');
 window.corporationShareControls = JSON.parse('{{ corporation_share_controls_json|default:"[]"|escapejs }}');
 window.corporationJobNotificationControls = JSON.parse('{{ corp_job_notification_controls_json|default:"[]"|escapejs }}');
 window.jobNotificationState = {

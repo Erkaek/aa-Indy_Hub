@@ -584,14 +584,6 @@ document.addEventListener('DOMContentLoaded', function() {
     // Corporation job notification controls (per-corporation state management)
     var corpJobNotificationStates = {};
 
-    function getCorpJobsHeaderBadge(corpId) {
-        return document.querySelector('.corp-header-jobs-badge[data-corp-id="' + corpId + '"]');
-    }
-
-    function getCorpShareHeaderBadge(corpId) {
-        return document.querySelector('.corp-header-share-badge[data-corp-id="' + corpId + '"]');
-    }
-
     function getCorpJobsBadgeClass(frequency) {
         if (frequency === 'disabled') {
             return 'bg-danger-subtle text-danger';
@@ -639,36 +631,6 @@ document.addEventListener('DOMContentLoaded', function() {
             return String(days) + 'd';
         }
         return String(frequency || '');
-    }
-
-    function updateCorpAccordionJobsHeader(corpId, frequency, customDays, customHours) {
-        var badge = getCorpJobsHeaderBadge(corpId);
-        if (!badge) {
-            return;
-        }
-        badge.className = 'badge rounded-pill corp-header-jobs-badge ' + getCorpJobsBadgeClass(frequency);
-        badge.setAttribute('data-corp-id', corpId);
-
-        var label = badge.querySelector('.corp-header-jobs-label');
-        if (label) {
-            var value = frequency === 'custom_hours' ? customHours : customDays;
-            label.textContent = getCorpJobsBadgeLabel(frequency, value);
-        }
-    }
-
-    function updateCorpAccordionShareHeader(corpId, payload) {
-        var badge = getCorpShareHeaderBadge(corpId);
-        if (!badge || !payload) {
-            return;
-        }
-        if (payload.badge_class) {
-            badge.className = 'badge rounded-pill corp-header-share-badge ' + payload.badge_class;
-            badge.setAttribute('data-corp-id', corpId);
-        }
-        var label = badge.querySelector('.corp-header-share-label');
-        if (label && payload.status_label) {
-            label.textContent = payload.status_label;
-        }
     }
 
     // Initialize per-corporation states from context
@@ -923,8 +885,6 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
 
                     previewCorpFrequencyHint(corpState.frequency);
-
-                    updateCorpAccordionJobsHeader(corpId, corpState.frequency, corpState.customDays, corpState.customHours);
 
                     var popupMessage = data.message || __('Corporation job notification preferences updated.');
                     showIndyHubPopup(popupMessage, 'success');
@@ -1345,29 +1305,37 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (!payload) {
                     return;
                 }
-                setCorpActive(payload.scope);
-                var container = group.closest('.corp-share-control');
-                if (!container) {
-                    return;
-                }
-                var badge = container.querySelector('.corp-share-badge');
-                if (badge) {
-                    var nextBadgeClass = payload.badge_class ? payload.badge_class : null;
-                    if (nextBadgeClass) {
-                        badge.className = 'badge rounded-pill corp-share-badge ' + nextBadgeClass;
+                var matchingGroups = document.querySelectorAll('.corp-share-mode-group[data-corp-id="' + corpId + '"]');
+                matchingGroups.forEach(function(matchingGroup) {
+                    matchingGroup.dataset.currentScope = payload.scope || '';
+                    Array.from(matchingGroup.querySelectorAll('[data-share-scope]')).forEach(function(chip) {
+                        var isActive = chip.dataset.shareScope === payload.scope;
+                        chip.classList.toggle('is-active', isActive);
+                        chip.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+                    });
+                });
+
+                var containers = document.querySelectorAll('.corp-share-control[data-corp-id="' + corpId + '"]');
+                containers.forEach(function(container) {
+                    var badge = container.querySelector('.corp-share-badge');
+                    if (badge) {
+                        var nextBadgeClass = payload.badge_class ? payload.badge_class : null;
+                        if (nextBadgeClass) {
+                            badge.className = 'badge rounded-pill corp-share-badge ' + nextBadgeClass;
+                        }
+                        if (payload.status_label) {
+                            badge.textContent = payload.status_label;
+                        }
                     }
-                    if (payload.status_label) {
-                        badge.textContent = payload.status_label;
+                    var hint = container.querySelector('.corp-share-hint');
+                    if (hint) {
+                        if (payload.status_hint) {
+                            hint.textContent = payload.status_hint;
+                        } else if (payload.button_hint) {
+                            hint.textContent = payload.button_hint;
+                        }
                     }
-                }
-                var hint = container.querySelector('.corp-share-hint');
-                if (hint) {
-                    if (payload.status_hint) {
-                        hint.textContent = payload.status_hint;
-                    } else if (payload.button_hint) {
-                        hint.textContent = payload.button_hint;
-                    }
-                }
+                });
             }
 
             corpButtons.forEach(function(btn) {
@@ -1399,12 +1367,199 @@ document.addEventListener('DOMContentLoaded', function() {
                                 return;
                             }
                             updateCorpUI(data);
-                            updateCorpAccordionShareHeader(corpId, data);
                             var popupMessage = data.popup_message || __('Corporate blueprint sharing updated.');
                             showIndyHubPopup(popupMessage, data.enabled ? 'success' : 'secondary');
                         })
                         .catch(function() {
                             showIndyHubPopup(__('Error updating corporate sharing.'), 'danger');
+                        });
+                });
+            });
+        });
+    }
+
+    var catalogStates = window.blueprintCatalogStates || {};
+    var catalogGroups = Array.from(document.querySelectorAll('.corp-catalog-mode-group'));
+    if (catalogGroups.length) {
+        catalogGroups.forEach(function(group) {
+            var corpId = group.dataset.corpId;
+            if (!corpId) {
+                return;
+            }
+            var catalogButtons = Array.from(group.querySelectorAll('[data-share-scope]'));
+
+            function setCatalogActive(scope) {
+                group.dataset.currentScope = scope || '';
+                catalogButtons.forEach(function(btn) {
+                    var isActive = btn.dataset.shareScope === scope;
+                    btn.classList.toggle('is-active', isActive);
+                    btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+                });
+            }
+
+            function updateCatalogUI(payload) {
+                if (!payload) {
+                    return;
+                }
+                var matchingGroups = document.querySelectorAll('.corp-catalog-mode-group[data-corp-id="' + corpId + '"]');
+                matchingGroups.forEach(function(matchingGroup) {
+                    matchingGroup.dataset.currentScope = payload.scope || '';
+                    Array.from(matchingGroup.querySelectorAll('[data-share-scope]')).forEach(function(chip) {
+                        var isActive = chip.dataset.shareScope === payload.scope;
+                        chip.classList.toggle('is-active', isActive);
+                        chip.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+                    });
+                });
+
+                var containers = document.querySelectorAll('.corp-page-access-control[data-corp-id="' + corpId + '"]');
+                containers.forEach(function(container) {
+                    var badge = container.querySelector('.corp-catalog-badge');
+                    if (!badge) {
+                        return;
+                    }
+                    if (payload.badge_class) {
+                        badge.className = 'badge rounded-pill corp-catalog-badge ' + payload.badge_class;
+                    }
+                    if (payload.status_label) {
+                        badge.textContent = payload.status_label;
+                    }
+                    var hint = container.querySelector('.corp-catalog-hint');
+                    if (hint && payload.status_hint) {
+                        hint.textContent = payload.status_hint;
+                    }
+                });
+            }
+
+            var initialCatalogScope = group.dataset.currentScope || 'none';
+            if (catalogStates[initialCatalogScope]) {
+                updateCatalogUI(Object.assign({ scope: initialCatalogScope }, catalogStates[initialCatalogScope]));
+            } else {
+                setCatalogActive(initialCatalogScope);
+            }
+
+            catalogButtons.forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    var desiredScope = btn.dataset.shareScope;
+                    if (!desiredScope || desiredScope === group.dataset.currentScope) {
+                        return;
+                    }
+                    fetch(window.toggleCorporationBlueprintCatalogUrl, {
+                        method: 'POST',
+                        headers: {
+                            'X-CSRFToken': window.csrfToken,
+                            'Accept': 'application/json',
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            corporation_id: corpId,
+                            scope: desiredScope
+                        })
+                    })
+                        .then(function(r) { return r.json(); })
+                        .then(function(data) {
+                            if (data.error) {
+                                showIndyHubPopup(__('Error updating corporation blueprint catalog visibility.'), 'danger');
+                                return;
+                            }
+                            updateCatalogUI(data);
+                            showIndyHubPopup(data.popup_message || __('Corporation blueprint catalog visibility updated.'), data.scope === 'none' ? 'secondary' : 'success');
+                        })
+                        .catch(function() {
+                            showIndyHubPopup(__('Error updating corporation blueprint catalog visibility.'), 'danger');
+                        });
+                });
+            });
+        });
+    }
+
+    var jobCatalogStates = window.jobCatalogStates || {};
+    var jobCatalogGroups = Array.from(document.querySelectorAll('.corp-job-catalog-mode-group'));
+    if (jobCatalogGroups.length) {
+        jobCatalogGroups.forEach(function(group) {
+            var corpId = group.dataset.corpId;
+            if (!corpId) {
+                return;
+            }
+            var jobCatalogButtons = Array.from(group.querySelectorAll('[data-share-scope]'));
+
+            function setJobCatalogActive(scope) {
+                group.dataset.currentScope = scope || '';
+                jobCatalogButtons.forEach(function(btn) {
+                    var isActive = btn.dataset.shareScope === scope;
+                    btn.classList.toggle('is-active', isActive);
+                    btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+                });
+            }
+
+            function updateJobCatalogUI(payload) {
+                if (!payload) {
+                    return;
+                }
+                var matchingGroups = document.querySelectorAll('.corp-job-catalog-mode-group[data-corp-id="' + corpId + '"]');
+                matchingGroups.forEach(function(matchingGroup) {
+                    matchingGroup.dataset.currentScope = payload.scope || '';
+                    Array.from(matchingGroup.querySelectorAll('[data-share-scope]')).forEach(function(chip) {
+                        var isActive = chip.dataset.shareScope === payload.scope;
+                        chip.classList.toggle('is-active', isActive);
+                        chip.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+                    });
+                });
+
+                var containers = document.querySelectorAll('.corp-page-access-control[data-corp-id="' + corpId + '"]');
+                containers.forEach(function(container) {
+                    var badge = container.querySelector('.corp-job-catalog-badge');
+                    if (!badge) {
+                        return;
+                    }
+                    if (payload.badge_class) {
+                        badge.className = 'badge rounded-pill corp-job-catalog-badge ' + payload.badge_class;
+                    }
+                    if (payload.status_label) {
+                        badge.textContent = payload.status_label;
+                    }
+                    var hint = container.querySelector('.corp-job-catalog-hint');
+                    if (hint && payload.status_hint) {
+                        hint.textContent = payload.status_hint;
+                    }
+                });
+            }
+
+            var initialJobCatalogScope = group.dataset.currentScope || 'none';
+            if (jobCatalogStates[initialJobCatalogScope]) {
+                updateJobCatalogUI(Object.assign({ scope: initialJobCatalogScope }, jobCatalogStates[initialJobCatalogScope]));
+            } else {
+                setJobCatalogActive(initialJobCatalogScope);
+            }
+
+            jobCatalogButtons.forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    var desiredScope = btn.dataset.shareScope;
+                    if (!desiredScope || desiredScope === group.dataset.currentScope) {
+                        return;
+                    }
+                    fetch(window.toggleCorporationJobCatalogUrl, {
+                        method: 'POST',
+                        headers: {
+                            'X-CSRFToken': window.csrfToken,
+                            'Accept': 'application/json',
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            corporation_id: corpId,
+                            scope: desiredScope
+                        })
+                    })
+                        .then(function(r) { return r.json(); })
+                        .then(function(data) {
+                            if (data.error) {
+                                showIndyHubPopup(__('Error updating corporation jobs visibility.'), 'danger');
+                                return;
+                            }
+                            updateJobCatalogUI(data);
+                            showIndyHubPopup(data.popup_message || __('Corporation jobs visibility updated.'), data.scope === 'none' ? 'secondary' : 'success');
+                        })
+                        .catch(function() {
+                            showIndyHubPopup(__('Error updating corporation jobs visibility.'), 'danger');
                         });
                 });
             });

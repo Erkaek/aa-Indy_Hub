@@ -62,3 +62,9 @@ def register_urls():
     Register IndyHub URL patterns.
     """
     return UrlHook(urls, "indy_hub", r"^indy_hub/")
+
+
+@hooks.register("charlink")
+def register_charlink_hook():
+    """Register the optional CharLink integration module."""
+    return "indy_hub.thirdparty.charlink_hook"

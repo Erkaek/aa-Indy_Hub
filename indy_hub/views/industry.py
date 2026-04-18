@@ -2,10 +2,11 @@
 
 # Standard Library
 import json
+import re
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from math import ceil
 from typing import Any
 from urllib.parse import urlencode
@@ -61,6 +62,7 @@ from ..models import (
     ProductionConfig,
     ProductionSimulation,
     SDEBlueprintActivity,
+    SDEBlueprintActivityProduct,
     SDEMarketGroup,
 )
 from ..notifications import (
@@ -70,6 +72,10 @@ from ..notifications import (
     notify_user,
     send_discord_webhook_with_message_id,
 )
+from ..services.corporation_blueprint_visibility import (
+    get_viewable_corporation_ids,
+    get_viewable_corporation_job_ids,
+)
 from ..services.craft_materials import (
     compute_job_material_quantity,
     is_base_item_material_efficiency_exempt,
@@ -77,6 +83,7 @@ from ..services.craft_materials import (
 from ..services.craft_structures import build_craft_structure_planner
 from ..services.craft_times import (
     build_craft_time_map,
+    compute_effective_cycle_seconds,
     get_max_copy_runs_per_request,
 )
 from ..services.esi_client import ESIUnmodifiedError, shared_client
@@ -103,6 +110,7 @@ from ..services.industry_structures import (
     sde_item_types_loaded,
     search_solar_system_options,
 )
+from ..services.market_prices import MarketPriceError, fetch_adjusted_prices
 from ..services.simulations import summarize_simulations
 from ..tasks.industry import (
     BLUEPRINT_SCOPE,
@@ -1038,6 +1046,196 @@ def _close_request_chats(req: BlueprintCopyRequest, reason: str) -> None:
         chat.close(reason=reason)
 
 
+def _normalize_offer_amount(raw_amount: Any) -> Decimal | None:
+    if raw_amount in {None, ""}:
+        return None
+
+    try:
+        amount = Decimal(str(raw_amount).strip().replace(",", ""))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+
+    if amount <= 0:
+        return None
+
+    return amount.quantize(Decimal("0.01"))
+
+
+def _format_isk_amount(amount: Decimal | None) -> str:
+    if amount is None:
+        return ""
+
+    normalized = amount.quantize(Decimal("0.01"))
+    whole_amount = normalized.quantize(Decimal("1"))
+    if normalized == whole_amount:
+        return f"{int(whole_amount):,}"
+    return f"{normalized:,.2f}"
+
+
+def _format_percent_compact(value: Decimal | int | float | str | None) -> str:
+    try:
+        numeric_value = Decimal(str(value or 0)).quantize(Decimal("0.01"))
+    except (InvalidOperation, TypeError, ValueError):
+        numeric_value = Decimal("0.00")
+    return format(numeric_value, "f").rstrip("0").rstrip(".") or "0"
+
+
+def _format_duration_compact(total_seconds: int | float | Decimal | None) -> str:
+    seconds = max(0, int(total_seconds or 0))
+    if seconds <= 0:
+        return "-"
+
+    days = seconds // 86400
+    hours = (seconds % 86400) // 3600
+    minutes = (seconds % 3600) // 60
+    parts: list[str] = []
+
+    if days:
+        parts.append(f"{days}d")
+    if hours:
+        parts.append(f"{hours}h")
+    if minutes:
+        parts.append(f"{minutes}m")
+    if not parts:
+        parts.append(f"{seconds}s")
+
+    return " ".join(parts)
+
+
+def _build_copy_duration_payload(
+    *,
+    base_time_seconds: int | float | Decimal | None,
+    runs_requested: int,
+    copies_requested: int,
+    structure_time_bonus_percent: Decimal | int | float | str | None = None,
+    character_time_bonus_percent: Decimal | int | float | str | None = None,
+) -> dict[str, Any] | None:
+    numeric_base_time_seconds = max(0, int(base_time_seconds or 0))
+    if numeric_base_time_seconds <= 0:
+        return None
+
+    structure_bonus = Decimal(str(structure_time_bonus_percent or 0))
+    character_bonus = Decimal(str(character_time_bonus_percent or 0))
+    normalized_runs_requested = max(int(runs_requested or 1), 1)
+    normalized_copies_requested = max(int(copies_requested or 1), 1)
+
+    effective_cycle_seconds = compute_effective_cycle_seconds(
+        base_time_seconds=numeric_base_time_seconds,
+        time_efficiency=float(character_bonus),
+        structure_time_bonus_percent=float(structure_bonus),
+    )
+    per_copy_duration_seconds = effective_cycle_seconds * normalized_runs_requested
+    total_duration_seconds = per_copy_duration_seconds * normalized_copies_requested
+
+    meta_parts = [
+        _("Per copy %(duration)s")
+        % {"duration": _format_duration_compact(per_copy_duration_seconds)}
+    ]
+    if structure_bonus > 0:
+        meta_parts.append(
+            _("Structure bonus -%(bonus)s%%")
+            % {"bonus": _format_percent_compact(structure_bonus)}
+        )
+    if character_bonus > 0:
+        meta_parts.append(
+            _("Character bonus -%(bonus)s%%")
+            % {"bonus": _format_percent_compact(character_bonus)}
+        )
+    else:
+        meta_parts.append(_("Character skills not included."))
+
+    return {
+        "base_time_seconds": numeric_base_time_seconds,
+        "effective_cycle_seconds": effective_cycle_seconds,
+        "per_copy_duration_seconds": per_copy_duration_seconds,
+        "per_copy_duration_display": _format_duration_compact(
+            per_copy_duration_seconds
+        ),
+        "total_duration_seconds": total_duration_seconds,
+        "total_duration_display": _format_duration_compact(total_duration_seconds),
+        "structure_time_bonus_percent": structure_bonus,
+        "character_time_bonus_percent": character_bonus,
+        "meta_label": " \u00b7 ".join(meta_parts),
+    }
+
+
+NEGOTIATION_BAR_MESSAGE_RE = re.compile(
+    r"^(Buyer|Builder) (proposed|counter-proposed|reconfirmed) [\d,]+(?:\.\d{2})? ISK\.$"
+)
+
+
+def _classify_bp_chat_message(message: BlueprintCopyMessage) -> str:
+    content = (message.content or "").strip()
+    if message.sender_role == BlueprintCopyMessage.SenderRole.SYSTEM:
+        return "proposal" if NEGOTIATION_BAR_MESSAGE_RE.match(content) else "system"
+    if NEGOTIATION_BAR_MESSAGE_RE.match(content):
+        return "proposal"
+    return "message"
+
+
+def _record_offer_proposal(
+    offer: BlueprintCopyOffer,
+    *,
+    proposer_role: str,
+    amount: Decimal,
+    sender: User,
+    note: str = "",
+) -> BlueprintCopyChat:
+    previous_amount = offer.proposed_amount
+    previous_role = offer.proposed_by_role
+
+    offer.status = "conditional"
+    offer.proposed_amount = amount
+    offer.proposed_by_role = proposer_role
+    offer.proposed_at = timezone.now()
+    offer.accepted_by_buyer = proposer_role == BlueprintCopyOffer.ProposalRole.BUYER
+    offer.accepted_by_seller = proposer_role == BlueprintCopyOffer.ProposalRole.SELLER
+    offer.accepted_at = None
+    if note:
+        offer.message = note
+    offer.save()
+
+    chat = _ensure_offer_chat(offer)
+    proposal_actor = _("Buyer") if proposer_role == "buyer" else _("Builder")
+    proposal_verb = (
+        _("counter-proposed") if previous_amount is not None else _("proposed")
+    )
+    if (
+        previous_amount is not None
+        and previous_role == proposer_role
+        and previous_amount == amount
+    ):
+        proposal_verb = _("reconfirmed")
+
+    proposal_message = BlueprintCopyMessage(
+        chat=chat,
+        sender=sender,
+        sender_role=BlueprintCopyMessage.SenderRole.SYSTEM,
+        content=_("%(actor)s %(verb)s %(amount)s ISK.")
+        % {
+            "actor": proposal_actor,
+            "verb": proposal_verb,
+            "amount": _format_isk_amount(amount),
+        },
+    )
+    proposal_message.full_clean()
+    proposal_message.save()
+    chat.register_message(sender_role=proposer_role)
+
+    if note:
+        note_message = BlueprintCopyMessage(
+            chat=chat,
+            sender=sender,
+            sender_role=proposer_role,
+            content=note,
+        )
+        note_message.full_clean()
+        note_message.save()
+        chat.register_message(sender_role=proposer_role)
+
+    return chat
+
+
 def _finalize_conditional_offer(offer: BlueprintCopyOffer) -> None:
     req = offer.request
     if offer.status == "accepted" and req.fulfilled:
@@ -1071,12 +1269,20 @@ def _finalize_conditional_offer(offer: BlueprintCopyOffer) -> None:
     notify_user(
         offer.owner,
         _("Blueprint Copy Request - Buyer Accepted"),
-        _("%(buyer)s accepted your offer for %(type)s (ME%(me)s, TE%(te)s).")
+        _(
+            "%(buyer)s accepted your offer for %(type)s (ME%(me)s, TE%(te)s)%(amount_suffix)s."
+        )
         % {
             "buyer": req.requested_by.username,
             "type": get_type_name(req.type_id),
             "me": req.material_efficiency,
             "te": req.time_efficiency,
+            "amount_suffix": (
+                _(" at %(amount)s ISK")
+                % {"amount": _format_isk_amount(offer.proposed_amount)}
+                if offer.proposed_amount is not None
+                else ""
+            ),
         },
         "success",
         link=fulfill_queue_url,
@@ -1086,12 +1292,20 @@ def _finalize_conditional_offer(offer: BlueprintCopyOffer) -> None:
     notify_user(
         req.requested_by,
         _("Conditional offer confirmed"),
-        _("%(builder)s confirmed your agreement for %(type)s (ME%(me)s, TE%(te)s).")
+        _(
+            "%(builder)s confirmed your agreement for %(type)s (ME%(me)s, TE%(te)s)%(amount_suffix)s."
+        )
         % {
             "builder": offer.owner.username,
             "type": get_type_name(req.type_id),
             "me": req.material_efficiency,
             "te": req.time_efficiency,
+            "amount_suffix": (
+                _(" at %(amount)s ISK")
+                % {"amount": _format_isk_amount(offer.proposed_amount)}
+                if offer.proposed_amount is not None
+                else ""
+            ),
         },
         "success",
         link=buyer_requests_url,
@@ -1149,12 +1363,17 @@ def personnal_bp_list(request, scope="character"):
 
     is_corporation_scope = scope == "corporation"
     has_corporate_perm = request.user.has_perm("indy_hub.can_manage_corp_bp_requests")
+    accessible_corporation_ids: list[int] = []
+    if is_corporation_scope:
+        accessible_corporation_ids = sorted(get_viewable_corporation_ids(request.user))
+
+    requires_own_tokens = not is_corporation_scope or has_corporate_perm
     required_scopes = (
         list(CORP_BLUEPRINT_SCOPE_SET)
         if is_corporation_scope
         else [BLUEPRINT_SCOPE, STRUCTURE_SCOPE]
     )
-    if not _has_required_scopes(request.user, required_scopes):
+    if requires_own_tokens and not _has_required_scopes(request.user, required_scopes):
         messages.warning(
             request,
             _("ESI: missing blueprint scope/tokens. Add a character in the ESI tab."),
@@ -1213,7 +1432,7 @@ def personnal_bp_list(request, scope="character"):
         logger.error(f"Error handling blueprint refresh: {e}")
         messages.error(request, f"Error handling blueprint refresh: {e}")
 
-    if is_corporation_scope and not has_corporate_perm:
+    if is_corporation_scope and not accessible_corporation_ids:
         messages.error(
             request,
             _("You do not have permission to view corporation blueprints."),
@@ -1260,23 +1479,9 @@ def personnal_bp_list(request, scope="character"):
             else Blueprint.OwnerKind.CHARACTER
         )
         if is_corporation_scope:
-            # Corporation blueprints should be visible to all corporation managers
-            # within the same corporation as the requesting user, regardless of
-            # which user imported/synced the blueprints.
-            user_corp_ids = list(
-                CharacterOwnership.objects.filter(user=request.user)
-                .exclude(character__corporation_id__isnull=True)
-                .values_list("character__corporation_id", flat=True)
-                .distinct()
-            )
-            if not user_corp_ids:
-                identity = _resolve_user_identity(request.user)
-                if identity.corporation_id:
-                    user_corp_ids = [identity.corporation_id]
-
             base_blueprints_qs = Blueprint.objects.filter(
                 owner_kind=owner_kind_filter,
-                corporation_id__in=user_corp_ids,
+                corporation_id__in=accessible_corporation_ids,
             )
         else:
             base_blueprints_qs = Blueprint.objects.filter(
@@ -1685,12 +1890,20 @@ def personnal_job_list(request, scope="character"):
 
     is_corporation_scope = scope == "corporation"
     has_corporate_perm = request.user.has_perm("indy_hub.can_manage_corp_bp_requests")
+    viewable_corporation_job_ids = sorted(
+        get_viewable_corporation_job_ids(request.user)
+    )
+    accessible_corporation_ids: list[int] = []
+    if is_corporation_scope:
+        accessible_corporation_ids = viewable_corporation_job_ids
+
+    requires_own_tokens = not is_corporation_scope or has_corporate_perm
     required_scopes = (
         list(CORP_JOBS_SCOPE_SET)
         if is_corporation_scope
         else [JOBS_SCOPE, STRUCTURE_SCOPE]
     )
-    if not _has_required_scopes(request.user, required_scopes):
+    if requires_own_tokens and not _has_required_scopes(request.user, required_scopes):
         messages.warning(
             request,
             _("ESI: missing job scope/tokens. Add a character in the ESI tab."),
@@ -1748,7 +1961,7 @@ def personnal_job_list(request, scope="character"):
         logger.error(f"Error handling jobs refresh: {e}")
         messages.error(request, f"Error handling jobs refresh: {e}")
 
-    if is_corporation_scope and not has_corporate_perm:
+    if is_corporation_scope and not accessible_corporation_ids:
         messages.error(
             request,
             _("You do not have permission to view corporation industry jobs."),
@@ -1774,19 +1987,6 @@ def personnal_job_list(request, scope="character"):
         else Blueprint.OwnerKind.CHARACTER
     )
 
-    user_corp_ids: list[int] = []
-    if is_corporation_scope:
-        user_corp_ids = list(
-            CharacterOwnership.objects.filter(user=request.user)
-            .exclude(character__corporation_id__isnull=True)
-            .values_list("character__corporation_id", flat=True)
-            .distinct()
-        )
-        if not user_corp_ids:
-            identity = _resolve_user_identity(request.user)
-            if identity.corporation_id:
-                user_corp_ids = [identity.corporation_id]
-
     if per_page:
         per_page = int(per_page)
         if per_page < 1:
@@ -1795,7 +1995,7 @@ def personnal_job_list(request, scope="character"):
         if is_corporation_scope:
             per_page = IndustryJob.objects.filter(
                 owner_kind=owner_kind_filter,
-                corporation_id__in=user_corp_ids,
+                corporation_id__in=accessible_corporation_ids,
             ).count()
         else:
             per_page = IndustryJob.objects.filter(
@@ -1808,7 +2008,7 @@ def personnal_job_list(request, scope="character"):
     if is_corporation_scope:
         base_jobs_qs = IndustryJob.objects.filter(
             owner_kind=owner_kind_filter,
-            corporation_id__in=user_corp_ids,
+            corporation_id__in=accessible_corporation_ids,
         )
     else:
         base_jobs_qs = IndustryJob.objects.filter(
@@ -1943,7 +2143,7 @@ def personnal_job_list(request, scope="character"):
                 bp.item_id: bp
                 for bp in Blueprint.objects.filter(
                     owner_kind=Blueprint.OwnerKind.CORPORATION,
-                    corporation_id__in=user_corp_ids,
+                    corporation_id__in=accessible_corporation_ids,
                     item_id__in=blueprint_ids,
                 )
             }
@@ -2168,6 +2368,7 @@ def personnal_job_list(request, scope="character"):
                 "corporation": reverse("indy_hub:corporation_job_list"),
             },
             "can_manage_corp_bp_requests": has_corporate_perm,
+            "can_view_corporation_jobs": bool(viewable_corporation_job_ids),
             "slot_overview_rows": slot_overview_rows,
             "slot_overview_summary": _build_slot_overview_summary(slot_overview_rows),
             "skills_scope": SKILLS_SCOPE,
@@ -2177,6 +2378,7 @@ def personnal_job_list(request, scope="character"):
                 request.user,
                 active_tab="industry",
                 can_manage_corp=has_corporate_perm,
+                can_view_corporation_jobs_flag=bool(viewable_corporation_job_ids),
             )
         )
         context["current_dashboard"] = (
@@ -4159,6 +4361,71 @@ def _fetch_item_base_prices(type_ids: list[int]) -> dict[int, Decimal]:
         }
 
 
+def _build_copy_estimated_item_values(
+    requests: list[BlueprintCopyRequest],
+) -> dict[int, dict[str, Any]]:
+    blueprint_type_ids = sorted(
+        {int(req.type_id) for req in requests if getattr(req, "type_id", None)}
+    )
+    if not blueprint_type_ids:
+        return {}
+
+    product_type_by_blueprint = {
+        int(row.eve_type_id): int(row.product_eve_type_id)
+        for row in SDEBlueprintActivityProduct.objects.filter(
+            eve_type_id__in=blueprint_type_ids,
+            activity_id=IndustryActivityMixin.ACTIVITY_MANUFACTURING,
+        ).order_by("eve_type_id", "product_eve_type_id")
+    }
+
+    product_type_ids = sorted(set(product_type_by_blueprint.values()))
+    product_base_prices = _fetch_item_base_prices(product_type_ids)
+    try:
+        adjusted_price_refs = fetch_adjusted_prices(product_type_ids, timeout=10)
+    except MarketPriceError:
+        adjusted_price_refs = {}
+
+    result: dict[int, dict[str, Any]] = {}
+    for req in requests:
+        blueprint_type_id = int(req.type_id or 0)
+        if blueprint_type_id <= 0:
+            continue
+        product_type_id = product_type_by_blueprint.get(blueprint_type_id)
+        if not product_type_id:
+            continue
+
+        price_ref = adjusted_price_refs.get(product_type_id, {})
+        adjusted_price = Decimal(str(price_ref.get("adjusted_price") or 0))
+        average_price = Decimal(str(price_ref.get("average_price") or 0))
+        base_price = product_base_prices.get(product_type_id, Decimal("0"))
+
+        unit_value = Decimal("0")
+        source = ""
+        if adjusted_price > 0:
+            unit_value = adjusted_price
+            source = "adjusted_price"
+        elif average_price > 0:
+            unit_value = average_price
+            source = "average_price"
+        elif base_price > 0:
+            unit_value = base_price
+            source = "base_price"
+
+        if unit_value <= 0:
+            continue
+
+        runs_requested = max(int(getattr(req, "runs_requested", 1) or 1), 1)
+        result[blueprint_type_id] = {
+            "product_type_id": product_type_id,
+            "unit_value": unit_value,
+            "estimated_item_value": unit_value * runs_requested,
+            "source": source,
+            "runs_requested": runs_requested,
+        }
+
+    return result
+
+
 def _normalize_structure_lookup_name(value: str | None) -> str:
     return str(value or "").strip().casefold()
 
@@ -4532,9 +4799,32 @@ def bp_copy_fulfill_requests(request):
         .order_by("-created_at")
         .distinct()
     )
-    blueprint_base_prices = _fetch_item_base_prices(
+    copy_producer_advisor = build_craft_character_advisor(
+        user=request.user,
+        production_time_map={
+            int(type_id): {
+                "type_id": int(type_id),
+                "type_name": get_type_name(type_id),
+                "blueprint_type_id": int(type_id),
+                "activity_id": IndustryActivityMixin.ACTIVITY_COPYING,
+            }
+            for type_id in sorted(
+                {
+                    int(type_id)
+                    for type_id in qset.values_list("type_id", flat=True)
+                    if int(type_id or 0) > 0
+                }
+            )
+        },
+        fetch_character_skill_levels=_fetch_character_skill_levels,
+        update_skill_snapshot=_update_skill_snapshot,
+        skill_cache_ttl=SKILL_CACHE_TTL,
+    )
+    copy_producer_items = copy_producer_advisor.get("items", {})
+    copy_activity_times = _fetch_blueprint_activity_times(
         list(qset.values_list("type_id", flat=True))
     )
+    copy_estimated_item_values = _build_copy_estimated_item_values(list(qset))
     copy_cost_breakdown_cache: dict[
         tuple[int, int], tuple[IndustryStructure, Any] | None
     ] = {}
@@ -4816,6 +5106,7 @@ def bp_copy_fulfill_requests(request):
                     "id": chat.id,
                     "fetch_url": reverse("indy_hub:bp_chat_history", args=[chat.id]),
                     "send_url": reverse("indy_hub:bp_chat_send", args=[chat.id]),
+                    "decision_url": reverse("indy_hub:bp_chat_decide", args=[chat.id]),
                     "has_unread": _chat_has_unread(chat, "seller"),
                     "last_message_at": chat.last_message_at,
                     "last_message_display": (
@@ -4834,8 +5125,45 @@ def bp_copy_fulfill_requests(request):
 
         type_name = get_type_name(req.type_id)
         copy_cost = None
-        estimated_item_value = blueprint_base_prices.get(int(req.type_id), Decimal("0"))
+        producer_item = copy_producer_items.get(str(int(req.type_id)), {})
+        copy_producer_options: list[dict[str, Any]] = []
+        selected_producer_id = None
+        selected_producer_name = ""
+        selected_producer_bonus_percent = Decimal("0")
+        for producer in producer_item.get("eligible_characters", []):
+            producer_bonus = Decimal(str(producer.get("time_bonus_percent") or 0))
+            option = {
+                "id": int(producer.get("character_id") or 0),
+                "name": str(producer.get("name") or ""),
+                "time_bonus_percent": producer_bonus,
+                "time_bonus_label": _format_percent_compact(producer_bonus),
+                "available_slots": int(producer.get("available_slots") or 0),
+                "total_slots": int(producer.get("total_slots") or 0),
+            }
+            copy_producer_options.append(option)
+
+        best_producer = producer_item.get("best_character") or {}
+        if int(best_producer.get("character_id") or 0) > 0:
+            selected_producer_id = int(best_producer.get("character_id") or 0)
+            selected_producer_name = str(best_producer.get("name") or "")
+            selected_producer_bonus_percent = Decimal(
+                str(best_producer.get("time_bonus_percent") or 0)
+            )
+
+        copy_duration = None
+        copy_structure_options: list[dict[str, Any]] = []
+        estimated_item_value_meta = copy_estimated_item_values.get(int(req.type_id), {})
+        estimated_item_value = Decimal(
+            str(estimated_item_value_meta.get("estimated_item_value") or 0)
+        )
         copies_requested = max(int(getattr(req, "copies_requested", 1) or 1), 1)
+        runs_requested = max(int(getattr(req, "runs_requested", 1) or 1), 1)
+        copy_base_time_seconds = int(
+            copy_activity_times.get(int(req.type_id), {}).get(
+                IndustryActivityMixin.ACTIVITY_COPYING
+            )
+            or 0
+        )
         if estimated_item_value > 0 and visible_copying_structures:
             matched_structures: list[IndustryStructure] = []
             seen_structure_ids: set[int] = set()
@@ -4861,68 +5189,94 @@ def bp_copy_fulfill_requests(request):
                 seen_structure_ids.add(int(matched_structure.id))
                 matched_structures.append(matched_structure)
 
-            selected_structure = None
-            selected_breakdown = None
-            candidate_groups = [matched_structures] if matched_structures else []
-            candidate_groups.append(visible_copying_structures)
+            selected_option = None
+            candidate_structures = matched_structures or visible_copying_structures
 
-            for candidate_structures in candidate_groups:
-                for structure in candidate_structures:
-                    cache_key = (int(req.type_id), int(structure.id))
-                    if cache_key not in copy_cost_breakdown_cache:
-                        system_cost_index = visible_copying_system_indices.get(
-                            int(structure.solar_system_id or 0)
-                        )
-                        if system_cost_index is None:
+            for structure in candidate_structures:
+                cache_key = (int(req.type_id), int(structure.id))
+                if cache_key not in copy_cost_breakdown_cache:
+                    system_cost_index = visible_copying_system_indices.get(
+                        int(structure.solar_system_id or 0)
+                    )
+                    if system_cost_index is None:
+                        copy_cost_breakdown_cache[cache_key] = None
+                    else:
+                        try:
+                            breakdown = calculate_installation_cost(
+                                structure=structure,
+                                activity_id=IndustryActivityMixin.ACTIVITY_COPYING,
+                                estimated_item_value=estimated_item_value,
+                                system_cost_index=system_cost_index,
+                            )
+                        except ValidationError:
                             copy_cost_breakdown_cache[cache_key] = None
                         else:
-                            try:
-                                breakdown = calculate_installation_cost(
-                                    structure=structure,
-                                    activity_id=IndustryActivityMixin.ACTIVITY_COPYING,
-                                    estimated_item_value=estimated_item_value,
-                                    system_cost_index=system_cost_index,
-                                )
-                            except ValidationError:
-                                copy_cost_breakdown_cache[cache_key] = None
-                            else:
-                                copy_cost_breakdown_cache[cache_key] = (
-                                    structure,
-                                    breakdown,
-                                )
+                            copy_cost_breakdown_cache[cache_key] = (
+                                structure,
+                                breakdown,
+                            )
 
-                    cached_breakdown = copy_cost_breakdown_cache.get(cache_key)
-                    if cached_breakdown is None:
-                        continue
+                cached_breakdown = copy_cost_breakdown_cache.get(cache_key)
+                if cached_breakdown is None:
+                    continue
 
-                    cached_structure, breakdown = cached_breakdown
-                    if (
-                        selected_breakdown is None
-                        or breakdown.total_installation_cost
-                        < selected_breakdown.total_installation_cost
-                    ):
-                        selected_structure = cached_structure
-                        selected_breakdown = breakdown
-
-                if selected_structure is not None and selected_breakdown is not None:
-                    break
-
-            if selected_structure is not None and selected_breakdown is not None:
-                copy_cost = {
-                    "structure_name": selected_structure.name,
-                    "solar_system_name": selected_structure.solar_system_name,
-                    "estimated_item_value": selected_breakdown.estimated_item_value,
-                    "system_cost_index_percent": selected_breakdown.system_cost_index_percent,
-                    "job_cost_bonus_percent": selected_breakdown.total_job_cost_bonus_percent,
-                    "facility_tax_percent": selected_breakdown.facility_tax_percent,
-                    "scc_surcharge_percent": selected_breakdown.scc_surcharge_percent,
-                    "per_copy_installation_cost": selected_breakdown.total_installation_cost,
+                cached_structure, breakdown = cached_breakdown
+                option = {
+                    "id": int(cached_structure.id),
+                    "structure_name": cached_structure.name,
+                    "solar_system_name": cached_structure.solar_system_name,
+                    "estimated_item_value": breakdown.estimated_item_value,
+                    "estimated_item_value_source": estimated_item_value_meta.get(
+                        "source", ""
+                    ),
+                    "estimated_item_unit_value": estimated_item_value_meta.get(
+                        "unit_value", Decimal("0")
+                    ),
+                    "structure_time_bonus_percent": breakdown.time_bonus_percent,
+                    "system_cost_index_percent": breakdown.system_cost_index_percent,
+                    "job_cost_bonus_percent": breakdown.total_job_cost_bonus_percent,
+                    "facility_tax_percent": breakdown.facility_tax_percent,
+                    "scc_surcharge_percent": breakdown.scc_surcharge_percent,
+                    "per_copy_installation_cost": breakdown.total_installation_cost,
                     "total_installation_cost": (
-                        selected_breakdown.total_installation_cost * copies_requested
+                        breakdown.total_installation_cost * copies_requested
                     ),
                     "copies_requested": copies_requested,
+                    "runs_requested": estimated_item_value_meta.get(
+                        "runs_requested", req.runs_requested
+                    ),
                     "uses_fallback_structure": not bool(matched_structures),
                 }
+                copy_structure_options.append(option)
+
+                if (
+                    selected_option is None
+                    or option["total_installation_cost"]
+                    < selected_option["total_installation_cost"]
+                ):
+                    selected_option = option
+
+            copy_structure_options.sort(
+                key=lambda option: (
+                    str(option.get("structure_name") or "").lower(),
+                    int(option.get("id") or 0),
+                )
+            )
+
+            if selected_option is not None:
+                copy_cost = selected_option
+
+        copy_duration = _build_copy_duration_payload(
+            base_time_seconds=copy_base_time_seconds,
+            runs_requested=runs_requested,
+            copies_requested=copies_requested,
+            structure_time_bonus_percent=(
+                copy_cost.get("structure_time_bonus_percent")
+                if copy_cost
+                else Decimal("0")
+            ),
+            character_time_bonus_percent=selected_producer_bonus_percent,
+        )
 
         scope_modal_payload = {
             "requestId": req.id,
@@ -4951,6 +5305,11 @@ def bp_copy_fulfill_requests(request):
                 "requester_corporation": requester_identity.corporation_name,
                 "requester_corporation_id": requester_identity.corporation_id,
                 "requester_corporation_ticker": requester_identity.corporation_ticker,
+                "requester_bp_source_label": (
+                    _("BP user + BP corp")
+                    if displayed_personal_count > 0 and corporate_count > 0
+                    else _("BP corp") if corporate_count > 0 else _("BP user")
+                ),
                 "is_self_request": is_self_request,
                 "status_key": status_key,
                 "status_label": status_info["label"],
@@ -4977,8 +5336,55 @@ def bp_copy_fulfill_requests(request):
                 "all_copies_busy": all_copies_busy,
                 "busy_until": busy_until,
                 "busy_overdue": busy_overdue,
+                "copy_base_time_seconds": copy_base_time_seconds,
                 "copy_cost": copy_cost,
+                "copy_duration": copy_duration,
+                "copy_producer_options": copy_producer_options,
+                "copy_producer_selected_id": selected_producer_id,
+                "copy_producer_selected_name": selected_producer_name,
+                "copy_structure_options": copy_structure_options,
+                "copy_structure_selected_id": (
+                    copy_cost.get("id") if copy_cost else None
+                ),
                 "chat": offer_chat_payload,
+                "show_negotiation_actions": bool(
+                    offer_chat_payload and my_offer and my_offer.status == "conditional"
+                ),
+                "negotiation_can_accept": bool(
+                    my_offer
+                    and my_offer.status == "conditional"
+                    and my_offer.proposed_amount is not None
+                    and not my_offer.accepted_by_seller
+                ),
+                "negotiation_can_decline": bool(
+                    my_offer and my_offer.status == "conditional"
+                ),
+                "negotiation_amount_display": _format_isk_amount(
+                    getattr(my_offer, "proposed_amount", None)
+                ),
+                "negotiation_notice": (
+                    _(
+                        "Current proposal sent: %(amount)s ISK. Waiting for the buyer to confirm or counter."
+                    )
+                    % {"amount": _format_isk_amount(my_offer.proposed_amount)}
+                    if my_offer
+                    and my_offer.status == "conditional"
+                    and my_offer.proposed_amount is not None
+                    and my_offer.accepted_by_seller
+                    and not my_offer.accepted_by_buyer
+                    else (
+                        _(
+                            "Buyer proposed %(amount)s ISK. Confirm it here or counter from the proposal bar."
+                        )
+                        % {"amount": _format_isk_amount(my_offer.proposed_amount)}
+                        if my_offer
+                        and my_offer.status == "conditional"
+                        and my_offer.proposed_amount is not None
+                        and my_offer.accepted_by_buyer
+                        and not my_offer.accepted_by_seller
+                        else ""
+                    )
+                ),
                 "chat_preview": (
                     offer_chat_payload.get("preview", []) if offer_chat_payload else []
                 ),
@@ -5159,6 +5565,7 @@ def _process_offer_action(
     action: str | None,
     message: str = "",
     source_scope: str | None = None,
+    proposed_amount: Decimal | None = None,
 ) -> bool:
     if not action:
         return False
@@ -5216,41 +5623,71 @@ def _process_offer_action(
         return True
 
     if action == "conditional":
-        offer.status = "conditional"
-        offer.message = message
-        offer.accepted_by_buyer = False
-        offer.accepted_by_seller = False
-        offer.accepted_at = None
-        update_fields = [
-            "status",
-            "message",
-            "accepted_by_buyer",
-            "accepted_by_seller",
-            "accepted_at",
-        ]
-        if normalized_scope:
-            update_fields.append("source_scope")
-        offer.save(
-            update_fields=[
-                *update_fields,
-            ]
-        )
-        chat = _ensure_offer_chat(offer)
-        if message:
-            chat_message = BlueprintCopyMessage(
-                chat=chat,
+        if proposed_amount is not None:
+            if normalized_scope:
+                offer.source_scope = normalized_scope
+            chat = _record_offer_proposal(
+                offer,
+                proposer_role=BlueprintCopyOffer.ProposalRole.SELLER,
+                amount=proposed_amount,
                 sender=owner,
-                sender_role=BlueprintCopyMessage.SenderRole.SELLER,
-                content=message,
+                note=message,
             )
-            chat_message.full_clean()
-            chat_message.save()
-            chat.register_message(sender_role=BlueprintCopyMessage.SenderRole.SELLER)
+        else:
+            offer.status = "conditional"
+            offer.message = message
+            offer.accepted_by_buyer = False
+            offer.accepted_by_seller = False
+            offer.accepted_at = None
+            update_fields = [
+                "status",
+                "message",
+                "accepted_by_buyer",
+                "accepted_by_seller",
+                "accepted_at",
+            ]
+            if normalized_scope:
+                update_fields.append("source_scope")
+            offer.save(
+                update_fields=[
+                    *update_fields,
+                ]
+            )
+            chat = _ensure_offer_chat(offer)
+            if message:
+                chat_message = BlueprintCopyMessage(
+                    chat=chat,
+                    sender=owner,
+                    sender_role=BlueprintCopyMessage.SenderRole.SELLER,
+                    content=message,
+                )
+                chat_message.full_clean()
+                chat_message.save()
+                chat.register_message(
+                    sender_role=BlueprintCopyMessage.SenderRole.SELLER
+                )
         notify_user(
             req.requested_by,
-            "Blueprint Copy Request - Conditional Offer",
-            _(
-                "You received a new conditional offer message for %(type)s (ME%(me)s, TE%(te)s)."
+            _("Blueprint Copy Request - Conditional Offer"),
+            (
+                _(
+                    "You received a new amount proposal of %(amount)s ISK for %(type)s (ME%(me)s, TE%(te)s)."
+                )
+                % {
+                    "amount": _format_isk_amount(proposed_amount),
+                    "type": get_type_name(req.type_id),
+                    "me": req.material_efficiency,
+                    "te": req.time_efficiency,
+                }
+                if proposed_amount is not None
+                else _(
+                    "You received a new conditional offer message for %(type)s (ME%(me)s, TE%(te)s)."
+                )
+                % {
+                    "type": get_type_name(req.type_id),
+                    "me": req.material_efficiency,
+                    "te": req.time_efficiency,
+                }
             )
             % {
                 "type": get_type_name(req.type_id),
@@ -5261,7 +5698,9 @@ def _process_offer_action(
             link=my_requests_url,
             link_label=_("Review your requests"),
         )
-        if message:
+        if proposed_amount is not None:
+            messages.success(request_obj, _("Amount proposal sent."))
+        elif message:
             messages.success(request_obj, _("Conditional offer sent."))
         else:
             messages.success(
@@ -5319,6 +5758,13 @@ def bp_offer_copy_request(request, request_id):
     action = request.POST.get("action")
     source_scope = request.POST.get("source_scope") or request.POST.get("scope")
     message = request.POST.get("message", "").strip()
+    raw_amount = (
+        request.POST.get("proposed_amount") or request.POST.get("amount") or ""
+    ).strip()
+    proposed_amount = _normalize_offer_amount(raw_amount)
+    if raw_amount and proposed_amount is None:
+        messages.error(request, _("Enter a valid proposal amount in ISK."))
+        return redirect("indy_hub:bp_copy_fulfill_requests")
     handled = _process_offer_action(
         request_obj=request,
         req=req,
@@ -5326,6 +5772,7 @@ def bp_offer_copy_request(request, request_id):
         action=action,
         message=message,
         source_scope=source_scope,
+        proposed_amount=proposed_amount,
     )
     redirect_url = reverse("indy_hub:bp_copy_fulfill_requests")
     if handled:
@@ -5558,6 +6005,13 @@ def bp_cond_copy_request(request, request_id):
 
     source_scope = request.POST.get("source_scope") or request.POST.get("scope")
     message = request.POST.get("message", "").strip()
+    raw_amount = (
+        request.POST.get("proposed_amount") or request.POST.get("amount") or ""
+    ).strip()
+    proposed_amount = _normalize_offer_amount(raw_amount)
+    if raw_amount and proposed_amount is None:
+        messages.error(request, _("Enter a valid proposal amount in ISK."))
+        return redirect("indy_hub:bp_copy_fulfill_requests")
     handled = _process_offer_action(
         request_obj=request,
         req=req,
@@ -5565,6 +6019,7 @@ def bp_cond_copy_request(request, request_id):
         action="conditional",
         message=message,
         source_scope=source_scope,
+        proposed_amount=proposed_amount,
     )
     if not handled:
         messages.error(request, _("Unsupported action for this request."))
@@ -6096,10 +6551,13 @@ def bp_chat_history(request, chat_id: int):
     messages_payload = []
     for msg in chat.messages.all():
         created_local = timezone.localtime(msg.created_at)
+        message_kind = _classify_bp_chat_message(msg)
         messages_payload.append(
             {
                 "id": msg.id,
                 "role": msg.sender_role,
+                "kind": message_kind,
+                "kind_label": _("Negotiation") if message_kind == "proposal" else "",
                 "content": msg.content,
                 "created_at": created_local.isoformat(),
                 "created_display": created_local.strftime("%Y-%m-%d %H:%M"),
@@ -6113,41 +6571,93 @@ def bp_chat_history(request, chat_id: int):
     if offer and chat.is_open and offer.status == "conditional":
         accepted_by_buyer = offer.accepted_by_buyer
         accepted_by_seller = offer.accepted_by_seller
+        proposed_amount = offer.proposed_amount
+        proposed_amount_display = _format_isk_amount(proposed_amount)
 
         if viewer_role == "buyer":
-            viewer_can_accept = not accepted_by_buyer
-            viewer_can_reject = not accepted_by_buyer
-            accept_label = _("Accept terms")
-            reject_label = _("Decline offer")
-            if accepted_by_buyer and not accepted_by_seller:
-                status_label = _("Waiting for the builder to confirm.")
+            viewer_can_accept = bool(proposed_amount) and not accepted_by_buyer
+            viewer_can_propose = True
+            accept_label = _("Accept amount")
+            proposal_label = (
+                _("Counter-propose")
+                if proposed_amount is not None
+                else _("Propose amount")
+            )
+            if proposed_amount is None:
+                status_label = _("Waiting for first price")
+                hint_label = _(
+                    "The builder has not shared a price yet. Once they do, you can accept it or counter."
+                )
+                status_tone = "warning"
+                state = "awaiting_seller_proposal"
+            elif accepted_by_buyer and not accepted_by_seller:
+                status_label = _(
+                    "You proposed %(amount)s ISK. Waiting for the builder to confirm or counter."
+                ) % {"amount": proposed_amount_display}
+                hint_label = _(
+                    "Your price is on the table. The builder can validate it or send back another amount."
+                )
                 status_tone = "warning"
                 state = "waiting_on_seller"
             elif not accepted_by_buyer and accepted_by_seller:
                 status_label = _(
-                    "The builder confirmed. Accept to finalise the agreement."
+                    "Builder proposed %(amount)s ISK. Accept it or send a counter-proposal."
+                ) % {"amount": proposed_amount_display}
+                hint_label = _(
+                    "If the price works for you, accept it. Otherwise send back the amount you want."
                 )
                 status_tone = "info"
                 state = "waiting_on_you"
             else:
-                status_label = _("Review the terms and confirm when ready.")
+                status_label = _(
+                    "Current proposal: %(amount)s ISK. Accept it or send a counter-proposal."
+                ) % {"amount": proposed_amount_display}
+                hint_label = _(
+                    "Keep the conversation moving by validating this amount or sending a cleaner counter-offer."
+                )
                 status_tone = "info"
                 state = "pending"
         else:
-            viewer_can_accept = not accepted_by_seller
-            viewer_can_reject = not (accepted_by_buyer and accepted_by_seller)
-            accept_label = _("Confirm agreement")
-            reject_label = _("Withdraw offer")
-            if accepted_by_buyer and not accepted_by_seller:
-                status_label = _("The buyer accepted your terms. Confirm to finalise.")
+            viewer_can_accept = bool(proposed_amount) and not accepted_by_seller
+            viewer_can_propose = True
+            accept_label = _("Confirm amount")
+            proposal_label = (
+                _("Counter-propose")
+                if proposed_amount is not None
+                else _("Propose amount")
+            )
+            if proposed_amount is None:
+                status_label = _("Set your opening price")
+                hint_label = _(
+                    "Start the discussion with a clear amount. The buyer will be able to accept it or counter."
+                )
+                status_tone = "info"
+                state = "awaiting_seller_proposal"
+            elif accepted_by_buyer and not accepted_by_seller:
+                status_label = _(
+                    "Buyer accepted %(amount)s ISK. Confirm it or counter-propose."
+                ) % {"amount": proposed_amount_display}
+                hint_label = _(
+                    "You can lock this amount now or keep the negotiation open with a new proposal."
+                )
                 status_tone = "warning"
                 state = "waiting_on_you"
             elif accepted_by_seller and not accepted_by_buyer:
-                status_label = _("Waiting for the buyer to accept your conditions.")
+                status_label = _(
+                    "You proposed %(amount)s ISK. Waiting for the buyer to confirm or counter."
+                ) % {"amount": proposed_amount_display}
+                hint_label = _(
+                    "The buyer has your price. They can approve it directly or answer with another amount."
+                )
                 status_tone = "info"
                 state = "waiting_on_buyer"
             else:
-                status_label = _("Share any adjustments or confirm when ready.")
+                status_label = _(
+                    "Current proposal: %(amount)s ISK. Confirm it or send a counter-proposal."
+                ) % {"amount": proposed_amount_display}
+                hint_label = _(
+                    "Confirm this amount if it works for you, or keep negotiating with a new price."
+                )
                 status_tone = "info"
                 state = "pending"
 
@@ -6156,13 +6666,21 @@ def bp_chat_history(request, chat_id: int):
             "accepted_by_buyer": accepted_by_buyer,
             "accepted_by_seller": accepted_by_seller,
             "viewer_can_accept": viewer_can_accept,
-            "viewer_can_reject": viewer_can_reject,
+            "viewer_can_propose": viewer_can_propose,
+            "viewer_can_reject": True,
             "accept_label": accept_label,
-            "reject_label": reject_label,
+            "reject_label": _("Decline negotiation"),
+            "proposal_label": proposal_label,
+            "proposal_placeholder": _("Enter amount in ISK"),
+            "current_amount": (
+                str(proposed_amount) if proposed_amount is not None else ""
+            ),
+            "current_amount_display": proposed_amount_display,
             "status_label": status_label,
+            "hint_label": hint_label,
             "status_tone": status_tone,
             "state": state,
-            "pending_label": _("Updating decision..."),
+            "pending_label": _("Updating proposal..."),
         }
 
     data = {
@@ -6287,6 +6805,7 @@ def bp_chat_send(request, chat_id: int):
         "message": {
             "id": msg.id,
             "role": msg.sender_role,
+            "kind": "message",
             "content": msg.content,
             "created_at": created_local.isoformat(),
             "created_display": created_local.strftime("%Y-%m-%d %H:%M"),
@@ -6304,21 +6823,63 @@ def bp_chat_decide(request, chat_id: int):
         id=chat_id,
     )
 
-    base_role = chat.role_for(request.user)
-    if base_role not in {"buyer", "seller"}:
-        return JsonResponse({"error": _("Unauthorized")}, status=403)
+    expects_json = (
+        request.content_type == "application/json"
+        or request.headers.get("X-Requested-With") == "XMLHttpRequest"
+        or "application/json" in request.headers.get("Accept", "")
+    )
 
-    if not chat.is_open or chat.offer.status != "conditional":
-        return JsonResponse(
-            {"error": _("This conversation is already closed.")}, status=409
-        )
-
-    try:
-        payload = json.loads(request.body.decode("utf-8"))
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        payload = {}
+    if request.content_type == "application/json":
+        try:
+            payload = json.loads(request.body.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            payload = {}
+    else:
+        payload = request.POST
 
     requested_role = payload.get("viewer_role") or payload.get("role")
+    fallback_viewer_role = "seller"
+    if requested_role in {"buyer", "seller"}:
+        fallback_viewer_role = requested_role
+
+    fallback_url = reverse(
+        "indy_hub:bp_copy_fulfill_requests"
+        if fallback_viewer_role == "seller"
+        else "indy_hub:bp_copy_my_requests"
+    )
+    next_url = payload.get("next") or request.headers.get("referer") or fallback_url
+    if not url_has_allowed_host_and_scheme(
+        next_url,
+        allowed_hosts={request.get_host()},
+        require_https=request.is_secure(),
+    ):
+        next_url = fallback_url
+
+    def respond(
+        data: dict[str, Any], *, status: int = 200, flash: tuple[str, str] | None = None
+    ):
+        if expects_json:
+            return JsonResponse(data, status=status)
+        if flash:
+            level, text = flash
+            getattr(messages, level)(request, text)
+        return redirect(next_url)
+
+    base_role = chat.role_for(request.user)
+    if base_role not in {"buyer", "seller"}:
+        return respond(
+            {"error": _("Unauthorized")},
+            status=403,
+            flash=("error", _("Unauthorized negotiation action.")),
+        )
+
+    if not chat.is_open or chat.offer.status != "conditional":
+        return respond(
+            {"error": _("This conversation is already closed.")},
+            status=409,
+            flash=("warning", _("This negotiation is already closed.")),
+        )
+
     viewer_role = _resolve_chat_viewer_role(
         chat,
         request.user,
@@ -6326,20 +6887,101 @@ def bp_chat_decide(request, chat_id: int):
         override=requested_role,
     )
     if viewer_role not in {"buyer", "seller"}:
-        return JsonResponse({"error": _("Unauthorized")}, status=403)
+        return respond(
+            {"error": _("Unauthorized")},
+            status=403,
+            flash=("error", _("Unauthorized negotiation action.")),
+        )
 
     decision = (payload.get("decision") or "").strip().lower()
-    if decision not in {"accept", "reject"}:
-        return JsonResponse({"error": _("Unsupported decision.")}, status=400)
+    if decision not in {"accept", "reject", "propose"}:
+        return respond(
+            {"error": _("Unsupported decision.")},
+            status=400,
+            flash=("error", _("Unsupported negotiation action.")),
+        )
 
     offer = chat.offer
     req = chat.request
 
+    if decision == "propose":
+        proposed_amount = _normalize_offer_amount(payload.get("amount"))
+        if proposed_amount is None:
+            return respond(
+                {"error": _("Enter a valid proposal amount in ISK.")},
+                status=400,
+                flash=("error", _("Enter a valid proposal amount in ISK.")),
+            )
+
+        _record_offer_proposal(
+            offer,
+            proposer_role=viewer_role,
+            amount=proposed_amount,
+            sender=request.user,
+        )
+
+        recipient = chat.seller if viewer_role == "buyer" else chat.buyer
+        if recipient:
+            notify_user(
+                recipient,
+                _("New amount proposal"),
+                _(
+                    "%(actor)s proposed %(amount)s ISK for %(type)s (ME%(me)s, TE%(te)s)."
+                )
+                % {
+                    "actor": request.user.username,
+                    "amount": _format_isk_amount(proposed_amount),
+                    "type": get_type_name(req.type_id),
+                    "me": req.material_efficiency,
+                    "te": req.time_efficiency,
+                },
+                "info",
+                link=build_site_url(
+                    reverse(
+                        "indy_hub:bp_copy_fulfill_requests"
+                        if viewer_role == "buyer"
+                        else "indy_hub:bp_copy_my_requests"
+                    )
+                ),
+                link_label=_("Open details"),
+            )
+
+        return respond(
+            {
+                "status": "pending",
+                "proposed_amount": str(offer.proposed_amount),
+                "accepted_by_buyer": offer.accepted_by_buyer,
+                "accepted_by_seller": offer.accepted_by_seller,
+            },
+            flash=("success", _("Negotiation proposal sent.")),
+        )
+
     if decision == "accept":
+        if offer.proposed_amount is None:
+            return respond(
+                {"error": _("No amount is available to confirm yet.")},
+                status=400,
+                flash=("error", _("No amount is available to confirm yet.")),
+            )
         if viewer_role == "buyer":
+            if offer.accepted_by_buyer and not offer.accepted_by_seller:
+                return respond(
+                    {
+                        "status": "pending",
+                        "accepted_by_buyer": True,
+                        "accepted_by_seller": False,
+                    },
+                    flash=(
+                        "info",
+                        _("You already accepted this amount. Waiting for the builder."),
+                    ),
+                )
             finalized = _mark_offer_buyer_accept(offer)
             if finalized:
-                return JsonResponse({"status": "accepted"})
+                return respond(
+                    {"status": "accepted"},
+                    flash=("success", _("Amount accepted. Delivery can proceed.")),
+                )
 
             fulfill_queue_url = build_site_url(
                 reverse("indy_hub:bp_copy_fulfill_requests")
@@ -6348,10 +6990,11 @@ def bp_chat_decide(request, chat_id: int):
                 chat.seller,
                 _("Conditional offer accepted"),
                 _(
-                    "%(buyer)s accepted your terms for %(type)s (ME%(me)s, TE%(te)s). Confirm in chat to finalise the agreement."
+                    "%(buyer)s accepted %(amount)s ISK for %(type)s (ME%(me)s, TE%(te)s). Confirm it or counter-propose."
                 )
                 % {
                     "buyer": req.requested_by.username,
+                    "amount": _format_isk_amount(offer.proposed_amount),
                     "type": get_type_name(req.type_id),
                     "me": req.material_efficiency,
                     "te": req.time_efficiency,
@@ -6360,27 +7003,48 @@ def bp_chat_decide(request, chat_id: int):
                 link=fulfill_queue_url,
                 link_label=_("Open fulfill queue"),
             )
-            return JsonResponse(
+            return respond(
                 {
                     "status": "pending",
                     "accepted_by_buyer": True,
                     "accepted_by_seller": offer.accepted_by_seller,
-                }
+                },
+                flash=("success", _("Amount accepted. Waiting for the builder.")),
+            )
+
+        if offer.accepted_by_seller and not offer.accepted_by_buyer:
+            return respond(
+                {
+                    "status": "pending",
+                    "accepted_by_buyer": False,
+                    "accepted_by_seller": True,
+                },
+                flash=(
+                    "info",
+                    _("You already confirmed this amount. Waiting for the buyer."),
+                ),
             )
 
         finalized = _mark_offer_seller_accept(offer)
         if finalized:
-            return JsonResponse({"status": "accepted"})
+            return respond(
+                {"status": "accepted"},
+                flash=(
+                    "success",
+                    _("Terms confirmed. The request is ready for delivery."),
+                ),
+            )
 
         buyer_requests_url = build_site_url(reverse("indy_hub:bp_copy_my_requests"))
         notify_user(
             chat.buyer,
             _("Builder confirmed your terms"),
             _(
-                "%(builder)s confirmed the agreement for %(type)s (ME%(me)s, TE%(te)s). Accept in chat to finalise."
+                "%(builder)s confirmed %(amount)s ISK for %(type)s (ME%(me)s, TE%(te)s). Accept it or counter-propose."
             )
             % {
                 "builder": offer.owner.username,
+                "amount": _format_isk_amount(offer.proposed_amount),
                 "type": get_type_name(req.type_id),
                 "me": req.material_efficiency,
                 "te": req.time_efficiency,
@@ -6389,12 +7053,13 @@ def bp_chat_decide(request, chat_id: int):
             link=buyer_requests_url,
             link_label=_("Review your requests"),
         )
-        return JsonResponse(
+        return respond(
             {
                 "status": "pending",
                 "accepted_by_buyer": offer.accepted_by_buyer,
                 "accepted_by_seller": True,
-            }
+            },
+            flash=("success", _("Amount confirmed. Waiting for the buyer.")),
         )
 
     # Reject path
@@ -6440,7 +7105,10 @@ def bp_chat_decide(request, chat_id: int):
 
     if viewer_role == "seller":
         if _finalize_request_if_all_rejected(req):
-            return JsonResponse({"status": "rejected", "request_closed": True})
+            return respond(
+                {"status": "rejected", "request_closed": True},
+                flash=("success", _("Negotiation declined and request closed.")),
+            )
 
     if not req.offers.exclude(id=offer.id).filter(status="accepted").exists():
         reset_fields: list[str] = []
@@ -6455,7 +7123,10 @@ def bp_chat_decide(request, chat_id: int):
         if reset_fields:
             req.save(update_fields=list(dict.fromkeys(reset_fields)))
 
-    return JsonResponse({"status": "rejected"})
+    return respond(
+        {"status": "rejected"},
+        flash=("success", _("Negotiation declined.")),
+    )
 
 
 @indy_hub_access_required

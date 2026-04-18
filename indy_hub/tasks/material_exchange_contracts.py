@@ -59,7 +59,6 @@ from indy_hub.models import (
     MaterialExchangeSellOrder,
     MaterialExchangeSettings,
     MaterialExchangeStock,
-    MaterialExchangeTransaction,
     NotificationWebhook,
     NotificationWebhookMessage,
 )
@@ -79,7 +78,10 @@ from indy_hub.services.esi_client import (
     shared_client,
 )
 from indy_hub.utils.analytics import emit_analytics_event
-from indy_hub.utils.eve import PLACEHOLDER_PREFIX, resolve_location_name
+from indy_hub.utils.eve import PLACEHOLDER_PREFIX, get_type_name, resolve_location_name
+from indy_hub.utils.material_exchange_transactions import (
+    upsert_material_exchange_transaction,
+)
 
 logger = get_extension_logger(__name__)
 
@@ -109,22 +111,11 @@ def _normalize_esi_mapping(payload, *, context: str) -> dict | None:
 
 
 def _log_sell_order_transactions(order: MaterialExchangeSellOrder) -> None:
-    if MaterialExchangeTransaction.objects.filter(sell_order=order).exists():
+    _transaction, created = upsert_material_exchange_transaction(order)
+    if not created:
         return
 
     for item in order.items.all():
-        MaterialExchangeTransaction.objects.create(
-            config=order.config,
-            transaction_type="sell",
-            sell_order=order,
-            user=order.seller,
-            type_id=item.type_id,
-            type_name=item.type_name,
-            quantity=item.quantity,
-            unit_price=item.unit_price,
-            total_price=item.total_price,
-        )
-
         stock_item, _created = MaterialExchangeStock.objects.get_or_create(
             config=order.config,
             type_id=item.type_id,
@@ -135,22 +126,11 @@ def _log_sell_order_transactions(order: MaterialExchangeSellOrder) -> None:
 
 
 def _log_buy_order_transactions(order: MaterialExchangeBuyOrder) -> None:
-    if MaterialExchangeTransaction.objects.filter(buy_order=order).exists():
+    _transaction, created = upsert_material_exchange_transaction(order)
+    if not created:
         return
 
     for item in order.items.all():
-        MaterialExchangeTransaction.objects.create(
-            config=order.config,
-            transaction_type="buy",
-            buy_order=order,
-            user=order.buyer,
-            type_id=item.type_id,
-            type_name=item.type_name,
-            quantity=item.quantity,
-            unit_price=item.unit_price,
-            total_price=item.total_price,
-        )
-
         try:
             stock_item = order.config.stock_items.get(type_id=item.type_id)
             stock_item.quantity = max(stock_item.quantity - item.quantity, 0)
@@ -212,20 +192,75 @@ def _get_location_name(location_id: int | None) -> str | None:
     return name
 
 
+def _get_config_locations(config) -> list[dict[str, int | str]]:
+    rows: list[dict[str, int | str]] = []
+    try:
+        for location in config.accepted_locations.all().order_by("sort_order", "id"):
+            rows.append(
+                {
+                    "structure_id": int(location.structure_id),
+                    "structure_name": str(location.structure_name or ""),
+                    "hangar_division": int(location.hangar_division),
+                }
+            )
+    except Exception:
+        rows = []
+
+    if rows:
+        return rows
+
+    structure_id = getattr(config, "structure_id", None)
+    hangar_division = getattr(config, "hangar_division", None)
+    if not structure_id or not hangar_division:
+        return []
+
+    return [
+        {
+            "structure_id": int(structure_id),
+            "structure_name": str(getattr(config, "structure_name", "") or ""),
+            "hangar_division": int(hangar_division),
+        }
+    ]
+
+
+def _get_config_location_ids(config) -> set[int]:
+    location_ids: set[int] = set()
+    for location in _get_config_locations(config):
+        try:
+            structure_id = int(location.get("structure_id") or 0)
+        except (TypeError, ValueError):
+            structure_id = 0
+        if structure_id > 0:
+            location_ids.add(structure_id)
+    return location_ids
+
+
+def _get_config_location_summary(config) -> str:
+    labels: list[str] = []
+    for location in _get_config_locations(config):
+        structure_id = int(location.get("structure_id") or 0)
+        structure_name = str(location.get("structure_name") or "").strip()
+        hangar_division = int(location.get("hangar_division") or 0)
+        label = structure_name or f"Structure {structure_id}"
+        if hangar_division > 0:
+            label = f"{label} / Hangar {hangar_division}"
+        labels.append(label)
+    return ", ".join(label for label in labels if label)
+
+
 def _get_config_location_match_names(config) -> set[str]:
     names: set[str] = set()
 
-    configured_name = _normalize_location_match_name(
-        getattr(config, "structure_name", None)
-    )
-    if configured_name:
-        names.add(configured_name)
+    for location in _get_config_locations(config):
+        configured_name = _normalize_location_match_name(location.get("structure_name"))
+        if configured_name:
+            names.add(configured_name)
 
-    resolved_name = _normalize_location_match_name(
-        _get_location_name(getattr(config, "structure_id", None))
-    )
-    if resolved_name:
-        names.add(resolved_name)
+        resolved_name = _normalize_location_match_name(
+            _get_location_name(location.get("structure_id"))
+        )
+        if resolved_name:
+            names.add(resolved_name)
 
     return names
 
@@ -744,6 +779,7 @@ def _validate_sell_order_from_db(config, order, contracts):
     notify_admins_on_sell_anomaly = bool(
         getattr(config, "notify_admins_on_sell_anomaly", True)
     )
+    location_summary = _get_config_location_summary(config)
     finished_statuses = {"finished", "finished_issuer", "finished_contractor"}
     rejected_statuses = {"cancelled", "rejected", "failed", "expired", "deleted"}
 
@@ -1040,7 +1076,7 @@ def _validate_sell_order_from_db(config, order, contracts):
         # Contract found with correct title but wrong structure
         anomaly_notes = (
             f"Anomaly: contract {contract_with_correct_ref_wrong_structure['contract_id']} has the correct title ({order_ref}) "
-            f"but wrong location. Expected: {config.structure_name or f'Structure {config.structure_id}'}\n"
+            f"but wrong location. Expected: {location_summary}\n"
             f"Contract is at location {contract_with_correct_ref_wrong_structure.get('start_location_id') or contract_with_correct_ref_wrong_structure.get('end_location_id')}"
         )
         anomaly_updated = (
@@ -1065,7 +1101,7 @@ def _validate_sell_order_from_db(config, order, contracts):
                         f"Your sell order {order_ref} is in anomaly status.\n\n"
                         f"You submitted contract #{contract_with_correct_ref_wrong_structure['contract_id']} which has the correct title, "
                         f"but it's located at the wrong structure.\n\n"
-                        f"Required location: {config.structure_name or f'Structure {config.structure_id}'}\n"
+                        f"Required location: {location_summary}\n"
                         f"Your contract is at location {contract_with_correct_ref_wrong_structure.get('start_location_id') or contract_with_correct_ref_wrong_structure.get('end_location_id')}\n\n"
                         f"You can either create a new contract at the correct location, or contact a Material Hub admin (they have been notified)."
                     )
@@ -1074,7 +1110,7 @@ def _validate_sell_order_from_db(config, order, contracts):
                         f"Your sell order {order_ref} is in anomaly status.\n\n"
                         f"You submitted contract #{contract_with_correct_ref_wrong_structure['contract_id']} which has the correct title, "
                         f"but it's located at the wrong structure.\n\n"
-                        f"Required location: {config.structure_name or f'Structure {config.structure_id}'}\n"
+                        f"Required location: {location_summary}\n"
                         f"Your contract is at location {contract_with_correct_ref_wrong_structure.get('start_location_id') or contract_with_correct_ref_wrong_structure.get('end_location_id')}\n\n"
                         f"Please create a new compliant contract at the correct location."
                     )
@@ -1163,7 +1199,7 @@ def _validate_sell_order_from_db(config, order, contracts):
                         f"You submitted contract #{contract_with_correct_ref_wrong_price['contract_id']} with the correct title, but the price does not match the agreed total.\n\n"
                         f"Expected price: {expected_price}\n"
                         f"Contract price: {contract_price}\n\n"
-                        f"You can either create a new contract with the correct price at {config.structure_name or f'Structure {config.structure_id}'}, or wait for admin review (admins have been notified)."
+                        f"You can either create a new contract with the correct price at {location_summary}, or wait for admin review (admins have been notified)."
                     )
                     if notify_admins_on_sell_anomaly
                     else _(
@@ -1171,7 +1207,7 @@ def _validate_sell_order_from_db(config, order, contracts):
                         f"You submitted contract #{contract_with_correct_ref_wrong_price['contract_id']} with the correct title, but the price does not match the agreed total.\n\n"
                         f"Expected price: {expected_price}\n"
                         f"Contract price: {contract_price}\n\n"
-                        f"Please create a new compliant contract with the correct price at {config.structure_name or f'Structure {config.structure_id}'}."
+                        f"Please create a new compliant contract with the correct price at {location_summary}."
                     )
                 ),
                 level="warning",
@@ -1370,7 +1406,7 @@ def _validate_sell_order_from_db(config, order, contracts):
             "Waiting for matching contract. Please create an item exchange contract with:\n"
             f"- Title including {order_ref}\n"
             f"- Recipient (assignee): {_get_corp_name(config.corporation_id)}\n"
-            f"- Location: {config.structure_name or f'Structure {config.structure_id}'}\n"
+            f"- Location: {location_summary}\n"
             f"- Price: {order.total_price:,.0f} ISK\n"
             f"- Items: {', '.join(item.type_name for item in order.items.all())}"
             + (f"\nLast checked issue: {last_price_issue}" if last_price_issue else "")
@@ -1767,6 +1803,7 @@ def _matches_sell_order_criteria_db(contract, order, config, seller_character_id
         _get_location_name(contract.end_location_id)
     )
     config_location_names = _get_config_location_match_names(config)
+    config_location_ids = _get_config_location_ids(config)
 
     # Try name matching first
     if contract_start_name and contract_start_name in config_location_names:
@@ -1775,9 +1812,9 @@ def _matches_sell_order_criteria_db(contract, order, config, seller_character_id
         return True
 
     # Fall back to ID matching if name lookup failed
-    if contract.start_location_id == config.structure_id:
+    if contract.start_location_id in config_location_ids:
         return True
-    if contract.end_location_id == config.structure_id:
+    if contract.end_location_id in config_location_ids:
         return True
 
     return False
@@ -1801,15 +1838,16 @@ def _matches_buy_order_criteria_db(contract, order, config, buyer_character_ids)
         _get_location_name(contract.end_location_id)
     )
     config_location_names = _get_config_location_match_names(config)
+    config_location_ids = _get_config_location_ids(config)
 
     if contract_start_name and contract_start_name in config_location_names:
         return True
     if contract_end_name and contract_end_name in config_location_names:
         return True
 
-    if contract.start_location_id == config.structure_id:
+    if contract.start_location_id in config_location_ids:
         return True
-    if contract.end_location_id == config.structure_id:
+    if contract.end_location_id in config_location_ids:
         return True
 
     return False
@@ -1856,15 +1894,28 @@ def _build_items_mismatch_details(contract, order) -> str:
     actual_by_type: dict[int, int] = {}
     type_names: dict[int, str] = {}
 
+    def _resolve_type_display_name(
+        type_id: int, current_name: str | None = None
+    ) -> str:
+        candidate = str(current_name or "").strip()
+        if candidate and candidate != str(type_id):
+            return candidate
+
+        resolved_name = str(get_type_name(type_id) or "").strip()
+        if resolved_name and resolved_name != str(type_id):
+            return resolved_name
+
+        return f"Type {type_id}"
+
     for order_item in order_items:
         type_id = int(order_item.type_id)
         expected_by_type[type_id] = expected_by_type.get(type_id, 0) + int(
             order_item.quantity
         )
         if type_id not in type_names:
-            type_names[type_id] = (
-                order_item.type_name or ""
-            ).strip() or f"Type {type_id}"
+            type_names[type_id] = _resolve_type_display_name(
+                type_id, getattr(order_item, "type_name", "")
+            )
 
     for contract_item in included_items:
         type_id = int(contract_item.type_id)
@@ -1872,7 +1923,7 @@ def _build_items_mismatch_details(contract, order) -> str:
             contract_item.quantity
         )
         if type_id not in type_names:
-            type_names[type_id] = f"Type {type_id}"
+            type_names[type_id] = _resolve_type_display_name(type_id)
 
     all_type_ids = sorted(set(expected_by_type.keys()) | set(actual_by_type.keys()))
     missing_lines: list[str] = []
@@ -1881,7 +1932,7 @@ def _build_items_mismatch_details(contract, order) -> str:
     for type_id in all_type_ids:
         expected_qty = expected_by_type.get(type_id, 0)
         actual_qty = actual_by_type.get(type_id, 0)
-        type_name = type_names.get(type_id, f"Type {type_id}")
+        type_name = type_names.get(type_id) or _resolve_type_display_name(type_id)
 
         if expected_qty > actual_qty:
             missing_lines.append(f"- {expected_qty - actual_qty:,} {type_name}")

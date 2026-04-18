@@ -44,6 +44,26 @@ class IndustrySkillLevelUsageTests(SimpleTestCase):
 
         self.assertEqual(bonus_percent, 6.0)
 
+    def test_time_bonus_combines_copying_skills_multiplicatively(self) -> None:
+        bonus_percent = compute_activity_time_bonus_percent(
+            {
+                SKILL_TYPE_IDS["science"]: {"active": 5, "trained": 5},
+                SKILL_TYPE_IDS["advanced_industry"]: {"active": 5, "trained": 5},
+            },
+            activity_id=IndustryActivityMixin.ACTIVITY_COPYING,
+            required_skill_ids={SKILL_TYPE_IDS["science"]},
+            skill_bonus_attributes={
+                SKILL_TYPE_IDS["science"]: {
+                    "copySpeedBonus": -5.0,
+                },
+                SKILL_TYPE_IDS["advanced_industry"]: {
+                    "advancedIndustrySkillIndustryJobTimeBonus": -3.0,
+                },
+            },
+        )
+
+        self.assertEqual(bonus_percent, 36.25)
+
     def test_missing_requirements_compare_against_active_level(self) -> None:
         missing = missing_skill_requirements(
             {SKILL_TYPE_IDS["research"]: {"active": 2, "trained": 5}},

@@ -63,6 +63,10 @@ from ..models import (
     UserOnboardingProgress,
 )
 from ..notifications import build_site_url, notify_user
+from ..services.corporation_blueprint_visibility import (
+    can_view_corporation_blueprints,
+    can_view_corporation_jobs,
+)
 from ..services.esi_client import ESIClientError, ESITokenError
 from ..services.industry_skills import build_user_character_skill_contexts
 from ..services.providers import esi_provider
@@ -443,6 +447,51 @@ def _build_corporation_authorization_summary(
         "authorized_count": len(characters),
         "has_authorized": bool(characters),
     }
+
+
+def _manageable_corporations_cache_key(user_id: int) -> str:
+    return f"indy_hub:manageable_corporations:{int(user_id)}"
+
+
+def _get_manageable_corporations(user) -> dict[int, str]:
+    cache_key = _manageable_corporations_cache_key(user.id)
+    cached = cache.get(cache_key)
+    if isinstance(cached, dict):
+        return cached
+
+    corporations: dict[int, str] = {}
+    membership_rows = (
+        CharacterOwnership.objects.filter(user=user)
+        .exclude(character__corporation_id__isnull=True)
+        .values_list("character__corporation_id", "character__corporation_name")
+        .distinct()
+    )
+    for corporation_id, corporation_name in membership_rows:
+        if not corporation_id:
+            continue
+        corporations[int(corporation_id)] = (
+            corporation_name
+            or get_corporation_name(corporation_id)
+            or str(corporation_id)
+        )
+
+    if not corporations:
+        profile = getattr(user, "profile", None)
+        main_character = getattr(profile, "main_character", None)
+        corporation_id = getattr(main_character, "corporation_id", None)
+        if corporation_id:
+            corporations[int(corporation_id)] = (
+                getattr(main_character, "corporation_name", None)
+                or get_corporation_name(corporation_id)
+                or str(corporation_id)
+            )
+
+    cache.set(cache_key, corporations, timeout=300)
+    return corporations
+
+
+def _get_manageable_corporation_name(user, corporation_id: int) -> str | None:
+    return _get_manageable_corporations(user).get(int(corporation_id))
 
 
 def _collect_corporation_scope_status(
@@ -908,22 +957,15 @@ def build_corporation_sharing_context(
     if not user.has_perm("indy_hub.can_manage_corp_bp_requests"):
         return None
 
-    member_corp_ids = list(
-        CharacterOwnership.objects.filter(user=user)
-        .exclude(character__corporation_id__isnull=True)
-        .values_list("character__corporation_id", flat=True)
-        .distinct()
-    )
-    if not member_corp_ids:
-        profile = getattr(user, "profile", None)
-        main_character = getattr(profile, "main_character", None)
-        main_corp_id = getattr(main_character, "corporation_id", None)
-        if main_corp_id:
-            member_corp_ids = [main_corp_id]
+    member_corporations = _get_manageable_corporations(user)
+    member_corp_ids = list(member_corporations.keys())
 
     summary: dict[int, dict[str, Any]] = {
         corp_id: _default_corporation_summary_entry(
-            corp_id, get_corporation_name(corp_id) or str(corp_id)
+            corp_id,
+            member_corporations.get(corp_id)
+            or get_corporation_name(corp_id)
+            or str(corp_id),
         )
         for corp_id in member_corp_ids
         if corp_id
@@ -1088,7 +1130,11 @@ def _build_corporation_share_controls(
     """Prepare corporation sharing controls for the dashboard."""
 
     copy_states = get_copy_sharing_states()
+    catalog_states = get_blueprint_catalog_states()
+    job_catalog_states = get_job_catalog_states()
     default_state = copy_states[CharacterSettings.SCOPE_NONE]
+    default_catalog_state = catalog_states[CharacterSettings.SCOPE_NONE]
+    default_job_catalog_state = job_catalog_states[CharacterSettings.SCOPE_NONE]
     settings_map = {
         setting.corporation_id: setting
         for setting in CorporationSharingSetting.objects.filter(user=user)
@@ -1102,13 +1148,25 @@ def _build_corporation_share_controls(
         corp_name = entry.get("corporation_name") or str(corp_id)
         setting = settings_map.get(corp_id)
         share_scope = setting.share_scope if setting else CharacterSettings.SCOPE_NONE
+        catalog_scope = (
+            setting.blueprint_catalog_scope if setting else CharacterSettings.SCOPE_NONE
+        )
+        job_catalog_scope = (
+            setting.job_catalog_scope if setting else CharacterSettings.SCOPE_NONE
+        )
         state = copy_states.get(share_scope, default_state)
+        catalog_state = catalog_states.get(catalog_scope, default_catalog_state)
+        job_catalog_state = job_catalog_states.get(
+            job_catalog_scope, default_job_catalog_state
+        )
 
         controls.append(
             {
                 "corporation_id": corp_id,
                 "corporation_name": corp_name,
                 "share_scope": share_scope,
+                "blueprint_catalog_scope": catalog_scope,
+                "job_catalog_scope": job_catalog_scope,
                 "badge_class": state.get(
                     "badge_class", default_state.get("badge_class")
                 ),
@@ -1117,6 +1175,26 @@ def _build_corporation_share_controls(
                 ),
                 "status_hint": state.get(
                     "status_hint", default_state.get("status_hint")
+                ),
+                "catalog_badge_class": catalog_state.get(
+                    "badge_class", default_catalog_state.get("badge_class")
+                ),
+                "catalog_status_label": catalog_state.get(
+                    "status_label", default_catalog_state.get("status_label")
+                ),
+                "catalog_status_hint": catalog_state.get(
+                    "status_hint", default_catalog_state.get("status_hint")
+                ),
+                "job_catalog_badge_class": job_catalog_state.get(
+                    "badge_class", default_job_catalog_state.get("badge_class")
+                ),
+                "job_catalog_status_label": job_catalog_state.get(
+                    "status_label",
+                    default_job_catalog_state.get("status_label"),
+                ),
+                "job_catalog_status_hint": job_catalog_state.get(
+                    "status_hint",
+                    default_job_catalog_state.get("status_hint"),
                 ),
                 "has_blueprint_scope": bool(
                     entry.get("blueprint", {}).get("has_scope")
@@ -1250,6 +1328,70 @@ def get_copy_sharing_states() -> dict[str, dict[str, object]]:
                 "Any Indy Hub pilot with the copy permission can see your originals and request copies."
             ),
             "scope_display": _("Everyone"),
+        },
+    }
+
+
+def get_blueprint_catalog_states() -> dict[str, dict[str, object]]:
+    return {
+        CharacterSettings.SCOPE_NONE: {
+            "status_label": _("Managers"),
+            "status_hint": _("Only managers see this page."),
+            "badge_class": "bg-danger-subtle text-danger",
+            "popup_message": _("Corporation blueprints page limited to managers."),
+        },
+        CharacterSettings.SCOPE_CORPORATION: {
+            "status_label": _("Corp"),
+            "status_hint": _("Corporation members can open this page."),
+            "badge_class": "bg-warning-subtle text-warning",
+            "popup_message": _(
+                "Corporation blueprints page visible to corporation members."
+            ),
+        },
+        CharacterSettings.SCOPE_ALLIANCE: {
+            "status_label": _("Alliance"),
+            "status_hint": _("Corporation and alliance members can open this page."),
+            "badge_class": "bg-info-subtle text-info",
+            "popup_message": _(
+                "Corporation blueprints page visible to alliance members."
+            ),
+        },
+        CharacterSettings.SCOPE_EVERYONE: {
+            "status_label": _("All"),
+            "status_hint": _("Any Indy Hub pilot can open this page."),
+            "badge_class": "bg-success-subtle text-success",
+            "popup_message": _(
+                "Corporation blueprints page visible to all Indy Hub pilots."
+            ),
+        },
+    }
+
+
+def get_job_catalog_states() -> dict[str, dict[str, object]]:
+    return {
+        CharacterSettings.SCOPE_NONE: {
+            "status_label": _("Managers"),
+            "status_hint": _("Only managers see this page."),
+            "badge_class": "bg-danger-subtle text-danger",
+            "popup_message": _("Corporation jobs page limited to managers."),
+        },
+        CharacterSettings.SCOPE_CORPORATION: {
+            "status_label": _("Corp"),
+            "status_hint": _("Corporation members can open this page."),
+            "badge_class": "bg-warning-subtle text-warning",
+            "popup_message": _("Corporation jobs page visible to corporation members."),
+        },
+        CharacterSettings.SCOPE_ALLIANCE: {
+            "status_label": _("Alliance"),
+            "status_hint": _("Corporation and alliance members can open this page."),
+            "badge_class": "bg-info-subtle text-info",
+            "popup_message": _("Corporation jobs page visible to alliance members."),
+        },
+        CharacterSettings.SCOPE_EVERYONE: {
+            "status_label": _("All"),
+            "status_hint": _("Any Indy Hub pilot can open this page."),
+            "badge_class": "bg-success-subtle text-success",
+            "popup_message": _("Corporation jobs page visible to all Indy Hub pilots."),
         },
     }
 
@@ -1841,6 +1983,8 @@ def _build_dashboard_context(request):
     onboarding_show = bool(pending_tasks) and not onboarding_progress.dismissed
 
     can_manage_corp = request.user.has_perm("indy_hub.can_manage_corp_bp_requests")
+    can_view_corporation_bp = can_view_corporation_blueprints(request.user)
+    can_view_corporation_jobs_flag = can_view_corporation_jobs(request.user)
     corp_scope_status_cache_key = (
         f"indy_hub:corp_scope_status:dashboard:{int(request.user.id)}"
     )
@@ -1926,9 +2070,19 @@ def _build_dashboard_context(request):
                     "corporation_name": corp_ctrl.get("corporation_name"),
                     "has_blueprint_scope": corp_ctrl.get("has_blueprint_scope"),
                     "share_scope": corp_ctrl.get("share_scope"),
+                    "blueprint_catalog_scope": corp_ctrl.get("blueprint_catalog_scope"),
+                    "job_catalog_scope": corp_ctrl.get("job_catalog_scope"),
                     "status_label": corp_ctrl.get("status_label"),
                     "status_hint": corp_ctrl.get("status_hint"),
                     "badge_class": corp_ctrl.get("badge_class"),
+                    "catalog_status_label": corp_ctrl.get("catalog_status_label"),
+                    "catalog_status_hint": corp_ctrl.get("catalog_status_hint"),
+                    "catalog_badge_class": corp_ctrl.get("catalog_badge_class"),
+                    "job_catalog_status_label": corp_ctrl.get(
+                        "job_catalog_status_label"
+                    ),
+                    "job_catalog_status_hint": corp_ctrl.get("job_catalog_status_hint"),
+                    "job_catalog_badge_class": corp_ctrl.get("job_catalog_badge_class"),
                     "jobs_frequency": job_ctrl.get(
                         "frequency", CharacterSettings.NOTIFY_DISABLED
                     ),
@@ -1987,6 +2141,8 @@ def _build_dashboard_context(request):
         "copy_sharing_state": sharing_state,
         "copy_sharing_states": copy_sharing_states_with_scope,
         "copy_sharing_states_json": json.dumps(copy_sharing_states_with_scope),
+        "blueprint_catalog_states_json": json.dumps(get_blueprint_catalog_states()),
+        "job_catalog_states_json": json.dumps(get_job_catalog_states()),
         "job_notification_frequency": jobs_notify_frequency,
         "job_notification_custom_days": job_notification_custom_days,
         "job_notification_custom_hours": job_notification_custom_hours,
@@ -2016,6 +2172,8 @@ def _build_dashboard_context(request):
             "dismissed": onboarding_progress.dismissed,
         },
         "can_manage_corp_bp_requests": can_manage_corp,
+        "can_view_corporation_blueprints": can_view_corporation_bp,
+        "can_view_corporation_jobs": can_view_corporation_jobs_flag,
         "has_corp_blueprint_tokens": corp_blueprint_scope_count > 0,
         "has_corp_job_tokens": corp_jobs_scope_count > 0,
         "corporation_share_controls": corporation_share_controls,
@@ -2102,12 +2260,20 @@ def index(request):
         active_job_rows = (
             IndustryJob.objects.filter(
                 owner_user=request.user,
-                owner_kind=Blueprint.OwnerKind.CHARACTER,
                 status="active",
                 end_date__gt=now,
-                character_id__in=character_ids,
             )
-            .values("character_id", "activity_id")
+            .filter(
+                Q(
+                    owner_kind=Blueprint.OwnerKind.CHARACTER,
+                    character_id__in=character_ids,
+                )
+                | Q(
+                    owner_kind=Blueprint.OwnerKind.CORPORATION,
+                    installer_id__in=character_ids,
+                )
+            )
+            .values("owner_kind", "character_id", "installer_id", "activity_id")
             .annotate(total=Count("id"))
         )
         used_counts: dict[int, dict[str, int]] = {
@@ -2115,7 +2281,10 @@ def index(request):
             for char_id in character_ids
         }
         for row in active_job_rows:
-            char_id = int(row.get("character_id") or 0)
+            if row.get("owner_kind") == Blueprint.OwnerKind.CORPORATION:
+                char_id = int(row.get("installer_id") or 0)
+            else:
+                char_id = int(row.get("character_id") or 0)
             activity_id = int(row.get("activity_id") or 0)
             total = int(row.get("total") or 0)
             if char_id not in used_counts:
@@ -3506,19 +3675,10 @@ def toggle_corporation_copy_sharing(request):
     if scope not in valid_scopes:
         return JsonResponse({"error": "invalid_scope"}, status=400)
 
-    corp_scope_status = _collect_corporation_scope_status(request.user)
-    corp_entry = next(
-        (
-            entry
-            for entry in corp_scope_status
-            if entry.get("corporation_id") == corp_id
-        ),
-        None,
-    )
-    if not corp_entry:
+    corp_name = _get_manageable_corporation_name(request.user, corp_id)
+    if not corp_name:
         return JsonResponse({"error": "unknown_corporation"}, status=404)
 
-    corp_name = corp_entry.get("corporation_name") or str(corp_id)
     setting, _created = CorporationSharingSetting.objects.get_or_create(
         user=request.user,
         corporation_id=corp_id,
@@ -3565,6 +3725,171 @@ def toggle_corporation_copy_sharing(request):
         "popup_message": state.get("popup_message"),
     }
     return JsonResponse(response_payload)
+
+
+@indy_hub_access_required
+@login_required
+@require_POST
+def toggle_corporation_blueprint_catalog(request):
+    emit_view_analytics_event(
+        view_name="user.toggle_corporation_blueprint_catalog", request=request
+    )
+    if not request.user.has_perm("indy_hub.can_manage_corp_bp_requests"):
+        return JsonResponse({"error": "forbidden"}, status=403)
+
+    payload = {}
+    if request.body:
+        try:
+            payload = json.loads(request.body.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
+            return JsonResponse({"error": "invalid_payload"}, status=400)
+
+    corp_id = payload.get("corporation_id")
+    scope = payload.get("scope")
+
+    try:
+        corp_id = int(corp_id)
+    except (TypeError, ValueError):
+        corp_id = None
+
+    valid_scopes = dict(CharacterSettings.COPY_SHARING_SCOPE_CHOICES)
+    if not corp_id:
+        return JsonResponse({"error": "invalid_corporation"}, status=400)
+    if scope not in valid_scopes:
+        return JsonResponse({"error": "invalid_scope"}, status=400)
+
+    corp_name = _get_manageable_corporation_name(request.user, corp_id)
+    if not corp_name:
+        return JsonResponse({"error": "unknown_corporation"}, status=404)
+
+    setting, _created = CorporationSharingSetting.objects.get_or_create(
+        user=request.user,
+        corporation_id=corp_id,
+        defaults={
+            "corporation_name": corp_name,
+            "share_scope": CharacterSettings.SCOPE_NONE,
+            "blueprint_catalog_scope": CharacterSettings.SCOPE_NONE,
+            "allow_copy_requests": False,
+        },
+    )
+    setting.corporation_name = corp_name
+    setting.set_blueprint_catalog_scope(scope)
+    setting.save(
+        update_fields=[
+            "corporation_name",
+            "blueprint_catalog_scope",
+            "updated_at",
+        ]
+    )
+
+    catalog_states = get_blueprint_catalog_states()
+    state = dict(
+        catalog_states.get(scope, catalog_states[CharacterSettings.SCOPE_NONE])
+    )
+    base_popup = state.get("popup_message") or _(
+        "Corporation blueprint catalog updated."
+    )
+    state["popup_message"] = _("%(corp)s: %(message)s") % {
+        "corp": corp_name,
+        "message": base_popup,
+    }
+
+    return JsonResponse(
+        {
+            "corporation_id": corp_id,
+            "corporation_name": corp_name,
+            "scope": scope,
+            "badge_class": state.get("badge_class", "bg-danger-subtle text-danger"),
+            "status_label": state.get("status_label", _("Managers")),
+            "status_hint": state.get(
+                "status_hint",
+                _("Only managers see this page."),
+            ),
+            "popup_message": state.get("popup_message"),
+        }
+    )
+
+
+@indy_hub_access_required
+@login_required
+@require_POST
+def toggle_corporation_job_catalog(request):
+    emit_view_analytics_event(
+        view_name="user.toggle_corporation_job_catalog", request=request
+    )
+    if not request.user.has_perm("indy_hub.can_manage_corp_bp_requests"):
+        return JsonResponse({"error": "forbidden"}, status=403)
+
+    payload = {}
+    if request.body:
+        try:
+            payload = json.loads(request.body.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
+            return JsonResponse({"error": "invalid_payload"}, status=400)
+
+    corp_id = payload.get("corporation_id")
+    scope = payload.get("scope")
+
+    try:
+        corp_id = int(corp_id)
+    except (TypeError, ValueError):
+        corp_id = None
+
+    valid_scopes = dict(CharacterSettings.COPY_SHARING_SCOPE_CHOICES)
+    if not corp_id:
+        return JsonResponse({"error": "invalid_corporation"}, status=400)
+    if scope not in valid_scopes:
+        return JsonResponse({"error": "invalid_scope"}, status=400)
+
+    corp_name = _get_manageable_corporation_name(request.user, corp_id)
+    if not corp_name:
+        return JsonResponse({"error": "unknown_corporation"}, status=404)
+
+    setting, _created = CorporationSharingSetting.objects.get_or_create(
+        user=request.user,
+        corporation_id=corp_id,
+        defaults={
+            "corporation_name": corp_name,
+            "share_scope": CharacterSettings.SCOPE_NONE,
+            "blueprint_catalog_scope": CharacterSettings.SCOPE_NONE,
+            "job_catalog_scope": CharacterSettings.SCOPE_NONE,
+            "allow_copy_requests": False,
+        },
+    )
+    setting.corporation_name = corp_name
+    setting.set_job_catalog_scope(scope)
+    setting.save(
+        update_fields=[
+            "corporation_name",
+            "job_catalog_scope",
+            "updated_at",
+        ]
+    )
+
+    job_catalog_states = get_job_catalog_states()
+    state = dict(
+        job_catalog_states.get(scope, job_catalog_states[CharacterSettings.SCOPE_NONE])
+    )
+    base_popup = state.get("popup_message") or _("Corporation jobs visibility updated.")
+    state["popup_message"] = _("%(corp)s: %(message)s") % {
+        "corp": corp_name,
+        "message": base_popup,
+    }
+
+    return JsonResponse(
+        {
+            "corporation_id": corp_id,
+            "corporation_name": corp_name,
+            "scope": scope,
+            "badge_class": state.get("badge_class", "bg-danger-subtle text-danger"),
+            "status_label": state.get("status_label", _("Managers")),
+            "status_hint": state.get(
+                "status_hint",
+                _("Only managers see this page."),
+            ),
+            "popup_message": state.get("popup_message"),
+        }
+    )
 
 
 @indy_hub_access_required

@@ -1,32 +1,27 @@
 (function () {
-    var debugEnabled = (typeof window !== 'undefined' && window.INDY_HUB_DEBUG === true);
+    var debugEnabled =
+        typeof window !== "undefined" && window.INDY_HUB_DEBUG === true;
+
     function debugLog() {
-        if (!debugEnabled || typeof console === 'undefined' || typeof console.debug !== 'function') {
+        if (
+            !debugEnabled ||
+            typeof console === "undefined" ||
+            typeof console.debug !== "function"
+        ) {
             return;
         }
         console.debug.apply(console, arguments);
     }
 
     function __(message) {
-        if (typeof window !== 'undefined' && typeof window.gettext === 'function') {
+        if (typeof window !== "undefined" && typeof window.gettext === "function") {
             return window.gettext(message);
         }
         return message;
     }
 
-    debugLog('[IndyHub] bp_copy_chat.js loaded');
-    function $(arg1, arg2) {
-        if (typeof arg1 === 'string') {
-            return (arg2 || document).querySelector(arg1);
-        }
-        if (!arg1) {
-            return null;
-        }
-        return arg1.querySelector(arg2);
-    }
-
-    function ensureModalElement() {
-        return document.querySelector('[data-chat-modal]');
+    function $(selector, root) {
+        return (root || document).querySelector(selector);
     }
 
     function createEl(tag, className, text) {
@@ -34,13 +29,16 @@
         if (className) {
             el.className = className;
         }
-        if (typeof text === 'string') {
+        if (typeof text === "string") {
             el.textContent = text;
         }
         return el;
     }
 
     function scrollToBottom(container) {
+        if (!container) {
+            return;
+        }
         container.scrollTop = container.scrollHeight;
     }
 
@@ -48,15 +46,18 @@
         if (!container) {
             return;
         }
-        if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+        if (
+            typeof window !== "undefined" &&
+            typeof window.requestAnimationFrame === "function"
+        ) {
             window.requestAnimationFrame(function () {
                 window.requestAnimationFrame(function () {
                     scrollToBottom(container);
                 });
             });
-        } else {
-            scrollToBottom(container);
+            return;
         }
+        scrollToBottom(container);
     }
 
     function scrollMessagesToBottomNow(container) {
@@ -64,7 +65,7 @@
             return;
         }
         scrollToBottom(container);
-        if (typeof window !== 'undefined') {
+        if (typeof window !== "undefined") {
             window.setTimeout(function () {
                 scrollToBottom(container);
             }, 50);
@@ -76,46 +77,173 @@
             return url;
         }
         try {
-            var origin = (typeof window !== 'undefined' && window.location && window.location.origin) ? window.location.origin : undefined;
+            var origin =
+                typeof window !== "undefined" &&
+                window.location &&
+                window.location.origin
+                    ? window.location.origin
+                    : undefined;
             var resolved = new URL(url, origin);
-            resolved.searchParams.set('viewer_role', viewerRole);
-            if (typeof window !== 'undefined' && window.location && resolved.origin === window.location.origin) {
+            resolved.searchParams.set("viewer_role", viewerRole);
+            if (
+                typeof window !== "undefined" &&
+                window.location &&
+                resolved.origin === window.location.origin
+            ) {
                 return resolved.pathname + resolved.search + resolved.hash;
             }
             return resolved.toString();
         } catch (err) {
-            var separator = url.indexOf('?') === -1 ? '?' : '&';
-            return url + separator + 'viewer_role=' + encodeURIComponent(viewerRole);
+            var separator = url.indexOf("?") === -1 ? "?" : "&";
+            return (
+                url + separator + "viewer_role=" + encodeURIComponent(viewerRole)
+            );
         }
     }
 
     function labelFor(role, viewerRole, labels) {
         if (role === viewerRole) {
-            return labels.you || 'You';
+            return labels.you || "You";
         }
         return labels[role] || role;
     }
 
-    function init() {
-        var modalEl = ensureModalElement();
-        if (!modalEl) {
-            debugLog('[IndyHub] No chat modal found on page');
+    function loadSeenChatIds() {
+        if (typeof window === "undefined" || !window.localStorage) {
+            return [];
         }
-        if (!modalEl) {
+        try {
+            var raw = window.localStorage.getItem("indyhub_seen_chats");
+            if (!raw) {
+                return [];
+            }
+            var parsed = JSON.parse(raw);
+            if (!Array.isArray(parsed)) {
+                return [];
+            }
+            return parsed.map(function (value) {
+                return String(value);
+            });
+        } catch (err) {
+            return [];
+        }
+    }
+
+    function storeSeenChatId(chatId) {
+        if (!chatId || typeof window === "undefined" || !window.localStorage) {
             return;
+        }
+        var stringId = String(chatId);
+        var seen = loadSeenChatIds();
+        if (seen.indexOf(stringId) !== -1) {
+            return;
+        }
+        seen.unshift(stringId);
+        if (seen.length > 100) {
+            seen = seen.slice(0, 100);
+        }
+        try {
+            window.localStorage.setItem("indyhub_seen_chats", JSON.stringify(seen));
+        } catch (err) {
+            return;
+        }
+    }
+
+    function getBootstrapModalCtor() {
+        if (typeof window === "undefined") {
+            return null;
+        }
+        if (window.bootstrap && window.bootstrap.Modal) {
+            return window.bootstrap.Modal;
+        }
+        if (window.bootstrap5 && window.bootstrap5.Modal) {
+            return window.bootstrap5.Modal;
+        }
+        return null;
+    }
+
+    function createChatController(shellEl) {
+        var inlineMode = shellEl.hasAttribute("data-chat-inline");
+        var bootstrapModalCtor = getBootstrapModalCtor();
+        var useBootstrap = !inlineMode && Boolean(bootstrapModalCtor);
+        var modal = useBootstrap
+            ? bootstrapModalCtor.getOrCreateInstance(shellEl)
+            : null;
+        var backdropEl = null;
+        var previousBodyOverflow = "";
+
+        var formEl = $("[data-chat-form]", shellEl);
+        var messageContainer = $("[data-chat-messages]", shellEl);
+        var statusEl = $("[data-chat-status]", shellEl);
+        var summaryEl = $("[data-chat-summary]", shellEl);
+        var inputEl = $("[data-chat-input]", shellEl);
+        var actionsEl = $("[data-chat-actions]", shellEl);
+        var actionStatusEl = actionsEl
+            ? $("[data-chat-action-status]", actionsEl)
+            : null;
+        var actionHintEl = actionsEl
+            ? $("[data-chat-action-hint]", actionsEl)
+            : null;
+        var proposalFormEl = actionsEl
+            ? $("[data-chat-proposal-form]", actionsEl)
+            : null;
+        var proposalInputEl = actionsEl
+            ? $("[data-chat-proposal-input]", actionsEl)
+            : null;
+        var proposalSubmitBtn = actionsEl
+            ? $("[data-chat-proposal-submit]", actionsEl)
+            : null;
+        var proposalCurrentEl = actionsEl
+            ? $("[data-chat-proposal-current]", actionsEl)
+            : null;
+        var proposalAmountEl = actionsEl
+            ? $("[data-chat-proposal-amount]", actionsEl)
+            : null;
+
+        if (!formEl || !messageContainer || !inputEl) {
+            return null;
+        }
+
+        var state = {
+            fetchUrl: null,
+            sendUrl: null,
+            viewerRole: "buyer",
+            labels: {
+                buyer: __("Buyer"),
+                seller: __("Builder"),
+                system: __("System"),
+                you: __("You"),
+            },
+            typeName: "",
+            typeId: null,
+            polling: null,
+            isOpen: false,
+            decisionUrl: null,
+            lastDecision: null,
+            actionSubmitting: false,
+            pendingInitialScroll: false,
+            initialScrollDone: false,
+        };
+
+        var defaults = window.indyChatDefaults || {};
+        if (defaults.viewerRole) {
+            state.viewerRole = defaults.viewerRole;
+        }
+        if (defaults.labels) {
+            state.labels = Object.assign({}, state.labels, defaults.labels);
         }
 
         function getCsrfToken() {
-            if (formEl) {
-                var input = $('input[name="csrfmiddlewaretoken"]', formEl);
-                if (input && input.value) {
-                    return input.value;
-                }
+            var input = $("input[name='csrfmiddlewaretoken']", formEl);
+            if (input && input.value) {
+                return input.value;
             }
-            if (typeof window !== 'undefined' && window.csrfToken) {
+            if (typeof window !== "undefined" && window.csrfToken) {
                 return window.csrfToken;
             }
-            var match = document.cookie ? document.cookie.match(/csrftoken=([^;]+)/) : null;
+            var match = document.cookie
+                ? document.cookie.match(/csrftoken=([^;]+)/)
+                : null;
             if (match && match[1]) {
                 try {
                     return decodeURIComponent(match[1]);
@@ -123,29 +251,15 @@
                     return match[1];
                 }
             }
-            return '';
+            return "";
         }
-
-        var bootstrapModalCtor = null;
-        if (typeof window !== 'undefined') {
-            if (window.bootstrap && window.bootstrap.Modal) {
-                bootstrapModalCtor = window.bootstrap.Modal;
-            } else if (window.bootstrap5 && window.bootstrap5.Modal) {
-                bootstrapModalCtor = window.bootstrap5.Modal;
-            }
-        }
-
-        var useBootstrap = Boolean(bootstrapModalCtor);
-        var modal = useBootstrap ? bootstrapModalCtor.getOrCreateInstance(modalEl) : null;
-        var backdropEl = null;
-        var previousBodyOverflow = '';
 
         function ensureBackdrop() {
-            if (backdropEl) {
+            if (backdropEl || inlineMode) {
                 return;
             }
-            backdropEl = document.createElement('div');
-            backdropEl.className = 'modal-backdrop fade show';
+            backdropEl = document.createElement("div");
+            backdropEl.className = "modal-backdrop fade show";
             document.body.appendChild(backdropEl);
         }
 
@@ -159,105 +273,32 @@
             backdropEl = null;
         }
 
-
-        function showModal() {
+        function showShell() {
+            if (inlineMode) {
+                shellEl.classList.add("is-active");
+                return;
+            }
             if (useBootstrap) {
                 modal.show();
                 return;
             }
-            if (modalEl.classList.contains('show')) {
+            if (shellEl.classList.contains("show")) {
                 return;
             }
             ensureBackdrop();
-            modalEl.style.display = 'block';
-            modalEl.removeAttribute('aria-hidden');
-            document.body.classList.add('modal-open');
-            previousBodyOverflow = document.body.style.overflow || '';
-            document.body.style.overflow = 'hidden';
-            if (state.pendingInitialScroll) {
-                scrollMessagesToBottom(messageContainer);
-            }
+            shellEl.style.display = "block";
+            shellEl.classList.add("show");
+            shellEl.removeAttribute("aria-hidden");
+            document.body.classList.add("modal-open");
+            previousBodyOverflow = document.body.style.overflow || "";
+            document.body.style.overflow = "hidden";
         }
 
-        function hideModal() {
-            if (useBootstrap) {
-                modal.hide();
-                return;
+        function stopPolling() {
+            if (state.polling) {
+                window.clearInterval(state.polling);
+                state.polling = null;
             }
-            modalEl.classList.remove('show');
-            modalEl.style.display = 'none';
-            modalEl.setAttribute('aria-hidden', 'true');
-            document.body.classList.remove('modal-open');
-            document.body.style.overflow = previousBodyOverflow;
-            previousBodyOverflow = '';
-            removeBackdrop();
-            onModalClosed();
-        }
-
-        var formEl = $('[data-chat-form]', modalEl);
-        var messageContainer = $('[data-chat-messages]', modalEl);
-        var statusEl = $('[data-chat-status]', modalEl);
-        var summaryEl = $('[data-chat-summary]', modalEl);
-        var inputEl = $('[data-chat-input]', modalEl);
-        var actionsEl = $('[data-chat-actions]', modalEl);
-        var actionStatusEl = actionsEl ? $('[data-chat-action-status]', actionsEl) : null;
-        var acceptBtn = actionsEl ? $('[data-chat-accept]', actionsEl) : null;
-        var rejectBtn = actionsEl ? $('[data-chat-reject]', actionsEl) : null;
-
-        if (!messageContainer || !formEl || !inputEl) {
-            return;
-        }
-
-        var state = {
-            fetchUrl: null,
-            sendUrl: null,
-            viewerRole: 'buyer',
-            labels: {
-                buyer: __('Buyer'),
-                seller: __('Builder'),
-                system: __('System'),
-                you: __('You')
-            },
-            typeName: '',
-            typeId: null,
-            polling: null,
-            isOpen: false,
-            decisionUrl: null,
-            lastDecision: null,
-            actionSubmitting: false
-        };
-
-        var defaults = window.indyChatDefaults || {};
-        if (defaults.viewerRole) {
-            state.viewerRole = defaults.viewerRole;
-        }
-        if (defaults.labels) {
-            state.labels = Object.assign({}, state.labels, defaults.labels);
-        }
-
-        updateActions(null);
-
-        function showStatus(message, tone) {
-            if (!statusEl) {
-                return;
-            }
-            if (!message) {
-                statusEl.classList.add('d-none');
-                statusEl.textContent = '';
-                statusEl.classList.remove('alert-danger', 'alert-warning', 'alert-info', 'alert-success');
-                return;
-            }
-            var toneClass = 'alert-info';
-            if (tone === 'error') {
-                toneClass = 'alert-danger';
-            } else if (tone === 'warning') {
-                toneClass = 'alert-warning';
-            } else if (tone === 'success') {
-                toneClass = 'alert-success';
-            }
-            statusEl.classList.remove('alert-danger', 'alert-warning', 'alert-info', 'alert-success', 'd-none');
-            statusEl.classList.add(toneClass);
-            statusEl.textContent = message;
         }
 
         function clearMessages() {
@@ -266,44 +307,58 @@
             }
         }
 
-        function renderMessages(payload) {
-            clearMessages();
-            var viewerRole = payload.chat.viewer_role;
-            var otherRole = payload.chat.other_role;
-            var labels = Object.assign({}, state.labels);
-            if (!labels[otherRole]) {
-                labels[otherRole] = otherRole;
+        function resetStatus() {
+            if (!statusEl) {
+                return;
             }
+            statusEl.classList.add("d-none");
+            statusEl.textContent = "";
+            statusEl.classList.remove(
+                "alert-danger",
+                "alert-warning",
+                "alert-info",
+                "alert-success"
+            );
+        }
 
-            var messages = payload.messages || [];
-            messages.forEach(function (item) {
-                var bubble = createEl('div', 'bp-chat-message');
-                if (item.role === viewerRole) {
-                    bubble.classList.add('bp-chat-message--self');
-                } else if (item.role === 'system') {
-                    bubble.classList.add('bp-chat-message--system');
-                } else {
-                    bubble.classList.add('bp-chat-message--other');
-                }
+        function showStatus(message, tone) {
+            if (!statusEl) {
+                return;
+            }
+            if (!message) {
+                resetStatus();
+                return;
+            }
+            var toneClass = "alert-info";
+            if (tone === "error") {
+                toneClass = "alert-danger";
+            } else if (tone === "warning") {
+                toneClass = "alert-warning";
+            } else if (tone === "success") {
+                toneClass = "alert-success";
+            }
+            statusEl.classList.remove(
+                "alert-danger",
+                "alert-warning",
+                "alert-info",
+                "alert-success",
+                "d-none"
+            );
+            statusEl.classList.add(toneClass);
+            statusEl.textContent = message;
+        }
 
-                var meta = createEl('div', 'bp-chat-message__meta');
-                var author = createEl('span', 'bp-chat-message__author', labelFor(item.role, viewerRole, labels));
-                meta.appendChild(author);
-                var separator = createEl('span', 'bp-chat-message__separator', '•');
-                meta.appendChild(separator);
-                var timestamp = createEl('time', 'bp-chat-message__time', item.created_display);
-                if (item.created_at) {
-                    timestamp.setAttribute('datetime', item.created_at);
-                }
-                meta.appendChild(timestamp);
-                bubble.appendChild(meta);
-
-                var content = createEl('span', 'bp-chat-message__content', item.content);
-                bubble.appendChild(content);
-                messageContainer.appendChild(bubble);
-            });
-            if (messages.length && state.pendingInitialScroll) {
-                scrollMessagesToBottomNow(messageContainer);
+        function toggleForm(enabled) {
+            var disabled = !enabled;
+            if (disabled) {
+                formEl.setAttribute("aria-disabled", "true");
+            } else {
+                formEl.removeAttribute("aria-disabled");
+            }
+            inputEl.disabled = disabled;
+            var submitBtn = $("button[type='submit']", formEl);
+            if (submitBtn) {
+                submitBtn.disabled = disabled;
             }
         }
 
@@ -311,85 +366,165 @@
             if (!summaryEl) {
                 return;
             }
-
-            var typeName = payload.chat.type_name || state.typeName || __('Blueprint');
+            var typeName = payload.chat.type_name || state.typeName || __("Blueprint");
             var typeId = payload.chat.type_id || state.typeId || null;
-            var viewerLabel = state.labels[payload.chat.viewer_role] || payload.chat.viewer_role;
-            var otherLabel = state.labels[payload.chat.other_role] || payload.chat.other_role;
+            var viewerLabel =
+                state.labels[payload.chat.viewer_role] || payload.chat.viewer_role;
+            var otherLabel =
+                state.labels[payload.chat.other_role] || payload.chat.other_role;
 
-            summaryEl.innerHTML = '';
-
-            var panel = createEl('div', 'bp-chat-summary__panel');
-
-            var headline = createEl('div', 'bp-chat-summary__headline');
-            var nameEl = createEl('span', 'bp-chat-summary__type', typeName);
+            summaryEl.innerHTML = "";
+            var panel = createEl("div", "bp-chat-summary__panel");
+            var headline = createEl("div", "bp-chat-summary__headline");
+            var nameEl = createEl("span", "bp-chat-summary__type", typeName);
             headline.appendChild(nameEl);
 
             if (!payload.chat.is_open && payload.chat.closed_reason) {
                 var reasonLabels = {
-                    request_closed: __('Request closed'),
-                    offer_accepted: __('Offer accepted'),
-                    offer_rejected: __('Offer rejected'),
-                    expired: __('Expired'),
-                    manual: __('Closed'),
-                    reopened: __('Reopened')
+                    request_closed: __("Request closed"),
+                    offer_accepted: __("Offer accepted"),
+                    offer_rejected: __("Offer rejected"),
+                    expired: __("Expired"),
+                    manual: __("Closed"),
+                    reopened: __("Reopened"),
                 };
                 var reasonKey = payload.chat.closed_reason;
-                var closeLabel = reasonLabels[reasonKey] || reasonKey.replace(/_/g, ' ');
-                var closedBadge = createEl('span', 'bp-chat-summary__badge');
+                var closeLabel =
+                    reasonLabels[reasonKey] || reasonKey.replace(/_/g, " ");
+                var closedBadge = createEl("span", "bp-chat-summary__badge");
                 closedBadge.textContent = closeLabel;
                 headline.appendChild(closedBadge);
             }
             panel.appendChild(headline);
 
-            var roles = createEl('div', 'bp-chat-summary__roles');
-            var viewerBadge = createEl('span', 'bp-chat-summary__role badge rounded-pill bg-primary-subtle text-primary fw-semibold', viewerLabel);
-            roles.appendChild(viewerBadge);
-            var rolesDivider = createEl('span', 'bp-chat-summary__divider', '↔');
-            roles.appendChild(rolesDivider);
-            var otherBadge = createEl('span', 'bp-chat-summary__role badge rounded-pill bg-secondary-subtle text-secondary fw-semibold', otherLabel);
-            roles.appendChild(otherBadge);
+            var roles = createEl("div", "bp-chat-summary__roles");
+            roles.appendChild(
+                createEl(
+                    "span",
+                    "bp-chat-summary__role badge rounded-pill bg-primary-subtle text-primary fw-semibold",
+                    viewerLabel
+                )
+            );
+            roles.appendChild(createEl("span", "bp-chat-summary__divider", "↔"));
+            roles.appendChild(
+                createEl(
+                    "span",
+                    "bp-chat-summary__role badge rounded-pill bg-secondary-subtle text-secondary fw-semibold",
+                    otherLabel
+                )
+            );
             panel.appendChild(roles);
 
-            var me = payload.chat.material_efficiency;
-            var te = payload.chat.time_efficiency;
-            var runs = payload.chat.runs_requested;
-            var copies = payload.chat.copies_requested;
             var detailParts = [];
-            if (typeof me === 'number') {
-                detailParts.push('ME ' + me);
+            if (typeof payload.chat.material_efficiency === "number") {
+                detailParts.push("ME " + payload.chat.material_efficiency);
             }
-            if (typeof te === 'number') {
-                detailParts.push('TE ' + te);
+            if (typeof payload.chat.time_efficiency === "number") {
+                detailParts.push("TE " + payload.chat.time_efficiency);
             }
-            if (typeof runs === 'number') {
-                detailParts.push(runs + ' ' + __('runs'));
+            if (typeof payload.chat.runs_requested === "number") {
+                detailParts.push(payload.chat.runs_requested + " " + __("runs"));
             }
-            if (typeof copies === 'number') {
-                detailParts.push(copies + ' ' + __('copies'));
+            if (typeof payload.chat.copies_requested === "number") {
+                detailParts.push(
+                    payload.chat.copies_requested + " " + __("copies")
+                );
             }
+
             if (detailParts.length) {
-                var detailRow = createEl('div', 'bp-chat-summary__meta text-muted small', detailParts.join(' · '));
-                panel.appendChild(detailRow);
+                panel.appendChild(
+                    createEl(
+                        "div",
+                        "bp-chat-summary__meta text-muted small",
+                        detailParts.join(" · ")
+                    )
+                );
             }
 
             if (typeId) {
-                var idRow = createEl('div', 'bp-chat-summary__meta text-muted small', '#' + typeId);
-                panel.appendChild(idRow);
+                panel.appendChild(
+                    createEl(
+                        "div",
+                        "bp-chat-summary__meta text-muted small",
+                        "#" + typeId
+                    )
+                );
             }
 
             summaryEl.appendChild(panel);
         }
 
-        function toggleForm(enabled) {
-            var disabled = !enabled;
-            if (disabled) {
-                formEl.setAttribute('aria-disabled', 'true');
-            } else {
-                formEl.removeAttribute('aria-disabled');
+        function renderMessages(payload) {
+            clearMessages();
+            var viewerRole = payload.chat.viewer_role;
+            var labels = Object.assign({}, state.labels);
+            if (!labels[payload.chat.other_role]) {
+                labels[payload.chat.other_role] = payload.chat.other_role;
             }
-            inputEl.disabled = disabled;
-            formEl.querySelector('button[type="submit"]').disabled = disabled;
+
+            (payload.messages || []).forEach(function (item) {
+                var isProposal = item.kind === "proposal";
+                var isSystem = item.role === "system" || isProposal;
+                var roleLabel = isProposal
+                    ? item.kind_label || __("Negotiation")
+                    : labelFor(item.role, viewerRole, labels);
+                var row = createEl("div", "bp-chat-row");
+                var bubble = createEl("div", "bp-chat-message");
+                if (isProposal) {
+                    row.classList.add("bp-chat-row--system", "bp-chat-row--proposal");
+                    bubble.classList.add("bp-chat-message--proposal");
+                } else if (item.role === viewerRole) {
+                    row.classList.add("bp-chat-row--self");
+                    bubble.classList.add("bp-chat-message--self");
+                } else if (isSystem) {
+                    row.classList.add("bp-chat-row--system");
+                    bubble.classList.add("bp-chat-message--system");
+                } else {
+                    row.classList.add("bp-chat-row--other");
+                    bubble.classList.add("bp-chat-message--other");
+                }
+
+                var meta = createEl("div", "bp-chat-message__meta");
+                meta.appendChild(
+                    createEl(
+                        "span",
+                        "bp-chat-message__author",
+                        roleLabel
+                    )
+                );
+                meta.appendChild(
+                    createEl("span", "bp-chat-message__separator", "•")
+                );
+                var timestamp = createEl(
+                    "time",
+                    "bp-chat-message__time",
+                    item.created_display
+                );
+                if (item.created_at) {
+                    timestamp.setAttribute("datetime", item.created_at);
+                }
+                meta.appendChild(timestamp);
+                bubble.appendChild(meta);
+                bubble.appendChild(
+                    createEl("span", "bp-chat-message__content", item.content)
+                );
+
+                if (isSystem) {
+                    row.appendChild(bubble);
+                    messageContainer.appendChild(row);
+                    return;
+                }
+
+                row.appendChild(bubble);
+
+                messageContainer.appendChild(row);
+            });
+
+            if (state.pendingInitialScroll) {
+                scrollMessagesToBottomNow(messageContainer);
+                state.pendingInitialScroll = false;
+                state.initialScrollDone = true;
+            }
         }
 
         function updateActions(decision) {
@@ -400,189 +535,131 @@
             state.decisionUrl = decision && decision.url ? decision.url : null;
 
             if (!decision) {
-                actionsEl.classList.add('d-none');
+                actionsEl.classList.add("d-none");
+                delete actionsEl.dataset.chatState;
+                delete actionsEl.dataset.chatHasCurrent;
                 if (actionStatusEl) {
-                    actionStatusEl.textContent = '';
-                    actionStatusEl.classList.remove('text-danger', 'text-warning', 'text-success', 'text-primary', 'text-muted');
+                    actionStatusEl.textContent = "";
+                    actionStatusEl.classList.remove(
+                        "text-danger",
+                        "text-warning",
+                        "text-success",
+                        "text-primary",
+                        "text-muted"
+                    );
                 }
-                if (acceptBtn) {
-                    acceptBtn.classList.add('d-none');
-                    acceptBtn.disabled = true;
+                if (actionHintEl) {
+                    actionHintEl.textContent = "";
                 }
-                if (rejectBtn) {
-                    rejectBtn.classList.add('d-none');
-                    rejectBtn.disabled = true;
+                if (proposalFormEl) {
+                    proposalFormEl.classList.add("d-none");
+                }
+                if (proposalInputEl) {
+                    proposalInputEl.disabled = true;
+                    proposalInputEl.value = "";
+                }
+                if (proposalSubmitBtn) {
+                    proposalSubmitBtn.disabled = true;
+                }
+                if (proposalCurrentEl) {
+                    proposalCurrentEl.classList.add("d-none");
+                }
+                if (proposalAmountEl) {
+                    proposalAmountEl.textContent = "";
                 }
                 return;
             }
 
+            actionsEl.dataset.chatState = decision.state || "";
+            actionsEl.dataset.chatHasCurrent = decision.current_amount_display
+                ? "true"
+                : "false";
+
             var toneMap = {
-                error: 'text-danger',
-                warning: 'text-warning',
-                success: 'text-success',
-                info: 'text-primary'
+                error: "text-danger",
+                warning: "text-warning",
+                success: "text-success",
+                info: "text-primary",
             };
 
             if (actionStatusEl) {
-                actionStatusEl.classList.remove('text-danger', 'text-warning', 'text-success', 'text-primary', 'text-muted');
+                actionStatusEl.classList.remove(
+                    "text-danger",
+                    "text-warning",
+                    "text-success",
+                    "text-primary",
+                    "text-muted"
+                );
                 if (decision.status_label) {
                     actionStatusEl.textContent = decision.status_label;
-                    var toneClass = decision.status_tone && toneMap[decision.status_tone] ? toneMap[decision.status_tone] : '';
-                    if (toneClass) {
-                        actionStatusEl.classList.add(toneClass);
-                    } else {
-                        actionStatusEl.classList.add('text-muted');
-                    }
+                    var toneClass =
+                        decision.status_tone && toneMap[decision.status_tone]
+                            ? toneMap[decision.status_tone]
+                            : "text-muted";
+                    actionStatusEl.classList.add(toneClass);
                 } else {
-                    actionStatusEl.textContent = '';
+                    actionStatusEl.textContent = "";
                 }
             }
 
-            var canAccept = Boolean(decision.viewer_can_accept);
-            var canReject = Boolean(decision.viewer_can_reject);
-
-            if (acceptBtn) {
-                if (decision.accept_label) {
-                    acceptBtn.innerHTML = '<i class="fas fa-check me-1"></i>' + decision.accept_label;
-                }
-                acceptBtn.classList.toggle('d-none', !canAccept);
-                acceptBtn.disabled = !canAccept || state.actionSubmitting;
+            if (actionHintEl) {
+                actionHintEl.textContent = decision.hint_label || "";
             }
 
-            if (rejectBtn) {
-                if (decision.reject_label) {
-                    rejectBtn.innerHTML = '<i class="fas fa-times me-1"></i>' + decision.reject_label;
-                }
-                rejectBtn.classList.toggle('d-none', !canReject);
-                rejectBtn.disabled = !canReject || state.actionSubmitting;
+            var canPropose = Boolean(decision.viewer_can_propose);
+
+            if (proposalCurrentEl) {
+                proposalCurrentEl.classList.toggle(
+                    "d-none",
+                    !decision.current_amount_display
+                );
             }
 
-            var shouldShow = Boolean(decision.status_label) || canAccept || canReject;
-            actionsEl.classList.toggle('d-none', !shouldShow);
+            if (proposalAmountEl) {
+                proposalAmountEl.textContent = decision.current_amount_display
+                    ? decision.current_amount_display + " ISK"
+                    : "";
+            }
+
+            if (proposalInputEl) {
+                proposalInputEl.placeholder =
+                    decision.proposal_placeholder || __("Enter amount in ISK");
+                if (!proposalInputEl.value && decision.current_amount) {
+                    proposalInputEl.value = decision.current_amount;
+                }
+                proposalInputEl.disabled = !canPropose || state.actionSubmitting;
+            }
+
+            if (proposalSubmitBtn) {
+                if (decision.proposal_label) {
+                    proposalSubmitBtn.innerHTML =
+                        '<i class="fas fa-coins me-1"></i>' + decision.proposal_label;
+                }
+                proposalSubmitBtn.disabled = !canPropose || state.actionSubmitting;
+            }
+
+            if (proposalFormEl) {
+                proposalFormEl.classList.toggle("d-none", !canPropose);
+            }
+
+            actionsEl.classList.toggle(
+                "d-none",
+                !(decision || Boolean(decision.status_label) || canPropose)
+            );
         }
 
         function setActionSubmitting(submitting) {
             state.actionSubmitting = submitting;
-            if (!actionsEl || !state.lastDecision) {
+            if (!state.lastDecision) {
                 return;
             }
-            if (acceptBtn && !acceptBtn.classList.contains('d-none')) {
-                acceptBtn.disabled = submitting || !state.lastDecision.viewer_can_accept;
+            if (proposalInputEl && proposalFormEl && !proposalFormEl.classList.contains("d-none")) {
+                proposalInputEl.disabled =
+                    submitting || !state.lastDecision.viewer_can_propose;
             }
-            if (rejectBtn && !rejectBtn.classList.contains('d-none')) {
-                rejectBtn.disabled = submitting || !state.lastDecision.viewer_can_reject;
-            }
-        }
-
-        function submitDecision(decisionValue) {
-            if (!state.decisionUrl || state.actionSubmitting) {
-                return;
-            }
-            setActionSubmitting(true);
-            if (actionStatusEl && state.lastDecision && state.lastDecision.pending_label) {
-                actionStatusEl.textContent = state.lastDecision.pending_label;
-                actionStatusEl.classList.remove('text-danger', 'text-warning', 'text-success', 'text-primary');
-                actionStatusEl.classList.add('text-muted');
-            }
-
-            var decisionUrl = withViewerRole(state.decisionUrl, state.viewerRole);
-            var decisionPayload = { decision: decisionValue };
-            if (state.viewerRole) {
-                decisionPayload.viewer_role = state.viewerRole;
-            }
-
-            fetch(decisionUrl, {
-                method: 'POST',
-                headers: {
-                    'Accept': 'application/json',
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': getCsrfToken(),
-                    'X-Requested-With': 'XMLHttpRequest'
-                },
-                credentials: 'same-origin',
-                body: JSON.stringify(decisionPayload)
-            })
-                .then(function (res) {
-                    if (!res.ok) {
-                        return res
-                            .json()
-                            .catch(function () {
-                                throw new Error(__('Unable to update decision.'));
-                            })
-                            .then(function (data) {
-                                var errMsg = data && data.error ? data.error : __('Unable to update decision.');
-                                throw new Error(errMsg);
-                            });
-                    }
-                    return res.json().catch(function () {
-                        return {};
-                    });
-                })
-                .then(function (result) {
-                    if (result && result.request_closed) {
-                        showStatus(__('This request has been closed.'), 'warning');
-                        state.isOpen = false;
-                        stopPolling();
-                        toggleForm(false);
-                        updateActions(null);
-                        return null;
-                    }
-                    return fetchChat().catch(function (err) {
-                        showStatus(err.message || __('Unable to refresh conversation.'), 'error');
-                        return null;
-                    });
-                })
-                .catch(function (err) {
-                    showStatus(err.message || __('Unable to update decision.'), 'error');
-                })
-                .finally(function () {
-                    setActionSubmitting(false);
-                    if (!state.lastDecision) {
-                        updateActions(null);
-                    } else {
-                        updateActions(state.lastDecision);
-                    }
-                });
-        }
-
-        function loadSeenChatIds() {
-            if (typeof window === 'undefined' || !window.localStorage) {
-                return [];
-            }
-            try {
-                var raw = window.localStorage.getItem('indyhub_seen_chats');
-                if (!raw) {
-                    return [];
-                }
-                var parsed = JSON.parse(raw);
-                if (!Array.isArray(parsed)) {
-                    return [];
-                }
-                return parsed.map(function (value) {
-                    return String(value);
-                });
-            } catch (err) {
-                return [];
-            }
-        }
-
-        function storeSeenChatId(chatId) {
-            if (!chatId || typeof window === 'undefined' || !window.localStorage) {
-                return;
-            }
-            var stringId = String(chatId);
-            var seen = loadSeenChatIds();
-            if (seen.indexOf(stringId) !== -1) {
-                return;
-            }
-            seen.unshift(stringId);
-            if (seen.length > 100) {
-                seen = seen.slice(0, 100);
-            }
-            try {
-                window.localStorage.setItem('indyhub_seen_chats', JSON.stringify(seen));
-            } catch (err) {
-                return;
+            if (proposalSubmitBtn && proposalFormEl && !proposalFormEl.classList.contains("d-none")) {
+                proposalSubmitBtn.disabled =
+                    submitting || !state.lastDecision.viewer_can_propose;
             }
         }
 
@@ -594,17 +671,16 @@
             if (payload.chat && payload.chat.viewer_role) {
                 state.viewerRole = payload.chat.viewer_role;
             }
+
+            shellEl.dataset.chatLoaded = "1";
             updateSummary(payload);
             renderMessages(payload);
             updateActions(payload.chat && payload.chat.decision ? payload.chat.decision : null);
-            if (!useBootstrap && state.pendingInitialScroll) {
-                scrollMessagesToBottomNow(messageContainer);
-                state.pendingInitialScroll = false;
-            }
+
             if (!payload.chat.can_send) {
                 toggleForm(false);
                 if (!payload.chat.is_open) {
-                    showStatus(__('This chat has been closed.'), 'warning');
+                    showStatus(__("This chat has been closed."), "warning");
                 }
             } else {
                 toggleForm(true);
@@ -612,33 +688,54 @@
             }
         }
 
-        function onModalClosed() {
+        function onClosed() {
             stopPolling();
-            showStatus(null);
+            resetStatus();
             clearMessages();
-            inputEl.value = '';
+            inputEl.value = "";
             updateActions(null);
+            state.fetchUrl = null;
+            state.sendUrl = null;
             state.decisionUrl = null;
             state.lastDecision = null;
             state.actionSubmitting = false;
             state.pendingInitialScroll = false;
+            state.isOpen = false;
+            delete shellEl.dataset.chatLoaded;
+        }
+
+        function hideShell() {
+            if (inlineMode) {
+                shellEl.classList.remove("is-active");
+                onClosed();
+                return;
+            }
+            if (useBootstrap) {
+                modal.hide();
+                return;
+            }
+            shellEl.classList.remove("show");
+            shellEl.style.display = "none";
+            shellEl.setAttribute("aria-hidden", "true");
+            document.body.classList.remove("modal-open");
+            document.body.style.overflow = previousBodyOverflow;
+            previousBodyOverflow = "";
+            removeBackdrop();
+            onClosed();
         }
 
         function fetchChat() {
             if (!state.fetchUrl) {
-                return Promise.reject(new Error(__('Missing chat URL')));
+                return Promise.reject(new Error(__("Missing chat URL")));
             }
-            var historyUrl = withViewerRole(state.fetchUrl, state.viewerRole);
-            return fetch(historyUrl, {
-                method: 'GET',
-                headers: {
-                    'Accept': 'application/json'
-                },
-                credentials: 'same-origin'
+            return fetch(withViewerRole(state.fetchUrl, state.viewerRole), {
+                method: "GET",
+                headers: { Accept: "application/json" },
+                credentials: "same-origin",
             })
                 .then(function (res) {
                     if (!res.ok) {
-                        throw new Error(__('Unable to load chat'));
+                        throw new Error(__("Unable to load chat"));
                     }
                     return res.json();
                 })
@@ -647,7 +744,10 @@
                     return data;
                 })
                 .catch(function (err) {
-                    showStatus(err.message || __('Unable to load chat history.'), 'error');
+                    showStatus(
+                        err.message || __("Unable to load chat history."),
+                        "error"
+                    );
                     throw err;
                 });
         }
@@ -664,34 +764,112 @@
             }, 12000);
         }
 
-        function stopPolling() {
-            if (state.polling) {
-                window.clearInterval(state.polling);
-                state.polling = null;
+        function submitDecision(decisionValue, extraPayload) {
+            if (!state.decisionUrl || state.actionSubmitting) {
+                return;
             }
+            setActionSubmitting(true);
+            if (
+                actionStatusEl &&
+                state.lastDecision &&
+                state.lastDecision.pending_label
+            ) {
+                actionStatusEl.textContent = state.lastDecision.pending_label;
+                actionStatusEl.classList.remove(
+                    "text-danger",
+                    "text-warning",
+                    "text-success",
+                    "text-primary"
+                );
+                actionStatusEl.classList.add("text-muted");
+            }
+
+            var decisionPayload = Object.assign(
+                { decision: decisionValue },
+                extraPayload || {}
+            );
+            if (state.viewerRole) {
+                decisionPayload.viewer_role = state.viewerRole;
+            }
+
+            fetch(withViewerRole(state.decisionUrl, state.viewerRole), {
+                method: "POST",
+                headers: {
+                    Accept: "application/json",
+                    "Content-Type": "application/json",
+                    "X-CSRFToken": getCsrfToken(),
+                    "X-Requested-With": "XMLHttpRequest",
+                },
+                credentials: "same-origin",
+                body: JSON.stringify(decisionPayload),
+            })
+                .then(function (res) {
+                    if (!res.ok) {
+                        return res
+                            .json()
+                            .catch(function () {
+                                throw new Error(__("Unable to update decision."));
+                            })
+                            .then(function (data) {
+                                throw new Error(
+                                    (data && data.error) ||
+                                        __("Unable to update decision.")
+                                );
+                            });
+                    }
+                    return res.json().catch(function () {
+                        return {};
+                    });
+                })
+                .then(function (result) {
+                    if (result && result.request_closed) {
+                        showStatus(__("This request has been closed."), "warning");
+                        state.isOpen = false;
+                        stopPolling();
+                        toggleForm(false);
+                        updateActions(null);
+                        return null;
+                    }
+                    return fetchChat();
+                })
+                .catch(function (err) {
+                    showStatus(
+                        err.message || __("Unable to update decision."),
+                        "error"
+                    );
+                })
+                .finally(function () {
+                    setActionSubmitting(false);
+                    if (!state.lastDecision) {
+                        updateActions(null);
+                    } else {
+                        updateActions(state.lastDecision);
+                    }
+                });
         }
 
         function openChat(trigger) {
             state.fetchUrl = trigger.dataset.chatFetchUrl;
             state.sendUrl = trigger.dataset.chatSendUrl;
-            state.typeName = trigger.dataset.chatTypeName || '';
+            state.typeName = trigger.dataset.chatTypeName || "";
             state.typeId = trigger.dataset.chatTypeId || null;
             if (trigger.dataset.chatRole) {
                 state.viewerRole = trigger.dataset.chatRole;
             }
-            state.pendingInitialScroll = true;
+            state.pendingInitialScroll = !state.initialScrollDone;
 
-            showStatus(__('Loading conversation...'), 'info');
+            showStatus(__("Loading conversation..."), "info");
             toggleForm(false);
             clearMessages();
             updateActions(null);
             state.actionSubmitting = false;
             stopPolling();
-            showModal();
+            showShell();
 
             fetchChat()
                 .then(function () {
                     startPolling();
+                    scrollMessagesToBottom(messageContainer);
                 })
                 .catch(function () {
                     state.isOpen = false;
@@ -699,142 +877,226 @@
         }
 
         if (useBootstrap) {
-            modalEl.addEventListener('hidden.bs.modal', onModalClosed);
-            modalEl.addEventListener('shown.bs.modal', function () {
+            shellEl.addEventListener("hidden.bs.modal", onClosed);
+            shellEl.addEventListener("shown.bs.modal", function () {
                 if (state.pendingInitialScroll) {
                     scrollMessagesToBottom(messageContainer);
                     state.pendingInitialScroll = false;
                 }
             });
-        } else {
-            modalEl.addEventListener('click', function (event) {
-                var dismissTrigger = event.target.closest('[data-bs-dismiss="modal"]');
+        } else if (!inlineMode) {
+            shellEl.addEventListener("click", function (event) {
+                var dismissTrigger = event.target.closest("[data-bs-dismiss='modal']");
                 if (dismissTrigger) {
                     event.preventDefault();
-                    hideModal();
+                    hideShell();
                     return;
                 }
-                if (event.target === modalEl) {
-                    hideModal();
+                if (event.target === shellEl) {
+                    hideShell();
                 }
             });
-            modalEl.addEventListener('keydown', function (event) {
-                if (event.key === 'Escape') {
-                    hideModal();
+            shellEl.addEventListener("keydown", function (event) {
+                if (event.key === "Escape") {
+                    hideShell();
                 }
             });
-            document.addEventListener('keydown', function (event) {
-                if (event.key === 'Escape' && modalEl.classList.contains('show')) {
-                    hideModal();
+            document.addEventListener("keydown", function (event) {
+                if (event.key === "Escape" && shellEl.classList.contains("show")) {
+                    hideShell();
                 }
             });
         }
 
-        formEl.addEventListener('submit', function (event) {
+        shellEl.addEventListener("indyhub:chat-close", function () {
+            hideShell();
+        });
+
+        formEl.addEventListener("submit", function (event) {
             event.preventDefault();
             if (!state.sendUrl) {
                 return;
             }
-            var message = (inputEl.value || '').trim();
+
+            var message = String(inputEl.value || "").trim();
             if (!message) {
                 return;
             }
-            toggleForm(false);
 
+            toggleForm(false);
             var sendPayload = { message: message };
             if (state.viewerRole) {
                 sendPayload.viewer_role = state.viewerRole;
             }
 
             fetch(state.sendUrl, {
-                method: 'POST',
+                method: "POST",
                 headers: {
-                    'Accept': 'application/json',
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': getCsrfToken(),
-                    'X-Requested-With': 'XMLHttpRequest'
+                    Accept: "application/json",
+                    "Content-Type": "application/json",
+                    "X-CSRFToken": getCsrfToken(),
+                    "X-Requested-With": "XMLHttpRequest",
                 },
-                credentials: 'same-origin',
-                body: JSON.stringify(sendPayload)
+                credentials: "same-origin",
+                body: JSON.stringify(sendPayload),
             })
                 .then(function (res) {
                     if (!res.ok) {
-                        return res.json().then(function (data) {
-                            var errMsg = data && data.error ? data.error : __('Message failed to send.');
-                            throw new Error(errMsg);
-                        }).catch(function () {
-                            throw new Error(__('Message failed to send.'));
-                        });
+                        return res
+                            .json()
+                            .then(function (data) {
+                                throw new Error(
+                                    (data && data.error) ||
+                                        __("Message failed to send.")
+                                );
+                            })
+                            .catch(function () {
+                                throw new Error(__("Message failed to send."));
+                            });
                     }
                     return res.json();
                 })
-                .then(function (data) {
-                    inputEl.value = '';
+                .then(function () {
+                    inputEl.value = "";
                     toggleForm(true);
-                    if (data && data.message) {
-                        fetchChat();
-                    }
+                    return fetchChat();
                 })
                 .catch(function (err) {
                     toggleForm(true);
-                    showStatus(err.message || __('Message failed to send.'), 'error');
+                    showStatus(
+                        err.message || __("Message failed to send."),
+                        "error"
+                    );
                 });
         });
 
-        if (acceptBtn) {
-            acceptBtn.addEventListener('click', function () {
-                if (!state.lastDecision || !state.lastDecision.viewer_can_accept || state.actionSubmitting) {
+        if (proposalFormEl) {
+            proposalFormEl.addEventListener("submit", function (event) {
+                event.preventDefault();
+                if (
+                    !state.lastDecision ||
+                    !state.lastDecision.viewer_can_propose ||
+                    state.actionSubmitting ||
+                    !proposalInputEl
+                ) {
                     return;
                 }
-                submitDecision('accept');
+
+                var amount = String(proposalInputEl.value || "").trim();
+                if (!amount) {
+                    showStatus(__("Enter an amount in ISK."), "warning");
+                    proposalInputEl.focus();
+                    return;
+                }
+
+                submitDecision("propose", { amount: amount });
             });
         }
 
-        if (rejectBtn) {
-            rejectBtn.addEventListener('click', function () {
-                if (!state.lastDecision || !state.lastDecision.viewer_can_reject || state.actionSubmitting) {
+        updateActions(null);
+
+        return {
+            id: shellEl.id,
+            inlineMode: inlineMode,
+            element: shellEl,
+            open: openChat,
+            close: hideShell,
+        };
+    }
+
+    function init() {
+        var shellNodes = Array.prototype.slice.call(
+            document.querySelectorAll("[data-chat-modal]")
+        );
+        if (!shellNodes.length) {
+            debugLog("[IndyHub] No chat shell found on page");
+            return;
+        }
+
+        var controllersById = Object.create(null);
+        var defaultController = null;
+
+        shellNodes.forEach(function (shellEl, index) {
+            if (!shellEl.id) {
+                shellEl.id = "bpChatShell" + String(index + 1);
+            }
+            var controller = createChatController(shellEl);
+            if (!controller) {
+                return;
+            }
+            controllersById[shellEl.id] = controller;
+            if (!defaultController) {
+                defaultController = controller;
+            }
+        });
+
+        function getController(trigger) {
+            var targetId = trigger.getAttribute("data-chat-target");
+            if (targetId && controllersById[targetId]) {
+                return controllersById[targetId];
+            }
+            return defaultController;
+        }
+
+        function closeOtherControllers(activeController) {
+            Object.keys(controllersById).forEach(function (controllerId) {
+                var controller = controllersById[controllerId];
+                if (!controller || controller === activeController) {
                     return;
                 }
-                submitDecision('reject');
+                if (controller.inlineMode) {
+                    controller.close();
+                }
             });
         }
 
-        document.addEventListener('click', function (event) {
-            var trigger = event.target.closest('.bp-chat-trigger');
+        document.addEventListener("click", function (event) {
+            var trigger = event.target.closest(".bp-chat-trigger");
             if (!trigger) {
                 return;
             }
             event.preventDefault();
-            debugLog('[IndyHub] Opening chat', trigger.dataset.chatFetchUrl, trigger.dataset.chatSendUrl);
-            openChat(trigger);
-            if (!useBootstrap) {
-                showModal();
+            var controller = getController(trigger);
+            if (!controller) {
+                return;
             }
+            closeOtherControllers(controller);
+            debugLog(
+                "[IndyHub] Opening chat",
+                trigger.dataset.chatFetchUrl,
+                trigger.dataset.chatSendUrl
+            );
+            controller.open(trigger);
         });
 
-        var autoOpenRoot = document.querySelector('[data-auto-open-chat]');
+        var autoOpenRoot = document.querySelector("[data-auto-open-chat]");
         if (autoOpenRoot) {
             var autoChatId = autoOpenRoot.dataset.autoOpenChat;
             if (autoChatId) {
                 var attemptAutoOpen = function () {
-                    var selector = '.bp-chat-trigger[data-chat-id="' + autoChatId + '"]';
+                    var selector =
+                        '.bp-chat-trigger[data-chat-id="' + autoChatId + '"]';
                     var autoTrigger = document.querySelector(selector);
                     if (!autoTrigger) {
                         return false;
                     }
-                    openChat(autoTrigger);
-                    if (!useBootstrap) {
-                        showModal();
-                    }
-                    autoOpenRoot.dataset.autoOpenChat = '';
+                    autoTrigger.click();
+                    autoOpenRoot.dataset.autoOpenChat = "";
                     try {
                         var currentUrl = new URL(window.location.href);
-                        if (currentUrl.searchParams.has('open_chat')) {
-                            currentUrl.searchParams.delete('open_chat');
-                            window.history.replaceState({}, document.title, currentUrl.toString());
+                        if (currentUrl.searchParams.has("open_chat")) {
+                            currentUrl.searchParams.delete("open_chat");
+                            window.history.replaceState(
+                                {},
+                                document.title,
+                                currentUrl.toString()
+                            );
                         }
                     } catch (err) {
-                        console.warn('[IndyHub] Unable to clean auto-open query param', err);
+                        debugLog(
+                            "[IndyHub] Unable to clean auto-open query param",
+                            err
+                        );
                     }
                     return true;
                 };
@@ -844,12 +1106,10 @@
                 }
             }
         }
-        state.boundClickListener = true;
-        debugLog('[IndyHub] Chat listeners bound');
     }
 
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", init);
     } else {
         init();
     }

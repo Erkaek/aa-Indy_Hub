@@ -4958,7 +4958,7 @@ function renderStructurePlanner() {
  * Recalculate financial totals
  */
 function recalcFinancials() {
-    let costTotal = 0;
+    let materialCostTotal = 0;
     let revTotal = 0;
 
     document.querySelectorAll('#financialItemsBody tr').forEach(tr => {
@@ -5002,7 +5002,7 @@ function recalcFinancials() {
             if (totalCostEl) {
                 totalCostEl.textContent = formatPrice(cost);
             }
-            costTotal += cost;
+            materialCostTotal += cost;
         }
 
         if (revInput) {
@@ -5074,17 +5074,33 @@ function recalcFinancials() {
     revTotal += surplusRevenue;
 
     const structureSummary = renderStructureFinancialSummary();
-    costTotal += structureSummary.totalInstallation;
+    const installationCostTotal = structureSummary.totalInstallation;
+    const costTotal = materialCostTotal + installationCostTotal;
 
     const profit = revTotal - costTotal;
     // Margin = profit / revenue (not markup on cost).
     const marginValue = revTotal > 0 ? (profit / revTotal) * 100 : 0;
     const marginText = marginValue.toFixed(1);
 
+    const grandTotalMaterialCostEl = document.querySelector('.grand-total-material-cost');
+    const grandTotalInstallationEl = document.querySelector('.grand-total-installation');
+    const grandTotalFacilityTaxEl = document.querySelector('.grand-total-facility-tax');
     const grandTotalCostEl = document.querySelector('.grand-total-cost');
     const grandTotalRevEl = document.querySelector('.grand-total-rev');
     const profitEl = document.querySelector('.profit');
     const profitPctEl = document.querySelector('.profit-pct');
+
+    if (grandTotalMaterialCostEl) {
+        grandTotalMaterialCostEl.textContent = formatPrice(materialCostTotal);
+    }
+
+    if (grandTotalInstallationEl) {
+        grandTotalInstallationEl.textContent = formatPrice(installationCostTotal);
+    }
+
+    if (grandTotalFacilityTaxEl) {
+        grandTotalFacilityTaxEl.textContent = formatPrice(structureSummary.facilityTax);
+    }
 
     if (grandTotalCostEl) {
         grandTotalCostEl.textContent = formatPrice(costTotal);
@@ -5104,6 +5120,21 @@ function recalcFinancials() {
     const summaryCostEl = document.getElementById('financialSummaryCost');
     if (summaryCostEl) {
         summaryCostEl.textContent = formatPrice(costTotal);
+    }
+
+    const summaryMaterialCostEl = document.getElementById('financialSummaryMaterialCost');
+    if (summaryMaterialCostEl) {
+        summaryMaterialCostEl.textContent = formatPrice(materialCostTotal);
+    }
+
+    const summaryInstallationCostEl = document.getElementById('financialSummaryInstallationCost');
+    if (summaryInstallationCostEl) {
+        summaryInstallationCostEl.textContent = formatPrice(installationCostTotal);
+    }
+
+    const summaryFacilityTaxEl = document.getElementById('financialSummaryFacilityTaxInline');
+    if (summaryFacilityTaxEl) {
+        summaryFacilityTaxEl.textContent = formatPrice(structureSummary.facilityTax);
     }
 
     const summaryRevenueEl = document.getElementById('financialSummaryRevenue');

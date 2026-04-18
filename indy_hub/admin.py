@@ -389,11 +389,19 @@ class CorporationSharingSettingAdmin(admin.ModelAdmin):
         "corporation_id",
         "corporation_name",
         "share_scope",
+        "blueprint_catalog_scope",
+        "job_catalog_scope",
         "allow_copy_requests",
         "has_manual_whitelist",
         "updated_at",
     ]
-    list_filter = ["share_scope", "allow_copy_requests", "updated_at"]
+    list_filter = [
+        "share_scope",
+        "blueprint_catalog_scope",
+        "job_catalog_scope",
+        "allow_copy_requests",
+        "updated_at",
+    ]
     search_fields = ["user__username", "corporation_id", "corporation_name"]
     readonly_fields = ["created_at", "updated_at"]
     fieldsets = (
@@ -405,6 +413,8 @@ class CorporationSharingSettingAdmin(admin.ModelAdmin):
                     "corporation_id",
                     "corporation_name",
                     "share_scope",
+                    "blueprint_catalog_scope",
+                    "job_catalog_scope",
                     "allow_copy_requests",
                     "authorized_characters",
                     "created_at",

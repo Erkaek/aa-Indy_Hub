@@ -89,6 +89,42 @@ def me_buy_stock_esi_cooldown_key(corporation_id: int) -> str:
     return f"indy_hub:material_exchange:esi_down:buy_stock:{int(corporation_id)}"
 
 
+def _get_material_exchange_accepted_locations(
+    config: MaterialExchangeConfig | None,
+) -> list[dict[str, int | str]]:
+    if not config:
+        return []
+
+    rows: list[dict[str, int | str]] = []
+    try:
+        for location in config.accepted_locations.all().order_by("sort_order", "id"):
+            rows.append(
+                {
+                    "structure_id": int(location.structure_id),
+                    "structure_name": str(location.structure_name or ""),
+                    "hangar_division": int(location.hangar_division),
+                }
+            )
+    except Exception:
+        rows = []
+
+    if rows:
+        return rows
+
+    structure_id = getattr(config, "structure_id", None)
+    hangar_division = getattr(config, "hangar_division", None)
+    if not structure_id or not hangar_division:
+        return []
+
+    return [
+        {
+            "structure_id": int(structure_id),
+            "structure_name": str(getattr(config, "structure_name", "") or ""),
+            "hangar_division": int(hangar_division),
+        }
+    ]
+
+
 def _set_esi_cooldown(cache_key: str, *, cooldown_seconds: int) -> float:
     retry_at = timezone.now() + timedelta(seconds=int(cooldown_seconds))
     cache.set(cache_key, retry_at.timestamp(), int(cooldown_seconds))
@@ -690,7 +726,7 @@ def _sync_stock_impl():
             logger.warning("Material Exchange not configured - skipping stock sync")
             return
 
-        # Filter assets for specific structure and hangar division
+        # Filter assets for each accepted structure and hangar division.
         # hangar_division maps to flag: CorpSAG1 = division 1, etc.
         hangar_flag_map = {
             1: "CorpSAG1",
@@ -701,11 +737,30 @@ def _sync_stock_impl():
             6: "CorpSAG6",
             7: "CorpSAG7",
         }
-        target_flag = hangar_flag_map.get(config.hangar_division)
-        if not target_flag:
+        accepted_locations = _get_material_exchange_accepted_locations(config)
+        normalized_locations: list[dict[str, int]] = []
+        for location in accepted_locations:
+            hangar_division = int(location.get("hangar_division") or 0)
+            target_flag = hangar_flag_map.get(hangar_division)
+            if not target_flag:
+                logger.warning(
+                    "Invalid hangar division %s on config %s; skipping location %s",
+                    hangar_division,
+                    config.pk,
+                    location.get("structure_id"),
+                )
+                continue
+            normalized_locations.append(
+                {
+                    "structure_id": int(location.get("structure_id") or 0),
+                    "hangar_division": hangar_division,
+                    "target_flag": target_flag,
+                }
+            )
+
+        if not normalized_locations:
             logger.warning(
-                "Invalid hangar division %s on config %s; cannot filter assets",
-                config.hangar_division,
+                "No valid accepted locations found on config %s; cannot filter assets",
                 config.pk,
             )
             return
@@ -718,16 +773,25 @@ def _sync_stock_impl():
         if assets_scope_missing:
             logger.warning("Missing corp assets scope for %s", config.corporation_id)
 
-        # Upwell structures store corp hangar contents under the OfficeFolder item_id.
-        # Stations (and some locations) use the structure/station id directly.
-        office_folder_item_id = get_office_folder_item_id_from_assets(
-            corp_assets, structure_id=int(config.structure_id)
-        )
-        effective_location_id = (
-            int(office_folder_item_id)
-            if office_folder_item_id is not None
-            else int(config.structure_id)
-        )
+        effective_locations: list[dict[str, int | str]] = []
+        for location in normalized_locations:
+            structure_id = int(location["structure_id"])
+            office_folder_item_id = get_office_folder_item_id_from_assets(
+                corp_assets,
+                structure_id=structure_id,
+            )
+            effective_locations.append(
+                {
+                    "structure_id": structure_id,
+                    "hangar_division": int(location["hangar_division"]),
+                    "target_flag": str(location["target_flag"]),
+                    "effective_location_id": (
+                        int(office_folder_item_id)
+                        if office_folder_item_id is not None
+                        else structure_id
+                    ),
+                }
+            )
 
         index_by_item_id = build_asset_index_by_item_id(corp_assets or [])
 
@@ -735,11 +799,14 @@ def _sync_stock_impl():
             # Assets can be inside containers (cans/boxes) which have their own item_id.
             # In those cases the child asset location_id points to the container item_id,
             # and the container carries the actual hangar context.
-            if not asset_chain_has_context(
-                asset,
-                index_by_item_id,
-                location_id=int(effective_location_id),
-                location_flag=str(target_flag),
+            if not any(
+                asset_chain_has_context(
+                    asset,
+                    index_by_item_id,
+                    location_id=int(location["effective_location_id"]),
+                    location_flag=str(location["target_flag"]),
+                )
+                for location in effective_locations
             ):
                 continue
 
@@ -759,10 +826,9 @@ def _sync_stock_impl():
             stock_updates[type_id] = stock_updates.get(type_id, 0) + quantity
 
         logger.info(
-            "Loaded %d asset types from cache for structure %s, division %s",
+            "Loaded %d asset types from cache for %d accepted locations",
             len(stock_updates),
-            config.structure_id,
-            config.hangar_division,
+            len(effective_locations),
         )
 
         # Update MaterialExchangeStock with atomic transaction
@@ -796,7 +862,7 @@ def _sync_stock_impl():
                     config=config
                 ).delete()
                 logger.info(
-                    "Cleared all stock items for config %s (no assets in structure)",
+                    "Cleared all stock items for config %s (no assets in accepted locations)",
                     config.pk,
                 )
 

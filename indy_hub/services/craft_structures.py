@@ -18,6 +18,7 @@ from indy_hub.services.industry_structures import IndustryStructureResolvedBonus
 
 PERCENT_FACTOR = Decimal("100")
 SCC_SURCHARGE_RATE = Decimal("0.04")
+COPYING_JOB_COST_BASE_RATE = Decimal("0.02")
 
 SUPER_CAPITAL_GROUP_NAMES = {"Supercarrier", "Titan"}
 CAPITAL_GROUP_NAMES = {
@@ -297,15 +298,21 @@ def _structure_distance_rank_between(
 
 def _installation_cost_percent(
     *,
+    activity_id: int,
     job_cost_bonus_percent: Decimal,
     tax_percent: Decimal,
     system_cost_index_percent: Decimal,
 ) -> dict[str, Decimal]:
-    adjusted_job_cost_percent = system_cost_index_percent * (
+    base_multiplier = (
+        COPYING_JOB_COST_BASE_RATE
+        if int(activity_id or 0) == IndustryActivityMixin.ACTIVITY_COPYING
+        else Decimal("1")
+    )
+    adjusted_job_cost_percent = (system_cost_index_percent * base_multiplier) * (
         Decimal("1") - (job_cost_bonus_percent / PERCENT_FACTOR)
     )
-    facility_tax_percent = tax_percent
-    scc_surcharge_percent = SCC_SURCHARGE_RATE * PERCENT_FACTOR
+    facility_tax_percent = tax_percent * base_multiplier
+    scc_surcharge_percent = (SCC_SURCHARGE_RATE * PERCENT_FACTOR) * base_multiplier
     total_installation_cost_percent = (
         adjusted_job_cost_percent + facility_tax_percent + scc_surcharge_percent
     )
@@ -749,6 +756,7 @@ def build_craft_structure_planner(
                 )
             )
             installation_cost_percent = _installation_cost_percent(
+                activity_id=activity_id,
                 job_cost_bonus_percent=job_cost_bonus_percent,
                 tax_percent=tax_percent,
                 system_cost_index_percent=system_cost_index_percent,

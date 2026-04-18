@@ -3,12 +3,23 @@ from __future__ import annotations
 # Django
 from django.urls import reverse
 
+# Alliance Auth
+from allianceauth.authentication.models import CharacterOwnership
+
+from ..services.corporation_blueprint_visibility import (
+    can_view_corporation_blueprints,
+    can_view_corporation_jobs,
+)
+
 
 def build_nav_context(
     user,
     *,
     active_tab: str | None = None,
     can_manage_corp: bool | None = None,
+    can_view_corporation_bp: bool | None = None,
+    can_view_corporation_jobs_flag: bool | None = None,
+    show_corporation_workflow_jobs: bool | None = None,
     can_access_indy_hub: bool | None = None,
     material_hub_enabled: bool | None = None,
 ) -> dict[str, str | None]:
@@ -19,6 +30,20 @@ def build_nav_context(
 
     if can_access_indy_hub is None:
         can_access_indy_hub = user.has_perm("indy_hub.can_access_indy_hub")
+
+    if can_view_corporation_bp is None:
+        can_view_corporation_bp = can_view_corporation_blueprints(user)
+
+    if can_view_corporation_jobs_flag is None:
+        can_view_corporation_jobs_flag = can_view_corporation_jobs(user)
+
+    if show_corporation_workflow_jobs is None:
+        show_corporation_workflow_jobs = bool(
+            getattr(user, "is_authenticated", False)
+            and CharacterOwnership.objects.filter(user=user)
+            .exclude(character__corporation_id__isnull=True)
+            .exists()
+        )
 
     if material_hub_enabled is None:
         try:
@@ -94,6 +119,9 @@ def build_nav_context(
         "settings_nav_class": settings_class,
         # Permission flags for dropdowns
         "can_manage_corp_bp_requests": can_manage_corp,
+        "can_view_corporation_blueprints": can_view_corporation_bp,
+        "can_view_corporation_jobs": can_view_corporation_jobs_flag,
+        "show_corporation_workflow_jobs": show_corporation_workflow_jobs,
         "can_access_indy_hub": can_access_indy_hub,
         "material_hub_enabled": material_hub_enabled,
         # Legacy keys (kept so we don't break older templates / buttons)

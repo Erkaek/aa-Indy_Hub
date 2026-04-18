@@ -8,7 +8,7 @@
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
 <link rel="stylesheet" href="{% static 'indy_hub/css/blueprints.css' %}">
-<link rel="stylesheet" href="{% static 'indy_hub/css/material_exchange.css' %}">
+<link rel="stylesheet" href="{% static 'indy_hub/css/material_exchange.css' %}?v=20260418-1030">
 {% endblock extra_css %}
 
 {% block content %}
@@ -128,27 +128,59 @@
 
             {% if top_user_stats %}
             <div class="table-responsive">
-                <table class="table table-hover align-middle me-transactions-table mb-0">
+                <table class="table table-hover align-middle me-transactions-table me-transactions-table--summary mb-0">
                     <thead>
                         <tr>
                             <th>{% trans "User" %}</th>
-                            <th class="text-end">{% trans "Buy Orders" %}</th>
-                            <th class="text-end">{% trans "Sell Orders" %}</th>
-                            <th class="text-end">{% trans "Buy Volume" %}</th>
-                            <th class="text-end">{% trans "Sell Volume" %}</th>
+                            <th>{% trans "Activity" %}</th>
+                            <th>{% trans "Volume" %}</th>
                             <th class="text-end">{% trans "Net Flow" %}</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for user_stat in top_user_stats %}
                         <tr>
-                            <td class="fw-semibold">{{ user_stat.username }}</td>
-                            <td class="text-end">{{ user_stat.buy_orders|intcomma }}</td>
-                            <td class="text-end">{{ user_stat.sell_orders|intcomma }}</td>
-                            <td class="text-end">{{ user_stat.buy_volume|floatformat:0|intcomma }} ISK</td>
-                            <td class="text-end">{{ user_stat.sell_volume|floatformat:0|intcomma }} ISK</td>
-                            <td class="text-end fw-semibold {% if user_stat.net_flow >= 0 %}text-success{% else %}text-danger{% endif %}">
-                                {{ user_stat.net_flow|floatformat:0|intcomma }} ISK
+                            <td data-label="{% trans 'User' %}">
+                                <div class="me-tx-user">
+                                    <strong>{{ user_stat.username }}</strong>
+                                    <span class="me-tx-subtext">{{ user_stat.total_orders|intcomma }} {% trans "orders tracked" %}</span>
+                                </div>
+                            </td>
+                            <td data-label="{% trans 'Activity' %}">
+                                <div class="me-topuser-split">
+                                    <div class="me-topuser-pill me-topuser-pill--buy">
+                                        <span>{% trans "Buy orders" %}</span>
+                                        <strong>{{ user_stat.buy_orders|intcomma }}</strong>
+                                    </div>
+                                    <div class="me-topuser-pill me-topuser-pill--sell">
+                                        <span>{% trans "Sell orders" %}</span>
+                                        <strong>{{ user_stat.sell_orders|intcomma }}</strong>
+                                    </div>
+                                </div>
+                            </td>
+                            <td data-label="{% trans 'Volume' %}">
+                                <div class="me-topuser-volumes">
+                                    <div class="me-tx-kpi me-tx-kpi--compact">
+                                        <span class="me-tx-kpi__label">{% trans "Buy volume" %}</span>
+                                        <strong>{{ user_stat.buy_volume|floatformat:0|intcomma }} ISK</strong>
+                                    </div>
+                                    <div class="me-tx-kpi me-tx-kpi--compact">
+                                        <span class="me-tx-kpi__label">{% trans "Sell volume" %}</span>
+                                        <strong>{{ user_stat.sell_volume|floatformat:0|intcomma }} ISK</strong>
+                                    </div>
+                                </div>
+                            </td>
+                            <td data-label="{% trans 'Net Flow' %}" class="text-end">
+                                <div class="me-net-flow {% if user_stat.net_flow >= 0 %}is-positive{% else %}is-negative{% endif %}">
+                                    <strong>{{ user_stat.net_flow|floatformat:0|intcomma }} ISK</strong>
+                                    <span>
+                                        {% if user_stat.net_flow >= 0 %}
+                                        {% trans "Net buy volume" %}
+                                        {% else %}
+                                        {% trans "Net sell volume" %}
+                                        {% endif %}
+                                    </span>
+                                </div>
                             </td>
                         </tr>
                         {% endfor %}
@@ -266,7 +298,14 @@
                             grid: { color: gridColor },
                         },
                         y: {
-                            ticks: { color: textColor },
+                            ticks: {
+                                color: textColor,
+                                precision: 0,
+                                stepSize: 1,
+                                callback: function (value) {
+                                    return Number.isInteger(value) ? value : "";
+                                },
+                            },
                             grid: { color: gridColor },
                             beginAtZero: true,
                         },

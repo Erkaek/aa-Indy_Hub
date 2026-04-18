@@ -432,6 +432,18 @@ html[data-theme="darkly"] .bp-request-tabs .nav-link.active {
     gap: 0.35rem;
 }
 
+.fulfill-reference-source-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    margin: -0.1rem 0 0.8rem;
+}
+.fulfill-owner--personal {
+    background: rgba(31, 111, 214, 0.1);
+    border: 1px solid rgba(31, 111, 214, 0.14);
+    color: var(--fulfill-blue);
+}
+
 /* Bootstrap's .btn-group often contains <form> wrappers; ensure everything stretches */
 .request-actions .btn-group > * {
     width: 100%;
@@ -1255,6 +1267,7 @@ html[data-theme="darkly"] .requests-panel {
         gap: 0.5rem;
     }
 }
+
 
 @media (max-width: 575.98px) {
     .bp-request-grid__container {

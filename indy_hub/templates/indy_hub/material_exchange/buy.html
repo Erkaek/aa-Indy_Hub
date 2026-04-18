@@ -138,7 +138,7 @@
             <div class="col-lg-8">
                 <div class="glass-panel p-4">
                     <h5 class="mb-4">
-                        {% trans "Available Stock in" %} {{ config.structure_name }}
+                        {% trans "Available Stock in" %} {{ accepted_location_summary|default:config.structure_name }}
                     </h5>
                     <form method="post" id="purchaseForm">
                         {% csrf_token %}

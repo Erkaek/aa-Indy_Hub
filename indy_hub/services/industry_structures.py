@@ -22,6 +22,7 @@ from indy_hub.models import (
 ISK_QUANTUM = Decimal("1")
 PERCENT_FACTOR = Decimal("100")
 DEFAULT_SCC_SURCHARGE_PERCENT = Decimal("4")
+COPYING_JOB_COST_BASE_PERCENT = Decimal("2")
 
 RIG_SIZE_ATTRIBUTE_ID = 1547
 RIG_COMPATIBLE_GROUP_ATTRIBUTE_IDS = (1298, 1299, 1300)
@@ -494,6 +495,12 @@ def _normalize_int(value: Decimal | int | float | str | None) -> int | None:
         return int(normalized)
     except (TypeError, ValueError, ArithmeticError):
         return None
+
+
+def _job_cost_base_multiplier(activity_id: int) -> Decimal:
+    if int(activity_id or 0) == IndustryActivityMixin.ACTIVITY_COPYING:
+        return COPYING_JOB_COST_BASE_PERCENT / PERCENT_FACTOR
+    return Decimal("1")
 
 
 def sde_item_types_loaded() -> bool:
@@ -1890,15 +1897,16 @@ def calculate_installation_cost(
             rig_multiplier *= Decimal("1") - reduction_ratio
 
     total_job_cost_multiplier = structure_role_multiplier * rig_multiplier
-    base_job_cost = estimated_value * resolved_cost_index.cost_index_ratio
+    job_cost_base = estimated_value * _job_cost_base_multiplier(activity_id)
+    base_job_cost = job_cost_base * resolved_cost_index.cost_index_ratio
     adjusted_job_cost = base_job_cost * total_job_cost_multiplier
 
     facility_tax_percent = _normalize_decimal(
         structure.get_activity_tax_percent(activity_id)
     )
     scc_surcharge_percent = DEFAULT_SCC_SURCHARGE_PERCENT
-    facility_tax = estimated_value * (facility_tax_percent / PERCENT_FACTOR)
-    scc_surcharge = estimated_value * (scc_surcharge_percent / PERCENT_FACTOR)
+    facility_tax = job_cost_base * (facility_tax_percent / PERCENT_FACTOR)
+    scc_surcharge = job_cost_base * (scc_surcharge_percent / PERCENT_FACTOR)
 
     structure_role_bonus_percent = (
         Decimal("1") - structure_role_multiplier
