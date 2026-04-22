@@ -30,13 +30,13 @@ jobs:
     steps:
       # Checkout the repository
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # Set up Python
-#      - name: Set up Python
-#        uses: actions/setup-python@v5
-#        with:
-#          python-version-file: 'pyproject.toml' # Read the Python version from the pyproject.toml file
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: 'pyproject.toml' # Read the Python version from the pyproject.toml file
 
       # Set up Node.js
 #      - name: Setup Node.js
@@ -48,8 +48,11 @@ jobs:
 #          cache-dependency-path: 'package-lock.json'
 #      - run: npm install
 
+      - name: Install pre-commit
+        run: python -m pip install --upgrade pip pre-commit
+
       - name: Run Pre Commit Checks
-        uses: pre-commit/action@v3.0.1
+        run: pre-commit run --all-files
 
   # Run Test Coverage
   test-coverage:
@@ -92,7 +95,7 @@ jobs:
     steps:
       # Checkout the repository
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
         # Install redis
       - name: Install redis
@@ -106,7 +109,7 @@ jobs:
 
       # Set up Python
       - name: Setup Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -161,11 +164,11 @@ jobs:
     steps:
       # Checkout the repository
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # Set up Python
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version-file: 'pyproject.toml' # Read the Python version from the pyproject.toml file
 
@@ -185,7 +188,7 @@ jobs:
 
       # Upload Build Artifacts
       - name: Upload Build Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: build-${{ github.event_name }}-${{ github.sha }}
           path: dist

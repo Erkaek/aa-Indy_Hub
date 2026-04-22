@@ -46,7 +46,13 @@ from indy_hub.services.esi_client import (
 )
 from indy_hub.services.providers import esi_provider
 from indy_hub.utils.eve import PLACEHOLDER_PREFIX as EVE_PLACEHOLDER_PREFIX
-from indy_hub.utils.eve import resolve_location_name
+from indy_hub.utils.eve import (
+    _is_structure_character_tried,
+    _mark_structure_character_tried,
+    has_structure_forbidden_cooldown,
+    resolve_location_name,
+    set_structure_forbidden_cooldown,
+)
 
 PLACEHOLDER_PREFIX = "Structure "
 
@@ -723,6 +729,8 @@ def resolve_structure_names(
             # Public int32 IDs are cheap to retry and often recover immediately via
             # /universe/names/ or the station endpoint, so do not keep placeholders.
             return True
+        if has_structure_forbidden_cooldown(structure_id):
+            return False
         last = known_last_resolved.get(structure_id)
         if not last:
             return True
@@ -876,6 +884,7 @@ def resolve_structure_names(
     direct_resolved = 0
     rate_limited_attempts = 0
     rate_limited_retry_after: float | None = None
+    forbidden_structure_ids: set[int] = set()
 
     # /universe/names/ only accepts int32 values.
     # Anything <= 2^31-1 is not a player structure ID (structures are int64), so
@@ -972,19 +981,25 @@ def resolve_structure_names(
 
         if do_sync_esi and sync_lookup_budget > 0:
             resolved = False
+            structure_forbidden = False
             for cid in candidate_characters:
                 cid = int(cid)
                 if cid in forbidden_character_ids or cid in invalid_character_ids:
+                    continue
+                if _is_structure_character_tried(structure_id, cid):
                     continue
                 try:
                     name = shared_client.fetch_structure_name(structure_id, cid)
                 except ESIForbiddenError:
                     forbidden_attempts += 1
                     forbidden_character_ids.add(cid)
+                    _mark_structure_character_tried(structure_id, cid)
+                    structure_forbidden = True
                     continue
                 except ESITokenError:
                     token_failure_attempts += 1
                     invalid_character_ids.add(cid)
+                    _mark_structure_character_tried(structure_id, cid)
                     continue
                 except ESIRateLimitError as exc:
                     rate_limited_attempts += 1
@@ -1004,6 +1019,7 @@ def resolve_structure_names(
                     continue
 
                 if not name:
+                    _mark_structure_character_tried(structure_id, cid)
                     continue
                 known[structure_id] = name
                 structures_to_cache.append(
@@ -1020,6 +1036,9 @@ def resolve_structure_names(
 
             if resolved:
                 missing.remove(structure_id)
+            elif structure_forbidden:
+                forbidden_structure_ids.add(int(structure_id))
+                set_structure_forbidden_cooldown(int(structure_id))
 
     if total_to_resolve and (
         forbidden_attempts
@@ -1056,6 +1075,8 @@ def resolve_structure_names(
                 if sid not in known or _is_stale_placeholder(int(sid)):
                     placeholder = f"{PLACEHOLDER_PREFIX}{int(sid)}"
                     known[int(sid)] = placeholder
+                    if int(sid) in forbidden_structure_ids:
+                        set_structure_forbidden_cooldown(int(sid))
                     structures_to_cache.append(
                         {
                             "structure_id": int(sid),
@@ -1064,11 +1085,18 @@ def resolve_structure_names(
                         }
                     )
 
-            cache_structure_names_bulk.delay(
-                list({int(sid) for sid in missing_positive}),
-                character_id=int(character_id) if character_id else None,
-                owner_user_id=int(getattr(user, "id", 0) or 0) if user else None,
-            )
+            schedulable_ids = [
+                int(sid)
+                for sid in set(missing_positive)
+                if int(sid) not in forbidden_structure_ids
+                and not has_structure_forbidden_cooldown(int(sid))
+            ]
+            if schedulable_ids:
+                cache_structure_names_bulk.delay(
+                    schedulable_ids,
+                    character_id=int(character_id) if character_id else None,
+                    owner_user_id=int(getattr(user, "id", 0) or 0) if user else None,
+                )
         except Exception:  # pragma: no cover - best-effort scheduling
             logger.debug(
                 "Unable to schedule async structure name caching", exc_info=True
@@ -1112,6 +1140,8 @@ def resolve_structure_names(
         for sid in unresolved_positive:
             placeholder = f"{PLACEHOLDER_PREFIX}{int(sid)}"
             known[int(sid)] = placeholder
+            if int(sid) in forbidden_structure_ids:
+                set_structure_forbidden_cooldown(int(sid))
             structures_to_cache.append(
                 {
                     "structure_id": int(sid),

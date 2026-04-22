@@ -5,6 +5,8 @@ from __future__ import annotations
 # Standard Library
 import time
 from collections.abc import Iterable, Mapping
+from datetime import timedelta
+from uuid import uuid4
 
 # Third Party
 from bravado.exception import HTTPError
@@ -12,6 +14,7 @@ from bravado.exception import HTTPError
 # Django
 from django.apps import apps
 from django.conf import settings
+from django.core.cache import cache
 from django.core.exceptions import AppRegistryNotReady
 from django.utils import timezone
 
@@ -70,8 +73,11 @@ _FALLBACK_STRUCTURE_TOKEN_IDS: list[int] | None = None
 _OWNER_STRUCTURE_TOKEN_CACHE: dict[int, list[int]] = {}
 _STATION_ID_MAX = 100_000_000
 _MAX_STRUCTURE_LOOKUPS = 3
-_FORBIDDEN_STRUCTURE_CHARACTERS: set[int] = set()
 _STRUCTURE_LOOKUP_PAUSE_UNTIL: float = 0.0
+STRUCTURE_FORBIDDEN_RETRY_DELAY = timedelta(days=15)
+STRUCTURE_TRIED_CHARACTER_RETRY_DELAY = timedelta(days=7)
+_STRUCTURE_FORBIDDEN_COOLDOWN_CACHE_NAMESPACE = uuid4().hex
+_STRUCTURE_TRIED_CHARACTER_CACHE_NAMESPACE = uuid4().hex
 
 
 def _normalized_location_aliases(
@@ -287,31 +293,86 @@ def _rate_limited_public_results(
 
 
 def reset_forbidden_structure_lookup_cache() -> None:
-    """Clear the in-memory cache of characters forbidden from structure lookups."""
+    """Clear the cache of structure lookup attempts used to skip recent failures."""
 
-    _FORBIDDEN_STRUCTURE_CHARACTERS.clear()
+    global _STRUCTURE_FORBIDDEN_COOLDOWN_CACHE_NAMESPACE
+    global _STRUCTURE_TRIED_CHARACTER_CACHE_NAMESPACE
+    _STRUCTURE_FORBIDDEN_COOLDOWN_CACHE_NAMESPACE = uuid4().hex
+    _STRUCTURE_TRIED_CHARACTER_CACHE_NAMESPACE = uuid4().hex
 
 
-def _is_structure_character_forbidden(character_id: int | None) -> bool:
-    if not character_id:
+def _build_structure_tried_character_cache_key(structure_id: int) -> str:
+    return (
+        "indy_hub:structure-tried-character:"
+        f"{_STRUCTURE_TRIED_CHARACTER_CACHE_NAMESPACE}:{int(structure_id)}"
+    )
+
+
+def _get_structure_tried_characters(structure_id: int | None) -> set[int]:
+    if not structure_id:
+        return set()
+
+    tried_characters: set[int] = set()
+    alias_ids = _normalized_location_aliases(structure_id) or (int(structure_id),)
+    for alias_id in alias_ids:
+        cached = cache.get(
+            _build_structure_tried_character_cache_key(int(alias_id)), []
+        )
+        for candidate in cached or []:
+            try:
+                tried_characters.add(int(candidate))
+            except (TypeError, ValueError):  # pragma: no cover - defensive parsing
+                logger.debug(
+                    "Unable to coerce tried character id %s for structure %s",
+                    candidate,
+                    alias_id,
+                )
+    return tried_characters
+
+
+def _is_structure_character_tried(
+    structure_id: int | None, character_id: int | None
+) -> bool:
+    if not structure_id or not character_id:
         return False
     try:
-        return int(character_id) in _FORBIDDEN_STRUCTURE_CHARACTERS
+        return int(character_id) in _get_structure_tried_characters(int(structure_id))
     except (TypeError, ValueError):  # pragma: no cover - defensive parsing
         logger.debug(
-            "Unable to coerce character id %s while checking forbidden cache",
+            "Unable to coerce character id %s while checking tried cache",
             character_id,
         )
         return False
 
 
-def _mark_structure_character_forbidden(character_id: int | None) -> None:
-    if not character_id:
+def _mark_structure_character_tried(
+    structure_id: int | None,
+    character_id: int | None,
+    *,
+    duration: timedelta = STRUCTURE_TRIED_CHARACTER_RETRY_DELAY,
+) -> None:
+    if not structure_id or not character_id:
         return
+
     try:
-        _FORBIDDEN_STRUCTURE_CHARACTERS.add(int(character_id))
+        normalized_character_id = int(character_id)
+        alias_ids = _normalized_location_aliases(structure_id) or (int(structure_id),)
+        tried_characters = _get_structure_tried_characters(int(structure_id))
+        tried_characters.add(normalized_character_id)
+        timeout = max(int(duration.total_seconds()), 1)
+        payload = sorted(tried_characters)
+        for alias_id in alias_ids:
+            cache.set(
+                _build_structure_tried_character_cache_key(int(alias_id)),
+                payload,
+                timeout=timeout,
+            )
     except (TypeError, ValueError):  # pragma: no cover - defensive parsing
-        logger.debug("Unable to record forbidden character id %s", character_id)
+        logger.debug(
+            "Unable to record tried character id %s for structure %s",
+            character_id,
+            structure_id,
+        )
 
 
 def is_station_id(location_id: int | None) -> bool:
@@ -683,7 +744,46 @@ def _lookup_location_name_in_db(structure_id: int) -> str | None:
     return None
 
 
-def _store_location_name_in_db(structure_id: int, name: str) -> None:
+def build_structure_forbidden_cooldown_cache_key(structure_id: int) -> str:
+    return (
+        "indy_hub:structure-forbidden:"
+        f"{_STRUCTURE_FORBIDDEN_COOLDOWN_CACHE_NAMESPACE}:{int(structure_id)}"
+    )
+
+
+def has_structure_forbidden_cooldown(structure_id: int | None) -> bool:
+    if not structure_id:
+        return False
+
+    alias_ids = _normalized_location_aliases(structure_id) or (int(structure_id),)
+    for alias_id in alias_ids:
+        if cache.get(
+            build_structure_forbidden_cooldown_cache_key(int(alias_id)), False
+        ):
+            return True
+    return False
+
+
+def set_structure_forbidden_cooldown(
+    structure_id: int | None,
+    *,
+    duration: timedelta = STRUCTURE_FORBIDDEN_RETRY_DELAY,
+) -> None:
+    if not structure_id:
+        return
+
+    timeout = max(int(duration.total_seconds()), 1)
+    cache.set(
+        build_structure_forbidden_cooldown_cache_key(int(structure_id)),
+        True,
+        timeout=timeout,
+    )
+
+
+def _store_location_name_in_db(
+    structure_id: int,
+    name: str,
+) -> None:
     """Persist a resolved/placeholder location name into CachedStructureName."""
 
     try:
@@ -747,6 +847,13 @@ def resolve_location_name(
         _store_location_name_in_db(structure_id, cached)
         return cached
 
+    if has_structure_forbidden_cooldown(structure_id):
+        db_name = _lookup_location_name_in_db(structure_id)
+        if not db_name:
+            _LOCATION_NAME_CACHE[structure_id] = placeholder_value
+            _store_location_name_in_db(structure_id, placeholder_value)
+            return placeholder_value
+
     # If we have a cached placeholder but aren't forcing a refresh, still allow
     # cheap DB cache reuse to replace the placeholder (no ESI calls).
     if cached == placeholder_value and not force_refresh:
@@ -809,10 +916,11 @@ def resolve_location_name(
             return None
 
         candidate_character_id = int(candidate_character_id)
-        if _is_structure_character_forbidden(candidate_character_id):
+        if _is_structure_character_tried(structure_id, candidate_character_id):
             logger.debug(
-                "Skipping structure lookup for character %s due to prior 403",
+                "Skipping structure lookup for character %s on structure %s due to a recent failed attempt",
                 candidate_character_id,
+                structure_id,
             )
             return None
         if candidate_character_id in attempted_characters:
@@ -824,11 +932,15 @@ def resolve_location_name(
         _wait_for_structure_rate_limit_window()
 
         try:
-            return shared_client.fetch_structure_name(
+            name = shared_client.fetch_structure_name(
                 structure_id, candidate_character_id
             )
+            if not name:
+                _mark_structure_character_tried(structure_id, candidate_character_id)
+            return name
         except ESIForbiddenError:
-            _mark_structure_character_forbidden(candidate_character_id)
+            _mark_structure_character_tried(structure_id, candidate_character_id)
+            set_structure_forbidden_cooldown(structure_id)
             logger.info(
                 "Character %s forbidden from fetching structure %s; future attempts will be skipped",
                 candidate_character_id,
@@ -840,6 +952,7 @@ def resolve_location_name(
                 _invalidate_structure_scope_token_cache()
             return None
         except ESITokenError:
+            _mark_structure_character_tried(structure_id, candidate_character_id)
             logger.debug(
                 "Character %s lacks esi-universe.read_structures scope for %s",
                 candidate_character_id,

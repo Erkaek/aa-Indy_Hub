@@ -62,6 +62,7 @@ def build_action_link(
     action: str,
     request_id: int,
     user_id: int,
+    source_scope: str | None = None,
     base_url: str | None = None,
 ) -> str | None:
     logger.debug(
@@ -71,7 +72,10 @@ def build_action_link(
         bool(base_url),
     )
     token = generate_action_token(user_id=user_id, request_id=request_id, action=action)
-    query = urlencode({"token": token})
+    query_params = {"token": token}
+    if source_scope in {"personal", "corporation"}:
+        query_params["source_scope"] = source_scope
+    query = urlencode(query_params)
     path = f"{reverse('indy_hub:bp_discord_action')}?{query}"
     if base_url:
         return urljoin(base_url.rstrip("/") + "/", path.lstrip("/"))

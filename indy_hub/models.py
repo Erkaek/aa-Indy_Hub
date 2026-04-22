@@ -211,6 +211,11 @@ class Blueprint(models.Model):
         )
         if self.bp_type == "STACK":
             self.bp_type = self.BPType.COPY
+
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None:
+            kwargs["update_fields"] = set(update_fields) | {"bp_type"}
+
         super().save(*args, **kwargs)
 
 

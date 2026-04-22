@@ -31,7 +31,7 @@ from ..models import (
 )
 from ..services.asset_cache import STRUCTURE_PLACEHOLDER_TTL
 from ..utils.analytics import emit_analytics_event
-from ..utils.eve import PLACEHOLDER_PREFIX
+from ..utils.eve import PLACEHOLDER_PREFIX, has_structure_forbidden_cooldown
 from .industry import (
     ONLINE_SCOPE,
     SKILLS_SCOPE,
@@ -188,7 +188,7 @@ def refresh_stale_snapshots() -> dict[str, int]:
         # Structure names
         structure_cutoff = now - timedelta(hours=STRUCTURE_NAME_STALE_HOURS)
         placeholder_cutoff = now - STRUCTURE_PLACEHOLDER_TTL
-        stale_structure_ids = list(
+        stale_structure_candidates = list(
             CachedStructureName.objects.filter(
                 Q(last_resolved__lt=structure_cutoff)
                 | Q(last_resolved__isnull=True)
@@ -196,8 +196,15 @@ def refresh_stale_snapshots() -> dict[str, int]:
                     name__startswith=PLACEHOLDER_PREFIX,
                     last_resolved__lt=placeholder_cutoff,
                 )
-            ).values_list("structure_id", flat=True)[:LOCATION_LOOKUP_BUDGET]
+            ).values_list("structure_id", flat=True)[
+                : max(LOCATION_LOOKUP_BUDGET * 5, LOCATION_LOOKUP_BUDGET)
+            ]
         )
+        stale_structure_ids = [
+            int(structure_id)
+            for structure_id in stale_structure_candidates
+            if not has_structure_forbidden_cooldown(int(structure_id))
+        ][:LOCATION_LOOKUP_BUDGET]
         if stale_structure_ids:
             token = (
                 Token.objects.filter()

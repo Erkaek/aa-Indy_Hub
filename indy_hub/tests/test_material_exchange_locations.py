@@ -20,9 +20,19 @@ from indy_hub.services.asset_cache import (
     resolve_structure_names,
 )
 from indy_hub.services.esi_client import ESIForbiddenError
+from indy_hub.utils.eve import (
+    has_structure_forbidden_cooldown,
+    reset_forbidden_structure_lookup_cache,
+)
 
 
 class TestMaterialExchangeLocations(TestCase):
+    def setUp(self) -> None:
+        reset_forbidden_structure_lookup_cache()
+
+    def tearDown(self) -> None:
+        reset_forbidden_structure_lookup_cache()
+
     def test_container_asset_resolves_to_parent_structure(self):
         # Item A is inside container C, which is inside structure B.
         item_a = {
@@ -194,6 +204,45 @@ class TestMaterialExchangeLocations(TestCase):
 
         cached = CachedStructureName.objects.get(structure_id=station_id)
         assert cached.name == "Amarr VIII (Oris) - Emperor Family Academy"
+
+    def test_structure_403_sets_placeholder_retry_cooldown(self):
+        structure_id = 1045667241057
+
+        with patch(
+            "indy_hub.services.asset_cache.shared_client.fetch_structure_name"
+        ) as mock_fetch:
+            mock_fetch.side_effect = ESIForbiddenError(
+                "Structure lookup forbidden",
+                character_id=1,
+                structure_id=structure_id,
+            )
+            names = resolve_structure_names([structure_id], character_id=1)
+
+        assert names[structure_id] == f"Structure {structure_id}"
+        cached = CachedStructureName.objects.get(structure_id=structure_id)
+        assert cached.name == f"Structure {structure_id}"
+        assert has_structure_forbidden_cooldown(structure_id)
+
+        with (
+            patch(
+                "indy_hub.services.asset_cache.shared_client.fetch_structure_name"
+            ) as retry_fetch,
+            patch(
+                "indy_hub.tasks.location.cache_structure_names_bulk.delay"
+            ) as mock_delay,
+        ):
+            retry_fetch.side_effect = RuntimeError(
+                "fetch_structure_name should not run during active 403 cooldown"
+            )
+            names = resolve_structure_names(
+                [structure_id],
+                character_id=1,
+                schedule_async=True,
+            )
+
+        assert names[structure_id] == f"Structure {structure_id}"
+        assert retry_fetch.call_count == 0
+        mock_delay.assert_not_called()
 
     def test_resolve_managed_hangar_name_from_cache(self):
         corp_id = 123

@@ -595,6 +595,32 @@ class BlueprintModelClassificationTests(TestCase):
         blueprint.refresh_from_db()
         self.assertEqual(blueprint.bp_type, Blueprint.BPType.COPY)
 
+    def test_update_or_create_persists_reclassified_bp_type(self) -> None:
+        blueprint = Blueprint.objects.create(
+            owner_user=self.user,
+            character_id=9004,
+            item_id=9004001,
+            blueprint_id=9005001,
+            type_id=454545,
+            location_id=PUBLIC_STATION_ID,
+            location_flag="hangar",
+            quantity=-2,
+            time_efficiency=0,
+            material_efficiency=0,
+            runs=1,
+            character_name="Classifier",
+            type_name="Widget Blueprint",
+        )
+        self.assertEqual(blueprint.bp_type, Blueprint.BPType.COPY)
+
+        Blueprint.objects.update_or_create(
+            item_id=blueprint.item_id,
+            defaults={"quantity": -1},
+        )
+
+        blueprint.refresh_from_db()
+        self.assertEqual(blueprint.bp_type, Blueprint.BPType.ORIGINAL)
+
 
 class CorporationSharingSettingTests(TestCase):
     def setUp(self) -> None:
@@ -2815,10 +2841,82 @@ class StructureLookupForbiddenCacheTests(TestCase):
             self.assertEqual(second_result, f"Structure {structure_id}")
             self.assertEqual(mock_fetch.call_count, 1)
 
+    def test_forbidden_character_cache_is_scoped_to_structure(self) -> None:
+        reset_forbidden_structure_lookup_cache()
+        forbidden_structure_id = 1_046_000_000_001
+        allowed_structure_id = 1_046_000_000_002
+        character_id = 7001
+
+        def _fetch(structure_id_in, character_id_in):
+            self.assertEqual(int(character_id_in), character_id)
+            if int(structure_id_in) == forbidden_structure_id:
+                raise ESIForbiddenError(
+                    "forbidden",
+                    character_id=character_id,
+                    structure_id=forbidden_structure_id,
+                )
+            if int(structure_id_in) == allowed_structure_id:
+                return "Allowed Structure"
+            raise AssertionError(f"Unexpected structure id {structure_id_in}")
+
+        with patch(
+            "indy_hub.utils.eve.shared_client.fetch_structure_name",
+            side_effect=_fetch,
+        ) as mock_fetch:
+            forbidden_result = eve_utils.resolve_location_name(
+                forbidden_structure_id,
+                character_id=character_id,
+                owner_user_id=None,
+                force_refresh=True,
+                allow_public=False,
+            )
+            allowed_result = eve_utils.resolve_location_name(
+                allowed_structure_id,
+                character_id=character_id,
+                owner_user_id=None,
+                force_refresh=True,
+                allow_public=False,
+            )
+
+        self.assertEqual(forbidden_result, f"Structure {forbidden_structure_id}")
+        self.assertEqual(allowed_result, "Allowed Structure")
+        self.assertEqual(mock_fetch.call_count, 2)
+
 
 class StructureLookupDbCacheTests(TestCase):
+    def setUp(self) -> None:
+        reset_forbidden_structure_lookup_cache()
+
     def tearDown(self) -> None:
+        reset_forbidden_structure_lookup_cache()
         eve_utils._LOCATION_NAME_CACHE.clear()
+
+    def test_force_refresh_reuses_recent_forbidden_placeholder(self) -> None:
+        structure_id = 1_045_667_241_057
+        placeholder = f"Structure {structure_id}"
+        CachedStructureName.objects.create(
+            structure_id=structure_id,
+            name=placeholder,
+            last_resolved=timezone.now(),
+        )
+        eve_utils.set_structure_forbidden_cooldown(structure_id)
+
+        with patch(
+            "indy_hub.utils.eve.shared_client.fetch_structure_name"
+        ) as mock_fetch:
+            mock_fetch.side_effect = RuntimeError(
+                "fetch_structure_name should not be called"
+            )
+            result = eve_utils.resolve_location_name(
+                structure_id,
+                character_id=7001,
+                owner_user_id=None,
+                force_refresh=True,
+                allow_public=False,
+            )
+
+        self.assertEqual(result, placeholder)
+        self.assertEqual(mock_fetch.call_count, 0)
 
     def test_resolve_location_name_prefers_cached_structure_name(self) -> None:
         structure_id = 1_042_090_993_674
