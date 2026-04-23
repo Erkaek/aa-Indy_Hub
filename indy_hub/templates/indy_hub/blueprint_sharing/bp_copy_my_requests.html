@@ -256,11 +256,6 @@
                                                             <strong data-chat-proposal-amount></strong>
                                                         </div>
                                                     </div>
-                                                    <div class="bp-chat-action-buttons d-none" data-chat-action-buttons>
-                                                        <button type="button" class="btn btn-success" data-chat-accept>
-                                                            <i class="fas fa-check me-1"></i>{% trans "Confirm amount" %}
-                                                        </button>
-                                                    </div>
                                                     <form class="bp-chat-proposal-form" data-chat-proposal-form>
                                                         <label class="visually-hidden" for="{{ chat_input_id }}Proposal">{% trans "Proposal amount" %}</label>
                                                         <div class="input-group input-group-sm">
@@ -323,7 +318,7 @@
                             <div class="fwp-panel-col">
 
                                 {# Actions #}
-                                <section class="fwp-section fwp-section--actions">
+                                <section class="fwp-section fwp-section--actions" data-copy-request-actions data-request-id="{{ req.id }}" data-viewer-role="buyer">
                                     <div class="fwp-section__head">
                                         <div>
                                             <p class="fwp-section__eyebrow">{% trans "Request" %}</p>
@@ -340,32 +335,53 @@
                                         </div>
                                     </div>
                                     {% endif %}
-                                    {% if req.cond_waiting_buyer %}
-                                    <div class="mrp-note">
+                                    {% if req.chat_actions %}
+                                    {% with first_chat=req.chat_actions.0.chat %}
+                                    {% if first_chat.decision_url %}
+                                    <div class="mrp-note{% if not req.cond_waiting_buyer and not req.cond_waiting_builder and not req.cond_offers %} d-none{% endif %}" data-request-negotiation-note>
                                         <i class="fas fa-file-signature"></i>
                                         <div>
-                                            <strong>{% trans "Agreement waiting on you." %}</strong>
-                                            {% trans "Review the active conversation and confirm the agreement if the amount works for you." %}
-                                        </div>
-                                    </div>
-                                    {% elif req.cond_waiting_builder %}
-                                    <div class="mrp-note">
-                                        <i class="fas fa-hourglass-half"></i>
-                                        <div>
-                                            <strong>{% trans "Builder confirmation pending." %}</strong>
-                                            {% trans "You already responded in chat. Waiting for the builder to confirm from the same conversation." %}
-                                        </div>
-                                    </div>
-                                    {% elif req.cond_offers %}
-                                    <div class="mrp-note">
-                                        <i class="fas fa-comments-dollar"></i>
-                                        <div>
-                                            <strong>{% trans "Conditional offers available." %}</strong>
-                                            {% blocktrans count count=req.cond_offers|length %}Use the conversation panel below to review the open negotiation and answer it.{% plural %}Use the conversation panel below to review the {{ count }} open negotiations and answer them.{% endblocktrans %}
+                                            <span data-request-negotiation-note-text>
+                                                {% if req.cond_waiting_buyer %}
+                                                    {% trans "Builder proposed an amount. Review the active conversation and confirm the agreement if it works for you." %}
+                                                {% elif req.cond_waiting_builder %}
+                                                    {% trans "You already responded in chat. Waiting for the builder to confirm from the same conversation." %}
+                                                {% elif req.cond_offers %}
+                                                    {% blocktrans count count=req.cond_offers|length %}Use the conversation panel below to review the open negotiation and answer it.{% plural %}Use the conversation panel below to review the {{ count }} open negotiations and answer them.{% endblocktrans %}
+                                                {% endif %}
+                                            </span>
                                         </div>
                                     </div>
                                     {% endif %}
+                                    {% endwith %}
+                                    {% endif %}
                                     <div class="fulfill-reference-actions">
+                                        {% if req.chat_actions %}
+                                        {% with first_chat=req.chat_actions.0.chat %}
+                                        {% if first_chat.decision_url %}
+                                        <div data-request-negotiation-actions>
+                                            <form method="post" action="{{ first_chat.decision_url }}" data-request-accept-form{% if not req.cond_waiting_buyer %} class="d-none"{% endif %}>
+                                                {% csrf_token %}
+                                                <input type="hidden" name="decision" value="accept">
+                                                <input type="hidden" name="viewer_role" value="buyer">
+                                                <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                                                <button type="submit" class="fulfill-btn fulfill-btn--accept">
+                                                    <i class="fas fa-check"></i>{% trans "Confirm amount" %}
+                                                </button>
+                                            </form>
+                                            <form method="post" action="{{ first_chat.decision_url }}" data-request-decline-form>
+                                                {% csrf_token %}
+                                                <input type="hidden" name="decision" value="reject">
+                                                <input type="hidden" name="viewer_role" value="buyer">
+                                                <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                                                <button type="submit" class="fulfill-btn fulfill-btn--decline" onclick="return confirm('{% trans 'Decline this negotiation?' %}')">
+                                                    <i class="fas fa-times"></i>{% trans "Decline negotiation" %}
+                                                </button>
+                                            </form>
+                                        </div>
+                                        {% endif %}
+                                        {% endwith %}
+                                        {% endif %}
                                         {% if req.can_cancel %}
                                         <form method="post" action="{% url 'indy_hub:bp_cancel_copy_request' req.id %}">
                                             {% csrf_token %}
