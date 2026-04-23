@@ -227,14 +227,14 @@
                                                 <i class="fas fa-chevron-down craft-group-toggle me-2"></i>
                                                 <i class="fas fa-layer-group text-primary me-2"></i>{{ group.group_name|default:_("Other") }}
                                             </span>
-                                            <span class="badge bg-primary-subtle text-primary fw-semibold">{{ group.items|length }}</span>
+                                            <span class="small text-body-secondary fw-semibold">{{ group.items|length }}</span>
                                         </div>
                                         <div class="craft-group-items">
                                             {% for item in group.items %}
                                             <div class="craft-item-row" data-type-id="{{ item.type_id }}">
                                                 <div class="craft-item-name">
                                                     <img src="https://images.evetech.net/types/{{ item.type_id }}/icon?size=32" alt="{{ item.type_name }}" class="rounded eve-type-icon eve-type-icon--30" onerror="this.style.display='none';">
-                                                    <span class="badge bg-info-subtle text-info-emphasis px-2 py-1">{{ item.type_name }}</span>
+                                                    <span class="fw-bold">{{ item.type_name }}</span>
                                                 </div>
                                                 <span class="badge bg-primary text-white" data-qty="{{ item.quantity }}">{{ item.quantity|intcomma }}</span>
                                             </div>
@@ -349,7 +349,7 @@
                                         <div class="d-flex align-items-center gap-2 craft-planner-item-flex">
                                             <img src="https://images.evetech.net/types/{{ mat.type_id }}/icon?size=32" alt="{{ mat.type_name }}" class="rounded eve-type-icon eve-type-icon--28" onerror="this.style.display='none';">
                                             <span class="craft-planner-item-name-wrap">
-                                                <span class="badge bg-info-subtle text-info-emphasis px-2 py-1 text-xs craft-planner-item-name">{{ mat.type_name }}</span>
+                                                <span class="fw-bold text-xs craft-planner-item-name">{{ mat.type_name }}</span>
                                             </span>
                                         </div>
                                     </td>
@@ -511,7 +511,7 @@
                 <section class="craft-section">
                     <h3 class="craft-section-title">
                         <i class="fas fa-sync text-info"></i> {% trans "Cycles" %}
-                        <span class="badge bg-info-subtle text-info fw-semibold ms-2">{{ craft_cycles_summary|length }}</span>
+                        <span class="small text-body-secondary fw-semibold ms-2">{{ craft_cycles_summary|length }}</span>
                     </h3>
                     <div class="table-responsive craft-cycles-table craft-table-text-120">
                         <table class="table table-sm align-middle mb-0">

@@ -5399,7 +5399,7 @@ function buildFinancialRow(item, pricesMap) {
             <div class="d-flex align-items-center gap-3 craft-planner-item-flex">
                 <img src="https://images.evetech.net/types/${item.typeId}/icon?size=32" alt="${escapeHtml(item.typeName)}" class="rounded" style="width:28px;height:28px;background:#f3f4f6;" onerror="this.style.display='none';">
                 <span class="craft-planner-item-name-wrap">
-                    <span class="badge bg-info-subtle text-info-emphasis px-2 py-1 craft-planner-item-name">${escapeHtml(item.typeName)}</span>
+                    <span class="fw-bold craft-planner-item-name">${escapeHtml(item.typeName)}</span>
                 </span>
             </div>
         </td>
@@ -5447,9 +5447,9 @@ function buildFinancialRow(item, pricesMap) {
 function updateFinancialRow(row, item) {
     row.setAttribute('data-type-id', String(item.typeId));
 
-    const nameBadge = row.querySelector('.badge.bg-info-subtle');
-    if (nameBadge) {
-        nameBadge.textContent = item.typeName;
+    const nameNode = row.querySelector('.craft-planner-item-name');
+    if (nameNode) {
+        nameNode.textContent = item.typeName;
     }
 
     const img = row.querySelector('img');
@@ -5721,7 +5721,7 @@ function updateMaterialsTabFromState() {
                 <td class="fw-semibold">
                     <div class="d-flex align-items-center gap-3">
                         <img src="https://images.evetech.net/types/${item.typeId}/icon?size=32" alt="${escapeHtml(item.typeName)}" class="rounded" style="width:30px;height:30px;background:#f3f4f6;" onerror="this.style.display='none';">
-                        <span class="badge bg-info-subtle text-info-emphasis px-2 py-1">${escapeHtml(item.typeName)}</span>
+                        <span class="fw-bold">${escapeHtml(item.typeName)}</span>
                     </div>
                 </td>
                 <td class="text-end">
@@ -5737,7 +5737,7 @@ function updateMaterialsTabFromState() {
                 <span class="fw-semibold">
                     <i class="fas fa-layer-group text-primary me-2"></i>${escapeHtml(groupName)}
                 </span>
-                <span class="badge bg-primary-subtle text-primary fw-semibold">${groupItems.length}</span>
+                <span class="small text-body-secondary fw-semibold">${groupItems.length}</span>
             </div>
             <div class="card-body p-0">
                 <div class="table-responsive">
@@ -6118,7 +6118,7 @@ function updateBuildTabFromState() {
         <section class="craft-section">
             <h3 class="craft-section-title">
                 <i class="fas fa-sync text-info"></i> ${escapeHtml(__('Cycles'))}
-                <span class="badge bg-info-subtle text-info fw-semibold ms-2">${formatInteger(cycleEntries.length)}</span>
+                <span class="small text-body-secondary fw-semibold ms-2">${formatInteger(cycleEntries.length)}</span>
             </h3>
             <div class="table-responsive craft-cycles-table craft-table-text-120">
                 <table class="table table-sm align-middle mb-0">

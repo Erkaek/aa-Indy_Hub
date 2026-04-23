@@ -1,0 +1,424 @@
+{% load i18n %}
+{% load humanize %}
+{% load tz %}
+
+        {% if assets_refreshing %}
+        <div class="d-flex flex-column align-items-center justify-content-center py-5">
+            <svg width="56" height="56" viewBox="0 0 24 24" aria-hidden="true" class="text-info">
+                <g stroke="currentColor" fill="none" stroke-width="1" stroke-linecap="round">
+                    <circle cx="12" cy="12" r="10">
+                        <animate attributeName="stroke-dasharray" dur="1.5s" calcMode="spline" values="0 150;42 150;42 150;42 150" keyTimes="0;0.475;0.95;1" keySplines="0.42,0,0.58,1;0.42,0,0.58,1;0.42,0,0.58,1" repeatCount="indefinite" />
+                        <animate attributeName="stroke-dashoffset" dur="1.5s" calcMode="spline" values="0;-16;-59;-59" keyTimes="0;0.475;0.95;1" keySplines="0.42,0,0.58,1;0.42,0,0.58,1;0.42,0,0.58,1" repeatCount="indefinite" />
+                    </circle>
+                    <animateTransform attributeName="transform" type="rotate" dur="2s" values="0 12 12;360 12 12" repeatCount="indefinite" />
+                </g>
+            </svg>
+            <div class="mt-3 text-muted">{% trans "Loading your asset inventory." %}</div>
+        </div>
+        {% endif %}
+
+        <div class="{% if assets_refreshing %}d-none{% endif %}">
+            <div class="me-info-bar" role="status">
+                <i class="fas fa-clock" aria-hidden="true"></i>
+                <div class="me-info-bar-body">
+                    <div class="me-info-bar-title">
+                        {% trans "Last update" %}:
+                        {% if sell_last_update %}
+                            {% with sell_utc=sell_last_update|timezone:"UTC" %}
+                                {{ sell_utc|date:"Y-m-d H:i" }} EVE
+                                <span class="text-muted">
+                                    / <span class="js-local-time" data-utc="{{ sell_utc|date:'c' }}">{{ sell_utc|date:"Y-m-d H:i" }}</span> {% trans "Local" %}
+                                </span>
+                            {% endwith %}
+                        {% else %}
+                            {% trans "Never" %}
+                        {% endif %}
+                    </div>
+                    <div class="me-info-bar-sub">
+                        {% if sell_next_refresh_minutes == 0 %}
+                            {% trans "Auto-refresh will run on the next page open." %}
+                        {% elif sell_next_refresh_minutes %}
+                            {% blocktrans with minutes=sell_next_refresh_minutes %}Auto-refresh runs on page open in about {{ minutes }} minute(s).{% endblocktrans %}
+                        {% else %}
+                            {% trans "Auto-refresh runs on page open once data is older than 60 minutes." %}
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <div class="me-instruction-chip" role="status">
+                <i class="fas fa-exclamation-circle" aria-hidden="true"></i>
+                <div>
+                    <div class="me-instruction-title">{% trans "Choose how you want to build your sell order." %}</div>
+                    <div class="me-instruction-sub">{% trans "Use the standard quantity table or paste an in-game copied item list." %}</div>
+                </div>
+            </div>
+
+            {% if sell_assets_progress.error == "missing_assets_scope" %}
+            <div class="glass-panel p-4 mb-4">
+                <div class="alert alert-danger mt-3 mb-0">
+                    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+                        <div>
+                            <i class="fas fa-exclamation-triangle me-2"></i>
+                            {% trans "Missing assets token: add the ESI assets scope to load your assets." %}
+                        </div>
+                        <a class="btn btn-outline-light btn-sm" href="{% url 'indy_hub:authorize_assets' %}?next={{ request.get_full_path|urlencode }}">
+                            <i class="fas fa-key me-1"></i>{% trans "Add assets token" %}
+                        </a>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            {% if sell_assets_progress.error == "esi_down" %}
+            <div class="alert alert-warning d-flex align-items-start gap-2 mb-3" role="status">
+                <i class="fas fa-cloud-bolt mt-1" aria-hidden="true"></i>
+                <div>
+                    <div class="fw-semibold">{% trans "ESI is temporarily unavailable. Using cached assets." %}</div>
+                    {% if sell_assets_progress.retry_after_minutes %}
+                    <small class="text-muted">
+                        {% blocktrans with minutes=sell_assets_progress.retry_after_minutes %}Retry in about {{ minutes }} minute(s).{% endblocktrans %}
+                    </small>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+
+            {% if sell_assets_progress.error == "no_assets_fetched" %}
+            <div class="alert alert-warning d-flex align-items-start gap-2 mb-3" role="status">
+                <i class="fas fa-info-circle mt-1" aria-hidden="true"></i>
+                <div>
+                    <div class="fw-semibold">{% trans "Assets refresh completed, but no items were returned." %}</div>
+                    <small class="text-muted">{% trans "Try again later or verify your assets scope." %}</small>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        {% if materials or sell_paste_catalog %}
+        <div class="row g-4">
+            <div class="col-lg-8">
+                <div class="glass-panel p-4">
+                    <h5 class="mb-4">
+                        <i class="fas fa-warehouse me-2"></i>
+                        {% trans "Your Materials at" %} {{ accepted_location_summary|default:config.structure_name }}
+                    </h5>
+                    {% if character_tabs %}
+                    <div class="me-character-tabs mb-3">
+                        {% if character_tabs|length > 1 %}
+                        <div class="d-flex flex-wrap align-items-center gap-3 p-3 rounded-3 bg-body-tertiary border">
+                            <img
+                                src="{% if active_character_tab_data %}{{ active_character_tab_data.portrait_url }}{% else %}https://images.evetech.net/characters/{{ character_tabs.0.id }}/portrait?size=128{% endif %}"
+                                alt="{% if active_character_tab_data %}{{ active_character_tab_data.name }}{% else %}{{ character_tabs.0.name }}{% endif %}"
+                                class="rounded-circle flex-shrink-0"
+                                width="64"
+                                height="64">
+                            <div class="flex-grow-1">
+                                <div class="small text-body-secondary">{% trans "Selected character" %}</div>
+                                <div class="h5 mb-0 text-body d-flex align-items-center gap-2 flex-wrap">
+                                    <span>{% if active_character_tab_data %}{{ active_character_tab_data.name }}{% else %}{{ character_tabs.0.name }}{% endif %}</span>
+                                    <span class="badge rounded-pill bg-secondary">{% if active_character_tab_data %}{{ active_character_tab_data.item_count }}{% else %}{{ character_tabs.0.item_count }}{% endif %}</span>
+                                </div>
+                            </div>
+                            <div class="ms-auto w-100 w-md-auto">
+                                <label for="sellCharacterSelect" class="form-label small text-body-secondary mb-1">{% trans "Switch character" %}</label>
+                                <div class="input-group input-group-sm">
+                                    <span class="input-group-text"><i class="fas fa-user"></i></span>
+                                    <select
+                                        id="sellCharacterSelect"
+                                        class="form-select"
+                                        aria-label="{% trans 'Select character' %}">
+                                        {% for tab in character_tabs %}
+                                        <option value="{{ tab.url }}" {% if active_character_tab == tab.id %}selected{% endif %}>
+                                            {{ tab.name }} ({{ tab.item_count }})
+                                        </option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        {% else %}
+                        <ul class="nav nav-pills flex-wrap gap-2">
+                            {% for tab in character_tabs %}
+                            <li class="nav-item">
+                                <a class="nav-link {% if active_character_tab == tab.id %}active{% endif %}" href="{{ tab.url }}">
+                                    {{ tab.name }}
+                                    <span class="badge rounded-pill bg-secondary ms-1">{{ tab.item_count }}</span>
+                                </a>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                    <form method="post" id="sellForm">
+                        {% csrf_token %}
+                        <input type="hidden" name="sell_input_mode" id="sellInputModeField" value="manual">
+                        <input type="hidden" name="paste_quantities_json" id="sellPasteQuantitiesJson" value="">
+
+                        <div class="me-sell-mode-switch mb-4" role="radiogroup" aria-label="{% trans 'Sell order input mode' %}">
+                            <label class="me-sell-mode-option" for="sellInputModeManual">
+                                <input class="form-check-input" type="radio" name="sellInputModeSelector" id="sellInputModeManual" value="manual" checked>
+                                <span>
+                                    <strong>{% trans "Manual selection" %}</strong>
+                                    <small>{% trans "Pick quantities directly from your visible assets." %}</small>
+                                </span>
+                            </label>
+                            <label class="me-sell-mode-option" for="sellInputModePaste">
+                                <input class="form-check-input" type="radio" name="sellInputModeSelector" id="sellInputModePaste" value="paste">
+                                <span>
+                                    <strong>{% trans "Paste import" %}</strong>
+                                    <small>{% trans "Paste an in-game list and let the page classify it." %}</small>
+                                </span>
+                            </label>
+                        </div>
+
+                        <div class="me-paste-panel d-none mb-4" data-sell-mode-panel="paste">
+                            <div class="row g-3">
+                                <div class="col-xl-7">
+                                    <label class="form-label fw-semibold" for="sellPasteTextarea">{% trans "Paste an in-game item list" %}</label>
+                                    <textarea
+                                        class="form-control me-paste-textarea"
+                                        id="sellPasteTextarea"
+                                        rows="9"
+                                        placeholder="{% trans 'Example: Tritanium x 25000 or Tritanium<TAB>25000' %}"></textarea>
+                                    <div class="form-text mt-2">
+                                        {% trans "Accepted items are added to the order automatically. Not bought, unavailable, and unknown lines are ignored." %}
+                                    </div>
+                                    <div class="d-flex flex-wrap gap-2 mt-3">
+                                        <button type="button" class="btn btn-outline-light btn-sm me-paste-clear-btn" id="sellPasteClearButton">
+                                            <i class="fas fa-eraser me-1"></i>{% trans "Clear pasted text" %}
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="col-xl-5">
+                                    <div class="me-paste-summary-grid">
+                                        <div class="me-paste-summary-card is-accepted">
+                                            <div class="me-paste-summary-label">{% trans "Accepted" %}</div>
+                                            <div class="me-paste-summary-value" id="sellPasteAcceptedCount">0</div>
+                                        </div>
+                                        <div class="me-paste-summary-card is-rejected">
+                                            <div class="me-paste-summary-label">{% trans "Not Bought" %}</div>
+                                            <div class="me-paste-summary-value" id="sellPasteRejectedCount">0</div>
+                                        </div>
+                                        <div class="me-paste-summary-card is-warning">
+                                            <div class="me-paste-summary-label">{% trans "Other Character" %}</div>
+                                            <div class="me-paste-summary-value" id="sellPasteUnavailableCount">0</div>
+                                        </div>
+                                        <div class="me-paste-summary-card is-unknown">
+                                            <div class="me-paste-summary-label">{% trans "Unknown" %}</div>
+                                            <div class="me-paste-summary-value" id="sellPasteUnknownCount">0</div>
+                                        </div>
+                                        <div class="me-paste-summary-card is-total">
+                                            <div class="me-paste-summary-label">{% trans "Accepted payout" %}</div>
+                                            <div class="me-paste-summary-value" id="sellPasteAcceptedValue">0 ISK</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="me-paste-results d-none" id="sellPasteResults">
+                                <div class="me-paste-results-grid" id="sellPasteResultsGrid">
+                                    <section class="me-paste-result-card" id="sellPasteAcceptedCard">
+                                        <div class="me-paste-result-header">
+                                            <h6 class="mb-0">{% trans "Accepted items" %}</h6>
+                                            <span class="badge text-bg-success" id="sellPasteAcceptedBadge">0</span>
+                                        </div>
+                                        <div class="me-paste-empty" id="sellPasteAcceptedEmpty">{% trans "No accepted items in the pasted text yet." %}</div>
+                                        <div class="me-paste-result-list" id="sellPasteAcceptedList"></div>
+                                    </section>
+                                    <section class="me-paste-result-card" id="sellPasteRejectedCard">
+                                        <div class="me-paste-result-header">
+                                            <h6 class="mb-0">{% trans "Not bought by the hub" %}</h6>
+                                            <span class="badge text-bg-warning text-dark" id="sellPasteRejectedBadge">0</span>
+                                        </div>
+                                        <div class="me-paste-empty" id="sellPasteRejectedEmpty">{% trans "No rejected items in the pasted text." %}</div>
+                                        <div class="me-paste-result-list" id="sellPasteRejectedList"></div>
+                                    </section>
+                                    <section class="me-paste-result-card" id="sellPasteUnavailableCard">
+                                        <div class="me-paste-result-header">
+                                            <h6 class="mb-0">{% trans "Known but not on this character" %}</h6>
+                                            <span class="badge text-bg-info" id="sellPasteUnavailableBadge">0</span>
+                                        </div>
+                                        <div class="me-paste-empty" id="sellPasteUnavailableEmpty">{% trans "No items matched only on another character." %}</div>
+                                        <div class="me-paste-result-list" id="sellPasteUnavailableList"></div>
+                                    </section>
+                                    <section class="me-paste-result-card" id="sellPasteUnknownCard">
+                                        <div class="me-paste-result-header">
+                                            <h6 class="mb-0">{% trans "Unknown items or lines" %}</h6>
+                                            <span class="badge text-bg-secondary" id="sellPasteUnknownBadge">0</span>
+                                        </div>
+                                        <div class="me-paste-empty" id="sellPasteUnknownEmpty">{% trans "No unknown lines in the pasted text." %}</div>
+                                        <div class="me-paste-result-list" id="sellPasteUnknownList"></div>
+                                    </section>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div data-sell-mode-panel="manual">
+                            {% if materials %}
+                            <div class="d-flex flex-column flex-xl-row align-items-xl-center justify-content-between gap-3 mb-3">
+                                <div class="d-flex align-items-stretch gap-3 flex-grow-1">
+                                    <div class="d-flex flex-column justify-content-center" role="radiogroup" aria-label="{% trans 'Search mode' %}">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="radio" name="sellSearchMode" id="sellSearchModeItem" value="item" checked>
+                                            <label class="form-check-label" for="sellSearchModeItem">{% trans "Item" %}</label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="radio" name="sellSearchMode" id="sellSearchModeCategory" value="category">
+                                            <label class="form-check-label" for="sellSearchModeCategory">{% trans "Category" %}</label>
+                                        </div>
+                                    </div>
+                                    <div class="input-group">
+                                        <span class="input-group-text"><i class="fas fa-search"></i></span>
+                                        <input
+                                            type="text"
+                                            id="sellSearchInput"
+                                            class="form-control"
+                                            placeholder="{% trans 'Search by item or category' %}"
+                                            aria-label="{% trans 'Search by item or category' %}">
+                                    </div>
+                                </div>
+                                <div class="d-flex flex-wrap justify-content-xl-end gap-2">
+                                    <button
+                                        type="button"
+                                        class="btn btn-outline-secondary btn-sm qty-bulk-btn"
+                                        id="sellBulkClearVisible"
+                                        data-action="clear-visible">
+                                        <i class="fas fa-eraser me-1"></i>{% trans "Clear visible" %}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        class="btn btn-success btn-sm qty-bulk-btn"
+                                        id="sellBulkMaxVisible"
+                                        data-action="max-visible">
+                                        <i class="fas fa-layer-group me-1"></i>{% trans "Max visible" %}
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="table-responsive">
+                                <table class="table table-hover stock-table align-middle">
+                                    <thead>
+                                        <tr>
+                                            <th class="stock-col-icon"></th>
+                                            <th>{% trans "Item" %}</th>
+                                            <th class="text-end">{% trans "You Own" %}</th>
+                                            <th class="text-end">{% trans "Unit Price" %}</th>
+                                            <th class="text-center stock-col-qty">{% trans "Quantity" %}</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for item in materials %}
+                                        <tr class="stock-row"
+                                            data-type-id="{{ item.type_id }}"
+                                            data-type-name="{{ item.type_name }}"
+                                            data-group-name="{{ item.group_name|default:'' }}"
+                                            data-unit-price="{{ item.buy_price_from_member|floatformat:2 }}"
+                                            data-max-qty="{{ item.user_quantity }}">
+                                            <td>
+                                                <img
+                                                    src="{{ item.image_url }}"
+                                                    alt="{{ item.type_name }}"
+                                                    class="item-icon"
+                                                    loading="lazy"
+                                                    onerror="this.onerror=null;this.style.display='none';if(this.nextElementSibling){this.nextElementSibling.classList.remove('d-none');}">
+                                                <span class="item-icon d-none d-inline-flex align-items-center justify-content-center bg-body-tertiary text-body-secondary">
+                                                    <i class="fas fa-cube" aria-hidden="true"></i>
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <div class="fw-semibold text-body">{{ item.type_name }}</div>
+                                                <div class="small text-body-secondary">{{ item.group_name|default:_('Other') }}</div>
+                                            </td>
+                                            <td class="text-end">
+                                                <span class="badge bg-success">{{ item.user_quantity|intcomma }}</span>
+                                            </td>
+                                            <td class="text-end text-success fw-semibold">
+                                                {{ item.buy_price_from_member|floatformat:2|intcomma }} ISK
+                                            </td>
+                                            <td class="text-center">
+                                                <div class="qty-cell">
+                                                    <div class="qty-input-row">
+                                                        <input
+                                                            type="number"
+                                                            name="qty_{{ item.type_id }}"
+                                                            id="qty-{{ item.type_id }}"
+                                                            class="form-control qty-input"
+                                                            min="0"
+                                                            max="{{ item.user_quantity }}"
+                                                            value="0"
+                                                            data-type-id="{{ item.type_id }}"
+                                                            data-max="{{ item.user_quantity }}">
+                                                        <div class="qty-btns" role="group" aria-label="{% trans 'Quantity shortcuts' %}">
+                                                            <button type="button" class="btn btn-secondary btn-sm qty-btn" data-action="zero" title="{% trans 'Zero' %}" aria-label="{% trans 'Zero' %}">
+                                                                <i class="fas fa-ban" aria-hidden="true"></i>
+                                                            </button>
+                                                            <button type="button" class="btn btn-secondary btn-sm qty-btn" data-action="max">{% trans "Max" %}</button>
+                                                        </div>
+                                                    </div>
+                                                    <div class="qty-error" id="error-{{ item.type_id }}">
+                                                        {% trans "Max:" %} {{ item.user_quantity|intcomma }}
+                                                    </div>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div id="sellSearchEmpty" class="alert alert-warning mt-3 d-none mb-0">
+                                <i class="fas fa-search me-2"></i>
+                                {% trans "No matching items for your search." %}
+                            </div>
+                            {% else %}
+                            <div class="alert alert-warning mb-0">
+                                <i class="fas fa-exclamation-triangle me-2"></i>
+                                {% trans "No accepted items are currently available for manual selection on this character." %}
+                            </div>
+                            {% endif %}
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <div class="col-lg-4">
+                <div class="invoice-panel">
+                    <div class="glass-panel p-4">
+                        <h5 class="mb-3">
+                            <i class="fas fa-receipt me-2"></i>{% trans "Sell Summary" %}
+                        </h5>
+                        <div id="invoiceContent">
+                            <div class="empty-invoice">
+                                <i class="fas fa-hand-holding-usd fa-3x mb-3 opacity-25"></i>
+                                <p class="mb-0">{% trans "Enter quantities to see your payout" %}</p>
+                            </div>
+                        </div>
+                        <div id="invoiceItems" class="d-none">
+                            <div id="itemsList"></div>
+                            <div class="invoice-total">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <span class="fw-bold">{% trans "Total Payout" %}</span>
+                                    <span class="h4 mb-0 text-success" id="totalAmount">0 ISK</span>
+                                </div>
+                                <button type="submit" form="sellForm" class="btn btn-success w-100 mt-3">
+                                    <i class="fas fa-paper-plane me-2"></i>{% trans "Create Sell Order" %}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {% else %}
+        {% if not assets_refreshing %}
+        <div class="glass-panel p-4">
+            <div class="alert alert-warning mb-0">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                {% trans "No materials available for selling. Please contact an admin." %}
+            </div>
+        </div>
+        {% endif %}
+        {% endif %}
+
+    {{ sell_paste_catalog|json_script:"sellPasteCatalogData" }}

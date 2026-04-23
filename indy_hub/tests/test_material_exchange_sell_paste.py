@@ -346,3 +346,81 @@ class MaterialExchangeSellPasteTests(TestCase):
         self.assertEqual(catalog["Large Skill Injector"]["total_available_qty"], 3)
         self.assertEqual(catalog["Unrefined Goo"]["status"], "rejected")
         self.assertEqual(catalog["Unrefined Goo"]["reason"], "not_bought")
+
+    def test_get_ajax_character_switch_returns_fragment_html(self) -> None:
+        other_character = assign_main_character(
+            self.user, character_id=self.character.character_id + 1
+        )
+        request = self._prepare_request(
+            self.factory.get(
+                reverse("indy_hub:material_exchange_sell"),
+                {"character": str(other_character.character_id)},
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            )
+        )
+
+        with (
+            patch("indy_hub.views.material_exchange.emit_view_analytics_event"),
+            patch(
+                "indy_hub.views.material_exchange._is_material_exchange_enabled",
+                return_value=True,
+            ),
+            patch(
+                "indy_hub.views.material_exchange._get_material_exchange_config",
+                return_value=self.config,
+            ),
+            patch(
+                "indy_hub.views.material_exchange._ensure_sell_assets_refresh_started",
+                return_value={"running": False, "finished": True, "error": None},
+            ),
+            patch(
+                "indy_hub.views.material_exchange._fetch_user_assets_for_structure_data",
+                return_value=(
+                    {34: 10, 35: 2},
+                    {
+                        self.character.character_id: {34: 10},
+                        other_character.character_id: {35: 2},
+                    },
+                    False,
+                ),
+            ),
+            patch(
+                "indy_hub.views.material_exchange._get_allowed_type_ids_for_config",
+                return_value={34, 35},
+            ),
+            patch(
+                "indy_hub.views.material_exchange._fetch_fuzzwork_prices",
+                return_value={
+                    34: {"buy": Decimal("5.00"), "sell": Decimal("6.00")},
+                    35: {"buy": Decimal("7.00"), "sell": Decimal("8.00")},
+                },
+            ),
+            patch(
+                "indy_hub.views.material_exchange.get_type_name",
+                side_effect=lambda type_id: {34: "Tritanium", 35: "Pyerite"}[type_id],
+            ),
+            patch(
+                "indy_hub.views.material_exchange._get_group_map",
+                return_value={34: "Minerals", 35: "Minerals"},
+            ),
+            patch("indy_hub.views.material_exchange.batch_cache_type_names"),
+            patch(
+                "indy_hub.views.material_exchange._get_corp_name_for_hub",
+                return_value="Test Corp",
+            ),
+            patch(
+                "indy_hub.views.material_exchange._build_nav_context",
+                return_value={},
+            ),
+            patch(
+                "indy_hub.views.material_exchange.build_nav_context",
+                return_value={},
+            ),
+        ):
+            response = self.view(request, tokens=[])
+
+        self.assertEqual(response.status_code, 200)
+        payload = json.loads(response.content)
+        self.assertIn('id="sellCharacterSelect"', payload["html"])
+        self.assertIn("Pyerite", payload["html"])
+        self.assertNotIn('<div class="page-header mb-4">', payload["html"])

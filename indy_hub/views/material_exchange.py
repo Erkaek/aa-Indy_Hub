@@ -17,6 +17,7 @@ from django.db.models import Count, Q, Sum
 from django.db.models.functions import TruncMonth
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -1847,6 +1848,17 @@ def material_exchange_sell(request, tokens):
             ),
         )
     )
+
+    if (
+        request.method == "GET"
+        and request.headers.get("X-Requested-With") == "XMLHttpRequest"
+    ):
+        html = render_to_string(
+            "indy_hub/material_exchange/includes/sell_page_content.html",
+            context,
+            request=request,
+        )
+        return JsonResponse({"html": html})
 
     return render(request, "indy_hub/material_exchange/sell.html", context)
 

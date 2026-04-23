@@ -598,6 +598,21 @@ html[data-theme="darkly"] .status-pending {
     font-size: 0.92rem;
 }
 
+.me-paste-clear-btn {
+    color: rgb(var(--bs-success-rgb)) !important;
+    background: rgba(var(--bs-body-bg-rgb), 0.92) !important;
+    border-color: rgba(var(--bs-success-rgb), 0.38) !important;
+    box-shadow: 0 6px 18px rgba(var(--bs-success-rgb), 0.08);
+}
+
+.me-paste-clear-btn:hover,
+.me-paste-clear-btn:focus,
+.me-paste-clear-btn:active {
+    color: #fff !important;
+    background: rgba(var(--bs-success-rgb), 0.9) !important;
+    border-color: rgba(var(--bs-success-rgb), 0.92) !important;
+}
+
 .me-paste-summary-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -650,8 +665,12 @@ html[data-theme="darkly"] .status-pending {
 
 .me-paste-results-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 12px;
+}
+
+.me-paste-results-grid.is-single-card {
+    grid-template-columns: minmax(0, 1fr);
 }
 
 .me-paste-result-card {
@@ -746,6 +765,21 @@ html[data-theme="darkly"] .me-paste-panel,
 html[data-theme="darkly"] .me-paste-summary-card,
 html[data-theme="darkly"] .me-paste-result-card {
     background: rgba(15, 23, 42, 0.55);
+}
+
+html[data-theme="darkly"] .me-paste-clear-btn {
+    color: var(--bs-body-color) !important;
+    background: rgba(var(--bs-body-bg-rgb), 0.78) !important;
+    border-color: rgba(var(--bs-border-color-rgb), 0.85) !important;
+    box-shadow: none;
+}
+
+html[data-theme="darkly"] .me-paste-clear-btn:hover,
+html[data-theme="darkly"] .me-paste-clear-btn:focus,
+html[data-theme="darkly"] .me-paste-clear-btn:active {
+    color: var(--bs-body-color) !important;
+    background: rgba(var(--bs-light-rgb), 0.12) !important;
+    border-color: rgba(var(--bs-light-rgb), 0.28) !important;
 }
 
 .qty-input.is-invalid {

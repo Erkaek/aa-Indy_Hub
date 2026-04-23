@@ -48,448 +48,52 @@
             </div>
             <i class="fas fa-hand-holding-usd header-bg"></i>
         </div>
-
-        {% if assets_refreshing %}
-        <div class="d-flex flex-column align-items-center justify-content-center py-5">
-            <svg width="56" height="56" viewBox="0 0 24 24" aria-hidden="true" class="text-info">
-                <g stroke="currentColor" fill="none" stroke-width="1" stroke-linecap="round">
-                    <circle cx="12" cy="12" r="10">
-                        <animate attributeName="stroke-dasharray" dur="1.5s" calcMode="spline" values="0 150;42 150;42 150;42 150" keyTimes="0;0.475;0.95;1" keySplines="0.42,0,0.58,1;0.42,0,0.58,1;0.42,0,0.58,1" repeatCount="indefinite" />
-                        <animate attributeName="stroke-dashoffset" dur="1.5s" calcMode="spline" values="0;-16;-59;-59" keyTimes="0;0.475;0.95;1" keySplines="0.42,0,0.58,1;0.42,0,0.58,1;0.42,0,0.58,1" repeatCount="indefinite" />
-                    </circle>
-                    <animateTransform attributeName="transform" type="rotate" dur="2s" values="0 12 12;360 12 12" repeatCount="indefinite" />
-                </g>
-            </svg>
-            <div class="mt-3 text-muted">{% trans "Loading your asset inventory." %}</div>
+        <div id="sellPageDynamicContent">
+            {% include "indy_hub/material_exchange/includes/sell_page_content.html" %}
         </div>
-        {% endif %}
-
-        <div class="{% if assets_refreshing %}d-none{% endif %}">
-            <div class="me-info-bar" role="status">
-                <i class="fas fa-clock" aria-hidden="true"></i>
-                <div class="me-info-bar-body">
-                    <div class="me-info-bar-title">
-                        {% trans "Last update" %}:
-                        {% if sell_last_update %}
-                            {% with sell_utc=sell_last_update|timezone:"UTC" %}
-                                {{ sell_utc|date:"Y-m-d H:i" }} EVE
-                                <span class="text-muted">
-                                    / <span class="js-local-time" data-utc="{{ sell_utc|date:'c' }}">{{ sell_utc|date:"Y-m-d H:i" }}</span> {% trans "Local" %}
-                                </span>
-                            {% endwith %}
-                        {% else %}
-                            {% trans "Never" %}
-                        {% endif %}
-                    </div>
-                    <div class="me-info-bar-sub">
-                        {% if sell_next_refresh_minutes == 0 %}
-                            {% trans "Auto-refresh will run on the next page open." %}
-                        {% elif sell_next_refresh_minutes %}
-                            {% blocktrans with minutes=sell_next_refresh_minutes %}Auto-refresh runs on page open in about {{ minutes }} minute(s).{% endblocktrans %}
-                        {% else %}
-                            {% trans "Auto-refresh runs on page open once data is older than 60 minutes." %}
-                        {% endif %}
-                    </div>
-                </div>
-            </div>
-
-            <div class="me-instruction-chip" role="status">
-                <i class="fas fa-exclamation-circle" aria-hidden="true"></i>
-                <div>
-                    <div class="me-instruction-title">{% trans "Choose how you want to build your sell order." %}</div>
-                    <div class="me-instruction-sub">{% trans "Use the standard quantity table or paste an in-game copied item list." %}</div>
-                </div>
-            </div>
-
-            {% if sell_assets_progress.error == "missing_assets_scope" %}
-            <div class="glass-panel p-4 mb-4">
-                <div class="alert alert-danger mt-3 mb-0">
-                    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
-                        <div>
-                            <i class="fas fa-exclamation-triangle me-2"></i>
-                            {% trans "Missing assets token: add the ESI assets scope to load your assets." %}
-                        </div>
-                        <a class="btn btn-outline-light btn-sm" href="{% url 'indy_hub:authorize_assets' %}?next={{ request.get_full_path|urlencode }}">
-                            <i class="fas fa-key me-1"></i>{% trans "Add assets token" %}
-                        </a>
-                    </div>
-                </div>
-            </div>
-            {% endif %}
-
-            {% if sell_assets_progress.error == "esi_down" %}
-            <div class="alert alert-warning d-flex align-items-start gap-2 mb-3" role="status">
-                <i class="fas fa-cloud-bolt mt-1" aria-hidden="true"></i>
-                <div>
-                    <div class="fw-semibold">{% trans "ESI is temporarily unavailable. Using cached assets." %}</div>
-                    {% if sell_assets_progress.retry_after_minutes %}
-                    <small class="text-muted">
-                        {% blocktrans with minutes=sell_assets_progress.retry_after_minutes %}Retry in about {{ minutes }} minute(s).{% endblocktrans %}
-                    </small>
-                    {% endif %}
-                </div>
-            </div>
-            {% endif %}
-
-            {% if sell_assets_progress.error == "no_assets_fetched" %}
-            <div class="alert alert-warning d-flex align-items-start gap-2 mb-3" role="status">
-                <i class="fas fa-info-circle mt-1" aria-hidden="true"></i>
-                <div>
-                    <div class="fw-semibold">{% trans "Assets refresh completed, but no items were returned." %}</div>
-                    <small class="text-muted">{% trans "Try again later or verify your assets scope." %}</small>
-                </div>
-            </div>
-            {% endif %}
-        </div>
-
-        {% if materials or sell_paste_catalog %}
-        <div class="row g-4">
-            <div class="col-lg-8">
-                <div class="glass-panel p-4">
-                    <h5 class="mb-4">
-                        <i class="fas fa-warehouse me-2"></i>
-                        {% trans "Your Materials at" %} {{ accepted_location_summary|default:config.structure_name }}
-                    </h5>
-                    {% if character_tabs %}
-                    <div class="me-character-tabs mb-3">
-                        {% if character_tabs|length > 1 %}
-                        <div class="d-flex flex-wrap align-items-center gap-3 p-3 rounded-3 bg-body-tertiary border">
-                            <img
-                                src="{% if active_character_tab_data %}{{ active_character_tab_data.portrait_url }}{% else %}https://images.evetech.net/characters/{{ character_tabs.0.id }}/portrait?size=128{% endif %}"
-                                alt="{% if active_character_tab_data %}{{ active_character_tab_data.name }}{% else %}{{ character_tabs.0.name }}{% endif %}"
-                                class="rounded-circle flex-shrink-0"
-                                width="64"
-                                height="64">
-                            <div class="flex-grow-1">
-                                <div class="small text-body-secondary">{% trans "Selected character" %}</div>
-                                <div class="h5 mb-0 text-body d-flex align-items-center gap-2 flex-wrap">
-                                    <span>{% if active_character_tab_data %}{{ active_character_tab_data.name }}{% else %}{{ character_tabs.0.name }}{% endif %}</span>
-                                    <span class="badge rounded-pill bg-secondary">{% if active_character_tab_data %}{{ active_character_tab_data.item_count }}{% else %}{{ character_tabs.0.item_count }}{% endif %}</span>
-                                </div>
-                            </div>
-                            <div class="ms-auto w-100 w-md-auto">
-                                <label for="sellCharacterSelect" class="form-label small text-body-secondary mb-1">{% trans "Switch character" %}</label>
-                                <div class="input-group input-group-sm">
-                                    <span class="input-group-text"><i class="fas fa-user"></i></span>
-                                    <select
-                                        id="sellCharacterSelect"
-                                        class="form-select"
-                                        onchange="if (this.value) { window.location.href = this.value; }"
-                                        aria-label="{% trans 'Select character' %}">
-                                        {% for tab in character_tabs %}
-                                        <option value="{{ tab.url }}" {% if active_character_tab == tab.id %}selected{% endif %}>
-                                            {{ tab.name }} ({{ tab.item_count }})
-                                        </option>
-                                        {% endfor %}
-                                    </select>
-                                </div>
-                            </div>
-                        </div>
-                        {% else %}
-                        <ul class="nav nav-pills flex-wrap gap-2">
-                            {% for tab in character_tabs %}
-                            <li class="nav-item">
-                                <a class="nav-link {% if active_character_tab == tab.id %}active{% endif %}" href="{{ tab.url }}">
-                                    {{ tab.name }}
-                                    <span class="badge rounded-pill bg-secondary ms-1">{{ tab.item_count }}</span>
-                                </a>
-                            </li>
-                            {% endfor %}
-                        </ul>
-                        {% endif %}
-                    </div>
-                    {% endif %}
-                    <form method="post" id="sellForm">
-                        {% csrf_token %}
-                        <input type="hidden" name="sell_input_mode" id="sellInputModeField" value="manual">
-                        <input type="hidden" name="paste_quantities_json" id="sellPasteQuantitiesJson" value="">
-
-                        <div class="me-sell-mode-switch mb-4" role="radiogroup" aria-label="{% trans 'Sell order input mode' %}">
-                            <label class="me-sell-mode-option" for="sellInputModeManual">
-                                <input class="form-check-input" type="radio" name="sellInputModeSelector" id="sellInputModeManual" value="manual" checked>
-                                <span>
-                                    <strong>{% trans "Manual selection" %}</strong>
-                                    <small>{% trans "Pick quantities directly from your visible assets." %}</small>
-                                </span>
-                            </label>
-                            <label class="me-sell-mode-option" for="sellInputModePaste">
-                                <input class="form-check-input" type="radio" name="sellInputModeSelector" id="sellInputModePaste" value="paste">
-                                <span>
-                                    <strong>{% trans "Paste import" %}</strong>
-                                    <small>{% trans "Paste an in-game list and let the page classify it." %}</small>
-                                </span>
-                            </label>
-                        </div>
-
-                        <div class="me-paste-panel d-none mb-4" data-sell-mode-panel="paste">
-                            <div class="row g-3">
-                                <div class="col-xl-7">
-                                    <label class="form-label fw-semibold" for="sellPasteTextarea">{% trans "Paste an in-game item list" %}</label>
-                                    <textarea
-                                        class="form-control me-paste-textarea"
-                                        id="sellPasteTextarea"
-                                        rows="9"
-                                        placeholder="{% trans 'Example: Tritanium x 25000 or Tritanium<TAB>25000' %}"></textarea>
-                                    <div class="form-text mt-2">
-                                        {% trans "Accepted items are added to the order automatically. Not bought, unavailable, and unknown lines are ignored." %}
-                                    </div>
-                                    <div class="d-flex flex-wrap gap-2 mt-3">
-                                        <button type="button" class="btn btn-outline-light btn-sm" id="sellPasteClearButton">
-                                            <i class="fas fa-eraser me-1"></i>{% trans "Clear pasted text" %}
-                                        </button>
-                                    </div>
-                                </div>
-                                <div class="col-xl-5">
-                                    <div class="me-paste-summary-grid">
-                                        <div class="me-paste-summary-card is-accepted">
-                                            <div class="me-paste-summary-label">{% trans "Accepted" %}</div>
-                                            <div class="me-paste-summary-value" id="sellPasteAcceptedCount">0</div>
-                                        </div>
-                                        <div class="me-paste-summary-card is-rejected">
-                                            <div class="me-paste-summary-label">{% trans "Not Bought" %}</div>
-                                            <div class="me-paste-summary-value" id="sellPasteRejectedCount">0</div>
-                                        </div>
-                                        <div class="me-paste-summary-card is-warning">
-                                            <div class="me-paste-summary-label">{% trans "Other Character" %}</div>
-                                            <div class="me-paste-summary-value" id="sellPasteUnavailableCount">0</div>
-                                        </div>
-                                        <div class="me-paste-summary-card is-unknown">
-                                            <div class="me-paste-summary-label">{% trans "Unknown" %}</div>
-                                            <div class="me-paste-summary-value" id="sellPasteUnknownCount">0</div>
-                                        </div>
-                                        <div class="me-paste-summary-card is-total">
-                                            <div class="me-paste-summary-label">{% trans "Accepted payout" %}</div>
-                                            <div class="me-paste-summary-value" id="sellPasteAcceptedValue">0 ISK</div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="me-paste-results d-none" id="sellPasteResults">
-                                <div class="me-paste-results-grid">
-                                    <section class="me-paste-result-card">
-                                        <div class="me-paste-result-header">
-                                            <h6 class="mb-0">{% trans "Accepted items" %}</h6>
-                                            <span class="badge text-bg-success" id="sellPasteAcceptedBadge">0</span>
-                                        </div>
-                                        <div class="me-paste-empty" id="sellPasteAcceptedEmpty">{% trans "No accepted items in the pasted text yet." %}</div>
-                                        <div class="me-paste-result-list" id="sellPasteAcceptedList"></div>
-                                    </section>
-                                    <section class="me-paste-result-card">
-                                        <div class="me-paste-result-header">
-                                            <h6 class="mb-0">{% trans "Not bought by the hub" %}</h6>
-                                            <span class="badge text-bg-warning text-dark" id="sellPasteRejectedBadge">0</span>
-                                        </div>
-                                        <div class="me-paste-empty" id="sellPasteRejectedEmpty">{% trans "No rejected items in the pasted text." %}</div>
-                                        <div class="me-paste-result-list" id="sellPasteRejectedList"></div>
-                                    </section>
-                                    <section class="me-paste-result-card">
-                                        <div class="me-paste-result-header">
-                                            <h6 class="mb-0">{% trans "Known but not on this character" %}</h6>
-                                            <span class="badge text-bg-info" id="sellPasteUnavailableBadge">0</span>
-                                        </div>
-                                        <div class="me-paste-empty" id="sellPasteUnavailableEmpty">{% trans "No items matched only on another character." %}</div>
-                                        <div class="me-paste-result-list" id="sellPasteUnavailableList"></div>
-                                    </section>
-                                    <section class="me-paste-result-card">
-                                        <div class="me-paste-result-header">
-                                            <h6 class="mb-0">{% trans "Unknown items or lines" %}</h6>
-                                            <span class="badge text-bg-secondary" id="sellPasteUnknownBadge">0</span>
-                                        </div>
-                                        <div class="me-paste-empty" id="sellPasteUnknownEmpty">{% trans "No unknown lines in the pasted text." %}</div>
-                                        <div class="me-paste-result-list" id="sellPasteUnknownList"></div>
-                                    </section>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div data-sell-mode-panel="manual">
-                            {% if materials %}
-                            <div class="d-flex flex-column flex-xl-row align-items-xl-center justify-content-between gap-3 mb-3">
-                                <div class="d-flex align-items-stretch gap-3 flex-grow-1">
-                                    <div class="d-flex flex-column justify-content-center" role="radiogroup" aria-label="{% trans 'Search mode' %}">
-                                        <div class="form-check">
-                                            <input class="form-check-input" type="radio" name="sellSearchMode" id="sellSearchModeItem" value="item" checked>
-                                            <label class="form-check-label" for="sellSearchModeItem">{% trans "Item" %}</label>
-                                        </div>
-                                        <div class="form-check">
-                                            <input class="form-check-input" type="radio" name="sellSearchMode" id="sellSearchModeCategory" value="category">
-                                            <label class="form-check-label" for="sellSearchModeCategory">{% trans "Category" %}</label>
-                                        </div>
-                                    </div>
-                                    <div class="input-group">
-                                        <span class="input-group-text"><i class="fas fa-search"></i></span>
-                                        <input
-                                            type="text"
-                                            id="sellSearchInput"
-                                            class="form-control"
-                                            placeholder="{% trans 'Search by item or category' %}"
-                                            aria-label="{% trans 'Search by item or category' %}">
-                                    </div>
-                                </div>
-                                <div class="d-flex flex-wrap justify-content-xl-end gap-2">
-                                    <button
-                                        type="button"
-                                        class="btn btn-outline-secondary btn-sm qty-bulk-btn"
-                                        id="sellBulkClearVisible"
-                                        data-action="clear-visible">
-                                        <i class="fas fa-eraser me-1"></i>{% trans "Clear visible" %}
-                                    </button>
-                                    <button
-                                        type="button"
-                                        class="btn btn-success btn-sm qty-bulk-btn"
-                                        id="sellBulkMaxVisible"
-                                        data-action="max-visible">
-                                        <i class="fas fa-layer-group me-1"></i>{% trans "Max visible" %}
-                                    </button>
-                                </div>
-                            </div>
-                            <div class="table-responsive">
-                                <table class="table table-hover stock-table align-middle">
-                                    <thead>
-                                        <tr>
-                                            <th class="stock-col-icon"></th>
-                                            <th>{% trans "Item" %}</th>
-                                            <th class="text-end">{% trans "You Own" %}</th>
-                                            <th class="text-end">{% trans "Unit Price" %}</th>
-                                            <th class="text-center stock-col-qty">{% trans "Quantity" %}</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {% for item in materials %}
-                                        <tr class="stock-row"
-                                            data-type-id="{{ item.type_id }}"
-                                            data-type-name="{{ item.type_name }}"
-                                            data-group-name="{{ item.group_name|default:'' }}"
-                                            data-unit-price="{{ item.buy_price_from_member|floatformat:2 }}"
-                                            data-max-qty="{{ item.user_quantity }}">
-                                            <td>
-                                                <img
-                                                    src="{{ item.image_url }}"
-                                                    alt="{{ item.type_name }}"
-                                                    class="item-icon">
-                                            </td>
-                                            <td>
-                                                <div class="fw-semibold text-body">{{ item.type_name }}</div>
-                                                <div class="small text-body-secondary">{{ item.group_name|default:_('Other') }}</div>
-                                            </td>
-                                            <td class="text-end">
-                                                <span class="badge bg-success">{{ item.user_quantity|intcomma }}</span>
-                                            </td>
-                                            <td class="text-end text-success fw-semibold">
-                                                {{ item.buy_price_from_member|floatformat:2|intcomma }} ISK
-                                            </td>
-                                            <td class="text-center">
-                                                <div class="qty-cell">
-                                                    <div class="qty-input-row">
-                                                        <input
-                                                            type="number"
-                                                            name="qty_{{ item.type_id }}"
-                                                            id="qty-{{ item.type_id }}"
-                                                            class="form-control qty-input"
-                                                            min="0"
-                                                            max="{{ item.user_quantity }}"
-                                                            value="0"
-                                                            data-type-id="{{ item.type_id }}"
-                                                            data-max="{{ item.user_quantity }}">
-                                                        <div class="qty-btns" role="group" aria-label="{% trans 'Quantity shortcuts' %}">
-                                                            <button type="button" class="btn btn-secondary btn-sm qty-btn" data-action="zero" title="{% trans 'Zero' %}" aria-label="{% trans 'Zero' %}">
-                                                                <i class="fas fa-ban" aria-hidden="true"></i>
-                                                            </button>
-                                                            <button type="button" class="btn btn-secondary btn-sm qty-btn" data-action="max">{% trans "Max" %}</button>
-                                                        </div>
-                                                    </div>
-                                                    <div class="qty-error" id="error-{{ item.type_id }}">
-                                                        {% trans "Max:" %} {{ item.user_quantity|intcomma }}
-                                                    </div>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                        {% endfor %}
-                                    </tbody>
-                                </table>
-                            </div>
-                            <div id="sellSearchEmpty" class="alert alert-warning mt-3 d-none mb-0">
-                                <i class="fas fa-search me-2"></i>
-                                {% trans "No matching items for your search." %}
-                            </div>
-                            {% else %}
-                            <div class="alert alert-warning mb-0">
-                                <i class="fas fa-exclamation-triangle me-2"></i>
-                                {% trans "No accepted items are currently available for manual selection on this character." %}
-                            </div>
-                            {% endif %}
-                        </div>
-                    </form>
-                </div>
-            </div>
-
-            <div class="col-lg-4">
-                <div class="invoice-panel">
-                    <div class="glass-panel p-4">
-                        <h5 class="mb-3">
-                            <i class="fas fa-receipt me-2"></i>{% trans "Sell Summary" %}
-                        </h5>
-                        <div id="invoiceContent">
-                            <div class="empty-invoice">
-                                <i class="fas fa-hand-holding-usd fa-3x mb-3 opacity-25"></i>
-                                <p class="mb-0">{% trans "Enter quantities to see your payout" %}</p>
-                            </div>
-                        </div>
-                        <div id="invoiceItems" class="d-none">
-                            <div id="itemsList"></div>
-                            <div class="invoice-total">
-                                <div class="d-flex justify-content-between align-items-center mb-2">
-                                    <span class="fw-bold">{% trans "Total Payout" %}</span>
-                                    <span class="h4 mb-0 text-success" id="totalAmount">0 ISK</span>
-                                </div>
-                                <button type="submit" form="sellForm" class="btn btn-success w-100 mt-3">
-                                    <i class="fas fa-paper-plane me-2"></i>{% trans "Create Sell Order" %}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-
-        {% else %}
-        {% if not assets_refreshing %}
-        <div class="glass-panel p-4">
-            <div class="alert alert-warning mb-0">
-                <i class="fas fa-exclamation-triangle me-2"></i>
-                {% trans "No materials available for selling. Please contact an admin." %}
-            </div>
-        </div>
-        {% endif %}
-        {% endif %}
 </div>
 
-    {{ sell_paste_catalog|json_script:"sellPasteCatalogData" }}
-
 <script>
-document.addEventListener('DOMContentLoaded', function() {
+window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root, persistedState) {
+    if (!root) {
+        return;
+    }
+
+    window.__indyHubSellPageState = window.__indyHubSellPageState || {
+        initToken: 0,
+        activePollToken: 0,
+        pollTimer: null
+    };
+    const sellPageState = window.__indyHubSellPageState;
+    const initToken = ++sellPageState.initToken;
+    if (sellPageState.pollTimer) {
+        clearTimeout(sellPageState.pollTimer);
+        sellPageState.pollTimer = null;
+    }
+
+    const query = selector => root.querySelector(selector);
+    const queryAll = selector => Array.from(root.querySelectorAll(selector));
     const cleanUrl = new URL(window.location.href);
     if (cleanUrl.searchParams.get('refreshed') === '1') {
         cleanUrl.searchParams.delete('refreshed');
         window.history.replaceState({}, document.title, cleanUrl.toString());
     }
 
-    const qtyInputs = Array.from(document.querySelectorAll('.qty-input'));
-    const sellSearchInput = document.getElementById('sellSearchInput');
-    const sellSearchModeInputs = document.querySelectorAll('input[name="sellSearchMode"]');
-    const stockRows = document.querySelectorAll('.stock-row');
-    const sellBulkButtons = document.querySelectorAll('.qty-bulk-btn');
-    const sellForm = document.getElementById('sellForm');
-    const sellInputModeInputs = document.querySelectorAll('input[name="sellInputModeSelector"]');
-    const sellInputModeField = document.getElementById('sellInputModeField');
-    const sellModePanels = document.querySelectorAll('[data-sell-mode-panel]');
-    const sellPasteTextarea = document.getElementById('sellPasteTextarea');
-    const sellPasteClearButton = document.getElementById('sellPasteClearButton');
-    const sellPasteQuantitiesJson = document.getElementById('sellPasteQuantitiesJson');
-    const sellPasteResults = document.getElementById('sellPasteResults');
-    const sellPasteCatalogNode = document.getElementById('sellPasteCatalogData');
+    const qtyInputs = queryAll('.qty-input');
+    const sellSearchInput = query('#sellSearchInput');
+    const sellSearchModeInputs = queryAll('input[name="sellSearchMode"]');
+    const stockRows = queryAll('.stock-row');
+    const sellBulkButtons = queryAll('.qty-bulk-btn');
+    const sellForm = query('#sellForm');
+    const sellInputModeInputs = queryAll('input[name="sellInputModeSelector"]');
+    const sellInputModeField = query('#sellInputModeField');
+    const sellModePanels = queryAll('[data-sell-mode-panel]');
+    const sellPasteTextarea = query('#sellPasteTextarea');
+    const sellPasteClearButton = query('#sellPasteClearButton');
+    const sellPasteQuantitiesJson = query('#sellPasteQuantitiesJson');
+    const sellPasteResults = query('#sellPasteResults');
+    const sellPasteCatalogNode = query('#sellPasteCatalogData');
+    const sellCharacterSelect = query('#sellCharacterSelect');
     const sellPasteCatalog = new Map();
 
     if (sellPasteCatalogNode) {
@@ -521,7 +125,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!sellSearchInput) {
             return;
         }
-        const selectedMode = document.querySelector('input[name="sellSearchMode"]:checked')?.value || 'item';
+        const selectedMode = query('input[name="sellSearchMode"]:checked')?.value || 'item';
         const placeholder = sellSearchPlaceholderByMode[selectedMode] || sellSearchPlaceholderByMode.item;
         sellSearchInput.placeholder = placeholder;
         sellSearchInput.setAttribute('aria-label', placeholder);
@@ -533,7 +137,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         const query = (sellSearchInput.value || '').trim().toLowerCase();
-        const selectedMode = document.querySelector('input[name="sellSearchMode"]:checked')?.value || 'item';
+        const selectedMode = root.querySelector('input[name="sellSearchMode"]:checked')?.value || 'item';
         let visibleCount = 0;
 
         stockRows.forEach(row => {
@@ -546,10 +150,14 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
 
-        const emptyState = document.getElementById('sellSearchEmpty');
+        const emptyState = querySelectorFromRoot('sellSearchEmpty');
         if (emptyState) {
             emptyState.classList.toggle('d-none', visibleCount > 0);
         }
+    }
+
+    function querySelectorFromRoot(id) {
+        return query('#' + id);
     }
 
     if (sellSearchInput) {
@@ -594,7 +202,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    document.addEventListener('click', function(event) {
+    root.addEventListener('click', function(event) {
         const button = event.target.closest('.qty-btn');
         if (!button) {
             return;
@@ -651,10 +259,115 @@ document.addEventListener('DOMContentLoaded', function() {
         return Number.isFinite(quantity) && quantity > 0 ? quantity : null;
     }
 
+    function extractQuantityCandidates(value) {
+        const source = collapseWhitespace(value);
+        if (!source) {
+            return [];
+        }
+
+        return Array.from(source.matchAll(/\d{1,3}(?:[\s.,\u00A0]\d{3})+(?:[.,]\d{1,2})?|\d+[.,]\d{1,2}|\d+/g))
+            .map(match => {
+                const raw = collapseWhitespace(match[0]);
+                const quantity = parseQuantityToken(raw);
+                if (quantity === null) {
+                    return null;
+                }
+
+                const compact = raw.replace(/[\s\u00A0]+/g, '');
+                const trailingText = collapseWhitespace(source.slice(match.index + match[0].length));
+                return {
+                    quantity,
+                    looksLikePrice: /[,.]\d{1,2}$/.test(compact),
+                    followedByIsk: /^ISK\b/i.test(trailingText)
+                };
+            })
+            .filter(Boolean);
+    }
+
+    function pickBestQuantityCandidate(candidates) {
+        if (!candidates.length) {
+            return null;
+        }
+
+        return candidates.find(candidate => !candidate.looksLikePrice && !candidate.followedByIsk)
+            || candidates.find(candidate => !candidate.followedByIsk)
+            || candidates.find(candidate => !candidate.looksLikePrice)
+            || candidates[0];
+    }
+
+    function isCatalogBoundaryCharacter(value) {
+        return !value || /[^\p{L}\p{N}]/u.test(value);
+    }
+
+    function findCatalogEntryInText(value) {
+        const normalizedValue = normalizePasteName(value);
+        if (!normalizedValue) {
+            return null;
+        }
+
+        let bestMatch = null;
+        sellPasteCatalog.forEach((item, key) => {
+            if (!key) {
+                return;
+            }
+
+            const matchIndex = normalizedValue.indexOf(key);
+            if (matchIndex === -1) {
+                return;
+            }
+
+            const beforeChar = normalizedValue[matchIndex - 1] || '';
+            const afterChar = normalizedValue[matchIndex + key.length] || '';
+            if (!isCatalogBoundaryCharacter(beforeChar) || !isCatalogBoundaryCharacter(afterChar)) {
+                return;
+            }
+
+            if (!bestMatch || key.length > bestMatch.key.length) {
+                bestMatch = { item, key, matchIndex };
+            }
+        });
+
+        return bestMatch;
+    }
+
+    function parseKnownCatalogPasteLine(rawLine) {
+        const normalizedLine = collapseWhitespace(rawLine);
+        const catalogMatch = findCatalogEntryInText(normalizedLine);
+        if (!catalogMatch) {
+            return null;
+        }
+
+        const remainder = collapseWhitespace(
+            normalizedLine.slice(0, catalogMatch.matchIndex)
+            + ' '
+            + normalizedLine.slice(catalogMatch.matchIndex + catalogMatch.key.length)
+        );
+        const quantityCandidate = pickBestQuantityCandidate(extractQuantityCandidates(remainder));
+        if (!quantityCandidate) {
+            if (!remainder) {
+                return {
+                    name: catalogMatch.item.type_name,
+                    quantity: 1
+                };
+            }
+            return null;
+        }
+
+        return {
+            name: catalogMatch.item.type_name,
+            quantity: quantityCandidate.quantity
+        };
+    }
+
     function parsePasteLine(rawLine) {
         const normalizedLine = collapseWhitespace(rawLine);
         if (!normalizedLine) {
             return null;
+        }
+
+        const knownCatalogLine = parseKnownCatalogPasteLine(rawLine);
+        if (knownCatalogLine) {
+            return knownCatalogLine;
         }
 
         const tabColumns = String(rawLine || '')
@@ -754,8 +467,8 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function renderPasteList(containerId, emptyId, items, formatter) {
-        const container = document.getElementById(containerId);
-        const emptyState = document.getElementById(emptyId);
+        const container = query('#' + containerId);
+        const emptyState = query('#' + emptyId);
         if (!container || !emptyState) {
             return;
         }
@@ -770,18 +483,29 @@ document.addEventListener('DOMContentLoaded', function() {
         container.innerHTML = items.map(item => formatter(item)).join('');
     }
 
+    function syncPasteResultCard(cardId, itemCount) {
+        const card = query('#' + cardId);
+        if (!card) {
+            return false;
+        }
+
+        const hasItems = itemCount > 0;
+        card.classList.toggle('d-none', !hasItems);
+        return hasItems;
+    }
+
     function applyPasteQuantities(quantitiesByType) {
         qtyInputs.forEach(input => {
             input.value = 0;
             input.classList.remove('is-invalid');
-            const errorDiv = document.getElementById('error-' + input.dataset.typeId);
+            const errorDiv = query('#error-' + input.dataset.typeId);
             if (errorDiv) {
                 errorDiv.style.display = 'none';
             }
         });
 
         Object.entries(quantitiesByType).forEach(([typeId, quantity]) => {
-            const input = document.getElementById('qty-' + typeId);
+            const input = query('#qty-' + typeId);
             if (input) {
                 input.value = quantity;
             }
@@ -806,8 +530,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 sellPasteResults.classList.add('d-none');
             }
             ['Accepted', 'Rejected', 'Unavailable', 'Unknown'].forEach(prefix => {
-                const countNode = document.getElementById('sellPaste' + prefix + 'Count');
-                const badgeNode = document.getElementById('sellPaste' + prefix + 'Badge');
+                const countNode = query('#sellPaste' + prefix + 'Count');
+                const badgeNode = query('#sellPaste' + prefix + 'Badge');
                 if (countNode) {
                     countNode.textContent = '0';
                 }
@@ -815,7 +539,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     badgeNode.textContent = '0';
                 }
             });
-            const acceptedValueNode = document.getElementById('sellPasteAcceptedValue');
+            const acceptedValueNode = query('#sellPasteAcceptedValue');
             if (acceptedValueNode) {
                 acceptedValueNode.textContent = '0 ISK';
             }
@@ -888,15 +612,16 @@ document.addEventListener('DOMContentLoaded', function() {
             sellPasteResults.classList.remove('d-none');
         }
 
-        const acceptedCountNode = document.getElementById('sellPasteAcceptedCount');
-        const rejectedCountNode = document.getElementById('sellPasteRejectedCount');
-        const unavailableCountNode = document.getElementById('sellPasteUnavailableCount');
-        const unknownCountNode = document.getElementById('sellPasteUnknownCount');
-        const acceptedBadgeNode = document.getElementById('sellPasteAcceptedBadge');
-        const rejectedBadgeNode = document.getElementById('sellPasteRejectedBadge');
-        const unavailableBadgeNode = document.getElementById('sellPasteUnavailableBadge');
-        const unknownBadgeNode = document.getElementById('sellPasteUnknownBadge');
-        const acceptedValueNode = document.getElementById('sellPasteAcceptedValue');
+        const acceptedCountNode = query('#sellPasteAcceptedCount');
+        const rejectedCountNode = query('#sellPasteRejectedCount');
+        const unavailableCountNode = query('#sellPasteUnavailableCount');
+        const unknownCountNode = query('#sellPasteUnknownCount');
+        const acceptedBadgeNode = query('#sellPasteAcceptedBadge');
+        const rejectedBadgeNode = query('#sellPasteRejectedBadge');
+        const unavailableBadgeNode = query('#sellPasteUnavailableBadge');
+        const unknownBadgeNode = query('#sellPasteUnknownBadge');
+        const acceptedValueNode = query('#sellPasteAcceptedValue');
+        const resultsGrid = query('#sellPasteResultsGrid');
 
         if (acceptedCountNode) {
             acceptedCountNode.textContent = acceptedItems.length.toLocaleString();
@@ -924,6 +649,17 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         if (acceptedValueNode) {
             acceptedValueNode.textContent = formatWholeISK(Math.ceil(acceptedTotalCents / 100)) + ' ISK';
+        }
+
+        const visibleCardCount = [
+            syncPasteResultCard('sellPasteAcceptedCard', acceptedItems.length),
+            syncPasteResultCard('sellPasteRejectedCard', rejectedItems.length),
+            syncPasteResultCard('sellPasteUnavailableCard', unavailableItems.length),
+            syncPasteResultCard('sellPasteUnknownCard', unknownItems.length)
+        ].filter(Boolean).length;
+
+        if (resultsGrid) {
+            resultsGrid.classList.toggle('is-single-card', visibleCardCount <= 1);
         }
 
         renderPasteList('sellPasteAcceptedList', 'sellPasteAcceptedEmpty', acceptedItems, item => `
@@ -986,7 +722,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const qty = parseInt(input.value) || 0;
         const max = parseInt(input.dataset.max);
         const typeId = input.dataset.typeId;
-        const errorDiv = document.getElementById('error-' + typeId);
+        const errorDiv = query('#error-' + typeId);
 
         if (qty > max) {
             input.classList.add('is-invalid');
@@ -1043,10 +779,10 @@ document.addEventListener('DOMContentLoaded', function() {
         // Match server-side `MaterialExchangeSellOrder.total_price`: ceil to whole ISK.
         const total = Math.ceil(totalCents / 100);
 
-        const emptyInvoice = document.getElementById('invoiceContent');
-        const invoiceItems = document.getElementById('invoiceItems');
-        const itemsList = document.getElementById('itemsList');
-        const totalAmount = document.getElementById('totalAmount');
+        const emptyInvoice = query('#invoiceContent');
+        const invoiceItems = query('#invoiceItems');
+        const itemsList = query('#itemsList');
+        const totalAmount = query('#totalAmount');
 
         if (selectedItems.length === 0) {
             emptyInvoice.classList.remove('d-none');
@@ -1140,73 +876,206 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Initial update (only if invoice elements exist)
-    const hasInvoice = document.getElementById('invoiceContent') && document.getElementById('invoiceItems');
+    const hasInvoice = query('#invoiceContent') && query('#invoiceItems');
     if (hasInvoice) {
         updateInvoice();
     }
+
+    function applyPersistedState() {
+        if (!persistedState) {
+            return;
+        }
+
+        if (persistedState.searchMode) {
+            const searchModeInput = query(`input[name="sellSearchMode"][value="${persistedState.searchMode}"]`);
+            if (searchModeInput) {
+                searchModeInput.checked = true;
+            }
+        }
+        if (sellSearchInput && persistedState.searchQuery) {
+            sellSearchInput.value = persistedState.searchQuery;
+        }
+        if (persistedState.inputMode) {
+            const inputModeNode = query(`input[name="sellInputModeSelector"][value="${persistedState.inputMode}"]`);
+            if (inputModeNode) {
+                inputModeNode.checked = true;
+            }
+        }
+        if (sellPasteTextarea && persistedState.pasteText) {
+            sellPasteTextarea.value = persistedState.pasteText;
+        }
+    }
+
+    applyPersistedState();
     syncSellInputMode();
+    applySellFilter();
+
+    function formatLocalTimes(container) {
+        container.querySelectorAll('.js-local-time[data-utc]').forEach(function(node) {
+            const utcValue = node.getAttribute('data-utc');
+            if (!utcValue) {
+                return;
+            }
+            const date = new Date(utcValue);
+            if (Number.isNaN(date.getTime())) {
+                return;
+            }
+            const formatted = new Intl.DateTimeFormat(undefined, {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false
+            }).format(date);
+            node.textContent = formatted.replace(/\//g, '-');
+        });
+    }
+
+    async function swapSellDynamicContent(url, stateToPersist) {
+        const dynamicRoot = document.getElementById('sellPageDynamicContent');
+        if (!dynamicRoot || !url) {
+            window.location.href = url;
+            return;
+        }
+
+        sellPageState.activePollToken = 0;
+        if (sellPageState.pollTimer) {
+            clearTimeout(sellPageState.pollTimer);
+            sellPageState.pollTimer = null;
+        }
+
+        dynamicRoot.classList.add('opacity-50', 'pe-none');
+        if (sellCharacterSelect) {
+            sellCharacterSelect.disabled = true;
+        }
+
+        try {
+            const response = await fetch(url, {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                credentials: 'same-origin'
+            });
+            if (!response.ok) {
+                throw new Error('Fragment request failed');
+            }
+
+            const payload = await response.json();
+            if (!payload || typeof payload.html !== 'string') {
+                throw new Error('Invalid fragment payload');
+            }
+
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = `<div id="sellPageDynamicContent">${payload.html}</div>`;
+            const replacementRoot = wrapper.firstElementChild;
+            if (!replacementRoot) {
+                throw new Error('Missing fragment root');
+            }
+
+            dynamicRoot.replaceWith(replacementRoot);
+            window.history.replaceState({}, document.title, url);
+            formatLocalTimes(replacementRoot);
+            window.initMaterialExchangeSellPage(replacementRoot, stateToPersist || null);
+        } catch (error) {
+            console.error('Failed to refresh sell fragment:', error);
+            window.location.href = url;
+        }
+    }
+
+    if (sellCharacterSelect) {
+        sellCharacterSelect.addEventListener('change', function() {
+            if (!this.value) {
+                return;
+            }
+            const stateToPersist = {
+                inputMode: query('input[name="sellInputModeSelector"]:checked')?.value || 'manual',
+                pasteText: sellPasteTextarea ? sellPasteTextarea.value || '' : '',
+                searchQuery: sellSearchInput ? sellSearchInput.value || '' : '',
+                searchMode: query('input[name="sellSearchMode"]:checked')?.value || 'item'
+            };
+            swapSellDynamicContent(this.value, stateToPersist);
+        });
+    }
+
+    formatLocalTimes(root);
 
     // Live asset refresh progress (per character)
     {% if assets_refreshing %}
+    sellPageState.activePollToken = initToken;
     const statusUrl = '{% url "indy_hub:material_exchange_sell_assets_refresh_status" %}';
-    console.log('Asset polling enabled. Current assets_refreshing:', {{ assets_refreshing|lower }});
     const lastUpdateNode = document.querySelector('.js-local-time[data-utc]');
     const initialLastUpdate = lastUpdateNode ? lastUpdateNode.getAttribute('data-utc') : null;
 
+    function schedulePoll(delayMs) {
+        if (sellPageState.activePollToken !== initToken) {
+            return;
+        }
+        if (sellPageState.pollTimer) {
+            clearTimeout(sellPageState.pollTimer);
+        }
+        sellPageState.pollTimer = window.setTimeout(pollAssetsProgress, delayMs);
+    }
+
     async function pollAssetsProgress() {
+        if (sellPageState.activePollToken !== initToken) {
+            return;
+        }
+
         try {
             const resp = await fetch(statusUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
             if (!resp.ok) {
                 return;
             }
             const data = await resp.json();
-            console.log('Poll status response:', data);
+            if (sellPageState.activePollToken !== initToken) {
+                return;
+            }
             const total = parseInt(data.total || 0);
             const done = parseInt(data.done || 0);
             const error = data.error || null;
             const serverLastUpdate = data.last_update || null;
 
             if (data.running) {
-                console.log('Task still running, will poll again in 1s');
-                setTimeout(pollAssetsProgress, 1000);
+                schedulePoll(1000);
                 return;
             }
 
-            // When finished, hide the loading alert and reload to show updated state
-            if (data.finished && (!error || error === 'timeout' || error === 'no_assets_fetched')) {
-                console.log('Task finished successfully! Reloading page with refreshed=1');
-                // Find and hide the assets loading alert
-                const alerts = document.querySelectorAll('.alert-warning');
-                alerts.forEach(alert => {
-                    if (alert.textContent.includes('Loading your asset inventory')) {
-                        alert.style.display = 'none';
-                    }
-                });
+            sellPageState.activePollToken = 0;
+            if (sellPageState.pollTimer) {
+                clearTimeout(sellPageState.pollTimer);
+                sellPageState.pollTimer = null;
+            }
 
-                // Guard against loops if the page was already reloaded
+            if (data.finished && (!error || error === 'timeout' || error === 'no_assets_fetched')) {
                 const url = new URL(window.location.href);
                 if (url.searchParams.get('refreshed') !== '1') {
                     const initialTime = initialLastUpdate ? Date.parse(initialLastUpdate) : null;
                     const serverTime = serverLastUpdate ? Date.parse(serverLastUpdate) : null;
                     const hasNewTimestamp = serverTime && (!initialTime || serverTime > initialTime);
                     url.searchParams.set('refreshed', '1');
-                    setTimeout(
-                        () => window.location.replace(url.toString()),
-                        hasNewTimestamp ? 300 : 1200
-                    );
+                    window.setTimeout(() => swapSellDynamicContent(url.toString()), hasNewTimestamp ? 300 : 1200);
                 }
-            } else {
-                console.log('Task not yet finished or has error. finished:', data.finished, 'error:', error, 'total:', total, 'done:', done);
+                return;
+            }
+
+            if (error) {
+                console.warn('Sell asset refresh finished with error:', error, { total, done });
             }
         } catch (e) {
-            console.error('Poll error:', e);
+            if (sellPageState.activePollToken === initToken) {
+                schedulePoll(3000);
+            }
         }
     }
 
     pollAssetsProgress();
-    {% else %}
-    console.log('Asset polling DISABLED - assets_refreshing is False');
     {% endif %}
+};
+
+document.addEventListener('DOMContentLoaded', function() {
+    const dynamicRoot = document.getElementById('sellPageDynamicContent');
+    if (dynamicRoot && typeof window.initMaterialExchangeSellPage === 'function') {
+        window.initMaterialExchangeSellPage(dynamicRoot, null);
+    }
 });
 </script>
 {% endblock content %}
@@ -1214,25 +1083,9 @@ document.addEventListener('DOMContentLoaded', function() {
 {% block extra_javascript %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    document.querySelectorAll('.js-local-time[data-utc]').forEach(function(node) {
-        const utcValue = node.getAttribute('data-utc');
-        if (!utcValue) {
-            return;
-        }
-        const date = new Date(utcValue);
-        if (Number.isNaN(date.getTime())) {
-            return;
-        }
-        const formatted = new Intl.DateTimeFormat(undefined, {
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: false
-        }).format(date);
-        node.textContent = formatted.replace(/\//g, '-');
-    });
+    if (typeof window.initMaterialExchangeSellPage === 'function') {
+        return;
+    }
 });
 </script>
 {% endblock extra_javascript %}
