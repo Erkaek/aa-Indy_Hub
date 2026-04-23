@@ -59,6 +59,7 @@ from indy_hub.tasks.industry import (
 from indy_hub.utils import eve as eve_utils
 from indy_hub.utils import job_notifications as job_notifications_utils
 from indy_hub.utils.eve import get_type_name, reset_forbidden_structure_lookup_cache
+from indy_hub.utils.menu_badge import compute_menu_badge_count
 
 PUBLIC_STATION_ID = 60003760
 
@@ -179,6 +180,40 @@ class NavigationMenuBadgeTests(TestCase):
             last_message_role="buyer",
             seller_last_seen_at=None,
         )
+
+        self.assertEqual(compute_menu_badge_count(self.builder.id), 1)
+
+    def test_menu_count_includes_my_open_requests(self) -> None:
+        BlueprintCopyRequest.objects.create(
+            type_id=9876501,
+            material_efficiency=4,
+            time_efficiency=6,
+            requested_by=self.customer,
+            runs_requested=1,
+            copies_requested=1,
+        )
+
+        BlueprintCopyRequest.objects.create(
+            type_id=9876502,
+            material_efficiency=8,
+            time_efficiency=10,
+            requested_by=self.builder,
+            runs_requested=2,
+            copies_requested=1,
+        )
+
+        BlueprintCopyRequest.objects.create(
+            type_id=9876503,
+            material_efficiency=12,
+            time_efficiency=14,
+            requested_by=self.builder,
+            runs_requested=3,
+            copies_requested=2,
+            fulfilled=True,
+            delivered=False,
+        )
+
+        self.assertEqual(compute_menu_badge_count(self.builder.id), 2)
 
 
 class AuthHookTests(TestCase):
@@ -4479,7 +4514,7 @@ class BlueprintCopyMyRequestsViewTests(TestCase):
         self.assertIn("action_required", statuses)
         self.assertIn("awaiting_delivery", statuses)
         self.assertIn("delivered", statuses)
-        self.assertContains(response, 'data-chat-inline')
+        self.assertContains(response, "data-chat-inline")
         self.assertContains(response, 'data-chat-target="bpChatInline-')
         self.assertNotContains(response, 'id="bpChatModal"', html=False)
 
@@ -4515,7 +4550,9 @@ class BlueprintCopyMyRequestsViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         request_payload = next(
-            req for req in response.context["my_requests"] if req["id"] == request_obj.id
+            req
+            for req in response.context["my_requests"]
+            if req["id"] == request_obj.id
         )
         self.assertEqual(request_payload["status_key"], "awaiting_delivery")
         self.assertEqual(len(request_payload["chat_actions"]), 1)

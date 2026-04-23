@@ -10,6 +10,11 @@ def compute_menu_badge_count(user_id: int) -> int:
 
     pending_request_ids: set[int] = set()
 
+    my_requests_qs = BlueprintCopyRequest.objects.filter(
+        requested_by_id=user_id
+    ).filter(Q(fulfilled=False) | Q(fulfilled=True, delivered=False))
+    pending_request_ids.update(my_requests_qs.values_list("id", flat=True))
+
     provider_blueprints = Blueprint.objects.filter(
         owner_user_id=user_id,
         bp_type__in=[
