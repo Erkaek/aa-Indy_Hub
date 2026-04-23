@@ -184,6 +184,11 @@
         var hasCurrentAmount = Boolean(
             decision && decision.current_amount_display
         );
+        var negotiationSettled = Boolean(
+            detail.chat &&
+                (!decision ||
+                    (decision.accepted_by_buyer && decision.accepted_by_seller))
+        );
         var noteText = decision
             ? [decision.status_label, decision.hint_label]
                 .filter(Boolean)
@@ -209,18 +214,21 @@
                 : null;
 
             if (offerActionsEl) {
-                offerActionsEl.classList.toggle("d-none", hasCurrentAmount);
+                offerActionsEl.classList.toggle(
+                    "d-none",
+                    hasCurrentAmount || negotiationSettled
+                );
             }
 
             if (negotiationActionsEl) {
                 negotiationActionsEl.classList.toggle(
                     "d-none",
-                    !hasCurrentAmount
+                    !hasCurrentAmount || negotiationSettled
                 );
             }
 
             if (noteEl) {
-                noteEl.classList.toggle("d-none", !noteText);
+                noteEl.classList.toggle("d-none", !noteText || negotiationSettled);
             }
 
             if (noteTextEl) {
@@ -230,13 +238,21 @@
             if (acceptFormEl) {
                 acceptFormEl.classList.toggle(
                     "d-none",
-                    !(hasCurrentAmount && decision && decision.viewer_can_accept)
+                    !(
+                        hasCurrentAmount &&
+                        !negotiationSettled &&
+                        decision &&
+                        decision.viewer_can_accept
+                    )
                 );
             }
 
             if (acceptBtnEl) {
                 acceptBtnEl.disabled = !(
-                    hasCurrentAmount && decision && decision.viewer_can_accept
+                    hasCurrentAmount &&
+                    !negotiationSettled &&
+                    decision &&
+                    decision.viewer_can_accept
                 );
                 if (decision && decision.accept_label) {
                     acceptBtnEl.innerHTML =
@@ -247,13 +263,21 @@
             if (declineFormEl) {
                 declineFormEl.classList.toggle(
                     "d-none",
-                    !(hasCurrentAmount && decision && decision.viewer_can_reject)
+                    !(
+                        hasCurrentAmount &&
+                        !negotiationSettled &&
+                        decision &&
+                        decision.viewer_can_reject
+                    )
                 );
             }
 
             if (declineBtnEl) {
                 declineBtnEl.disabled = !(
-                    hasCurrentAmount && decision && decision.viewer_can_reject
+                    hasCurrentAmount &&
+                    !negotiationSettled &&
+                    decision &&
+                    decision.viewer_can_reject
                 );
                 if (decision && decision.reject_label) {
                     declineBtnEl.innerHTML =
