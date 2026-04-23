@@ -25,6 +25,64 @@
         <i class="fas fa-chart-simple header-bg"></i>
     </div>
 
+    {% if blueprint_sharing_nav_badge_count or material_hub_my_orders_badge_count %}
+    <section class="dashboard-section mb-4">
+        <header class="section-heading">
+            <div>
+                <h3>{% trans "Action center" %}</h3>
+                <p class="text-muted small mb-0">{% trans "Shortcuts to the Indy Hub areas that currently need your attention." %}</p>
+            </div>
+        </header>
+
+        <div class="overview-focus-grid">
+            {% if blueprint_sharing_nav_badge_count %}
+            <a class="overview-focus-panel overview-focus-panel--sharing text-decoration-none" href="{% url 'indy_hub:bp_copy_request_page' %}" data-overview-focus="sharing">
+                <div class="overview-focus-panel__eyebrow">{% trans "Blueprint sharing" %}</div>
+                <div class="overview-focus-panel__header">
+                    <div>
+                        <h4>{% trans "Requests waiting on you" %}</h4>
+                        <p class="mb-0">{% trans "Review your own requests, fulfill queue, and unread chats from one place." %}</p>
+                    </div>
+                    <span class="overview-focus-panel__count">{{ blueprint_sharing_nav_badge_count }}</span>
+                </div>
+                <div class="overview-focus-panel__chips">
+                    {% if copy_my_requests_total %}
+                    <span class="badge rounded-pill bg-primary-subtle text-primary">{% trans "My requests" %}: {{ copy_my_requests_total }}</span>
+                    {% endif %}
+                    {% if copy_fulfill_count %}
+                    <span class="badge rounded-pill bg-success-subtle text-success">{% trans "Fulfill" %}: {{ copy_fulfill_count }}</span>
+                    {% endif %}
+                    {% if copy_chat_unread_count %}
+                    <span class="badge rounded-pill bg-warning-subtle text-warning">{% trans "Unread" %}: {{ copy_chat_unread_count }}</span>
+                    {% endif %}
+                </div>
+            </a>
+            {% endif %}
+
+            {% if material_hub_my_orders_badge_count %}
+            <a class="overview-focus-panel overview-focus-panel--material text-decoration-none" href="{% url 'indy_hub:my_orders' %}" data-overview-focus="material-hub">
+                <div class="overview-focus-panel__eyebrow">{% trans "Material Hub" %}</div>
+                <div class="overview-focus-panel__header">
+                    <div>
+                        <h4>{% trans "Orders still moving" %}</h4>
+                        <p class="mb-0">{% trans "Track the buy and sell orders that are still open or waiting for the next step." %}</p>
+                    </div>
+                    <span class="overview-focus-panel__count">{{ material_hub_my_orders_badge_count }}</span>
+                </div>
+                <div class="overview-focus-panel__chips">
+                    {% if material_hub_my_sell_orders_badge_count %}
+                    <span class="badge rounded-pill bg-info-subtle text-info">{% trans "Sell" %}: {{ material_hub_my_sell_orders_badge_count }}</span>
+                    {% endif %}
+                    {% if material_hub_my_buy_orders_badge_count %}
+                    <span class="badge rounded-pill bg-primary-subtle text-primary">{% trans "Buy" %}: {{ material_hub_my_buy_orders_badge_count }}</span>
+                    {% endif %}
+                </div>
+            </a>
+            {% endif %}
+        </div>
+    </section>
+    {% endif %}
+
     <div class="row g-4 align-items-stretch">
         <div class="col-lg-8">
             <section class="dashboard-section mb-4">

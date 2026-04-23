@@ -290,6 +290,63 @@ class NavbarBlueprintSharingTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, reverse("indy_hub:bp_copy_fulfill_requests"))
 
+    def test_blueprint_sharing_nav_shows_request_and_fulfill_badges(self) -> None:
+        blueprint = Blueprint.objects.create(
+            owner_user=self.user,
+            character_id=7003003,
+            item_id=8003001,
+            blueprint_id=9003001,
+            type_id=1234501,
+            location_id=PUBLIC_STATION_ID,
+            location_flag="hangar",
+            quantity=-1,
+            time_efficiency=10,
+            material_efficiency=8,
+            runs=0,
+            character_name="Navbar User",
+            type_name="Navbar Blueprint",
+        )
+
+        BlueprintCopyRequest.objects.create(
+            type_id=9871001,
+            material_efficiency=4,
+            time_efficiency=6,
+            requested_by=self.user,
+            runs_requested=1,
+            copies_requested=1,
+        )
+        BlueprintCopyRequest.objects.create(
+            type_id=9871002,
+            material_efficiency=4,
+            time_efficiency=6,
+            requested_by=self.user,
+            runs_requested=2,
+            copies_requested=1,
+            fulfilled=True,
+            delivered=False,
+        )
+
+        other_user = User.objects.create_user("navbuyer", password="secret123")
+        assign_main_character(other_user, character_id=7003004)
+        grant_indy_permissions(other_user)
+        BlueprintCopyRequest.objects.create(
+            type_id=blueprint.type_id,
+            material_efficiency=blueprint.material_efficiency,
+            time_efficiency=blueprint.time_efficiency,
+            requested_by=other_user,
+            runs_requested=1,
+            copies_requested=1,
+        )
+
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("indy_hub:bp_copy_request_page"))
+        self.assertEqual(response.status_code, 200)
+
+        html = response.content.decode("utf-8")
+        self.assertIn('data-nav-badge="blueprint-sharing">3<', html)
+        self.assertIn('data-nav-badge="my-requests">2<', html)
+        self.assertIn('data-nav-badge="fulfill-requests">1<', html)
+
 
 class IndexSDEGuardTests(TestCase):
     def setUp(self) -> None:
@@ -373,6 +430,30 @@ class NavbarMaterialExchangeMyOrdersTests(TestCase):
         self.assertEqual(response.status_code, 200)
         # This URL is part of the Indy Hub navbar, not the page body.
         self.assertContains(response, reverse("indy_hub:all_bp_list"))
+
+    def test_my_orders_page_shows_material_hub_nav_badge_for_open_orders(self) -> None:
+        config = MaterialExchangeConfig.objects.create(
+            corporation_id=1234,
+            structure_id=5678,
+            is_active=True,
+        )
+        MaterialExchangeSellOrder.objects.create(
+            config=config,
+            seller=self.user,
+            status=MaterialExchangeSellOrder.Status.DRAFT,
+            order_reference="INDY-NAV-BADGE",
+        )
+        MaterialExchangeBuyOrder.objects.create(
+            config=config,
+            buyer=self.user,
+            status=MaterialExchangeBuyOrder.Status.COMPLETED,
+            order_reference="INDY-NAV-CLOSED",
+        )
+
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("indy_hub:my_orders"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'data-nav-badge="material-hub">1<')
 
 
 class NavbarIndustryJobsTests(TestCase):
@@ -3415,6 +3496,57 @@ class DashboardNotificationCountsTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["copy_fulfill_count"], 1)
+
+    def test_dashboard_overview_action_center_shows_pending_sharing_and_orders(
+        self,
+    ) -> None:
+        SDESyncCompatState.objects.update_or_create(
+            pk=1,
+            defaults={"last_synced_at": timezone.now()},
+        )
+        UserOnboardingProgress.objects.update_or_create(
+            user=self.user,
+            defaults={"manual_steps": {"overview_intro_seen": True}},
+        )
+
+        other_user = User.objects.create_user("buyer2", password="buyerpass")
+        BlueprintCopyRequest.objects.create(
+            type_id=self.blueprint.type_id,
+            material_efficiency=self.blueprint.material_efficiency,
+            time_efficiency=self.blueprint.time_efficiency,
+            requested_by=other_user,
+            runs_requested=1,
+            copies_requested=1,
+        )
+        BlueprintCopyRequest.objects.create(
+            type_id=789010,
+            material_efficiency=4,
+            time_efficiency=6,
+            requested_by=self.user,
+            runs_requested=1,
+            copies_requested=1,
+        )
+
+        config = MaterialExchangeConfig.objects.create(
+            corporation_id=1234,
+            structure_id=5678,
+            is_active=True,
+        )
+        MaterialExchangeSellOrder.objects.create(
+            config=config,
+            seller=self.user,
+            status=MaterialExchangeSellOrder.Status.DRAFT,
+            order_reference="OVERVIEW-NAV-SELL",
+        )
+
+        response = self.client.get(reverse("indy_hub:index"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Action center")
+        self.assertContains(response, 'data-overview-focus="sharing"')
+        self.assertContains(response, 'data-overview-focus="material-hub"')
+        self.assertContains(response, "Requests waiting on you")
+        self.assertContains(response, "Orders still moving")
 
 
 class DashboardUnusedSlotsSummaryTests(TestCase):

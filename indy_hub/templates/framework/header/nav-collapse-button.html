@@ -20,6 +20,9 @@
             {% endif %}
         {% endif %}
         <span class="nav-link-label">{{ title }}</span>
+        {% if badge_count %}
+            <span class="badge rounded-pill indy-hub-nav-badge {% if badge_class %}{{ badge_class }}{% else %}bg-secondary-subtle text-secondary{% endif %} ms-1"{% if badge_key %} data-nav-badge="{{ badge_key }}"{% endif %}>{{ badge_count }}</span>
+        {% endif %}
     </a>
 </li>
 {% endwith %}
