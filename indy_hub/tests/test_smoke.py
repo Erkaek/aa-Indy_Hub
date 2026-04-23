@@ -9,6 +9,7 @@ from unittest.mock import patch
 # Django
 from django.apps import apps
 from django.contrib.auth.models import Permission, User
+from django.core.cache import cache
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -59,7 +60,7 @@ from indy_hub.tasks.industry import (
 from indy_hub.utils import eve as eve_utils
 from indy_hub.utils import job_notifications as job_notifications_utils
 from indy_hub.utils.eve import get_type_name, reset_forbidden_structure_lookup_cache
-from indy_hub.utils.menu_badge import compute_menu_badge_count
+from indy_hub.utils.menu_badge import compute_menu_badge_count, menu_badge_cache_key
 
 PUBLIC_STATION_ID = 60003760
 
@@ -214,6 +215,37 @@ class NavigationMenuBadgeTests(TestCase):
         )
 
         self.assertEqual(compute_menu_badge_count(self.builder.id), 2)
+
+    def test_menu_render_computes_count_when_cache_is_cold(self) -> None:
+        BlueprintCopyRequest.objects.create(
+            type_id=9876510,
+            material_efficiency=4,
+            time_efficiency=6,
+            requested_by=self.builder,
+            runs_requested=1,
+            copies_requested=1,
+        )
+
+        cache.delete(menu_badge_cache_key(self.builder.id))
+
+        menu = self._render_menu(self.builder)
+
+        self.assertEqual(menu.count, 1)
+        self.assertEqual(cache.get(menu_badge_cache_key(self.builder.id)), 1)
+
+    def test_request_creation_invalidates_stale_menu_badge_cache(self) -> None:
+        cache.set(menu_badge_cache_key(self.builder.id), 0, 300)
+
+        BlueprintCopyRequest.objects.create(
+            type_id=9876511,
+            material_efficiency=4,
+            time_efficiency=6,
+            requested_by=self.builder,
+            runs_requested=1,
+            copies_requested=1,
+        )
+
+        self.assertIsNone(cache.get(menu_badge_cache_key(self.builder.id)))
 
 
 class AuthHookTests(TestCase):

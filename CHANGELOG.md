@@ -42,6 +42,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Industry slots summary: dashboard and jobs slot-overview summaries now count active corporation jobs against the installing character's slots, so mixed personal/corporation activity is reflected more accurately.
 - Material Exchange (Contracts/UI): contract paste-check results now focus on clear mismatch guidance, with compact OK checks, dedicated missing/surplus item lists, in-game copy instructions, automatic checking on paste, and clearer `Paste & Check` actions on buy/sell order pages.
 - Material Exchange (Transactions): transaction history and stats pages now use aggregated order snapshots and full multi-item totals, with clearer activity, volume, and net-flow summaries.
+- Alliance Auth navigation: the Indy Hub navbar item now uses the native Alliance Auth `MenuItemHook` badge rendering again, and the old custom live-badge template has been removed.
+- Blueprint Sharing / navigation badge: the Indy Hub menu badge now includes a user's own open and pending-delivery copy requests alongside fulfillable requests and unread blueprint-copy chats, with per-request deduplication.
 
 ### Fixed
 
@@ -61,10 +63,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Personal blueprints: blueprint sync now persists reclassified `bp_type` values when existing rows are refreshed, so stale `COPY`/`ORIGINAL` database states self-heal automatically on subsequent blueprint synchronizations.
 - ESI public name resolution: `/universe/names/` batches that contain invalid IDs now skip cleanly on `404` instead of aborting the whole batch.
 - Structure lookup retries: private structure `403` results now keep their placeholder labels and enter a per-structure cooldown window, while recently failed character attempts are tracked per structure instead of globally so one denied structure no longer suppresses lookups for unrelated structures.
+- Alliance Auth navigation: Indy Hub menu badges now invalidate immediately when blueprint copy requests, offers, or chats change, so newly created requests and in-progress fulfill items no longer remain hidden behind a stale cached `0` badge.
+- Alliance Auth navigation: when the menu badge cache is cold, Indy Hub now computes and caches the current badge count during render so the native Alliance Auth badge appears immediately.
 
 ### Internal
 
 - Tests: added regression coverage for structure-name DB write-through behavior, office-folder alias reuse, public-station force refresh, server-side structure-name persistence, per-structure structure-lookup retry guards, blueprint `bp_type` reclassification persistence on sync/update paths, shared resolver contract matching, smoke-path refresh guards, Material Exchange contract paste-check flows, sell paste-import, transaction snapshot aggregation, multi-location config persistence, local contract-check multi-location matching, industry structure registry workflows, system cost index sync, craft structure planning, craft timing, industry skills, copy-request guard rails, negotiation proposal flows, corporation blueprint/job page visibility across `Corporation`, `Alliance`, and `Everyone` scopes, corporation settings performance guards, corporation-jobs slot-overview summaries, dashboard slot summaries that include corporation jobs, CharLink hook registration, and Material Exchange mismatch-name rendering.
+- Tests: added focused regression coverage for native menu badge rendering on cold cache and for stale badge-cache invalidation after blueprint copy request creation.
 - Release metadata bump to `1.16.0`.
 - Frontend package metadata aligned to `1.16.0` in `package.json` and `package-lock.json`.
 

@@ -1,7 +1,24 @@
 """Helpers for Indy Hub menu badge count computation."""
 
 # Django
+from django.core.cache import cache
 from django.db.models import Exists, F, OuterRef, Q
+
+MENU_BADGE_CACHE_TTL_SECONDS = 45
+
+
+def menu_badge_cache_key(user_id: int) -> str:
+    return f"indy_hub:menu_badge_count:{int(user_id)}"
+
+
+def menu_badge_refresh_lock_key(user_id: int) -> str:
+    return f"indy_hub:menu_badge_count_refreshing:{int(user_id)}"
+
+
+def invalidate_menu_badge_cache(*user_ids: int | None) -> None:
+    for user_id in {int(user_id) for user_id in user_ids if user_id}:
+        cache.delete(menu_badge_cache_key(user_id))
+        cache.delete(menu_badge_refresh_lock_key(user_id))
 
 
 def compute_menu_badge_count(user_id: int) -> int:

@@ -6,6 +6,7 @@ from allianceauth import hooks
 from allianceauth.services.hooks import MenuItemHook, UrlHook
 
 from . import urls
+from .utils.menu_badge import MENU_BADGE_CACHE_TTL_SECONDS, compute_menu_badge_count
 
 
 class IndyHubMenu(MenuItemHook):
@@ -27,7 +28,6 @@ class IndyHubMenu(MenuItemHook):
                 "indy_hub:token_management",
             ],
         )
-        self.template = "indy_hub/includes/menuitem_live_badge.html"
 
     def render(self, request):
         # Only show to authenticated users with the correct permission
@@ -42,8 +42,13 @@ class IndyHubMenu(MenuItemHook):
             self.count = cached_count if cached_count > 0 else None
             return super().render(request)
 
-        # Render immediately when cache is cold; badge appears once cache is warmed.
-        self.count = None
+        try:
+            computed_count = compute_menu_badge_count(int(request.user.id))
+            cache.set(cache_key, computed_count, MENU_BADGE_CACHE_TTL_SECONDS)
+            self.count = computed_count if computed_count > 0 else None
+        except Exception:
+            self.count = None
+
         # Delegate rendering to base class
         return super().render(request)
 

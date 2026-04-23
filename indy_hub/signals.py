@@ -1,6 +1,6 @@
 # Django
 from django.core.cache import cache
-from django.db.models.signals import post_save, pre_save
+from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 
 # Alliance Auth
@@ -8,6 +8,9 @@ from allianceauth.services.hooks import get_extension_logger
 
 from .models import (
     Blueprint,
+    BlueprintCopyChat,
+    BlueprintCopyOffer,
+    BlueprintCopyRequest,
     IndustryJob,
     MaterialExchangeBuyOrder,
     MaterialExchangeConfig,
@@ -48,6 +51,7 @@ from indy_hub.tasks.industry import (
 
 from .services.esi_client import ESITokenError
 from .tasks.user import update_character_roles_for_character
+from .utils.menu_badge import invalidate_menu_badge_cache
 
 logger = get_extension_logger(__name__)
 
@@ -235,6 +239,38 @@ def cache_blueprint_data(sender, instance, created, **kwargs):
 @receiver(post_save, sender=IndustryJob)
 def cache_industry_job_data(sender, instance, created, **kwargs):
     process_job_completion_notification(instance)
+
+
+def _invalidate_blueprint_copy_badges(instance) -> None:
+    request_obj = None
+
+    if isinstance(instance, BlueprintCopyRequest):
+        request_obj = instance
+    elif isinstance(instance, BlueprintCopyOffer):
+        request_obj = instance.request
+    elif isinstance(instance, BlueprintCopyChat):
+        request_obj = instance.request
+
+    if not request_obj:
+        return
+
+    invalidate_menu_badge_cache(
+        getattr(request_obj, "requested_by_id", None),
+        getattr(getattr(instance, "owner", None), "id", None),
+        getattr(instance, "owner_id", None),
+        getattr(instance, "buyer_id", None),
+        getattr(instance, "seller_id", None),
+    )
+
+
+@receiver(post_save, sender=BlueprintCopyRequest)
+@receiver(post_delete, sender=BlueprintCopyRequest)
+@receiver(post_save, sender=BlueprintCopyOffer)
+@receiver(post_delete, sender=BlueprintCopyOffer)
+@receiver(post_save, sender=BlueprintCopyChat)
+@receiver(post_delete, sender=BlueprintCopyChat)
+def invalidate_blueprint_copy_menu_badges(sender, instance, **kwargs):
+    _invalidate_blueprint_copy_badges(instance)
 
 
 # --- Auto stock/price sync when MaterialExchangeConfig changes ---
