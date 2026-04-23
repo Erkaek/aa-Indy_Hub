@@ -231,7 +231,7 @@
                                         rows="9"
                                         placeholder="{% trans 'Example: Tritanium x 25000 or Tritanium<TAB>25000' %}"></textarea>
                                     <div class="form-text mt-2">
-                                        {% trans "Accepted items are added to the order automatically. Rejected and unknown lines are ignored." %}
+                                        {% trans "Accepted items are added to the order automatically. Not bought, unavailable, and unknown lines are ignored." %}
                                     </div>
                                     <div class="d-flex flex-wrap gap-2 mt-3">
                                         <button type="button" class="btn btn-outline-light btn-sm" id="sellPasteClearButton">
@@ -248,6 +248,10 @@
                                         <div class="me-paste-summary-card is-rejected">
                                             <div class="me-paste-summary-label">{% trans "Not Bought" %}</div>
                                             <div class="me-paste-summary-value" id="sellPasteRejectedCount">0</div>
+                                        </div>
+                                        <div class="me-paste-summary-card is-warning">
+                                            <div class="me-paste-summary-label">{% trans "Other Character" %}</div>
+                                            <div class="me-paste-summary-value" id="sellPasteUnavailableCount">0</div>
                                         </div>
                                         <div class="me-paste-summary-card is-unknown">
                                             <div class="me-paste-summary-label">{% trans "Unknown" %}</div>
@@ -278,6 +282,14 @@
                                         </div>
                                         <div class="me-paste-empty" id="sellPasteRejectedEmpty">{% trans "No rejected items in the pasted text." %}</div>
                                         <div class="me-paste-result-list" id="sellPasteRejectedList"></div>
+                                    </section>
+                                    <section class="me-paste-result-card">
+                                        <div class="me-paste-result-header">
+                                            <h6 class="mb-0">{% trans "Known but not on this character" %}</h6>
+                                            <span class="badge text-bg-info" id="sellPasteUnavailableBadge">0</span>
+                                        </div>
+                                        <div class="me-paste-empty" id="sellPasteUnavailableEmpty">{% trans "No items matched only on another character." %}</div>
+                                        <div class="me-paste-result-list" id="sellPasteUnavailableList"></div>
                                     </section>
                                     <section class="me-paste-result-card">
                                         <div class="me-paste-result-header">
@@ -494,6 +506,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     const sellPasteMessages = {
         notBought: '{% trans "Not bought by the hub" %}',
+        notOnCharacter: '{% trans "Not available on this character" %}',
         insufficient: '{% trans "Quantity exceeds what is available on the selected character" %}',
         unknown: '{% trans "Unknown item or unsupported line" %}',
         parseError: '{% trans "Could not read this line" %}'
@@ -792,7 +805,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (sellPasteResults) {
                 sellPasteResults.classList.add('d-none');
             }
-            ['Accepted', 'Rejected', 'Unknown'].forEach(prefix => {
+            ['Accepted', 'Rejected', 'Unavailable', 'Unknown'].forEach(prefix => {
                 const countNode = document.getElementById('sellPaste' + prefix + 'Count');
                 const badgeNode = document.getElementById('sellPaste' + prefix + 'Badge');
                 if (countNode) {
@@ -812,6 +825,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const parsed = buildPasteEntries(rawText);
         const acceptedItems = [];
         const rejectedItems = [];
+        const unavailableItems = [];
         const unknownItems = parsed.parseErrors.map(line => ({
             label: line,
             detail: sellPasteMessages.parseError
@@ -830,6 +844,17 @@ document.addEventListener('DOMContentLoaded', function() {
             }
 
             if (catalogItem.status !== 'accepted') {
+                if (catalogItem.status === 'unavailable') {
+                    const totalOwned = Number.parseInt(catalogItem.total_available_qty || '0', 10) || 0;
+                    unavailableItems.push({
+                        label: `${catalogItem.type_name} x ${entry.quantity.toLocaleString()}`,
+                        detail: totalOwned > 0
+                            ? `${sellPasteMessages.notOnCharacter} (${totalOwned.toLocaleString()})`
+                            : sellPasteMessages.notOnCharacter
+                    });
+                    return;
+                }
+
                 rejectedItems.push({
                     label: `${catalogItem.type_name} x ${entry.quantity.toLocaleString()}`,
                     detail: sellPasteMessages.notBought
@@ -865,9 +890,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const acceptedCountNode = document.getElementById('sellPasteAcceptedCount');
         const rejectedCountNode = document.getElementById('sellPasteRejectedCount');
+        const unavailableCountNode = document.getElementById('sellPasteUnavailableCount');
         const unknownCountNode = document.getElementById('sellPasteUnknownCount');
         const acceptedBadgeNode = document.getElementById('sellPasteAcceptedBadge');
         const rejectedBadgeNode = document.getElementById('sellPasteRejectedBadge');
+        const unavailableBadgeNode = document.getElementById('sellPasteUnavailableBadge');
         const unknownBadgeNode = document.getElementById('sellPasteUnknownBadge');
         const acceptedValueNode = document.getElementById('sellPasteAcceptedValue');
 
@@ -877,6 +904,9 @@ document.addEventListener('DOMContentLoaded', function() {
         if (rejectedCountNode) {
             rejectedCountNode.textContent = rejectedItems.length.toLocaleString();
         }
+        if (unavailableCountNode) {
+            unavailableCountNode.textContent = unavailableItems.length.toLocaleString();
+        }
         if (unknownCountNode) {
             unknownCountNode.textContent = unknownItems.length.toLocaleString();
         }
@@ -885,6 +915,9 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         if (rejectedBadgeNode) {
             rejectedBadgeNode.textContent = rejectedItems.length.toLocaleString();
+        }
+        if (unavailableBadgeNode) {
+            unavailableBadgeNode.textContent = unavailableItems.length.toLocaleString();
         }
         if (unknownBadgeNode) {
             unknownBadgeNode.textContent = unknownItems.length.toLocaleString();
@@ -904,6 +937,14 @@ document.addEventListener('DOMContentLoaded', function() {
         `);
         renderPasteList('sellPasteRejectedList', 'sellPasteRejectedEmpty', rejectedItems, item => `
             <article class="me-paste-line me-paste-line-rejected">
+                <div>
+                    <div class="me-paste-line-title">${item.label}</div>
+                    <div class="me-paste-line-meta">${item.detail}</div>
+                </div>
+            </article>
+        `);
+        renderPasteList('sellPasteUnavailableList', 'sellPasteUnavailableEmpty', unavailableItems, item => `
+            <article class="me-paste-line me-paste-line-unknown">
                 <div>
                     <div class="me-paste-line-title">${item.label}</div>
                     <div class="me-paste-line-meta">${item.detail}</div>

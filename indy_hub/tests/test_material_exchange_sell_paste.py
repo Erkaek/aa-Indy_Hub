@@ -256,3 +256,93 @@ class MaterialExchangeSellPasteTests(TestCase):
         self.assertEqual(catalog["Tritanium"]["unit_price"], "5.25")
         self.assertEqual(catalog["Unrefined Goo"]["status"], "rejected")
         self.assertEqual(catalog["Unrefined Goo"]["reason"], "not_bought")
+
+    def test_get_marks_known_item_on_other_character_as_unavailable(self) -> None:
+        request = self._prepare_request(
+            self.factory.get(
+                reverse("indy_hub:material_exchange_sell"),
+                {"character": str(self.character.character_id)},
+            )
+        )
+        captured: dict[str, object] = {}
+
+        other_character_id = self.character.character_id + 1
+
+        def fake_render(_request, _template_name, context):
+            captured["context"] = context
+            return HttpResponse("ok")
+
+        with (
+            patch("indy_hub.views.material_exchange.emit_view_analytics_event"),
+            patch(
+                "indy_hub.views.material_exchange._is_material_exchange_enabled",
+                return_value=True,
+            ),
+            patch(
+                "indy_hub.views.material_exchange._get_material_exchange_config",
+                return_value=self.config,
+            ),
+            patch(
+                "indy_hub.views.material_exchange._ensure_sell_assets_refresh_started",
+                return_value={"running": False, "finished": True, "error": None},
+            ),
+            patch(
+                "indy_hub.views.material_exchange._fetch_user_assets_for_structure_data",
+                return_value=(
+                    {34: 10, 36: 3, 35: 5},
+                    {
+                        self.character.character_id: {34: 10, 35: 5},
+                        other_character_id: {36: 3},
+                    },
+                    False,
+                ),
+            ),
+            patch(
+                "indy_hub.views.material_exchange._get_allowed_type_ids_for_config",
+                return_value={34, 36},
+            ),
+            patch(
+                "indy_hub.views.material_exchange._fetch_fuzzwork_prices",
+                return_value={
+                    34: {"buy": Decimal("5.00"), "sell": Decimal("6.00")},
+                    36: {"buy": Decimal("7.00"), "sell": Decimal("8.00")},
+                },
+            ),
+            patch(
+                "indy_hub.views.material_exchange.get_type_name",
+                side_effect=lambda type_id: {
+                    34: "Tritanium",
+                    35: "Unrefined Goo",
+                    36: "Large Skill Injector",
+                }[type_id],
+            ),
+            patch(
+                "indy_hub.views.material_exchange._get_group_map",
+                return_value={34: "Minerals", 35: "Gas Clouds", 36: "Skill Injectors"},
+            ),
+            patch(
+                "indy_hub.views.material_exchange._resolve_user_character_names_map",
+                return_value={
+                    self.character.character_id: self.character.character_name,
+                    other_character_id: f"Pilot {other_character_id}",
+                },
+            ),
+            patch("indy_hub.views.material_exchange.batch_cache_type_names"),
+            patch(
+                "indy_hub.views.material_exchange.render",
+                side_effect=fake_render,
+            ),
+        ):
+            response = self.view(request, tokens=[])
+
+        self.assertEqual(response.status_code, 200)
+        context = captured["context"]
+        catalog = {entry["type_name"]: entry for entry in context["sell_paste_catalog"]}
+
+        self.assertEqual(catalog["Tritanium"]["status"], "accepted")
+        self.assertEqual(catalog["Large Skill Injector"]["status"], "unavailable")
+        self.assertEqual(catalog["Large Skill Injector"]["reason"], "not_on_character")
+        self.assertEqual(catalog["Large Skill Injector"]["available_qty"], 0)
+        self.assertEqual(catalog["Large Skill Injector"]["total_available_qty"], 3)
+        self.assertEqual(catalog["Unrefined Goo"]["status"], "rejected")
+        self.assertEqual(catalog["Unrefined Goo"]["reason"], "not_bought")

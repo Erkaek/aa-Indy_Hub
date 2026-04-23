@@ -211,6 +211,21 @@
                             {# Thread list column (left) #}
                             <div class="fwp-chat-col fwp-chat-col--threads">
                                 {% if req.chat_actions %}
+                                {% with req_id=req.id|stringformat:"s" first_chat=req.chat_actions.0.chat %}
+                                {% with chat_shell_id="bpChatInline-"|add:req_id chat_input_id="bpChatInput-"|add:req_id %}
+                                <button
+                                    type="button"
+                                    class="d-none bp-chat-trigger"
+                                    data-chat-autoload-trigger
+                                    data-chat-target="{{ chat_shell_id }}"
+                                    data-chat-fetch-url="{{ first_chat.fetch_url }}"
+                                    data-chat-send-url="{{ first_chat.send_url }}"
+                                    data-chat-role="buyer"
+                                    data-chat-type-name="{{ req.type_name }}"
+                                    data-chat-type-id="{{ req.type_id }}"
+                                    data-chat-id="{{ first_chat.id }}"
+                                ></button>
+                                <div class="d-grid gap-3">
                                 <div class="fwp-chat-shell">
                                     <div class="mrp-thread-list">
                                         {% for action in req.chat_actions %}
@@ -239,6 +254,7 @@
                                                     type="button"
                                                     class="fulfill-btn fulfill-btn--condition bp-chat-trigger"
                                                     style="width: auto; min-width: 0;"
+                                                    data-chat-target="{{ chat_shell_id }}"
                                                     data-chat-fetch-url="{{ action.chat.fetch_url }}"
                                                     data-chat-send-url="{{ action.chat.send_url }}"
                                                     data-chat-role="buyer"
@@ -253,6 +269,80 @@
                                         {% endfor %}
                                     </div>
                                 </div>
+                                <section
+                                    class="bp-chat-inline bp-chat-shell fwp-chat-shell"
+                                    id="{{ chat_shell_id }}"
+                                    data-chat-modal
+                                    data-chat-inline
+                                    data-request-id="{{ req.id }}"
+                                >
+                                    <div class="bp-chat-surface bp-chat-surface--inline">
+                                        <div class="bp-chat-body">
+                                            <div class="bp-chat-summary" data-chat-summary></div>
+
+                                            <div class="alert alert-warning d-none bp-chat-status" role="status" data-chat-status></div>
+
+                                            <div class="bp-chat-actions d-none" data-chat-actions>
+                                                <div class="bp-chat-proposal">
+                                                    <div class="bp-chat-proposal__summary">
+                                                        <div class="bp-chat-proposal__intro">
+                                                            <div class="small" data-chat-action-status></div>
+                                                            <div class="bp-chat-proposal__hint" data-chat-action-hint></div>
+                                                        </div>
+                                                        <div class="bp-chat-proposal__current d-none" data-chat-proposal-current>
+                                                            <span class="bp-chat-proposal__label">{% trans "Current proposal" %}</span>
+                                                            <strong data-chat-proposal-amount></strong>
+                                                        </div>
+                                                    </div>
+                                                    <form class="bp-chat-proposal-form" data-chat-proposal-form>
+                                                        <label class="visually-hidden" for="{{ chat_input_id }}Proposal">{% trans "Proposal amount" %}</label>
+                                                        <div class="input-group input-group-sm">
+                                                            <input
+                                                                id="{{ chat_input_id }}Proposal"
+                                                                type="number"
+                                                                min="0"
+                                                                step="0.01"
+                                                                class="form-control"
+                                                                inputmode="decimal"
+                                                                placeholder="{% trans 'Enter amount in ISK' %}"
+                                                                data-chat-proposal-input
+                                                            >
+                                                            <span class="input-group-text">ISK</span>
+                                                            <button type="submit" class="btn btn-primary" data-chat-proposal-submit>
+                                                                <i class="fas fa-coins me-1"></i>{% trans "Send proposal" %}
+                                                            </button>
+                                                        </div>
+                                                    </form>
+                                                </div>
+                                            </div>
+
+                                            <div class="bp-chat-message-list" data-chat-messages></div>
+                                        </div>
+
+                                        <div class="bp-chat-footer">
+                                            <form class="bp-chat-form" data-chat-form>
+                                                {% csrf_token %}
+                                                <label for="{{ chat_input_id }}" class="visually-hidden">{% trans "Message" %}</label>
+                                                <textarea
+                                                    id="{{ chat_input_id }}"
+                                                    class="form-control bp-chat-input"
+                                                    rows="2"
+                                                    maxlength="2000"
+                                                    data-chat-input
+                                                    placeholder="{% trans 'Type your message...' %}"
+                                                    required
+                                                ></textarea>
+                                                <button type="submit" class="btn btn-primary bp-chat-send">
+                                                    <i class="fas fa-paper-plane"></i>
+                                                    <span class="d-none d-sm-inline ms-1">{% trans "Send" %}</span>
+                                                </button>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </section>
+                                </div>
+                                {% endwith %}
+                                {% endwith %}
                                 {% else %}
                                 <div class="fwp-chat-empty">
                                     <div class="fwp-chat-empty__icon"><i class="fas fa-comments"></i></div>
@@ -565,8 +655,6 @@
 
     </div>
 </div>
-
-{% include "indy_hub/includes/bp_chat_modal.html" %}
 {% endblock %}
 
 {% block extra_javascript %}
@@ -579,23 +667,6 @@
             seller: '{% trans "Builder" %}',
             system: '{% trans "System" %}',
             you: '{% trans "You" %}'
-        }
-    });
-
-    document.addEventListener('DOMContentLoaded', function () {
-        var autoOpen = document.querySelector('[data-auto-open-chat]');
-        var chatId = autoOpen ? String(autoOpen.getAttribute('data-auto-open-chat') || '') : '';
-        if (!chatId) return;
-
-        var matchingTrigger = null;
-        document.querySelectorAll('.bp-chat-trigger[data-chat-id]').forEach(function (trigger) {
-            if (!matchingTrigger && String(trigger.getAttribute('data-chat-id')) === chatId) {
-                matchingTrigger = trigger;
-            }
-        });
-
-        if (matchingTrigger) {
-            matchingTrigger.click();
         }
     });
 </script>

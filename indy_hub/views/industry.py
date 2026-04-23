@@ -1040,10 +1040,52 @@ def _close_offer_chat_if_exists(offer: BlueprintCopyOffer, reason: str) -> None:
     chat.close(reason=reason)
 
 
-def _close_request_chats(req: BlueprintCopyRequest, reason: str) -> None:
+def _close_request_chats(
+    req: BlueprintCopyRequest,
+    reason: str,
+    *,
+    exclude_offer_id: int | None = None,
+) -> None:
     chats = BlueprintCopyChat.objects.filter(request=req, is_open=True)
+    if exclude_offer_id is not None:
+        chats = chats.exclude(offer_id=exclude_offer_id)
     for chat in chats:
         chat.close(reason=reason)
+
+
+def _build_offer_chat_payload(
+    offer: BlueprintCopyOffer,
+    *,
+    viewer_role: str,
+    reopen: bool = False,
+) -> dict[str, Any] | None:
+    try:
+        chat = offer.chat
+    except BlueprintCopyChat.DoesNotExist:
+        chat = _ensure_offer_chat(offer)
+    else:
+        if reopen and not chat.is_open:
+            chat.reopen()
+
+    if not chat or not chat.is_open:
+        return None
+
+    payload = {
+        "id": chat.id,
+        "fetch_url": reverse("indy_hub:bp_chat_history", args=[chat.id]),
+        "send_url": reverse("indy_hub:bp_chat_send", args=[chat.id]),
+        "has_unread": _chat_has_unread(chat, viewer_role),
+        "last_message_at": chat.last_message_at,
+        "last_message_display": (
+            timezone.localtime(chat.last_message_at).strftime("%Y-%m-%d %H:%M")
+            if chat.last_message_at
+            else ""
+        ),
+        "preview": _chat_preview_messages(chat),
+    }
+    if offer.status == "conditional":
+        payload["decision_url"] = reverse("indy_hub:bp_chat_decide", args=[chat.id])
+    return payload
 
 
 def _normalize_offer_amount(raw_amount: Any) -> Decimal | None:
@@ -1241,6 +1283,8 @@ def _finalize_conditional_offer(offer: BlueprintCopyOffer) -> None:
     if offer.status == "accepted" and req.fulfilled:
         return
 
+    _ensure_offer_chat(offer)
+
     offer.status = "accepted"
     offer.accepted_by_buyer = True
     offer.accepted_by_seller = True
@@ -1259,7 +1303,11 @@ def _finalize_conditional_offer(offer: BlueprintCopyOffer) -> None:
     req.fulfilled_by = offer.owner
     req.save(update_fields=["fulfilled", "fulfilled_at", "fulfilled_by"])
 
-    _close_request_chats(req, BlueprintCopyChat.CloseReason.OFFER_ACCEPTED)
+    _close_request_chats(
+        req,
+        BlueprintCopyChat.CloseReason.OFFER_ACCEPTED,
+        exclude_offer_id=offer.id,
+    )
     _strike_discord_webhook_messages_for_request(None, req, actor=offer.owner)
     BlueprintCopyOffer.objects.filter(request=req).exclude(id=offer.id).delete()
 
@@ -5093,31 +5141,12 @@ def bp_copy_fulfill_requests(request):
             show_offer_actions = False
 
         offer_chat_payload = None
-        if my_offer and my_offer.status == "conditional":
-            try:
-                chat = my_offer.chat
-            except BlueprintCopyChat.DoesNotExist:
-                chat = _ensure_offer_chat(my_offer)
-            else:
-                if not chat.is_open:
-                    chat.reopen()
-            if chat and chat.is_open:
-                offer_chat_payload = {
-                    "id": chat.id,
-                    "fetch_url": reverse("indy_hub:bp_chat_history", args=[chat.id]),
-                    "send_url": reverse("indy_hub:bp_chat_send", args=[chat.id]),
-                    "decision_url": reverse("indy_hub:bp_chat_decide", args=[chat.id]),
-                    "has_unread": _chat_has_unread(chat, "seller"),
-                    "last_message_at": chat.last_message_at,
-                    "last_message_display": (
-                        timezone.localtime(chat.last_message_at).strftime(
-                            "%Y-%m-%d %H:%M"
-                        )
-                        if chat.last_message_at
-                        else ""
-                    ),
-                    "preview": _chat_preview_messages(chat),
-                }
+        if my_offer and my_offer.status in {"conditional", "accepted"}:
+            offer_chat_payload = _build_offer_chat_payload(
+                my_offer,
+                viewer_role="seller",
+                reopen=not req.delivered,
+            )
         if offer_chat_payload:
             show_offer_actions = False
         elif my_offer and my_offer.status in {"conditional", "accepted"}:
@@ -6139,6 +6168,7 @@ def bp_mark_copy_delivered(request, request_id):
     req.delivered = True
     req.delivered_at = timezone.now()
     req.save()
+    _close_request_chats(req, BlueprintCopyChat.CloseReason.MANUAL)
     my_requests_url = request.build_absolute_uri(
         reverse("indy_hub:bp_copy_my_requests")
     )
@@ -6327,30 +6357,11 @@ def bp_copy_my_requests(request):
 
         for idx, offer in enumerate(conditional_offers, start=1):
             label = _("Builder #%d") % idx
-            chat_payload = None
-            try:
-                chat = offer.chat
-            except BlueprintCopyChat.DoesNotExist:
-                chat = _ensure_offer_chat(offer)
-            else:
-                if not chat.is_open:
-                    chat.reopen()
-            if chat and chat.is_open:
-                chat_payload = {
-                    "id": chat.id,
-                    "fetch_url": reverse("indy_hub:bp_chat_history", args=[chat.id]),
-                    "send_url": reverse("indy_hub:bp_chat_send", args=[chat.id]),
-                    "has_unread": _chat_has_unread(chat, "buyer"),
-                    "last_message_at": chat.last_message_at,
-                    "last_message_display": (
-                        timezone.localtime(chat.last_message_at).strftime(
-                            "%Y-%m-%d %H:%M"
-                        )
-                        if chat.last_message_at
-                        else ""
-                    ),
-                    "preview": _chat_preview_messages(chat),
-                }
+            chat_payload = _build_offer_chat_payload(
+                offer,
+                viewer_role="buyer",
+                reopen=not req.delivered,
+            )
 
             if offer.accepted_by_buyer and offer.accepted_by_seller:
                 cond_accepted = {
@@ -6427,6 +6438,25 @@ def bp_copy_my_requests(request):
                 {
                     "builder_label": cond_accepted["builder_label"],
                     "chat": cond_accepted["chat"],
+                }
+            )
+
+        accepted_chat_payload = None
+        if accepted_offer_obj and not req.delivered:
+            accepted_chat_payload = _build_offer_chat_payload(
+                accepted_offer_obj,
+                viewer_role="buyer",
+                reopen=True,
+            )
+        if accepted_chat_payload and not any(
+            action["chat"]["id"] == accepted_chat_payload["id"]
+            for action in chat_actions
+            if action.get("chat")
+        ):
+            chat_actions.append(
+                {
+                    "builder_label": accepted_offer_obj.owner.username,
+                    "chat": accepted_chat_payload,
                 }
             )
 

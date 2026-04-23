@@ -4479,6 +4479,96 @@ class BlueprintCopyMyRequestsViewTests(TestCase):
         self.assertIn("action_required", statuses)
         self.assertIn("awaiting_delivery", statuses)
         self.assertIn("delivered", statuses)
+        self.assertContains(response, 'data-chat-inline')
+        self.assertContains(response, 'data-chat-target="bpChatInline-')
+        self.assertNotContains(response, 'id="bpChatModal"', html=False)
+
+    def test_my_requests_keeps_accepted_chat_until_delivery(self) -> None:
+        seller = User.objects.create_user("acceptedbuilder", password="sellerpass")
+        request_obj = BlueprintCopyRequest.objects.create(
+            type_id=15,
+            material_efficiency=4,
+            time_efficiency=8,
+            requested_by=self.user,
+            runs_requested=2,
+            copies_requested=1,
+            fulfilled=True,
+            fulfilled_by=seller,
+        )
+        offer = BlueprintCopyOffer.objects.create(
+            request=request_obj,
+            owner=seller,
+            status="accepted",
+            accepted_by_buyer=True,
+            accepted_by_seller=True,
+        )
+        chat = BlueprintCopyChat.objects.create(
+            request=request_obj,
+            offer=offer,
+            buyer=self.user,
+            seller=seller,
+            is_open=False,
+            closed_reason=BlueprintCopyChat.CloseReason.OFFER_ACCEPTED,
+        )
+
+        response = self.client.get(reverse("indy_hub:bp_copy_my_requests"))
+
+        self.assertEqual(response.status_code, 200)
+        request_payload = next(
+            req for req in response.context["my_requests"] if req["id"] == request_obj.id
+        )
+        self.assertEqual(request_payload["status_key"], "awaiting_delivery")
+        self.assertEqual(len(request_payload["chat_actions"]), 1)
+        self.assertEqual(request_payload["chat_actions"][0]["chat"]["id"], chat.id)
+        chat.refresh_from_db()
+        self.assertTrue(chat.is_open)
+
+
+class BlueprintCopyDeliveryChatTests(TestCase):
+    def setUp(self) -> None:
+        self.buyer = User.objects.create_user("buyer_delivery", password="test12345")
+        assign_main_character(self.buyer, character_id=101103)
+        self.seller = User.objects.create_user("seller_delivery", password="test12345")
+        assign_main_character(self.seller, character_id=101104)
+        grant_indy_permissions(self.buyer, "can_manage_corp_bp_requests")
+        grant_indy_permissions(self.seller, "can_manage_corp_bp_requests")
+        self.client.force_login(self.seller)
+
+    def test_mark_delivered_closes_remaining_chat(self) -> None:
+        request_obj = BlueprintCopyRequest.objects.create(
+            type_id=16,
+            material_efficiency=6,
+            time_efficiency=10,
+            requested_by=self.buyer,
+            runs_requested=1,
+            copies_requested=1,
+            fulfilled=True,
+            fulfilled_by=self.seller,
+        )
+        offer = BlueprintCopyOffer.objects.create(
+            request=request_obj,
+            owner=self.seller,
+            status="accepted",
+            accepted_by_buyer=True,
+            accepted_by_seller=True,
+        )
+        chat = BlueprintCopyChat.objects.create(
+            request=request_obj,
+            offer=offer,
+            buyer=self.buyer,
+            seller=self.seller,
+            is_open=True,
+        )
+
+        response = self.client.post(
+            reverse("indy_hub:bp_mark_copy_delivered", args=[request_obj.id])
+        )
+
+        self.assertRedirects(response, reverse("indy_hub:bp_copy_fulfill_requests"))
+        request_obj.refresh_from_db()
+        chat.refresh_from_db()
+        self.assertTrue(request_obj.delivered)
+        self.assertFalse(chat.is_open)
 
 
 class OnboardingViewsTests(TestCase):

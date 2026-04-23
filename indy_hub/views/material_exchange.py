@@ -989,18 +989,23 @@ def _extract_submitted_sell_quantities(request) -> dict[int, int]:
 
 
 def _build_sell_paste_catalog(
-    raw_assets_by_type: dict[int, int], accepted_materials: list[dict]
+    raw_assets_by_type: dict[int, int],
+    selected_raw_assets_by_type: dict[int, int],
+    accepted_by_type_id: dict[int, dict],
 ) -> list[dict]:
-    """Return the active character asset catalog used by the sell paste-import mode."""
+    """Return the sell paste-import catalog for all known user assets.
+
+    The catalog is built from all raw assets visible to the user across characters,
+    while preserving the selected-character availability needed by the current page.
+    This allows the paste UI to distinguish between items that are not bought by the
+    hub and items that are known but simply not present on the active character.
+    """
 
     if not raw_assets_by_type:
         return []
 
     batch_cache_type_names(raw_assets_by_type.keys())
     group_map = _get_group_map(list(raw_assets_by_type.keys()))
-    accepted_by_type_id = {
-        int(item["type_id"]): item for item in accepted_materials if item.get("type_id")
-    }
 
     catalog: list[dict] = []
     for type_id, available_qty in raw_assets_by_type.items():
@@ -1009,10 +1014,21 @@ def _build_sell_paste_catalog(
 
         type_name = get_type_name(type_id)
         accepted_item = accepted_by_type_id.get(int(type_id))
-        status = "accepted" if accepted_item else "rejected"
+        selected_available_qty = int(
+            selected_raw_assets_by_type.get(int(type_id), 0) or 0
+        )
+        status = "accepted"
+        reason = ""
         unit_price = ""
-        if accepted_item:
+        if accepted_item and selected_available_qty > 0:
             unit_price = format(Decimal(accepted_item["buy_price_from_member"]), ".2f")
+        elif accepted_item:
+            status = "unavailable"
+            reason = "not_on_character"
+            unit_price = format(Decimal(accepted_item["buy_price_from_member"]), ".2f")
+        else:
+            status = "rejected"
+            reason = "not_bought"
 
         catalog.append(
             {
@@ -1020,15 +1036,20 @@ def _build_sell_paste_catalog(
                 "type_name": type_name,
                 "name_key": normalize_text(type_name),
                 "group_name": group_map.get(type_id, "Other"),
-                "available_qty": int(available_qty),
+                "available_qty": selected_available_qty,
+                "total_available_qty": int(available_qty),
                 "status": status,
-                "reason": "" if accepted_item else "not_bought",
+                "reason": reason,
                 "unit_price": unit_price,
             }
         )
 
+    status_order = {"accepted": 0, "unavailable": 1, "rejected": 2}
     catalog.sort(
-        key=lambda item: (item["status"] != "accepted", item["type_name"].casefold())
+        key=lambda item: (
+            status_order.get(str(item["status"]), 99),
+            item["type_name"].casefold(),
+        )
     )
     return catalog
 
@@ -1604,6 +1625,7 @@ def material_exchange_sell(request, tokens):
         )
     if user_assets:
         pre_filter_count = len(user_assets)
+        raw_user_assets_aggregated = dict(user_assets)
         logger.info(
             f"SELL DEBUG: Found {len(user_assets)} unique items in assets before production filter (filter disabled)"
         )
@@ -1634,18 +1656,40 @@ def material_exchange_sell(request, tokens):
         price_data = _fetch_fuzzwork_prices(list(user_assets.keys()))
         logger.info(f"SELL DEBUG: Got prices for {len(price_data)} items from Fuzzwork")
 
-        def _is_sellable_type(type_id: int) -> bool:
+        accepted_group_map = _get_group_map(list(user_assets.keys()))
+        batch_cache_type_names(user_assets.keys())
+        accepted_catalog_by_type: dict[int, dict] = {}
+        for type_id in user_assets.keys():
             fuzz_prices = price_data.get(type_id, {})
             jita_buy = fuzz_prices.get("buy") or Decimal(0)
             jita_sell = fuzz_prices.get("sell") or Decimal(0)
             if jita_buy <= 0 and jita_sell <= 0:
-                return False
+                logger.debug(
+                    "SELL DEBUG: Skipping type_id %s in paste catalog - no valid price (buy=%s, sell=%s)",
+                    type_id,
+                    jita_buy,
+                    jita_sell,
+                )
+                continue
+
             buy_price = compute_buy_price_from_member(
                 config=config,
                 jita_buy=jita_buy,
                 jita_sell=jita_sell,
             )
-            return buy_price > 0
+            if buy_price <= 0:
+                continue
+
+            type_name = get_type_name(type_id)
+            accepted_catalog_by_type[int(type_id)] = {
+                "type_id": int(type_id),
+                "type_name": type_name,
+                "group_name": accepted_group_map.get(type_id, "Other"),
+                "buy_price_from_member": buy_price,
+            }
+
+        def _is_sellable_type(type_id: int) -> bool:
+            return int(type_id) in accepted_catalog_by_type
 
         character_names_map = _resolve_user_character_names_map(request.user)
         sell_page_base_url = reverse("indy_hub:material_exchange_sell")
@@ -1723,40 +1767,21 @@ def material_exchange_sell(request, tokens):
             None,
         )
 
-        group_map = _get_group_map(list(assets_for_display.keys()))
-
-        batch_cache_type_names(assets_for_display.keys())
-
         for type_id, user_qty in assets_for_display.items():
-            fuzz_prices = price_data.get(type_id, {})
-            jita_buy = fuzz_prices.get("buy") or Decimal(0)
-            jita_sell = fuzz_prices.get("sell") or Decimal(0)
-            if jita_buy <= 0 and jita_sell <= 0:
-                logger.debug(
-                    f"SELL DEBUG: Skipping type_id {type_id} - no valid price (buy={jita_buy}, sell={jita_sell})"
-                )
+            accepted_item = accepted_catalog_by_type.get(int(type_id))
+            if not accepted_item:
                 continue
-
-            buy_price = compute_buy_price_from_member(
-                config=config,
-                jita_buy=jita_buy,
-                jita_sell=jita_sell,
-            )
-            if buy_price <= 0:
-                continue
-            type_name = get_type_name(type_id)
-            group_name = group_map.get(type_id, "Other")
             materials_with_qty.append(
                 {
-                    "type_id": type_id,
-                    "type_name": type_name,
-                    "group_name": group_name,
+                    "type_id": int(type_id),
+                    "type_name": accepted_item["type_name"],
+                    "group_name": accepted_item["group_name"],
                     "image_url": _resolve_type_image_url(
-                        type_id=type_id,
-                        type_name=type_name,
-                        group_name=group_name,
+                        type_id=int(type_id),
+                        type_name=accepted_item["type_name"],
+                        group_name=accepted_item["group_name"],
                     ),
-                    "buy_price_from_member": buy_price,
+                    "buy_price_from_member": accepted_item["buy_price_from_member"],
                     "user_quantity": user_qty,
                 }
             )
@@ -1766,7 +1791,9 @@ def material_exchange_sell(request, tokens):
         )
         materials_with_qty.sort(key=lambda x: x["type_name"])
         sell_paste_catalog = _build_sell_paste_catalog(
-            raw_assets_for_display, materials_with_qty
+            raw_user_assets_aggregated,
+            raw_assets_for_display,
+            accepted_catalog_by_type,
         )
 
         if pre_filter_count > 0 and not materials_with_qty and not message_shown:
