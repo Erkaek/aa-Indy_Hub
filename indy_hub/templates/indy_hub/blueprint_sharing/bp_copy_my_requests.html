@@ -226,49 +226,6 @@
                                     data-chat-id="{{ first_chat.id }}"
                                 ></button>
                                 <div class="d-grid gap-3">
-                                <div class="fwp-chat-shell">
-                                    <div class="mrp-thread-list">
-                                        {% for action in req.chat_actions %}
-                                        <div class="mrp-thread">
-                                            <div class="mrp-thread__head">
-                                                <div class="flex-grow-1 min-w-0">
-                                                    <p class="mrp-thread__eyebrow">{% trans "Builder thread" %}</p>
-                                                    <p class="mrp-thread__label">{{ action.builder_label }}</p>
-                                                    {% if action.chat.preview %}
-                                                    <p class="mrp-thread__summary">{{ action.chat.preview }}</p>
-                                                    {% else %}
-                                                    <p class="mrp-thread__summary">{% trans "Open the thread to review the latest proposal and messages." %}</p>
-                                                    {% endif %}
-                                                </div>
-                                                <div class="d-flex flex-column align-items-end gap-2 flex-shrink-0">
-                                                    {% if action.chat.has_unread %}
-                                                    <span class="badge text-bg-primary">{% trans "Unread" %}</span>
-                                                    {% endif %}
-                                                    {% if action.chat.last_message_display %}
-                                                    <span class="mrp-thread__meta">{{ action.chat.last_message_display }}</span>
-                                                    {% endif %}
-                                                </div>
-                                            </div>
-                                            <div class="mrp-thread__actions">
-                                                <button
-                                                    type="button"
-                                                    class="fulfill-btn fulfill-btn--condition bp-chat-trigger"
-                                                    style="width: auto; min-width: 0;"
-                                                    data-chat-target="{{ chat_shell_id }}"
-                                                    data-chat-fetch-url="{{ action.chat.fetch_url }}"
-                                                    data-chat-send-url="{{ action.chat.send_url }}"
-                                                    data-chat-role="buyer"
-                                                    data-chat-type-name="{{ req.type_name }}"
-                                                    data-chat-type-id="{{ req.type_id }}"
-                                                    data-chat-id="{{ action.chat.id }}"
-                                                >
-                                                    <i class="fas fa-comments"></i>{% trans "Open chat" %}
-                                                </button>
-                                            </div>
-                                        </div>
-                                        {% endfor %}
-                                    </div>
-                                </div>
                                 <section
                                     class="bp-chat-inline bp-chat-shell fwp-chat-shell"
                                     id="{{ chat_shell_id }}"
@@ -282,6 +239,11 @@
 
                                             <div class="alert alert-warning d-none bp-chat-status" role="status" data-chat-status></div>
 
+                                            <div class="bp-chat-auto-refresh-note" role="status">
+                                                <i class="fas fa-rotate-right" aria-hidden="true"></i>
+                                                <span>{% trans "Conversation auto-refreshes every 10 seconds." %}</span>
+                                            </div>
+
                                             <div class="bp-chat-actions d-none" data-chat-actions>
                                                 <div class="bp-chat-proposal">
                                                     <div class="bp-chat-proposal__summary">
@@ -293,6 +255,11 @@
                                                             <span class="bp-chat-proposal__label">{% trans "Current proposal" %}</span>
                                                             <strong data-chat-proposal-amount></strong>
                                                         </div>
+                                                    </div>
+                                                    <div class="bp-chat-action-buttons d-none" data-chat-action-buttons>
+                                                        <button type="button" class="btn btn-success" data-chat-accept>
+                                                            <i class="fas fa-check me-1"></i>{% trans "Confirm amount" %}
+                                                        </button>
                                                     </div>
                                                     <form class="bp-chat-proposal-form" data-chat-proposal-form>
                                                         <label class="visually-hidden" for="{{ chat_input_id }}Proposal">{% trans "Proposal amount" %}</label>
@@ -359,18 +326,17 @@
                                 <section class="fwp-section fwp-section--actions">
                                     <div class="fwp-section__head">
                                         <div>
-                                            <p class="fwp-section__eyebrow">{% trans "Next step" %}</p>
-                                            <h3 class="fwp-section__title">{% trans "Request controls" %}</h3>
+                                            <p class="fwp-section__eyebrow">{% trans "Request" %}</p>
+                                            <h3 class="fwp-section__title">{% trans "Status and actions" %}</h3>
                                         </div>
-                                        <span class="fwp-section__badge"><i class="fas fa-user me-1"></i>{% trans "Buyer" %}</span>
                                     </div>
                                     <p class="fwp-section__hint">{{ req.status_hint }}</p>
                                     {% if req.accepted_offer %}
                                     <div class="mrp-note">
                                         <i class="fas fa-handshake"></i>
                                         <div>
-                                            <strong>{% trans "Builder accepted your request." %}</strong>
-                                            {% blocktrans with owner=req.accepted_offer.owner_username %}Accepted by {{ owner }}. Coordinate the final handoff from the conversation panel.{% endblocktrans %}
+                                            <strong>{% trans "Accepted builder" %}</strong>
+                                            {% blocktrans with owner=req.accepted_offer.owner_username %}{{ owner }} is currently assigned to this request. Use the conversation panel to finalise the agreement and delivery details.{% endblocktrans %}
                                         </div>
                                     </div>
                                     {% endif %}
@@ -379,7 +345,7 @@
                                         <i class="fas fa-file-signature"></i>
                                         <div>
                                             <strong>{% trans "Agreement waiting on you." %}</strong>
-                                            {% trans "A builder accepted the terms. Open the matching conversation to confirm the agreement." %}
+                                            {% trans "Review the active conversation and confirm the agreement if the amount works for you." %}
                                         </div>
                                     </div>
                                     {% elif req.cond_waiting_builder %}
@@ -387,7 +353,7 @@
                                         <i class="fas fa-hourglass-half"></i>
                                         <div>
                                             <strong>{% trans "Builder confirmation pending." %}</strong>
-                                            {% trans "You already accepted a proposal. Waiting for the builder to confirm from the same conversation." %}
+                                            {% trans "You already responded in chat. Waiting for the builder to confirm from the same conversation." %}
                                         </div>
                                     </div>
                                     {% elif req.cond_offers %}
@@ -395,7 +361,7 @@
                                         <i class="fas fa-comments-dollar"></i>
                                         <div>
                                             <strong>{% trans "Conditional offers available." %}</strong>
-                                            {% blocktrans count count=req.cond_offers|length %}Review the open negotiation below and pick the offer that fits you best.{% plural %}Review the {{ count }} open negotiations below and pick the offer that fits you best.{% endblocktrans %}
+                                            {% blocktrans count count=req.cond_offers|length %}Use the conversation panel below to review the open negotiation and answer it.{% plural %}Use the conversation panel below to review the {{ count }} open negotiations and answer them.{% endblocktrans %}
                                         </div>
                                     </div>
                                     {% endif %}

@@ -222,6 +222,11 @@
 
                                     <div class="alert alert-warning d-none bp-chat-status" role="status" data-chat-status></div>
 
+                                    <div class="bp-chat-auto-refresh-note" role="status">
+                                        <i class="fas fa-rotate-right" aria-hidden="true"></i>
+                                        <span>{% trans "Conversation auto-refreshes every 10 seconds." %}</span>
+                                    </div>
+
                                     <div class="bp-chat-actions d-none" data-chat-actions>
                                         <div class="bp-chat-proposal">
                                             <div class="bp-chat-proposal__summary">
@@ -233,6 +238,11 @@
                                                     <span class="bp-chat-proposal__label">{% trans "Current proposal" %}</span>
                                                     <strong data-chat-proposal-amount></strong>
                                                 </div>
+                                            </div>
+                                            <div class="bp-chat-action-buttons d-none" data-chat-action-buttons>
+                                                <button type="button" class="btn btn-success" data-chat-accept>
+                                                    <i class="fas fa-check me-1"></i>{% trans "Confirm amount" %}
+                                                </button>
                                             </div>
                                             <form class="bp-chat-proposal-form" data-chat-proposal-form>
                                                 <label class="visually-hidden" for="{{ chat_input_id }}Proposal">{% trans "Proposal amount" %}</label>
@@ -298,7 +308,7 @@
                     <div class="fwp-panel-col">
 
                         {# Actions #}
-                        <div class="fwp-section fwp-section--actions">
+                        <div class="fwp-section fwp-section--actions" data-copy-request-actions data-request-id="{{ req.id }}" data-viewer-role="seller">
                             <div class="fwp-section__head">
                                 <h3 class="fwp-section__title">{% trans "Actions" %}</h3>
                             </div>
@@ -306,7 +316,7 @@
                             <p class="fwp-section__hint">{{ req.status_hint }}</p>
                             {% endif %}
                             <div class="fulfill-reference-actions">
-                                {% if req.show_offer_actions %}
+                                <div data-request-offer-actions{% if not req.show_offer_actions %} class="d-none"{% endif %}>
                                 <form method="post" action="{% url 'indy_hub:bp_offer_copy_request' req.id %}">
                                     {% csrf_token %}
                                     <input type="hidden" name="action" value="accept">
@@ -345,16 +355,14 @@
                                         <i class="fas fa-times"></i>{% trans "Decline" %}
                                     </button>
                                 </form>
-                                {% endif %}
-                                {% if req.show_negotiation_actions and req.chat.decision_url %}
-                                {% if req.negotiation_notice %}
-                                <div class="fulfill-reference-note">
-                                    <i class="fas fa-info-circle"></i>
-                                    <span>{{ req.negotiation_notice }}</span>
                                 </div>
-                                {% endif %}
-                                {% if req.negotiation_can_accept %}
-                                <form method="post" action="{{ req.chat.decision_url }}">
+                                {% if req.chat.decision_url %}
+                                <div data-request-negotiation-actions{% if not req.show_negotiation_actions %} class="d-none"{% endif %}>
+                                <div class="fulfill-reference-note{% if not req.negotiation_notice %} d-none{% endif %}" data-request-negotiation-note>
+                                    <i class="fas fa-info-circle"></i>
+                                    <span data-request-negotiation-note-text>{{ req.negotiation_notice }}</span>
+                                </div>
+                                <form method="post" action="{{ req.chat.decision_url }}" data-request-accept-form{% if not req.negotiation_can_accept %} class="d-none"{% endif %}>
                                     {% csrf_token %}
                                     <input type="hidden" name="decision" value="accept">
                                     <input type="hidden" name="viewer_role" value="seller">
@@ -363,8 +371,7 @@
                                         <i class="fas fa-check"></i>{% trans "Confirm amount" %}
                                     </button>
                                 </form>
-                                {% endif %}
-                                <form method="post" action="{{ req.chat.decision_url }}">
+                                <form method="post" action="{{ req.chat.decision_url }}" data-request-decline-form{% if not req.negotiation_can_decline %} class="d-none"{% endif %}>
                                     {% csrf_token %}
                                     <input type="hidden" name="decision" value="reject">
                                     <input type="hidden" name="viewer_role" value="seller">
@@ -374,6 +381,7 @@
                                     </button>
                                 </form>
                                 {% endif %}
+                                </div>
                                 {% if req.can_mark_delivered %}
                                 <form method="post" action="{% url 'indy_hub:bp_mark_copy_delivered' req.id %}">
                                     {% csrf_token %}

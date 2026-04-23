@@ -1535,6 +1535,11 @@ def material_exchange_sell(request, tokens):
 
         return redirect("indy_hub:material_exchange_sell")
 
+    is_fragment_request = (
+        request.method == "GET"
+        and request.headers.get("X-Requested-With") == "XMLHttpRequest"
+    )
+
     # GET branch: trigger stock sync only if stale (> 1h) or never synced
     message_shown = False
     try:
@@ -1558,13 +1563,14 @@ def material_exchange_sell(request, tokens):
         stock_version_refresh = False
 
     if needs_refresh or stock_version_refresh:
-        messages.info(
-            request,
-            _(
-                "Refreshing via ESI. Make sure you have granted the assets scope to at least one character."
-            ),
-        )
-        message_shown = True
+        if not is_fragment_request:
+            messages.info(
+                request,
+                _(
+                    "Refreshing via ESI. Make sure you have granted the assets scope to at least one character."
+                ),
+            )
+            message_shown = True
         try:
             logger.info(
                 "Starting stock sync for sell page (last_sync=%s)",
@@ -1797,20 +1803,25 @@ def material_exchange_sell(request, tokens):
             accepted_catalog_by_type,
         )
 
-        if pre_filter_count > 0 and not materials_with_qty and not message_shown:
+        if (
+            pre_filter_count > 0
+            and not materials_with_qty
+            and not message_shown
+            and not is_fragment_request
+        ):
             messages.info(
                 request,
                 _("No accepted items available to sell at the accepted locations."),
             )
     else:
-        if scope_missing and not message_shown:
+        if scope_missing and not message_shown and not is_fragment_request:
             messages.info(
                 request,
                 _(
                     "Refreshing via ESI. Make sure you have granted the assets scope to at least one character."
                 ),
             )
-        elif not message_shown:
+        elif not message_shown and not is_fragment_request:
             messages.info(
                 request,
                 _("No items available to sell at the accepted locations."),
@@ -1849,10 +1860,7 @@ def material_exchange_sell(request, tokens):
         )
     )
 
-    if (
-        request.method == "GET"
-        and request.headers.get("X-Requested-With") == "XMLHttpRequest"
-    ):
+    if is_fragment_request:
         html = render_to_string(
             "indy_hub/material_exchange/includes/sell_page_content.html",
             context,

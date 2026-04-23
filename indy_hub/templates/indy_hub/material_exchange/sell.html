@@ -62,13 +62,19 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
     window.__indyHubSellPageState = window.__indyHubSellPageState || {
         initToken: 0,
         activePollToken: 0,
-        pollTimer: null
+        pollTimer: null,
+        swapTimer: null,
+        swapRequestToken: 0
     };
     const sellPageState = window.__indyHubSellPageState;
     const initToken = ++sellPageState.initToken;
     if (sellPageState.pollTimer) {
         clearTimeout(sellPageState.pollTimer);
         sellPageState.pollTimer = null;
+    }
+    if (sellPageState.swapTimer) {
+        clearTimeout(sellPageState.swapTimer);
+        sellPageState.swapTimer = null;
     }
 
     const query = selector => root.querySelector(selector);
@@ -944,6 +950,11 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
             clearTimeout(sellPageState.pollTimer);
             sellPageState.pollTimer = null;
         }
+        if (sellPageState.swapTimer) {
+            clearTimeout(sellPageState.swapTimer);
+            sellPageState.swapTimer = null;
+        }
+        const swapRequestToken = ++sellPageState.swapRequestToken;
 
         dynamicRoot.classList.add('opacity-50', 'pe-none');
         if (sellCharacterSelect) {
@@ -962,6 +973,9 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
             const payload = await response.json();
             if (!payload || typeof payload.html !== 'string') {
                 throw new Error('Invalid fragment payload');
+            }
+            if (swapRequestToken !== sellPageState.swapRequestToken) {
+                return;
             }
 
             const wrapper = document.createElement('div');
@@ -1052,7 +1066,13 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
                     const serverTime = serverLastUpdate ? Date.parse(serverLastUpdate) : null;
                     const hasNewTimestamp = serverTime && (!initialTime || serverTime > initialTime);
                     url.searchParams.set('refreshed', '1');
-                    window.setTimeout(() => swapSellDynamicContent(url.toString()), hasNewTimestamp ? 300 : 1200);
+                    if (sellPageState.swapTimer) {
+                        clearTimeout(sellPageState.swapTimer);
+                    }
+                    sellPageState.swapTimer = window.setTimeout(() => {
+                        sellPageState.swapTimer = null;
+                        swapSellDynamicContent(url.toString());
+                    }, hasNewTimestamp ? 300 : 1200);
                 }
                 return;
             }

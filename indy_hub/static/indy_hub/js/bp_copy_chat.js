@@ -1,4 +1,6 @@
 (function () {
+    var CHAT_POLL_INTERVAL_MS = 10000;
+
     var debugEnabled =
         typeof window !== "undefined" && window.INDY_HUB_DEBUG === true;
 
@@ -162,6 +164,109 @@
         return null;
     }
 
+    function syncRequestActionPanels(detail) {
+        if (!detail || !detail.requestId) {
+            return;
+        }
+
+        var requestId = String(detail.requestId);
+        var panels = Array.prototype.slice.call(
+            document.querySelectorAll("[data-copy-request-actions]")
+        ).filter(function (panel) {
+            return panel.getAttribute("data-request-id") === requestId;
+        });
+
+        if (!panels.length) {
+            return;
+        }
+
+        var decision = detail.decision || null;
+        var hasCurrentAmount = Boolean(
+            decision && decision.current_amount_display
+        );
+        var noteText = decision
+            ? [decision.status_label, decision.hint_label]
+                .filter(Boolean)
+                .join(" ")
+            : "";
+
+        panels.forEach(function (panel) {
+            var offerActionsEl = panel.querySelector("[data-request-offer-actions]");
+            var negotiationActionsEl = panel.querySelector(
+                "[data-request-negotiation-actions]"
+            );
+            var noteEl = panel.querySelector("[data-request-negotiation-note]");
+            var noteTextEl = panel.querySelector(
+                "[data-request-negotiation-note-text]"
+            );
+            var acceptFormEl = panel.querySelector("[data-request-accept-form]");
+            var acceptBtnEl = acceptFormEl
+                ? acceptFormEl.querySelector("button[type='submit']")
+                : null;
+            var declineFormEl = panel.querySelector("[data-request-decline-form]");
+            var declineBtnEl = declineFormEl
+                ? declineFormEl.querySelector("button[type='submit']")
+                : null;
+
+            if (offerActionsEl) {
+                offerActionsEl.classList.toggle("d-none", hasCurrentAmount);
+            }
+
+            if (negotiationActionsEl) {
+                negotiationActionsEl.classList.toggle(
+                    "d-none",
+                    !hasCurrentAmount
+                );
+            }
+
+            if (noteEl) {
+                noteEl.classList.toggle("d-none", !noteText);
+            }
+
+            if (noteTextEl) {
+                noteTextEl.textContent = noteText;
+            }
+
+            if (acceptFormEl) {
+                acceptFormEl.classList.toggle(
+                    "d-none",
+                    !(hasCurrentAmount && decision && decision.viewer_can_accept)
+                );
+            }
+
+            if (acceptBtnEl) {
+                acceptBtnEl.disabled = !(
+                    hasCurrentAmount && decision && decision.viewer_can_accept
+                );
+                if (decision && decision.accept_label) {
+                    acceptBtnEl.innerHTML =
+                        '<i class="fas fa-check"></i>' + decision.accept_label;
+                }
+            }
+
+            if (declineFormEl) {
+                declineFormEl.classList.toggle(
+                    "d-none",
+                    !(hasCurrentAmount && decision && decision.viewer_can_reject)
+                );
+            }
+
+            if (declineBtnEl) {
+                declineBtnEl.disabled = !(
+                    hasCurrentAmount && decision && decision.viewer_can_reject
+                );
+                if (decision && decision.reject_label) {
+                    declineBtnEl.innerHTML =
+                        '<i class="fas fa-times"></i>' + decision.reject_label;
+                }
+            }
+        });
+    }
+
+    document.addEventListener("indyhub:bp-chat-state", function (event) {
+        syncRequestActionPanels(event.detail || null);
+    });
+
     function createChatController(shellEl) {
         var inlineMode = shellEl.hasAttribute("data-chat-inline");
         var bootstrapModalCtor = getBootstrapModalCtor();
@@ -184,6 +289,10 @@
         var actionHintEl = actionsEl
             ? $("[data-chat-action-hint]", actionsEl)
             : null;
+        var actionButtonsEl = actionsEl
+            ? $("[data-chat-action-buttons]", actionsEl)
+            : null;
+        var acceptBtnEl = actionsEl ? $("[data-chat-accept]", actionsEl) : null;
         var proposalFormEl = actionsEl
             ? $("[data-chat-proposal-form]", actionsEl)
             : null;
@@ -551,6 +660,12 @@
                 if (actionHintEl) {
                     actionHintEl.textContent = "";
                 }
+                if (actionButtonsEl) {
+                    actionButtonsEl.classList.add("d-none");
+                }
+                if (acceptBtnEl) {
+                    acceptBtnEl.disabled = true;
+                }
                 if (proposalFormEl) {
                     proposalFormEl.classList.add("d-none");
                 }
@@ -607,6 +722,7 @@
             }
 
             var canPropose = Boolean(decision.viewer_can_propose);
+            var canAccept = Boolean(decision.viewer_can_accept);
 
             if (proposalCurrentEl) {
                 proposalCurrentEl.classList.toggle(
@@ -642,9 +758,21 @@
                 proposalFormEl.classList.toggle("d-none", !canPropose);
             }
 
+            if (actionButtonsEl) {
+                actionButtonsEl.classList.toggle("d-none", !canAccept);
+            }
+
+            if (acceptBtnEl) {
+                if (decision.accept_label) {
+                    acceptBtnEl.innerHTML =
+                        '<i class="fas fa-check me-1"></i>' + decision.accept_label;
+                }
+                acceptBtnEl.disabled = !canAccept || state.actionSubmitting;
+            }
+
             actionsEl.classList.toggle(
                 "d-none",
-                !(decision || Boolean(decision.status_label) || canPropose)
+                !(decision || Boolean(decision.status_label) || canPropose || canAccept)
             );
         }
 
@@ -661,6 +789,10 @@
                 proposalSubmitBtn.disabled =
                     submitting || !state.lastDecision.viewer_can_propose;
             }
+            if (acceptBtnEl && actionButtonsEl && !actionButtonsEl.classList.contains("d-none")) {
+                acceptBtnEl.disabled =
+                    submitting || !state.lastDecision.viewer_can_accept;
+            }
         }
 
         function applyChatState(payload) {
@@ -676,6 +808,22 @@
             updateSummary(payload);
             renderMessages(payload);
             updateActions(payload.chat && payload.chat.decision ? payload.chat.decision : null);
+
+            if (typeof CustomEvent === "function") {
+                shellEl.dispatchEvent(
+                    new CustomEvent("indyhub:bp-chat-state", {
+                        bubbles: true,
+                        detail: {
+                            requestId: shellEl.dataset.requestId || null,
+                            chat: payload.chat || null,
+                            decision:
+                                payload.chat && payload.chat.decision
+                                    ? payload.chat.decision
+                                    : null,
+                        },
+                    })
+                );
+            }
 
             if (!payload.chat.can_send) {
                 toggleForm(false);
@@ -761,7 +909,7 @@
                 fetchChat().catch(function () {
                     stopPolling();
                 });
-            }, 12000);
+            }, CHAT_POLL_INTERVAL_MS);
         }
 
         function submitDecision(decisionValue, extraPayload) {
@@ -990,6 +1138,19 @@
                 }
 
                 submitDecision("propose", { amount: amount });
+            });
+        }
+
+        if (acceptBtnEl) {
+            acceptBtnEl.addEventListener("click", function () {
+                if (
+                    !state.lastDecision ||
+                    !state.lastDecision.viewer_can_accept ||
+                    state.actionSubmitting
+                ) {
+                    return;
+                }
+                submitDecision("accept");
             });
         }
 

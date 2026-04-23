@@ -270,6 +270,21 @@ html[data-theme="darkly"] .bp-chat-shell {
     margin-bottom: 0;
 }
 
+.bp-chat-inline .bp-chat-auto-refresh-note {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    margin: 0;
+    font-size: 0.72rem;
+    line-height: 1.4;
+    color: rgba(15, 23, 42, 0.62);
+}
+
+.bp-chat-inline .bp-chat-auto-refresh-note i {
+    color: rgba(37, 99, 235, 0.78);
+    font-size: 0.72rem;
+}
+
 .bp-chat-shell .bp-chat-summary {
     color: inherit;
 }
@@ -345,6 +360,14 @@ html[data-theme="darkly"] .bp-chat-shell {
 
 html[data-theme="darkly"] .bp-chat-shell .bp-chat-proposal__hint {
     color: rgba(226, 232, 240, 0.68);
+}
+
+html[data-theme="darkly"] .bp-chat-inline .bp-chat-auto-refresh-note {
+    color: rgba(226, 232, 240, 0.62);
+}
+
+html[data-theme="darkly"] .bp-chat-inline .bp-chat-auto-refresh-note i {
+    color: rgba(96, 165, 250, 0.82);
 }
 
 .bp-chat-shell .bp-chat-proposal__current {
@@ -786,10 +809,20 @@ html[data-theme="darkly"] .bp-chat-modal .bp-chat-send {
     box-shadow: none;
 }
 
+.fulfill-page .bp-chat-inline .bp-chat-auto-refresh-note {
+    margin: 0 0.75rem 0.65rem;
+    padding: 0.75rem 0 0;
+    border-top: 1px solid rgba(107, 133, 175, 0.1);
+}
+
 html[data-theme="darkly"] .fulfill-page .bp-chat-inline .bp-chat-actions {
     border-top-color: rgba(148, 163, 184, 0.14);
     background: transparent;
     background: rgba(24, 33, 48, 0.82);
+}
+
+html[data-theme="darkly"] .fulfill-page .bp-chat-inline .bp-chat-auto-refresh-note {
+    border-top-color: rgba(148, 163, 184, 0.14);
 }
 
 .fulfill-page .bp-chat-inline .bp-chat-message-list {
