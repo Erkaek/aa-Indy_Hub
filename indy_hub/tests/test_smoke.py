@@ -41,6 +41,7 @@ from indy_hub.models import (
     MaterialExchangeConfig,
     MaterialExchangeSellOrder,
     MaterialExchangeSellOrderItem,
+    MaterialExchangeSettings,
     SDESyncCompatState,
     UserOnboardingProgress,
 )
@@ -432,6 +433,9 @@ class NavbarMaterialExchangeMyOrdersTests(TestCase):
         self.assertContains(response, reverse("indy_hub:all_bp_list"))
 
     def test_my_orders_page_shows_material_hub_nav_badge_for_open_orders(self) -> None:
+        settings_obj = MaterialExchangeSettings.get_solo()
+        settings_obj.is_enabled = True
+        settings_obj.save(update_fields=["is_enabled"])
         config = MaterialExchangeConfig.objects.create(
             corporation_id=1234,
             structure_id=5678,
@@ -453,7 +457,7 @@ class NavbarMaterialExchangeMyOrdersTests(TestCase):
         self.client.force_login(self.user)
         response = self.client.get(reverse("indy_hub:my_orders"))
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'data-nav-badge="material-hub">1<')
+        self.assertEqual(response.context["material_hub_nav_badge_count"], 1)
 
 
 class NavbarIndustryJobsTests(TestCase):
