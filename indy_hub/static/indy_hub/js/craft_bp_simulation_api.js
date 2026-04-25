@@ -278,75 +278,13 @@
         });
     }
 
-    function resetStateFromPayload(nextPayload, options) {
-        const normalizedPayload = (nextPayload && typeof nextPayload === 'object') ? nextPayload : {};
-        const config = Object.assign({
-            preservePrices: true,
-            preserveStructures: true,
-            preserveSwitches: false,
-        }, options || {});
+    function ingestStructurePlannerPayload(nextStructurePlannerPayload, preservedAssignments = new Map()) {
+        structurePlannerPayload = (nextStructurePlannerPayload && typeof nextStructurePlannerPayload === 'object')
+            ? nextStructurePlannerPayload
+            : {};
 
-        const preservedPrices = new Map();
-        const preservedAssignments = new Map();
-        const preservedSwitches = new Map();
-
-        if (config.preservePrices) {
-            pricesMap.forEach((value, typeId) => {
-                preservedPrices.set(Number(typeId), Object.assign({}, value));
-            });
-        }
-        if (config.preserveStructures) {
-            structureAssignmentsMap.forEach((value, typeId) => {
-                preservedAssignments.set(Number(typeId), Number(value) || null);
-            });
-        }
-        if (config.preserveSwitches) {
-            switchesMap.forEach((value, typeId) => {
-                preservedSwitches.set(Number(typeId), Object.assign({}, value));
-            });
-        }
-
-        payload = normalizedPayload;
-        marketGroupMap = payload.market_group_map || {};
-        structurePlannerPayload = payload.structure_planner || payload.structurePlanner || {};
-        rootProductTypeId = Number(payload.product_type_id || payload.productTypeId || 0);
-        rootProductOutputPerCycle = normalizeQuantity(payload.product_output_per_cycle || payload.productOutputPerCycle || 0);
-
-        materialsMap.clear();
-        treeMap.clear();
-        switchesMap.clear();
-        pricesMap.clear();
         structureItemsMap.clear();
         structureAssignmentsMap.clear();
-
-        ingestTree(Array.isArray(payload.materials_tree) ? payload.materials_tree : []);
-        ingestFlatMaterials(Array.isArray(payload.materials) ? payload.materials : []);
-        ingestFlatMaterials(Array.isArray(payload.direct_materials) ? payload.direct_materials : []);
-        ingestMaterialsByGroup(payload.materials_by_group || payload.materialsByGroup);
-
-        if (rootProductTypeId) {
-            const rootProductName = payload.name || '';
-            if (!materialsMap.has(rootProductTypeId)) {
-                materialsMap.set(rootProductTypeId, {
-                    typeId: rootProductTypeId,
-                    typeName: rootProductName,
-                    quantity: normalizeQuantity(payload.final_product_qty || payload.finalProductQty || 0),
-                    marketGroup: null,
-                    groupId: null,
-                    producedPerCycle: rootProductOutputPerCycle
-                });
-            }
-            if (!treeMap.has(rootProductTypeId)) {
-                treeMap.set(rootProductTypeId, {
-                    typeId: rootProductTypeId,
-                    typeName: rootProductName,
-                    quantity: normalizeQuantity(payload.final_product_qty || payload.finalProductQty || 0),
-                    parentIds: new Set(),
-                    children: new Set(),
-                    craftable: Array.isArray(payload.materials_tree) && payload.materials_tree.length > 0
-                });
-            }
-        }
 
         readStructureItems().forEach((item) => {
             const typeId = Number(readValue(item, 'type_id', 'typeId'));
@@ -384,6 +322,78 @@
                 structureAssignmentsMap.set(typeId, selectedStructureId);
             }
         });
+    }
+
+    function resetStateFromPayload(nextPayload, options) {
+        const normalizedPayload = (nextPayload && typeof nextPayload === 'object') ? nextPayload : {};
+        const config = Object.assign({
+            preservePrices: true,
+            preserveStructures: true,
+            preserveSwitches: false,
+        }, options || {});
+
+        const preservedPrices = new Map();
+        const preservedAssignments = new Map();
+        const preservedSwitches = new Map();
+
+        if (config.preservePrices) {
+            pricesMap.forEach((value, typeId) => {
+                preservedPrices.set(Number(typeId), Object.assign({}, value));
+            });
+        }
+        if (config.preserveStructures) {
+            structureAssignmentsMap.forEach((value, typeId) => {
+                preservedAssignments.set(Number(typeId), Number(value) || null);
+            });
+        }
+        if (config.preserveSwitches) {
+            switchesMap.forEach((value, typeId) => {
+                preservedSwitches.set(Number(typeId), Object.assign({}, value));
+            });
+        }
+
+        payload = normalizedPayload;
+        marketGroupMap = payload.market_group_map || {};
+        const nextStructurePlannerPayload = payload.structure_planner || payload.structurePlanner || {};
+        rootProductTypeId = Number(payload.product_type_id || payload.productTypeId || 0);
+        rootProductOutputPerCycle = normalizeQuantity(payload.product_output_per_cycle || payload.productOutputPerCycle || 0);
+
+        materialsMap.clear();
+        treeMap.clear();
+        switchesMap.clear();
+        pricesMap.clear();
+        structureItemsMap.clear();
+        structureAssignmentsMap.clear();
+
+        ingestTree(Array.isArray(payload.materials_tree) ? payload.materials_tree : []);
+        ingestFlatMaterials(Array.isArray(payload.materials) ? payload.materials : []);
+        ingestFlatMaterials(Array.isArray(payload.direct_materials) ? payload.direct_materials : []);
+        ingestMaterialsByGroup(payload.materials_by_group || payload.materialsByGroup);
+        ingestStructurePlannerPayload(nextStructurePlannerPayload, preservedAssignments);
+
+        if (rootProductTypeId) {
+            const rootProductName = payload.name || '';
+            if (!materialsMap.has(rootProductTypeId)) {
+                materialsMap.set(rootProductTypeId, {
+                    typeId: rootProductTypeId,
+                    typeName: rootProductName,
+                    quantity: normalizeQuantity(payload.final_product_qty || payload.finalProductQty || 0),
+                    marketGroup: null,
+                    groupId: null,
+                    producedPerCycle: rootProductOutputPerCycle
+                });
+            }
+            if (!treeMap.has(rootProductTypeId)) {
+                treeMap.set(rootProductTypeId, {
+                    typeId: rootProductTypeId,
+                    typeName: rootProductName,
+                    quantity: normalizeQuantity(payload.final_product_qty || payload.finalProductQty || 0),
+                    parentIds: new Set(),
+                    children: new Set(),
+                    craftable: Array.isArray(payload.materials_tree) && payload.materials_tree.length > 0
+                });
+            }
+        }
 
         treeMap.forEach((entry) => {
             if (!entry.craftable) {
@@ -878,6 +888,18 @@
         replacePayload: (nextPayload, options) => {
             resetStateFromPayload(nextPayload, options);
             return payload;
+        },
+        replaceStructurePlanner: (nextStructurePlannerPayload, options) => {
+            const config = Object.assign({ preserveAssignments: true }, options || {});
+            const preservedAssignments = new Map();
+            if (config.preserveAssignments) {
+                structureAssignmentsMap.forEach((value, typeId) => {
+                    preservedAssignments.set(Number(typeId), Number(value) || null);
+                });
+            }
+            ingestStructurePlannerPayload(nextStructurePlannerPayload, preservedAssignments);
+            markTabsDirty(['financial', 'cycles']);
+            return structurePlannerPayload;
         },
         setSwitchState,
         markSwitch: setSwitchState,

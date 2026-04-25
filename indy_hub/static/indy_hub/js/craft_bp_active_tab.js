@@ -74,18 +74,15 @@ window.CraftBPTabs = {
         this.loadingFailsafeTimer = window.setTimeout(() => {
             console.warn('[IndyHub] Craft workspace loading exceeded expected time; revealing workspace');
             this.finishLoadingAndShowContent();
-        }, 4000);
+        }, 12000);
 
-        // Silently preload the Tree tab to initialize switches, then show the content
-        setTimeout(() => {
-            try {
-                this.preloadTreeTab();
-            } catch (error) {
-                console.error('[IndyHub] Failed during initial craft workspace hydration', error);
-            } finally {
-                this.finishLoadingAndShowContent();
-            }
-        }, 500);
+        // Silently preload the Tree tab to initialize switches, but keep the
+        // workspace hidden until the page bootstrap reports that it is ready.
+        try {
+            this.preloadTreeTab();
+        } catch (error) {
+            console.error('[IndyHub] Failed during initial craft workspace hydration', error);
+        }
 
     },
 
@@ -157,6 +154,12 @@ window.CraftBPTabs = {
         if (this.loadingFailsafeTimer) {
             window.clearTimeout(this.loadingFailsafeTimer);
             this.loadingFailsafeTimer = null;
+        }
+
+        if (window.CraftBPLoading && typeof window.CraftBPLoading.finishBootstrap === 'function') {
+            window.CraftBPLoading.finishBootstrap({
+                message: __('Workspace ready'),
+            });
         }
 
         if (window.CraftBPLoading && typeof window.CraftBPLoading.hide === 'function') {

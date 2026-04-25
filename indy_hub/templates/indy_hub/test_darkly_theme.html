@@ -1,0 +1,69 @@
+{% extends "indy_hub/base.html" %}
+{% load i18n %}
+{% load static %}
+
+{% block page_title %}{% trans "Darkly Theme Preview" %}{% endblock page_title %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
+<link rel="stylesheet" href="{% static 'indy_hub/css/components.css' %}">
+{% endblock extra_css %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="page-header mb-4">
+        <div class="d-flex flex-wrap align-items-center justify-content-start gap-3">
+            <div>
+                <h2 class="h3 mb-1">
+                    <i class="fas fa-palette me-2"></i>
+                    {% trans "Darkly Theme Preview" %}
+                </h2>
+                <p class="description mb-0">{% trans "Reference page used to inspect Indy Hub overrides on top of the Darkly theme." %}</p>
+            </div>
+        </div>
+        <i class="fas fa-palette header-bg"></i>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-lg-7">
+            <div class="card shadow-sm">
+                <div class="card-body p-4">
+                    <h3 class="h5 mb-3">{% trans "Typography and spacing" %}</h3>
+                    <p class="text-muted mb-3">{% trans "Use this page to verify headings, body copy, badges, alerts and buttons under the shared theme stack." %}</p>
+                    <div class="d-flex flex-wrap gap-2 mb-3">
+                        <span class="badge rounded-pill bg-primary-subtle text-primary">{% trans "Primary" %}</span>
+                        <span class="badge rounded-pill bg-success-subtle text-success">{% trans "Success" %}</span>
+                        <span class="badge rounded-pill bg-warning-subtle text-warning">{% trans "Warning" %}</span>
+                        <span class="badge rounded-pill bg-danger-subtle text-danger">{% trans "Danger" %}</span>
+                    </div>
+                    <div class="alert alert-info mb-0">
+                        {% trans "If this page loads correctly, the Darkly override template chain is wired and available again." %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-5">
+            <div class="card shadow-sm h-100">
+                <div class="card-body p-4 d-flex flex-column gap-3">
+                    <h3 class="h5 mb-0">{% trans "Controls" %}</h3>
+                    <div class="d-flex flex-wrap gap-2">
+                        <button type="button" class="btn btn-primary">{% trans "Primary action" %}</button>
+                        <button type="button" class="btn btn-outline-secondary">{% trans "Secondary action" %}</button>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" value="" id="darklyPreviewCheckbox" checked>
+                        <label class="form-check-label" for="darklyPreviewCheckbox">{% trans "Checkbox contrast sample" %}</label>
+                    </div>
+                    <div>
+                        <label class="form-label" for="darklyPreviewSelect">{% trans "Select sample" %}</label>
+                        <select class="form-select" id="darklyPreviewSelect">
+                            <option>{% trans "First option" %}</option>
+                            <option>{% trans "Second option" %}</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock content %}

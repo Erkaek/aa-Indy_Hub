@@ -1288,6 +1288,11 @@ class IndustryStructureRegistryViewTests(TestCase):
         response = self._edit_view(request, structure.id)
 
         self.assertEqual(response.status_code, 302)
+        messages = [message.message for message in request._messages]
+        self.assertIn(
+            "Synchronized structure updated successfully. Rigs saved: 1.",
+            messages,
+        )
         structure.refresh_from_db()
         self.assertEqual(structure.name, "Auto Azbel")
         self.assertEqual(structure.structure_type_id, 35826)

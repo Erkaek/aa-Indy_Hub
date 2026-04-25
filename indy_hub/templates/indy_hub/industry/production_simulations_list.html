@@ -3,21 +3,26 @@
 {% load static %}
 {% load humanize %}
 
-{% block page_title %}{% trans "Production Simulations" %}{% endblock page_title %}
+{% block page_title %}{% trans "Crafting Projects" %}{% endblock page_title %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
 <link rel="stylesheet" href="{% static 'indy_hub/css/blueprints.css' %}">
-<link rel="stylesheet" href="{% static 'indy_hub/css/simulations.css' %}">
+<link rel="stylesheet" href="{% static 'indy_hub/css/simulations.css' %}?v=20260425-progress-modal-refresh2">
 {% endblock extra_css %}
 
 {% block content %}
-<div class="container-fluid py-4 simulations-page" data-market-groups='{{ market_group_map|escapejs }}'>
-    <div class="dev-alert alert alert-warning d-flex align-items-center gap-3 mb-4" role="alert">
-        <i class="fas fa-exclamation-triangle fa-lg"></i>
+<div
+    class="container-fluid py-4 simulations-page"
+    data-market-groups='{{ market_group_map|escapejs }}'
+    data-project-preview-url="{{ production_project_import_preview_url }}"
+    data-project-create-url="{{ create_production_project_url }}"
+>
+    <div class="dev-alert alert alert-info d-flex align-items-center gap-3 mb-4" role="alert">
+        <i class="fas fa-table-cells-large fa-lg"></i>
         <div>
-            <h3 class="h6 fw-semibold mb-1 text-uppercase">{% trans "Active development" %}</h3>
-            <p class="mb-0 small">{% trans "This simulations dashboard is under active development. Please don't rely on the displayed data for decision making yet." %}</p>
+            <h3 class="h6 fw-semibold mb-1 text-uppercase">{% trans "Unified workflow" %}</h3>
+            <p class="mb-0 small">{% trans "Single-blueprint crafts now open as craft tables too, so every saved workspace uses the same project model." %}</p>
         </div>
     </div>
 
@@ -25,253 +30,354 @@
         <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
             <div>
                 <h2 class="h3 mb-1">
-                    <i class="fas fa-flask me-2"></i>
-                    {% trans "Production Simulations" %}
+                    <i class="fas fa-table-cells-large me-2"></i>
+                    {% trans "Production Tables" %}
                 </h2>
-                <p class="description mb-0">{% trans "Stay ahead of your industrial queue with curated simulation dashboards." %}</p>
+                <p class="description mb-0">{% trans "Create a multi-product craft project from an EFT fitting or a manual item list, then keep drafts and saved tables in one place." %}</p>
             </div>
             <div class="d-flex flex-wrap gap-2">
-                <a href="{% url 'indy_hub:all_bp_list' %}" class="btn btn-light btn-action">
-                    <i class="fas fa-plus me-2"></i>{% trans "New Simulation" %}
-                </a>
+                <button type="button" class="btn btn-light btn-action" data-bs-toggle="modal" data-bs-target="#productionProjectImportModal">
+                    <i class="fas fa-plus me-2"></i>{% trans "New craft table" %}
+                </button>
                 <a href="{% url 'indy_hub:index' %}" class="btn btn-outline-light btn-action">
                     <i class="fas fa-home me-2"></i>{% trans "Back to Hub" %}
                 </a>
             </div>
         </div>
-        <i class="fas fa-chart-line header-bg"></i>
+        <i class="fas fa-sitemap header-bg"></i>
     </div>
 
-    <div class="simulations-callout alert alert-info shadow-sm d-flex align-items-center gap-3 mb-4" role="alert">
-        <i class="fas fa-lightbulb-on fa-lg"></i>
-        <div>
-            <h3 class="h6 fw-semibold mb-1 text-uppercase">{% trans "Production insights" %}</h3>
-            <p class="mb-0 small">{% trans "Simulations pull live blueprint metrics. Refresh the craft tool to update inventory, then return here to review profitability." %}</p>
-        </div>
-    </div>
-
-    {% if total_simulations > 0 %}
-    <div class="row g-3 mb-4">
-        <div class="col-12 col-sm-6 col-xl-3">
-            <div class="summary-card h-100">
-                <div class="summary-card__icon bg-primary-subtle text-primary">
-                    <i class="fas fa-layer-group"></i>
+    <section class="glass-panel mb-4 p-4">
+        <div class="row g-4 align-items-center">
+            <div class="col-lg-7">
+                <h3 class="h5 mb-2">{% trans "One workspace for the full fit" %}</h3>
+                <p class="text-muted mb-3">{% trans "Paste an EFT fitting or type a custom item list. The preview resolves item names, aggregates duplicate quantities, flags what is not craftable, and lets you decide whether non-craftable items should enter the table as buy lines." %}</p>
+                <div class="d-flex flex-wrap gap-2 small text-muted">
+                    <span class="status-badge"><i class="fas fa-paste me-1"></i>{% trans "EFT import" %}</span>
+                    <span class="status-badge"><i class="fas fa-list-ul me-1"></i>{% trans "Manual list" %}</span>
+                    <span class="status-badge"><i class="fas fa-layer-group me-1"></i>{% trans "Aggregated quantities" %}</span>
+                    <span class="status-badge"><i class="fas fa-industry me-1"></i>{% trans "Global production tree" %}</span>
                 </div>
-                <div>
-                    <p class="summary-card__label mb-1">{% trans "Total simulations" %}</p>
-                    <h5 class="summary-card__value mb-0">{{ total_simulations|intcomma }}</h5>
-                    <small class="text-muted">{% trans "Saved scenarios ready to launch" %}</small>
+            </div>
+            <div class="col-lg-5">
+                <div class="row g-3">
+                    <div class="col-6">
+                        <div class="summary-card h-100">
+                            <div class="summary-card__icon bg-primary-subtle text-primary">
+                                <i class="fas fa-pencil-ruler"></i>
+                            </div>
+                            <div>
+                                <p class="summary-card__label mb-1">{% trans "In progress" %}</p>
+                                <h5 class="summary-card__value mb-0">{{ project_stats.draft_projects|intcomma }}</h5>
+                                <small class="text-muted">{% trans "Draft craft tables" %}</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="summary-card h-100">
+                            <div class="summary-card__icon bg-success-subtle text-success">
+                                <i class="fas fa-bookmark"></i>
+                            </div>
+                            <div>
+                                <p class="summary-card__label mb-1">{% trans "Saved" %}</p>
+                                <h5 class="summary-card__value mb-0">{{ project_stats.saved_projects|intcomma }}</h5>
+                                <small class="text-muted">{% trans "Named projects" %}</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="summary-card h-100">
+                            <div class="summary-card__icon bg-warning-subtle text-warning">
+                                <i class="fas fa-cubes"></i>
+                            </div>
+                            <div>
+                                <p class="summary-card__label mb-1">{% trans "Selected items" %}</p>
+                                <h5 class="summary-card__value mb-0">{{ project_stats.selected_items|intcomma }}</h5>
+                                <small class="text-muted">{% trans "Across all projects" %}</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="summary-card h-100">
+                            <div class="summary-card__icon bg-info-subtle text-info">
+                                <i class="fas fa-sort-amount-up"></i>
+                            </div>
+                            <div>
+                                <p class="summary-card__label mb-1">{% trans "Requested units" %}</p>
+                                <h5 class="summary-card__value mb-0">{{ project_stats.selected_quantity|intcomma }}</h5>
+                                <small class="text-muted">{% trans "Aggregated output volume" %}</small>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
-        <div class="col-12 col-sm-6 col-xl-3">
-            <div class="summary-card h-100">
-                <div class="summary-card__icon bg-success-subtle text-success">
-                    <i class="fas fa-sync"></i>
-                </div>
-                <div>
-                    <p class="summary-card__label mb-1">{% trans "Total runs" %}</p>
-                    <h5 class="summary-card__value mb-0">{{ stats.total_runs|default:0|intcomma }}</h5>
-                    <small class="text-muted">{% trans "Across every simulation" %}</small>
-                </div>
+    </section>
+
+    <section class="mb-4">
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+            <div>
+                <h3 class="h5 mb-1">{% trans "In progress" %}</h3>
+                <p class="text-muted small mb-0">{% trans "Draft tables that still need pricing, buy/build decisions, or configuration work." %}</p>
             </div>
+            <span class="status-badge"><i class="fas fa-clock me-1"></i>{{ draft_projects|length|intcomma }} {% trans "drafts" %}</span>
         </div>
-        <div class="col-12 col-sm-6 col-xl-3">
-            <div class="summary-card h-100">
-                <div class="summary-card__icon bg-warning-subtle text-warning">
-                    <i class="fas fa-coins"></i>
-                </div>
-                <div>
-                    <p class="summary-card__label mb-1">{% trans "Estimated revenue" %}</p>
-                    <h5 class="summary-card__value mb-0">{{ stats.total_revenue|floatformat:0|intcomma }} ISK</h5>
-                    <small class="text-muted">{% trans "Projected sales value" %}</small>
-                </div>
-            </div>
-        </div>
-        <div class="col-12 col-sm-6 col-xl-3">
-            <div class="summary-card h-100">
-                <div class="summary-card__icon bg-info-subtle text-info">
-                    <i class="fas fa-clock"></i>
-                </div>
-                <div>
-                    <p class="summary-card__label mb-1">{% trans "Last refreshed" %}</p>
-                    <h5 class="summary-card__value mb-0">
-                        {% if stats.latest_update %}
-                            {{ stats.latest_update|timesince }} {% trans "ago" %}
-                        {% else %}
-                            {% trans "Never" %}
-                        {% endif %}
-                    </h5>
-                    <small class="text-muted">{% trans "Update simulations from the craft tool" %}</small>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="simulations-toolbar d-flex flex-column flex-lg-row align-items-start align-items-lg-center justify-content-between gap-3 mb-4">
-        <div class="d-flex flex-wrap align-items-center gap-2">
-            <span class="toolbar-label text-muted text-uppercase fw-semibold">{% trans "Quick glance" %}</span>
-            <span class="status-badge">
-                <i class="fas fa-shopping-cart me-1"></i>{{ stats.total_buy_items|default:0|intcomma }} {% trans "to buy" %}
-            </span>
-            <span class="status-badge">
-                <i class="fas fa-industry me-1"></i>{{ stats.total_prod_items|default:0|intcomma }} {% trans "to produce" %}
-            </span>
-            <span class="status-badge">
-                <i class="fas fa-piggy-bank me-1"></i>{{ stats.total_profit|floatformat:0|intcomma }} ISK {% trans "net" %}
-            </span>
-        </div>
-        <div class="d-flex flex-wrap gap-2">
-            <a href="{% url 'indy_hub:production_simulations' %}" class="btn btn-outline-secondary btn-slim">
-                <i class="fas fa-table me-1"></i>{% trans "Compact view" %}
-            </a>
-            <a href="{% url 'indy_hub:production_simulations_list' %}?refresh=1" class="btn btn-outline-primary btn-slim">
-                <i class="fas fa-sync-alt me-1"></i>{% trans "Refresh" %}
-            </a>
-        </div>
-    </div>
-
-    <div class="simulation-grid">
-        {% for simulation in simulations %}
-        <article class="simulation-card shadow-sm">
-            <div class="simulation-card-body">
-                <div class="simulation-header">
-                    <div class="simulation-icon">
-                    {% if simulation.product_icon_url %}
-                        <img src="{{ simulation.product_icon_url }}" alt="{{ simulation.blueprint_name }}" onerror="if(!this.dataset.fallback){this.dataset.fallback='bp';this.src='{{ simulation.blueprint_icon_url }}';}else{this.onerror=null;this.src='https://images.evetech.net/types/{{ simulation.blueprint_type_id }}/bp?size=64';}">
-                    {% elif simulation.blueprint_icon_url %}
-                        <img src="{{ simulation.blueprint_icon_url }}" alt="{{ simulation.blueprint_name }}">
-                    {% else %}
-                        <span class="fallback"><i class="fas fa-industry"></i></span>
-                    {% endif %}
+        {% if draft_projects %}
+        <div class="simulation-grid">
+            {% for project in draft_projects %}
+            <article class="simulation-card shadow-sm project-card" data-project-id="{{ project.id }}">
+                <div class="simulation-card-body">
+                    <div class="simulation-header">
+                        <div class="simulation-icon">
+                            <span class="fallback"><i class="fas fa-project-diagram"></i></span>
+                        </div>
+                        <div class="simulation-title">
+                            <h3 class="h6 mb-1">{{ project.name }}</h3>
+                            <p class="mb-0 text-muted">
+                                {% if project.source_name %}
+                                    {{ project.source_name }}
+                                {% else %}
+                                    {{ project.get_source_kind_display }}
+                                {% endif %}
+                            </p>
+                        </div>
+                        <div class="simulation-meta">
+                            <span class="meta-badge items"><i class="fas fa-cubes"></i> {{ project.summary.selected_items|default:0|intcomma }}</span>
+                            <span class="meta-badge runs"><i class="fas fa-sort-amount-up"></i> {{ project.summary.selected_quantity|default:0|intcomma }}</span>
+                        </div>
                     </div>
-                    <div class="simulation-title">
-                        <h3 class="h6 mb-1">{{ simulation.display_name }}</h3>
-                        <p class="mb-0 text-muted">
-                            {% if simulation.blueprint_name %}
-                                {{ simulation.blueprint_name }}
-                            {% else %}
-                                {% trans "Blueprint #" %}{{ simulation.blueprint_type_id }}
-                            {% endif %}
-                        </p>
+                    <div class="metric-grid">
+                        <div class="metric">
+                            <span class="metric-label text-primary">{% trans "Source" %}</span>
+                            <span class="metric-value">{{ project.get_source_kind_display }}</span>
+                            <small class="metric-subtext">{% trans "Import mode" %}</small>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label text-success">{% trans "Craftable" %}</span>
+                            <span class="metric-value">{{ project.summary.craftable_items|default:0|intcomma }}</span>
+                            <small class="metric-subtext">{% trans "Build candidates" %}</small>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label text-warning">{% trans "Buy lines" %}</span>
+                            <span class="metric-value">{{ project.summary.buy_items|default:0|intcomma }}</span>
+                            <small class="metric-subtext">{% trans "Forced or non-craftable" %}</small>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label text-info">{% trans "Status" %}</span>
+                            <span class="metric-value">{{ project.get_status_display }}</span>
+                            <small class="metric-subtext">{% trans "Workspace state" %}</small>
+                        </div>
                     </div>
-                    <div class="simulation-meta">
-                        <span class="meta-badge runs" title="{% trans 'Runs' %}">
-                            <i class="fas fa-sync-alt"></i> {{ simulation.runs|intcomma }}
-                        </span>
-                        <span class="meta-badge items" title="{% trans 'Total Items' %}">
-                            <i class="fas fa-cubes"></i> {{ simulation.total_items|intcomma }}
-                        </span>
+                    <div class="project-progress-block mt-3" data-project-progress-card data-project-ref="{{ project.project_ref }}">
+                        <div class="d-flex align-items-center justify-content-between gap-3 mb-2">
+                            <div>
+                                <div class="fw-semibold small text-uppercase text-muted">{% trans "Completion" %}</div>
+                                <div class="small text-muted" data-project-progress-summary>
+                                    {% if project.activity_progress.total_count %}
+                                        {{ project.activity_progress.progress_quantity|default:0 }} / {{ project.activity_progress.total_quantity|default:0 }} {% trans "units covered" %} • {{ project.activity_progress.in_progress_count|default:0 }} {% trans "lines in production" %}
+                                    {% else %}
+                                        {% trans "No production lines" %}
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                class="btn btn-outline-secondary btn-sm"
+                                data-project-progress-button
+                                data-project-name="{{ project.name|escape }}"
+                                data-project-ref="{{ project.project_ref }}"
+                                data-project-progress-save-url="{% url 'indy_hub:save_production_project_progress' project.project_ref %}"
+                                data-project-progress-json-id="{{ project.progress_json_id }}"
+                                {% if not project.activity_progress.total_count %}disabled{% endif %}
+                            >
+                                <i class="fas fa-list-check me-1"></i>{% trans "Production tracking" %}
+                            </button>
+                        </div>
+                        <div class="progress project-progress-meter" role="progressbar" aria-valuenow="{{ project.activity_progress.completion_percentage|default:0 }}" aria-valuemin="0" aria-valuemax="100">
+                            <div class="progress-bar{% if project.activity_progress.in_progress_count %} progress-bar-striped progress-bar-animated{% endif %}" style="width: {{ project.activity_progress.completion_percentage|default:0 }}%;" data-project-progress-bar>
+                                <span data-project-progress-label>{{ project.activity_progress.completion_percentage|default:0 }}%</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
-
-                <div class="metric-grid">
-                    <div class="metric">
-                        <span class="metric-label text-danger">{% trans "Buy List" %}</span>
-                        <span class="metric-value">{{ simulation.total_buy_items|intcomma }}</span>
-                        <small class="metric-subtext">{% trans "Items to acquire" %}</small>
+                <div class="simulation-footer">
+                    <div class="timestamp">
+                        <i class="fas fa-clock me-1"></i>{% trans "Updated" %} {{ project.updated_at|timesince }} {% trans "ago" %}
                     </div>
-                    <div class="metric">
-                        <span class="metric-label text-success">{% trans "Production" %}</span>
-                        <span class="metric-value">{{ simulation.total_prod_items|intcomma }}</span>
-                        <small class="metric-subtext">{% trans "Items to craft" %}</small>
-                    </div>
-                    <div class="metric">
-                        <span class="metric-label text-warning">{% trans "Estimated Cost" %}</span>
-                        <span class="metric-value">{{ simulation.estimated_cost|floatformat:0|intcomma }}</span>
-                        <small class="metric-subtext">ISK</small>
-                    </div>
-                    <div class="metric">
-                        <span class="metric-label text-info">{% trans "Expected Profit" %}</span>
-                        <span class="metric-value">{{ simulation.estimated_profit|floatformat:0|intcomma }}</span>
-                        <small class="metric-subtext">ISK</small>
+                    <div class="btn-group" role="group">
+                        <a href="{{ project.workspace_url }}" class="btn btn-outline-primary btn-sm" title="{% trans 'Open table' %}">
+                            <i class="fas fa-play"></i>
+                        </a>
+                        <a href="{% url 'indy_hub:delete_production_project' project.project_ref %}" class="btn btn-outline-danger btn-sm" title="{% trans 'Delete table' %}">
+                            <i class="fas fa-trash"></i>
+                        </a>
                     </div>
                 </div>
-
-                <div class="simulation-insights">
-                    {% if simulation.profit_margin %}
-                    <span class="insight-badge profit">
-                        <i class="fas fa-percentage"></i>
-                        {{ simulation.profit_margin|floatformat:1 }}%
-                    </span>
-                    {% endif %}
-                    {% if simulation.active_tab %}
-                    <span class="insight-badge tab">
-                        <i class="fas fa-columns"></i>
-                        {% trans "Last tab" %}: {{ simulation.active_tab|title }}
-                    </span>
-                    {% endif %}
-                    <span class="insight-badge runs">
-                        <i class="fas fa-cog"></i>
-                        {{ simulation.runs|intcomma }} {% trans "cycles" %}
-                    </span>
-                </div>
-            </div>
-            <div class="simulation-footer">
-                <div class="timestamp">
-                    <i class="fas fa-clock me-1"></i>
-                    {% trans "Updated" %} {{ simulation.updated_at|timesince }} {% trans "ago" %}
-                </div>
-                <div class="btn-group" role="group">
-                    <a href="{% url 'indy_hub:craft_bp' simulation.blueprint_type_id %}?runs={{ simulation.runs }}" class="btn btn-outline-primary btn-sm" title="{% trans 'Open Simulation' %}">
-                        <i class="fas fa-play"></i>
-                    </a>
-                    <a href="{% url 'indy_hub:edit_simulation_name' simulation.id %}" class="btn btn-outline-secondary btn-sm" title="{% trans 'Edit Name' %}">
-                        <i class="fas fa-edit"></i>
-                    </a>
-                    <a href="{% url 'indy_hub:delete_production_simulation' simulation.id %}" class="btn btn-outline-danger btn-sm" title="{% trans 'Delete' %}">
-                        <i class="fas fa-trash"></i>
-                    </a>
-                </div>
-            </div>
-        </article>
-        {% endfor %}
-    </div>
-
-    {% if simulations.has_other_pages %}
-    <nav aria-label="{% trans 'Simulations pagination' %}" class="mt-4">
-        <ul class="pagination justify-content-center">
-            {% if simulations.has_previous %}
-            <li class="page-item">
-                <a class="page-link" href="?page={{ simulations.previous_page_number }}">
-                    <i class="fas fa-chevron-left"></i>
-                </a>
-            </li>
-            {% endif %}
-
-            {% for num in simulations.paginator.page_range %}
-            {% if simulations.number == num %}
-            <li class="page-item active">
-                <span class="page-link">{{ num }}</span>
-            </li>
-            {% elif num > simulations.number|add:'-3' and num < simulations.number|add:'3' %}
-            <li class="page-item">
-                <a class="page-link" href="?page={{ num }}">{{ num }}</a>
-            </li>
-            {% endif %}
+            </article>
+            {{ project.activity_progress|json_script:project.progress_json_id }}
             {% endfor %}
-
-            {% if simulations.has_next %}
-            <li class="page-item">
-                <a class="page-link" href="?page={{ simulations.next_page_number }}">
-                    <i class="fas fa-chevron-right"></i>
-                </a>
-            </li>
-            {% endif %}
-        </ul>
-    </nav>
-    {% endif %}
-    {% else %}
-    <div class="empty-state shadow-sm">
-        <div class="empty-icon">
-            <i class="fas fa-flask"></i>
         </div>
-        <h5 class="mb-2">{% trans "No Simulations Yet" %}</h5>
-        <p class="mb-4">{% trans "Explore your blueprints and save a scenario to keep track of your production planning." %}</p>
-        <a href="{% url 'indy_hub:all_bp_list' %}" class="btn btn-primary btn-lg">
-            <i class="fas fa-plus me-2"></i>{% trans "Create Your First Simulation" %}
-        </a>
+        {% else %}
+        <div class="empty-state shadow-sm py-4">
+            <div class="empty-icon"><i class="fas fa-pen-ruler"></i></div>
+            <h5 class="mb-2">{% trans "No draft tables" %}</h5>
+            <p class="mb-0">{% trans "Start with an EFT fitting or a manual list to create your first multi-item craft table." %}</p>
+        </div>
+        {% endif %}
+    </section>
+
+    <section class="mb-4">
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+            <div>
+                <h3 class="h5 mb-1">{% trans "Saved tables" %}</h3>
+                <p class="text-muted small mb-0">{% trans "Stable projects you want to reopen later with the full craft workspace." %}</p>
+            </div>
+            <span class="status-badge"><i class="fas fa-bookmark me-1"></i>{{ saved_projects|length|intcomma }} {% trans "saved" %}</span>
+        </div>
+        {% if saved_projects %}
+        <div class="simulation-grid">
+            {% for project in saved_projects %}
+            <article class="simulation-card shadow-sm project-card" data-project-id="{{ project.id }}">
+                <div class="simulation-card-body">
+                    <div class="simulation-header">
+                        <div class="simulation-icon">
+                            <span class="fallback"><i class="fas fa-industry"></i></span>
+                        </div>
+                        <div class="simulation-title">
+                            <h3 class="h6 mb-1">{{ project.name }}</h3>
+                            <p class="mb-0 text-muted">{{ project.get_source_kind_display }}</p>
+                        </div>
+                        <div class="simulation-meta">
+                            <span class="meta-badge items"><i class="fas fa-cubes"></i> {{ project.summary.selected_items|default:0|intcomma }}</span>
+                            <span class="meta-badge runs"><i class="fas fa-sort-amount-up"></i> {{ project.summary.selected_quantity|default:0|intcomma }}</span>
+                        </div>
+                    </div>
+                    <div class="simulation-insights">
+                        <span class="insight-badge profit"><i class="fas fa-hammer"></i> {{ project.summary.craftable_items|default:0|intcomma }} {% trans "craftable" %}</span>
+                        <span class="insight-badge tab"><i class="fas fa-shopping-cart"></i> {{ project.summary.buy_items|default:0|intcomma }} {% trans "buy" %}</span>
+                    </div>
+                </div>
+                <div class="simulation-footer">
+                    <div class="timestamp">
+                        <i class="fas fa-clock me-1"></i>{% trans "Updated" %} {{ project.updated_at|timesince }} {% trans "ago" %}
+                    </div>
+                    <div class="btn-group" role="group">
+                        <a href="{{ project.workspace_url }}" class="btn btn-outline-primary btn-sm" title="{% trans 'Open table' %}">
+                            <i class="fas fa-play"></i>
+                        </a>
+                        <a href="{% url 'indy_hub:delete_production_project' project.project_ref %}" class="btn btn-outline-danger btn-sm" title="{% trans 'Delete table' %}">
+                            <i class="fas fa-trash"></i>
+                        </a>
+                    </div>
+                </div>
+            </article>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="alert alert-info shadow-sm mb-0">{% trans "No saved craft tables yet. Save a draft once the table name and scope are stable." %}</div>
+        {% endif %}
+    </section>
+
+</div>
+<div class="modal fade" id="productionProjectImportModal" tabindex="-1" aria-labelledby="productionProjectImportModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <h5 class="modal-title" id="productionProjectImportModalLabel">{% trans "Create a craft table" %}</h5>
+                    <p class="small text-muted mb-0">{% trans "Paste an EFT fitting or a manual item list, preview the resolved items, then choose what enters the project." %}</p>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-4">
+                    <div class="col-lg-5">
+                        <div class="mb-3">
+                            <label for="productionProjectSourceKind" class="form-label fw-semibold">{% trans "Input mode" %}</label>
+                            <select id="productionProjectSourceKind" class="form-select">
+                                <option value="eft">{% trans "EFT fitting" %}</option>
+                                <option value="manual">{% trans "Manual item list" %}</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label for="productionProjectName" class="form-label fw-semibold">{% trans "Project name" %}</label>
+                            <input type="text" id="productionProjectName" class="form-control" placeholder="{% trans 'Fleet Vedmak - Week 1' %}">
+                        </div>
+                        <div class="mb-3">
+                            <label for="productionProjectStatus" class="form-label fw-semibold">{% trans "Initial status" %}</label>
+                            <select id="productionProjectStatus" class="form-select">
+                                <option value="draft">{% trans "In progress" %}</option>
+                                <option value="saved">{% trans "Saved" %}</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label for="productionProjectSourceText" class="form-label fw-semibold">{% trans "Items" %}</label>
+                            <textarea id="productionProjectSourceText" class="form-control" rows="14" placeholder="{% trans '[Vedmak, Fleet]
+
+Thermal Armor Hardener II
+Warp Disruptor II x2' %}"></textarea>
+                        </div>
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" role="switch" id="productionProjectIncludeBuy" checked>
+                            <label class="form-check-label" for="productionProjectIncludeBuy">{% trans "Add non-craftable items to the project as buy lines" %}</label>
+                        </div>
+                        <div class="d-flex gap-2">
+                            <button type="button" class="btn btn-outline-primary" id="productionProjectPreviewBtn">
+                                <i class="fas fa-search me-2"></i>{% trans "Preview items" %}
+                            </button>
+                            <button type="button" class="btn btn-primary" id="productionProjectCreateBtn" disabled>
+                                <i class="fas fa-industry me-2"></i>{% trans "Create table" %}
+                            </button>
+                        </div>
+                    </div>
+                    <div class="col-lg-7">
+                        <div id="productionProjectImportStatus" class="alert alert-secondary">{% trans "Preview the import to review craftable and non-craftable lines." %}</div>
+                        <div class="row g-3 mb-3" id="productionProjectPreviewSummary"></div>
+                        <div id="productionProjectPreviewGroups" class="d-grid gap-3"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
-    {% endif %}
+</div>
+
+<div class="modal fade" id="productionProjectProgressModal" tabindex="-1" aria-labelledby="productionProjectProgressModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content project-progress-modal">
+            <div class="modal-header">
+                <div class="project-progress-modal__title-wrap">
+                    <div class="project-progress-modal__eyebrow" id="productionProjectProgressModalEyebrow">{% trans "Production tracking" %}</div>
+                    <h5 class="modal-title" id="productionProjectProgressModalLabel">{% trans "Production tracking" %}</h5>
+                    <p class="small text-muted mb-0" id="productionProjectProgressModalDescription">{% trans "Link one or more tracked industry jobs to each item to update coverage automatically from job output quantities." %}</p>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
+            </div>
+            <div class="modal-body">
+                <div class="project-progress-modal-summary mb-4">
+                    <div class="project-progress-modal-summary__head">
+                        <div>
+                            <div class="small text-uppercase text-muted fw-semibold">{% trans "Completion" %}</div>
+                            <div class="project-progress-modal-summary__value fw-semibold" id="productionProjectProgressSummaryText">0%</div>
+                        </div>
+                        <div class="small text-muted project-progress-modal-summary__meta" id="productionProjectProgressSummaryMeta"></div>
+                    </div>
+                    <div class="progress project-progress-meter" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                        <div class="progress-bar" id="productionProjectProgressModalBar" style="width: 0%;">0%</div>
+                    </div>
+                    <div class="project-progress-modal-summary__stats" id="productionProjectProgressSummaryStats"></div>
+                </div>
+                <div id="productionProjectProgressRows" class="project-progress-modal-rows"></div>
+                <div id="productionProjectProgressStatus" class="alert alert-secondary mt-4 mb-0">{% trans "Link tracked jobs when possible. Manual statuses remain available for lines without linked jobs." %}</div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{% trans "Close" %}</button>
+                <button type="button" class="btn btn-primary" id="productionProjectProgressSaveBtn">{% trans "Save production tracking" %}</button>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock content %}
+
+{% block extra_javascript %}
+<script src="{% static 'indy_hub/js/production_projects.js' %}?v=20260425-progress-modal-refresh2"></script>
+{% endblock extra_javascript %}

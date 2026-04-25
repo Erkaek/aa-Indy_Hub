@@ -31,37 +31,9 @@ html[data-theme="darkly"] {
     --craft-glass-shadow: 0 22px 52px -18px rgb(0 0 0 / 65%);
 }
 
-/* Hide html scrollbar on craft page, keep only .nav-padding scrollbar */
-html:has(#craftMainTabs) {
-    overflow: hidden !important;
-}
-
 .craft-bp-surface {
     background: transparent;
-}
-
-/* Ensure craft main tabs only scroll horizontally if needed */
-#craftMainTabs.craft-nav-tabs {
-    overflow-x: auto !important;
-    overflow-y: hidden !important;
-}
-
-#craftMainTabs {
-    overflow-y: hidden !important;
-}
-
-/* Ensure craft page doesn't create additional scroll contexts */
-.craft-bp-surface,
-.craft-bp-surface * {
-    overflow-y: visible !important;
-    overflow-x: visible !important;
-    max-height: none !important;
-    height: auto !important;
-}
-
-/* Hide inactive tab panes completely to avoid taking up space */
-.tab-pane.fade:not(.show) {
-    display: none !important;
+    overflow: visible;
 }
 
 /* Stronger scoping for redesigned craft tabs: only show the active pane */
@@ -324,11 +296,15 @@ html[data-theme="darkly"] .craft-hero .header-bg {
 
 .craft-bp-loading-inline {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: center;
-    gap: 0.75rem;
-    padding: 2rem 1rem;
+    gap: 1rem;
+    padding: 1.5rem 1rem;
     margin-bottom: 1.5rem;
+    border: 1px solid rgba(148, 163, 184, 0.24);
+    border-radius: 1rem;
+    background: linear-gradient(135deg, rgba(255, 251, 235, 0.92), rgba(248, 250, 252, 0.96));
+    box-shadow: 0 18px 48px rgba(15, 23, 42, 0.08);
     transition: opacity 0.18s ease, visibility 0.18s ease;
 }
 
@@ -347,6 +323,7 @@ html[data-theme="darkly"] .craft-hero .header-bg {
     color: var(--bs-warning-text-emphasis, #b45309);
     animation: craftBpSpinnerRotate 1.4s linear infinite;
     transform-origin: 50% 50%;
+    margin-top: 0.25rem;
 }
 
 @keyframes craftBpSpinnerRotate {
@@ -358,16 +335,124 @@ html[data-theme="darkly"] .craft-hero .header-bg {
     }
 }
 
+.craft-bp-loading-inline__content {
+    width: min(100%, 38rem);
+}
+
+.craft-bp-loading-inline__title {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--bs-emphasis-color, #0f172a);
+}
+
 .craft-bp-loading-inline__text {
+    margin-top: 0.25rem;
     font-weight: 600;
+    color: var(--bs-secondary-color);
+}
+
+.craft-bp-loading-progress {
+    position: relative;
+    overflow: hidden;
+    width: 100%;
+    height: 0.5rem;
+    margin-top: 0.85rem;
+    border-radius: 999px;
+    background: rgba(148, 163, 184, 0.2);
+}
+
+.craft-bp-loading-progress__bar {
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, #f59e0b, #0ea5e9);
+    box-shadow: 0 0 16px rgba(14, 165, 233, 0.24);
+    transition: width 0.22s ease;
+}
+
+.craft-bp-loading-progress__label {
+    margin-top: 0.5rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--bs-secondary-color);
+}
+
+.craft-bp-loading-steps {
+    margin: 0.85rem 0 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: 0.45rem;
+}
+
+.craft-bp-loading-step {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.75rem;
+    align-items: center;
+    padding: 0.55rem 0.7rem;
+    border-radius: 0.8rem;
+    background: rgba(255, 255, 255, 0.7);
+    border: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.craft-bp-loading-step.is-current {
+    border-color: rgba(14, 165, 233, 0.28);
+    background: rgba(224, 242, 254, 0.72);
+}
+
+.craft-bp-loading-step.is-done {
+    border-color: rgba(34, 197, 94, 0.18);
+    background: rgba(240, 253, 244, 0.78);
+}
+
+.craft-bp-loading-step__index {
+    width: 1.65rem;
+    height: 1.65rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    background: rgba(148, 163, 184, 0.18);
+    color: var(--bs-emphasis-color, #0f172a);
+}
+
+.craft-bp-loading-step.is-current .craft-bp-loading-step__index {
+    background: rgba(14, 165, 233, 0.16);
+    color: #0369a1;
+}
+
+.craft-bp-loading-step.is-done .craft-bp-loading-step__index {
+    background: rgba(34, 197, 94, 0.15);
+    color: #15803d;
+}
+
+.craft-bp-loading-step__title {
+    font-size: 0.92rem;
+    font-weight: 700;
+    color: var(--bs-emphasis-color, #0f172a);
+}
+
+.craft-bp-loading-step__detail {
+    font-size: 0.8rem;
     color: var(--bs-secondary-color);
 }
 
 @media (max-width: 575.98px) {
     .craft-bp-loading-inline {
         flex-direction: column;
-        text-align: center;
+        text-align: left;
     }
+
+    .craft-bp-loading-inline__content {
+        width: 100%;
+    }
+
+    .craft-bp-loading-step {
+        grid-template-columns: auto minmax(0, 1fr);
+    }
+
 }
 
 .blueprint-main {
@@ -1358,6 +1443,10 @@ div[id="bpTabs"] {
     overflow-x: hidden;
 }
 
+.craft-tree-branch {
+    min-height: 2.5rem;
+}
+
 .craft-tree-container::-webkit-scrollbar {
     width: 6px;
 }
@@ -1525,6 +1614,53 @@ div[id="bpTabs"] {
     gap: 0.25rem;
 }
 
+.craft-financial-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.75rem;
+    padding: 0.75rem;
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.75rem;
+    background: color-mix(in srgb, var(--bs-body-bg) 92%, var(--bs-secondary-bg));
+}
+
+.craft-financial-planner-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.craft-financial-stat {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.35rem 0.6rem;
+    background: var(--bs-secondary-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--bs-secondary-color);
+}
+
+.craft-financial-filters {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.craft-financial-filters .input-group {
+    min-width: min(100%, 280px);
+}
+
+.craft-financial-filters .form-select {
+    min-width: 170px;
+}
+
 .craft-financial-table {
     font-size: 0.8125rem;
     border: 1px solid var(--bs-border-color);
@@ -1586,15 +1722,101 @@ div[id="bpTabs"] {
     white-space: nowrap;
 }
 
+.craft-financial-section-row td {
+    padding: 0.65rem 0.75rem;
+    background: color-mix(in srgb, var(--bs-secondary-bg) 82%, transparent);
+    border-top: 1px solid var(--bs-border-color);
+    border-bottom: 1px solid var(--bs-border-color);
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--bs-secondary-color);
+}
+
+.craft-financial-group-row td {
+    padding: 0.45rem 0.75rem;
+    background: color-mix(in srgb, var(--bs-body-bg) 78%, var(--bs-secondary-bg));
+    border-top: 1px dashed color-mix(in srgb, var(--bs-border-color) 80%, transparent);
+    border-bottom: 1px dashed color-mix(in srgb, var(--bs-border-color) 80%, transparent);
+}
+
+.craft-financial-group-row .badge {
+    font-size: 0.72rem;
+    letter-spacing: 0.01em;
+}
+
+.craft-financial-group-row .financial-group-count {
+    white-space: nowrap;
+}
+
 /* Item column should truncate when space is tight */
 .craft-planner-item-flex {
     min-width: 0; /* critical for flex truncation */
+}
+
+.craft-financial-item-shell {
+    min-width: 0;
 }
 
 .craft-planner-item-name-wrap {
     min-width: 0;
     flex: 1 1 auto;
     text-align: left;
+}
+
+.financial-row-kind {
+    font-size: 0.66rem;
+    letter-spacing: 0.02em;
+}
+
+.financial-market-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.15rem 0.45rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--bs-tertiary-bg) 86%, transparent);
+}
+
+.financial-market-group::before {
+    content: "";
+    width: 0.35rem;
+    height: 0.35rem;
+    border-radius: 999px;
+    background: var(--bs-primary);
+    opacity: 0.7;
+}
+
+.financial-row-reset {
+    flex: 0 0 auto;
+    padding: 0.15rem 0.25rem;
+    margin-left: auto;
+    border-radius: 0.35rem;
+    text-decoration: none;
+}
+
+.financial-row-reset:disabled {
+    opacity: 0.35;
+    pointer-events: none;
+}
+
+.financial-source-badge {
+    min-width: 88px;
+    justify-content: center;
+}
+
+.financial-source-badge.source-manual {
+    background: var(--bs-primary-bg-subtle);
+    color: var(--bs-primary-text-emphasis);
+}
+
+.financial-source-badge.source-fuzzwork {
+    background: var(--bs-info-bg-subtle);
+    color: var(--bs-info-text-emphasis);
+}
+
+.financial-source-badge.source-missing {
+    background: var(--bs-warning-bg-subtle);
+    color: var(--bs-warning-text-emphasis);
 }
 
 /* The badge itself should not stretch; it truncates within the available width */
@@ -1908,6 +2130,20 @@ html[data-theme="darkly"] .craft-header-icon {
     padding: 1.5rem 0 0 0;
 }
 
+@supports (content-visibility: auto) {
+    .craft-group-card,
+    .craft-financial-table,
+    .craft-needed-table,
+    .craft-tree-branch {
+        content-visibility: auto;
+        contain-intrinsic-size: 600px;
+    }
+
+    .craft-tree-branch {
+        contain-intrinsic-size: 48px 360px;
+    }
+}
+
 /* Override inner scroll/height constraints from legacy styles */
 .craft-materials-list,
 .craft-group-items,
@@ -2163,6 +2399,20 @@ html[data-theme="darkly"] .craft-header-icon {
 
     .craft-financial-hero .craft-kpi-value {
         font-size: 1.25rem;
+    }
+
+    .craft-financial-toolbar {
+        align-items: stretch;
+    }
+
+    .craft-financial-filters {
+        width: 100%;
+    }
+
+    .craft-financial-filters .input-group,
+    .craft-financial-filters .form-select {
+        min-width: 0;
+        width: 100%;
     }
 
     .craft-bulk-actions {

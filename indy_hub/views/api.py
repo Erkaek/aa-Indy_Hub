@@ -16,6 +16,8 @@ from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
 from django.db import connection
 from django.http import JsonResponse
+from django.shortcuts import get_object_or_404
+from django.urls import reverse
 from django.views.decorators.http import require_http_methods
 
 # Alliance Auth
@@ -28,6 +30,7 @@ from ..models import (
     BlueprintEfficiency,
     CustomPrice,
     ProductionConfig,
+    ProductionProject,
     ProductionSimulation,
 )
 from ..services.craft_materials import (
@@ -41,6 +44,17 @@ from ..services.craft_structures import (
 from ..services.craft_times import build_craft_time_map
 from ..services.industry_skills import build_craft_character_advisor
 from ..services.industry_structures import resolve_solar_system_reference
+from ..services.production_projects import (
+    build_project_import_preview,
+    build_project_workspace_payload,
+    create_project_from_entries,
+    normalize_production_project_ref,
+    parse_project_me_te_overrides,
+)
+from ..services.project_progress import (
+    normalize_project_progress,
+    update_project_summary_progress,
+)
 from ..utils.analytics import emit_view_analytics_event
 from ..utils.menu_badge import compute_menu_badge_count
 
@@ -58,6 +72,313 @@ def _to_serializable(value):
     if isinstance(value, list):
         return [_to_serializable(item) for item in value]
     return value
+
+
+@indy_hub_access_required
+@indy_hub_permission_required("can_access_indy_hub")
+@login_required
+@require_http_methods(["POST"])
+def production_project_import_preview(request):
+    emit_view_analytics_event(
+        view_name="api.production_project_import_preview", request=request
+    )
+
+    try:
+        data = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON data"}, status=400)
+
+    source_text = str(data.get("source_text") or "").strip()
+    source_kind = str(data.get("source_kind") or "").strip() or None
+    if not source_text:
+        return JsonResponse({"error": "source_text is required"}, status=400)
+
+    preview = build_project_import_preview(source_text, preferred_kind=source_kind)
+    return JsonResponse({"success": True, **_to_serializable(preview)})
+
+
+@indy_hub_access_required
+@indy_hub_permission_required("can_access_indy_hub")
+@login_required
+@require_http_methods(["POST"])
+def create_production_project(request):
+    emit_view_analytics_event(
+        view_name="api.create_production_project", request=request
+    )
+
+    try:
+        data = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON data"}, status=400)
+
+    source_text = str(data.get("source_text") or "")
+    source_kind = str(data.get("source_kind") or "manual").strip() or "manual"
+    source_name = str(data.get("source_name") or "").strip()
+    project_name = str(data.get("name") or source_name or "").strip()
+    requested_status = str(data.get("status") or ProductionProject.Status.DRAFT)
+    include_non_craftable_as_buy = bool(data.get("include_non_craftable_as_buy"))
+    raw_items = data.get("items") or []
+
+    if requested_status not in ProductionProject.Status.values:
+        requested_status = ProductionProject.Status.DRAFT
+
+    if not isinstance(raw_items, list) or not raw_items:
+        return JsonResponse({"error": "items is required"}, status=400)
+
+    selected_entries = []
+    for raw_item in raw_items:
+        if not isinstance(raw_item, dict):
+            continue
+        if not raw_item.get("type_name"):
+            continue
+        if raw_item.get("resolved") is False:
+            continue
+
+        is_craftable = bool(raw_item.get("is_craftable"))
+        inclusion_mode = str(raw_item.get("inclusion_mode") or "produce")
+        if not is_craftable:
+            if include_non_craftable_as_buy:
+                inclusion_mode = "buy"
+            elif inclusion_mode != "buy":
+                continue
+
+        selected_entries.append(
+            {
+                **raw_item,
+                "quantity": max(1, int(raw_item.get("quantity") or 1)),
+                "inclusion_mode": inclusion_mode,
+            }
+        )
+
+    if not selected_entries:
+        return JsonResponse(
+            {"error": "No valid selected items were provided"},
+            status=400,
+        )
+
+    project = create_project_from_entries(
+        user=request.user,
+        name=project_name or source_name or "New production project",
+        status=requested_status,
+        source_kind=source_kind,
+        source_text=source_text,
+        source_name=source_name,
+        selected_entries=selected_entries,
+        notes=str(data.get("notes") or ""),
+    )
+
+    return JsonResponse(
+        {
+            "success": True,
+            "project_ref": project.project_ref,
+            "project_name": project.name,
+            "redirect_url": request.build_absolute_uri(
+                reverse(
+                    "indy_hub:craft_project",
+                    args=[project.project_ref],
+                )
+            ),
+        }
+    )
+
+
+@indy_hub_access_required
+@indy_hub_permission_required("can_access_indy_hub")
+@login_required
+@require_http_methods(["GET"])
+def production_project_payload(request, project_ref: str):
+    emit_view_analytics_event(
+        view_name="api.production_project_payload", request=request
+    )
+
+    try:
+        normalized_project_ref = normalize_production_project_ref(project_ref)
+    except ValueError:
+        normalized_project_ref = ""
+
+    project = get_object_or_404(
+        ProductionProject.objects.prefetch_related("items"),
+        project_ref=normalized_project_ref,
+        user=request.user,
+    )
+    payload = build_project_workspace_payload(
+        project,
+        skill_cache_ttl=SKILL_CACHE_TTL,
+        me_te_overrides=parse_project_me_te_overrides(request.GET),
+    )
+    return JsonResponse(_to_serializable(payload))
+
+
+@indy_hub_access_required
+@indy_hub_permission_required("can_access_indy_hub")
+@login_required
+@require_http_methods(["POST"])
+def save_production_project_workspace(request, project_ref: str):
+    emit_view_analytics_event(
+        view_name="api.save_production_project_workspace", request=request
+    )
+
+    try:
+        normalized_project_ref = normalize_production_project_ref(project_ref)
+    except ValueError:
+        return JsonResponse(
+            {"error": "Invalid production project reference"}, status=400
+        )
+
+    project = get_object_or_404(
+        ProductionProject,
+        project_ref=normalized_project_ref,
+        user=request.user,
+    )
+
+    try:
+        data = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON data"}, status=400)
+
+    def sanitize_list(value):
+        return value if isinstance(value, list) else []
+
+    def sanitize_dict(value):
+        return value if isinstance(value, dict) else {}
+
+    existing_workspace_state = dict(project.workspace_state or {})
+
+    simulation_name = str(
+        data.get("simulationName") or data.get("simulation_name") or ""
+    ).strip()
+    active_blueprint_tab = str(
+        data.get("activeBlueprintTab") or data.get("active_tab") or "materials"
+    )
+    blueprint_type_id = int(
+        data.get("blueprint_type_id")
+        or existing_workspace_state.get("blueprint_type_id")
+        or 0
+    )
+    blueprint_name = str(
+        data.get("blueprint_name")
+        or existing_workspace_state.get("blueprint_name")
+        or ""
+    )
+
+    workspace_state = {
+        "blueprint_type_id": blueprint_type_id,
+        "blueprint_name": blueprint_name,
+        "runs": max(1, int(data.get("runs") or 1)),
+        "simulation_name": simulation_name,
+        "simulationName": simulation_name,
+        "active_tab": active_blueprint_tab,
+        "activeBlueprintTab": active_blueprint_tab,
+        "buyTypeIds": sanitize_list(data.get("buyTypeIds")),
+        "manualPrices": sanitize_list(data.get("manualPrices")),
+        "runOptimizedMaxRuns": str(data.get("runOptimizedMaxRuns") or ""),
+        "meTeConfig": sanitize_dict(data.get("meTeConfig")),
+        "copyRequests": sanitize_list(data.get("copyRequests")),
+        "structure": sanitize_dict(data.get("structure")),
+        "pendingWorkspaceRefresh": bool(data.get("pendingWorkspaceRefresh")),
+        "pendingWorkspaceSourceTab": str(data.get("pendingWorkspaceSourceTab") or ""),
+        "items": sanitize_list(data.get("items")),
+        "blueprint_efficiencies": sanitize_list(data.get("blueprint_efficiencies")),
+        "custom_prices": sanitize_list(data.get("custom_prices")),
+        "estimated_cost": float(data.get("estimated_cost") or 0),
+        "estimated_revenue": float(data.get("estimated_revenue") or 0),
+        "estimated_profit": float(data.get("estimated_profit") or 0),
+        "total_items": int(data.get("total_items") or 0),
+        "total_buy_items": int(data.get("total_buy_items") or 0),
+        "total_prod_items": int(data.get("total_prod_items") or 0),
+    }
+
+    new_name = workspace_state["simulation_name"]
+    update_fields = ["workspace_state", "updated_at"]
+    project.workspace_state = workspace_state
+    if new_name:
+        project.name = new_name[:255]
+        update_fields.append("name")
+    project.save(update_fields=update_fields)
+
+    return JsonResponse(
+        {
+            "success": True,
+            "project_ref": project.project_ref,
+            "project_name": project.name,
+            "message": "Production project workspace saved successfully",
+        }
+    )
+
+
+@indy_hub_access_required
+@indy_hub_permission_required("can_access_indy_hub")
+@login_required
+@require_http_methods(["POST"])
+def save_production_project_progress(request, project_ref: str):
+    emit_view_analytics_event(
+        view_name="api.save_production_project_progress", request=request
+    )
+
+    try:
+        normalized_project_ref = normalize_production_project_ref(project_ref)
+    except ValueError:
+        return JsonResponse(
+            {"error": "Invalid production project reference"}, status=400
+        )
+
+    project = get_object_or_404(
+        ProductionProject,
+        project_ref=normalized_project_ref,
+        user=request.user,
+    )
+
+    try:
+        data = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON data"}, status=400)
+
+    in_progress_ids = data.get("in_progress_ids") or []
+    completed_ids = data.get("completed_ids") or []
+    linked_job_ids_by_item = data.get("linked_job_ids_by_item") or {}
+    if (
+        not isinstance(in_progress_ids, list)
+        or not isinstance(completed_ids, list)
+        or not isinstance(linked_job_ids_by_item, dict)
+    ):
+        return JsonResponse(
+            {
+                "error": "in_progress_ids and completed_ids must be lists and linked_job_ids_by_item must be an object"
+            },
+            status=400,
+        )
+
+    normalized_linked_job_ids_by_item: dict[str, list[str]] = {}
+    for item_id, job_ids in linked_job_ids_by_item.items():
+        if not isinstance(job_ids, list):
+            return JsonResponse(
+                {"error": "linked_job_ids_by_item values must be lists"},
+                status=400,
+            )
+        normalized_linked_job_ids_by_item[str(item_id)] = [
+            str(job_id) for job_id in job_ids if str(job_id)
+        ]
+
+    project.summary = update_project_summary_progress(
+        project.summary,
+        project,
+        in_progress_ids=[str(activity_id) for activity_id in in_progress_ids],
+        completed_ids=[str(activity_id) for activity_id in completed_ids],
+        linked_job_ids_by_item=normalized_linked_job_ids_by_item,
+    )
+    project.save(update_fields=["summary", "updated_at"])
+
+    return JsonResponse(
+        {
+            "success": True,
+            "project_ref": project.project_ref,
+            "progress": _to_serializable(
+                normalize_project_progress(
+                    project, (project.summary or {}).get("item_progress")
+                )
+            ),
+        }
+    )
 
 
 @login_required

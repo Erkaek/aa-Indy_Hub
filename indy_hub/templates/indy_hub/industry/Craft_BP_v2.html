@@ -8,7 +8,7 @@
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
 <link rel="stylesheet" href="{% static 'indy_hub/css/blueprints.css' %}">
-<link rel="stylesheet" href="{% static 'indy_hub/css/craft_bp.css' %}">
+<link rel="stylesheet" href="{% static 'indy_hub/css/craft_bp.css' %}?v=20260425-loading-replay2">
 {% endblock extra_css %}
 
 {% block content %}
@@ -30,7 +30,15 @@
                 <animateTransform attributeName="transform" type="rotate" dur="2s" values="0 12 12;360 12 12" repeatCount="indefinite" />
             </g>
         </svg>
-        <span id="craft-bp-loading-message" class="craft-bp-loading-inline__text">{% trans "Preparing production workspace" %}</span>
+        <div class="craft-bp-loading-inline__content">
+            <div id="craft-bp-loading-title" class="craft-bp-loading-inline__title">{% trans "Preparing production workspace" %}</div>
+            <div id="craft-bp-loading-message" class="craft-bp-loading-inline__text">{% trans "Loading workspace..." %}</div>
+            <div class="craft-bp-loading-progress" aria-hidden="true">
+                <div id="craft-bp-loading-progress-bar" class="craft-bp-loading-progress__bar" style="width: 0%;"></div>
+            </div>
+            <div id="craft-bp-loading-progress-label" class="craft-bp-loading-progress__label d-none"></div>
+            <ol id="craft-bp-loading-steps" class="craft-bp-loading-steps d-none"></ol>
+        </div>
     </div>
 
     {% if deferred_shell %}
@@ -117,6 +125,10 @@
         <div class="tab-content craft-tab-content" id="craftMainTabsContent">
             <!-- ========== PLAN TAB (V2) ========== -->
             <div class="tab-pane fade show active" id="plan-pane" role="tabpanel" aria-labelledby="plan-tab-btn">
+                <div class="alert alert-info mb-3" id="planPaneLazyNotice" data-plan-hydrated="false">
+                    <i class="fas fa-hourglass-half me-2"></i>{% trans "Preparing production tree and materials view…" %}
+                </div>
+                <template id="plan-pane-template">
                 <div class="craft-quick-stats mb-4">
                     <div class="craft-stat-card">
                         <div class="craft-stat-icon bg-primary"><i class="fas fa-scroll"></i></div>
@@ -150,11 +162,11 @@
 
                 <div class="craft-kpi-row mb-3">
                     <div class="craft-kpi craft-kpi-sm">
-                        <span class="craft-kpi-label">{% trans "Runs" %}</span>
-                        <span class="craft-kpi-value">{{ num_runs|default:1|intcomma }}</span>
+                        <span class="craft-kpi-label">{% if is_project_workspace %}{% trans "Targets" %}{% else %}{% trans "Runs" %}{% endif %}</span>
+                        <span class="craft-kpi-value">{% if is_project_workspace %}{{ final_outputs|length|default:0|intcomma }}{% else %}{{ num_runs|default:1|intcomma }}{% endif %}</span>
                     </div>
                     <div class="craft-kpi craft-kpi-sm">
-                        <span class="craft-kpi-label">{% trans "Output" %}</span>
+                        <span class="craft-kpi-label">{% if is_project_workspace %}{% trans "Requested units" %}{% else %}{% trans "Output" %}{% endif %}</span>
                         <span class="craft-kpi-value text-success">{{ final_product_qty|default:num_runs|intcomma }}</span>
                     </div>
                     <div class="craft-kpi craft-kpi-sm">
@@ -193,13 +205,7 @@
                                 </div>
                             </div>
 
-                            <div class="craft-tree-container" id="tab-tree">
-                                {% if materials_tree %}
-                                    {% include "indy_hub/industry/material_tree.html" with materials=materials_tree level=0 %}
-                                {% else %}
-                                    <div class="alert alert-info mb-0">{% trans "No sub-productions detected for this blueprint." %}</div>
-                                {% endif %}
-                            </div>
+                            <div class="craft-tree-container" id="tab-tree"></div>
                         </section>
                     </div>
 
@@ -218,43 +224,19 @@
                                     </button>
                                 </div>
                             </div>
-                            <div id="materialsGroupsContainer" class="craft-materials-list">
-                                {% if materials_by_group %}
-                                    {% for group_id, group in materials_by_group.items %}
-                                    <div class="craft-group-card collapsed">
-                                        <div class="craft-group-header" data-craft-group-toggle>
-                                            <span>
-                                                <i class="fas fa-chevron-down craft-group-toggle me-2"></i>
-                                                <i class="fas fa-layer-group text-primary me-2"></i>{{ group.group_name|default:_("Other") }}
-                                            </span>
-                                            <span class="small text-body-secondary fw-semibold">{{ group.items|length }}</span>
-                                        </div>
-                                        <div class="craft-group-items">
-                                            {% for item in group.items %}
-                                            <div class="craft-item-row" data-type-id="{{ item.type_id }}">
-                                                <div class="craft-item-name">
-                                                    <img src="https://images.evetech.net/types/{{ item.type_id }}/icon?size=32" alt="{{ item.type_name }}" class="rounded eve-type-icon eve-type-icon--30" onerror="this.style.display='none';">
-                                                    <span class="fw-bold">{{ item.type_name }}</span>
-                                                </div>
-                                                <span class="badge bg-primary text-white" data-qty="{{ item.quantity }}">{{ item.quantity|intcomma }}</span>
-                                            </div>
-                                            {% endfor %}
-                                        </div>
-                                    </div>
-                                    {% endfor %}
-                                {% endif %}
-                            </div>
-                            <div id="materialsEmptyState" class="alert alert-info"{% if materials_by_group %} style="display:none;"{% endif %}>
+                            <div id="materialsGroupsContainer" class="craft-materials-list"></div>
+                            <div id="materialsEmptyState" class="alert alert-info">
                                 <i class="fas fa-info-circle me-2"></i>{% trans "No material requirements have been detected for this blueprint." %}
                             </div>
                         </section>
                     </div>
                 </div>
+                </template>
             </div>
 
             <!-- ========== BUY TAB (V2) ========== -->
             <div class="tab-pane fade" id="buy-pane" role="tabpanel" aria-labelledby="buy-tab-btn">
-                <div class="alert alert-warning d-flex align-items-center mb-4" id="missingPricesAlert" style="display: none !important;">
+                <div class="alert alert-warning d-flex align-items-center mb-4" id="missingPricesAlert" style="display: none;">
                     <i class="fas fa-exclamation-triangle fa-lg me-3"></i>
                     <div class="flex-grow-1">
                         <strong>{% trans "Missing Prices" %}</strong>
@@ -330,27 +312,71 @@
                         </div>
                     </div>
 
+                    <div class="craft-financial-toolbar">
+                        <div class="craft-financial-planner-stats">
+                            <span class="craft-financial-stat"><span id="financialPlannerLineCount">0</span> {% trans "lines" %}</span>
+                            <span class="craft-financial-stat"><span id="financialPlannerGroupCount">0</span> {% trans "groups" %}</span>
+                            <span class="craft-financial-stat"><span id="financialPlannerManualCount">0</span> {% trans "manual" %}</span>
+                            <span class="craft-financial-stat"><span id="financialPlannerMissingCount">0</span> {% trans "missing" %}</span>
+                        </div>
+                        <div class="craft-financial-filters">
+                            <div class="input-group input-group-sm">
+                                <span class="input-group-text"><i class="fas fa-search"></i></span>
+                                <input type="search" id="financialSearchInput" class="form-control" placeholder="{% trans 'Search item or group' %}" autocomplete="off">
+                                <button type="button" class="btn btn-outline-secondary" id="financialSearchClear" title="{% trans 'Clear search' %}">
+                                    <i class="fas fa-times"></i>
+                                </button>
+                            </div>
+                            <select id="financialPlannerScopeFilter" class="form-select form-select-sm">
+                                <option value="all">{% trans "All lines" %}</option>
+                                <option value="buy">{% trans "Buy inputs" %}</option>
+                                <option value="revenue">{% trans "Revenue targets" %}</option>
+                                <option value="manual">{% trans "Manual only" %}</option>
+                                <option value="missing">{% trans "Missing prices" %}</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="small text-muted mt-2">
+                        {% trans "Grouped by the dashboard material order. Filter the planner to focus manual overrides, missing prices, buy inputs, or revenue targets." %}
+                    </div>
+
                     <div class="table-responsive craft-financial-table craft-table-text-120 mt-2">
                         <table class="table table-sm align-middle mb-0">
                             <thead class="table-light">
                                 <tr>
                                     <th class="col-item">{% trans "Item" %}</th>
                                     <th class="text-end col-qty">{% trans "Qty" %}</th>
-                                    <th class="text-end col-fuzzwork">{% trans "Fuzzwork" %}</th>
-                                    <th class="text-end col-real">{% trans "Real Price" %}</th>
-                                    <th class="text-end col-total">{% trans "Total Cost" %}</th>
-                                    <th class="text-end col-margin">{% trans "Margin" %}</th>
+                                    <th class="text-end col-fuzzwork">{% trans "Reference" %}</th>
+                                    <th class="text-end col-real">{% trans "Override" %}</th>
+                                    <th class="text-end col-total">{% trans "Line Total" %}</th>
+                                    <th class="text-end col-margin">{% trans "Source" %}</th>
                                 </tr>
                             </thead>
                             <tbody id="financialItemsBody">
+                                <tr class="craft-financial-section-row" id="financialPurchaseSectionRow" data-export-skip="true">
+                                    <td colspan="6">
+                                        <span class="badge bg-primary-subtle text-primary-emphasis me-2">{% trans "Inputs" %}</span>
+                                        {% trans "Items you still need to source for the plan." %}
+                                    </td>
+                                </tr>
                                 {% for mat in materials %}
-                                <tr data-type-id="{{ mat.type_id }}">
-                                    <td class="fw-semibold" data-manual-label="{% trans 'Manual' %}">
-                                        <div class="d-flex align-items-center gap-2 craft-planner-item-flex">
-                                            <img src="https://images.evetech.net/types/{{ mat.type_id }}/icon?size=32" alt="{{ mat.type_name }}" class="rounded eve-type-icon eve-type-icon--28" onerror="this.style.display='none';">
+                                <tr data-type-id="{{ mat.type_id }}" data-market-group="{{ mat.market_group|default:'' }}" data-row-kind="buy">
+                                    <td class="fw-semibold" data-manual-label="{% trans 'Manual' %}" data-fuzzwork-label="{% trans 'Fuzzwork' %}" data-missing-label="{% trans 'Missing' %}" data-buy-label="{% trans 'Buy input' %}" data-revenue-label="{% trans 'Revenue target' %}">
+                                        <div class="d-flex align-items-start gap-2 craft-financial-item-shell">
+                                            <img src="https://images.evetech.net/types/{{ mat.type_id }}/icon?size=32" alt="{{ mat.type_name }}" loading="lazy" decoding="async" fetchpriority="low" class="rounded eve-type-icon eve-type-icon--28" onerror="this.style.display='none';">
                                             <span class="craft-planner-item-name-wrap">
-                                                <span class="fw-bold text-xs craft-planner-item-name">{{ mat.type_name }}</span>
+                                                <span class="d-flex flex-wrap align-items-center gap-2">
+                                                    <span class="fw-bold text-xs craft-planner-item-name">{{ mat.type_name }}</span>
+                                                    <span class="badge bg-secondary-subtle text-secondary-emphasis financial-row-kind">{% trans "Buy input" %}</span>
+                                                </span>
+                                                <span class="d-flex flex-wrap align-items-center gap-2 small text-muted mt-1">
+                                                    <span class="financial-market-group"{% if not mat.market_group %} style="display:none"{% endif %}>{{ mat.market_group|default:'' }}</span>
+                                                </span>
                                             </span>
+                                            <button type="button" class="btn btn-link btn-sm text-body-tertiary financial-row-reset" data-type-id="{{ mat.type_id }}" title="{% trans 'Reset this override' %}">
+                                                <i class="fas fa-rotate-left"></i>
+                                            </button>
                                         </div>
                                     </td>
                                     <td class="text-end text-xs" data-qty="{{ mat.quantity }}">
@@ -363,16 +389,65 @@
                                         <input type="number" min="0" step="0.01" class="form-control form-control-sm real-price text-end text-xs" data-type-id="{{ mat.type_id }}" value="0">
                                     </td>
                                     <td class="text-end text-xs total-cost fw-semibold">0</td>
-                                    <td class="text-end text-xs item-margin">-</td>
+                                    <td class="text-end text-xs item-margin"><span class="badge bg-secondary-subtle text-secondary-emphasis financial-source-badge">{% trans "Missing" %}</span></td>
                                 </tr>
                                 {% endfor %}
-                                <tr id="finalProductRow" class="table-success fw-semibold" data-type-id="{{ product_type_id|default:0 }}">
-                                    <td data-manual-label="{% trans 'Manual' %}">
-                                        <div class="d-flex align-items-center gap-2 craft-planner-item-flex">
-                                            <img src="https://images.evetech.net/types/{{ product_type_id }}/icon?size=32" alt="{% trans 'Final product' %}" class="rounded eve-type-icon eve-type-icon--28" onerror="this.style.display='none';">
+                                <tr class="craft-financial-section-row" id="financialRevenueSectionRow" data-export-skip="true">
+                                    <td colspan="6">
+                                        <span class="badge bg-success-subtle text-success-emphasis me-2">{% trans "Outputs" %}</span>
+                                        {% trans "Final products and revenue targets for this workspace." %}
+                                    </td>
+                                </tr>
+                                {% if final_outputs %}
+                                {% for output in final_outputs %}
+                                <tr{% if forloop.first %} id="finalProductRow"{% endif %} class="table-success fw-semibold" data-type-id="{{ output.type_id|default:0 }}" data-final-output="true" data-row-kind="revenue">
+                                    <td data-manual-label="{% trans 'Manual' %}" data-fuzzwork-label="{% trans 'Fuzzwork' %}" data-missing-label="{% trans 'Missing' %}" data-buy-label="{% trans 'Buy input' %}" data-revenue-label="{% trans 'Revenue target' %}">
+                                        <div class="d-flex align-items-start gap-2 craft-financial-item-shell">
+                                            <img src="https://images.evetech.net/types/{{ output.type_id|default:0 }}/icon?size=32" alt="{{ output.type_name|default:_('Final product') }}" loading="lazy" decoding="async" fetchpriority="low" class="rounded eve-type-icon eve-type-icon--28" onerror="this.style.display='none';">
                                             <span class="craft-planner-item-name-wrap">
-                                                <span class="text-xs fw-bold craft-planner-item-name">{% trans "Final product" %}</span>
+                                                <span class="d-flex flex-wrap align-items-center gap-2">
+                                                    <span class="text-xs fw-bold craft-planner-item-name">{{ output.type_name|default:_('Final product') }}</span>
+                                                    <span class="badge bg-success-subtle text-success-emphasis financial-row-kind">{% trans "Revenue target" %}</span>
+                                                </span>
+                                                <span class="d-flex flex-wrap align-items-center gap-2 small text-muted mt-1">
+                                                    <span class="financial-market-group" style="display:none"></span>
+                                                </span>
                                             </span>
+                                            <button type="button" class="btn btn-link btn-sm text-body-tertiary financial-row-reset" data-type-id="{{ output.type_id|default:0 }}" title="{% trans 'Reset this override' %}">
+                                                <i class="fas fa-rotate-left"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                    <td class="text-end text-xs" data-qty="{{ output.quantity|default:0 }}">
+                                        <span class="badge bg-success text-white">{{ output.quantity|default:0|intcomma }}</span>
+                                    </td>
+                                    <td class="text-end">
+                                        <input type="number" min="0" step="0.01" class="form-control form-control-sm fuzzwork-price text-end bg-light text-xs" data-type-id="{{ output.type_id|default:0 }}" value="0" readonly>
+                                    </td>
+                                    <td class="text-end">
+                                        <input type="number" min="0" step="0.01" class="form-control form-control-sm sale-price-unit text-end text-xs" data-type-id="{{ output.type_id|default:0 }}" value="0">
+                                    </td>
+                                    <td class="text-end text-xs total-revenue fw-semibold">0</td>
+                                    <td class="text-end text-xs item-margin"><span class="badge bg-secondary-subtle text-secondary-emphasis financial-source-badge">{% trans "Missing" %}</span></td>
+                                </tr>
+                                {% endfor %}
+                                {% else %}
+                                <tr id="finalProductRow" class="table-success fw-semibold" data-type-id="{{ product_type_id|default:0 }}" data-final-output="true" data-row-kind="revenue">
+                                    <td data-manual-label="{% trans 'Manual' %}" data-fuzzwork-label="{% trans 'Fuzzwork' %}" data-missing-label="{% trans 'Missing' %}" data-buy-label="{% trans 'Buy input' %}" data-revenue-label="{% trans 'Revenue target' %}">
+                                        <div class="d-flex align-items-start gap-2 craft-financial-item-shell">
+                                            <img src="https://images.evetech.net/types/{{ product_type_id }}/icon?size=32" alt="{% trans 'Final product' %}" loading="lazy" decoding="async" fetchpriority="low" class="rounded eve-type-icon eve-type-icon--28" onerror="this.style.display='none';">
+                                            <span class="craft-planner-item-name-wrap">
+                                                <span class="d-flex flex-wrap align-items-center gap-2">
+                                                    <span class="text-xs fw-bold craft-planner-item-name">{% trans "Final product" %}</span>
+                                                    <span class="badge bg-success-subtle text-success-emphasis financial-row-kind">{% trans "Revenue target" %}</span>
+                                                </span>
+                                                <span class="d-flex flex-wrap align-items-center gap-2 small text-muted mt-1">
+                                                    <span class="financial-market-group" style="display:none"></span>
+                                                </span>
+                                            </span>
+                                            <button type="button" class="btn btn-link btn-sm text-body-tertiary financial-row-reset" data-type-id="{{ product_type_id|default:0 }}" title="{% trans 'Reset this override' %}">
+                                                <i class="fas fa-rotate-left"></i>
+                                            </button>
                                         </div>
                                     </td>
                                     <td class="text-end text-xs" data-qty="{{ final_product_qty|default:num_runs }}">
@@ -385,8 +460,9 @@
                                         <input type="number" min="0" step="0.01" class="form-control form-control-sm sale-price-unit text-end text-xs" data-type-id="{{ product_type_id|default:0 }}" value="0">
                                     </td>
                                     <td class="text-end text-xs total-revenue fw-semibold">0</td>
-                                    <td class="text-end text-xs">-</td>
+                                    <td class="text-end text-xs item-margin"><span class="badge bg-secondary-subtle text-secondary-emphasis financial-source-badge">{% trans "Missing" %}</span></td>
                                 </tr>
+                                {% endif %}
                             </tbody>
                             <tfoot class="table-light">
                                 <tr>
@@ -415,6 +491,10 @@
                                 </tr>
                             </tfoot>
                         </table>
+                    </div>
+
+                    <div id="financialPlannerEmptyState" class="alert alert-info mt-3 d-none mb-0">
+                        <i class="fas fa-filter me-2"></i>{% trans "No planner lines match the current filter." %}
                     </div>
                 </section>
 
@@ -507,73 +587,7 @@
 
             <!-- ========== BUILD TAB (V2) ========== -->
             <div class="tab-pane fade" id="build-pane" role="tabpanel" aria-labelledby="build-tab-btn">
-                {% if craft_cycles_summary %}
-                <section class="craft-section">
-                    <h3 class="craft-section-title">
-                        <i class="fas fa-sync text-info"></i> {% trans "Cycles" %}
-                        <span class="small text-body-secondary fw-semibold ms-2">{{ craft_cycles_summary|length }}</span>
-                    </h3>
-                    <div class="table-responsive craft-cycles-table craft-table-text-120">
-                        <table class="table table-sm align-middle mb-0">
-                            <thead class="table-light">
-                                <tr>
-                                    <th>{% trans "Item" %}</th>
-                                    <th class="text-end">{% trans "Needed" %}</th>
-                                    <th class="text-end">{% trans "Per cycle" %}</th>
-                                    <th class="text-end">{% trans "Cycles" %}</th>
-                                    <th class="text-end">{% trans "Produced" %}</th>
-                                    <th class="text-end">{% trans "Surplus" %}</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% if product_type_id and final_product_qty %}
-                                <tr class="table-primary" data-type-id="{{ product_type_id }}">
-                                    <td>
-                                        <div class="d-flex align-items-center gap-2">
-                                            <img src="https://images.evetech.net/types/{{ product_type_id }}/icon?size=32" alt="{{ bp_name }}" class="rounded eve-type-icon eve-type-icon--30" onerror="this.style.display='none';">
-                                            <div class="flex-grow-1">
-                                                <span class="small fw-bold d-block"><i class="fas fa-star text-warning me-1"></i>{{ bp_name }}</span>
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td class="text-end text-xs fw-bold">{{ final_product_qty|intcomma }}</td>
-                                    <td class="text-end text-xs">{{ final_product_qty|floatformat:0|intcomma }}</td>
-                                    <td class="text-end text-xs fw-bold">{{ num_runs|intcomma }}</td>
-                                    <td class="text-end text-success text-xs fw-bold">{{ final_product_qty|intcomma }}</td>
-                                    <td class="text-end text-xs"><span class="badge bg-secondary-subtle text-secondary">0</span></td>
-                                </tr>
-                                {% endif %}
-
-                                {% for type_id, data in craft_cycles_summary.items %}
-                                <tr data-type-id="{{ type_id }}">
-                                    <td>
-                                        <div class="d-flex align-items-center gap-2">
-                                            <img src="https://images.evetech.net/types/{{ type_id }}/icon?size=32" alt="{{ data.type_name }}" class="rounded eve-type-icon eve-type-icon--30" onerror="this.style.display='none';">
-                                            <span class="small fw-semibold">{{ data.type_name }}</span>
-                                        </div>
-                                    </td>
-                                    <td class="text-end text-xs">{{ data.total_needed|intcomma }}</td>
-                                    <td class="text-end text-xs">{{ data.produced_per_cycle|intcomma }}</td>
-                                    <td class="text-end text-xs">{{ data.cycles|intcomma }}</td>
-                                    <td class="text-end text-success text-xs fw-semibold">{{ data.total_produced|intcomma }}</td>
-                                    <td class="text-end text-xs">
-                                        {% if data.surplus > 0 %}
-                                            <span class="badge bg-success-subtle text-success fw-semibold">+{{ data.surplus|intcomma }}</span>
-                                        {% elif data.surplus < 0 %}
-                                            <span class="badge bg-danger-subtle text-danger fw-semibold">{{ data.surplus|intcomma }}</span>
-                                        {% else %}
-                                            <span class="badge bg-secondary-subtle text-secondary">0</span>
-                                        {% endif %}
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                </section>
-                {% else %}
-                <div class="alert alert-info">{% trans "No cycles data available." %}</div>
-                {% endif %}
+                <div class="alert alert-info mb-0">{% trans "Open this tab to review production cycles and surplus by item." %}</div>
             </div>
 
             <div class="tab-pane fade" id="timing-pane" role="tabpanel" aria-labelledby="timing-tab-btn">
@@ -644,7 +658,11 @@
             </div>
 
             <!-- ========== BLUEPRINTS TAB (V2) ========== -->
-            <div class="tab-pane fade" id="configure-pane" role="tabpanel" aria-labelledby="configure-tab-btn">
+            <div class="tab-pane fade" id="configure-pane" role="tabpanel" aria-labelledby="configure-tab-btn" data-config-hydrated="false">
+                <div id="configurePaneLazyNotice" class="alert alert-info mb-0">
+                    <i class="fas fa-sliders-h me-2"></i>{% trans "Open this tab to load blueprint configuration and copy-request controls." %}
+                </div>
+                <template id="configure-pane-template">
                 <section class="craft-section mb-4">
                     <h3 class="craft-section-title"><i class="fas fa-magic text-primary"></i> {% trans "Quick Presets" %}</h3>
                     <div class="btn-group btn-group-sm w-100" role="group">
@@ -828,6 +846,7 @@
                     <div class="alert alert-info"><i class="fas fa-info-circle me-2"></i>{% trans "No child blueprints require configuration tweaks for this item." %}</div>
                     {% endif %}
                 </section>
+                </template>
             </div>
         </div>
     </div>
@@ -840,29 +859,30 @@
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="saveSimulationModalLabel">{% trans "Save Simulation" %}</h5>
+                <h5 class="modal-title" id="saveSimulationModalLabel">{% if is_project_workspace %}{% trans "Save Table" %}{% else %}{% trans "Save Simulation" %}{% endif %}</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
             </div>
             <div class="modal-body">
                 <form id="saveSimulationForm">
                     <div class="mb-3">
-                        <label for="simulationName" class="form-label">{% trans "Simulation Name" %}</label>
-                        <input type="text" class="form-control" id="simulationName" required placeholder="{% trans 'Enter a name for this simulation' %}">
+                        <label for="simulationName" class="form-label">{% if is_project_workspace %}{% trans "Table Name" %}{% else %}{% trans "Simulation Name" %}{% endif %}</label>
+                        <input type="text" class="form-control" id="simulationName" required placeholder="{% if is_project_workspace %}{% trans 'Enter a name for this table' %}{% else %}{% trans 'Enter a name for this simulation' %}{% endif %}">
                     </div>
                     <div class="mb-3">
                         <label for="simulationNotes" class="form-label">{% trans "Notes (optional)" %}</label>
-                        <textarea class="form-control" id="simulationNotes" rows="3" placeholder="{% trans 'Add any notes about this simulation' %}"></textarea>
+                        <textarea class="form-control" id="simulationNotes" rows="3" placeholder="{% if is_project_workspace %}{% trans 'Add any notes about this table' %}{% else %}{% trans 'Add any notes about this simulation' %}{% endif %}"></textarea>
                     </div>
                 </form>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans "Cancel" %}</button>
-                <button type="button" class="btn btn-primary" id="confirmSaveSimulation">{% trans "Save" %}</button>
+                <button type="button" class="btn btn-primary" id="confirmSaveSimulation">{% if is_project_workspace %}{% trans "Save table" %}{% else %}{% trans "Save" %}{% endif %}</button>
             </div>
         </div>
     </div>
 </div>
 
+{% if not is_project_workspace %}
 <div class="modal fade" id="loadSimulationModal" tabindex="-1" aria-labelledby="loadSimulationModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
@@ -878,6 +898,7 @@
         </div>
     </div>
 </div>
+{% endif %}
 
 <div class="modal fade" id="structureInstallationDetailsModal" tabindex="-1" aria-labelledby="structureInstallationDetailsModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-xl modal-dialog-scrollable">
@@ -936,11 +957,12 @@
 
 {% block extra_javascript %}
 {{ blueprint_payload|json_script:"blueprint-payload" }}
-<script src="{% static 'indy_hub/js/craft_bp_page.js' %}"></script>
+<script src="{% static 'indy_hub/js/craft_bp_page.js' %}?v=20260425-project-manual-save"></script>
 {% if not deferred_shell %}
 <script src="{% static 'indy_hub/js/craft_bp_simulation_api.js' %}"></script>
-<script src="{% static 'indy_hub/js/craft_bp_active_tab.js' %}"></script>
-<script src="{% static 'indy_hub/js/craft_bp.js' %}"></script>
-<script src="{% static 'indy_hub/js/craft_bp_inline.js' %}"></script>
+<script src="{% static 'indy_hub/js/craft_bp_active_tab.js' %}?v=20260425-loading-replay2"></script>
+<script src="{% static 'indy_hub/js/craft_bp_financial_planner.js' %}"></script>
+<script src="{% static 'indy_hub/js/craft_bp.js' %}?v=20260425-quickstats-fix"></script>
+<script src="{% static 'indy_hub/js/craft_bp_inline.js' %}?v=20260425-project-manual-save"></script>
 {% endif %}
 {% endblock extra_javascript %}

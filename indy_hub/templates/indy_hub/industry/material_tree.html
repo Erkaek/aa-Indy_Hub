@@ -3,7 +3,7 @@
 {# Recursive tree for production materials #}
 <ul class="list-unstyled ms-{{ level|add:1 }}">
     {% for mat in materials %}
-    <li>
+    <li class="craft-tree-branch">
         <details class="mb-2">
             <summary class="d-flex align-items-center gap-2 py-1" data-type-id="{{ mat.type_id }}" data-type-name="{{ mat.type_name }}" data-qty="{{ mat.quantity }}" data-tree-id="{{ mat.type_id }}">
                 {% if mat.sub_materials and mat.sub_materials|length > 0 %}
@@ -12,7 +12,7 @@
                 <span class="me-2" style="width:2.5rem;display:inline-block;"></span>
                 {% endif %}
                 <span class="blueprint-icon" style="width:28px;height:28px;">
-                    <img src="https://images.evetech.net/types/{{ mat.type_id }}/icon?size=32" alt="{{ mat.type_name }}" style="width:28px;height:28px;object-fit:cover;border-radius:6px;background:#f3f4f6;" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+                    <img src="https://images.evetech.net/types/{{ mat.type_id }}/icon?size=32" alt="{{ mat.type_name }}" loading="lazy" decoding="async" fetchpriority="low" style="width:28px;height:28px;object-fit:cover;border-radius:6px;background:#f3f4f6;" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
                     <span class="fallback" style="display:none;"><i class="fas fa-cube"></i></span>
                 </span>
                 <span class="fw-bold">{{ mat.type_name }}</span>

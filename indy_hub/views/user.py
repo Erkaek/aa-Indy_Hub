@@ -28,7 +28,7 @@ from django.db.models import (
     When,
 )
 from django.http import JsonResponse
-from django.shortcuts import get_object_or_404, redirect, render
+from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -58,7 +58,6 @@ from ..models import (
     CharacterRoles,
     IndustryJob,
     JobNotificationDigestEntry,
-    ProductionSimulation,
     SDESyncCompatState,
     UserOnboardingProgress,
 )
@@ -70,7 +69,6 @@ from ..services.corporation_blueprint_visibility import (
 from ..services.esi_client import ESIClientError, ESITokenError
 from ..services.industry_skills import build_user_character_skill_contexts
 from ..services.providers import esi_provider
-from ..services.simulations import summarize_simulations
 from ..tasks.industry import (
     CORP_ASSETS_SCOPE,
     CORP_BLUEPRINT_SCOPE,
@@ -3963,46 +3961,22 @@ def onboarding_set_visibility(request):
 @login_required
 def production_simulations(request):
     emit_view_analytics_event(view_name="user.production_simulations", request=request)
-    """
-    Management page for saved production simulations.
-    """
-    simulations = (
-        ProductionSimulation.objects.filter(user=request.user)
-        .order_by("-updated_at")
-        .prefetch_related("production_configs")
+    messages.info(
+        request,
+        _(
+            "Legacy single-blueprint simulations were removed. Use craft tables instead."
+        ),
     )
-
-    total_simulations, stats = summarize_simulations(simulations)
-
-    context = {
-        "simulations": simulations,
-        "total_simulations": total_simulations,
-        "stats": stats,
-    }
-    context.update(build_nav_context(request.user, active_tab="industry"))
-
-    return render(request, "indy_hub/industry/production_simulations.html", context)
+    return redirect("indy_hub:production_simulations_list")
 
 
 @indy_hub_access_required
 @login_required
 def rename_production_simulation(request, simulation_id):
-    """
-    Rename a production simulation.
-    """
-    simulation = get_object_or_404(
-        ProductionSimulation, id=simulation_id, user=request.user
+    messages.info(
+        request,
+        _(
+            "Legacy single-blueprint simulations were removed. Use craft tables instead."
+        ),
     )
-
-    if request.method == "POST":
-        new_name = request.POST.get("simulation_name", "").strip()
-        simulation.simulation_name = new_name
-        simulation.save(update_fields=["simulation_name"])
-
-        messages.success(request, f'Simulation renamed to "{simulation.display_name}".')
-        return redirect("indy_hub:production_simulations")
-
-    context = {"simulation": simulation}
-    context.update(build_nav_context(request.user, active_tab="industry"))
-
-    return render(request, "indy_hub/industry/rename_simulation.html", context)
+    return redirect("indy_hub:production_simulations_list")

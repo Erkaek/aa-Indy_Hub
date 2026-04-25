@@ -17,6 +17,10 @@
     const pageConfig = payloadData.page || {};
     const pageMessages = pageConfig.messages || {};
     const pageUrls = pageConfig.urls || {};
+    const blueprintUiState = {
+        hydrated: false,
+        initialized: false,
+    };
 
     window.BLUEPRINT_DATA = Object.assign({}, payloadData, {
         save_url: payloadData.urls ? payloadData.urls.save : undefined,
@@ -53,6 +57,63 @@
     function getCraftPageConfig() {
         return (window.BLUEPRINT_DATA && window.BLUEPRINT_DATA.page) || {};
     }
+
+    function hydrateConfigurePane() {
+        const pane = document.getElementById('configure-pane');
+        if (!pane) {
+            return false;
+        }
+        if (pane.dataset.configHydrated === 'true') {
+            blueprintUiState.hydrated = true;
+            return true;
+        }
+
+        const template = document.getElementById('configure-pane-template');
+        if (!template) {
+            return false;
+        }
+
+        const notice = document.getElementById('configurePaneLazyNotice');
+        if (notice) {
+            notice.remove();
+        }
+
+        pane.appendChild(template.content.cloneNode(true));
+        template.remove();
+        pane.dataset.configHydrated = 'true';
+        blueprintUiState.hydrated = true;
+        return true;
+    }
+
+    function initializeBlueprintUi() {
+        if (!hydrateConfigurePane()) {
+            return false;
+        }
+        if (blueprintUiState.initialized) {
+            return true;
+        }
+
+        bindBulkActions();
+        bindPresetButtons();
+        bindConfigAccordion();
+        bindBlueprintSearch();
+        if (typeof window.applyDeferredCraftBlueprintInputState === 'function') {
+            window.applyDeferredCraftBlueprintInputState();
+        }
+        blueprintUiState.initialized = true;
+        return true;
+    }
+
+    function updateConfigTabFromState() {
+        if (!initializeBlueprintUi()) {
+            return false;
+        }
+        validateBlueprintRuns();
+        updateQuickStats();
+        return true;
+    }
+
+    window.updateConfigTabFromState = updateConfigTabFromState;
 
     function getCsrfToken() {
         const match = document.cookie.match(/csrftoken=([^;]+)/);
@@ -184,9 +245,13 @@
 
     function preparePageNavigationLoading(message) {
         if (window.CraftBPLoading && typeof window.CraftBPLoading.show === 'function') {
-            window.CraftBPLoading.show({
-                message: message || getMessage('preparing_workspace', 'Preparing production workspace'),
-            });
+            try {
+                window.CraftBPLoading.show({
+                    message: message || getMessage('preparing_workspace', 'Preparing production workspace'),
+                });
+            } catch (error) {
+                console.warn('[IndyHub] Failed to show navigation loading state', error);
+            }
         }
     }
 
@@ -292,7 +357,20 @@
     }
 
     function bindNavigationLoading() {
-        window.addEventListener('beforeunload', function () {
+        function hasUnsavedProjectWorkspaceChanges() {
+            return Boolean(
+                window.CraftBPProjectWorkspace
+                && typeof window.CraftBPProjectWorkspace.hasUnsavedChanges === 'function'
+                && window.CraftBPProjectWorkspace.hasUnsavedChanges()
+            );
+        }
+
+        window.addEventListener('beforeunload', function (event) {
+            if (hasUnsavedProjectWorkspaceChanges()) {
+                event.preventDefault();
+                event.returnValue = '';
+                return '';
+            }
             preparePageNavigationLoading(getMessage('loading_workspace', 'Loading workspace...'));
         });
 
@@ -308,6 +386,7 @@
 
                 const targetUrl = new URL(href, window.location.href);
                 if (targetUrl.origin !== window.location.origin) return;
+                if (hasUnsavedProjectWorkspaceChanges()) return;
 
                 preparePageNavigationLoading(getMessage('loading_workspace', 'Loading workspace...'));
             });
@@ -391,10 +470,15 @@
             });
         }
 
-        document.querySelectorAll('select[id^="bpCopySelect"], input[id^="bpRunsRequested"], input[id^="bpCopiesRequested"]').forEach(function (element) {
-            element.addEventListener('input', function () {
-                this.dataset.userModified = 'true';
-                const match = this.id.match(/(\d+)$/);
+        if (document.body && document.body.dataset.blueprintRecommendationInputBound !== 'true') {
+            document.addEventListener('input', function (event) {
+                const target = event.target;
+                if (!target || !target.id || !/^(bpCopySelect|bpRunsRequested|bpCopiesRequested)\d+$/.test(target.id)) {
+                    return;
+                }
+
+                target.dataset.userModified = 'true';
+                const match = target.id.match(/(\d+)$/);
                 const typeId = match ? Number(match[1]) : 0;
                 const config = (getCraftPageConfig().blueprint_configs || []).find(function (bp) {
                     return Number(bp?.type_id || 0) === typeId;
@@ -414,8 +498,9 @@
                 if (calculatedCycles > ownedRuns) {
                     updateBlueprintCopyRequestRecommendation(config, calculatedCycles - ownedRuns);
                 }
-            });
-        });
+            }, true);
+            document.body.dataset.blueprintRecommendationInputBound = 'true';
+        }
     }
 
     function showToast(message, isSuccess) {
@@ -630,7 +715,9 @@
                 return;
             }
 
-            const rows = Array.from(table.querySelectorAll('tr'));
+            const rows = Array.from(table.querySelectorAll('tr')).filter(function (row) {
+                return row.getAttribute('data-export-skip') !== 'true' && !row.hidden;
+            });
             const csv = rows.map(function (row) {
                 const cells = Array.from(row.querySelectorAll('th, td'));
                 return cells.map(function (cell) {
@@ -660,8 +747,10 @@
     }
 
     function updateQuickStats() {
-        const bpCount = document.querySelectorAll('.craft-bp-card, .craft-config-item').length;
-        const matCount = document.querySelectorAll('.craft-item-row').length;
+        const bpCount = Array.isArray(getCraftPageConfig().blueprint_configs)
+            ? getCraftPageConfig().blueprint_configs.length
+            : document.querySelectorAll('.craft-bp-card, .craft-config-item').length;
+        const matCount = document.querySelectorAll('#materialsGroupsContainer tbody tr[data-type-id], .craft-item-row').length;
         const blueprintCountEl = document.getElementById('totalBlueprintsCount');
         const materialCountEl = document.getElementById('totalMaterialsCount');
         if (blueprintCountEl) {
@@ -672,7 +761,13 @@
         }
     }
 
+    window.updateCraftQuickStats = updateQuickStats;
+
     function validateBlueprintRuns() {
+        if (!blueprintUiState.hydrated) {
+            return;
+        }
+
         const config = getCraftPageConfig();
         const blueprintConfigs = Array.isArray(config.blueprint_configs) ? config.blueprint_configs : [];
         const staticCyclesSummary = config.craft_cycles_summary_static || {};
@@ -742,7 +837,6 @@
 
     function bindCraftStateHandlers() {
         window.validateBlueprintRuns = validateBlueprintRuns;
-        validateBlueprintRuns();
 
         document.addEventListener('change', function (event) {
             if (event.target.classList.contains('bp-me-input') || event.target.classList.contains('bp-te-input')) {
@@ -752,11 +846,12 @@
             }
         }, true);
 
+        let craftInitPromise = Promise.resolve();
         if (window.CraftBP && typeof window.CraftBP.init === 'function') {
-            window.CraftBP.init({
+            craftInitPromise = Promise.resolve(window.CraftBP.init({
                 productTypeId: String(window.BLUEPRINT_DATA?.product_type_id || 0),
                 fuzzworkPriceUrl: pageUrls.fuzzwork_price || window.BLUEPRINT_DATA?.fuzzwork_price_url,
-            });
+            }));
         }
 
         document.getElementById('recalcNowBtn')?.addEventListener('click', function () {
@@ -766,6 +861,8 @@
                 window.setTimeout(validateBlueprintRuns, 300);
             }
         });
+
+        return craftInitPromise;
     }
 
     function bindTabPersistence() {
@@ -853,17 +950,54 @@
     }
 
     function initCraftPage() {
+        if (window.CraftBPLoading && typeof window.CraftBPLoading.stepBootstrap === 'function') {
+            window.CraftBPLoading.stepBootstrap('loading-interface', {
+                detail: __('Preparing navigation and workspace controls.'),
+                message: getMessage('loading_workspace', 'Loading workspace...'),
+            });
+        }
+
         bindNavigationLoading();
         bindControlForm();
         bindMaterialsGroups();
-        bindBulkActions();
-        bindPresetButtons();
-        bindConfigAccordion();
-        bindBlueprintSearch();
         bindCsvExports();
         updateQuickStats();
-        bindCraftStateHandlers();
+        const craftInitPromise = bindCraftStateHandlers();
         bindTabPersistence();
+
+        window.updateConfigTabFromState = updateConfigTabFromState;
+
+        const configureTabBtn = document.getElementById('configure-tab-btn');
+        if (configureTabBtn && configureTabBtn.dataset.lazyBlueprintBound !== 'true') {
+            configureTabBtn.addEventListener('shown.bs.tab', updateConfigTabFromState);
+            configureTabBtn.dataset.lazyBlueprintBound = 'true';
+        }
+
+        if (document.querySelector('#craftMainTabs .nav-link.active')?.getAttribute('data-tab-name') === 'configure') {
+            updateConfigTabFromState();
+        }
+
+        if (window.CraftBPLoading && typeof window.CraftBPLoading.stepBootstrap === 'function') {
+            window.CraftBPLoading.stepBootstrap('loading-prices', {
+                detail: __('Fetching prices and updating global calculations.'),
+                message: getMessage('loading_workspace', 'Loading workspace...'),
+            });
+        }
+
+        Promise.resolve(craftInitPromise).finally(function () {
+            if (window.CraftBPLoading && typeof window.CraftBPLoading.stepBootstrap === 'function') {
+                window.CraftBPLoading.stepBootstrap('finalize', {
+                    detail: __('Applying the last updates before the workspace appears.'),
+                    message: getMessage('preparing_workspace', 'Preparing production workspace'),
+                });
+            }
+
+            if (window.CraftBPTabs && typeof window.CraftBPTabs.onAllReady === 'function') {
+                window.requestAnimationFrame(function () {
+                    window.CraftBPTabs.onAllReady();
+                });
+            }
+        });
     }
 
     document.addEventListener('DOMContentLoaded', function () {

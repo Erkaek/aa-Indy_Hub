@@ -600,6 +600,7 @@ def build_craft_structure_planner(
     product_type_name: str,
     product_output_per_cycle: int,
     craft_cycles_summary: dict[int, dict[str, object]],
+    include_all_options: bool = True,
 ) -> dict[str, object]:
     craftable_type_ids: list[int] = []
     if product_type_id:
@@ -885,7 +886,18 @@ def build_craft_structure_planner(
                 int(option["distance_rank"]),
             )
         )
-        item["options"] = adjusted_options
+        if include_all_options:
+            item["options"] = adjusted_options
+        elif adjusted_options:
+            compact_options = [
+                option
+                for option in adjusted_options
+                if selected_structure_id
+                and int(option["structure_id"]) == selected_structure_id
+            ]
+            item["options"] = compact_options or [adjusted_options[0]]
+        else:
+            item["options"] = []
         if selected_option is not None:
             item["recommended_structure_id"] = int(selected_option["structure_id"])
             item["recommended_structure_name"] = str(selected_option["name"])
@@ -911,6 +923,7 @@ def build_craft_structure_planner(
         "structures": serialized_structures,
         "summary": {
             "has_structures": bool(serialized_structures),
+            "has_full_options": bool(include_all_options),
             "anchor_structure_id": (
                 int(anchor_option["structure_id"]) if anchor_option else None
             ),

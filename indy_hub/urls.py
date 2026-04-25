@@ -1,13 +1,18 @@
 # Django
-from django.urls import path
+from django.urls import path, re_path
 
 from .views.api import (
     craft_bp_payload,
     craft_structure_jump_distances,
+    create_production_project,
     fuzzwork_price,
     load_production_config,
     menu_badge_count,
+    production_project_import_preview,
+    production_project_payload,
     save_production_config,
+    save_production_project_progress,
+    save_production_project_workspace,
 )
 from .views.hubs import (
     settings_hub,
@@ -33,6 +38,8 @@ from .views.industry import (
     bp_reject_copy_request,
     bp_update_copy_request,
     craft_bp,
+    craft_project,
+    delete_production_project,
 )
 from .views.industry import (
     delete_production_simulation as delete_production_simulation_view,
@@ -247,9 +254,39 @@ urlpatterns = [
         name="authorize_material_exchange",
     ),
     path("craft/<int:type_id>/", craft_bp, name="craft_bp"),
+    re_path(
+        r"^craft/project/(?P<project_ref>[0-9A-Za-z]{10})/$",
+        craft_project,
+        name="craft_project",
+    ),
     path("api/fuzzwork-price/", fuzzwork_price, name="fuzzwork_price"),
     path(
         "api/craft-bp-payload/<int:type_id>/", craft_bp_payload, name="craft_bp_payload"
+    ),
+    path(
+        "api/production-projects/import-preview/",
+        production_project_import_preview,
+        name="production_project_import_preview",
+    ),
+    path(
+        "api/production-projects/create/",
+        create_production_project,
+        name="create_production_project",
+    ),
+    re_path(
+        r"^api/production-projects/(?P<project_ref>[0-9A-Za-z]{10})/payload/$",
+        production_project_payload,
+        name="production_project_payload",
+    ),
+    re_path(
+        r"^api/production-projects/(?P<project_ref>[0-9A-Za-z]{10})/save-workspace/$",
+        save_production_project_workspace,
+        name="save_production_project_workspace",
+    ),
+    re_path(
+        r"^api/production-projects/(?P<project_ref>[0-9A-Za-z]{10})/save-progress/$",
+        save_production_project_progress,
+        name="save_production_project_progress",
     ),
     path(
         "api/production-config/save/",
@@ -262,13 +299,16 @@ urlpatterns = [
         name="load_production_config",
     ),
     path("api/menu-badge-count/", menu_badge_count, name="menu_badge_count"),
-    path(
-        "simulations/", production_simulations_list, name="production_simulations_list"
-    ),
+    path("projects/", production_simulations_list, name="production_simulations_list"),
     path(
         "simulations/<int:simulation_id>/delete/",
         delete_production_simulation_view,
         name="delete_production_simulation",
+    ),
+    re_path(
+        r"^projects/(?P<project_ref>[0-9A-Za-z]{10})/delete/$",
+        delete_production_project,
+        name="delete_production_project",
     ),
     path(
         "simulations/<int:simulation_id>/edit-name/",

@@ -4,12 +4,124 @@
  */
 (function () {
     const blueprintData = window.BLUEPRINT_DATA || {};
+    const isProjectWorkspace = Boolean(blueprintData.project_ref || blueprintData.project_id);
     const __ = (typeof window !== 'undefined' && typeof window.gettext === 'function') ? window.gettext.bind(window) : (msg => msg);
     const n__ = (typeof window !== 'undefined' && typeof window.ngettext === 'function')
         ? window.ngettext.bind(window)
         : ((singular, plural, count) => (Number(count) === 1 ? singular : plural));
     let cachedSimulations = null;
     let isFetchingSimulations = false;
+    let projectWorkspaceDirty = false;
+
+    function buildWorkspaceSignature(state) {
+        const source = state && typeof state === 'object' ? { ...state } : {};
+        delete source.updatedAt;
+        return JSON.stringify(source);
+    }
+
+    function buildMeTeConfigFromLegacyEfficiencies(efficiencies) {
+        const blueprintConfigs = {};
+        (Array.isArray(efficiencies) ? efficiencies : []).forEach((entry) => {
+            const blueprintTypeId = Number(entry?.blueprint_type_id || entry?.blueprintTypeId || 0) || 0;
+            if (!(blueprintTypeId > 0)) {
+                return;
+            }
+            blueprintConfigs[String(blueprintTypeId)] = {
+                me: Math.max(0, Math.min(Number(entry?.material_efficiency || entry?.materialEfficiency || 0) || 0, 10)),
+                te: Math.max(0, Math.min(Number(entry?.time_efficiency || entry?.timeEfficiency || 0) || 0, 20)),
+            };
+        });
+
+        const mainBlueprintTypeId = Number((blueprintData.bp_type_id || blueprintData.type_id || 0)) || 0;
+        const mainConfig = blueprintConfigs[String(mainBlueprintTypeId)] || { me: 0, te: 0 };
+        return {
+            mainME: mainConfig.me,
+            mainTE: mainConfig.te,
+            blueprintConfigs,
+        };
+    }
+
+    function buildManualPricesFromLegacyPrices(customPrices) {
+        return (Array.isArray(customPrices) ? customPrices : []).map((entry) => ({
+            typeId: Number(entry?.item_type_id || entry?.itemTypeId || 0) || 0,
+            priceType: Boolean(entry?.is_sale_price || entry?.isSalePrice) ? 'sale' : 'real',
+            value: Number(entry?.unit_price || entry?.unitPrice || 0) || 0,
+        })).filter((entry) => entry.typeId > 0);
+    }
+
+    function normalizeWorkspaceStateForSession(rawState) {
+        const state = rawState && typeof rawState === 'object' ? rawState : {};
+        const buyTypeIds = Array.isArray(state.buyTypeIds)
+            ? state.buyTypeIds
+            : (Array.isArray(state.items)
+                ? state.items.filter((item) => String(item?.mode || '') === 'buy').map((item) => Number(item?.type_id || item?.typeId || 0)).filter((typeId) => typeId > 0)
+                : []);
+
+        return {
+            buyTypeIds,
+            runs: Math.max(1, parseInt(state.runs, 10) || 1),
+            activeBlueprintTab: String(state.activeBlueprintTab || state.active_tab || 'materials'),
+            manualPrices: Array.isArray(state.manualPrices)
+                ? state.manualPrices
+                : buildManualPricesFromLegacyPrices(state.custom_prices),
+            simulationName: String(state.simulationName || state.simulation_name || state.project_name || ''),
+            runOptimizedMaxRuns: String(state.runOptimizedMaxRuns || ''),
+            meTeConfig: state.meTeConfig && typeof state.meTeConfig === 'object'
+                ? state.meTeConfig
+                : buildMeTeConfigFromLegacyEfficiencies(state.blueprint_efficiencies),
+            copyRequests: Array.isArray(state.copyRequests) ? state.copyRequests : [],
+            structure: state.structure && typeof state.structure === 'object'
+                ? state.structure
+                : {
+                    motherSystemInput: '',
+                    selectedSolarSystemId: null,
+                    selectedSolarSystemName: '',
+                    assignments: [],
+                },
+            pendingWorkspaceRefresh: Boolean(state.pendingWorkspaceRefresh),
+            pendingWorkspaceSourceTab: String(state.pendingWorkspaceSourceTab || ''),
+        };
+    }
+
+    function collectProjectWorkspacePayload() {
+        const sessionState = window.CraftBP && typeof window.CraftBP.collectSessionState === 'function'
+            ? window.CraftBP.collectSessionState()
+            : normalizeWorkspaceStateForSession(blueprintData.workspace_state);
+        const simulationNameInput = document.getElementById('simulationName');
+        const normalizedState = normalizeWorkspaceStateForSession({
+            ...sessionState,
+            simulationName: simulationNameInput ? simulationNameInput.value.trim() : sessionState.simulationName,
+            activeBlueprintTab: sessionState.activeBlueprintTab || getActiveTabId(),
+        });
+
+        const payload = {
+            ...normalizedState,
+            blueprint_type_id: blueprintData.bp_type_id || blueprintData.type_id,
+            blueprint_name: blueprintData.name || document.querySelector('.blueprint-hero .hero-title')?.textContent?.trim() || document.querySelector('.blueprint-header h1')?.textContent?.trim() || __('Blueprint'),
+            runs: normalizedState.runs,
+            simulation_name: normalizedState.simulationName,
+            active_tab: normalizedState.activeBlueprintTab,
+            items: gatherProductionItems(),
+            blueprint_efficiencies: gatherBlueprintEfficiencies(),
+            custom_prices: gatherCustomPrices(),
+            estimated_cost: parseISK(document.getElementById('financialSummaryCost')?.textContent),
+            estimated_revenue: parseISK(document.getElementById('financialSummaryRevenue')?.textContent),
+            estimated_profit: parseISK(document.getElementById('financialSummaryProfit')?.textContent),
+        };
+        payload.total_items = payload.items.length;
+        payload.total_buy_items = payload.items.filter((item) => item.mode === 'buy').length;
+        payload.total_prod_items = payload.items.filter((item) => item.mode === 'prod').length;
+
+        return {
+            payload,
+            normalizedState,
+            signature: buildWorkspaceSignature(normalizedState),
+        };
+    }
+
+    let lastSavedProjectStateSignature = buildWorkspaceSignature(
+        normalizeWorkspaceStateForSession(blueprintData.workspace_state)
+    );
 
     function getCsrfToken() {
         const match = document.cookie.match(/csrftoken=([^;]+)/);
@@ -33,7 +145,23 @@
         return Number.isFinite(number) ? number : 0;
     }
 
-    function showSimulationStatus(message, variant = 'info') {
+    function hideSimulationStatus() {
+        const badge = document.getElementById('simulationStatus');
+        if (!badge) {
+            return;
+        }
+
+        if (badge.dataset.timeoutId) {
+            window.clearTimeout(Number(badge.dataset.timeoutId));
+            delete badge.dataset.timeoutId;
+        }
+
+        delete badge.dataset.persistent;
+        badge.classList.add('d-none');
+    }
+
+    function showSimulationStatus(message, variant = 'info', options = {}) {
+        const persistent = !!options.persistent;
         const badge = document.getElementById('simulationStatus');
         if (!badge) {
             return;
@@ -60,12 +188,43 @@
 
         if (badge.dataset.timeoutId) {
             window.clearTimeout(Number(badge.dataset.timeoutId));
+            delete badge.dataset.timeoutId;
         }
+
+        if (persistent) {
+            badge.dataset.persistent = 'true';
+            return;
+        }
+
+        delete badge.dataset.persistent;
         const timeoutId = window.setTimeout(() => {
-            badge.classList.add('d-none');
+            hideSimulationStatus();
         }, 5000);
         badge.dataset.timeoutId = timeoutId;
     }
+
+    function setProjectWorkspaceDirty(isDirty) {
+        if (!isProjectWorkspace) {
+            return;
+        }
+
+        projectWorkspaceDirty = !!isDirty;
+        if (projectWorkspaceDirty) {
+            showSimulationStatus(__('Unsaved changes. Click Save table to persist them.'), 'warning', { persistent: true });
+            return;
+        }
+
+        const badge = document.getElementById('simulationStatus');
+        if (badge && badge.dataset.persistent === 'true') {
+            hideSimulationStatus();
+        }
+    }
+
+    window.CraftBPProjectWorkspace = Object.assign(window.CraftBPProjectWorkspace || {}, {
+        hasUnsavedChanges: function () {
+            return Boolean(isProjectWorkspace && projectWorkspaceDirty);
+        },
+    });
 
     function getActiveTabId() {
         const activeTab = document.querySelector('#bpTabs .nav-link.active');
@@ -200,58 +359,85 @@
         }
     }
 
+    async function persistProjectWorkspace(options = {}) {
+        const { closeModal = false, showSuccessStatus = false, showErrorStatus = true } = options;
+
+        if (!blueprintData.save_url) {
+            if (showErrorStatus) {
+                showSimulationStatus(__('Saving is not configured for this blueprint.'), 'warning');
+            }
+            return false;
+        }
+
+        const { payload, normalizedState, signature } = collectProjectWorkspacePayload();
+        if (isProjectWorkspace && signature === lastSavedProjectStateSignature) {
+            setProjectWorkspaceDirty(false);
+            return true;
+        }
+
+        const response = await fetch(blueprintData.save_url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCsrfToken() || '',
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: JSON.stringify(payload),
+        });
+
+        if (!response.ok) {
+            throw new Error(`Request failed with status ${response.status}`);
+        }
+
+        const data = await response.json();
+        if (!data || !data.success) {
+            throw new Error(data?.error || (isProjectWorkspace ? __('Unable to save table.') : __('Unable to save simulation.')));
+        }
+
+        if (closeModal) {
+            const saveModal = document.getElementById('saveSimulationModal');
+            if (saveModal && typeof bootstrap !== 'undefined' && bootstrap?.Modal) {
+                const modalInstance = bootstrap.Modal.getInstance(saveModal) || (bootstrap.Modal.getOrCreateInstance ? bootstrap.Modal.getOrCreateInstance(saveModal) : null);
+                if (modalInstance) {
+                    modalInstance.hide();
+                }
+            }
+        }
+
+        blueprintData.workspace_state = normalizedState;
+        lastSavedProjectStateSignature = signature;
+        setProjectWorkspaceDirty(false);
+        if (data.project_name) {
+            blueprintData.name = data.project_name;
+        }
+
+        if (showSuccessStatus) {
+            showSimulationStatus(isProjectWorkspace ? __('Table saved successfully.') : __('Simulation saved successfully.'), 'success');
+        }
+
+        cachedSimulations = null;
+        return true;
+    }
+
     async function saveSimulation(event) {
         if (event) {
             event.preventDefault();
         }
 
-        if (!blueprintData.save_url) {
-            showSimulationStatus(__('Saving is not configured for this blueprint.'), 'warning');
-            return;
+        const saveButton = document.getElementById('confirmSaveSimulation');
+        if (saveButton) {
+            saveButton.disabled = true;
         }
 
-        const runsInput = document.getElementById('runsInput');
-        const simulationNameInput = document.getElementById('simulationName');
-
-        const payload = {
-            blueprint_type_id: blueprintData.bp_type_id || blueprintData.type_id,
-            blueprint_name: blueprintData.name || document.querySelector('.blueprint-hero .hero-title')?.textContent?.trim() || document.querySelector('.blueprint-header h1')?.textContent?.trim() || __('Blueprint'),
-            runs: runsInput ? Number(runsInput.value) || 1 : 1,
-            simulation_name: simulationNameInput ? simulationNameInput.value.trim() : '',
-            active_tab: getActiveTabId(),
-            items: gatherProductionItems(),
-            blueprint_efficiencies: gatherBlueprintEfficiencies(),
-            custom_prices: gatherCustomPrices(),
-            estimated_cost: parseISK(document.getElementById('financialSummaryCost')?.textContent),
-            estimated_revenue: parseISK(document.getElementById('financialSummaryRevenue')?.textContent),
-            estimated_profit: parseISK(document.getElementById('financialSummaryProfit')?.textContent),
-        };
-
         try {
-            const response = await fetch(blueprintData.save_url, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': getCsrfToken() || '',
-                    'X-Requested-With': 'XMLHttpRequest',
-                },
-                body: JSON.stringify(payload),
-            });
-
-            if (!response.ok) {
-                throw new Error(`Request failed with status ${response.status}`);
-            }
-
-            const data = await response.json();
-            if (data && data.success) {
-                showSimulationStatus(__('Simulation saved successfully.'), 'success');
-                cachedSimulations = null; // force refresh next time
-            } else {
-                throw new Error(data?.error || __('Unable to save simulation.'));
-            }
+            await persistProjectWorkspace({ closeModal: true, showSuccessStatus: true });
         } catch (error) {
             console.error('[CraftBP] Failed to save simulation', error);
-            showSimulationStatus(__('Failed to save simulation.'), 'danger');
+            showSimulationStatus(isProjectWorkspace ? __('Failed to save table.') : __('Failed to save simulation.'), 'danger');
+        } finally {
+            if (saveButton) {
+                saveButton.disabled = false;
+            }
         }
     }
 
@@ -512,7 +698,7 @@
         }
 
         const loadModal = document.getElementById('loadSimulationModal');
-        if (loadModal) {
+        if (loadModal && !isProjectWorkspace) {
             loadModal.addEventListener('show.bs.modal', async () => {
                 const container = document.getElementById('simulationsList');
                 if (container) {
@@ -531,10 +717,40 @@
         }
     });
 
+    document.addEventListener('CraftBP:sessionStateChanged', (event) => {
+        if (!isProjectWorkspace) {
+            return;
+        }
+        const sessionState = normalizeWorkspaceStateForSession(event.detail?.state || {});
+        const signature = buildWorkspaceSignature(sessionState);
+        blueprintData.workspace_state = sessionState;
+        setProjectWorkspaceDirty(signature !== lastSavedProjectStateSignature);
+    });
+
     document.addEventListener('DOMContentLoaded', () => {
         if (window.CraftBPTabs && typeof window.CraftBPTabs.init === 'function') {
             window.CraftBPTabs.init();
         }
+        const simulationNameInput = document.getElementById('simulationName');
+        if (simulationNameInput) {
+            simulationNameInput.value = (blueprintData.workspace_state && (blueprintData.workspace_state.simulationName || blueprintData.workspace_state.simulation_name))
+                || blueprintData.name
+                || '';
+        }
         attachEventHandlers();
+        if (isProjectWorkspace && blueprintData.workspace_state) {
+            const normalizedState = normalizeWorkspaceStateForSession(blueprintData.workspace_state);
+            blueprintData.workspace_state = normalizedState;
+            if (window.CraftBP && typeof window.CraftBP.applySessionState === 'function') {
+                window.CraftBP.applySessionState(normalizedState);
+            } else {
+                applySimulationConfig(blueprintData.workspace_state, {
+                    simulation_name: normalizedState.simulationName || blueprintData.name || __('Table'),
+                    display_name: blueprintData.name || __('Table'),
+                });
+            }
+            lastSavedProjectStateSignature = buildWorkspaceSignature(normalizedState);
+            setProjectWorkspaceDirty(false);
+        }
     });
 })();

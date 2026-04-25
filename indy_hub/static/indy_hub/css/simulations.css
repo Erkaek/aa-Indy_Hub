@@ -588,6 +588,561 @@ html[data-theme="darkly"] .simulation-footer .timestamp {
     color: #cbd5f5;
 }
 
+.project-progress-block {
+    padding-top: 0.85rem;
+    border-top: 1px solid var(--bs-border-color);
+}
+
+.project-progress-meter {
+    height: 0.9rem;
+    background: color-mix(in srgb, var(--bs-body-bg) 70%, var(--bs-secondary-bg));
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.project-progress-meter .progress-bar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 3rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    background: linear-gradient(90deg, #0ea5e9, #22c55e);
+}
+
+.project-progress-modal-summary {
+    padding: 1.35rem;
+    border: 1px solid color-mix(in srgb, var(--bs-primary) 16%, var(--bs-border-color));
+    border-radius: 1.5rem;
+    background:
+        radial-gradient(circle at top right, color-mix(in srgb, var(--bs-primary) 13%, transparent), transparent 42%),
+        linear-gradient(135deg, color-mix(in srgb, var(--bs-body-bg) 99%, white), color-mix(in srgb, var(--bs-secondary-bg) 72%, var(--bs-body-bg)));
+    box-shadow: 0 16px 40px rgb(15 23 42 / 7%), inset 0 1px 0 color-mix(in srgb, var(--bs-body-bg) 82%, transparent);
+}
+
+.project-progress-modal {
+    border: 0;
+    overflow: hidden;
+    background:
+        linear-gradient(180deg, color-mix(in srgb, var(--bs-body-bg) 99%, white), color-mix(in srgb, var(--bs-body-bg) 95%, var(--bs-secondary-bg)));
+}
+
+.project-progress-modal .modal-header {
+    padding: 1.35rem 1.5rem 1rem;
+    border-bottom: 1px solid color-mix(in srgb, var(--bs-primary) 10%, var(--bs-border-color));
+}
+
+.project-progress-modal .modal-body {
+    padding: 1.35rem 1.5rem 1.5rem;
+}
+
+.project-progress-modal .modal-footer {
+    padding: 1rem 1.5rem 1.35rem;
+    border-top: 1px solid color-mix(in srgb, var(--bs-primary) 10%, var(--bs-border-color));
+}
+
+.project-progress-modal__title-wrap {
+    display: grid;
+    gap: 0.3rem;
+}
+
+.project-progress-modal__eyebrow {
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--bs-primary);
+}
+
+.project-progress-modal-summary__head {
+    display: grid;
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.project-progress-modal-summary__value {
+    font-size: clamp(2.4rem, 5vw, 4rem);
+    line-height: 0.92;
+    color: var(--bs-emphasis-color);
+    letter-spacing: -0.04em;
+}
+
+.project-progress-modal-summary__meta {
+    display: grid;
+    align-content: start;
+    gap: 0.35rem;
+    max-width: 32rem;
+    justify-self: end;
+    text-align: left;
+    padding: 0.9rem 1rem;
+    border-radius: 1rem;
+    background: color-mix(in srgb, var(--bs-body-bg) 80%, var(--bs-secondary-bg));
+    border: 1px solid color-mix(in srgb, var(--bs-border-color) 86%, transparent);
+}
+
+.project-progress-modal-summary__stats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.8rem;
+    margin-top: 1rem;
+}
+
+.project-progress-summary-copy__headline {
+    font-size: 0.76rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--bs-primary);
+}
+
+.project-progress-summary-copy__text {
+    font-size: 0.92rem;
+    color: var(--bs-secondary-color);
+    line-height: 1.45;
+}
+
+.project-progress-stat-chip {
+    min-width: 0;
+    padding: 0.95rem 1rem;
+    border-radius: 1rem;
+    border: 1px solid color-mix(in srgb, var(--bs-border-color) 82%, transparent);
+    background: color-mix(in srgb, var(--bs-body-bg) 96%, var(--bs-secondary-bg));
+    display: grid;
+    gap: 0.2rem;
+}
+
+.project-progress-stat-chip__icon {
+    width: 2rem;
+    height: 2rem;
+    border-radius: 0.8rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: color-mix(in srgb, var(--bs-body-bg) 65%, var(--bs-secondary-bg));
+    color: var(--bs-emphasis-color);
+}
+
+.project-progress-stat-chip__label {
+    font-size: 0.76rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--bs-secondary-color);
+}
+
+.project-progress-stat-chip__value {
+    font-size: 1.12rem;
+    font-weight: 700;
+    color: var(--bs-emphasis-color);
+}
+
+.project-progress-stat-chip__meta {
+    font-size: 0.8rem;
+    color: var(--bs-secondary-color);
+}
+
+.project-progress-stat-chip.tone-success {
+    border-color: color-mix(in srgb, var(--bs-success) 24%, var(--bs-border-color));
+}
+
+.project-progress-stat-chip.tone-info {
+    border-color: color-mix(in srgb, var(--bs-info) 24%, var(--bs-border-color));
+}
+
+.project-progress-stat-chip.tone-primary {
+    border-color: color-mix(in srgb, var(--bs-primary) 24%, var(--bs-border-color));
+}
+
+.project-progress-modal-rows {
+    display: grid;
+    gap: 1rem;
+}
+
+.project-progress-row {
+    display: block;
+    padding: 1.2rem;
+    border: 1px solid color-mix(in srgb, var(--bs-border-color) 90%, transparent);
+    border-radius: 1.5rem;
+    background:
+        linear-gradient(180deg, color-mix(in srgb, var(--bs-body-bg) 98%, white), color-mix(in srgb, var(--bs-body-bg) 94%, var(--bs-secondary-bg)));
+    box-shadow: 0 14px 32px rgb(15 23 42 / 6%);
+}
+
+.project-progress-row.is-auto {
+    border-color: color-mix(in srgb, var(--bs-primary) 28%, var(--bs-border-color));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bs-primary) 12%, transparent), 0 14px 28px rgb(15 23 42 / 7%);
+}
+
+.project-progress-row__shell {
+    display: grid;
+    grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+    gap: 1rem;
+}
+
+.project-progress-row__aside {
+    display: grid;
+    gap: 1rem;
+    padding: 1rem;
+    border-radius: 1.2rem;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--bs-body-bg) 99%, white), color-mix(in srgb, var(--bs-secondary-bg) 72%, var(--bs-body-bg)));
+    border: 1px solid color-mix(in srgb, var(--bs-border-color) 88%, transparent);
+}
+
+.project-progress-row__item-head {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.9rem;
+    align-items: center;
+}
+
+.project-progress-row__icon {
+    width: 4rem;
+    height: 4rem;
+    border-radius: 1rem;
+    overflow: hidden;
+    background: linear-gradient(180deg, #eff6ff, #dbeafe);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid color-mix(in srgb, var(--bs-primary) 16%, transparent);
+}
+
+.project-progress-row__icon-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.project-progress-row__icon-fallback {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    color: var(--bs-primary);
+    font-size: 1.35rem;
+}
+
+.project-progress-row__eyebrow {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--bs-primary);
+    margin-bottom: 0.25rem;
+}
+
+.project-progress-row__identity {
+    min-width: 0;
+}
+
+.project-progress-row__badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.project-progress-row__stat-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.7rem;
+}
+
+.project-progress-mini-stat {
+    display: grid;
+    gap: 0.15rem;
+    padding: 0.7rem 0.8rem;
+    border-radius: 1rem;
+    background: color-mix(in srgb, var(--bs-body-bg) 90%, var(--bs-secondary-bg));
+    border: 1px solid color-mix(in srgb, var(--bs-border-color) 88%, transparent);
+}
+
+.project-progress-mini-stat span {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--bs-secondary-color);
+}
+
+.project-progress-mini-stat strong {
+    font-size: 1.25rem;
+    line-height: 1;
+    color: var(--bs-emphasis-color);
+}
+
+.project-progress-row__title {
+    font-weight: 700;
+    color: var(--bs-emphasis-color);
+    font-size: 1.12rem;
+}
+
+.project-progress-row__description {
+    font-size: 0.92rem;
+    color: var(--bs-secondary-color);
+    margin-top: 0.2rem;
+    line-height: 1.45;
+}
+
+.project-progress-row__meter-wrap {
+    display: grid;
+    gap: 0.45rem;
+}
+
+.project-progress-row__meter {
+    height: 0.72rem;
+    background: color-mix(in srgb, var(--bs-body-bg) 70%, var(--bs-secondary-bg));
+}
+
+.project-progress-row__meter .progress-bar {
+    font-size: 0.68rem;
+    font-weight: 700;
+    justify-content: flex-end;
+    padding-right: 0.45rem;
+    background: linear-gradient(90deg, #0ea5e9, #14b8a6);
+}
+
+.project-progress-row__meter-caption {
+    font-size: 0.8rem;
+    color: var(--bs-secondary-color);
+}
+
+.project-progress-row__body {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.9fr);
+    gap: 1rem;
+}
+
+.project-progress-panel {
+    border: 1px solid color-mix(in srgb, var(--bs-border-color) 82%, transparent);
+    border-radius: 1.15rem;
+    padding: 1rem;
+    background: color-mix(in srgb, var(--bs-body-bg) 97%, var(--bs-secondary-bg));
+}
+
+.project-progress-panel__heading {
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--bs-emphasis-color);
+}
+
+.project-progress-panel__subheading {
+    margin-top: 0.2rem;
+    margin-bottom: 0.8rem;
+    font-size: 0.84rem;
+    color: var(--bs-secondary-color);
+}
+
+.project-progress-row__state-list {
+    display: grid;
+    gap: 0.6rem;
+}
+
+.project-progress-job-list {
+    display: grid;
+    gap: 0.6rem;
+}
+
+.project-progress-job {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.75rem;
+    align-items: start;
+    padding: 0.85rem 1rem;
+    border-radius: 0.9rem;
+    border: 1px solid color-mix(in srgb, var(--bs-border-color) 84%, transparent);
+    background: color-mix(in srgb, var(--bs-body-bg) 96%, var(--bs-secondary-bg));
+}
+
+.project-progress-job.is-linked {
+    border-color: color-mix(in srgb, var(--bs-primary) 24%, var(--bs-border-color));
+    background: linear-gradient(180deg, color-mix(in srgb, var(--bs-primary) 7%, var(--bs-body-bg)), color-mix(in srgb, var(--bs-body-bg) 97%, var(--bs-secondary-bg)));
+}
+
+.project-progress-job__check {
+    padding-top: 0.15rem;
+}
+
+.project-progress-job__body {
+    min-width: 0;
+}
+
+.project-progress-job__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.project-progress-job__title {
+    font-weight: 600;
+    color: var(--bs-emphasis-color);
+}
+
+.project-progress-job__meta {
+    font-size: 0.8rem;
+    color: var(--bs-secondary-color);
+}
+
+.project-progress-job__facts {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.6rem;
+    margin-top: 0.35rem;
+}
+
+.project-progress-job__fact {
+    display: grid;
+    gap: 0.1rem;
+    padding: 0.55rem 0.65rem;
+    border-radius: 0.85rem;
+    background: color-mix(in srgb, var(--bs-body-bg) 88%, var(--bs-secondary-bg));
+    color: var(--bs-secondary-color);
+}
+
+.project-progress-job__fact strong {
+    font-size: 0.88rem;
+    color: var(--bs-emphasis-color);
+}
+
+.project-progress-job__fact em {
+    font-style: normal;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.project-progress-row__state {
+    border: 1px solid color-mix(in srgb, var(--bs-border-color) 82%, transparent);
+    border-radius: 0.9rem;
+    padding: 0.85rem 0.9rem;
+    background: color-mix(in srgb, var(--bs-body-bg) 98%, var(--bs-secondary-bg));
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.8rem;
+}
+
+.project-progress-row__state-copy {
+    display: grid;
+    gap: 0.15rem;
+}
+
+.project-progress-row__state-copy strong {
+    font-size: 0.9rem;
+    color: var(--bs-emphasis-color);
+}
+
+.project-progress-row__state-copy span {
+    font-size: 0.8rem;
+    color: var(--bs-secondary-color);
+}
+
+.project-progress-row__state .form-check {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    margin-left: auto;
+}
+
+.project-progress-empty-state {
+    padding: 0.8rem 0.95rem;
+    border-radius: 0.9rem;
+    border: 1px dashed color-mix(in srgb, var(--bs-border-color) 88%, transparent);
+    background: color-mix(in srgb, var(--bs-body-bg) 97%, var(--bs-secondary-bg));
+    font-size: 0.84rem;
+    color: var(--bs-secondary-color);
+}
+
+.project-progress-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.38rem 0.7rem;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    border: 1px solid transparent;
+    white-space: nowrap;
+}
+
+.project-progress-pill.tone-primary {
+    background: color-mix(in srgb, var(--bs-primary) 12%, transparent);
+    color: var(--bs-primary);
+    border-color: color-mix(in srgb, var(--bs-primary) 22%, transparent);
+}
+
+.project-progress-pill.tone-success {
+    background: color-mix(in srgb, var(--bs-success) 12%, transparent);
+    color: var(--bs-success);
+    border-color: color-mix(in srgb, var(--bs-success) 22%, transparent);
+}
+
+.project-progress-pill.tone-info {
+    background: color-mix(in srgb, var(--bs-info) 12%, transparent);
+    color: var(--bs-info);
+    border-color: color-mix(in srgb, var(--bs-info) 22%, transparent);
+}
+
+.project-progress-pill.tone-slate {
+    background: color-mix(in srgb, var(--bs-secondary-bg) 80%, var(--bs-body-bg));
+    color: var(--bs-emphasis-color);
+    border-color: color-mix(in srgb, var(--bs-border-color) 88%, transparent);
+}
+
+.project-progress-pill.tone-muted {
+    background: color-mix(in srgb, var(--bs-secondary-bg) 90%, var(--bs-body-bg));
+    color: var(--bs-secondary-color);
+    border-color: color-mix(in srgb, var(--bs-border-color) 88%, transparent);
+}
+
+@media (max-width: 767.98px) {
+    .project-progress-modal .modal-header,
+    .project-progress-modal .modal-body,
+    .project-progress-modal .modal-footer {
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+
+    .project-progress-modal-summary__head,
+    .project-progress-job__header {
+        grid-template-columns: 1fr;
+    }
+
+    .project-progress-modal-summary__meta {
+        justify-self: stretch;
+    }
+
+    .project-progress-row {
+        gap: 0.85rem;
+    }
+
+    .project-progress-modal-summary__stats,
+    .project-progress-row__shell,
+    .project-progress-row__body,
+    .project-progress-job__facts,
+    .project-progress-row__stat-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .project-progress-row__state {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .project-progress-job {
+        grid-template-columns: 1fr;
+    }
+
+    .project-progress-stat-chip {
+        min-width: 0;
+        flex: 1 1 100%;
+    }
+}
+
 html[data-theme="darkly"] .empty-state {
     background: linear-gradient(160deg, rgb(17 24 39 / 95%), rgb(30 41 59 / 88%));
     border-color: rgb(71 85 105 / 45%);

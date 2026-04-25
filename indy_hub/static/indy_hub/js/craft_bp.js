@@ -3,23 +3,23 @@
  * Handles financial calculations, price fetching, and UI interactions
  */
 
-// Global configuration
+// Global configuration shared across the craft page helpers.
 const CRAFT_BP = {
-    fuzzworkUrl: null, // Will be set from Django template
-    productTypeId: null, // Will be set from Django template
+    fuzzworkUrl: null,
+    productTypeId: null,
     adjustedPriceCache: new Map(),
     adjustedPriceRequests: new Map(),
 };
 
-const __ = (typeof window !== 'undefined' && typeof window.gettext === 'function') ? window.gettext.bind(window) : (msg => msg);
+const __ = (typeof window !== 'undefined' && typeof window.gettext === 'function')
+    ? window.gettext.bind(window)
+    : (message => message);
 
 function craftBPIsDebugEnabled() {
     return (typeof window !== 'undefined' && window.INDY_HUB_DEBUG === true);
 }
 
 function craftBPDebugLog() {
-    // Use console.log/info instead of console.debug so messages show up
-    // in default Chrome/Firefox console filters.
     if (!craftBPIsDebugEnabled() || typeof console === 'undefined') {
         return;
     }
@@ -28,12 +28,7 @@ function craftBPDebugLog() {
         console.log.apply(console, arguments);
         return;
     }
-                if (typeof updateCraftTimingTabFromState === 'function') {
-                    updateCraftTimingTabFromState();
-                }
-                if (typeof updateCraftStepsTabFromState === 'function') {
-                    updateCraftStepsTabFromState();
-                }
+
     if (typeof console.info === 'function') {
         console.info.apply(console, arguments);
     }
@@ -44,24 +39,6 @@ function updatePriceInputManualState(input, isManual) {
         return;
     }
 
-                const timingTabBtn = document.querySelector('#timing-tab-btn');
-                if (timingTabBtn) {
-                    timingTabBtn.addEventListener('shown.bs.tab', () => {
-                        if (typeof updateCraftTimingTabFromState === 'function') {
-                            updateCraftTimingTabFromState();
-                        }
-                    });
-                }
-
-                const stepsTabBtn = document.querySelector('#steps-tab-btn');
-                if (stepsTabBtn) {
-                    stepsTabBtn.addEventListener('shown.bs.tab', () => {
-                        if (typeof updateCraftStepsTabFromState === 'function') {
-                            updateCraftStepsTabFromState();
-                        }
-                    });
-                }
-
     input.dataset.userModified = isManual ? 'true' : 'false';
     input.classList.toggle('is-manual', isManual);
 
@@ -71,17 +48,19 @@ function updatePriceInputManualState(input, isManual) {
     }
 
     const row = input.closest('tr');
-    if (row) {
-        const manualInRow = Array.from(row.querySelectorAll('.real-price, .sale-price-unit')).some(el => {
-            if (el === input) {
-                return isManual;
-            }
-            return el.dataset.userModified === 'true';
+    if (!row) {
+        return;
+    }
+
+    const hasManualInput = Array.from(
+        row.querySelectorAll('.real-price, .sale-price-unit')
+    ).some((element) => element.dataset.userModified === 'true');
+
+    row.classList.toggle('has-manual', hasManualInput);
+    if (!hasManualInput) {
+        row.querySelectorAll('td.has-manual').forEach((element) => {
+            element.classList.remove('has-manual');
         });
-        row.classList.toggle('has-manual', manualInRow);
-        if (!manualInRow) {
-            row.querySelectorAll('td.has-manual').forEach(td => td.classList.remove('has-manual'));
-        }
     }
 }
 
@@ -341,6 +320,102 @@ function getProductTypeIdValue() {
     return Number.isFinite(fromBlueprint) ? fromBlueprint : 0;
 }
 
+function getFinalOutputEntries(payload = window.BLUEPRINT_DATA) {
+    const source = payload || {};
+    const rawOutputs = Array.isArray(source.final_outputs)
+        ? source.final_outputs
+        : (Array.isArray(source.finalOutputs) ? source.finalOutputs : []);
+    const normalizedOutputs = rawOutputs
+        .map((entry) => {
+            const typeId = Number(entry?.type_id || entry?.typeId || 0) || 0;
+            if (!(typeId > 0)) {
+                return null;
+            }
+            return {
+                type_id: typeId,
+                type_name: entry?.type_name || entry?.typeName || '',
+                quantity: Math.max(0, Math.ceil(Number(entry?.quantity || entry?.qty || 0))) || 0,
+                produced_per_cycle: Math.max(0, Math.ceil(Number(entry?.produced_per_cycle || entry?.producedPerCycle || 0))) || 0,
+            };
+        })
+        .filter(Boolean);
+    if (normalizedOutputs.length > 0) {
+        return normalizedOutputs;
+    }
+
+    const productTypeId = Number(source.product_type_id || source.productTypeId || 0) || 0;
+    if (!(productTypeId > 0)) {
+        return [];
+    }
+    return [{
+        type_id: productTypeId,
+        type_name: source.name || '',
+        quantity: Math.max(0, Math.ceil(Number(source.final_product_qty || source.finalProductQty || 0))) || 0,
+        produced_per_cycle: Math.max(0, Math.ceil(Number(source.product_output_per_cycle || source.productOutputPerCycle || 0))) || 0,
+    }];
+}
+
+function getFinalOutputTypeIds(payload = window.BLUEPRINT_DATA) {
+    return new Set(
+        getFinalOutputEntries(payload)
+            .map((entry) => Number(entry?.type_id || entry?.typeId || 0) || 0)
+            .filter((typeId) => typeId > 0)
+    );
+}
+
+function getFinalOutputRows() {
+    return Array.from(document.querySelectorAll('#financialItemsBody tr[data-final-output="true"]'));
+}
+
+function buildFinalOutputRowMarkup(output, isFirstRow) {
+    const typeId = Number(output?.type_id || output?.typeId || 0) || 0;
+    const typeName = output?.type_name || output?.typeName || __('Final product');
+    const quantity = Math.max(0, Math.ceil(Number(output?.quantity || output?.qty || 0))) || 0;
+
+    return `
+        <tr${isFirstRow ? ' id="finalProductRow"' : ''} class="table-success fw-semibold" data-type-id="${typeId}" data-final-output="true">
+            <td data-manual-label="${escapeHtml(__('Manual'))}">
+                <div class="d-flex align-items-center gap-2 craft-planner-item-flex">
+                    <img src="https://images.evetech.net/types/${typeId}/icon?size=32" alt="${escapeHtml(typeName)}" loading="lazy" decoding="async" fetchpriority="low" class="rounded eve-type-icon eve-type-icon--28" onerror="this.style.display='none';">
+                    <span class="craft-planner-item-name-wrap">
+                        <span class="text-xs fw-bold craft-planner-item-name">${escapeHtml(typeName)}</span>
+                    </span>
+                </div>
+            </td>
+            <td class="text-end text-xs" data-qty="${quantity}">
+                <span class="badge bg-success text-white">${formatInteger(quantity)}</span>
+            </td>
+            <td class="text-end">
+                <input type="number" min="0" step="0.01" class="form-control form-control-sm fuzzwork-price text-end bg-light text-xs" data-type-id="${typeId}" value="0" readonly>
+            </td>
+            <td class="text-end">
+                <input type="number" min="0" step="0.01" class="form-control form-control-sm sale-price-unit text-end text-xs" data-type-id="${typeId}" value="0">
+            </td>
+            <td class="text-end text-xs total-revenue fw-semibold">0</td>
+            <td class="text-end text-xs">-</td>
+        </tr>
+    `;
+}
+
+function computeFinalOutputRevenue(api) {
+    let revenueTotal = 0;
+    getFinalOutputRows().forEach((row) => {
+        const typeId = Number(row.getAttribute('data-type-id') || 0) || 0;
+        const finalQtyEl = row.querySelector('[data-qty]');
+        const rawFinalQty = finalQtyEl ? (finalQtyEl.getAttribute('data-qty') || finalQtyEl.dataset?.qty) : null;
+        const finalQty = Math.max(0, Math.ceil(Number(rawFinalQty))) || 0;
+        if (!(typeId > 0) || !(finalQty > 0)) {
+            return;
+        }
+        const unit = api.getPrice(typeId, 'sale');
+        const unitPrice = unit && typeof unit.value === 'number' ? unit.value : 0;
+        if (unitPrice > 0) {
+            revenueTotal += unitPrice * finalQty;
+        }
+    });
+    return revenueTotal;
+}
+
 function getSimulationPricesMap() {
     if (!window.SimulationAPI || typeof window.SimulationAPI.getState !== 'function') {
         return new Map();
@@ -357,25 +432,54 @@ function attachPriceInputListener(input) {
         return;
     }
 
+    if (document.body && document.body.dataset.financialPriceDelegationAttached === 'true') {
+        input.dataset.priceListenerAttached = 'true';
+        return;
+    }
+
     input.addEventListener('input', () => {
-        updatePriceInputManualState(input, true);
-
-        if (window.SimulationAPI && typeof window.SimulationAPI.setPrice === 'function') {
-            const typeId = input.getAttribute('data-type-id');
-            if (typeId) {
-                const priceType = input.classList.contains('sale-price-unit') ? 'sale' : 'real';
-                window.SimulationAPI.setPrice(typeId, priceType, parseFloat(input.value) || 0);
-            }
-        }
-
-        if (typeof recalcFinancials === 'function') {
-            recalcFinancials();
-        }
-
-        persistCraftPageSessionState();
+        handleFinancialPriceInputChange(input);
     });
 
     input.dataset.priceListenerAttached = 'true';
+}
+
+function handleFinancialPriceInputChange(input) {
+    if (!input) {
+        return;
+    }
+
+    updatePriceInputManualState(input, true);
+
+    if (window.SimulationAPI && typeof window.SimulationAPI.setPrice === 'function') {
+        const typeId = input.getAttribute('data-type-id');
+        if (typeId) {
+            const priceType = input.classList.contains('sale-price-unit') ? 'sale' : 'real';
+            window.SimulationAPI.setPrice(typeId, priceType, parseFloat(input.value) || 0);
+        }
+    }
+
+    if (typeof recalcFinancials === 'function') {
+        recalcFinancials();
+    }
+
+    persistCraftPageSessionState();
+}
+
+function initializeDelegatedFinancialPriceInputs() {
+    if (!document.body || document.body.dataset.financialPriceDelegationAttached === 'true') {
+        return;
+    }
+
+    document.addEventListener('input', (event) => {
+        const target = event.target;
+        if (!target || !(target.classList?.contains('real-price') || target.classList?.contains('sale-price-unit'))) {
+            return;
+        }
+        handleFinancialPriceInputChange(target);
+    }, true);
+
+    document.body.dataset.financialPriceDelegationAttached = 'true';
 }
 
 function refreshTabsAfterStateChange(options = {}) {
@@ -461,6 +565,20 @@ function getCurrentBuyTypeIds() {
         .filter((typeId) => typeId > 0);
 }
 
+function buildCleanCraftBrowserUrl() {
+    const cleanUrl = new URL(window.location.pathname, window.location.origin);
+    cleanUrl.hash = window.location.hash || '';
+    return cleanUrl;
+}
+
+function syncCraftBrowserUrl() {
+    const cleanUrl = buildCleanCraftBrowserUrl();
+    const currentUrl = new URL(window.location.href);
+    if (currentUrl.pathname !== cleanUrl.pathname || currentUrl.search || currentUrl.hash !== cleanUrl.hash) {
+        window.history.replaceState({}, '', cleanUrl.toString());
+    }
+}
+
 function buildCraftRecalculationUrl(options = {}) {
     const config = getCurrentMETEConfig();
     const requestedRuns = options.runs ?? document.getElementById('runsInput')?.value ?? 1;
@@ -526,6 +644,57 @@ function getCurrentActiveBlueprintTab() {
     return hiddenTarget ? hiddenTarget.replace('#tab-', '') : 'materials';
 }
 
+function getActiveCraftMainTabName() {
+    const activeMainTab = document.querySelector('#craftMainTabs .nav-link.active');
+    return String(activeMainTab?.getAttribute('data-tab-name') || 'plan').trim() || 'plan';
+}
+
+function hydrateVisibleCraftStartupTab() {
+    switch (getActiveCraftMainTabName()) {
+        case 'buy':
+            if (typeof updateFinancialTabFromState === 'function') {
+                updateFinancialTabFromState();
+            }
+            break;
+        case 'build':
+            if (typeof updateBuildTabFromState === 'function') {
+                updateBuildTabFromState();
+            } else {
+                sortBuildCyclesTable();
+            }
+            break;
+        case 'timing':
+            if (typeof updateCraftTimingTabFromState === 'function') {
+                updateCraftTimingTabFromState();
+            }
+            break;
+        case 'steps':
+            if (typeof updateCraftStepsTabFromState === 'function') {
+                updateCraftStepsTabFromState();
+            }
+            break;
+        case 'structure':
+            if (typeof renderStructurePlanner === 'function') {
+                renderStructurePlanner();
+            }
+            break;
+        case 'configure':
+            if (typeof window.updateConfigTabFromState === 'function') {
+                window.updateConfigTabFromState();
+            }
+            if (typeof window.validateBlueprintRuns === 'function') {
+                window.validateBlueprintRuns();
+            }
+            break;
+        case 'plan':
+        default:
+            if (typeof updateMaterialsTabFromState === 'function') {
+                updateMaterialsTabFromState();
+            }
+            break;
+    }
+}
+
 async function fetchCraftPageSnapshot(url) {
     const response = await fetch(url.toString(), {
         headers: { 'X-Requested-With': 'XMLHttpRequest' },
@@ -565,50 +734,179 @@ function syncBlueprintPayloadNode(payload) {
     window.BLUEPRINT_DATA = normalizeBlueprintPayloadWindowData(payload);
 }
 
+function readMaterialsTreeChildren(node) {
+    if (!node || typeof node !== 'object') {
+        return [];
+    }
+    const children = node.sub_materials || node.subMaterials;
+    return Array.isArray(children) ? children : [];
+}
+
+function buildTreeModeBadgeClass(state) {
+    if (state === 'buy') {
+        return 'bg-secondary text-white';
+    }
+    if (state === 'useless') {
+        return 'bg-warning text-dark';
+    }
+    return 'bg-success text-white';
+}
+
+function buildMaterialsTreeMarkup(nodes, level = 0) {
+    if (!Array.isArray(nodes) || nodes.length === 0) {
+        return '';
+    }
+
+    const marginLevel = Math.min(level + 1, 5);
+    const listItems = nodes.map((node) => {
+        const typeId = Number(node?.type_id || node?.typeId || 0) || 0;
+        const typeName = String(node?.type_name || node?.typeName || typeId || '');
+        const quantity = Math.max(0, Math.ceil(Number(node?.quantity ?? node?.qty ?? 0))) || 0;
+        const children = readMaterialsTreeChildren(node);
+        const hasChildren = children.length > 0;
+        const switchState = typeof window.SimulationAPI?.getSwitchState === 'function'
+            ? (window.SimulationAPI.getSwitchState(typeId) || 'prod')
+            : 'prod';
+        const isUseless = switchState === 'useless';
+        const isProd = !isUseless && switchState !== 'buy';
+        const modeLabel = isUseless ? __('Useless') : (isProd ? __('Prod') : __('Buy'));
+        const childMarkup = hasChildren ? buildMaterialsTreeMarkup(children, level + 1) : '';
+
+        return `
+            <li class="craft-tree-branch">
+                <details class="mb-2">
+                    <summary class="d-flex align-items-center gap-2 py-1" data-type-id="${typeId}" data-type-name="${escapeHtml(typeName)}" data-qty="${quantity}" data-tree-id="${typeId}">
+                        ${hasChildren
+                            ? '<span class="summary-icon"><i class="fas fa-caret-right"></i></span>'
+                            : '<span class="me-2" style="width:2.5rem;display:inline-block;"></span>'}
+                        <span class="blueprint-icon" style="width:28px;height:28px;">
+                            <img src="https://images.evetech.net/types/${typeId}/icon?size=32" alt="${escapeHtml(typeName)}" loading="lazy" decoding="async" fetchpriority="low" style="width:28px;height:28px;object-fit:cover;border-radius:6px;background:#f3f4f6;" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+                            <span class="fallback" style="display:none;"><i class="fas fa-cube"></i></span>
+                        </span>
+                        <span class="fw-bold">${escapeHtml(typeName)}</span>
+                        <span class="text-muted">x${formatInteger(quantity)}</span>
+                        ${hasChildren ? `
+                        <span class="ms-auto"></span>
+                        <div class="mat-switch-group d-flex align-items-center gap-2">
+                            <div class="form-switch">
+                                <input class="form-check-input mat-switch" type="checkbox" id="mat-switch-${typeId}" data-type-id="${typeId}"${isProd ? ' checked' : ''}${isUseless ? ' disabled' : ''} style="cursor:pointer; accent-color: #0d6efd;">
+                                <label class="form-check-label visually-hidden" for="mat-switch-${typeId}">${escapeHtml(__('Mode prod/buy'))}</label>
+                            </div>
+                            <span class="mode-label badge px-2 py-1 fw-bold ${buildTreeModeBadgeClass(switchState)}" style="font-size:0.85em;">${escapeHtml(modeLabel)}</span>
+                        </div>` : ''}
+                    </summary>
+                    ${childMarkup}
+                </details>
+            </li>
+        `;
+    }).join('');
+
+    return `<ul class="list-unstyled ms-${marginLevel}">${listItems}</ul>`;
+}
+
+function renderPlanTreeFromPayload() {
+    const treeTab = document.getElementById('tab-tree');
+    if (!treeTab) {
+        return false;
+    }
+
+    const tree = Array.isArray(window.BLUEPRINT_DATA?.materials_tree) ? window.BLUEPRINT_DATA.materials_tree : [];
+    if (tree.length === 0) {
+        treeTab.innerHTML = `<div class="alert alert-info mb-0">${escapeHtml(__('No sub-productions detected for this blueprint.'))}</div>`;
+    } else {
+        treeTab.innerHTML = buildMaterialsTreeMarkup(tree, 0);
+    }
+
+    delete treeTab.dataset.switchesInitialized;
+    delete treeTab.dataset.summaryIconsInitialized;
+    return true;
+}
+
+function hydratePlanPane() {
+    const planPane = document.getElementById('plan-pane');
+    if (!planPane) {
+        return false;
+    }
+
+    if (planPane.dataset.planHydrated === 'true') {
+        return false;
+    }
+
+    const template = document.getElementById('plan-pane-template');
+    if (!template) {
+        return false;
+    }
+
+    planPane.appendChild(template.content.cloneNode(true));
+    planPane.dataset.planHydrated = 'true';
+
+    renderPlanTreeFromPayload();
+
+    const notice = document.getElementById('planPaneLazyNotice');
+    if (notice) {
+        notice.remove();
+    }
+
+    initializeBlueprintIcons();
+    initializeCollapseHandlers();
+    initializeBuyCraftSwitches();
+
+    try {
+        getDashboardMaterialsOrdering();
+    } catch (e) {
+        // ignore
+    }
+
+    return true;
+}
+
 function replaceTreeMarkup(nextTreeNode) {
     const treeTab = document.getElementById('tab-tree');
-    if (!treeTab || !nextTreeNode) {
+    if (!nextTreeNode || !treeTab) {
         return;
     }
 
-    treeTab.innerHTML = nextTreeNode.innerHTML;
-    delete treeTab.dataset.switchesInitialized;
-    delete treeTab.dataset.summaryIconsInitialized;
+    renderPlanTreeFromPayload();
 
     initializeBuyCraftSwitches();
     refreshTreeSummaryIcons();
 }
 
 function updateFinalProductRowFromPayload(payload) {
-    const finalRow = document.getElementById('finalProductRow');
-    if (!finalRow) {
+    const tableBody = document.getElementById('financialItemsBody');
+    if (!tableBody) {
         return;
     }
 
-    const productTypeId = Number(payload?.product_type_id || payload?.productTypeId || 0) || 0;
-    const productName = payload?.name || '';
-    const quantity = Math.max(0, Math.ceil(Number(payload?.final_product_qty || payload?.finalProductQty || 0))) || 0;
-
-    if (productTypeId > 0) {
-        finalRow.setAttribute('data-type-id', String(productTypeId));
+    const outputs = getFinalOutputEntries(payload);
+    if (outputs.length === 0) {
+        return;
     }
 
-    const qtyCell = finalRow.querySelector('[data-qty]');
-    if (qtyCell) {
-        qtyCell.dataset.qty = String(quantity);
-        qtyCell.textContent = formatInteger(quantity);
-    }
+    const preservedSaleValues = new Map();
+    getFinalOutputRows().forEach((row) => {
+        const typeId = Number(row.getAttribute('data-type-id') || 0) || 0;
+        const saleInput = row.querySelector('.sale-price-unit');
+        preservedSaleValues.set(typeId, saleInput ? saleInput.value : '0');
+        row.remove();
+    });
 
-    const nameEl = finalRow.querySelector('.badge.bg-success-subtle');
-    if (nameEl && productName) {
-        nameEl.textContent = productName;
-    }
-
-    const icon = finalRow.querySelector('img');
-    if (icon && productTypeId > 0) {
-        icon.alt = productName;
-        icon.src = `https://images.evetech.net/types/${productTypeId}/icon?size=32`;
-    }
+    outputs.forEach((output, index) => {
+        const template = document.createElement('template');
+        template.innerHTML = buildFinalOutputRowMarkup(output, index === 0).trim();
+        const row = template.content.firstElementChild;
+        if (!row) {
+            return;
+        }
+        tableBody.appendChild(row);
+        const typeId = Number(output?.type_id || output?.typeId || 0) || 0;
+        const saleInput = row.querySelector('.sale-price-unit');
+        if (saleInput && preservedSaleValues.has(typeId)) {
+            saleInput.value = preservedSaleValues.get(typeId) || '0';
+        }
+        attachPriceInputListener(row.querySelector('.fuzzwork-price'));
+        attachPriceInputListener(saleInput);
+    });
 }
 
 function getLoadingOverlayElements() {
@@ -617,6 +915,9 @@ function getLoadingOverlayElements() {
         workspace: document.getElementById('craft-bp-workspace'),
         title: document.getElementById('craft-bp-loading-title'),
         message: document.getElementById('craft-bp-loading-message'),
+        progressBar: document.getElementById('craft-bp-loading-progress-bar'),
+        progressLabel: document.getElementById('craft-bp-loading-progress-label'),
+        steps: document.getElementById('craft-bp-loading-steps'),
     };
 }
 
@@ -628,6 +929,439 @@ function setLoadingOverlayCopy(title, message) {
     if (elements.message && message) {
         elements.message.textContent = message;
     }
+}
+
+const loadingOverlayState = {
+    bootstrap: null,
+    lastBootstrap: null,
+    tickerId: null,
+    hideTimerId: null,
+    minimumVisibleUntil: 0,
+    replayStartedAt: 0,
+    replayCurrentStepStartedAt: 0,
+    replayStepDurations: [],
+    replayCurrentIndex: -1,
+    replayRequestedIndex: -1,
+};
+
+function getLoadingNow() {
+    if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
+        return performance.now();
+    }
+    return Date.now();
+}
+
+function formatLoadingDuration(ms) {
+    const value = Number(ms) || 0;
+    if (value < 1000) {
+        return `${Math.round(value)} ms`;
+    }
+    return `${(value / 1000).toFixed(1)} s`;
+}
+
+function getServerWorkspaceTimingSteps() {
+    const timing = window.BLUEPRINT_DATA?.page?.workspace_timing;
+    if (!timing || !Array.isArray(timing.steps) || timing.steps.length === 0) {
+        return [];
+    }
+
+    const groupedSteps = [
+        {
+            id: 'loading-tree',
+            label: __('Loading production tree'),
+            detail: __('Preparing the production tree, required quantities, and timings.'),
+            sourceIds: ['selected-items', 'type-names', 'materials-tree', 'cycle-summary', 'market-groups', 'production-times'],
+        },
+        {
+            id: 'loading-structures',
+            label: __('Calculating recommended structures'),
+            detail: __('Selecting the best structures for each production line.'),
+            sourceIds: ['structure-planner'],
+        },
+        {
+            id: 'loading-blueprints',
+            label: __('Loading blueprints'),
+            detail: __('Preparing available blueprints and their options.'),
+            sourceIds: ['blueprint-names', 'blueprint-configs', 'character-advisor'],
+        },
+    ];
+
+    return groupedSteps
+        .map((group) => {
+            const matchingSteps = timing.steps.filter((step) => group.sourceIds.includes(String(step.id || '')));
+            if (matchingSteps.length === 0) {
+                return null;
+            }
+
+            const durationMs = matchingSteps.reduce((total, step) => {
+                return total + Math.max(0, Number(step.duration_ms ?? step.durationMs ?? 0) || 0);
+            }, 0);
+
+            return {
+                id: group.id,
+                label: group.label,
+                detail: group.detail,
+                status: 'done',
+                durationMs,
+                startedAt: 0,
+                completedAt: durationMs,
+            };
+        })
+        .filter(Boolean);
+}
+
+function buildWorkspaceBootstrapSteps() {
+    const serverSteps = getServerWorkspaceTimingSteps();
+    const steps = [];
+
+    if (serverSteps.length > 0) {
+        steps.push(...serverSteps);
+    } else {
+        steps.push({
+            id: 'loading-workspace-data',
+            label: __('Loading workspace data'),
+            detail: __('Preparing the data needed to open the workspace.'),
+        });
+    }
+
+    steps.push(
+        { id: 'loading-interface', label: __('Preparing the page'), detail: __('Restoring your session and setting up the workspace interface.') },
+        { id: 'loading-prices', label: __('Loading prices'), detail: __('Fetching market prices and updating calculations.') },
+        { id: 'finalize', label: __('Finalizing workspace'), detail: __('Applying the last updates before showing the page.') },
+    );
+
+    return steps;
+}
+
+function stopLoadingOverlayTicker() {
+    if (loadingOverlayState.tickerId) {
+        window.clearInterval(loadingOverlayState.tickerId);
+        loadingOverlayState.tickerId = null;
+    }
+}
+
+function resetLoadingOverlayReplayState() {
+    loadingOverlayState.replayStartedAt = 0;
+    loadingOverlayState.replayCurrentStepStartedAt = 0;
+    loadingOverlayState.replayStepDurations = [];
+    loadingOverlayState.replayCurrentIndex = -1;
+    loadingOverlayState.replayRequestedIndex = -1;
+}
+
+function buildLoadingReplayDurations(steps, minimumVisibleMs) {
+    const durations = Array.isArray(steps)
+        ? steps.map((step) => Math.max(0, Number(step.durationMs) || 0))
+        : [];
+
+    if (durations.length === 0) {
+        return [];
+    }
+
+    const totalMeasured = durations.reduce((sum, value) => sum + value, 0);
+    const targetTotal = Math.max(Number(minimumVisibleMs) || 0, durations.length * 140);
+
+    if (totalMeasured <= 0) {
+        return durations.map(() => targetTotal / durations.length);
+    }
+
+    const scaled = durations.map((value) => Math.max(140, (value / totalMeasured) * targetTotal));
+    const scaledTotal = scaled.reduce((sum, value) => sum + value, 0);
+    const factor = scaledTotal > 0 ? targetTotal / scaledTotal : 1;
+    return scaled.map((value) => value * factor);
+}
+
+function setLoadingReplayStepActive(nextIndex) {
+    const sequence = loadingOverlayState.bootstrap;
+    if (!sequence || !Array.isArray(sequence.steps)) {
+        return;
+    }
+
+    sequence.steps.forEach((step, index) => {
+        if (index < nextIndex) {
+            step.status = 'done';
+        } else if (index === nextIndex) {
+            step.status = 'current';
+        } else {
+            step.status = 'pending';
+        }
+    });
+
+    loadingOverlayState.replayCurrentIndex = nextIndex;
+    loadingOverlayState.replayCurrentStepStartedAt = getLoadingNow();
+}
+
+function advanceLoadingOverlayReplay(forceComplete = false) {
+    const sequence = loadingOverlayState.bootstrap;
+    if (!sequence || !Array.isArray(sequence.steps) || sequence.steps.length === 0) {
+        return;
+    }
+
+    if (loadingOverlayState.replayCurrentIndex < 0) {
+        setLoadingReplayStepActive(0);
+        renderLoadingOverlayBootstrap();
+        return;
+    }
+
+    if (forceComplete) {
+        sequence.steps.forEach((step) => {
+            step.status = 'done';
+        });
+        loadingOverlayState.replayCurrentIndex = sequence.steps.length - 1;
+        renderLoadingOverlayBootstrap();
+        return;
+    }
+
+    if (loadingOverlayState.replayCurrentIndex >= loadingOverlayState.replayRequestedIndex) {
+        renderLoadingOverlayBootstrap();
+        return;
+    }
+
+    const currentIndex = loadingOverlayState.replayCurrentIndex;
+    const currentDuration = Math.max(80, Number(loadingOverlayState.replayStepDurations[currentIndex]) || 0);
+    const now = getLoadingNow();
+    if ((now - loadingOverlayState.replayCurrentStepStartedAt) < currentDuration) {
+        renderLoadingOverlayBootstrap();
+        return;
+    }
+
+    const nextIndex = Math.min(currentIndex + 1, sequence.steps.length - 1);
+    setLoadingReplayStepActive(nextIndex);
+    renderLoadingOverlayBootstrap();
+}
+
+function clearLoadingOverlayHideTimer() {
+    if (loadingOverlayState.hideTimerId) {
+        window.clearTimeout(loadingOverlayState.hideTimerId);
+        loadingOverlayState.hideTimerId = null;
+    }
+}
+
+function hideLoadingIndicatorNow() {
+    const elements = getLoadingOverlayElements();
+    if (elements.workspace) {
+        elements.workspace.classList.remove('is-loading');
+        elements.workspace.setAttribute('aria-hidden', 'false');
+    }
+    if (elements.overlay) {
+        elements.overlay.classList.add('is-hidden');
+        elements.overlay.setAttribute('aria-busy', 'false');
+    }
+    resetLoadingOverlayBootstrap();
+}
+
+function renderLoadingOverlayBootstrap() {
+    const elements = getLoadingOverlayElements();
+    const sequence = loadingOverlayState.bootstrap;
+
+    if (!elements.progressBar || !elements.progressLabel || !elements.steps) {
+        return;
+    }
+
+    if (!sequence || !Array.isArray(sequence.steps) || sequence.steps.length === 0) {
+        elements.progressBar.style.width = '0%';
+        elements.progressLabel.textContent = '';
+        elements.progressLabel.classList.add('d-none');
+        elements.steps.innerHTML = '';
+        elements.steps.classList.add('d-none');
+        return;
+    }
+
+    const now = getLoadingNow();
+    const completedCount = sequence.steps.filter((step) => step.status === 'done').length;
+    const activeStep = sequence.steps.find((step) => step.status === 'current') || null;
+    const progress = ((completedCount + (activeStep ? 0.5 : 0)) / sequence.steps.length) * 100;
+    elements.progressBar.style.width = `${Math.max(0, Math.min(100, progress)).toFixed(0)}%`;
+    elements.progressLabel.textContent = activeStep
+        ? `${completedCount}/${sequence.steps.length} - ${activeStep.label}`
+        : `${completedCount}/${sequence.steps.length} - ${__('Finishing workspace')}`;
+    elements.progressLabel.classList.remove('d-none');
+    elements.steps.classList.remove('d-none');
+
+    elements.steps.innerHTML = sequence.steps.map((step, index) => {
+        const detail = step.detail
+            || (step.status === 'done'
+                ? __('Done')
+                : (step.status === 'current' ? __('In progress') : __('Queued')));
+
+        return `
+            <li class="craft-bp-loading-step is-${step.status}">
+                <span class="craft-bp-loading-step__index">${index + 1}</span>
+                <div>
+                    <div class="craft-bp-loading-step__title">${escapeHtml(step.label || step.id || `Step ${index + 1}`)}</div>
+                    <div class="craft-bp-loading-step__detail">${escapeHtml(detail)}</div>
+                </div>
+            </li>
+        `;
+    }).join('');
+}
+
+function ensureLoadingOverlayTicker() {
+    if (loadingOverlayState.tickerId || !loadingOverlayState.bootstrap) {
+        return;
+    }
+    loadingOverlayState.tickerId = window.setInterval(() => {
+        if (!loadingOverlayState.bootstrap) {
+            stopLoadingOverlayTicker();
+            return;
+        }
+        advanceLoadingOverlayReplay(false);
+    }, 100);
+}
+
+function startLoadingOverlayBootstrap(options = {}) {
+    const steps = Array.isArray(options.steps) ? options.steps : [];
+    const navigationEntry = (typeof performance !== 'undefined' && typeof performance.getEntriesByType === 'function')
+        ? performance.getEntriesByType('navigation')[0]
+        : null;
+    const responseEndMs = navigationEntry ? (Number(navigationEntry.responseEnd) || 0) : 0;
+
+    loadingOverlayState.bootstrap = {
+        key: options.key || 'workspace-bootstrap',
+        startedAt: 0,
+        steps: steps.map((step) => ({
+            id: step.id,
+            label: step.label || step.id,
+            detail: step.detail || '',
+            status: step.status || 'pending',
+            startedAt: step.startedAt ?? null,
+            completedAt: step.completedAt ?? null,
+            durationMs: step.durationMs ?? null,
+        })),
+    };
+    const minimumVisibleMs = Math.max(0, Number(options.minimumVisibleMs) || 1200);
+    loadingOverlayState.minimumVisibleUntil = getLoadingNow() + minimumVisibleMs;
+    loadingOverlayState.replayStartedAt = getLoadingNow();
+    loadingOverlayState.replayStepDurations = buildLoadingReplayDurations(loadingOverlayState.bootstrap.steps, minimumVisibleMs);
+    loadingOverlayState.replayRequestedIndex = Math.max(0, loadingOverlayState.bootstrap.steps.length - 1);
+    loadingOverlayState.replayCurrentIndex = -1;
+    loadingOverlayState.replayCurrentStepStartedAt = loadingOverlayState.replayStartedAt;
+    loadingOverlayState.bootstrap.steps.forEach((step) => {
+        step.status = 'pending';
+    });
+    clearLoadingOverlayHideTimer();
+
+    showLoadingIndicator({
+        title: options.title || __('Preparing production workspace'),
+        message: options.message || __('Loading workspace...'),
+    });
+
+    const serverStep = loadingOverlayState.bootstrap.steps.find((step) => step.id === 'loading-workspace-data') || null;
+    if (serverStep && responseEndMs > 0) {
+        serverStep.startedAt = 0;
+        serverStep.completedAt = responseEndMs;
+        serverStep.durationMs = responseEndMs;
+        if (!serverStep.detail) {
+            serverStep.detail = __('Preparing the data needed to open the workspace.');
+        }
+    }
+
+    setLoadingReplayStepActive(0);
+    renderLoadingOverlayBootstrap();
+
+    ensureLoadingOverlayTicker();
+}
+
+function setLoadingOverlayBootstrapStep(stepId, options = {}) {
+    const sequence = loadingOverlayState.bootstrap;
+    if (!sequence || !Array.isArray(sequence.steps)) {
+        return false;
+    }
+
+    const now = getLoadingNow();
+
+    const targetStep = sequence.steps.find((step) => step.id === stepId);
+    if (!targetStep) {
+        return false;
+    }
+    const targetIndex = sequence.steps.findIndex((step) => step.id === stepId);
+
+    targetStep.startedAt = Number(targetStep.startedAt) || now;
+    if (typeof options.detail === 'string') {
+        targetStep.detail = options.detail;
+    }
+    if (typeof options.label === 'string' && options.label) {
+        targetStep.label = options.label;
+    }
+
+    if (targetIndex >= 0) {
+        loadingOverlayState.replayRequestedIndex = Math.max(loadingOverlayState.replayRequestedIndex, targetIndex);
+        if (options.complete === true) {
+            loadingOverlayState.replayRequestedIndex = Math.max(
+                loadingOverlayState.replayRequestedIndex,
+                Math.min(targetIndex + 1, sequence.steps.length - 1)
+            );
+        }
+    }
+
+    if (options.title || options.message) {
+        setLoadingOverlayCopy(options.title || null, options.message || null);
+    }
+
+    advanceLoadingOverlayReplay(false);
+    ensureLoadingOverlayTicker();
+    return true;
+}
+
+function completeLoadingOverlayBootstrap(options = {}) {
+    const sequence = loadingOverlayState.bootstrap;
+    if (!sequence || !Array.isArray(sequence.steps)) {
+        return null;
+    }
+
+    const now = getLoadingNow();
+    const replayDurationMs = Math.max(1600, sequence.steps.length * 180);
+    const replayTailMs = 180;
+    sequence.steps.forEach((step) => {
+        step.durationMs = Number(step.durationMs) || 0;
+        step.completedAt = step.completedAt ?? now;
+        if (!step.detail) {
+            step.detail = __('No additional startup work was recorded for this phase.');
+        }
+    });
+
+    sequence.completedAt = now;
+    loadingOverlayState.lastBootstrap = {
+        key: sequence.key,
+        totalDurationMs: Math.max(0, now - sequence.startedAt),
+        completedAtIso: new Date().toISOString(),
+        steps: sequence.steps.map((step) => ({
+            id: step.id,
+            label: step.label,
+            detail: step.detail,
+            status: 'done',
+            durationMs: Number(step.durationMs) || 0,
+        })),
+    };
+
+    window.CraftBPStartupMetrics = loadingOverlayState.lastBootstrap;
+
+    if (options.title || options.message) {
+        setLoadingOverlayCopy(options.title || null, options.message || null);
+    }
+
+    loadingOverlayState.minimumVisibleUntil = now + replayDurationMs + replayTailMs;
+    loadingOverlayState.replayStartedAt = now;
+    loadingOverlayState.replayCurrentStepStartedAt = now;
+    loadingOverlayState.replayStepDurations = sequence.steps.map(() => replayDurationMs / Math.max(1, sequence.steps.length));
+    loadingOverlayState.replayCurrentIndex = -1;
+    loadingOverlayState.replayRequestedIndex = Math.max(0, sequence.steps.length - 1);
+    sequence.steps.forEach((step) => {
+        step.status = 'pending';
+    });
+
+    setLoadingReplayStepActive(0);
+    renderLoadingOverlayBootstrap();
+    ensureLoadingOverlayTicker();
+    return loadingOverlayState.lastBootstrap;
+}
+
+function resetLoadingOverlayBootstrap() {
+    loadingOverlayState.bootstrap = null;
+    loadingOverlayState.minimumVisibleUntil = 0;
+    resetLoadingOverlayReplayState();
+    clearLoadingOverlayHideTimer();
+    stopLoadingOverlayTicker();
+    renderLoadingOverlayBootstrap();
 }
 
 let scheduledBlueprintRecalculationTimer = null;
@@ -687,7 +1421,7 @@ async function recalculateBlueprintWorkspace(options = {}) {
 
         refreshTabsAfterStateChange({ forceNeeded: true });
         clearPendingMETEChanges();
-        window.history.replaceState({}, '', url.toString());
+        syncCraftBrowserUrl();
 
         if (statusPusher) {
             statusPusher(__('Workspace updated'), 'success');
@@ -898,7 +1632,113 @@ function applyStructureAssignments(assignments) {
     });
 }
 
+function isConfigurePaneHydrated() {
+    const pane = document.getElementById('configure-pane');
+    return Boolean(pane && pane.dataset.configHydrated === 'true');
+}
+
+function buildDefaultMETEConfig() {
+    const config = {
+        mainME: 0,
+        mainTE: 0,
+        blueprintConfigs: {}
+    };
+    const currentBpId = Number(getCurrentBlueprintTypeId() || 0) || 0;
+    const blueprintConfigs = Array.isArray(window.BLUEPRINT_DATA?.page?.blueprint_configs)
+        ? window.BLUEPRINT_DATA.page.blueprint_configs
+        : [];
+
+    blueprintConfigs.forEach((bp) => {
+        const typeId = Number(bp?.type_id || 0) || 0;
+        if (!(typeId > 0)) {
+            return;
+        }
+
+        const me = Math.max(0, Math.min(parseInt(bp?.material_efficiency, 10) || 0, 10));
+        const te = Math.max(0, Math.min(parseInt(bp?.time_efficiency, 10) || 0, 20));
+        config.blueprintConfigs[String(typeId)] = { me, te };
+
+        if (typeId === currentBpId) {
+            config.mainME = me;
+            config.mainTE = te;
+        }
+    });
+
+    return config;
+}
+
+function normalizeMETEConfig(rawConfig) {
+    const fallback = buildDefaultMETEConfig();
+    const source = rawConfig && typeof rawConfig === 'object' ? rawConfig : {};
+    const normalized = {
+        mainME: fallback.mainME,
+        mainTE: fallback.mainTE,
+        blueprintConfigs: { ...fallback.blueprintConfigs }
+    };
+    const currentBpId = Number(getCurrentBlueprintTypeId() || 0) || 0;
+
+    Object.entries(source.blueprintConfigs || {}).forEach(([typeId, bpConfig]) => {
+        normalized.blueprintConfigs[String(typeId)] = {
+            me: Math.max(0, Math.min(parseInt(bpConfig?.me, 10) || 0, 10)),
+            te: Math.max(0, Math.min(parseInt(bpConfig?.te, 10) || 0, 20)),
+        };
+    });
+
+    if (currentBpId > 0 && normalized.blueprintConfigs[String(currentBpId)]) {
+        normalized.mainME = normalized.blueprintConfigs[String(currentBpId)].me;
+        normalized.mainTE = normalized.blueprintConfigs[String(currentBpId)].te;
+    } else {
+        normalized.mainME = Math.max(0, Math.min(parseInt(source.mainME, 10) || normalized.mainME || 0, 10));
+        normalized.mainTE = Math.max(0, Math.min(parseInt(source.mainTE, 10) || normalized.mainTE || 0, 20));
+    }
+
+    return normalized;
+}
+
+function applyMETEConfigToInputs(config) {
+    if (!isConfigurePaneHydrated()) {
+        return false;
+    }
+
+    const normalized = normalizeMETEConfig(config);
+    Object.entries(normalized.blueprintConfigs || {}).forEach(([typeId, bpConfig]) => {
+        const meInput = document.querySelector(`#configure-pane input[name="me_${typeId}"]`);
+        const teInput = document.querySelector(`#configure-pane input[name="te_${typeId}"]`);
+        if (meInput) {
+            meInput.value = String(bpConfig.me);
+        }
+        if (teInput) {
+            teInput.value = String(bpConfig.te);
+        }
+    });
+
+    return true;
+}
+
+function applyDeferredCraftBlueprintInputState() {
+    window.craftBPFlags = window.craftBPFlags || {};
+    if (!isConfigurePaneHydrated()) {
+        return false;
+    }
+
+    if (window.craftBPFlags.pendingMETEConfig) {
+        applyMETEConfigToInputs(window.craftBPFlags.pendingMETEConfig);
+    }
+
+    if (Array.isArray(window.craftBPFlags.pendingBlueprintCopyRequests)) {
+        applyBlueprintCopyRequestState(window.craftBPFlags.pendingBlueprintCopyRequests);
+    }
+
+    return true;
+}
+
 function collectBlueprintCopyRequestState() {
+    if (!isConfigurePaneHydrated()) {
+        return Array.isArray(window.craftBPFlags?.pendingBlueprintCopyRequests)
+            ? window.craftBPFlags.pendingBlueprintCopyRequests
+            : [];
+    }
+
     return Array.from(document.querySelectorAll('select[id^="bpCopySelect"]')).map((select) => {
         const match = String(select.id || '').match(/^bpCopySelect(\d+)$/);
         const typeId = match ? (Number(match[1]) || 0) : 0;
@@ -918,6 +1758,13 @@ function collectBlueprintCopyRequestState() {
 }
 
 function applyBlueprintCopyRequestState(items) {
+    window.craftBPFlags = window.craftBPFlags || {};
+    window.craftBPFlags.pendingBlueprintCopyRequests = Array.isArray(items) ? items : [];
+
+    if (!isConfigurePaneHydrated()) {
+        return;
+    }
+
     (Array.isArray(items) ? items : []).forEach((entry) => {
         const typeId = Number(entry?.typeId || entry?.type_id || 0) || 0;
         if (!(typeId > 0)) {
@@ -959,6 +1806,75 @@ function collectCraftPageSessionState() {
         pendingWorkspaceSourceTab: String(window.craftBPFlags?.pendingWorkspaceSourceTab || ''),
         updatedAt: Date.now(),
     };
+}
+
+function applyCraftPageSessionState(parsedState) {
+    if (!parsedState || typeof parsedState !== 'object') {
+        return false;
+    }
+
+    const buyTypeIds = Array.isArray(parsedState?.buyTypeIds) ? parsedState.buyTypeIds : [];
+    craftBPDebugLog('[CraftCache] Applying craft tree session state', parsedState);
+
+    window.craftBPFlags = window.craftBPFlags || {};
+    window.craftBPFlags.restoringSessionState = true;
+    window.craftBPFlags.restoredSessionState = parsedState;
+
+    applyCraftPageRunsValue(parsedState?.runs);
+    if (parsedState?.meTeConfig) {
+        window.craftBPFlags.pendingMETEConfig = normalizeMETEConfig(parsedState.meTeConfig);
+        applyMETEConfigToInputs(window.craftBPFlags.pendingMETEConfig);
+    }
+    applyBuyCraftStateFromBuyDecisions(buyTypeIds, {
+        refreshTabs: false,
+        refreshSimulation: false,
+    });
+    if (parsedState?.activeBlueprintTab) {
+        showBlueprintSubTab(parsedState.activeBlueprintTab);
+    }
+    applyManualPriceOverrides(parsedState?.manualPrices);
+
+    const simulationNameInput = document.getElementById('simulationName');
+    if (simulationNameInput && parsedState?.simulationName != null) {
+        simulationNameInput.value = String(parsedState.simulationName);
+    }
+
+    const runOptimizedInput = document.getElementById('runOptimizedSearchMaxRuns');
+    if (runOptimizedInput && parsedState?.runOptimizedMaxRuns != null) {
+        runOptimizedInput.value = String(parsedState.runOptimizedMaxRuns);
+    }
+
+    applyBlueprintCopyRequestState(parsedState?.copyRequests);
+
+    const structureInput = document.getElementById('structureMotherSystemInput');
+    if (structureInput && parsedState?.structure?.motherSystemInput != null) {
+        structureInput.value = String(parsedState.structure.motherSystemInput);
+    }
+
+    if (parsedState?.structure) {
+        structureMotherSystemState.selectedSolarSystemId = Number(parsedState.structure.selectedSolarSystemId || 0) || null;
+        structureMotherSystemState.selectedSolarSystemName = String(parsedState.structure.selectedSolarSystemName || parsedState.structure.motherSystemInput || '');
+        applyStructureAssignments(parsedState.structure.assignments);
+    }
+
+    if (window.SimulationAPI && typeof window.SimulationAPI.refreshFromDom === 'function') {
+        window.SimulationAPI.refreshFromDom();
+    }
+
+    if (parsedState?.pendingWorkspaceRefresh) {
+        window.craftBPFlags.hasPendingWorkspaceRefresh = true;
+        window.craftBPFlags.hasPendingMETEChanges = true;
+        window.craftBPFlags.pendingWorkspaceSourceTab = String(parsedState.pendingWorkspaceSourceTab || '');
+    } else {
+        window.craftBPFlags.hasPendingWorkspaceRefresh = false;
+        window.craftBPFlags.hasPendingMETEChanges = false;
+        delete window.craftBPFlags.pendingWorkspaceSourceTab;
+        delete window.craftBPFlags.pendingWorkspaceTargetTab;
+    }
+    updatePendingWorkspaceRefreshNotice();
+
+    window.craftBPFlags.restoringSessionState = false;
+    return true;
 }
 
 function applyBuyCraftStateFromBuyDecisions(buyDecisions, options = {}) {
@@ -1013,73 +1929,7 @@ function restoreCraftPageSessionState() {
             return false;
         }
         const parsedState = JSON.parse(rawState);
-        const buyTypeIds = Array.isArray(parsedState?.buyTypeIds) ? parsedState.buyTypeIds : [];
-        craftBPDebugLog('[CraftCache] Restoring craft tree session state', parsedState);
-
-        window.craftBPFlags = window.craftBPFlags || {};
-        window.craftBPFlags.restoringSessionState = true;
-        window.craftBPFlags.restoredSessionState = parsedState;
-
-        applyCraftPageRunsValue(parsedState?.runs);
-        if (parsedState?.meTeConfig) {
-            Object.entries(parsedState.meTeConfig.blueprintConfigs || {}).forEach(([typeId, bpConfig]) => {
-                const meInput = document.querySelector(`input[name="me_${typeId}"]`);
-                const teInput = document.querySelector(`input[name="te_${typeId}"]`);
-                if (meInput && bpConfig?.me !== undefined) {
-                    meInput.value = String(Math.max(0, Math.min(parseInt(bpConfig.me, 10) || 0, 10)));
-                }
-                if (teInput && bpConfig?.te !== undefined) {
-                    teInput.value = String(Math.max(0, Math.min(parseInt(bpConfig.te, 10) || 0, 20)));
-                }
-            });
-        }
-        applyBuyCraftStateFromBuyDecisions(buyTypeIds);
-        if (parsedState?.activeBlueprintTab) {
-            showBlueprintSubTab(parsedState.activeBlueprintTab);
-        }
-        applyManualPriceOverrides(parsedState?.manualPrices);
-
-        const simulationNameInput = document.getElementById('simulationName');
-        if (simulationNameInput && parsedState?.simulationName != null) {
-            simulationNameInput.value = String(parsedState.simulationName);
-        }
-
-        const runOptimizedInput = document.getElementById('runOptimizedSearchMaxRuns');
-        if (runOptimizedInput && parsedState?.runOptimizedMaxRuns != null) {
-            runOptimizedInput.value = String(parsedState.runOptimizedMaxRuns);
-        }
-
-        applyBlueprintCopyRequestState(parsedState?.copyRequests);
-
-        const structureInput = document.getElementById('structureMotherSystemInput');
-        if (structureInput && parsedState?.structure?.motherSystemInput != null) {
-            structureInput.value = String(parsedState.structure.motherSystemInput);
-        }
-
-        if (parsedState?.structure) {
-            structureMotherSystemState.selectedSolarSystemId = Number(parsedState.structure.selectedSolarSystemId || 0) || null;
-            structureMotherSystemState.selectedSolarSystemName = String(parsedState.structure.selectedSolarSystemName || parsedState.structure.motherSystemInput || '');
-            applyStructureAssignments(parsedState.structure.assignments);
-        }
-
-        if (window.SimulationAPI && typeof window.SimulationAPI.refreshFromDom === 'function') {
-            window.SimulationAPI.refreshFromDom();
-        }
-
-        if (parsedState?.pendingWorkspaceRefresh) {
-            window.craftBPFlags.hasPendingWorkspaceRefresh = true;
-            window.craftBPFlags.hasPendingMETEChanges = true;
-            window.craftBPFlags.pendingWorkspaceSourceTab = String(parsedState.pendingWorkspaceSourceTab || '');
-        } else {
-            window.craftBPFlags.hasPendingWorkspaceRefresh = false;
-            window.craftBPFlags.hasPendingMETEChanges = false;
-            delete window.craftBPFlags.pendingWorkspaceSourceTab;
-            delete window.craftBPFlags.pendingWorkspaceTargetTab;
-        }
-        updatePendingWorkspaceRefreshNotice();
-
-        window.craftBPFlags.restoringSessionState = false;
-        return true;
+        return applyCraftPageSessionState(parsedState);
     } catch (error) {
         console.error('[IndyHub] Failed to restore craft page session state', error);
         if (window.craftBPFlags) {
@@ -1095,12 +1945,20 @@ function persistCraftPageSessionState() {
             return;
         }
 
+        const sessionState = collectCraftPageSessionState();
+
         withCraftPageSessionStorage((storage) => {
             storage.setItem(
                 getCraftPageSessionStorageKey(),
-                JSON.stringify(collectCraftPageSessionState())
+                JSON.stringify(sessionState)
             );
         });
+
+        document.dispatchEvent(new CustomEvent('CraftBP:sessionStateChanged', {
+            detail: {
+                state: sessionState,
+            }
+        }));
     } catch (error) {
         craftBPDebugLog('[CraftCache] Failed to persist craft page session state', error);
     }
@@ -1130,14 +1988,27 @@ function initializeCraftPageSessionPersistence() {
         runOptimizedInput.dataset.sessionPersistenceAttached = 'true';
     }
 
-    document.querySelectorAll('select[id^="bpCopySelect"], input[id^="bpRunsRequested"], input[id^="bpCopiesRequested"]').forEach((element) => {
-        if (element.dataset.sessionPersistenceAttached === 'true') {
-            return;
-        }
-        element.addEventListener('input', persistOnChange);
-        element.addEventListener('change', persistOnChange);
-        element.dataset.sessionPersistenceAttached = 'true';
-    });
+    if (document.body && document.body.dataset.blueprintSessionPersistenceAttached !== 'true') {
+        document.addEventListener('input', (event) => {
+            const target = event.target;
+            if (!target || !target.id) {
+                return;
+            }
+            if (/^(bpCopySelect|bpRunsRequested|bpCopiesRequested)\d+$/.test(target.id)) {
+                persistOnChange();
+            }
+        }, true);
+        document.addEventListener('change', (event) => {
+            const target = event.target;
+            if (!target || !target.id) {
+                return;
+            }
+            if (/^(bpCopySelect|bpRunsRequested|bpCopiesRequested)\d+$/.test(target.id)) {
+                persistOnChange();
+            }
+        }, true);
+        document.body.dataset.blueprintSessionPersistenceAttached = 'true';
+    }
 
     document.querySelectorAll('#bpTabs .nav-link').forEach((button) => {
         if (button.dataset.sessionPersistenceAttached === 'true') {
@@ -1157,7 +2028,7 @@ window.CraftBP = {
         CRAFT_BP.productTypeId = config.productTypeId;
 
         // Initialize financial calculations after configuration
-        initializeFinancialCalculations();
+        return initializeFinancialCalculations();
     },
 
     loadFuzzworkPrices: function(typeIds) {
@@ -1208,6 +2079,14 @@ window.CraftBP = {
             }
         });
         document.dispatchEvent(event);
+    },
+
+    collectSessionState: function() {
+        return collectCraftPageSessionState();
+    },
+
+    applySessionState: function(state) {
+        return applyCraftPageSessionState(state);
     }
 };
 
@@ -1215,6 +2094,13 @@ window.CraftBP = {
  * Initialize the application
  */
 document.addEventListener('DOMContentLoaded', function() {
+    if (window.CraftBPLoading && typeof window.CraftBPLoading.stepBootstrap === 'function') {
+        window.CraftBPLoading.stepBootstrap('loading-interface', {
+            detail: __('Restoring your session and preparing the workspace interface.'),
+            message: __('Preparing production workspace'),
+        });
+    }
+
     // Capture the initial dashboard Materials ordering before any UI updates replace the markup.
     try {
         getDashboardMaterialsOrdering();
@@ -1231,8 +2117,15 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     initializeRunOptimizedTab();
     initializeStructureMotherSystemControls();
-    renderStructurePlanner();
+    if (window.CraftBPLoading && typeof window.CraftBPLoading.stepBootstrap === 'function') {
+        window.CraftBPLoading.stepBootstrap('loading-interface', {
+            detail: __('Opening the main workspace view.'),
+            message: __('Loading workspace...'),
+        });
+    }
+    hydrateVisibleCraftStartupTab();
     persistCraftPageSessionState();
+    syncCraftBrowserUrl();
     // Financial calculations will be initialized via CraftBP.init()
 });
 
@@ -1257,7 +2150,6 @@ function initializeBlueprintIcons() {
 function initializeBuyCraftSwitches() {
     const treeTab = document.getElementById('tab-tree');
     if (!treeTab) {
-        console.warn('Tree tab not found; skipping buy/craft switch initialization');
         return;
     }
 
@@ -1938,22 +2830,11 @@ async function optimizeProfitabilityConfig() {
             if (unitPrice > 0) costTotal += unitPrice * qty;
         });
 
-        // Revenue: final product + surplus credit.
+        // Revenue: final products + surplus credit.
         let revenueTotal = 0;
 
         try {
-            const finalRow = document.getElementById('finalProductRow');
-            const finalQtyEl = finalRow ? finalRow.querySelector('[data-qty]') : null;
-            const rawFinalQty = finalQtyEl ? (finalQtyEl.getAttribute('data-qty') || finalQtyEl.dataset?.qty) : null;
-            const finalQty = Math.max(0, Math.ceil(Number(rawFinalQty))) || 0;
-
-            if (productTypeIdLocal && finalQty > 0) {
-                const unit = api.getPrice(productTypeIdLocal, 'sale');
-                const unitPrice = unit && typeof unit.value === 'number' ? unit.value : 0;
-                if (unitPrice > 0) {
-                    revenueTotal += unitPrice * finalQty;
-                }
-            }
+            revenueTotal += computeFinalOutputRevenue(api);
         } catch (e) {
             // ignore
         }
@@ -2039,79 +2920,79 @@ async function optimizeProfitabilityConfig() {
 
     // --- Debug dump (console) ---
     // Provides buy/prod totals per item so the user can paste the full dataset.
-    try {
-        const finalDemand = computeDemand(aggregateDecisions);
-        const { breakdown } = computeCostsBreakdown(finalDemand, aggregateDecisions);
-
-        const demandIds = Array.from(finalDemand.keys()).map(Number).filter(Boolean);
-        demandIds.sort((a, b) => a - b);
-
-        const rows = demandIds.map(typeId => {
-            const needed = finalDemand.get(typeId) || 0;
-            const buyUnitRaw = getBuyUnitPrice(typeId);
-            const buyTotal = buyUnitRaw > 0 ? (buyUnitRaw * needed) : null;
-            const craftRow = breakdown.get(typeId);
-
-            return {
-                typeId,
-                name: craftRow?.name || nameByType.get(typeId) || '',
-                needed,
-                buyUnit: buyUnitRaw || null,
-                buyTotal,
-                prodTotal: craftRow?.prodTotal ?? null,
-                prodUnit: craftRow?.prodUnit ?? null,
-                cycles: craftRow?.cycles ?? null,
-                produced: craftRow?.produced ?? null,
-                surplus: craftRow?.surplus ?? null,
-                surplusCredit: craftRow?.surplusCredit ?? null,
-                mode: aggregateDecisions.get(typeId) || craftRow?.mode || null,
-            };
-        });
-
-        // Persist the full dataset for copy/paste.
-        window.__IndyHubOptimizeDebug = {
-            productTypeId,
-            generatedAt: new Date().toISOString(),
-            rows,
-        };
-
-        const json = JSON.stringify(rows);
-        window.__IndyHubOptimizeDebugJson = json;
-
-        console.groupCollapsed('[IndyHub] Optimize debug: buy/prod costs per item');
-        console.log('productTypeId', productTypeId);
-        console.log('unique items in demand', rows.length);
-        console.log('Export JSON (fallback): window.__IndyHubOptimizeDebugJson');
-        console.table(rows);
-        console.groupEnd();
-
-        // Try to put the full JSON into the clipboard automatically.
-        // This avoids relying on DevTools-specific copy() helpers.
+    if (craftBPIsDebugEnabled()) {
         try {
-            if (navigator && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-                await navigator.clipboard.writeText(json);
-                if (window.CraftBP && typeof window.CraftBP.pushStatus === 'function') {
-                    window.CraftBP.pushStatus(__('Optimizer debug JSON copied to clipboard'), 'success');
+            const finalDemand = computeDemand(aggregateDecisions);
+            const { breakdown } = computeCostsBreakdown(finalDemand, aggregateDecisions);
+
+            const demandIds = Array.from(finalDemand.keys()).map(Number).filter(Boolean);
+            demandIds.sort((a, b) => a - b);
+
+            const rows = demandIds.map(typeId => {
+                const needed = finalDemand.get(typeId) || 0;
+                const buyUnitRaw = getBuyUnitPrice(typeId);
+                const buyTotal = buyUnitRaw > 0 ? (buyUnitRaw * needed) : null;
+                const craftRow = breakdown.get(typeId);
+
+                return {
+                    typeId,
+                    name: craftRow?.name || nameByType.get(typeId) || '',
+                    needed,
+                    buyUnit: buyUnitRaw || null,
+                    buyTotal,
+                    prodTotal: craftRow?.prodTotal ?? null,
+                    prodUnit: craftRow?.prodUnit ?? null,
+                    cycles: craftRow?.cycles ?? null,
+                    produced: craftRow?.produced ?? null,
+                    surplus: craftRow?.surplus ?? null,
+                    surplusCredit: craftRow?.surplusCredit ?? null,
+                    mode: aggregateDecisions.get(typeId) || craftRow?.mode || null,
+                };
+            });
+
+            // Persist the full dataset for copy/paste during explicit debug sessions.
+            window.__IndyHubOptimizeDebug = {
+                productTypeId,
+                generatedAt: new Date().toISOString(),
+                rows,
+            };
+
+            const json = JSON.stringify(rows);
+            window.__IndyHubOptimizeDebugJson = json;
+
+            console.groupCollapsed('[IndyHub] Optimize debug: buy/prod costs per item');
+            console.log('productTypeId', productTypeId);
+            console.log('unique items in demand', rows.length);
+            console.log('Export JSON (fallback): window.__IndyHubOptimizeDebugJson');
+            console.table(rows);
+            console.groupEnd();
+
+            // Try to put the full JSON into the clipboard automatically.
+            // This avoids relying on DevTools-specific copy() helpers.
+            try {
+                if (navigator && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+                    await navigator.clipboard.writeText(json);
+                    if (window.CraftBP && typeof window.CraftBP.pushStatus === 'function') {
+                        window.CraftBP.pushStatus(__('Optimizer debug JSON copied to clipboard'), 'success');
+                    }
+                } else {
+                    // Fallback: prompt with the full JSON for manual copy.
+                    window.prompt('Copy optimizer debug JSON:', json);
+                    if (window.CraftBP && typeof window.CraftBP.pushStatus === 'function') {
+                        window.CraftBP.pushStatus(__('Optimizer debug JSON ready to copy (prompt opened)'), 'info');
+                    }
                 }
-            } else {
-                // Fallback: prompt with the full JSON for manual copy.
-                // eslint-disable-next-line no-alert
+            } catch (err) {
+                // Clipboard can be blocked by browser permissions; fall back to prompt.
                 window.prompt('Copy optimizer debug JSON:', json);
                 if (window.CraftBP && typeof window.CraftBP.pushStatus === 'function') {
-                    window.CraftBP.pushStatus(__('Optimizer debug JSON ready to copy (prompt opened)'), 'info');
+                    window.CraftBP.pushStatus(__('Clipboard blocked: debug JSON shown in prompt'), 'warning');
                 }
             }
-        } catch (err) {
-            // Clipboard can be blocked by browser permissions; fall back to prompt.
-            // eslint-disable-next-line no-alert
-            window.prompt('Copy optimizer debug JSON:', json);
-            if (window.CraftBP && typeof window.CraftBP.pushStatus === 'function') {
-                window.CraftBP.pushStatus(__('Clipboard blocked: debug JSON shown in prompt'), 'warning');
-            }
+        } catch (e) {
+            // Debug should never break optimization.
+            console.warn('[IndyHub] Optimize debug failed', e);
         }
-    } catch (e) {
-        // Debug should never break optimization.
-        console.warn('[IndyHub] Optimize debug failed', e);
     }
 
     // Apply decisions to switches.
@@ -2318,17 +3199,12 @@ function buildCraftPayloadUrlForRuns(testRuns) {
     const url = new URL(base, window.location.origin);
     // IMPORTANT:
     // Run optimized must use the same ME/TE configuration that the server used to render
-    // the current dashboard payload. Otherwise we can end up with a mismatch where
-    // localStorage-restored per-blueprint ME/TE inputs (not yet applied) affect Run optimized
-    // API payloads but not the dashboard totals.
-    const currentParams = new URLSearchParams(window.location.search || '');
+    // the current dashboard payload. We therefore read the last applied values from the
+    // payload-backed blueprint config, not from the visible URL and not from unsaved inputs.
+    const appliedConfig = buildDefaultMETEConfig();
 
-    const rootME = currentParams.has('me')
-        ? Number(currentParams.get('me'))
-        : (window.BLUEPRINT_DATA?.me ?? 0);
-    const rootTE = currentParams.has('te')
-        ? Number(currentParams.get('te'))
-        : (window.BLUEPRINT_DATA?.te ?? 0);
+    const rootME = Number(appliedConfig.mainME ?? window.BLUEPRINT_DATA?.me ?? 0) || 0;
+    const rootTE = Number(appliedConfig.mainTE ?? window.BLUEPRINT_DATA?.te ?? 0) || 0;
 
     url.searchParams.set('runs', String(Math.max(1, Number(testRuns) || 1)));
     url.searchParams.set('me', String(rootME));
@@ -2339,13 +3215,14 @@ function buildCraftPayloadUrlForRuns(testRuns) {
         url.searchParams.set('indy_debug', '1');
     }
 
-    // Only propagate per-blueprint overrides if they are already part of the page URL.
-    // (Those are the overrides the backend actually applied to compute window.BLUEPRINT_DATA.)
-    for (const [key, value] of currentParams.entries()) {
-        if (key.startsWith('me_') || key.startsWith('te_')) {
-            url.searchParams.set(key, String(value));
+    Object.entries(appliedConfig.blueprintConfigs || {}).forEach(([typeId, bpConfig]) => {
+        if (bpConfig && bpConfig.me !== undefined) {
+            url.searchParams.set(`me_${typeId}`, String(bpConfig.me));
         }
-    }
+        if (bpConfig && bpConfig.te !== undefined) {
+            url.searchParams.set(`te_${typeId}`, String(bpConfig.te));
+        }
+    });
 
     const finalUrl = url.toString();
     craftBPDebugLog('[RunOptimized] craft_bp_payload URL built', finalUrl);
@@ -3482,15 +4359,7 @@ function initializeRunOptimizedTab() {
 
                         let revenueTotal = 0;
                         try {
-                            const finalRow = document.getElementById('finalProductRow');
-                            const finalQtyEl = finalRow ? finalRow.querySelector('[data-qty]') : null;
-                            const rawFinalQty = finalQtyEl ? (finalQtyEl.getAttribute('data-qty') || finalQtyEl.dataset?.qty) : null;
-                            const finalQty = Math.max(0, Math.ceil(Number(rawFinalQty))) || 0;
-                            if (productTypeIdDbg && finalQty > 0) {
-                                const unit = api.getPrice(productTypeIdDbg, 'sale');
-                                const unitPrice = unit && typeof unit.value === 'number' ? unit.value : 0;
-                                if (unitPrice > 0) revenueTotal += unitPrice * finalQty;
-                            }
+                            revenueTotal += computeFinalOutputRevenue(api);
                         } catch (e) {
                             // ignore
                         }
@@ -3524,7 +4393,6 @@ function initializeRunOptimizedTab() {
                         });
 
                         try {
-                            // eslint-disable-next-line no-console
                             console.log('[RunOptimized] dashboard vs maxRuns point JSON', JSON.stringify({
                                 maxRuns,
                                 dashboard: { marginPct: dashboardMargin, revenue: revenueTotal, cost: costTotal, surplusRevenue },
@@ -3816,15 +4684,7 @@ function initializeCollapseHandlers() {
  * Initialize financial calculations
  */
 function initializeFinancialCalculations() {
-    // On change recalc (use real-price and sale-price-unit)
-    const recalcInputs = Array.from(document.querySelectorAll('.real-price, .sale-price-unit'));
-    recalcInputs.forEach(inp => {
-        attachPriceInputListener(inp);
-
-        if (inp.dataset.userModified === 'true') {
-            updatePriceInputManualState(inp, true);
-        }
-    });
+    initializeDelegatedFinancialPriceInputs();
 
     const recalcNowBtn = document.getElementById('recalcNowBtn');
     if (recalcNowBtn) {
@@ -3887,23 +4747,18 @@ function initializeFinancialCalculations() {
         });
     }
 
-    fetchAllPrices(typeIds).then(prices => {
+    const initialFinancialSyncPromise = fetchAllPrices(typeIds).then(prices => {
         populatePrices(fetchInputs, prices);
         stashExtraFuzzworkPrices(prices);
         applyManualPriceOverrides(window.craftBPFlags?.restoredSessionState?.manualPrices);
-        recalcFinancials();
-    });
-
-    // Ensure the Financial tab list ordering matches the dashboard ordering on first load.
-    // We intentionally do NOT call refreshTabsAfterStateChange() here, because that would
-    // re-render the dashboard Materials pane.
-    try {
         if (typeof updateFinancialTabFromState === 'function') {
-            updateFinancialTabFromState();
+            return Promise.resolve(updateFinancialTabFromState()).then(() => {
+                recalcFinancials();
+            });
         }
-    } catch (e) {
-        // ignore
-    }
+        recalcFinancials();
+        return Promise.resolve();
+    });
 
     // Bind Load Fuzzwork Prices button
     const loadBtn = document.getElementById('loadFuzzworkBtn');
@@ -3913,6 +4768,12 @@ function initializeFinancialCalculations() {
                 populatePrices(fetchInputs, prices);
                 stashExtraFuzzworkPrices(prices);
                 applyManualPriceOverrides(window.craftBPFlags?.restoredSessionState?.manualPrices);
+                if (typeof updateFinancialTabFromState === 'function') {
+                    Promise.resolve(updateFinancialTabFromState()).then(() => {
+                        recalcFinancials();
+                    });
+                    return;
+                }
                 recalcFinancials();
             });
         });
@@ -3994,14 +4855,21 @@ function initializeMETEHandlers() {
         craftBPDebugLog('Blueprint configuration changes detected - workspace refresh deferred until tab switch');
     }
 
-    const meTeInputs = document.querySelectorAll('#configure-pane input[name^="me_"], #configure-pane input[name^="te_"]');
-    craftBPDebugLog(`Found ${meTeInputs.length} ME/TE inputs to monitor for changes`);
-
-    meTeInputs.forEach(input => {
-        input.addEventListener('input', markMETEChanges);
-        input.addEventListener('change', markMETEChanges);
-        craftBPDebugLog(`Added listeners to ${input.name} input`);
-    });
+    if (document.body && document.body.dataset.meteDelegatedAttached !== 'true') {
+        document.addEventListener('input', (event) => {
+            const target = event.target;
+            if (target && (target.classList?.contains('bp-me-input') || target.classList?.contains('bp-te-input'))) {
+                markMETEChanges();
+            }
+        }, true);
+        document.addEventListener('change', (event) => {
+            const target = event.target;
+            if (target && (target.classList?.contains('bp-me-input') || target.classList?.contains('bp-te-input'))) {
+                markMETEChanges();
+            }
+        }, true);
+        document.body.dataset.meteDelegatedAttached = 'true';
+    }
 
     const tabButtons = document.querySelectorAll('#craftMainTabs button[data-bs-toggle="tab"]');
     tabButtons.forEach(button => {
@@ -4041,24 +4909,15 @@ function restoreMETEFromLocalStorage(storageKey) {
             return;
         }
 
-        const config = JSON.parse(savedConfig);
+        const config = normalizeMETEConfig(JSON.parse(savedConfig));
         craftBPDebugLog('Restoring ME/TE from localStorage:', config);
 
-        // Apply saved values to inputs
-        for (const [typeId, bpConfig] of Object.entries(config.blueprintConfigs || {})) {
-            if (bpConfig.me !== undefined) {
-                const meInput = document.querySelector(`input[name="me_${typeId}"]`);
-                if (meInput) {
-                    meInput.value = bpConfig.me;
-                }
-            }
-            if (bpConfig.te !== undefined) {
-                const teInput = document.querySelector(`input[name="te_${typeId}"]`);
-                if (teInput) {
-                    teInput.value = bpConfig.te;
-                }
-            }
+        if (!window.craftBPFlags?.pendingMETEConfig) {
+            window.craftBPFlags = window.craftBPFlags || {};
+            window.craftBPFlags.pendingMETEConfig = config;
         }
+
+        applyMETEConfigToInputs(window.craftBPFlags.pendingMETEConfig || config);
 
         craftBPDebugLog('ME/TE config restored from localStorage');
     } catch (error) {
@@ -4103,11 +4962,11 @@ function applyPendingMETEChanges() {
  * Get current ME/TE configuration from Config tab
  */
 function getCurrentMETEConfig() {
-    const config = {
-        mainME: 0,
-        mainTE: 0,
-        blueprintConfigs: {}
-    };
+    const config = normalizeMETEConfig(window.craftBPFlags?.pendingMETEConfig || buildDefaultMETEConfig());
+
+    if (!isConfigurePaneHydrated()) {
+        return config;
+    }
 
     // Get ME/TE inputs from config tab
     const meTeInputs = document.querySelectorAll('#configure-pane input[name^="me_"], #configure-pane input[name^="te_"]');
@@ -4152,6 +5011,8 @@ function getCurrentMETEConfig() {
     return config;
 }
 
+window.applyDeferredCraftBlueprintInputState = applyDeferredCraftBlueprintInputState;
+
 /**
  * Get current blueprint type ID from the page
  */
@@ -4176,6 +5037,7 @@ function getCurrentBlueprintTypeId() {
  */
 function showLoadingIndicator() {
     const options = arguments.length > 0 && arguments[0] ? arguments[0] : {};
+    clearLoadingOverlayHideTimer();
     const elements = getLoadingOverlayElements();
     setLoadingOverlayCopy(
         options.title || __('Preparing production workspace'),
@@ -4189,27 +5051,42 @@ function showLoadingIndicator() {
         elements.overlay.classList.remove('is-hidden');
         elements.overlay.setAttribute('aria-busy', 'true');
     }
+    renderLoadingOverlayBootstrap();
 }
 
 /**
  * Hide loading indicator
  */
 function hideLoadingIndicator() {
-    const elements = getLoadingOverlayElements();
-    if (elements.workspace) {
-        elements.workspace.classList.remove('is-loading');
-        elements.workspace.setAttribute('aria-hidden', 'false');
+    const remainingMs = Math.max(0, Number(loadingOverlayState.minimumVisibleUntil) - getLoadingNow());
+    if (remainingMs > 0) {
+        clearLoadingOverlayHideTimer();
+        loadingOverlayState.hideTimerId = window.setTimeout(() => {
+            loadingOverlayState.hideTimerId = null;
+            hideLoadingIndicatorNow();
+        }, remainingMs);
+        return;
     }
-    if (elements.overlay) {
-        elements.overlay.classList.add('is-hidden');
-        elements.overlay.setAttribute('aria-busy', 'false');
-    }
+    hideLoadingIndicatorNow();
 }
 
 window.CraftBPLoading = {
     show: showLoadingIndicator,
     hide: hideLoadingIndicator,
+    startBootstrap: startLoadingOverlayBootstrap,
+    stepBootstrap: setLoadingOverlayBootstrapStep,
+    finishBootstrap: completeLoadingOverlayBootstrap,
+    getLastBootstrap: () => loadingOverlayState.lastBootstrap,
 };
+
+if (document.getElementById('bpTabs-loading') && window.CraftBPLoading && typeof window.CraftBPLoading.startBootstrap === 'function') {
+    window.CraftBPLoading.startBootstrap({
+        title: __('Preparing production workspace'),
+        message: __('Loading workspace...'),
+        minimumVisibleMs: 1200,
+        steps: buildWorkspaceBootstrapSteps(),
+    });
+}
 
 /**
  * Format a number as a price with ISK suffix
@@ -4647,6 +5524,86 @@ function getStructurePlannerOption(typeId, structureId) {
     return getDecoratedStructureOption(typeId, structureId);
 }
 
+let structurePlannerPayloadRequest = null;
+
+function hasFullStructurePlannerOptions() {
+    const planner = window.SimulationAPI && typeof window.SimulationAPI.getStructurePlanner === 'function'
+        ? window.SimulationAPI.getStructurePlanner()
+        : (window.BLUEPRINT_DATA?.structure_planner || window.BLUEPRINT_DATA?.structurePlanner || {});
+    const summary = planner && typeof planner === 'object' ? (planner.summary || {}) : {};
+    return summary.has_full_options !== false && summary.hasFullOptions !== false;
+}
+
+function buildCurrentCraftPayloadUrl(extraParams = {}) {
+    const base = window.BLUEPRINT_DATA?.urls?.craft_bp_payload;
+    if (!base) {
+        return null;
+    }
+
+    const url = new URL(base, window.location.origin);
+    const currentParams = new URLSearchParams(window.location.search || '');
+    currentParams.forEach((value, key) => {
+        url.searchParams.set(key, value);
+    });
+    Object.entries(extraParams).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') {
+            url.searchParams.set(key, String(value));
+        }
+    });
+    if (window.INDY_HUB_DEBUG) {
+        url.searchParams.set('indy_debug', '1');
+    }
+    return url;
+}
+
+function ensureFullStructurePlannerLoaded() {
+    if (hasFullStructurePlannerOptions()) {
+        return Promise.resolve(true);
+    }
+    if (structurePlannerPayloadRequest) {
+        return structurePlannerPayloadRequest;
+    }
+
+    const url = buildCurrentCraftPayloadUrl();
+    if (!url) {
+        return Promise.resolve(false);
+    }
+
+    structurePlannerPayloadRequest = fetch(url.toString(), {
+        headers: {
+            'X-Requested-With': 'XMLHttpRequest',
+        },
+    })
+        .then((response) => {
+            if (!response.ok) {
+                throw new Error(`Unable to load structure planner (${response.status})`);
+            }
+            return response.json();
+        })
+        .then((nextPayload) => {
+            const structurePlanner = nextPayload?.structure_planner || nextPayload?.structurePlanner || null;
+            if (!structurePlanner) {
+                return false;
+            }
+            if (window.SimulationAPI && typeof window.SimulationAPI.replaceStructurePlanner === 'function') {
+                window.SimulationAPI.replaceStructurePlanner(structurePlanner, { preserveAssignments: true });
+            }
+            window.BLUEPRINT_DATA = window.BLUEPRINT_DATA || {};
+            window.BLUEPRINT_DATA.structure_planner = structurePlanner;
+            window.BLUEPRINT_DATA.structurePlanner = structurePlanner;
+            return true;
+        })
+        .catch((error) => {
+            console.error('Error loading full structure planner payload:', error);
+            return false;
+        })
+        .finally(() => {
+            structurePlannerPayloadRequest = null;
+        });
+
+    return structurePlannerPayloadRequest;
+}
+
 function computeStructureInstallationSummary() {
     const summary = {
         estimatedItemValue: 0,
@@ -4839,11 +5796,27 @@ function renderStructurePlanner() {
     const summaryContainer = document.getElementById('structurePlannerSummary');
     const rowsContainer = document.getElementById('structurePlannerRows');
     const emptyContainer = document.getElementById('structurePlannerEmpty');
-    const items = getStructurePlannerItems();
 
     if (!summaryContainer || !rowsContainer || !emptyContainer) {
         return;
     }
+
+    if (!hasFullStructurePlannerOptions()) {
+        emptyContainer.classList.add('d-none');
+        summaryContainer.innerHTML = `<div class="alert alert-info mb-0">${escapeHtml(__('Loading complete structure options…'))}</div>`;
+        rowsContainer.innerHTML = '';
+        ensureFullStructurePlannerLoaded().then((loaded) => {
+            if (loaded) {
+                renderStructurePlanner();
+                return;
+            }
+            summaryContainer.innerHTML = '';
+            emptyContainer.classList.remove('d-none');
+        });
+        return;
+    }
+
+    const items = getStructurePlannerItems();
 
     if (items.length === 0) {
         summaryContainer.innerHTML = '';
@@ -5195,6 +6168,8 @@ function recalcFinancials() {
         quickMarginEl.textContent = `${marginText}%`;
     }
 
+    applyFinancialPlannerFilters();
+
     const now = new Date();
     const formattedTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
@@ -5390,294 +6365,23 @@ function populatePrices(allInputs, prices) {
     }
 }
 
-function buildFinancialRow(item, pricesMap) {
-    const row = document.createElement('tr');
-    row.setAttribute('data-type-id', String(item.typeId));
-
-    row.innerHTML = `
-        <td class="fw-semibold">
-            <div class="d-flex align-items-center gap-3 craft-planner-item-flex">
-                <img src="https://images.evetech.net/types/${item.typeId}/icon?size=32" alt="${escapeHtml(item.typeName)}" class="rounded" style="width:28px;height:28px;background:#f3f4f6;" onerror="this.style.display='none';">
-                <span class="craft-planner-item-name-wrap">
-                    <span class="fw-bold craft-planner-item-name">${escapeHtml(item.typeName)}</span>
-                </span>
-            </div>
-        </td>
-        <td class="text-end">
-            <span class="badge bg-primary text-white" data-qty="${item.quantity}">${formatInteger(item.quantity)}</span>
-        </td>
-        <td class="text-end">
-            <input type="number" min="0" step="0.01" class="form-control form-control-sm fuzzwork-price text-end bg-light" data-type-id="${item.typeId}" value="0" readonly>
-        </td>
-        <td class="text-end">
-            <input type="number" min="0" step="0.01" class="form-control form-control-sm real-price text-end" data-type-id="${item.typeId}" value="0">
-        </td>
-        <td class="text-end total-cost">0</td>
-    `;
-
-    const fuzzInput = row.querySelector('.fuzzwork-price');
-    const realInput = row.querySelector('.real-price');
-
-    const priceEntry = pricesMap.get(item.typeId) || {};
-    const fuzzPrice = Number(priceEntry.fuzzwork || 0);
-    const realPrice = Number(priceEntry.real || 0);
-
-    fuzzInput.value = fuzzPrice.toFixed(2);
-    if (fuzzPrice <= 0) {
-        fuzzInput.classList.add('bg-warning', 'border-warning');
-        fuzzInput.setAttribute('title', __('Price not available (Fuzzwork)'));
-    } else {
-        fuzzInput.classList.remove('bg-warning', 'border-warning');
-        fuzzInput.removeAttribute('title');
-    }
-
-    if (realPrice > 0) {
-        realInput.value = realPrice.toFixed(2);
-        updatePriceInputManualState(realInput, true);
-    } else {
-        realInput.value = '0.00';
-        updatePriceInputManualState(realInput, false);
-    }
-
-    attachPriceInputListener(realInput);
-
-    return { row, typeId: item.typeId, fuzzInput, realInput };
-}
-
-function updateFinancialRow(row, item) {
-    row.setAttribute('data-type-id', String(item.typeId));
-
-    const nameNode = row.querySelector('.craft-planner-item-name');
-    if (nameNode) {
-        nameNode.textContent = item.typeName;
-    }
-
-    const img = row.querySelector('img');
-    if (img) {
-        img.alt = item.typeName;
-        img.src = `https://images.evetech.net/types/${item.typeId}/icon?size=32`;
-    }
-
-    const qtyBadge = row.querySelector('[data-qty]');
-    if (qtyBadge) {
-        qtyBadge.dataset.qty = String(item.quantity);
-        qtyBadge.textContent = formatInteger(item.quantity);
-    }
-}
-
-// Cache the server-rendered dashboard ordering before any JS re-renders the Materials section.
-let CRAFT_DASHBOARD_ORDERING_CACHE = null;
-
-function getDashboardMaterialsOrdering() {
-    if (CRAFT_DASHBOARD_ORDERING_CACHE) {
-        return CRAFT_DASHBOARD_ORDERING_CACHE;
-    }
-
-    const container = document.getElementById('materialsGroupsContainer');
-    const fallbackGroupName = __('Other');
-
-    const groupOrder = new Map(); // groupName -> index
-    const itemOrder = new Map(); // typeId -> { groupIdx, itemIdx }
-
-    if (!container) {
-        return { groupOrder, itemOrder, fallbackGroupName };
-    }
-
-    // Prefer the original server-rendered markup (.craft-group-card).
-    const groupCards = Array.from(container.querySelectorAll('.craft-group-card'));
-    if (groupCards.length > 0) {
-        groupCards.forEach((card, groupIdx) => {
-            const headerSpan = card.querySelector('.craft-group-header > span');
-            let groupName = headerSpan && headerSpan.textContent ? headerSpan.textContent.trim() : '';
-            if (!groupName) {
-                groupName = fallbackGroupName;
-            }
-            if (!groupOrder.has(groupName)) {
-                groupOrder.set(groupName, groupIdx);
-            }
-
-            const rows = Array.from(card.querySelectorAll('.craft-item-row[data-type-id]'));
-            rows.forEach((row, itemIdx) => {
-                const typeId = Number(row.getAttribute('data-type-id')) || 0;
-                if (!typeId || itemOrder.has(typeId)) {
-                    return;
-                }
-                itemOrder.set(typeId, { groupIdx, itemIdx });
-            });
-        });
-    } else {
-        // Fallback: JS-rendered markup from updateMaterialsTabFromState (bootstrap cards with a table).
-        const cards = Array.from(container.querySelectorAll('.card'));
-        cards.forEach((card, groupIdx) => {
-            const headerLabel = card.querySelector('.card-header span.fw-semibold');
-            let groupName = headerLabel && headerLabel.textContent ? headerLabel.textContent.trim() : '';
-            if (!groupName) {
-                groupName = fallbackGroupName;
-            }
-            if (!groupOrder.has(groupName)) {
-                groupOrder.set(groupName, groupIdx);
-            }
-
-            const rows = Array.from(card.querySelectorAll('tbody tr[data-type-id]'));
-            rows.forEach((row, itemIdx) => {
-                const typeId = Number(row.getAttribute('data-type-id')) || 0;
-                if (!typeId || itemOrder.has(typeId)) {
-                    return;
-                }
-                itemOrder.set(typeId, { groupIdx, itemIdx });
-            });
-        });
-    }
-
-    const result = { groupOrder, itemOrder, fallbackGroupName };
-    if (groupOrder.size > 0 || itemOrder.size > 0) {
-        CRAFT_DASHBOARD_ORDERING_CACHE = result;
-    }
-    return result;
-}
-
-function updateFinancialTabFromState() {
-    const tableBody = document.getElementById('financialItemsBody');
-    if (!tableBody || !window.SimulationAPI || typeof window.SimulationAPI.getFinancialItems !== 'function') {
-        return;
-    }
-
-    const finalRow = document.getElementById('finalProductRow');
-    const productTypeId = getProductTypeIdValue();
-    const pricesMap = getSimulationPricesMap();
-
-    const aggregated = new Map();
-    const items = window.SimulationAPI.getFinancialItems() || [];
-
-    items.forEach(item => {
-        const typeId = Number(item.typeId ?? item.type_id);
-        if (!typeId || (productTypeId && typeId === productTypeId)) {
-            return;
-        }
-        const quantity = Math.ceil(Number(item.quantity ?? item.qty ?? 0));
-        if (quantity <= 0) {
-            return;
-        }
-        const existing = aggregated.get(typeId) || {
-            typeId,
-            typeName: item.typeName || item.type_name || '',
-            quantity: 0,
-            marketGroup: item.marketGroup || item.market_group || ''
-        };
-        existing.quantity += quantity;
-        if (!existing.marketGroup && (item.marketGroup || item.market_group)) {
-            existing.marketGroup = item.marketGroup || item.market_group || '';
-        }
-        aggregated.set(typeId, existing);
-    });
-
-    const ordering = getDashboardMaterialsOrdering();
-    const sortedItems = Array.from(aggregated.values()).sort((a, b) => {
-        const typeA = Number(a.typeId) || 0;
-        const typeB = Number(b.typeId) || 0;
-
-        const dashboardA = ordering.itemOrder.get(typeA);
-        const dashboardB = ordering.itemOrder.get(typeB);
-        const groupA = (a.marketGroup || ordering.fallbackGroupName);
-        const groupB = (b.marketGroup || ordering.fallbackGroupName);
-
-        const groupIdxA = dashboardA ? dashboardA.groupIdx : (ordering.groupOrder.has(groupA) ? ordering.groupOrder.get(groupA) : Number.POSITIVE_INFINITY);
-        const groupIdxB = dashboardB ? dashboardB.groupIdx : (ordering.groupOrder.has(groupB) ? ordering.groupOrder.get(groupB) : Number.POSITIVE_INFINITY);
-        if (groupIdxA !== groupIdxB) {
-            return groupIdxA - groupIdxB;
-        }
-
-        // If both are in the dashboard materials list, keep the exact dashboard item order.
-        const itemIdxA = dashboardA ? dashboardA.itemIdx : Number.POSITIVE_INFINITY;
-        const itemIdxB = dashboardB ? dashboardB.itemIdx : Number.POSITIVE_INFINITY;
-        if (itemIdxA !== itemIdxB) {
-            return itemIdxA - itemIdxB;
-        }
-
-        // Fallbacks (for craftables not present on the dashboard materials list)
-        const groupCmp = String(groupA).localeCompare(String(groupB), undefined, { sensitivity: 'base' });
-        if (groupCmp !== 0) {
-            return groupCmp;
-        }
-        return String(a.typeName).localeCompare(String(b.typeName), undefined, { sensitivity: 'base' });
-    });
-
-    const existingRows = new Map();
-    tableBody.querySelectorAll('tr[data-type-id]').forEach(row => {
-        if (finalRow && row === finalRow) {
-            return;
-        }
-        const typeId = Number(row.getAttribute('data-type-id'));
-        if (!typeId) {
-            return;
-        }
-        existingRows.set(typeId, row);
-    });
-
-    const newRows = [];
-
-    sortedItems.forEach(item => {
-        let row = existingRows.get(item.typeId);
-        if (row) {
-            updateFinancialRow(row, item);
-            tableBody.insertBefore(row, finalRow || null);
-            existingRows.delete(item.typeId);
-        } else {
-            const buildResult = buildFinancialRow(item, pricesMap);
-            row = buildResult.row;
-            tableBody.insertBefore(row, finalRow || null);
-            newRows.push(buildResult);
-        }
-    });
-
-    existingRows.forEach(row => row.remove());
-
-    if (finalRow && finalRow.parentElement !== tableBody) {
-        tableBody.appendChild(finalRow);
-    }
-
-    if (newRows.length > 0) {
-        const typeIds = newRows.map(entry => entry.typeId);
-        fetchAllPrices(typeIds).then(prices => {
-            newRows.forEach(({ typeId, fuzzInput, realInput }) => {
-                const priceValue = parseFloat(prices[typeId] ?? prices[String(typeId)]) || 0;
-                fuzzInput.value = priceValue.toFixed(2);
-                if (priceValue <= 0) {
-                    fuzzInput.classList.add('bg-warning', 'border-warning');
-                    fuzzInput.setAttribute('title', __('Price not available (Fuzzwork)'));
-                } else {
-                    fuzzInput.classList.remove('bg-warning', 'border-warning');
-                    fuzzInput.removeAttribute('title');
-                }
-                if (window.SimulationAPI && typeof window.SimulationAPI.setPrice === 'function') {
-                    window.SimulationAPI.setPrice(typeId, 'fuzzwork', priceValue);
-                }
-                // Real Price stays at 0 by default; do not copy Fuzzwork
-            });
-            if (typeof recalcFinancials === 'function') {
-                recalcFinancials();
-            }
-        });
-    } else if (typeof recalcFinancials === 'function') {
-        recalcFinancials();
-    }
-}
-
 function updateMaterialsTabFromState() {
+    const planPaneHydrated = hydratePlanPane();
+
     const container = document.getElementById('materialsGroupsContainer');
     if (!container || !window.SimulationAPI || typeof window.SimulationAPI.getFinancialItems !== 'function') {
         return;
     }
 
     const emptyState = document.getElementById('materialsEmptyState');
-    const productTypeId = getProductTypeIdValue();
+    const finalOutputTypeIds = getFinalOutputTypeIds();
     const fallbackGroupName = __('Other');
     const aggregated = new Map();
     const items = window.SimulationAPI.getFinancialItems() || [];
 
     items.forEach(item => {
         const typeId = Number(item.typeId ?? item.type_id);
-        if (!typeId || (productTypeId && typeId === productTypeId)) {
+        if (!typeId || finalOutputTypeIds.has(typeId)) {
             return;
         }
         const quantity = Math.ceil(Number(item.quantity ?? item.qty ?? 0));
@@ -5708,6 +6412,12 @@ function updateMaterialsTabFromState() {
         if (emptyState) {
             emptyState.style.display = '';
         }
+        if (typeof window.updateCraftQuickStats === 'function') {
+            window.updateCraftQuickStats();
+        }
+        if (planPaneHydrated && typeof recalcFinancials === 'function') {
+            recalcFinancials();
+        }
         return;
     }
 
@@ -5720,7 +6430,7 @@ function updateMaterialsTabFromState() {
             <tr data-type-id="${item.typeId}">
                 <td class="fw-semibold">
                     <div class="d-flex align-items-center gap-3">
-                        <img src="https://images.evetech.net/types/${item.typeId}/icon?size=32" alt="${escapeHtml(item.typeName)}" class="rounded" style="width:30px;height:30px;background:#f3f4f6;" onerror="this.style.display='none';">
+                        <img src="https://images.evetech.net/types/${item.typeId}/icon?size=32" alt="${escapeHtml(item.typeName)}" loading="lazy" decoding="async" fetchpriority="low" class="rounded" style="width:30px;height:30px;background:#f3f4f6;" onerror="this.style.display='none';">
                         <span class="fw-bold">${escapeHtml(item.typeName)}</span>
                     </div>
                 </td>
@@ -5758,6 +6468,14 @@ function updateMaterialsTabFromState() {
 
     if (emptyState) {
         emptyState.style.display = 'none';
+    }
+
+    if (typeof window.updateCraftQuickStats === 'function') {
+        window.updateCraftQuickStats();
+    }
+
+    if (planPaneHydrated && typeof recalcFinancials === 'function') {
+        recalcFinancials();
     }
 }
 
@@ -5951,55 +6669,65 @@ function getCraftProductionCyclesSummary() {
     return summary;
 }
 
-function getCurrentBuildFinalProductRow(cyclesSummary) {
-    const productTypeId = getProductTypeIdValue();
-    if (!(productTypeId > 0)) {
-        return null;
-    }
-
-    const summaryEntry = cyclesSummary[String(productTypeId)] || cyclesSummary[productTypeId] || null;
-    const finalQtyEl = document.getElementById('finalProductRow')?.querySelector('[data-qty]') || null;
-    const finalQty = Math.max(
-        0,
-        Math.ceil(
-            Number(
-                (finalQtyEl && (finalQtyEl.getAttribute('data-qty') || finalQtyEl.dataset?.qty))
-                || window.BLUEPRINT_DATA?.final_product_qty
-                || window.BLUEPRINT_DATA?.finalProductQty
-                || 0
-            )
-        )
-    ) || 0;
+function getCurrentBuildFinalProductRows(cyclesSummary) {
     const runs = Math.max(0, Math.ceil(Number(document.getElementById('runsInput')?.value || window.BLUEPRINT_DATA?.num_runs || 0))) || 0;
-    const producedPerCycle = summaryEntry
-        ? (Math.max(0, Math.ceil(Number(summaryEntry.produced_per_cycle || 0))) || 0)
-        : (Math.max(0, Math.ceil(Number(window.BLUEPRINT_DATA?.product_output_per_cycle || window.BLUEPRINT_DATA?.productOutputPerCycle || 0))) || 0);
-    const totalNeeded = summaryEntry
-        ? (Math.max(0, Math.ceil(Number(summaryEntry.total_needed || 0))) || 0)
-        : finalQty;
-    const cycles = summaryEntry
-        ? (Math.max(0, Math.ceil(Number(summaryEntry.cycles || 0))) || 0)
-        : runs;
-    const totalProduced = summaryEntry
-        ? (Math.max(0, Math.ceil(Number(summaryEntry.total_produced || 0))) || 0)
-        : (totalNeeded || (producedPerCycle * cycles));
-    const surplus = summaryEntry
-        ? (Math.max(0, Math.ceil(Number(summaryEntry.surplus || 0))) || 0)
-        : Math.max(totalProduced - totalNeeded, 0);
 
-    if (!(totalNeeded > 0) && !(cycles > 0) && !(producedPerCycle > 0) && !(totalProduced > 0)) {
-        return null;
-    }
+    return getFinalOutputEntries(window.BLUEPRINT_DATA)
+        .map((output) => {
+            const typeId = Number(output?.type_id || output?.typeId || 0) || 0;
+            if (!(typeId > 0)) {
+                return null;
+            }
 
-    return {
-        type_id: productTypeId,
-        type_name: window.BLUEPRINT_DATA?.name || '',
-        total_needed: totalNeeded,
-        produced_per_cycle: producedPerCycle || totalNeeded,
-        cycles,
-        total_produced: totalProduced || totalNeeded,
-        surplus,
-    };
+            const summaryEntry = cyclesSummary[String(typeId)] || cyclesSummary[typeId] || null;
+            const finalRow = getFinalOutputRows().find((row) => (Number(row.getAttribute('data-type-id') || 0) || 0) === typeId) || null;
+            const finalQtyEl = finalRow ? finalRow.querySelector('[data-qty]') : null;
+            const finalQty = Math.max(
+                0,
+                Math.ceil(
+                    Number(
+                        (finalQtyEl && (finalQtyEl.getAttribute('data-qty') || finalQtyEl.dataset?.qty))
+                        || output?.quantity
+                        || output?.qty
+                        || 0
+                    )
+                )
+            ) || 0;
+            const producedPerCycle = summaryEntry
+                ? (Math.max(0, Math.ceil(Number(summaryEntry.produced_per_cycle || summaryEntry.producedPerCycle || 0))) || 0)
+                : (Math.max(0, Math.ceil(Number(output?.produced_per_cycle || output?.producedPerCycle || 0))) || 0);
+            const totalNeeded = summaryEntry
+                ? (Math.max(0, Math.ceil(Number(summaryEntry.total_needed || summaryEntry.totalNeeded || 0))) || 0)
+                : finalQty;
+            const cycles = summaryEntry
+                ? (Math.max(0, Math.ceil(Number(summaryEntry.cycles || 0))) || 0)
+                : runs;
+            const totalProduced = summaryEntry
+                ? (Math.max(0, Math.ceil(Number(summaryEntry.total_produced || summaryEntry.totalProduced || 0))) || 0)
+                : (totalNeeded || (producedPerCycle * cycles));
+            const surplus = summaryEntry
+                ? (Math.max(0, Math.ceil(Number(summaryEntry.surplus || 0))) || 0)
+                : Math.max(totalProduced - totalNeeded, 0);
+
+            if (!(totalNeeded > 0) && !(cycles > 0) && !(producedPerCycle > 0) && !(totalProduced > 0)) {
+                return null;
+            }
+
+            return {
+                type_id: typeId,
+                type_name: output?.type_name || output?.typeName || window.BLUEPRINT_DATA?.name || '',
+                total_needed: totalNeeded,
+                produced_per_cycle: producedPerCycle || totalNeeded,
+                cycles,
+                total_produced: totalProduced || totalNeeded,
+                surplus,
+            };
+        })
+        .filter(Boolean);
+}
+
+function getCurrentBuildFinalProductRow(cyclesSummary) {
+    return getCurrentBuildFinalProductRows(cyclesSummary)[0] || null;
 }
 
 function renderBuildCycleRow(entry, options = {}) {
@@ -6023,7 +6751,7 @@ function renderBuildCycleRow(entry, options = {}) {
         <tr${isFinalProduct ? ' class="table-primary"' : ''} data-type-id="${typeId}">
             <td>
                 <div class="d-flex align-items-center gap-2">
-                    <img src="https://images.evetech.net/types/${typeId}/icon?size=32" alt="${iconAlt}" class="rounded eve-type-icon eve-type-icon--30" onerror="this.style.display='none';">
+                    <img src="https://images.evetech.net/types/${typeId}/icon?size=32" alt="${iconAlt}" loading="lazy" decoding="async" fetchpriority="low" class="rounded eve-type-icon eve-type-icon--30" onerror="this.style.display='none';">
                     <div class="flex-grow-1">
                         ${nameHtml}
                     </div>
@@ -6098,19 +6826,19 @@ function updateBuildTabFromState() {
     }
 
     const cyclesSummary = getCraftProductionCyclesSummary();
-    const productTypeId = getProductTypeIdValue();
-    const finalProductRow = getCurrentBuildFinalProductRow(cyclesSummary);
+    const finalProductRows = getCurrentBuildFinalProductRows(cyclesSummary);
+    const finalOutputTypeIds = new Set(finalProductRows.map((entry) => Number(entry?.type_id || 0) || 0).filter((typeId) => typeId > 0));
     const cycleEntries = sortBuildCycleEntries(
-        Object.values(cyclesSummary).filter((entry) => (Number(entry?.type_id || entry?.typeId || 0) || 0) !== productTypeId)
+        Object.values(cyclesSummary).filter((entry) => !finalOutputTypeIds.has(Number(entry?.type_id || entry?.typeId || 0) || 0))
     );
 
-    if (!finalProductRow && cycleEntries.length === 0) {
+    if (finalProductRows.length === 0 && cycleEntries.length === 0) {
         buildPane.innerHTML = `<div class="alert alert-info">${escapeHtml(__('No cycles data available.'))}</div>`;
         return;
     }
 
     const rowsHtml = [
-        finalProductRow ? renderBuildCycleRow(finalProductRow, { finalProduct: true }) : '',
+        finalProductRows.map((entry) => renderBuildCycleRow(entry, { finalProduct: true })).join(''),
         cycleEntries.map((entry) => renderBuildCycleRow(entry)).join('')
     ].join('');
 
@@ -6118,7 +6846,7 @@ function updateBuildTabFromState() {
         <section class="craft-section">
             <h3 class="craft-section-title">
                 <i class="fas fa-sync text-info"></i> ${escapeHtml(__('Cycles'))}
-                <span class="small text-body-secondary fw-semibold ms-2">${formatInteger(cycleEntries.length)}</span>
+                <span class="small text-body-secondary fw-semibold ms-2">${formatInteger(finalProductRows.length + cycleEntries.length)}</span>
             </h3>
             <div class="table-responsive craft-cycles-table craft-table-text-120">
                 <table class="table table-sm align-middle mb-0">
@@ -6238,13 +6966,12 @@ function getCurrentProductionCycleInfoByTypeId() {
         }
     });
 
-    const finalProductRow = getCurrentBuildFinalProductRow(cyclesSummary);
-    if (finalProductRow) {
-        const typeId = Number(finalProductRow.type_id || 0) || 0;
+    getCurrentBuildFinalProductRows(cyclesSummary).forEach((finalProductRow) => {
+        const typeId = Number(finalProductRow?.type_id || 0) || 0;
         if (typeId > 0) {
             byTypeId.set(typeId, finalProductRow);
         }
-    }
+    });
 
     return byTypeId;
 }
@@ -6448,7 +7175,7 @@ function renderCraftTimingTableRow(row) {
         <tr${row.isFinalProduct ? ' class="table-primary"' : ''} data-type-id="${row.typeId}">
             <td>
                 <div class="d-flex align-items-center gap-2">
-                    <img src="https://images.evetech.net/types/${row.typeId}/icon?size=32" alt="${escapeHtml(row.typeName)}" class="rounded eve-type-icon eve-type-icon--30" onerror="this.style.display='none';">
+                    <img src="https://images.evetech.net/types/${row.typeId}/icon?size=32" alt="${escapeHtml(row.typeName)}" loading="lazy" decoding="async" fetchpriority="low" class="rounded eve-type-icon eve-type-icon--30" onerror="this.style.display='none';">
                     <div>
                         <div class="small ${row.isFinalProduct ? 'fw-bold' : 'fw-semibold'}">${row.isFinalProduct ? `<i class="fas fa-star text-warning me-1"></i>` : ''}${escapeHtml(row.typeName)}</div>
                         <div class="small text-muted">${escapeHtml(row.activityLabel || __('Production'))}</div>
@@ -6672,7 +7399,7 @@ function sortBuildCyclesTable() {
         return;
     }
 
-    const productTypeId = getProductTypeIdValue();
+    const finalOutputTypeIds = getFinalOutputTypeIds();
     const payload = window.BLUEPRINT_DATA || {};
     const marketGroupMap = payload.market_group_map || {};
     const ordering = getDashboardMaterialsOrdering();
@@ -6691,11 +7418,11 @@ function sortBuildCyclesTable() {
     };
 
     const isFinalProductRow = (row) => {
-        if (row.classList.contains('table-primary')) {
+        if (row.classList.contains('table-primary') || row.getAttribute('data-final-output') === 'true') {
             return true;
         }
         const tid = Number(row.getAttribute('data-type-id')) || 0;
-        return !!(productTypeId && tid === productTypeId);
+        return finalOutputTypeIds.has(tid);
     };
 
     const finalRows = rows.filter(isFinalProductRow);
@@ -6746,17 +7473,24 @@ function sortBuildCyclesTable() {
 
 try {
     document.addEventListener('DOMContentLoaded', () => {
-        if (typeof updateBuildTabFromState === 'function') {
-            updateBuildTabFromState();
-        } else {
-            sortBuildCyclesTable();
+        hydrateVisibleCraftStartupTab();
+
+        const planTabBtn = document.querySelector('#plan-tab-btn');
+        if (planTabBtn) {
+            planTabBtn.addEventListener('shown.bs.tab', () => {
+                if (typeof updateMaterialsTabFromState === 'function') {
+                    updateMaterialsTabFromState();
+                }
+            });
         }
 
-        if (typeof updateCraftTimingTabFromState === 'function') {
-            updateCraftTimingTabFromState();
-        }
-        if (typeof updateCraftStepsTabFromState === 'function') {
-            updateCraftStepsTabFromState();
+        const buyTabBtn = document.querySelector('#buy-tab-btn');
+        if (buyTabBtn) {
+            buyTabBtn.addEventListener('shown.bs.tab', () => {
+                if (typeof updateFinancialTabFromState === 'function') {
+                    updateFinancialTabFromState();
+                }
+            });
         }
 
         const buildTabBtn = document.querySelector('#build-tab-btn');
@@ -6784,6 +7518,27 @@ try {
             stepsTabBtn.addEventListener('shown.bs.tab', () => {
                 if (typeof updateCraftStepsTabFromState === 'function') {
                     updateCraftStepsTabFromState();
+                }
+            });
+        }
+
+        const structureTabBtn = document.querySelector('#structure-tab-btn');
+        if (structureTabBtn) {
+            structureTabBtn.addEventListener('shown.bs.tab', () => {
+                if (typeof renderStructurePlanner === 'function') {
+                    renderStructurePlanner();
+                }
+            });
+        }
+
+        const configureTabBtn = document.querySelector('#configure-tab-btn');
+        if (configureTabBtn) {
+            configureTabBtn.addEventListener('shown.bs.tab', () => {
+                if (typeof window.updateConfigTabFromState === 'function') {
+                    window.updateConfigTabFromState();
+                }
+                if (typeof window.validateBlueprintRuns === 'function') {
+                    window.validateBlueprintRuns();
                 }
             });
         }

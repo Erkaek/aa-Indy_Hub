@@ -1,5 +1,6 @@
 # Standard Library
 import random
+import secrets
 from datetime import timedelta
 from decimal import ROUND_CEILING, Decimal
 
@@ -18,6 +19,18 @@ from .utils.eve import get_blueprint_product_type_id, is_reaction_blueprint
 def generate_order_reference():
     """Generate a random order reference like INDY-1234567890"""
     return f"INDY-{random.randint(1000000000, 9999999999)}"
+
+
+PROJECT_REF_BASE36_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyz"
+PROJECT_REF_LENGTH = 10
+
+
+def generate_production_project_ref() -> str:
+    """Generate a random fixed-width base36 code for production projects."""
+
+    return "".join(
+        secrets.choice(PROJECT_REF_BASE36_ALPHABET) for _ in range(PROJECT_REF_LENGTH)
+    )
 
 
 class BlueprintManager(models.Manager):
@@ -1824,6 +1837,137 @@ class ProductionSimulation(models.Model):
         if self.estimated_revenue > 0:
             return float((self.estimated_profit / self.estimated_revenue) * 100)
         return 0.0
+
+
+class ProductionProject(models.Model):
+    class Status(models.TextChoices):
+        DRAFT = "draft", _("In progress")
+        SAVED = "saved", _("Saved")
+        ARCHIVED = "archived", _("Archived")
+
+    class SourceKind(models.TextChoices):
+        EFT = "eft", _("EFT fitting")
+        MANUAL = "manual", _("Manual list")
+        MIXED = "mixed", _("Mixed")
+
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="production_projects"
+    )
+    project_ref = models.CharField(
+        max_length=PROJECT_REF_LENGTH,
+        unique=True,
+        blank=True,
+        editable=False,
+    )
+    name = models.CharField(max_length=255)
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.DRAFT,
+    )
+    source_kind = models.CharField(
+        max_length=16,
+        choices=SourceKind.choices,
+        default=SourceKind.MANUAL,
+    )
+    source_text = models.TextField(blank=True)
+    source_name = models.CharField(max_length=255, blank=True)
+    notes = models.TextField(blank=True)
+    summary = models.JSONField(default=dict, blank=True)
+    workspace_state = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        default_permissions = ()
+        ordering = ["-updated_at"]
+        indexes = [
+            models.Index(fields=["user", "status", "-updated_at"]),
+            models.Index(fields=["user", "source_kind", "-updated_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.user.username} - {self.name}"
+
+    def save(self, *args, **kwargs):
+        if not self.project_ref:
+            for attempt_index in range(8):
+                candidate = generate_production_project_ref()
+                if not self.__class__.objects.filter(project_ref=candidate).exists():
+                    self.project_ref = candidate
+                    break
+            else:
+                raise ValidationError(
+                    "Unable to allocate a unique production project reference."
+                )
+
+            update_fields = kwargs.get("update_fields")
+            if update_fields is not None:
+                kwargs["update_fields"] = set(update_fields) | {"project_ref"}
+
+        super().save(*args, **kwargs)
+
+    @property
+    def selected_items(self):
+        return self.items.filter(is_selected=True).order_by("category_order", "id")
+
+    @property
+    def total_requested_quantity(self) -> int:
+        return int(
+            self.items.filter(is_selected=True).aggregate(
+                total=models.Sum("quantity_requested")
+            )["total"]
+            or 0
+        )
+
+
+class ProductionProjectItem(models.Model):
+    class InclusionMode(models.TextChoices):
+        PRODUCE = "produce", _("Produce")
+        BUY = "buy", _("Buy")
+        SKIP = "skip", _("Skip")
+
+    project = models.ForeignKey(
+        ProductionProject,
+        on_delete=models.CASCADE,
+        related_name="items",
+    )
+    type_id = models.BigIntegerField(blank=True, null=True)
+    type_name = models.CharField(max_length=255)
+    quantity_requested = models.BigIntegerField(default=1)
+    category_key = models.CharField(max_length=64, blank=True)
+    category_label = models.CharField(max_length=255, blank=True)
+    category_order = models.IntegerField(default=0)
+    source_line = models.TextField(blank=True)
+    is_selected = models.BooleanField(default=True)
+    is_craftable = models.BooleanField(default=False)
+    inclusion_mode = models.CharField(
+        max_length=16,
+        choices=InclusionMode.choices,
+        default=InclusionMode.PRODUCE,
+    )
+    blueprint_type_id = models.BigIntegerField(blank=True, null=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        default_permissions = ()
+        ordering = ["category_order", "type_name", "id"]
+        indexes = [
+            models.Index(fields=["project", "is_selected"]),
+            models.Index(fields=["project", "inclusion_mode"]),
+            models.Index(fields=["project", "type_id"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project", "type_id", "category_key"],
+                name="indy_hub_project_item_unique_type_category",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.project_id} - {self.type_name} x{self.quantity_requested}"
 
 
 # ============================================================================
