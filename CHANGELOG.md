@@ -53,6 +53,19 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 - Added the supporting migrations, scheduled tasks, and service layers required for structure datasets, system cost indices, craft timing or skill helpers, and the new production-project models.
 - Updated release metadata, frontend package versions, and compatibility redirects to complete the `1.16.0` transition away from legacy single-blueprint simulations.
 
+### Ticket closures
+
+- Closes `#50`: `sync_sde_compat` now handles missing local SDE data more safely and the release guidance around SDE bootstrap and sync commands has been clarified.
+- Closes `#52`: corporation blueprint and related industry views now resolve structure names more reliably instead of falling back to raw structure IDs in normal cases.
+- Closes `#53`: Material Exchange buy flows no longer depend on oversized zero-quantity payloads, avoiding `TooManyFieldsSent` failures on large inventories.
+- Closes `#55`: tax visibility is now included in the new Crafting Projects financial workflow that replaces the legacy simulation screen.
+- Closes `#56`: Material Exchange configuration now supports multiple accepted locations plus finer buy or sell filtering through market-group rules and explicit item allowlists.
+- Closes `#57`: Indy Hub now exposes an optional CharLink hook integration for shared token and scope onboarding flows.
+- Closes `#62`: corporation jobs are now accounted for in slot-usage and overview reporting instead of only personal character jobs.
+- Closes `#63`: corporation blueprint and jobs pages now support broader per-corporation visibility controls beyond managers only.
+- Closes `#64`: Material Exchange sell orders now support a dedicated paste-import mode alongside the ESI asset workflow.
+- Closes `#65`: Material Exchange mismatch and anomaly messages now resolve SDE item names in notifications, notes, and detail views instead of showing raw type IDs when names are available.
+
 ### Update from 1.15.1
 
 To update an existing `1.15.1` installation to `1.16.0`, use the sequence matching your deployment type.
