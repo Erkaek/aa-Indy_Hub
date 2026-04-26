@@ -8,9 +8,6 @@ from math import ceil
 from typing import Any
 from urllib.parse import quote
 
-# Third Party
-from bravado.exception import HTTPError
-
 # Django
 from django.contrib import messages
 from django.contrib.auth import get_user_model
@@ -47,6 +44,7 @@ from esi.views import sso_redirect
 
 # AA Example App
 from indy_hub.models import CharacterSettings, CorporationSharingSetting
+from indy_hub.services._esi_compat import HTTPError
 
 from ..app_settings import ROLE_SNAPSHOT_STALE_HOURS
 from ..decorators import indy_hub_access_required, tokens_required

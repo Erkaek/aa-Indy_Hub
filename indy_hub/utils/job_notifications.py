@@ -5,6 +5,7 @@ from __future__ import annotations
 # Standard Library
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from datetime import timezone as dt_timezone
 from typing import Any
 
 # Django
@@ -650,7 +651,7 @@ def process_job_completion_notification(job: IndustryJob) -> bool:
             end_date = parsed
 
     if isinstance(end_date, datetime) and timezone.is_naive(end_date):
-        end_date = timezone.make_aware(end_date, timezone.utc)
+        end_date = timezone.make_aware(end_date, dt_timezone.utc)
 
     if not end_date or end_date > timezone.now():
         return False

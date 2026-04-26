@@ -9,6 +9,25 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 ## [Unreleased]
 
+## [1.17.0] - 2026-04-26
+
+### Added
+
+- Compatibility: official support for Alliance Auth 5 (Django 5.2 / django-esi 9) alongside Alliance Auth 4 (Django 4.2 / django-esi 8). The same Indy Hub release now installs and runs unchanged on both stacks.
+- ESI client: introduced a small compatibility shim around bravado/aiopenapi3 so blueprint, jobs, assets, structures, location, and corporation roles operations resolve transparently on django-esi 8 and 9, with a unified `HTTPError` tuple replacing the old bravado-only error handling.
+- CharLink hook: added the `esi-location.read_online.v1` scope to the personal authorization set so freshly-linked characters keep online-status access without an extra ESI re-authorization round trip.
+- Forms: Indy Hub now raises Django's `DATA_UPLOAD_MAX_NUMBER_FIELDS` to 50 000 at startup (configurable via `INDY_HUB_MAX_FORM_FIELDS`) so Material Exchange and craft project configuration pages no longer raise `TooManyFieldsSent` when thousands of EVE market groups or type ids are submitted at once.
+
+### Changed
+
+- Packaging: widened supported version ranges to `allianceauth>=4.6,<6` and `django-esi>=7,<10`, and added the `Framework :: Django :: 5.2` classifier so the package advertises its Alliance Auth 5 compatibility.
+- Internals: replaced removed Django 5 timezone helpers (`django.utils.timezone.utc`) with `datetime.timezone.utc` across industry tasks, job notifications, and Material Exchange flows so the same code path runs on Django 4.2 and Django 5.2.
+- Migrations: added schema-alignment migrations (`0098`, `0099`) that normalize corporation sharing scope choices and rename a few indexes, eliminating Django `makemigrations` drift on both Django 4.2 and Django 5.2.
+
+### Fixed
+
+- Material Exchange: saving the hub configuration on `/indy_hub/material-exchange/config/` no longer crashes with `TooManyFieldsSent` when many market groups are toggled at once.
+
 ## [1.16.2] - 2026-04-26
 
 ### Fixed

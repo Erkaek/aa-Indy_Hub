@@ -71,6 +71,10 @@ def bootstrap_django() -> None:
 
     # Django
     import django
+
+    django.setup()
+
+    # Django
     from django.contrib.auth import get_user_model as django_get_user_model
     from django.db.models import Sum as django_sum
     from django.test import Client as django_client
@@ -99,8 +103,6 @@ def bootstrap_django() -> None:
     from indy_hub.views.material_exchange import (
         _get_material_exchange_location_ids as get_material_exchange_location_ids_func,
     )
-
-    django.setup()
 
     get_user_model = django_get_user_model
     Sum = django_sum

@@ -3,6 +3,7 @@
 # Standard Library
 import hashlib
 import json
+from datetime import timezone as dt_timezone
 from decimal import ROUND_CEILING, Decimal
 
 # Django
@@ -768,7 +769,7 @@ def material_exchange_sell_assets_refresh_status(request):
 
     if last_update:
         try:
-            last_update_utc = timezone.localtime(last_update, timezone.utc)
+            last_update_utc = timezone.localtime(last_update, dt_timezone.utc)
         except Exception:
             last_update_utc = last_update
         response["last_update"] = last_update_utc.isoformat()

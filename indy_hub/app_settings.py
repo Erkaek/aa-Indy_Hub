@@ -43,6 +43,17 @@ SDE_FOLDER = clean_setting(
     required_type=str,
 )
 
+# Material Exchange / craft project forms can post thousands of fields when the
+# user toggles many EVE market groups or type ids at once (well above Django's
+# default `DATA_UPLOAD_MAX_NUMBER_FIELDS = 1000`). Indy Hub raises this limit
+# at app startup unless the project already configured a higher value.
+MAX_FORM_FIELDS = clean_setting(
+    "INDY_HUB_MAX_FORM_FIELDS",
+    50000,
+    min_value=1000,
+    required_type=int,
+)
+
 MANUAL_REFRESH_COOLDOWN_SECONDS = clean_setting(
     "INDY_HUB_MANUAL_REFRESH_COOLDOWN_SECONDS",
     300,

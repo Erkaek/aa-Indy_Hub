@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-# Third Party
-from bravado.exception import HTTPError
-
 # Alliance Auth
 from allianceauth.services.hooks import get_extension_logger
 from esi.errors import TokenError
@@ -14,6 +11,9 @@ from esi.models import Token
 # AA Example App
 # Local
 from indy_hub.app_settings import ESI_COMPATIBILITY_DATE
+
+# AA Indy Hub
+from indy_hub.services._esi_compat import HTTPError
 from indy_hub.services.providers import esi_provider
 
 logger = get_extension_logger(__name__)

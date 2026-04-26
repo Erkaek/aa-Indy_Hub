@@ -48,6 +48,25 @@ class IndyHubConfig(AppConfig):
         except Exception as e:
             logger.exception(f"Error loading signals: {e}")
 
+        # Material Exchange / craft project forms can submit thousands of POST
+        # fields (one per EVE market group or type id). Raise Django's default
+        # DATA_UPLOAD_MAX_NUMBER_FIELDS = 1000 to a sane minimum so users do
+        # not hit TooManyFieldsSent. Respect any larger value the project has
+        # already configured.
+        try:
+            from .app_settings import MAX_FORM_FIELDS
+
+            current_limit = getattr(settings, "DATA_UPLOAD_MAX_NUMBER_FIELDS", None)
+            if current_limit is not None and current_limit < MAX_FORM_FIELDS:
+                settings.DATA_UPLOAD_MAX_NUMBER_FIELDS = MAX_FORM_FIELDS
+                logger.info(
+                    "IndyHub raised DATA_UPLOAD_MAX_NUMBER_FIELDS to %s (was %s).",
+                    MAX_FORM_FIELDS,
+                    current_limit,
+                )
+        except Exception as e:
+            logger.warning("Could not adjust DATA_UPLOAD_MAX_NUMBER_FIELDS: %s", e)
+
         # Ensure Celery task modules are registered.
         # Some modules (e.g. signals) may import a single task submodule early,
         # which can prevent Celery autodiscovery from registering all tasks.

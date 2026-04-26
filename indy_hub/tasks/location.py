@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 # Third Party
-from bravado.exception import HTTPBadGateway, HTTPGatewayTimeout, HTTPServiceUnavailable
 from celery import group, shared_task
 
 # Django
@@ -16,6 +15,13 @@ from allianceauth.services.tasks import QueueOnce
 
 # AA Example App
 from indy_hub.models import CachedStructureName
+
+# AA Indy Hub
+from indy_hub.services._esi_compat import (
+    HTTPBadGateway,
+    HTTPGatewayTimeout,
+    HTTPServiceUnavailable,
+)
 from indy_hub.services.location_population import (
     DEFAULT_TASK_PRIORITY,
     populate_location_names,

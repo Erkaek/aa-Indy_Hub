@@ -27,6 +27,7 @@ from ..tasks.industry import (
     CORP_JOBS_SCOPE_SET,
     JOBS_SCOPE,
     MATERIAL_EXCHANGE_SCOPE_SET,
+    ONLINE_SCOPE,
     STRUCTURE_SCOPE,
 )
 
@@ -34,6 +35,10 @@ ASSETS_SCOPE = "esi-assets.read_assets.v1"
 
 User = get_user_model()
 
+# Keep this aligned with `views.user.ASSETS_SCOPE_SET` and the personal
+# `authorize_*` flows: the in-app ESI page requests ONLINE_SCOPE alongside
+# ASSETS_SCOPE, so charlink must request the same set or users will be
+# prompted to re-authorize manually for `esi-location.read_online.v1`.
 PERSONAL_SCOPE_SET = sorted(
     {
         BLUEPRINT_SCOPE,
@@ -41,6 +46,7 @@ PERSONAL_SCOPE_SET = sorted(
         ASSETS_SCOPE,
         STRUCTURE_SCOPE,
         SKILLS_SCOPE,
+        ONLINE_SCOPE,
     }
 )
 CORPORATION_SCOPE_SET = sorted({*CORP_BLUEPRINT_SCOPE_SET, *CORP_JOBS_SCOPE_SET})

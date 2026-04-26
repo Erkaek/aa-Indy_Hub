@@ -23,8 +23,8 @@ classifiers = [
     "Environment :: Web Environment",
     "Framework :: Celery",
     "Framework :: Django",
-    "Framework :: Django :: 4.0",
     "Framework :: Django :: 4.2",
+    "Framework :: Django :: 5.2",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
@@ -43,9 +43,9 @@ dynamic = [
     "version",
 ]
 dependencies = [
-    "allianceauth>=4,<5",
+    "allianceauth>=4.6,<6",
     "allianceauth-app-utils>=1",
-    "django-esi>=7,<9",
+    "django-esi>=7,<10",
     "django-eveonline-sde>=0.0.1b3",
     "requests>=2.31",
 ]

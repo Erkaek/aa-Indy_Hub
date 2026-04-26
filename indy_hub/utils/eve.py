@@ -8,9 +8,6 @@ from collections.abc import Iterable, Mapping
 from datetime import timedelta
 from uuid import uuid4
 
-# Third Party
-from bravado.exception import HTTPError
-
 # Django
 from django.apps import apps
 from django.conf import settings
@@ -22,6 +19,10 @@ from django.utils import timezone
 from allianceauth.eveonline.models import EveCharacter, EveCorporationInfo
 from allianceauth.services.hooks import get_extension_logger
 from esi.models import Token
+
+# AA Example App
+# AA Indy Hub
+from indy_hub.services._esi_compat import HTTPError
 
 from ..services.esi_client import (
     ESIClientError,

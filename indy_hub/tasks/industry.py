@@ -6,6 +6,7 @@
 import random
 import time
 from datetime import datetime, timedelta
+from datetime import timezone as dt_timezone
 
 # Third Party
 from celery import shared_task
@@ -214,7 +215,7 @@ def _coerce_online_datetime(value):
     else:
         return None
     if timezone.is_naive(dt):
-        dt = timezone.make_aware(dt, timezone.utc)
+        dt = timezone.make_aware(dt, dt_timezone.utc)
     return dt
 
 
@@ -848,7 +849,7 @@ def _remaining_manual_cooldown(
     if cached is None:
         return None
     try:
-        last_trigger = datetime.fromtimestamp(float(cached), tz=timezone.utc)
+        last_trigger = datetime.fromtimestamp(float(cached), tz=dt_timezone.utc)
     except (TypeError, ValueError):
         return None
     cooldown = _get_manual_refresh_cooldown_seconds()
@@ -966,7 +967,7 @@ def _coerce_job_datetime(value):
         return None
 
     if timezone.is_naive(dt):
-        dt = timezone.make_aware(dt, timezone.utc)
+        dt = timezone.make_aware(dt, dt_timezone.utc)
     return dt
 
 
