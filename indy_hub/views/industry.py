@@ -1205,7 +1205,7 @@ def _build_copy_duration_payload(
         "total_duration_display": _format_duration_compact(total_duration_seconds),
         "structure_time_bonus_percent": structure_bonus,
         "character_time_bonus_percent": character_bonus,
-        "meta_label": " \u00b7 ".join(meta_parts),
+        "meta_label": " \u00b7 ".join(str(part) for part in meta_parts),
     }
 
 

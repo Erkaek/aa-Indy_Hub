@@ -45,6 +45,8 @@ RIG_SOURCE = "rig"
 
 ENGINEERING_STRUCTURE_GROUP_ID = 1404
 REFINERY_STRUCTURE_GROUP_ID = 1406
+NPC_STATION_STRUCTURE_TYPE_ID = -1
+NPC_STATION_STRUCTURE_TYPE_NAME = "NPC Station"
 
 FALLBACK_STRUCTURE_TYPES = (
     (35835, "Athanor"),
@@ -55,6 +57,13 @@ FALLBACK_STRUCTURE_TYPES = (
 )
 
 FALLBACK_STRUCTURE_TYPE_CATALOG = (
+    {
+        "type_id": NPC_STATION_STRUCTURE_TYPE_ID,
+        "name": NPC_STATION_STRUCTURE_TYPE_NAME,
+        "group_id": None,
+        "rig_size": None,
+        "supports_rigs": False,
+    },
     {"type_id": 35825, "name": "Raitaru", "group_id": 1404, "rig_size": 2},
     {"type_id": 35826, "name": "Azbel", "group_id": 1404, "rig_size": 3},
     {"type_id": 35827, "name": "Sotiyo", "group_id": 1404, "rig_size": 4},
@@ -536,8 +545,8 @@ def is_supported_industry_structure_type(structure_type_id: int | None) -> bool:
 
 
 @lru_cache(maxsize=1)
-def get_structure_type_catalog() -> list[dict[str, int | str]]:
-    catalog: list[dict[str, int | str]] = []
+def get_structure_type_catalog() -> list[dict[str, object]]:
+    catalog: list[dict[str, object]] = []
     for fallback in FALLBACK_STRUCTURE_TYPE_CATALOG:
         snapshot = get_type_snapshot(int(fallback["type_id"]))
         if snapshot is None:
@@ -552,9 +561,20 @@ def get_structure_type_catalog() -> list[dict[str, int | str]]:
                     snapshot.dogma_attributes.get(RIG_SIZE_ATTRIBUTE_ID)
                 )
                 or int(fallback["rig_size"]),
+                "supports_rigs": bool(fallback.get("supports_rigs", True)),
             }
         )
     return sorted(catalog, key=lambda entry: str(entry["name"]))
+
+
+@lru_cache(maxsize=2048)
+def structure_type_supports_rigs(structure_type_id: int | None) -> bool:
+    if structure_type_id is None:
+        return False
+    entry = get_structure_type_catalog_entry(int(structure_type_id))
+    if entry is None:
+        return False
+    return bool(entry.get("supports_rigs", True))
 
 
 def get_default_enabled_structure_activities(
@@ -757,6 +777,11 @@ def _is_rig_catalog_entry_compatible(
 def get_grouped_industry_rig_options(
     structure_type_id: int | None = None,
 ) -> list[tuple[str, list[tuple[int, str]]]]:
+    if structure_type_id is not None and not structure_type_supports_rigs(
+        int(structure_type_id)
+    ):
+        return []
+
     structure_entry = None
     if structure_type_id:
         structure_entry = get_structure_type_catalog_entry(int(structure_type_id))
@@ -783,7 +808,7 @@ def get_grouped_industry_rig_options(
 @lru_cache(maxsize=64)
 def get_structure_type_catalog_entry(
     structure_type_id: int,
-) -> dict[str, int | str] | None:
+) -> dict[str, object] | None:
     for entry in get_structure_type_catalog():
         if int(entry["type_id"]) == int(structure_type_id):
             return entry
@@ -932,6 +957,13 @@ def resolve_item_type_reference(
 ) -> tuple[int, str] | None:
     if item_type_id is None and not item_type_name:
         return None
+
+    if item_type_id == NPC_STATION_STRUCTURE_TYPE_ID or (
+        item_type_name
+        and str(item_type_name).strip().casefold()
+        == NPC_STATION_STRUCTURE_TYPE_NAME.casefold()
+    ):
+        return NPC_STATION_STRUCTURE_TYPE_ID, NPC_STATION_STRUCTURE_TYPE_NAME
 
     with connection.cursor() as cursor:
         if item_type_id is not None:
@@ -1522,12 +1554,13 @@ def summarize_selected_structure_bonuses(
     _solar_system_id, _resolved_name, security_band = solar_system_reference
     structure_entry = get_structure_type_catalog_entry(int(structure_type_id))
     structure_type_name = str(structure_entry["name"]) if structure_entry else ""
+    supports_rigs = structure_type_supports_rigs(structure_type_id)
 
     resolved_bonuses = resolve_structure_type_bonuses(
         int(structure_type_id),
         structure_type_name=structure_type_name,
     )
-    for rig_type_id in rig_type_ids or []:
+    for rig_type_id in rig_type_ids or [] if supports_rigs else []:
         if not rig_type_id:
             continue
         rig_reference = resolve_item_type_reference(item_type_id=int(rig_type_id))
@@ -1595,6 +1628,7 @@ def build_structure_activity_previews(
     solar_system_id, _resolved_name, security_band = solar_system_reference
     structure_entry = get_structure_type_catalog_entry(int(structure_type_id))
     structure_type_name = str(structure_entry["name"]) if structure_entry else ""
+    supports_rigs = structure_type_supports_rigs(structure_type_id)
     enabled_activity_ids = get_enabled_activity_ids_from_flags(
         enabled_activity_flags,
         structure_type_id=structure_type_id,
@@ -1604,7 +1638,7 @@ def build_structure_activity_previews(
         int(structure_type_id),
         structure_type_name=structure_type_name,
     )
-    for rig_type_id in rig_type_ids or []:
+    for rig_type_id in rig_type_ids or [] if supports_rigs else []:
         if not rig_type_id:
             continue
         rig_reference = resolve_item_type_reference(item_type_id=int(rig_type_id))
@@ -1769,6 +1803,9 @@ def build_structure_rig_advisor_rows(
         solar_system_name=solar_system_name or None,
     )
     if solar_system_reference is None:
+        return []
+
+    if not structure_type_supports_rigs(structure_type_id):
         return []
 
     _solar_system_id, _resolved_name, security_band = solar_system_reference

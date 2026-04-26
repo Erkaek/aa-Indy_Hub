@@ -128,7 +128,7 @@ Add to your `conf/requirements.txt` (Always use current versions)
 
 ```text
 django-eveonline-sde==0.0.1b3
-indy-hub==1.16.0
+indy-hub==1.16.1
 ```
 
 Run migrations and collect static files:
@@ -257,7 +257,7 @@ systemctl restart allianceauth
 Update Versions in `conf/requirements.txt` (Always use current versions)
 
 ```text
-indy-hub==1.16.0
+indy-hub==1.16.1
 
 
 ```

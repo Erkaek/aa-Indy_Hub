@@ -20,6 +20,7 @@ from indy_hub.models import (
     IndustryStructureRig,
     IndustrySystemCostIndex,
 )
+from indy_hub.services.industry_structures import NPC_STATION_STRUCTURE_TYPE_ID
 from indy_hub.views.industry import (
     industry_structure_add,
     industry_structure_bonus_preview,
@@ -572,10 +573,145 @@ class IndustryStructureRegistryViewTests(TestCase):
         self.assertIn("Back to Registry", content)
         self.assertIn("Deduce Rigs", content)
         self.assertIn("Select one activity", content)
+        self.assertIn("NPC Station", content)
+        self.assertIn('"supports_rigs": false', content)
         self.assertIn('name="rigs-0-rig_type_id"', content)
         self.assertIn('name="rigs-1-rig_type_id"', content)
         self.assertIn('name="rigs-2-rig_type_id"', content)
         self.assertNotIn('name="rigs-3-rig_type_id"', content)
+
+    @patch(
+        "indy_hub.forms.industry_structures.sde_item_types_loaded", return_value=True
+    )
+    @patch("indy_hub.views.industry.sde_item_types_loaded", return_value=True)
+    @patch("indy_hub.forms.industry_structures.resolve_solar_system_location_reference")
+    @patch("indy_hub.forms.industry_structures.resolve_solar_system_reference")
+    def test_registry_can_create_npc_station_without_rigs(
+        self,
+        mock_resolve_solar_system_reference,
+        mock_resolve_solar_system_location_reference,
+        _mock_view_sde_loaded,
+        _mock_form_sde_loaded,
+    ) -> None:
+        mock_resolve_solar_system_reference.return_value = (
+            30000142,
+            "Jita",
+            IndustryStructure.SecurityBand.HIGHSEC,
+        )
+        mock_resolve_solar_system_location_reference.return_value = {
+            "solar_system_id": 30000142,
+            "solar_system_name": "Jita",
+            "system_security_band": IndustryStructure.SecurityBand.HIGHSEC,
+            "constellation_id": 20000020,
+            "constellation_name": "Kimotoro",
+            "region_id": 10000002,
+            "region_name": "The Forge",
+        }
+
+        request = self._prepare_request(
+            self.factory.post(
+                reverse("indy_hub:industry_structure_add"),
+                {
+                    "name": "Jita Research Station",
+                    "structure_type_id": str(NPC_STATION_STRUCTURE_TYPE_ID),
+                    "solar_system_name": "Jita",
+                    "enable_manufacturing": "1",
+                    "enable_research": "1",
+                    "enable_invention": "1",
+                    "manufacturing_tax_percent": "0.250",
+                    "research_tax_percent": "0.500",
+                    "invention_tax_percent": "0.750",
+                    "rigs-TOTAL_FORMS": "3",
+                    "rigs-INITIAL_FORMS": "0",
+                    "rigs-MIN_NUM_FORMS": "0",
+                    "rigs-MAX_NUM_FORMS": "1000",
+                    "rigs-0-slot_index": "",
+                    "rigs-0-rig_type_id": "",
+                    "rigs-1-slot_index": "",
+                    "rigs-1-rig_type_id": "",
+                    "rigs-2-slot_index": "",
+                    "rigs-2-rig_type_id": "",
+                },
+            )
+        )
+
+        response = self._add_view(request)
+
+        self.assertEqual(response.status_code, 302)
+        structure = IndustryStructure.objects.get(name="Jita Research Station")
+        self.assertEqual(structure.structure_type_id, NPC_STATION_STRUCTURE_TYPE_ID)
+        self.assertEqual(structure.structure_type_name, "NPC Station")
+        self.assertEqual(structure.rigs.count(), 0)
+
+    @patch(
+        "indy_hub.forms.industry_structures.sde_item_types_loaded", return_value=True
+    )
+    @patch("indy_hub.views.industry.sde_item_types_loaded", return_value=True)
+    @patch("indy_hub.forms.industry_structures.resolve_solar_system_location_reference")
+    @patch("indy_hub.forms.industry_structures.resolve_solar_system_reference")
+    @patch("indy_hub.forms.industry_structures.resolve_item_type_reference")
+    def test_registry_ignores_posted_rigs_for_npc_station(
+        self,
+        mock_resolve_item_type_reference,
+        mock_resolve_solar_system_reference,
+        mock_resolve_solar_system_location_reference,
+        _mock_view_sde_loaded,
+        _mock_form_sde_loaded,
+    ) -> None:
+        def resolver(*, item_type_id=None, item_type_name=None):
+            if (
+                item_type_id == NPC_STATION_STRUCTURE_TYPE_ID
+                or item_type_name == "NPC Station"
+            ):
+                return (NPC_STATION_STRUCTURE_TYPE_ID, "NPC Station")
+            if item_type_id == 43879:
+                return (43879, "Standup M-Set Invention Cost Optimization I")
+            return None
+
+        mock_resolve_item_type_reference.side_effect = resolver
+        mock_resolve_solar_system_reference.return_value = (
+            30000142,
+            "Jita",
+            IndustryStructure.SecurityBand.HIGHSEC,
+        )
+        mock_resolve_solar_system_location_reference.return_value = {
+            "solar_system_id": 30000142,
+            "solar_system_name": "Jita",
+            "system_security_band": IndustryStructure.SecurityBand.HIGHSEC,
+            "constellation_id": 20000020,
+            "constellation_name": "Kimotoro",
+            "region_id": 10000002,
+            "region_name": "The Forge",
+        }
+
+        request = self._prepare_request(
+            self.factory.post(
+                reverse("indy_hub:industry_structure_add"),
+                {
+                    "name": "Jita Factory Station",
+                    "structure_type_id": str(NPC_STATION_STRUCTURE_TYPE_ID),
+                    "solar_system_name": "Jita",
+                    "enable_manufacturing": "1",
+                    "manufacturing_tax_percent": "0.250",
+                    "rigs-TOTAL_FORMS": "3",
+                    "rigs-INITIAL_FORMS": "0",
+                    "rigs-MIN_NUM_FORMS": "0",
+                    "rigs-MAX_NUM_FORMS": "1000",
+                    "rigs-0-slot_index": "1",
+                    "rigs-0-rig_type_id": "43879",
+                    "rigs-1-slot_index": "",
+                    "rigs-1-rig_type_id": "",
+                    "rigs-2-slot_index": "",
+                    "rigs-2-rig_type_id": "",
+                },
+            )
+        )
+
+        response = self._add_view(request)
+
+        self.assertEqual(response.status_code, 302)
+        structure = IndustryStructure.objects.get(name="Jita Factory Station")
+        self.assertEqual(structure.rigs.count(), 0)
 
     @patch("indy_hub.views.industry.build_structure_rig_advisor_rows")
     def test_rig_advisor_returns_compatible_categories_and_metrics(

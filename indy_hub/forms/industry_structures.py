@@ -22,6 +22,7 @@ from indy_hub.services.industry_structures import (
     resolve_solar_system_location_reference,
     resolve_solar_system_reference,
     sde_item_types_loaded,
+    structure_type_supports_rigs,
 )
 
 
@@ -664,6 +665,18 @@ class IndustryStructureRigBaseFormSet(BaseFormSet):
             )
         except (TypeError, ValueError):
             resolved_structure_type_id = None
+
+        if resolved_structure_type_id and not structure_type_supports_rigs(
+            resolved_structure_type_id
+        ):
+            for form in self.forms:
+                cleaned_data = getattr(form, "cleaned_data", None) or {}
+                if not cleaned_data:
+                    continue
+                cleaned_data["is_empty"] = True
+                cleaned_data["rig_type_id"] = None
+                cleaned_data["rig_type_name"] = ""
+            return
 
         for form in self.forms:
             cleaned_data = getattr(form, "cleaned_data", None) or {}

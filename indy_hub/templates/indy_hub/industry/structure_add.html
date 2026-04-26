@@ -242,7 +242,7 @@
 
                             {% if is_synced_structure_locked %}</fieldset>{% endif %}
 
-                            <section class="structure-zone structure-zone--rigs">
+                            <section class="structure-zone structure-zone--rigs" id="structure-rig-section">
                                 <div class="card-header bg-body-tertiary border-0 py-3 px-4 structure-zone__header">
                                     <div>
                                         <h3 class="h6 mb-1 structure-zone__title">{% trans "Rig Loadout" %}</h3>
@@ -468,6 +468,7 @@
         const rigAdvisorModal = rigAdvisorModalElement && window.bootstrap
             ? new window.bootstrap.Modal(rigAdvisorModalElement)
             : null;
+        const rigSection = document.getElementById('structure-rig-section');
         const rigAdvisorOpenButton = document.getElementById('rig-advisor-open-button');
         const rigAdvisorLoading = document.getElementById('rig-advisor-loading');
         const rigAdvisorEmpty = document.getElementById('rig-advisor-empty');
@@ -654,6 +655,10 @@
             };
         }
 
+        function structureSupportsRigs(structureEntry) {
+            return Boolean(structureEntry && structureEntry.supports_rigs !== false);
+        }
+
         function applyDefaultActivityFlags() {
             const defaults = getDefaultActivityFlags(getStructureMeta());
             Object.keys(activityToggleInputs).forEach(function (fieldName) {
@@ -758,6 +763,25 @@
             loadBonusPreview();
         }
 
+        function syncRigSectionVisibility() {
+            const structureEntry = getStructureMeta();
+            const shouldHideRigSection = Boolean(structureEntry) && !structureSupportsRigs(structureEntry);
+
+            rigSelects.forEach(function (select) {
+                if (!select) {
+                    return;
+                }
+                if (shouldHideRigSection) {
+                    select.value = '';
+                }
+                select.disabled = shouldHideRigSection;
+            });
+
+            if (rigSection) {
+                rigSection.classList.toggle('d-none', shouldHideRigSection);
+            }
+        }
+
         function getEnabledActivityParams() {
             const params = new URLSearchParams();
             Object.keys(activityToggleInputs).forEach(function (fieldName) {
@@ -779,13 +803,15 @@
             if (!rigAdvisorOpenButton) {
                 return;
             }
-            const hasStructure = Boolean(structureTypeInput && structureTypeInput.value);
+            const structureEntry = getStructureMeta();
+            const hasStructure = Boolean(structureEntry);
             const hasSolarSystem = Boolean(solarInput && solarInput.value.trim());
             const hasActivity = Object.keys(activityToggleInputs).some(function (fieldName) {
                 const input = activityToggleInputs[fieldName];
                 return Boolean(input && input.checked);
             });
-            rigAdvisorOpenButton.disabled = !(hasStructure && hasSolarSystem && hasActivity);
+            const supportsRigs = structureSupportsRigs(structureEntry);
+            rigAdvisorOpenButton.disabled = !(hasStructure && hasSolarSystem && hasActivity && supportsRigs);
             renderCommandDeck();
         }
 
@@ -1986,12 +2012,15 @@
 
         if (structureTypeInput && rigSelects.length) {
             renderRigOptions();
+            syncRigSectionVisibility();
             structureTypeInput.addEventListener('change', function () {
                 applyDefaultActivityFlags();
                 syncVisibleTaxFields();
+                syncRigSectionVisibility();
                 invalidateRigAdvisorCache();
-                updateRigAdvisorAvailability();
                 renderRigOptions();
+                syncRigSectionVisibility();
+                updateRigAdvisorAvailability();
                 loadExistingStructuresPreview();
                 renderCommandDeck();
             });

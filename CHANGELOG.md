@@ -9,6 +9,13 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 ## [Unreleased]
 
+## [1.16.1] - 2026-04-26
+
+### Fixed
+
+- Blueprint Sharing: fixed a fulfill-page crash in copy duration metadata when lazy translated labels were joined with plain strings, which could raise `TypeError: sequence item 1: expected str instance, __proxy__ found` on `/indy_hub/bp-copy/fulfill/`.
+- Industry Structures: added `NPC Station` as a selectable structure type on `/indy_hub/industry/structures/add/` and `/indy_hub/industry/structures/<id>/edit/`, and automatically hides the Rig Loadout section for NPC stations because rigs do not apply there.
+
 ## [1.16.0] - 2026-04-07
 
 ### Added
