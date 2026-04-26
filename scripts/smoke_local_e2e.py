@@ -2,18 +2,35 @@
 
 from __future__ import annotations
 
+# Standard Library
 import argparse
 import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PROJECT_ROOT = ROOT.parent.parent / "myauth"
 DJANGO_PROJECT_ROOT = Path(
     os.environ.get("INDY_HUB_PROJECT_ROOT") or DEFAULT_PROJECT_ROOT
 ).resolve()
+
+get_user_model = None
+Sum = None
+Client = None
+reverse = None
+timezone = None
+CachedCharacterAsset = None
+IndustryStructure = None
+MaterialExchangeBuyOrder = None
+MaterialExchangeConfig = None
+MaterialExchangeSellOrder = None
+MaterialExchangeStock = None
+ProductionProject = None
+ensure_task_submodules_imported = None
+setup_periodic_tasks = None
+_get_allowed_type_ids_for_config = None
+_get_material_exchange_location_ids = None
 
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -30,30 +47,77 @@ os.environ.setdefault(
     os.environ.get("INDY_HUB_SETTINGS_MODULE") or default_settings_module,
 )
 
-import django
 
-django.setup()
+def bootstrap_django() -> None:
+    global get_user_model
+    global Sum
+    global Client
+    global reverse
+    global timezone
+    global CachedCharacterAsset
+    global IndustryStructure
+    global MaterialExchangeBuyOrder
+    global MaterialExchangeConfig
+    global MaterialExchangeSellOrder
+    global MaterialExchangeStock
+    global ProductionProject
+    global ensure_task_submodules_imported
+    global setup_periodic_tasks
+    global _get_allowed_type_ids_for_config
+    global _get_material_exchange_location_ids
 
-from django.contrib.auth import get_user_model
-from django.db.models import Sum
-from django.test import Client
-from django.urls import reverse
-from django.utils import timezone
+    if get_user_model is not None:
+        return
 
-from indy_hub.models import (
-    CachedCharacterAsset,
-    IndustryStructure,
-    MaterialExchangeBuyOrder,
-    MaterialExchangeConfig,
-    MaterialExchangeSellOrder,
-    MaterialExchangeStock,
-    ProductionProject,
-)
-from indy_hub.tasks import ensure_task_submodules_imported, setup_periodic_tasks
-from indy_hub.views.material_exchange import (
-    _get_allowed_type_ids_for_config,
-    _get_material_exchange_location_ids,
-)
+    # Django
+    import django
+    from django.contrib.auth import get_user_model as django_get_user_model
+    from django.db.models import Sum as django_sum
+    from django.test import Client as django_client
+    from django.urls import reverse as django_reverse
+    from django.utils import timezone as django_timezone
+
+    # AA Example App
+    from indy_hub.models import CachedCharacterAsset as cached_character_asset_model
+    from indy_hub.models import IndustryStructure as industry_structure_model
+    from indy_hub.models import (
+        MaterialExchangeBuyOrder as material_exchange_buy_order_model,
+    )
+    from indy_hub.models import MaterialExchangeConfig as material_exchange_config_model
+    from indy_hub.models import (
+        MaterialExchangeSellOrder as material_exchange_sell_order_model,
+    )
+    from indy_hub.models import MaterialExchangeStock as material_exchange_stock_model
+    from indy_hub.models import ProductionProject as production_project_model
+    from indy_hub.tasks import (
+        ensure_task_submodules_imported as ensure_task_submodules_imported_func,
+    )
+    from indy_hub.tasks import setup_periodic_tasks as setup_periodic_tasks_func
+    from indy_hub.views.material_exchange import (
+        _get_allowed_type_ids_for_config as get_allowed_type_ids_for_config_func,
+    )
+    from indy_hub.views.material_exchange import (
+        _get_material_exchange_location_ids as get_material_exchange_location_ids_func,
+    )
+
+    django.setup()
+
+    get_user_model = django_get_user_model
+    Sum = django_sum
+    Client = django_client
+    reverse = django_reverse
+    timezone = django_timezone
+    CachedCharacterAsset = cached_character_asset_model
+    IndustryStructure = industry_structure_model
+    MaterialExchangeBuyOrder = material_exchange_buy_order_model
+    MaterialExchangeConfig = material_exchange_config_model
+    MaterialExchangeSellOrder = material_exchange_sell_order_model
+    MaterialExchangeStock = material_exchange_stock_model
+    ProductionProject = production_project_model
+    ensure_task_submodules_imported = ensure_task_submodules_imported_func
+    setup_periodic_tasks = setup_periodic_tasks_func
+    _get_allowed_type_ids_for_config = get_allowed_type_ids_for_config_func
+    _get_material_exchange_location_ids = get_material_exchange_location_ids_func
 
 
 class SmokeFailure(RuntimeError):
@@ -119,11 +183,17 @@ def choose_user(username: str | None):
         if user:
             return user
 
-    latest_sell = MaterialExchangeSellOrder.objects.select_related("seller").order_by("-id").first()
+    latest_sell = (
+        MaterialExchangeSellOrder.objects.select_related("seller")
+        .order_by("-id")
+        .first()
+    )
     if latest_sell:
         return latest_sell.seller
 
-    latest_buy = MaterialExchangeBuyOrder.objects.select_related("buyer").order_by("-id").first()
+    latest_buy = (
+        MaterialExchangeBuyOrder.objects.select_related("buyer").order_by("-id").first()
+    )
     if latest_buy:
         return latest_buy.buyer
 
@@ -145,8 +215,12 @@ def run_task_health_check() -> None:
 
 
 def check_core_pages(client: Client) -> None:
-    assert_ok(client.get("/indy_hub/", follow=True), "overview page", contains="Indy Hub")
-    assert_ok(client.get("/indy_hub/bp-copy/fulfill/", follow=True), "bp-copy fulfill page")
+    assert_ok(
+        client.get("/indy_hub/", follow=True), "overview page", contains="Indy Hub"
+    )
+    assert_ok(
+        client.get("/indy_hub/bp-copy/fulfill/", follow=True), "bp-copy fulfill page"
+    )
     assert_ok(
         client.get("/indy_hub/bp-copy/history/", follow=True),
         "bp-copy history page",
@@ -173,12 +247,16 @@ def check_core_pages(client: Client) -> None:
         contains="Structure Registry",
     )
 
-    project_ref = ProductionProject.objects.order_by("-updated_at").values_list(
-        "project_ref", flat=True
-    ).first()
+    project_ref = (
+        ProductionProject.objects.order_by("-updated_at")
+        .values_list("project_ref", flat=True)
+        .first()
+    )
     if project_ref:
         assert_ok(
-            client.get(reverse("indy_hub:craft_project", args=[project_ref]), follow=True),
+            client.get(
+                reverse("indy_hub:craft_project", args=[project_ref]), follow=True
+            ),
             "craft project workspace",
         )
     else:
@@ -214,7 +292,9 @@ def structure_post_data(name: str, manufacturing_tax: str) -> dict[str, str]:
     }
 
 
-def exercise_structure_registry(client: Client, user, artifacts: SmokeArtifacts) -> None:
+def exercise_structure_registry(
+    client: Client, user, artifacts: SmokeArtifacts
+) -> None:
     suffix = timezone.now().strftime("%Y%m%d%H%M%S")
     created_name = f"ZZ Smoke Script Structure {suffix}"
     edited_name = f"{created_name} Edit"
@@ -305,7 +385,9 @@ def exercise_structure_registry(client: Client, user, artifacts: SmokeArtifacts)
 
 
 def pick_sell_candidate(config: MaterialExchangeConfig, user) -> list[int]:
-    location_ids = _get_material_exchange_location_ids(config) or [int(config.structure_id)]
+    location_ids = _get_material_exchange_location_ids(config) or [
+        int(config.structure_id)
+    ]
     allowed_type_ids = _get_allowed_type_ids_for_config(config, "sell")
     queryset = (
         CachedCharacterAsset.objects.filter(
@@ -354,7 +436,9 @@ def exercise_material_exchange(client: Client, user, artifacts: SmokeArtifacts) 
             },
             follow=True,
         )
-        sell_order = MaterialExchangeSellOrder.objects.filter(order_reference=reference).first()
+        sell_order = MaterialExchangeSellOrder.objects.filter(
+            order_reference=reference
+        ).first()
         if sell_order:
             artifacts.sell_order_ids.append(sell_order.id)
             text = assert_ok(
@@ -367,7 +451,9 @@ def exercise_material_exchange(client: Client, user, artifacts: SmokeArtifacts) 
                 reverse("indy_hub:sell_order_detail", args=[sell_order.id]),
                 follow=True,
             )
-            assert_ok(detail, "material exchange sell detail", contains="Sell Order Details")
+            assert_ok(
+                detail, "material exchange sell detail", contains="Sell Order Details"
+            )
             delete_response = client.post(
                 reverse("indy_hub:sell_order_delete", args=[sell_order.id]),
                 follow=True,
@@ -394,7 +480,9 @@ def exercise_material_exchange(client: Client, user, artifacts: SmokeArtifacts) 
             },
             follow=True,
         )
-        buy_order = MaterialExchangeBuyOrder.objects.filter(order_reference=reference).first()
+        buy_order = MaterialExchangeBuyOrder.objects.filter(
+            order_reference=reference
+        ).first()
         if buy_order:
             artifacts.buy_order_ids.append(buy_order.id)
             text = assert_ok(
@@ -407,7 +495,9 @@ def exercise_material_exchange(client: Client, user, artifacts: SmokeArtifacts) 
                 reverse("indy_hub:buy_order_detail", args=[buy_order.id]),
                 follow=True,
             )
-            assert_ok(detail, "material exchange buy detail", contains="Buy Order Details")
+            assert_ok(
+                detail, "material exchange buy detail", contains="Buy Order Details"
+            )
             delete_response = client.post(
                 reverse("indy_hub:buy_order_delete", args=[buy_order.id]),
                 follow=True,
@@ -429,7 +519,9 @@ def cleanup_artifacts(artifacts: SmokeArtifacts) -> None:
         artifacts.buy_order_ids.clear()
 
     if artifacts.sell_order_ids:
-        MaterialExchangeSellOrder.objects.filter(id__in=artifacts.sell_order_ids).delete()
+        MaterialExchangeSellOrder.objects.filter(
+            id__in=artifacts.sell_order_ids
+        ).delete()
         log(f"[cleanup] removed lingering sell orders: {artifacts.sell_order_ids}")
         artifacts.sell_order_ids.clear()
 
@@ -449,6 +541,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    bootstrap_django()
     args = parse_args()
     artifacts = SmokeArtifacts(structure_ids=[], sell_order_ids=[], buy_order_ids=[])
     client = Client()
