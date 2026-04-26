@@ -675,6 +675,7 @@ def get_industry_rig_catalog() -> list[dict[str, object]]:
             JOIN eve_sde_typeeffect te ON te.item_type_id = t.id
             JOIN eve_sde_dogmaeffect e ON e.id = te.dogma_effect_id
             WHERE t.name LIKE 'Standup %'
+                    AND COALESCE(t.published, 0) = 1
                         AND (
                                 e.name LIKE 'rig%'
                                 OR e.name LIKE 'structureRig%'
@@ -935,12 +936,12 @@ def resolve_item_type_reference(
     with connection.cursor() as cursor:
         if item_type_id is not None:
             cursor.execute(
-                "SELECT id, name FROM eve_sde_itemtype WHERE id = %s",
+                "SELECT id, name FROM eve_sde_itemtype WHERE id = %s AND COALESCE(published, 0) = 1",
                 [item_type_id],
             )
         else:
             cursor.execute(
-                "SELECT id, name FROM eve_sde_itemtype WHERE LOWER(name) = LOWER(%s) LIMIT 1",
+                "SELECT id, name FROM eve_sde_itemtype WHERE LOWER(name) = LOWER(%s) AND COALESCE(published, 0) = 1 LIMIT 1",
                 [item_type_name],
             )
         row = cursor.fetchone()
@@ -954,7 +955,7 @@ def resolve_item_type_reference(
 def get_type_snapshot(item_type_id: int) -> SDETypeSnapshot | None:
     with connection.cursor() as cursor:
         cursor.execute(
-            "SELECT id, name, group_id FROM eve_sde_itemtype WHERE id = %s",
+            "SELECT id, name, group_id FROM eve_sde_itemtype WHERE id = %s AND COALESCE(published, 0) = 1",
             [item_type_id],
         )
         item_row = cursor.fetchone()

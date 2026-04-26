@@ -545,7 +545,9 @@ def batch_cache_type_names(type_ids: Iterable[int]) -> Mapping[int, str]:
         return {pk: str(pk) for pk in ids}
 
     result: dict[int, str] = {}
-    for eve_type in item_type_model.objects.filter(id__in=ids).only("id", "name"):
+    for eve_type in item_type_model.objects.filter(id__in=ids, published=True).only(
+        "id", "name"
+    ):
         _TYPE_NAME_CACHE[eve_type.id] = eve_type.name
         result[eve_type.id] = eve_type.name
 
@@ -570,7 +572,9 @@ def get_blueprint_product_type_id(blueprint_type_id: int | None) -> int | None:
     if EveIndustryActivityProduct is not None:
         try:
             qs = EveIndustryActivityProduct.objects.filter(
-                eve_type_id=blueprint_type_id
+                eve_type_id=blueprint_type_id,
+                eve_type__published=True,
+                product_eve_type__published=True,
             )
             if qs.exists():
                 product = qs.filter(activity_id=1).first() or qs.first()
@@ -601,7 +605,10 @@ def is_reaction_blueprint(blueprint_type_id: int | None) -> bool:
     else:
         try:
             value = EveIndustryActivityProduct.objects.filter(
-                eve_type_id=blueprint_type_id, activity_id__in=[9, 11]
+                eve_type_id=blueprint_type_id,
+                activity_id__in=[9, 11],
+                eve_type__published=True,
+                product_eve_type__published=True,
             ).exists()
         except Exception:  # pragma: no cover - defensive fallback
             logger.debug(

@@ -5,11 +5,14 @@ from unittest import TestCase
 from unittest.mock import patch
 
 # AA Example App
+from indy_hub.models import generate_production_project_ref
 from indy_hub.services.production_projects import (
     _build_project_blueprint_configs_grouped,
+    _payload_uses_unpublished_blueprints,
+    _resolve_blueprints_for_products,
+    _resolve_preferred_blueprint_for_product,
     aggregate_project_import_entries,
     build_project_import_preview,
-    generate_production_project_ref,
     normalize_production_project_ref,
     parse_project_import_text,
     resolve_project_import_entries,
@@ -19,6 +22,8 @@ from indy_hub.services.production_projects import (
 class _PreviewCursorStub:
     def __init__(self):
         self._result = []
+        self.last_query = ""
+        self.last_params = None
 
     def __enter__(self):
         return self
@@ -28,6 +33,8 @@ class _PreviewCursorStub:
 
     def execute(self, sql, params=None):
         query = " ".join(str(sql).split())
+        self.last_query = query
+        self.last_params = params
         if "FROM eve_sde_itemtype" in query:
             self._result = [
                 (1001, "Vedmak", "Cruiser"),
@@ -35,16 +42,39 @@ class _PreviewCursorStub:
                 (1003, "Warp Disruptor II", "Warp Disruptor"),
             ]
             return
-        if "FROM indy_hub_sdeindustryactivityproduct" in query:
+        if "SELECT p.product_eve_type_id, p.eve_type_id, p.activity_id" in query:
             self._result = [
-                (1001, 5001),
-                (1002, 5002),
+                (1001, 5001, 1),
+                (1002, 5002, 1),
             ]
             return
         self._result = []
 
+    def fetchone(self):
+        return self._result[0] if self._result else None
+
     def fetchall(self):
         return self._result
+
+
+class _FetchoneCursorStub:
+    def __init__(self, fetchone_result=None):
+        self._fetchone_result = fetchone_result
+        self.last_query = ""
+        self.last_params = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def execute(self, sql, params=None):
+        self.last_query = " ".join(str(sql).split())
+        self.last_params = params
+
+    def fetchone(self):
+        return self._fetchone_result
 
 
 class ProductionProjectImportTests(TestCase):
@@ -73,6 +103,55 @@ class ProductionProjectImportTests(TestCase):
             normalize_production_project_ref("ABC123DEF4"),
             "abc123def4",
         )
+
+    @patch("indy_hub.services.production_projects.connection.cursor")
+    def test_resolve_preferred_blueprint_for_product_prefers_published_types(
+        self, mock_cursor
+    ) -> None:
+        cursor = _FetchoneCursorStub(fetchone_result=(46207,))
+        mock_cursor.return_value = cursor
+
+        resolved = _resolve_preferred_blueprint_for_product(16672)
+
+        self.assertEqual(resolved, 46207)
+        self.assertEqual(cursor.last_params, [16672])
+        self.assertIn(
+            "JOIN eve_sde_itemtype t ON t.id = p.eve_type_id", cursor.last_query
+        )
+        self.assertIn("COALESCE(t.published, 0) = 1", cursor.last_query)
+        self.assertIn("COALESCE(product_t.published, 0) = 1", cursor.last_query)
+
+    @patch(
+        "indy_hub.services.production_projects.connection.cursor",
+        return_value=_PreviewCursorStub(),
+    )
+    def test_resolve_blueprints_for_products_skips_unpublished_blueprints(
+        self, _mock_cursor
+    ) -> None:
+        resolved = _resolve_blueprints_for_products([1001, 1002, 1003])
+
+        self.assertEqual(resolved, {1001: 5001, 1002: 5002})
+
+    @patch("indy_hub.services.production_projects.connection.cursor")
+    def test_payload_uses_unpublished_blueprints_detects_cached_test_blueprints(
+        self, mock_cursor
+    ) -> None:
+        cursor = _FetchoneCursorStub(fetchone_result=(45732,))
+        mock_cursor.return_value = cursor
+
+        payload = {
+            "materials_tree": [
+                {
+                    "type_id": 16672,
+                    "blueprint_type_id": 45732,
+                    "sub_materials": [],
+                }
+            ]
+        }
+
+        self.assertTrue(_payload_uses_unpublished_blueprints(payload))
+        self.assertEqual(cursor.last_params, [45732])
+        self.assertIn("COALESCE(published, 0) = 0", cursor.last_query)
 
     def test_parse_eft_import_keeps_categories_and_quantities(self) -> None:
         payload = parse_project_import_text(

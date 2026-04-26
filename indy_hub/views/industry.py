@@ -70,6 +70,7 @@ from ..notifications import (
     notify_user,
     send_discord_webhook_with_message_id,
 )
+from ..services.asset_cache import build_user_asset_inventory_snapshot
 from ..services.corporation_blueprint_visibility import (
     get_viewable_corporation_ids,
     get_viewable_corporation_job_ids,
@@ -104,9 +105,10 @@ from ..services.market_prices import MarketPriceError, fetch_adjusted_prices
 from ..services.production_projects import (
     build_project_workspace_payload,
     create_project_from_single_blueprint,
-    migrate_user_legacy_simulations_to_projects,
+    get_cached_project_workspace_payload,
     normalize_production_project_ref,
     parse_project_me_te_overrides,
+    strip_project_workspace_cache,
 )
 from ..services.project_progress import normalize_project_progress
 from ..tasks.industry import (
@@ -898,46 +900,55 @@ def _user_can_fulfill_request(req: BlueprintCopyRequest, user: User) -> bool:
     return req.offers.filter(owner=user).exists()
 
 
+def _offer_rejects_scope(
+    offer: BlueprintCopyOffer | None,
+    scope: str,
+) -> bool:
+    """Return whether a rejected offer blocks the requested fulfilment scope."""
+
+    if not offer or offer.status != "rejected":
+        return False
+
+    normalized_scope = (offer.source_scope or "").strip().lower()
+    if normalized_scope in {"personal", "corporation"}:
+        return normalized_scope == scope
+
+    # Legacy rejections without a scope are treated as global declines.
+    return True
+
+
 def _finalize_request_if_all_rejected(req: BlueprintCopyRequest) -> bool:
     """Notify requester and delete request if all eligible providers rejected."""
 
     details = _eligible_owner_details_for_request(req)
     eligible_owner_ids = details.owner_ids
-    offers_by_owner = dict(
-        req.offers.filter(owner_id__in=eligible_owner_ids).values_list(
-            "owner_id", "status"
-        )
-    )
+    offers_by_owner = {
+        offer.owner_id: offer
+        for offer in req.offers.filter(owner_id__in=eligible_owner_ids)
+    }
 
     if eligible_owner_ids:
         outstanding: list[int | tuple[str, int]] = []
 
         for owner_id in details.character_owner_ids:
-            if offers_by_owner.get(owner_id) != "rejected":
+            if not _offer_rejects_scope(offers_by_owner.get(owner_id), "personal"):
                 outstanding.append(owner_id)
 
         all_corp_member_ids: set[int] = set()
         for corp_id, members in details.corporate_members_by_corp.items():
             all_corp_member_ids.update(members)
-            member_statuses = [offers_by_owner.get(member_id) for member_id in members]
-            if not member_statuses:
-                outstanding.append(("corporation", corp_id))
-                continue
-
-            has_active_status = any(
-                status not in (None, "rejected") for status in member_statuses
-            )
-            has_rejection = any(status == "rejected" for status in member_statuses)
-            if has_active_status:
-                outstanding.append(("corporation", corp_id))
-            elif not has_rejection:
+            if any(
+                not _offer_rejects_scope(offers_by_owner.get(member_id), "corporation")
+                for member_id in members
+            ):
                 outstanding.append(("corporation", corp_id))
 
         remaining_owner_ids = (
             eligible_owner_ids - details.character_owner_ids - all_corp_member_ids
         )
         for owner_id in remaining_owner_ids:
-            if offers_by_owner.get(owner_id) != "rejected":
+            offer = offers_by_owner.get(owner_id)
+            if not offer or offer.status != "rejected":
                 outstanding.append(owner_id)
 
         if outstanding:
@@ -1509,8 +1520,10 @@ def personnal_bp_list(request, scope="character"):
             cursor.execute(
                 f"""
                 SELECT DISTINCT eve_type_id
-                FROM indy_hub_sdeindustryactivityproduct
-                WHERE activity_id IN ({id_list})
+                FROM indy_hub_sdeindustryactivityproduct p
+                JOIN eve_sde_itemtype t ON t.id = p.eve_type_id
+                WHERE p.activity_id IN ({id_list})
+                                AND COALESCE(t.published, 0) = 1
                 """
             )
             allowed_type_ids = [row[0] for row in cursor.fetchall()]
@@ -1880,6 +1893,7 @@ def all_bp_list(request):
                     JOIN eve_sde_itemgroup g ON t.group_id = g.id
                     WHERE t.group_id IS NOT NULL
                         AND t.id IN ({placeholders})
+                        AND COALESCE(t.published, 0) = 1
                     ORDER BY g.name
                 """
                 cursor.execute(query, type_ids)
@@ -2504,21 +2518,36 @@ def craft_project(request, project_ref):
         project_ref=normalized_project_ref,
         user=request.user,
     )
-    workspace_state = dict(project.workspace_state or {})
+    workspace_state = strip_project_workspace_cache(project.workspace_state)
     active_tab = request.GET.get("active_tab") or workspace_state.get(
         "active_tab", "materials"
     )
-    payload = build_project_workspace_payload(
-        project,
-        skill_cache_ttl=SKILL_CACHE_TTL,
-        me_te_overrides=parse_project_me_te_overrides(request.GET),
-        include_full_structure_options=False,
-    )
+    payload, sde_has_changed = get_cached_project_workspace_payload(project)
+    if payload is None:
+        payload = build_project_workspace_payload(
+            project,
+            skill_cache_ttl=SKILL_CACHE_TTL,
+            me_te_overrides=parse_project_me_te_overrides(request.GET),
+            include_full_structure_options=False,
+        )
+        sde_has_changed = False
+
+    if sde_has_changed:
+        messages.warning(
+            request,
+            _(
+                "This craft table was loaded from its saved snapshot. The SDE changed since the last save, so the plan may differ from current data until you save it again."
+            ),
+        )
 
     payload.update(
         {
             "active_tab": active_tab,
             "workspace_state": workspace_state,
+            "character_stock_snapshot": build_user_asset_inventory_snapshot(
+                request.user,
+                allow_refresh=False,
+            ),
             "urls": {
                 "save": reverse(
                     "indy_hub:save_production_project_workspace",
@@ -2548,7 +2577,7 @@ def craft_project(request, project_ref):
     craft_header_controls = mark_safe(
         "".join(
             [
-                '<button id="saveSimulationBtn" class="btn btn-light btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#saveSimulationModal">',
+                '<button id="saveSimulationBtn" class="btn btn-light btn-sm" type="button">',
                 '<i class="fas fa-save me-1"></i>',
                 str(_("Save table")),
                 "</button>",
@@ -2913,7 +2942,7 @@ def _fetch_item_base_prices(type_ids: list[int]) -> dict[int, Decimal]:
     placeholders = ", ".join(["%s"] * len(normalized_type_ids))
     with connection.cursor() as cursor:
         cursor.execute(
-            f"SELECT id, base_price FROM eve_sde_itemtype WHERE id IN ({placeholders})",
+            f"SELECT id, base_price FROM eve_sde_itemtype WHERE id IN ({placeholders}) AND COALESCE(published, 0) = 1",
             normalized_type_ids,
         )
         return {
@@ -3399,7 +3428,7 @@ def bp_copy_fulfill_requests(request):
         my_offer = next(
             (offer for offer in offers if offer.owner_id == request.user.id), None
         )
-        offers_by_owner = {offer.owner_id: offer.status for offer in offers}
+        offers_by_owner = {offer.owner_id: offer for offer in offers}
         eligible_details = _eligible_owner_details_for_request(req)
         requester_identity = _identity_for(req.requested_by)
 
@@ -3417,10 +3446,6 @@ def bp_copy_fulfill_requests(request):
                 or req.fulfilled_by_id == request.user.id
             ):
                 continue
-
-        if my_offer and my_offer.status == "rejected":
-            # Never show rejected offers in the fulfill queue.
-            continue
 
         status_key = "awaiting_response"
         can_mark_delivered = False
@@ -3536,6 +3561,34 @@ def bp_copy_fulfill_requests(request):
             eligible_corporation_entries
         )
 
+        rejected_personal_scope = _offer_rejects_scope(my_offer, "personal")
+        rejected_corporate_scope = _offer_rejects_scope(my_offer, "corporation")
+        revived_after_scope_rejection = False
+
+        if rejected_personal_scope:
+            personal_sources = []
+            personal_source_names = []
+            eligible_character_entries = []
+            revived_after_scope_rejection = True
+
+        if rejected_corporate_scope:
+            corporate_sources = []
+            corporate_names = []
+            corporate_tickers = []
+            eligible_corporation_entries = []
+            revived_after_scope_rejection = True
+
+        corporate_count = len(corporate_sources)
+        personal_count = len(personal_sources)
+        eligible_total = len(eligible_character_entries) + len(
+            eligible_corporation_entries
+        )
+
+        if my_offer and my_offer.status == "rejected":
+            if corporate_count == 0 and personal_count == 0:
+                continue
+            if revived_after_scope_rejection:
+                my_offer = None
         if corporate_count == 0:
             if (
                 can_manage_corporate
@@ -3598,7 +3651,7 @@ def bp_copy_fulfill_requests(request):
                 user_corp_id, set()
             )
             if any(
-                offers_by_owner.get(member_id) == "rejected"
+                _offer_rejects_scope(offers_by_owner.get(member_id), "corporation")
                 for member_id in corp_members
             ):
                 # Another authorised manager already declined on behalf of the corporation
@@ -5682,16 +5735,6 @@ def production_simulations_list(request):
     Display the list of production simulations saved by the user.
     Return JSON when api=1 is included in the query string.
     """
-    migration_summary = migrate_user_legacy_simulations_to_projects(request.user)
-    if migration_summary["migrated"]:
-        messages.info(
-            request,
-            _(
-                "%(count)s legacy single-blueprint simulation(s) were migrated to craft tables."
-            )
-            % {"count": migration_summary["migrated"]},
-        )
-
     production_projects = list(
         ProductionProject.objects.filter(user=request.user)
         .order_by("-updated_at")

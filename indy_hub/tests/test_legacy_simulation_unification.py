@@ -1,5 +1,6 @@
 # Standard Library
 import json
+from decimal import Decimal
 from unittest.mock import patch
 
 # Django
@@ -7,17 +8,16 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.contrib.sessions.middleware import SessionMiddleware
+from django.db import connection
+from django.db.migrations.executor import MigrationExecutor
 from django.http import HttpRequest
-from django.test import RequestFactory, TestCase
+from django.test import RequestFactory, TestCase, TransactionTestCase
 from django.urls import reverse
 from django.utils import timezone
 
 # AA Example App
-from indy_hub.models import IndustryJob, ProductionProject, ProductionSimulation
-from indy_hub.services.production_projects import (
-    build_legacy_workspace_state,
-    create_project_from_single_blueprint,
-)
+from indy_hub.models import IndustryJob, ProductionProject
+from indy_hub.services.production_projects import create_project_from_single_blueprint
 from indy_hub.services.project_progress import normalize_project_progress
 from indy_hub.views.api import (
     save_production_project_progress,
@@ -108,6 +108,46 @@ class LegacySimulationUnificationTests(TestCase):
                         "runs": 4,
                         "simulation_name": "Saved Vedmak Table",
                         "active_tab": "financial",
+                        "buyTypeIds": [34],
+                        "stockAllocations": {"34": 7},
+                        "manualPrices": [
+                            {
+                                "typeId": 34,
+                                "priceType": "real",
+                                "value": 5.5,
+                            }
+                        ],
+                        "fuzzworkPrices": {"34": 4.2, "603": 900000.0},
+                        "meTeConfig": {
+                            "mainME": 7,
+                            "mainTE": 12,
+                            "blueprintConfigs": {"603": {"me": 7, "te": 12}},
+                        },
+                        "copyRequests": [
+                            {
+                                "typeId": 603,
+                                "selectValue": "7,12",
+                                "runs": 4,
+                                "copies": 1,
+                            }
+                        ],
+                        "structure": {
+                            "motherSystemInput": "Jita",
+                            "selectedSolarSystemId": 30000142,
+                            "selectedSolarSystemName": "Jita",
+                            "assignments": [{"typeId": 603, "structureId": 102938}],
+                        },
+                        "cachedPayload": {
+                            "materials_tree": [
+                                {
+                                    "type_id": 34,
+                                    "type_name": "Tritanium",
+                                    "quantity": 12,
+                                    "project_inclusion_mode": "buy",
+                                    "sub_materials": [],
+                                }
+                            ]
+                        },
                         "items": [{"type_id": 34, "mode": "buy", "quantity": 12}],
                         "blueprint_efficiencies": [
                             {
@@ -135,6 +175,27 @@ class LegacySimulationUnificationTests(TestCase):
         self.assertEqual(project.name, "Saved Vedmak Table")
         self.assertEqual(project.workspace_state["active_tab"], "financial")
         self.assertEqual(project.workspace_state["items"][0]["mode"], "buy")
+        self.assertEqual(project.workspace_state["buyTypeIds"], [34])
+        self.assertEqual(project.workspace_state["stockAllocations"], {"34": 7})
+        self.assertEqual(project.workspace_state["manualPrices"][0]["typeId"], 34)
+        self.assertEqual(project.workspace_state["fuzzworkPrices"]["34"], 4.2)
+        self.assertEqual(
+            project.workspace_state["meTeConfig"]["blueprintConfigs"]["603"]["me"],
+            7,
+        )
+        self.assertEqual(project.workspace_state["copyRequests"][0]["typeId"], 603)
+        self.assertEqual(
+            project.workspace_state["structure"]["assignments"][0]["structureId"],
+            102938,
+        )
+        self.assertIn("cachedProjectPayload", project.workspace_state)
+        self.assertIn("cachedProjectSdeSignature", project.workspace_state)
+        self.assertEqual(
+            project.workspace_state["cachedProjectPayload"]["materials_tree"][0][
+                "project_inclusion_mode"
+            ],
+            "buy",
+        )
 
     def test_save_production_project_workspace_preserves_blueprint_context(self):
         project = ProductionProject.objects.create(
@@ -205,43 +266,6 @@ class LegacySimulationUnificationTests(TestCase):
         self.assertEqual(item.quantity_requested, 4)
         self.assertEqual(project.workspace_state["blueprint_type_id"], 950)
         self.assertEqual(project.workspace_state["blueprint_name"], "Merlin Blueprint")
-
-    def test_build_legacy_workspace_state_serializes_related_rows(self):
-        simulation = ProductionSimulation.objects.create(
-            user=self.user,
-            blueprint_type_id=603,
-            blueprint_name="Vedmak Blueprint",
-            runs=3,
-            simulation_name="Legacy Vedmak",
-            active_tab="financial",
-        )
-        simulation.production_configs.create(
-            user=self.user,
-            blueprint_type_id=603,
-            item_type_id=34,
-            production_mode="buy",
-            quantity_needed=25,
-            runs=3,
-        )
-        simulation.blueprint_efficiencies.create(
-            user=self.user,
-            blueprint_type_id=603,
-            material_efficiency=8,
-            time_efficiency=14,
-        )
-        simulation.custom_prices.create(
-            user=self.user,
-            item_type_id=34,
-            unit_price=6.2,
-            is_sale_price=False,
-        )
-
-        state = build_legacy_workspace_state(simulation)
-
-        self.assertEqual(state["runs"], 3)
-        self.assertEqual(state["items"][0]["mode"], "buy")
-        self.assertEqual(state["blueprint_efficiencies"][0]["material_efficiency"], 8)
-        self.assertEqual(state["custom_prices"][0]["item_type_id"], 34)
 
     def test_save_production_project_progress_persists_summary_progress(self):
         project = ProductionProject.objects.create(
@@ -361,3 +385,366 @@ class LegacySimulationUnificationTests(TestCase):
         self.assertEqual(progress["items"][0]["linked_job_count"], 2)
         self.assertEqual(progress["items"][0]["auto_completed_quantity"], 2)
         self.assertEqual(progress["items"][0]["auto_progress_quantity"], 3)
+
+
+class ProductionProjectDataMigrationTests(TransactionTestCase):
+    migrate_from = (
+        "indy_hub",
+        "0095_materialexchangeacceptedlocation_and_type_filters",
+    )
+    migrate_to = ("indy_hub", "0096_add_production_projects")
+
+    def setUp(self):
+        super().setUp()
+        self.executor = MigrationExecutor(connection)
+        self.executor.migrate([self.migrate_from])
+
+    def tearDown(self):
+        self.executor = MigrationExecutor(connection)
+        self.executor.migrate([self.migrate_to])
+        super().tearDown()
+
+    def _project_state_apps(self, target):
+        return self.executor.loader.project_state([target]).apps
+
+    def test_0096_migrates_legacy_simulations_and_drops_tables(self):
+        old_apps = self._project_state_apps(self.migrate_from)
+        user_model = get_user_model()
+        user = user_model.objects.create_user(
+            username="migration-user",
+            password="testpass123",
+        )
+
+        production_simulation = old_apps.get_model("indy_hub", "ProductionSimulation")
+        production_config = old_apps.get_model("indy_hub", "ProductionConfig")
+        blueprint_efficiency = old_apps.get_model("indy_hub", "BlueprintEfficiency")
+        custom_price = old_apps.get_model("indy_hub", "CustomPrice")
+
+        simulation = production_simulation.objects.create(
+            user_id=user.id,
+            blueprint_type_id=603,
+            blueprint_name="Merlin Blueprint",
+            runs=3,
+            simulation_name="Legacy Merlin",
+            total_items=1,
+            total_buy_items=1,
+            total_prod_items=0,
+            estimated_cost=125.5,
+            estimated_revenue=250.0,
+            estimated_profit=124.5,
+            active_tab="financial",
+        )
+        production_config.objects.create(
+            user_id=user.id,
+            simulation_id=simulation.id,
+            blueprint_type_id=603,
+            item_type_id=34,
+            production_mode="buy",
+            quantity_needed=42,
+            runs=3,
+        )
+        blueprint_efficiency.objects.create(
+            user_id=user.id,
+            simulation_id=simulation.id,
+            blueprint_type_id=603,
+            material_efficiency=8,
+            time_efficiency=14,
+        )
+        custom_price.objects.create(
+            user_id=user.id,
+            simulation_id=simulation.id,
+            item_type_id=34,
+            unit_price=6.2,
+            is_sale_price=False,
+        )
+
+        self.executor = MigrationExecutor(connection)
+        self.executor.migrate([self.migrate_to])
+
+        new_apps = self._project_state_apps(self.migrate_to)
+        production_project = new_apps.get_model("indy_hub", "ProductionProject")
+        production_project_item = new_apps.get_model(
+            "indy_hub", "ProductionProjectItem"
+        )
+
+        project = production_project.objects.get(user_id=user.id)
+        item = production_project_item.objects.get(project_id=project.id)
+
+        self.assertEqual(project.name, "Legacy Merlin")
+        self.assertEqual(project.status, "saved")
+        self.assertEqual(project.summary["legacy_simulation_id"], simulation.id)
+        self.assertEqual(project.workspace_state["simulation_name"], "Legacy Merlin")
+        self.assertEqual(project.workspace_state["items"][0]["mode"], "buy")
+        self.assertEqual(
+            project.workspace_state["blueprint_efficiencies"][0]["material_efficiency"],
+            8,
+        )
+        self.assertEqual(
+            project.workspace_state["custom_prices"][0]["item_type_id"], 34
+        )
+        self.assertEqual(item.blueprint_type_id, 603)
+        self.assertEqual(item.quantity_requested, 3)
+        self.assertEqual(item.metadata["legacy_simulation_id"], simulation.id)
+
+    def test_0096_reverse_restores_legacy_simulations_from_projects(self):
+        old_apps = self._project_state_apps(self.migrate_from)
+        user_model = get_user_model()
+        user = user_model.objects.create_user(
+            username="reverse-migration-user",
+            password="testpass123",
+        )
+
+        production_simulation = old_apps.get_model("indy_hub", "ProductionSimulation")
+        production_config = old_apps.get_model("indy_hub", "ProductionConfig")
+        blueprint_efficiency = old_apps.get_model("indy_hub", "BlueprintEfficiency")
+        custom_price = old_apps.get_model("indy_hub", "CustomPrice")
+
+        legacy_simulation = production_simulation.objects.create(
+            user_id=user.id,
+            blueprint_type_id=603,
+            blueprint_name="Merlin Blueprint",
+            runs=3,
+            simulation_name="Legacy Merlin",
+            total_items=1,
+            total_buy_items=1,
+            total_prod_items=0,
+            estimated_cost=125.5,
+            estimated_revenue=250.0,
+            estimated_profit=124.5,
+            active_tab="financial",
+        )
+        production_config.objects.create(
+            user_id=user.id,
+            simulation_id=legacy_simulation.id,
+            blueprint_type_id=603,
+            item_type_id=34,
+            production_mode="buy",
+            quantity_needed=42,
+            runs=3,
+        )
+        blueprint_efficiency.objects.create(
+            user_id=user.id,
+            simulation_id=legacy_simulation.id,
+            blueprint_type_id=603,
+            material_efficiency=8,
+            time_efficiency=14,
+        )
+        custom_price.objects.create(
+            user_id=user.id,
+            simulation_id=legacy_simulation.id,
+            item_type_id=34,
+            unit_price=6.2,
+            is_sale_price=False,
+        )
+
+        self.executor = MigrationExecutor(connection)
+        self.executor.migrate([self.migrate_to])
+
+        new_apps = self._project_state_apps(self.migrate_to)
+        production_project = new_apps.get_model("indy_hub", "ProductionProject")
+        production_project_item = new_apps.get_model(
+            "indy_hub", "ProductionProjectItem"
+        )
+
+        fallback_project = production_project.objects.create(
+            user_id=user.id,
+            project_ref="fallback96",
+            name="Fallback Project",
+            status="draft",
+            source_kind="manual",
+            source_text="Merlin Blueprint",
+            source_name="Merlin Blueprint",
+            notes="",
+            summary={"selected_items": 1, "selected_quantity": 5},
+            workspace_state={},
+        )
+        production_project_item.objects.create(
+            project_id=fallback_project.id,
+            type_id=603,
+            type_name="Merlin",
+            quantity_requested=5,
+            category_key="manual",
+            category_label="Manual list",
+            category_order=90,
+            source_line="Merlin",
+            is_selected=True,
+            is_craftable=True,
+            inclusion_mode="produce",
+            blueprint_type_id=603,
+            metadata={},
+        )
+
+        self.executor = MigrationExecutor(connection)
+        self.executor.migrate([self.migrate_from])
+
+        reversed_apps = self._project_state_apps(self.migrate_from)
+        reversed_simulation = reversed_apps.get_model(
+            "indy_hub", "ProductionSimulation"
+        )
+        reversed_config = reversed_apps.get_model("indy_hub", "ProductionConfig")
+        reversed_efficiency = reversed_apps.get_model("indy_hub", "BlueprintEfficiency")
+        reversed_price = reversed_apps.get_model("indy_hub", "CustomPrice")
+
+        legacy_restored = reversed_simulation.objects.get(
+            user_id=user.id,
+            simulation_name="Legacy Merlin",
+        )
+        fallback_restored = reversed_simulation.objects.get(
+            user_id=user.id,
+            simulation_name="Fallback Project",
+        )
+
+        self.assertEqual(legacy_restored.id, legacy_simulation.id)
+        self.assertEqual(legacy_restored.blueprint_type_id, 603)
+        self.assertEqual(legacy_restored.runs, 3)
+        self.assertEqual(legacy_restored.total_buy_items, 1)
+        self.assertEqual(legacy_restored.active_tab, "financial")
+        self.assertEqual(
+            reversed_config.objects.get(
+                simulation_id=legacy_restored.id,
+                item_type_id=34,
+            ).quantity_needed,
+            42,
+        )
+        self.assertEqual(
+            reversed_config.objects.get(
+                simulation_id=legacy_restored.id,
+                item_type_id=34,
+            ).production_mode,
+            "buy",
+        )
+        self.assertEqual(
+            reversed_efficiency.objects.get(
+                simulation_id=legacy_restored.id,
+                blueprint_type_id=603,
+            ).material_efficiency,
+            8,
+        )
+        self.assertEqual(
+            reversed_price.objects.get(
+                simulation_id=legacy_restored.id,
+                item_type_id=34,
+            ).unit_price,
+            Decimal("6.20"),
+        )
+
+        self.assertEqual(fallback_restored.blueprint_type_id, 603)
+        self.assertEqual(fallback_restored.runs, 5)
+        self.assertEqual(fallback_restored.total_prod_items, 1)
+        self.assertEqual(
+            reversed_config.objects.get(
+                simulation_id=fallback_restored.id,
+                item_type_id=603,
+            ).production_mode,
+            "prod",
+        )
+        self.assertEqual(
+            reversed_config.objects.get(
+                simulation_id=fallback_restored.id,
+                item_type_id=603,
+            ).quantity_needed,
+            5,
+        )
+
+        self.assertIn(
+            "indy_hub_productionsimulation",
+            connection.introspection.table_names(),
+        )
+        self.assertIn(
+            "indy_hub_productionconfig",
+            connection.introspection.table_names(),
+        )
+        self.assertIn(
+            "indy_hub_blueprintefficiency",
+            connection.introspection.table_names(),
+        )
+        self.assertIn(
+            "indy_hub_customprice",
+            connection.introspection.table_names(),
+        )
+        self.assertNotIn(
+            "indy_hub_productionproject",
+            connection.introspection.table_names(),
+        )
+        self.assertNotIn(
+            "indy_hub_productionprojectitem",
+            connection.introspection.table_names(),
+        )
+
+    def test_0096_reverse_tolerates_preexisting_legacy_simulation_table(self):
+        user_model = get_user_model()
+        user = user_model.objects.create_user(
+            username="preexisting-legacy-table-user",
+            password="testpass123",
+        )
+
+        self.executor = MigrationExecutor(connection)
+        self.executor.migrate([self.migrate_to])
+
+        new_apps = self._project_state_apps(self.migrate_to)
+        production_project = new_apps.get_model("indy_hub", "ProductionProject")
+        production_project_item = new_apps.get_model(
+            "indy_hub", "ProductionProjectItem"
+        )
+
+        project = production_project.objects.create(
+            user_id=user.id,
+            project_ref="preexist95a",
+            name="Preexisting Table Project",
+            status="saved",
+            source_kind="manual",
+            source_text="Merlin Blueprint",
+            source_name="Merlin Blueprint",
+            notes="",
+            summary={"selected_items": 1, "selected_quantity": 2},
+            workspace_state={
+                "blueprint_type_id": 603,
+                "blueprint_name": "Merlin Blueprint",
+                "runs": 2,
+                "simulation_name": "Preexisting Table Project",
+                "active_tab": "materials",
+                "items": [
+                    {
+                        "type_id": 34,
+                        "mode": "buy",
+                        "quantity": 10,
+                    }
+                ],
+            },
+        )
+        production_project_item.objects.create(
+            project_id=project.id,
+            type_id=603,
+            type_name="Merlin",
+            quantity_requested=2,
+            category_key="manual",
+            category_label="Manual list",
+            category_order=90,
+            source_line="Merlin",
+            is_selected=True,
+            is_craftable=True,
+            inclusion_mode="produce",
+            blueprint_type_id=603,
+            metadata={},
+        )
+
+        old_apps = self._project_state_apps(self.migrate_from)
+        with connection.schema_editor() as schema_editor:
+            schema_editor.create_model(
+                old_apps.get_model("indy_hub", "ProductionSimulation")
+            )
+
+        self.executor = MigrationExecutor(connection)
+        self.executor.migrate([self.migrate_from])
+
+        reversed_apps = self._project_state_apps(self.migrate_from)
+        reversed_simulation = reversed_apps.get_model(
+            "indy_hub", "ProductionSimulation"
+        )
+        restored = reversed_simulation.objects.get(
+            user_id=user.id,
+            simulation_name="Preexisting Table Project",
+        )
+
+        self.assertEqual(restored.blueprint_type_id, 603)
+        self.assertEqual(restored.runs, 2)

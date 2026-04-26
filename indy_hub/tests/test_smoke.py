@@ -1729,6 +1729,108 @@ class BlueprintCopyFulfillViewTests(TestCase):
         self.assertIn(scope_script_id, html)
         self.assertIn("data-scope-trigger", html)
 
+    def test_dual_source_corporate_rejection_keeps_personal_scope_visible(self) -> None:
+        corp_id = 4_200_456
+        main_character = EveCharacter.objects.get(character_id=101001)
+        main_character.corporation_id = corp_id
+        main_character.corporation_name = "Fallback Scope Corp"
+        main_character.corporation_ticker = "FSC"
+        main_character.save(
+            update_fields=[
+                "corporation_id",
+                "corporation_name",
+                "corporation_ticker",
+            ]
+        )
+        CharacterOwnership.objects.update_or_create(
+            user=self.user,
+            character=main_character,
+            defaults={
+                "owner_hash": f"hash-{main_character.character_id}-{self.user.id}",
+            },
+        )
+        CorporationSharingSetting.objects.create(
+            user=self.user,
+            corporation_id=corp_id,
+            corporation_name="Fallback Scope Corp",
+            allow_copy_requests=True,
+            share_scope=CharacterSettings.SCOPE_CORPORATION,
+        )
+
+        personal_bp = Blueprint.objects.create(
+            owner_user=self.user,
+            character_id=main_character.character_id,
+            item_id=61001,
+            blueprint_id=62001,
+            type_id=778001,
+            location_id=PUBLIC_STATION_ID,
+            location_flag="hangar",
+            quantity=-1,
+            time_efficiency=6,
+            material_efficiency=4,
+            runs=0,
+            character_name="Capsuleer",
+            type_name="Fallback Blueprint",
+        )
+        Blueprint.objects.create(
+            owner_user=self.user,
+            owner_kind=Blueprint.OwnerKind.CORPORATION,
+            corporation_id=corp_id,
+            corporation_name="Fallback Scope Corp",
+            item_id=61002,
+            blueprint_id=62002,
+            type_id=personal_bp.type_id,
+            location_id=PUBLIC_STATION_ID,
+            location_flag="corp_hangar",
+            quantity=-1,
+            time_efficiency=personal_bp.time_efficiency,
+            material_efficiency=personal_bp.material_efficiency,
+            runs=0,
+            type_name="Fallback Blueprint",
+        )
+
+        buyer = User.objects.create_user("fallback_requester", password="test12345")
+        request_obj = BlueprintCopyRequest.objects.create(
+            type_id=personal_bp.type_id,
+            material_efficiency=personal_bp.material_efficiency,
+            time_efficiency=personal_bp.time_efficiency,
+            requested_by=buyer,
+            runs_requested=2,
+            copies_requested=1,
+        )
+
+        response = self.client.post(
+            reverse("indy_hub:bp_offer_copy_request", args=[request_obj.id]),
+            {
+                "action": "reject",
+                "message": "Corp unavailable",
+                "source_scope": "corporation",
+            },
+        )
+        self.assertRedirects(response, reverse("indy_hub:bp_copy_fulfill_requests"))
+        self.assertTrue(BlueprintCopyRequest.objects.filter(id=request_obj.id).exists())
+
+        offer = BlueprintCopyOffer.objects.get(request=request_obj, owner=self.user)
+        self.assertEqual(offer.status, "rejected")
+        self.assertEqual(offer.source_scope, "corporation")
+
+        response = self.client.get(reverse("indy_hub:bp_copy_fulfill_requests"))
+
+        self.assertEqual(response.status_code, 200)
+        requests = response.context["requests"]
+        self.assertEqual(len(requests), 1)
+        entry = requests[0]
+        self.assertEqual(entry["id"], request_obj.id)
+        self.assertEqual(entry["status_key"], "awaiting_response")
+        self.assertEqual(entry["personal_blueprints"], 1)
+        self.assertEqual(entry["corporate_blueprints"], 0)
+        self.assertFalse(entry["has_dual_sources"])
+        self.assertEqual(entry["default_scope"], "personal")
+
+        html = response.content.decode()
+        scope_script_id = f"bp-scope-options-{entry['id']}"
+        self.assertNotIn(scope_script_id, html)
+
     @skip(
         "Pre-existing test failure: personal_provider not seeing corporation-scoped requests after rejection"
     )

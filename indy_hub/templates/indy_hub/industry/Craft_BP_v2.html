@@ -8,7 +8,7 @@
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
 <link rel="stylesheet" href="{% static 'indy_hub/css/blueprints.css' %}">
-<link rel="stylesheet" href="{% static 'indy_hub/css/craft_bp.css' %}?v=20260425-loading-replay2">
+<link rel="stylesheet" href="{% static 'indy_hub/css/craft_bp.css' %}?v=20260426-tabs-responsive">
 {% endblock extra_css %}
 
 {% block content %}
@@ -85,6 +85,12 @@
                 </button>
             </li>
             <li class="nav-item" role="presentation">
+                <button class="nav-link" id="stock-tab-btn" data-bs-toggle="tab" data-bs-target="#stock-pane" type="button" role="tab" aria-controls="stock-pane" data-tab-name="stock">
+                    <i class="fas fa-box-open"></i>
+                    <span>{% trans "Stock" %}</span>
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
                 <button class="nav-link" id="build-tab-btn" data-bs-toggle="tab" data-bs-target="#build-pane" type="button" role="tab" aria-controls="build-pane" data-tab-name="build">
                     <i class="fas fa-hammer"></i>
                     <span>{% trans "Build" %}</span>
@@ -116,8 +122,8 @@
             </li>
             <li class="nav-item" role="presentation">
                 <button class="nav-link" id="run-optimized-tab-btn" data-bs-toggle="tab" data-bs-target="#run-optimized-pane" type="button" role="tab" aria-controls="run-optimized-pane" data-tab-name="run_optimized">
-                    <i class="fas fa-chart-line"></i>
-                    <span>{% trans "Run optimized" %}</span>
+                    <i class="fas fa-scale-balanced"></i>
+                    <span>{% trans "Decisions" %}</span>
                 </button>
             </li>
         </ul>
@@ -193,15 +199,6 @@
                                     <button class="btn btn-outline-secondary btn-sm" type="button" id="collapse-tree" title="{% trans 'Collapse all' %}">
                                         <i class="fas fa-minus-square"></i>
                                     </button>
-                                    <button class="btn btn-outline-success btn-sm" type="button" id="set-tree-prod" title="{% trans 'All prod' %}">
-                                        <i class="fas fa-industry"></i>
-                                    </button>
-                                    <button class="btn btn-outline-danger btn-sm" type="button" id="set-tree-buy" title="{% trans 'All buy' %}">
-                                        <i class="fas fa-shopping-cart"></i>
-                                    </button>
-                                    <button class="btn btn-outline-primary btn-sm" type="button" id="optimize-profit" title="{% trans 'Optimize profitability (buy vs prod)' %}">
-                                        <i class="fas fa-magic me-1"></i>{% trans "Optimize" %}
-                                    </button>
                                 </div>
                             </div>
 
@@ -236,12 +233,13 @@
 
             <!-- ========== BUY TAB (V2) ========== -->
             <div class="tab-pane fade" id="buy-pane" role="tabpanel" aria-labelledby="buy-tab-btn">
-                <div class="alert alert-warning d-flex align-items-center mb-4" id="missingPricesAlert" style="display: none;">
+                <div class="alert alert-warning d-none align-items-center mb-4" id="missingPricesAlert" hidden>
                     <i class="fas fa-exclamation-triangle fa-lg me-3"></i>
                     <div class="flex-grow-1">
                         <strong>{% trans "Missing Prices" %}</strong>
                         <p class="mb-0 small">
-                            <span id="missingPricesCount">0</span> {% trans "items are missing price data. Load Fuzzwork prices or enter them manually." %}
+                            <span id="missingPricesCount">0</span>
+                            <span id="missingPricesMessage">{% trans "items are missing price data. Load Fuzzwork prices or enter them manually." %}</span>
                         </p>
                     </div>
                     <button class="btn btn-sm btn-warning" id="loadFuzzworkFromAlert">
@@ -256,6 +254,8 @@
                             <span class="craft-kpi-value text-danger" id="financialSummaryCost">0 ISK</span>
                             <div class="small mt-2 text-muted d-grid gap-1">
                                 <div>{% trans "Materials" %}: <span class="fw-semibold" id="financialSummaryMaterialCost">0 ISK</span></div>
+                                <div>{% trans "From stock" %}: <span class="fw-semibold" id="financialSummaryStockValue">0 ISK</span></div>
+                                <div>{% trans "Cash needed" %}: <span class="fw-semibold" id="financialSummaryInvestmentNeeded">0 ISK</span></div>
                                 <div>{% trans "Installation" %}: <span class="fw-semibold" id="financialSummaryInstallationCost">0 ISK</span></div>
                                 <div>{% trans "Facility Tax" %}: <span class="fw-semibold" id="financialSummaryFacilityTaxInline">0 ISK</span></div>
                             </div>
@@ -470,12 +470,24 @@
                                     <th class="text-end text-xs grand-total-material-cost fw-semibold text-danger" colspan="2">0</th>
                                 </tr>
                                 <tr>
+                                    <th colspan="4" class="text-end text-xs">{% trans "Cash Needed For Materials" %}</th>
+                                    <th class="text-end text-xs grand-total-material-investment fw-semibold" colspan="2">0</th>
+                                </tr>
+                                <tr>
+                                    <th colspan="4" class="text-end text-xs text-muted">{% trans "Allocated From Stock" %}</th>
+                                    <th class="text-end text-xs grand-total-stock-value text-muted" colspan="2">0</th>
+                                </tr>
+                                <tr>
                                     <th colspan="4" class="text-end text-xs">{% trans "Installation Cost" %}</th>
                                     <th class="text-end text-xs grand-total-installation fw-semibold" colspan="2">0</th>
                                 </tr>
                                 <tr>
                                     <th colspan="4" class="text-end text-xs text-muted">{% trans "Facility Tax (included in installation)" %}</th>
                                     <th class="text-end text-xs grand-total-facility-tax text-muted" colspan="2">0</th>
+                                </tr>
+                                <tr>
+                                    <th colspan="4" class="text-end text-xs">{% trans "Cash Investment Needed" %}</th>
+                                    <th class="text-end text-xs grand-total-investment-needed fw-semibold" colspan="2">0</th>
                                 </tr>
                                 <tr>
                                     <th colspan="4" class="text-end text-xs">{% trans "Total Cost" %}</th>
@@ -535,52 +547,151 @@
                 </section>
             </div>
 
-            <!-- ========== RUN OPTIMIZED TAB (V2) ========== -->
-            <div class="tab-pane fade" id="run-optimized-pane" role="tabpanel" aria-labelledby="run-optimized-tab-btn">
-                <section class="craft-section">
+            <div class="tab-pane fade" id="stock-pane" role="tabpanel" aria-labelledby="stock-tab-btn">
+                <div id="stockScopeMissingNotice" class="alert alert-warning d-none mb-4">
+                    <i class="fas fa-key me-2"></i>{% trans "Character asset scope is missing or stale. Stock data may be incomplete until the next asset refresh." %}
+                </div>
+
+                <section class="craft-section mb-4">
                     <div class="craft-section-header-with-actions">
                         <h3 class="craft-section-title">
-                            <i class="fas fa-chart-line text-primary"></i> {% trans "Optimized profitability by runs" %}
+                            <i class="fas fa-box-open text-primary"></i> {% trans "Stock Management" %}
                         </h3>
-                    </div>
-
-                    <div class="d-flex flex-wrap gap-2 align-items-end mb-2">
-                        <div class="form-check form-switch me-2">
-                            <input class="form-check-input" type="checkbox" id="runOptimizedUseDashboardDecisions" checked>
-                            <label class="form-check-label small" for="runOptimizedUseDashboardDecisions">
-                                {% trans "Use current Buy/Prod switches (dashboard-aligned)" %}
-                            </label>
-                        </div>
-
-                        <div class="input-group input-group-sm" style="max-width: 260px;">
-                            <span class="input-group-text">{% trans "Search up to" %}</span>
-                            <input type="number" class="form-control" id="runOptimizedSearchMaxRuns" min="1" step="1">
-                            <span class="input-group-text">{% trans "runs" %}</span>
-                        </div>
-
-                        <button class="btn btn-sm btn-outline-primary" type="button" id="runOptimizedFindBestBtn">
-                            <i class="fas fa-bullseye me-1"></i>{% trans "Find optimal runs" %}
-                        </button>
-
-                        <div class="small text-muted ms-auto" id="runOptimizedBestResult"></div>
-                    </div>
-
-                    <details class="border rounded-3 bg-body p-2 mb-2" id="runOptimizedBestConfigDetails" style="display:none;">
-                        <summary class="small fw-semibold">{% trans "Best configuration details" %}</summary>
-                        <div class="mt-2 d-flex flex-wrap gap-2 align-items-center">
-                            <button class="btn btn-sm btn-outline-secondary" type="button" id="runOptimizedCopyBestConfig">
-                                <i class="fas fa-copy me-1"></i>{% trans "Copy" %}
+                        <div class="craft-section-controls">
+                            <button type="button" class="btn btn-outline-secondary btn-sm" id="stockResetAllocationsBtn">
+                                <i class="fas fa-rotate-left me-1"></i>{% trans "Reset allocations" %}
                             </button>
-                            <span class="small text-muted" id="runOptimizedBestConfigHint"></span>
                         </div>
-                        <pre class="small mt-2 mb-0" id="runOptimizedBestConfigPre" style="white-space: pre-wrap;"></pre>
-                    </details>
+                    </div>
 
-                    <div class="alert alert-info mb-3" id="run-optimized-status">{% trans "Open this tab to compute profitability across runs." %}</div>
+                    <div class="small text-muted mb-3">
+                        {% trans "Allocate cached character assets to reduce what still needs to be bought. Stock lowers cash investment, but the full material value remains part of production cost and profit." %}
+                    </div>
 
-                    <div class="bg-body border rounded-3 p-3">
-                        <canvas id="runOptimizedChart" height="240" style="width: 100%;"></canvas>
-                        <div class="mt-2 small text-muted" id="runOptimizedPointsList"></div>
+                    <div class="craft-stock-kpis mb-3">
+                        <article class="craft-stock-kpi-card">
+                            <span class="craft-stock-kpi-label">{% trans "Lines" %}</span>
+                            <strong class="craft-stock-kpi-value" id="stockSummaryLineCount">0</strong>
+                        </article>
+                        <article class="craft-stock-kpi-card">
+                            <span class="craft-stock-kpi-label">{% trans "Required" %}</span>
+                            <strong class="craft-stock-kpi-value" id="stockSummaryRequiredQty">0</strong>
+                        </article>
+                        <article class="craft-stock-kpi-card">
+                            <span class="craft-stock-kpi-label">{% trans "Allocated" %}</span>
+                            <strong class="craft-stock-kpi-value" id="stockSummaryAllocatedQty">0</strong>
+                        </article>
+                        <article class="craft-stock-kpi-card">
+                            <span class="craft-stock-kpi-label">{% trans "Still to buy" %}</span>
+                            <strong class="craft-stock-kpi-value" id="stockSummaryRemainingQty">0</strong>
+                        </article>
+                        <article class="craft-stock-kpi-card">
+                            <span class="craft-stock-kpi-label">{% trans "Stock value used" %}</span>
+                            <strong class="craft-stock-kpi-value" id="stockSummaryValue">0 ISK</strong>
+                        </article>
+                    </div>
+
+                    <div class="small text-muted mb-3">
+                        {% trans "Last cached asset sync" %}: <span id="stockSummaryUpdated">{% trans "No asset sync yet" %}</span>
+                    </div>
+
+                    <div class="table-responsive craft-stock-table-wrap">
+                        <table class="table table-sm align-middle mb-0 craft-stock-table">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>{% trans "Item" %}</th>
+                                    <th class="text-end">{% trans "Required" %}</th>
+                                    <th class="text-end">{% trans "In stock" %}</th>
+                                    <th class="text-end">{% trans "Use" %}</th>
+                                    <th class="text-end">{% trans "Still to buy" %}</th>
+                                    <th class="text-end">{% trans "Value used" %}</th>
+                                    <th>{% trans "By character" %}</th>
+                                </tr>
+                            </thead>
+                            <tbody id="stockManagementRows">
+                                <tr>
+                                    <td colspan="7" class="text-center text-muted py-4">{% trans "Open this tab to allocate stock against the current sourcing plan." %}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+
+            <!-- ========== RUN OPTIMIZED TAB (V2) ========== -->
+            <div class="tab-pane fade" id="run-optimized-pane" role="tabpanel" aria-labelledby="run-optimized-tab-btn">
+                <section class="craft-section craft-decision-center mb-4" id="decisionStrategySection">
+                    <div class="craft-section-header-with-actions">
+                        <h3 class="craft-section-title">
+                            <i class="fas fa-scale-balanced text-primary"></i> {% trans "Buy / Produce Strategy" %}
+                        </h3>
+                        <div class="craft-section-controls craft-decision-controls flex-wrap">
+                            <div class="input-group input-group-sm craft-decision-tolerance">
+                                <span class="input-group-text">{% trans "Buy tolerance" %}</span>
+                                <input type="number" class="form-control" id="decisionBuyToleranceInput" min="0" step="1000" value="0">
+                                <span class="input-group-text">ISK</span>
+                            </div>
+                            <button class="btn btn-outline-secondary btn-sm" type="button" id="decisionStrategyRefreshBtn">
+                                <i class="fas fa-rotate me-1"></i>{% trans "Refresh" %}
+                            </button>
+                            <button class="btn btn-outline-success btn-sm" type="button" id="set-tree-prod" title="{% trans 'All prod' %}">
+                                <i class="fas fa-industry me-1"></i>{% trans "All produce" %}
+                            </button>
+                            <button class="btn btn-outline-danger btn-sm" type="button" id="set-tree-buy" title="{% trans 'All buy' %}">
+                                <i class="fas fa-shopping-cart me-1"></i>{% trans "All buy" %}
+                            </button>
+                            <button class="btn btn-primary btn-sm" type="button" id="optimize-profit" title="{% trans 'Apply the recommended buy vs produce strategy' %}">
+                                <i class="fas fa-magic me-1"></i>{% trans "Apply recommendations" %}
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="craft-decision-intro mb-3">
+                        <p class="mb-1 fw-semibold">{% trans "Centralize all Buy / Produce choices here." %}</p>
+                        <p class="mb-0 text-muted small">{% trans "If Buy is only slightly more expensive than Produce, you can still prefer Buy globally with the tolerance above." %}</p>
+                    </div>
+
+                    <div class="craft-decision-metrics mb-3">
+                        <article class="craft-decision-metric">
+                            <span class="craft-decision-metric-label">{% trans "Reviewed items" %}</span>
+                            <strong class="craft-decision-metric-value" id="decisionStrategyItemCount">0</strong>
+                        </article>
+                        <article class="craft-decision-metric">
+                            <span class="craft-decision-metric-label">{% trans "Current buy" %}</span>
+                            <strong class="craft-decision-metric-value" id="decisionStrategyCurrentBuyCount">0</strong>
+                        </article>
+                        <article class="craft-decision-metric">
+                            <span class="craft-decision-metric-label">{% trans "Recommended buy" %}</span>
+                            <strong class="craft-decision-metric-value" id="decisionStrategyRecommendedBuyCount">0</strong>
+                        </article>
+                        <article class="craft-decision-metric">
+                            <span class="craft-decision-metric-label">{% trans "Potential savings" %}</span>
+                            <strong class="craft-decision-metric-value" id="decisionStrategyPotentialSavings">0 ISK</strong>
+                        </article>
+                    </div>
+
+                    <div class="small text-muted mb-3" id="decisionStrategySummary">{% trans "Open this tab to review buy / produce recommendations." %}</div>
+
+                    <div class="table-responsive craft-decision-table-wrap">
+                        <table class="table table-sm align-middle craft-decision-table mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>{% trans "Item" %}</th>
+                                    <th class="text-end">{% trans "Qty" %}</th>
+                                    <th class="text-end">{% trans "Buy" %}</th>
+                                    <th class="text-end">{% trans "Produce" %}</th>
+                                    <th class="text-end">{% trans "Delta" %}</th>
+                                    <th class="text-end">{% trans "Ratio" %}</th>
+                                    <th>{% trans "Recommended" %}</th>
+                                    <th>{% trans "Selected" %}</th>
+                                </tr>
+                            </thead>
+                            <tbody id="decisionStrategyRows">
+                                <tr>
+                                    <td colspan="8" class="text-center text-muted py-4">{% trans "Decision analysis will appear here." %}</td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
                 </section>
             </div>
@@ -957,12 +1068,12 @@
 
 {% block extra_javascript %}
 {{ blueprint_payload|json_script:"blueprint-payload" }}
-<script src="{% static 'indy_hub/js/craft_bp_page.js' %}?v=20260425-project-manual-save"></script>
+<script src="{% static 'indy_hub/js/craft_bp_page.js' %}?v=20260426-blueprint-used-only"></script>
 {% if not deferred_shell %}
-<script src="{% static 'indy_hub/js/craft_bp_simulation_api.js' %}"></script>
+<script src="{% static 'indy_hub/js/craft_bp_simulation_api.js' %}?v=20260426-decision-apply-fix"></script>
 <script src="{% static 'indy_hub/js/craft_bp_active_tab.js' %}?v=20260425-loading-replay2"></script>
-<script src="{% static 'indy_hub/js/craft_bp_financial_planner.js' %}"></script>
-<script src="{% static 'indy_hub/js/craft_bp.js' %}?v=20260425-quickstats-fix"></script>
-<script src="{% static 'indy_hub/js/craft_bp_inline.js' %}?v=20260425-project-manual-save"></script>
+<script src="{% static 'indy_hub/js/craft_bp_financial_planner.js' %}?v=20260426-stock-management"></script>
+<script src="{% static 'indy_hub/js/craft_bp.js' %}?v=20260426-decision-child-impact-costs"></script>
+<script src="{% static 'indy_hub/js/craft_bp_inline.js' %}?v=20260426-decision-child-impact-costs"></script>
 {% endif %}
 {% endblock extra_javascript %}

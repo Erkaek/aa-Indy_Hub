@@ -93,6 +93,58 @@ function syncFinancialGroupRows(tableBody) {
     updateFinancialGroupRowsVisibility(tableBody);
 }
 
+function ensureFinancialStockStateNode(row) {
+    if (!row) {
+        return null;
+    }
+
+    let note = row.querySelector('.financial-stock-state');
+    if (note) {
+        return note;
+    }
+
+    const metaLine = row.querySelector('.craft-planner-item-name-wrap .small.text-muted');
+    if (!metaLine) {
+        return null;
+    }
+
+    note = document.createElement('span');
+    note.className = 'financial-stock-state d-none';
+    metaLine.appendChild(note);
+    return note;
+}
+
+function applyFinancialRowStockState(row, item) {
+    if (!row || !item || row.getAttribute('data-final-output') === 'true' || typeof getCraftStockAllocationSummary !== 'function') {
+        return;
+    }
+
+    const stockSummary = getCraftStockAllocationSummary(item.typeId, item.quantity);
+    row.dataset.requiredQty = String(stockSummary.requiredQty);
+    row.dataset.stockAllocatedQty = String(stockSummary.allocatedQty);
+    row.dataset.buyRemainingQty = String(stockSummary.remainingQty);
+
+    const note = ensureFinancialStockStateNode(row);
+    if (note) {
+        if (stockSummary.availableQty > 0) {
+            const parts = [
+                `${__('Stock')} ${formatInteger(stockSummary.availableQty)}`,
+            ];
+            if (stockSummary.allocatedQty > 0) {
+                parts.push(`${__('Using')} ${formatInteger(stockSummary.allocatedQty)}`);
+                parts.push(`${__('Buy')} ${formatInteger(stockSummary.remainingQty)}`);
+            }
+            note.textContent = parts.join(' · ');
+            note.classList.remove('d-none');
+        } else {
+            note.textContent = '';
+            note.classList.add('d-none');
+        }
+    }
+
+    row.classList.toggle('craft-financial-row-stock-covered', stockSummary.remainingQty === 0 && stockSummary.requiredQty > 0);
+}
+
 function buildFinancialRow(item, pricesMap) {
     const row = document.createElement('tr');
     row.setAttribute('data-type-id', String(item.typeId));
@@ -110,6 +162,7 @@ function buildFinancialRow(item, pricesMap) {
                     </span>
                     <span class="d-flex flex-wrap align-items-center gap-2 small text-muted mt-1">
                         <span class="financial-market-group"${item.marketGroup ? '' : ' style="display:none"'}>${escapeHtml(item.marketGroup || '')}</span>
+                            <span class="financial-stock-state d-none"></span>
                     </span>
                 </span>
                 <button type="button" class="btn btn-link btn-sm text-body-tertiary financial-row-reset" data-type-id="${item.typeId}" title="${escapeHtml(__('Reset this override'))}">
@@ -155,6 +208,7 @@ function buildFinancialRow(item, pricesMap) {
     }
 
     attachPriceInputListener(realInput);
+    applyFinancialRowStockState(row, item);
 
     return { row, typeId: item.typeId, fuzzInput, realInput };
 }
@@ -186,6 +240,8 @@ function updateFinancialRow(row, item) {
         marketGroupNode.textContent = item.marketGroup || '';
         marketGroupNode.style.display = item.marketGroup ? '' : 'none';
     }
+
+    applyFinancialRowStockState(row, item);
 }
 
 function getFinancialRowSourceState(row) {
@@ -285,6 +341,7 @@ function applyFinancialPlannerFilters() {
     const emptyState = document.getElementById('financialPlannerEmptyState');
     const missingAlert = document.getElementById('missingPricesAlert');
     const missingCount = document.getElementById('missingPricesCount');
+    const missingMessage = document.getElementById('missingPricesMessage');
 
     let visibleLines = 0;
     const visibleGroups = new Set();
@@ -363,8 +420,15 @@ function applyFinancialPlannerFilters() {
     if (missingCount) {
         missingCount.textContent = formatInteger(totalMissing);
     }
+    if (missingMessage) {
+        missingMessage.textContent = totalMissing === 1
+            ? __('item is missing price data. Load Fuzzwork prices or enter it manually.')
+            : __('items are missing price data. Load Fuzzwork prices or enter them manually.');
+    }
     if (missingAlert) {
-        missingAlert.style.display = totalMissing > 0 ? '' : 'none';
+        missingAlert.hidden = totalMissing === 0;
+        missingAlert.classList.toggle('d-none', totalMissing === 0);
+        missingAlert.classList.toggle('d-flex', totalMissing > 0);
     }
 }
 
@@ -484,62 +548,10 @@ function updateFinancialTabFromState() {
 
     initializeFinancialPlannerChrome();
 
-    const finalOutputTypeIds = getFinalOutputTypeIds();
     const pricesMap = getSimulationPricesMap();
-
-    const aggregated = new Map();
-    const items = window.SimulationAPI.getFinancialItems() || [];
-
-    items.forEach((item) => {
-        const typeId = Number(item.typeId ?? item.type_id);
-        if (!typeId || finalOutputTypeIds.has(typeId)) {
-            return;
-        }
-        const quantity = Math.ceil(Number(item.quantity ?? item.qty ?? 0));
-        if (quantity <= 0) {
-            return;
-        }
-        const existing = aggregated.get(typeId) || {
-            typeId,
-            typeName: item.typeName || item.type_name || '',
-            quantity: 0,
-            marketGroup: item.marketGroup || item.market_group || '',
-        };
-        existing.quantity += quantity;
-        if (!existing.marketGroup && (item.marketGroup || item.market_group)) {
-            existing.marketGroup = item.marketGroup || item.market_group || '';
-        }
-        aggregated.set(typeId, existing);
-    });
-
-    const ordering = getDashboardMaterialsOrdering();
-    const sortedItems = Array.from(aggregated.values()).sort((a, b) => {
-        const typeA = Number(a.typeId) || 0;
-        const typeB = Number(b.typeId) || 0;
-
-        const dashboardA = ordering.itemOrder.get(typeA);
-        const dashboardB = ordering.itemOrder.get(typeB);
-        const groupA = a.marketGroup || ordering.fallbackGroupName;
-        const groupB = b.marketGroup || ordering.fallbackGroupName;
-
-        const groupIdxA = dashboardA ? dashboardA.groupIdx : (ordering.groupOrder.has(groupA) ? ordering.groupOrder.get(groupA) : Number.POSITIVE_INFINITY);
-        const groupIdxB = dashboardB ? dashboardB.groupIdx : (ordering.groupOrder.has(groupB) ? ordering.groupOrder.get(groupB) : Number.POSITIVE_INFINITY);
-        if (groupIdxA !== groupIdxB) {
-            return groupIdxA - groupIdxB;
-        }
-
-        const itemIdxA = dashboardA ? dashboardA.itemIdx : Number.POSITIVE_INFINITY;
-        const itemIdxB = dashboardB ? dashboardB.itemIdx : Number.POSITIVE_INFINITY;
-        if (itemIdxA !== itemIdxB) {
-            return itemIdxA - itemIdxB;
-        }
-
-        const groupCmp = String(groupA).localeCompare(String(groupB), undefined, { sensitivity: 'base' });
-        if (groupCmp !== 0) {
-            return groupCmp;
-        }
-        return String(a.typeName).localeCompare(String(b.typeName), undefined, { sensitivity: 'base' });
-    });
+    const sortedItems = typeof getCraftSourceRequirementRows === 'function'
+        ? getCraftSourceRequirementRows()
+        : [];
 
     const existingRows = new Map();
     tableBody.querySelectorAll('tr[data-type-id]').forEach((row) => {

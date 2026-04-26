@@ -193,11 +193,14 @@ def build_craft_time_map(
                 COALESCE(activity_time.time, 0) AS base_time_seconds
             FROM indy_hub_sdeindustryactivityproduct product
             JOIN eve_sde_itemtype item ON item.id = product.product_eve_type_id
+            JOIN eve_sde_itemtype blueprint_item ON blueprint_item.id = product.eve_type_id
             LEFT JOIN indy_hub_sdeblueprintactivity activity_time
                 ON activity_time.eve_type_id = product.eve_type_id
                                 AND activity_time.activity_id = product.activity_id
             WHERE product.product_eve_type_id IN ({placeholders})
                         AND product.activity_id IN (1, 9, 11)
+                        AND COALESCE(item.published, 0) = 1
+                        AND COALESCE(blueprint_item.published, 0) = 1
             ORDER BY
                 CASE product.activity_id
                     WHEN 1 THEN 0
@@ -249,12 +252,16 @@ def build_craft_time_map(
                     product.quantity,
                     COALESCE(activity_time.time, 0) AS base_time_seconds
                 FROM indy_hub_sdeindustryactivityproduct product
+                JOIN eve_sde_itemtype item ON item.id = product.product_eve_type_id
+                JOIN eve_sde_itemtype blueprint_item ON blueprint_item.id = product.eve_type_id
                 LEFT JOIN indy_hub_sdeblueprintactivity activity_time
                     ON activity_time.eve_type_id = product.eve_type_id
                                         AND activity_time.activity_id = product.activity_id
                 WHERE product.eve_type_id = %s
                                 AND product.product_eve_type_id = %s
                                 AND product.activity_id IN (1, 9, 11)
+                                AND COALESCE(item.published, 0) = 1
+                                AND COALESCE(blueprint_item.published, 0) = 1
                 ORDER BY
                     CASE product.activity_id
                         WHEN 1 THEN 0

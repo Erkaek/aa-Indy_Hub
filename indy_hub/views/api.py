@@ -27,11 +27,7 @@ from ..decorators import indy_hub_access_required, indy_hub_permission_required
 
 # Local
 from ..models import (
-    BlueprintEfficiency,
-    CustomPrice,
-    ProductionConfig,
     ProductionProject,
-    ProductionSimulation,
 )
 from ..services.craft_materials import (
     compute_job_material_quantity,
@@ -45,11 +41,15 @@ from ..services.craft_times import build_craft_time_map
 from ..services.industry_skills import build_craft_character_advisor
 from ..services.industry_structures import resolve_solar_system_reference
 from ..services.production_projects import (
+    PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY,
+    PROJECT_WORKSPACE_SDE_SIGNATURE_KEY,
     build_project_import_preview,
     build_project_workspace_payload,
     create_project_from_entries,
+    get_project_workspace_sde_signature,
     normalize_production_project_ref,
     parse_project_me_te_overrides,
+    strip_project_workspace_cache,
 )
 from ..services.project_progress import (
     normalize_project_progress,
@@ -242,7 +242,7 @@ def save_production_project_workspace(request, project_ref: str):
     def sanitize_dict(value):
         return value if isinstance(value, dict) else {}
 
-    existing_workspace_state = dict(project.workspace_state or {})
+    existing_workspace_state = strip_project_workspace_cache(project.workspace_state)
 
     simulation_name = str(
         data.get("simulationName") or data.get("simulation_name") or ""
@@ -270,11 +270,15 @@ def save_production_project_workspace(request, project_ref: str):
         "active_tab": active_blueprint_tab,
         "activeBlueprintTab": active_blueprint_tab,
         "buyTypeIds": sanitize_list(data.get("buyTypeIds")),
+        "stockAllocations": sanitize_dict(data.get("stockAllocations")),
         "manualPrices": sanitize_list(data.get("manualPrices")),
-        "runOptimizedMaxRuns": str(data.get("runOptimizedMaxRuns") or ""),
+        "decisionBuyTolerance": str(data.get("decisionBuyTolerance") or ""),
         "meTeConfig": sanitize_dict(data.get("meTeConfig")),
         "copyRequests": sanitize_list(data.get("copyRequests")),
         "structure": sanitize_dict(data.get("structure")),
+        "fuzzworkPrices": sanitize_dict(
+            data.get("fuzzworkPrices") or data.get("fuzzwork_prices")
+        ),
         "pendingWorkspaceRefresh": bool(data.get("pendingWorkspaceRefresh")),
         "pendingWorkspaceSourceTab": str(data.get("pendingWorkspaceSourceTab") or ""),
         "items": sanitize_list(data.get("items")),
@@ -295,6 +299,24 @@ def save_production_project_workspace(request, project_ref: str):
         project.name = new_name[:255]
         update_fields.append("name")
     project.save(update_fields=update_fields)
+
+    provided_cached_payload = data.get("cachedPayload")
+    if isinstance(provided_cached_payload, dict):
+        cached_payload = _to_serializable(provided_cached_payload)
+    else:
+        cached_payload = _to_serializable(
+            build_project_workspace_payload(
+                project,
+                skill_cache_ttl=SKILL_CACHE_TTL,
+                include_full_structure_options=False,
+            )
+        )
+    workspace_state[PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY] = cached_payload
+    workspace_state[PROJECT_WORKSPACE_SDE_SIGNATURE_KEY] = (
+        get_project_workspace_sde_signature()
+    )
+    project.workspace_state = workspace_state
+    project.save(update_fields=["workspace_state", "updated_at"])
 
     return JsonResponse(
         {
@@ -460,9 +482,14 @@ def craft_bp_payload(request, type_id: int):
     with connection.cursor() as cursor:
         cursor.execute(
             """
-            SELECT product_eve_type_id, quantity
-            FROM indy_hub_sdeindustryactivityproduct
-            WHERE eve_type_id = %s AND activity_id IN (1, 11)
+                        SELECT p.product_eve_type_id, p.quantity
+                        FROM indy_hub_sdeindustryactivityproduct p
+                        JOIN eve_sde_itemtype blueprint_t ON blueprint_t.id = p.eve_type_id
+                        JOIN eve_sde_itemtype product_t ON product_t.id = p.product_eve_type_id
+                        WHERE p.eve_type_id = %s
+                            AND p.activity_id IN (1, 11)
+                            AND COALESCE(blueprint_t.published, 0) = 1
+                            AND COALESCE(product_t.published, 0) = 1
             LIMIT 1
             """,
             [type_id],
@@ -479,9 +506,12 @@ def craft_bp_payload(request, type_id: int):
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
-                    SELECT COUNT(*)
-                    FROM indy_hub_sdeindustryactivitymaterial
-                    WHERE eve_type_id = %s AND activity_id IN (1, 11)
+                                        SELECT COUNT(*)
+                                        FROM indy_hub_sdeindustryactivitymaterial m
+                                        JOIN eve_sde_itemtype t ON t.id = m.material_eve_type_id
+                                        WHERE m.eve_type_id = %s
+                                            AND m.activity_id IN (1, 11)
+                                            AND COALESCE(t.published, 0) = 1
                     """,
                     [type_id],
                 )
@@ -525,8 +555,13 @@ def craft_bp_payload(request, type_id: int):
             lookup_cursor.execute(
                 """
                 SELECT product_eve_type_id
-                FROM indy_hub_sdeindustryactivityproduct
-                WHERE eve_type_id = %s AND activity_id IN (1, 11)
+                                FROM indy_hub_sdeindustryactivityproduct p
+                                JOIN eve_sde_itemtype blueprint_t ON blueprint_t.id = p.eve_type_id
+                                JOIN eve_sde_itemtype product_t ON product_t.id = p.product_eve_type_id
+                                WHERE p.eve_type_id = %s
+                                    AND p.activity_id IN (1, 11)
+                                    AND COALESCE(blueprint_t.published, 0) = 1
+                                    AND COALESCE(product_t.published, 0) = 1
                 LIMIT 1
                 """,
                 [blueprint_type_id],
@@ -550,7 +585,7 @@ def craft_bp_payload(request, type_id: int):
                 SELECT t.meta_group_id_raw, g.category_id
                 FROM eve_sde_itemtype t
                 LEFT JOIN eve_sde_itemgroup g ON t.group_id = g.id
-                WHERE t.id = %s
+                WHERE t.id = %s AND COALESCE(t.published, 0) = 1
                 LIMIT 1
                 """,
                 [numeric_type_id],
@@ -590,9 +625,14 @@ def craft_bp_payload(request, type_id: int):
         with connection.cursor() as recipe_cursor:
             recipe_cursor.execute(
                 """
-                SELECT quantity
-                FROM indy_hub_sdeindustryactivityproduct
-                WHERE eve_type_id = %s AND activity_id IN (1, 11)
+                                SELECT p.quantity
+                                FROM indy_hub_sdeindustryactivityproduct p
+                                JOIN eve_sde_itemtype blueprint_t ON blueprint_t.id = p.eve_type_id
+                                JOIN eve_sde_itemtype product_t ON product_t.id = p.product_eve_type_id
+                                WHERE p.eve_type_id = %s
+                                    AND p.activity_id IN (1, 11)
+                                    AND COALESCE(blueprint_t.published, 0) = 1
+                                    AND COALESCE(product_t.published, 0) = 1
                 LIMIT 1
                 """,
                 [blueprint_type_id],
@@ -602,9 +642,12 @@ def craft_bp_payload(request, type_id: int):
 
             recipe_cursor.execute(
                 """
-                SELECT material_eve_type_id, quantity
-                FROM indy_hub_sdeindustryactivitymaterial
-                WHERE eve_type_id = %s AND activity_id IN (1, 11)
+                                SELECT m.material_eve_type_id, m.quantity
+                                FROM indy_hub_sdeindustryactivitymaterial m
+                                JOIN eve_sde_itemtype t ON t.id = m.material_eve_type_id
+                                WHERE m.eve_type_id = %s
+                                    AND m.activity_id IN (1, 11)
+                                    AND COALESCE(t.published, 0) = 1
                 """,
                 [blueprint_type_id],
             )
@@ -661,7 +704,9 @@ def craft_bp_payload(request, type_id: int):
                 SELECT m.material_eve_type_id, t.name, m.quantity
                 FROM indy_hub_sdeindustryactivitymaterial m
                 JOIN eve_sde_itemtype t ON m.material_eve_type_id = t.id
-                WHERE m.eve_type_id = %s AND m.activity_id IN (1, 11)
+                                WHERE m.eve_type_id = %s
+                                    AND m.activity_id IN (1, 11)
+                                    AND COALESCE(t.published, 0) = 1
                 """,
                 [bp_id],
             )
@@ -693,9 +738,14 @@ def craft_bp_payload(request, type_id: int):
                 with connection.cursor() as sub_cursor:
                     sub_cursor.execute(
                         """
-                        SELECT eve_type_id
-                        FROM indy_hub_sdeindustryactivityproduct
-                        WHERE product_eve_type_id = %s AND activity_id IN (1, 11)
+                                                SELECT p.eve_type_id
+                                                FROM indy_hub_sdeindustryactivityproduct p
+                                                JOIN eve_sde_itemtype blueprint_t ON blueprint_t.id = p.eve_type_id
+                                                JOIN eve_sde_itemtype product_t ON product_t.id = p.product_eve_type_id
+                                                WHERE p.product_eve_type_id = %s
+                                                    AND p.activity_id IN (1, 11)
+                                                    AND COALESCE(blueprint_t.published, 0) = 1
+                                                    AND COALESCE(product_t.published, 0) = 1
                         LIMIT 1
                         """,
                         [mat["type_id"]],
@@ -706,9 +756,14 @@ def craft_bp_payload(request, type_id: int):
                         sub_bp_id = sub_bp_row[0]
                         sub_cursor.execute(
                             """
-                            SELECT quantity
-                            FROM indy_hub_sdeindustryactivityproduct
-                            WHERE eve_type_id = %s AND activity_id IN (1, 11)
+                                                        SELECT p.quantity
+                                                        FROM indy_hub_sdeindustryactivityproduct p
+                                                        JOIN eve_sde_itemtype blueprint_t ON blueprint_t.id = p.eve_type_id
+                                                        JOIN eve_sde_itemtype product_t ON product_t.id = p.product_eve_type_id
+                                                        WHERE p.eve_type_id = %s
+                                                            AND p.activity_id IN (1, 11)
+                                                            AND COALESCE(blueprint_t.published, 0) = 1
+                                                            AND COALESCE(product_t.published, 0) = 1
                             LIMIT 1
                             """,
                             [sub_bp_id],
@@ -961,163 +1016,12 @@ def fuzzwork_price(request):
 @require_http_methods(["POST"])
 def save_production_config(request):
     emit_view_analytics_event(view_name="api.save_production_config", request=request)
-    """
-    Save complete production configuration to database.
-
-    Expected JSON payload:
-    {
-        "blueprint_type_id": 12345,
-        "blueprint_name": "Some Blueprint",
-        "runs": 1,
-        "simulation_name": "My Config",
-        "active_tab": "materials",
-        "items": [
-            {"type_id": 11111, "mode": "prod", "quantity": 100},
-            {"type_id": 22222, "mode": "buy", "quantity": 50}
-        ],
-        "blueprint_efficiencies": [
-            {"blueprint_type_id": 12345, "material_efficiency": 10, "time_efficiency": 20}
-        ],
-        "custom_prices": [
-            {"item_type_id": 11111, "unit_price": 1000.0, "is_sale_price": false},
-            {"item_type_id": 99999, "unit_price": 50000.0, "is_sale_price": true}
-        ],
-        "estimated_cost": 125000.0,
-        "estimated_revenue": 175000.0,
-        "estimated_profit": 50000.0
-    }
-    """
-    try:
-        data = json.loads(request.body)
-        blueprint_type_id = data.get("blueprint_type_id")
-        runs = data.get("runs", 1)
-
-        if not blueprint_type_id:
-            return JsonResponse({"error": "blueprint_type_id is required"}, status=400)
-
-        # Create or update the simulation
-        simulation, created = ProductionSimulation.objects.get_or_create(
-            user=request.user,
-            blueprint_type_id=blueprint_type_id,
-            runs=runs,
-            defaults={
-                "blueprint_name": data.get(
-                    "blueprint_name", f"Blueprint {blueprint_type_id}"
-                ),
-                "simulation_name": data.get("simulation_name", ""),
-                "active_tab": data.get("active_tab", "materials"),
-                "estimated_cost": data.get("estimated_cost", 0),
-                "estimated_revenue": data.get("estimated_revenue", 0),
-                "estimated_profit": data.get("estimated_profit", 0),
-            },
-        )
-
-        if not created:
-            # Update the existing simulation
-            simulation.blueprint_name = data.get(
-                "blueprint_name", simulation.blueprint_name
-            )
-            simulation.simulation_name = data.get(
-                "simulation_name", simulation.simulation_name
-            )
-            simulation.active_tab = data.get("active_tab", simulation.active_tab)
-            simulation.estimated_cost = data.get(
-                "estimated_cost", simulation.estimated_cost
-            )
-            simulation.estimated_revenue = data.get(
-                "estimated_revenue", simulation.estimated_revenue
-            )
-            simulation.estimated_profit = data.get(
-                "estimated_profit", simulation.estimated_profit
-            )
-            simulation.save()
-
-        # 1. Save the Prod/Buy/Useless configurations
-        items = data.get("items", [])
-        if items:
-            # Remove the previous configurations
-            ProductionConfig.objects.filter(simulation=simulation).delete()
-
-            # Create the new configurations
-            configs = []
-            for item in items:
-                config = ProductionConfig(
-                    user=request.user,
-                    simulation=simulation,
-                    blueprint_type_id=blueprint_type_id,
-                    item_type_id=item["type_id"],
-                    production_mode=item["mode"],
-                    quantity_needed=item.get("quantity", 0),
-                    runs=runs,
-                )
-                configs.append(config)
-
-            ProductionConfig.objects.bulk_create(configs)
-
-            # Update the simulation statistics
-            simulation.total_items = len(items)
-            simulation.total_buy_items = len([i for i in items if i["mode"] == "buy"])
-            simulation.total_prod_items = len([i for i in items if i["mode"] == "prod"])
-
-        # 2. Save the blueprint ME/TE efficiencies
-        blueprint_efficiencies = data.get("blueprint_efficiencies", [])
-        if blueprint_efficiencies:
-            # Remove previous efficiencies
-            BlueprintEfficiency.objects.filter(simulation=simulation).delete()
-
-            # Create the new efficiencies
-            efficiencies = []
-            for eff in blueprint_efficiencies:
-                efficiency = BlueprintEfficiency(
-                    user=request.user,
-                    simulation=simulation,
-                    blueprint_type_id=eff["blueprint_type_id"],
-                    material_efficiency=eff.get("material_efficiency", 0),
-                    time_efficiency=eff.get("time_efficiency", 0),
-                )
-                efficiencies.append(efficiency)
-
-            BlueprintEfficiency.objects.bulk_create(efficiencies)
-
-        # 3. Save the custom prices
-        custom_prices = data.get("custom_prices", [])
-        if custom_prices:
-            # Remove previous prices
-            CustomPrice.objects.filter(simulation=simulation).delete()
-
-            # Create the new prices
-            prices = []
-            for price in custom_prices:
-                custom_price = CustomPrice(
-                    user=request.user,
-                    simulation=simulation,
-                    item_type_id=price["item_type_id"],
-                    unit_price=price.get("unit_price", 0),
-                    is_sale_price=price.get("is_sale_price", False),
-                )
-                prices.append(custom_price)
-
-            CustomPrice.objects.bulk_create(prices)
-
-        simulation.save()
-
-        return JsonResponse(
-            {
-                "success": True,
-                "simulation_id": simulation.id,
-                "simulation_created": created,
-                "saved_items": len(items),
-                "saved_efficiencies": len(blueprint_efficiencies),
-                "saved_prices": len(custom_prices),
-                "message": "Complete production configuration saved successfully",
-            }
-        )
-
-    except json.JSONDecodeError:
-        return JsonResponse({"error": "Invalid JSON data"}, status=400)
-    except Exception as e:
-        logger.error(f"Error saving production config: {e}")
-        return JsonResponse({"error": "Internal server error"}, status=500)
+    return JsonResponse(
+        {
+            "error": "Legacy simulation persistence has been removed. Use production project workspace saving instead.",
+        },
+        status=410,
+    )
 
 
 @indy_hub_access_required
@@ -1125,127 +1029,9 @@ def save_production_config(request):
 @login_required
 def load_production_config(request):
     emit_view_analytics_event(view_name="api.load_production_config", request=request)
-    """
-    Load complete production configuration from database.
-
-    Parameters:
-    - blueprint_type_id: Required
-    - runs: Optional (default 1)
-
-    Returns:
-    {
-        "blueprint_type_id": 12345,
-        "blueprint_name": "Some Blueprint",
-        "runs": 1,
-        "simulation_name": "My Config",
-        "active_tab": "materials",
-        "items": [
-            {"type_id": 11111, "mode": "prod", "quantity": 100},
-            {"type_id": 22222, "mode": "buy", "quantity": 50}
-        ],
-        "blueprint_efficiencies": [
-            {"blueprint_type_id": 12345, "material_efficiency": 10, "time_efficiency": 20}
-        ],
-        "custom_prices": [
-            {"item_type_id": 11111, "unit_price": 1000.0, "is_sale_price": false},
-            {"item_type_id": 99999, "unit_price": 50000.0, "is_sale_price": true}
-        ],
-        "estimated_cost": 125000.0,
-        "estimated_revenue": 175000.0,
-        "estimated_profit": 50000.0
-    }
-    """
-    blueprint_type_id = request.GET.get("blueprint_type_id")
-    runs_param = request.GET.get("runs", 1)
-    try:
-        runs = int(runs_param)
-    except (TypeError, ValueError):
-        return JsonResponse(
-            {"error": "runs must be an integer"},
-            status=400,
-        )
-    if runs < 1:
-        return JsonResponse(
-            {"error": "runs must be >= 1"},
-            status=400,
-        )
-
-    if not blueprint_type_id:
-        return JsonResponse(
-            {"error": "blueprint_type_id parameter required"}, status=400
-        )
-
-    try:
-        simulation = None  # Load the simulation if it exists
-        try:
-            simulation = ProductionSimulation.objects.get(
-                user=request.user, blueprint_type_id=blueprint_type_id, runs=runs
-            )
-        except ProductionSimulation.DoesNotExist:
-            pass
-
-        items = []  # Step 1: production/buy/useless configurations
-        if simulation:
-            configs = ProductionConfig.objects.filter(simulation=simulation)
-            for config in configs:
-                items.append(
-                    {
-                        "type_id": config.item_type_id,
-                        "mode": config.production_mode,
-                        "quantity": config.quantity_needed,
-                    }
-                )
-
-        blueprint_efficiencies = []  # Step 2: blueprint ME/TE efficiencies
-        if simulation:
-            efficiencies = BlueprintEfficiency.objects.filter(simulation=simulation)
-            for eff in efficiencies:
-                blueprint_efficiencies.append(
-                    {
-                        "blueprint_type_id": eff.blueprint_type_id,
-                        "material_efficiency": eff.material_efficiency,
-                        "time_efficiency": eff.time_efficiency,
-                    }
-                )
-
-        custom_prices = []  # Step 3: custom prices
-        if simulation:
-            prices = CustomPrice.objects.filter(simulation=simulation)
-            for price in prices:
-                custom_prices.append(
-                    {
-                        "item_type_id": price.item_type_id,
-                        "unit_price": float(price.unit_price),
-                        "is_sale_price": price.is_sale_price,
-                    }
-                )
-
-        response_data = {
-            "blueprint_type_id": int(blueprint_type_id),
-            "runs": runs,
-            "items": items,
-            "blueprint_efficiencies": blueprint_efficiencies,
-            "custom_prices": custom_prices,
-        }
-
-        if simulation:  # Add simulation metadata when it exists
-            response_data.update(
-                {
-                    "simulation_id": simulation.id,
-                    "blueprint_name": simulation.blueprint_name,
-                    "simulation_name": simulation.simulation_name,
-                    "active_tab": simulation.active_tab,
-                    "estimated_cost": float(simulation.estimated_cost),
-                    "estimated_revenue": float(simulation.estimated_revenue),
-                    "estimated_profit": float(simulation.estimated_profit),
-                    "total_items": simulation.total_items,
-                    "total_buy_items": simulation.total_buy_items,
-                    "total_prod_items": simulation.total_prod_items,
-                }
-            )
-
-        return JsonResponse(response_data)
-
-    except Exception as e:
-        logger.error(f"Error loading production config: {e}")
-        return JsonResponse({"error": "Internal server error"}, status=500)
+    return JsonResponse(
+        {
+            "error": "Legacy simulation loading has been removed. Open the migrated production project instead.",
+        },
+        status=410,
+    )

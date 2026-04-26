@@ -1520,3 +1520,83 @@ def get_user_assets_cached(
         for row in qs
     ]
     return assets, assets_scope_missing
+
+
+def build_user_asset_inventory_snapshot(
+    user, *, allow_refresh: bool = True, include_blueprints: bool = False
+) -> dict[str, Any]:
+    """Return a craft-friendly summary of cached user assets grouped by item and character."""
+
+    assets, assets_scope_missing = get_user_assets_cached(
+        user, allow_refresh=allow_refresh
+    )
+    character_names = {
+        int(character_id): str(character_name or character_id)
+        for character_id, character_name in CharacterOwnership.objects.select_related(
+            "character"
+        )
+        .filter(user=user)
+        .values_list("character__character_id", "character__character_name")
+        if character_id
+    }
+
+    totals_by_type: dict[int, int] = {}
+    character_assets: dict[int, dict[int, int]] = {}
+    latest_synced_at = None
+
+    for asset in assets:
+        if not include_blueprints and bool(asset.get("is_blueprint")):
+            continue
+
+        try:
+            type_id = int(asset.get("type_id") or 0)
+            quantity = int(asset.get("quantity") or 0)
+            character_id = int(asset.get("character_id") or 0)
+        except (TypeError, ValueError):
+            continue
+
+        if type_id <= 0 or quantity <= 0:
+            continue
+
+        totals_by_type[type_id] = totals_by_type.get(type_id, 0) + quantity
+        if character_id > 0:
+            per_character = character_assets.setdefault(character_id, {})
+            per_character[type_id] = per_character.get(type_id, 0) + quantity
+
+    try:
+        latest_synced_at = (
+            CachedCharacterAsset.objects.filter(user=user)
+            .order_by("-synced_at")
+            .values_list("synced_at", flat=True)
+            .first()
+        )
+    except Exception:
+        latest_synced_at = None
+
+    return {
+        "scope_missing": assets_scope_missing,
+        "synced_at": latest_synced_at.isoformat() if latest_synced_at else "",
+        "totals_by_type": {
+            str(type_id): quantity
+            for type_id, quantity in sorted(totals_by_type.items())
+            if quantity > 0
+        },
+        "characters": [
+            {
+                "character_id": character_id,
+                "character_name": character_names.get(character_id, str(character_id)),
+                "items_by_type": {
+                    str(type_id): quantity
+                    for type_id, quantity in sorted(items_by_type.items())
+                    if quantity > 0
+                },
+            }
+            for character_id, items_by_type in sorted(
+                character_assets.items(),
+                key=lambda entry: (
+                    character_names.get(entry[0], "").lower(),
+                    entry[0],
+                ),
+            )
+        ],
+    }

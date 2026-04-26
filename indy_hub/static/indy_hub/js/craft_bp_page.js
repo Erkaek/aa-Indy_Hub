@@ -109,11 +109,119 @@
             return false;
         }
         validateBlueprintRuns();
+        applyBlueprintCardFilters();
         updateQuickStats();
         return true;
     }
 
     window.updateConfigTabFromState = updateConfigTabFromState;
+
+    function getBlueprintConfigsByTypeId() {
+        return new Map(
+            (Array.isArray(getCraftPageConfig().blueprint_configs) ? getCraftPageConfig().blueprint_configs : []).map(function (bp) {
+                return [Number(bp.type_id) || 0, bp];
+            }).filter(function ([typeId]) {
+                return typeId > 0;
+            })
+        );
+    }
+
+    function getActiveBlueprintProductTypeIds() {
+        const activeProductTypeIds = new Set();
+        const cyclesSummary = window.getCraftProductionCyclesSummary && typeof window.getCraftProductionCyclesSummary === 'function'
+            ? window.getCraftProductionCyclesSummary() || {}
+            : (getCraftPageConfig().craft_cycles_summary_static || {});
+
+        Object.values(cyclesSummary || {}).forEach(function (entry) {
+            const typeId = Number(entry?.type_id || entry?.typeId || 0) || 0;
+            const cycles = Number(entry?.cycles || 0) || 0;
+            if (typeId > 0 && cycles > 0) {
+                activeProductTypeIds.add(typeId);
+            }
+        });
+
+        return activeProductTypeIds;
+    }
+
+    function updateBlueprintEmptyState(totalVisible, searchTerm) {
+        const accordion = document.getElementById('blueprintConfigAccordion');
+        const container = accordion ? accordion.parentElement : null;
+        if (!container) {
+            return;
+        }
+
+        const existing = document.getElementById('blueprintNoResults');
+        if (totalVisible > 0) {
+            if (existing) {
+                existing.remove();
+            }
+            return;
+        }
+
+        const message = searchTerm
+            ? getMessage('no_blueprints_match_search', 'No blueprints match your search')
+            : getMessage('no_blueprints_used_current_project', 'No blueprints are currently used by this project state.');
+
+        if (existing) {
+            existing.innerHTML = `<i class="fas fa-search me-2"></i>${message}`;
+            return;
+        }
+
+        const emptyState = document.createElement('div');
+        emptyState.id = 'blueprintNoResults';
+        emptyState.className = 'alert alert-info mt-3';
+        emptyState.innerHTML = `<i class="fas fa-search me-2"></i>${message}`;
+        container.appendChild(emptyState);
+    }
+
+    function applyBlueprintCardFilters() {
+        const accordion = document.getElementById('blueprintConfigAccordion');
+        if (!accordion) {
+            return 0;
+        }
+
+        const blueprintConfigsByTypeId = getBlueprintConfigsByTypeId();
+        const activeProductTypeIds = getActiveBlueprintProductTypeIds();
+        const searchInput = document.getElementById('blueprintSearchInput');
+        const searchTerm = String(searchInput?.value || '').trim().toLowerCase();
+        let totalVisible = 0;
+
+        accordion.querySelectorAll('.accordion-item').forEach(function (item) {
+            const groupName = item.querySelector('.accordion-header')?.textContent?.toLowerCase() || '';
+            const cards = item.querySelectorAll('.craft-bp-card, .craft-config-item');
+            let visibleInGroup = 0;
+
+            cards.forEach(function (card) {
+                const blueprintTypeId = Number(card.getAttribute('data-blueprint-type-id') || card.getAttribute('data-type-id') || 0) || 0;
+                const blueprintConfig = blueprintConfigsByTypeId.get(blueprintTypeId) || null;
+                const productTypeId = Number(
+                    card.getAttribute('data-product-type-id')
+                    || blueprintConfig?.product_type_id
+                    || blueprintConfig?.productTypeId
+                    || 0
+                ) || 0;
+                const usedInProject = productTypeId > 0 ? activeProductTypeIds.has(productTypeId) : true;
+                const itemName =
+                    card.querySelector('.card-title')?.textContent?.toLowerCase()
+                    || card.querySelector('.craft-config-name')?.textContent?.toLowerCase()
+                    || '';
+                const matchesSearch = searchTerm === '' || groupName.includes(searchTerm) || itemName.includes(searchTerm);
+                const shouldShow = usedInProject && matchesSearch;
+
+                card.dataset.usageHidden = usedInProject ? 'false' : 'true';
+                card.style.display = shouldShow ? '' : 'none';
+                if (shouldShow) {
+                    visibleInGroup += 1;
+                    totalVisible += 1;
+                }
+            });
+
+            item.style.display = visibleInGroup > 0 ? '' : 'none';
+        });
+
+        updateBlueprintEmptyState(totalVisible, searchTerm);
+        return totalVisible;
+    }
 
     function getCsrfToken() {
         const match = document.cookie.match(/csrftoken=([^;]+)/);
@@ -166,6 +274,91 @@
             effectiveCycleSeconds,
             maxRunsPerCopy,
         };
+    }
+
+    function updateBlueprintEmptyState(totalVisible, searchTerm) {
+        const accordion = document.getElementById('blueprintConfigAccordion');
+        const container = accordion ? accordion.parentElement : null;
+        if (!container) {
+            return;
+        }
+
+        const existing = document.getElementById('blueprintNoResults');
+        if (totalVisible > 0) {
+            if (existing) {
+                existing.remove();
+            }
+            return;
+        }
+
+        const message = searchTerm
+            ? getMessage('no_blueprints_match_search', 'No blueprints match your search')
+            : getMessage('no_blueprints_used_current_project', 'No blueprints are currently used by this project state.');
+
+        if (existing) {
+            existing.innerHTML = `<i class="fas fa-search me-2"></i>${message}`;
+            return;
+        }
+
+        const emptyState = document.createElement('div');
+        emptyState.id = 'blueprintNoResults';
+        emptyState.className = 'alert alert-info mt-3';
+        emptyState.innerHTML = `<i class="fas fa-search me-2"></i>${message}`;
+        container.appendChild(emptyState);
+    }
+
+    function applyBlueprintCardFilters() {
+        const accordion = document.getElementById('blueprintConfigAccordion');
+        if (!accordion) {
+            return 0;
+        }
+
+        const blueprintConfigsByTypeId = getBlueprintConfigsByTypeId();
+        const activeProductTypeIds = getActiveBlueprintProductTypeIds();
+        const searchInput = document.getElementById('blueprintSearchInput');
+        const searchTerm = String(searchInput?.value || '').trim().toLowerCase();
+        let totalVisible = 0;
+
+        accordion.querySelectorAll('.accordion-item').forEach(function (item) {
+            const groupName = item.querySelector('.accordion-header')?.textContent?.toLowerCase() || '';
+            const cards = item.querySelectorAll('.craft-bp-card, .craft-config-item');
+            let visibleInGroup = 0;
+
+            cards.forEach(function (card) {
+                const blueprintTypeId = Number(card.getAttribute('data-blueprint-type-id') || card.getAttribute('data-type-id') || 0) || 0;
+                const blueprintConfig = blueprintConfigsByTypeId.get(blueprintTypeId) || null;
+                const productTypeId = Number(
+                    card.getAttribute('data-product-type-id')
+                    || blueprintConfig?.product_type_id
+                    || blueprintConfig?.productTypeId
+                    || 0
+                ) || 0;
+                const usedInProject = productTypeId > 0 ? activeProductTypeIds.has(productTypeId) : true;
+                const itemName =
+                    card.querySelector('.card-title')?.textContent?.toLowerCase()
+                    || card.querySelector('.craft-config-name')?.textContent?.toLowerCase()
+                    || '';
+                const matchesSearch = searchTerm === '' || groupName.includes(searchTerm) || itemName.includes(searchTerm);
+                const shouldShow = usedInProject && matchesSearch;
+
+                card.dataset.usageHidden = usedInProject ? 'false' : 'true';
+                card.style.display = shouldShow ? '' : 'none';
+                if (shouldShow) {
+                    visibleInGroup += 1;
+                    totalVisible += 1;
+                }
+            });
+
+            item.style.display = visibleInGroup > 0 ? '' : 'none';
+        });
+
+        updateBlueprintEmptyState(totalVisible, searchTerm);
+        return totalVisible;
+    }
+
+    function getCsrfToken() {
+        const match = document.cookie.match(/csrftoken=([^;]+)/);
+        return match ? decodeURIComponent(match[1]) : '';
     }
 
     function getSelectedCopyEfficiencies(typeId, fallbackTE) {
@@ -747,9 +940,11 @@
     }
 
     function updateQuickStats() {
-        const bpCount = Array.isArray(getCraftPageConfig().blueprint_configs)
-            ? getCraftPageConfig().blueprint_configs.length
-            : document.querySelectorAll('.craft-bp-card, .craft-config-item').length;
+        const bpCount = blueprintUiState.hydrated
+            ? document.querySelectorAll('.craft-bp-card:not([data-usage-hidden="true"]), .craft-config-item:not([data-usage-hidden="true"])').length
+            : (Array.isArray(getCraftPageConfig().blueprint_configs)
+                ? getCraftPageConfig().blueprint_configs.length
+                : document.querySelectorAll('.craft-bp-card, .craft-config-item').length);
         const matCount = document.querySelectorAll('#materialsGroupsContainer tbody tr[data-type-id], .craft-item-row').length;
         const blueprintCountEl = document.getElementById('totalBlueprintsCount');
         const materialCountEl = document.getElementById('totalMaterialsCount');
@@ -829,6 +1024,9 @@
                 requestContainer.classList.remove('d-none');
             }
         });
+
+        applyBlueprintCardFilters();
+        updateQuickStats();
 
         if (window.CraftBP && typeof window.CraftBP.persistSessionState === 'function') {
             window.CraftBP.persistSessionState();

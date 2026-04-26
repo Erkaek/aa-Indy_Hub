@@ -492,11 +492,20 @@ function refreshTabsAfterStateChange(options = {}) {
     if (typeof updateNeededTabFromState === 'function') {
         updateNeededTabFromState(Boolean(options.forceNeeded));
     }
+    if (typeof updateStockManagementTabFromState === 'function') {
+        updateStockManagementTabFromState(Boolean(options.forceNeeded));
+    }
     if (typeof updateBuildTabFromState === 'function') {
         updateBuildTabFromState();
     }
     if (typeof renderStructurePlanner === 'function') {
         renderStructurePlanner();
+    }
+    if (typeof renderDecisionStrategyPanel === 'function') {
+        renderDecisionStrategyPanel({ ensurePrices: false });
+    }
+    if (typeof updateTreeModeBadges === 'function') {
+        updateTreeModeBadges();
     }
     if (typeof window.validateBlueprintRuns === 'function') {
         window.validateBlueprintRuns();
@@ -559,7 +568,7 @@ function normalizeBlueprintPayloadWindowData(data) {
 }
 
 function getCurrentBuyTypeIds() {
-    return Array.from(getCurrentDecisionsFromDom().entries())
+    return Array.from(getCurrentDecisionsFromSimulationOrDom().entries())
         .filter(([, mode]) => mode === 'buy')
         .map(([typeId]) => Number(typeId) || 0)
         .filter((typeId) => typeId > 0);
@@ -638,10 +647,32 @@ function getCurrentActiveBlueprintTab() {
     if (mainTabName === 'buy') {
         return 'financial';
     }
+    if (mainTabName === 'stock') {
+        return 'stock';
+    }
     if (mainTabName === 'plan') {
         return hiddenTarget ? hiddenTarget.replace('#tab-', '') : 'materials';
     }
     return hiddenTarget ? hiddenTarget.replace('#tab-', '') : 'materials';
+}
+
+function showCraftMainTab(tabName) {
+    const normalizedTabName = String(tabName || '').trim();
+    if (!normalizedTabName) {
+        return;
+    }
+
+    const tabButton = document.querySelector(`#craftMainTabs .nav-link[data-tab-name="${normalizedTabName}"]`);
+    if (!tabButton) {
+        return;
+    }
+
+    if (window.bootstrap?.Tab && typeof window.bootstrap.Tab.getOrCreateInstance === 'function') {
+        window.bootstrap.Tab.getOrCreateInstance(tabButton).show();
+        return;
+    }
+
+    tabButton.click();
 }
 
 function getActiveCraftMainTabName() {
@@ -654,6 +685,11 @@ function hydrateVisibleCraftStartupTab() {
         case 'buy':
             if (typeof updateFinancialTabFromState === 'function') {
                 updateFinancialTabFromState();
+            }
+            break;
+        case 'stock':
+            if (typeof updateStockManagementTabFromState === 'function') {
+                updateStockManagementTabFromState(true);
             }
             break;
         case 'build':
@@ -752,6 +788,32 @@ function buildTreeModeBadgeClass(state) {
     return 'bg-success text-white';
 }
 
+function getDecisionSwitchRoot() {
+    return document.getElementById('decisionStrategyRows') || document.getElementById('tab-tree');
+}
+
+function getDecisionSwitchElements() {
+    const root = getDecisionSwitchRoot();
+    if (!root) {
+        return [];
+    }
+    return Array.from(root.querySelectorAll('input.mat-switch[data-type-id]'));
+}
+
+function updateTreeModeBadges() {
+    const decisions = getCurrentDecisionsFromSimulationOrDom();
+    document.querySelectorAll('#tab-tree .tree-mode-label[data-type-id]').forEach((badge) => {
+        const typeId = Number(badge.getAttribute('data-type-id') || 0) || 0;
+        const fallbackState = String(badge.dataset.switchState || 'prod').trim() || 'prod';
+        const state = decisions.get(typeId) || fallbackState;
+        const label = state === 'buy' ? __('Buy') : state === 'useless' ? __('Useless') : __('Prod');
+
+        badge.className = `tree-mode-label mode-label badge px-2 py-1 fw-bold ${buildTreeModeBadgeClass(state)}`;
+        badge.dataset.switchState = state;
+        badge.textContent = label;
+    });
+}
+
 function buildMaterialsTreeMarkup(nodes, level = 0) {
     if (!Array.isArray(nodes) || nodes.length === 0) {
         return '';
@@ -764,9 +826,10 @@ function buildMaterialsTreeMarkup(nodes, level = 0) {
         const quantity = Math.max(0, Math.ceil(Number(node?.quantity ?? node?.qty ?? 0))) || 0;
         const children = readMaterialsTreeChildren(node);
         const hasChildren = children.length > 0;
+        const fallbackSwitchState = String(node?.project_inclusion_mode || node?.projectInclusionMode || 'prod').trim() || 'prod';
         const switchState = typeof window.SimulationAPI?.getSwitchState === 'function'
-            ? (window.SimulationAPI.getSwitchState(typeId) || 'prod')
-            : 'prod';
+            ? (window.SimulationAPI.getSwitchState(typeId) || fallbackSwitchState)
+            : fallbackSwitchState;
         const isUseless = switchState === 'useless';
         const isProd = !isUseless && switchState !== 'buy';
         const modeLabel = isUseless ? __('Useless') : (isProd ? __('Prod') : __('Buy'));
@@ -787,13 +850,7 @@ function buildMaterialsTreeMarkup(nodes, level = 0) {
                         <span class="text-muted">x${formatInteger(quantity)}</span>
                         ${hasChildren ? `
                         <span class="ms-auto"></span>
-                        <div class="mat-switch-group d-flex align-items-center gap-2">
-                            <div class="form-switch">
-                                <input class="form-check-input mat-switch" type="checkbox" id="mat-switch-${typeId}" data-type-id="${typeId}"${isProd ? ' checked' : ''}${isUseless ? ' disabled' : ''} style="cursor:pointer; accent-color: #0d6efd;">
-                                <label class="form-check-label visually-hidden" for="mat-switch-${typeId}">${escapeHtml(__('Mode prod/buy'))}</label>
-                            </div>
-                            <span class="mode-label badge px-2 py-1 fw-bold ${buildTreeModeBadgeClass(switchState)}" style="font-size:0.85em;">${escapeHtml(modeLabel)}</span>
-                        </div>` : ''}
+                        <span class="tree-mode-label mode-label badge px-2 py-1 fw-bold ${buildTreeModeBadgeClass(switchState)}" data-type-id="${typeId}" data-switch-state="${escapeHtml(switchState)}" style="font-size:0.85em;">${escapeHtml(modeLabel)}</span>` : ''}
                     </summary>
                     ${childMarkup}
                 </details>
@@ -850,6 +907,13 @@ function hydratePlanPane() {
     initializeBlueprintIcons();
     initializeCollapseHandlers();
     initializeBuyCraftSwitches();
+
+    if (Array.isArray(window.craftBPFlags?.pendingBuyTypeIds)) {
+        applyBuyCraftStateFromBuyDecisions(window.craftBPFlags.pendingBuyTypeIds, {
+            refreshTabs: false,
+            refreshSimulation: false,
+        });
+    }
 
     try {
         getDashboardMaterialsOrdering();
@@ -1579,6 +1643,213 @@ function collectManualPriceOverrides() {
         .filter((entry) => entry.typeId > 0);
 }
 
+function normalizeCraftStockAllocations(rawAllocations) {
+    const source = rawAllocations && typeof rawAllocations === 'object' && !Array.isArray(rawAllocations)
+        ? rawAllocations
+        : {};
+
+    return Object.fromEntries(
+        Object.entries(source)
+            .map(([typeId, quantity]) => [String(Number(typeId) || 0), Math.max(0, Math.floor(Number(quantity) || 0))])
+            .filter(([typeId, quantity]) => typeId !== '0' && quantity > 0)
+    );
+}
+
+function getCraftCharacterStockSnapshot() {
+    const snapshot = window.BLUEPRINT_DATA?.character_stock_snapshot;
+    return snapshot && typeof snapshot === 'object'
+        ? snapshot
+        : { totals_by_type: {}, characters: [], scope_missing: false, synced_at: '' };
+}
+
+function getCraftStockAllocations() {
+    window.craftBPFlags = window.craftBPFlags || {};
+    const normalized = normalizeCraftStockAllocations(
+        window.craftBPFlags.stockAllocations
+        || window.craftBPFlags.restoredSessionState?.stockAllocations
+        || window.BLUEPRINT_DATA?.workspace_state?.stockAllocations
+    );
+    window.craftBPFlags.stockAllocations = normalized;
+    return normalized;
+}
+
+function getCraftNormalizedStockAllocationsForCurrentPlan() {
+    const requirements = new Map(
+        getCraftSourceRequirementRows().map((row) => [String(Number(row.typeId) || 0), Math.max(0, Math.ceil(Number(row.quantity) || 0))])
+    );
+    const normalized = {};
+
+    Object.entries(getCraftStockAllocations()).forEach(([typeId, quantity]) => {
+        const requiredQty = requirements.get(typeId) || 0;
+        const availableQty = getCraftAvailableStockQty(typeId);
+        const clampedQty = Math.min(requiredQty, availableQty, Math.max(0, Math.floor(Number(quantity) || 0)));
+        if (typeId !== '0' && clampedQty > 0) {
+            normalized[typeId] = clampedQty;
+        }
+    });
+
+    window.craftBPFlags.stockAllocations = normalized;
+    return normalized;
+}
+
+function getCraftAvailableStockQty(typeId) {
+    const totalsByType = getCraftCharacterStockSnapshot()?.totals_by_type;
+    if (!totalsByType || typeof totalsByType !== 'object') {
+        return 0;
+    }
+    return Math.max(0, Math.floor(Number(totalsByType[String(Number(typeId) || 0)] || 0)));
+}
+
+function getCraftStockCharacterBreakdown(typeId) {
+    const normalizedTypeId = String(Number(typeId) || 0);
+    return (Array.isArray(getCraftCharacterStockSnapshot()?.characters) ? getCraftCharacterStockSnapshot().characters : [])
+        .map((character) => ({
+            characterId: Number(character?.character_id || 0) || 0,
+            characterName: String(character?.character_name || character?.character_id || ''),
+            quantity: Math.max(0, Math.floor(Number(character?.items_by_type?.[normalizedTypeId] || 0))),
+        }))
+        .filter((entry) => entry.characterId > 0 && entry.quantity > 0);
+}
+
+function getCraftStockAllocationSummary(typeId, requiredQty) {
+    const normalizedRequiredQty = Math.max(0, Math.ceil(Number(requiredQty) || 0));
+    const availableQty = getCraftAvailableStockQty(typeId);
+    const requestedQty = Math.max(0, Math.floor(Number(getCraftNormalizedStockAllocationsForCurrentPlan()[String(Number(typeId) || 0)] || 0)));
+    const allocatedQty = Math.min(normalizedRequiredQty, availableQty, requestedQty);
+    return {
+        requiredQty: normalizedRequiredQty,
+        availableQty,
+        requestedQty,
+        allocatedQty,
+        remainingQty: Math.max(0, normalizedRequiredQty - allocatedQty),
+        characters: getCraftStockCharacterBreakdown(typeId),
+    };
+}
+
+function setCraftStockAllocation(typeId, quantity, options = {}) {
+    const normalizedTypeId = String(Number(typeId) || 0);
+    if (normalizedTypeId === '0') {
+        return;
+    }
+
+    const normalizedQuantity = Math.max(0, Math.floor(Number(quantity) || 0));
+    const nextAllocations = { ...getCraftStockAllocations() };
+    if (normalizedQuantity > 0) {
+        nextAllocations[normalizedTypeId] = normalizedQuantity;
+    } else {
+        delete nextAllocations[normalizedTypeId];
+    }
+    window.craftBPFlags.stockAllocations = normalizeCraftStockAllocations(nextAllocations);
+
+    if (options.refresh !== false) {
+        if (typeof updateFinancialTabFromState === 'function') {
+            updateFinancialTabFromState();
+        }
+        if (typeof updateStockManagementTabFromState === 'function') {
+            updateStockManagementTabFromState(true);
+        }
+        if (typeof updateNeededTabFromState === 'function') {
+            updateNeededTabFromState(true);
+        }
+        if (typeof recalcFinancials === 'function') {
+            recalcFinancials();
+        }
+    }
+
+    if (options.persist !== false) {
+        persistCraftPageSessionState();
+    }
+}
+
+function getCraftSourceRequirementRows() {
+    const api = window.SimulationAPI;
+    if (!api || typeof api.getFinancialItems !== 'function') {
+        return [];
+    }
+
+    const finalOutputTypeIds = getFinalOutputTypeIds();
+    const aggregated = new Map();
+    const items = api.getFinancialItems() || [];
+
+    items.forEach((item) => {
+        const typeId = Number(item.typeId ?? item.type_id) || 0;
+        if (!typeId || finalOutputTypeIds.has(typeId)) {
+            return;
+        }
+        const quantity = Math.ceil(Number(item.quantity ?? item.qty ?? 0));
+        if (quantity <= 0) {
+            return;
+        }
+        const existing = aggregated.get(typeId) || {
+            typeId,
+            typeName: item.typeName || item.type_name || '',
+            quantity: 0,
+            marketGroup: item.marketGroup || item.market_group || '',
+        };
+        existing.quantity += quantity;
+        if (!existing.marketGroup && (item.marketGroup || item.market_group)) {
+            existing.marketGroup = item.marketGroup || item.market_group || '';
+        }
+        aggregated.set(typeId, existing);
+    });
+
+    const ordering = getDashboardMaterialsOrdering();
+    return Array.from(aggregated.values()).sort((a, b) => {
+        const typeA = Number(a.typeId) || 0;
+        const typeB = Number(b.typeId) || 0;
+
+        const dashboardA = ordering.itemOrder.get(typeA);
+        const dashboardB = ordering.itemOrder.get(typeB);
+        const groupA = a.marketGroup || ordering.fallbackGroupName;
+        const groupB = b.marketGroup || ordering.fallbackGroupName;
+
+        const groupIdxA = dashboardA ? dashboardA.groupIdx : (ordering.groupOrder.has(groupA) ? ordering.groupOrder.get(groupA) : Number.POSITIVE_INFINITY);
+        const groupIdxB = dashboardB ? dashboardB.groupIdx : (ordering.groupOrder.has(groupB) ? ordering.groupOrder.get(groupB) : Number.POSITIVE_INFINITY);
+        if (groupIdxA !== groupIdxB) {
+            return groupIdxA - groupIdxB;
+        }
+
+        const itemIdxA = dashboardA ? dashboardA.itemIdx : Number.POSITIVE_INFINITY;
+        const itemIdxB = dashboardB ? dashboardB.itemIdx : Number.POSITIVE_INFINITY;
+        if (itemIdxA !== itemIdxB) {
+            return itemIdxA - itemIdxB;
+        }
+
+        const groupCmp = String(groupA).localeCompare(String(groupB), undefined, { sensitivity: 'base' });
+        if (groupCmp !== 0) {
+            return groupCmp;
+        }
+        return String(a.typeName).localeCompare(String(b.typeName), undefined, { sensitivity: 'base' });
+    });
+}
+
+function collectCraftStockAllocationsFromDom() {
+    const nextAllocations = {};
+    document.querySelectorAll('.craft-stock-allocation-input[data-type-id]').forEach((input) => {
+        const typeId = String(Number(input.getAttribute('data-type-id')) || 0);
+        const quantity = Math.max(0, Math.floor(Number(input.value) || 0));
+        if (typeId !== '0' && quantity > 0) {
+            nextAllocations[typeId] = quantity;
+        }
+    });
+    return normalizeCraftStockAllocations(nextAllocations);
+}
+
+function collectFuzzworkPriceSnapshot() {
+    const snapshot = {};
+    const prices = getSimulationPricesMap();
+
+    prices.forEach((value, key) => {
+        const typeId = Number(key) || 0;
+        if (!(typeId > 0)) {
+            return;
+        }
+        snapshot[String(typeId)] = Number(value?.fuzzwork) || 0;
+    });
+
+    return snapshot;
+}
+
 function applyManualPriceOverrides(overrides) {
     (Array.isArray(overrides) ? overrides : []).forEach((entry) => {
         const typeId = Number(entry?.typeId || entry?.type_id || 0) || 0;
@@ -1789,11 +2060,13 @@ function applyBlueprintCopyRequestState(items) {
 function collectCraftPageSessionState() {
     return {
         buyTypeIds: getCurrentBuyTypeIds(),
+        stockAllocations: getCraftNormalizedStockAllocationsForCurrentPlan(),
         runs: Math.max(1, parseInt(document.getElementById('runsInput')?.value || '1', 10) || 1),
         activeBlueprintTab: getCurrentActiveBlueprintTab() || 'materials',
         manualPrices: collectManualPriceOverrides(),
+        fuzzworkPrices: collectFuzzworkPriceSnapshot(),
         simulationName: String(document.getElementById('simulationName')?.value || ''),
-        runOptimizedMaxRuns: String(document.getElementById('runOptimizedSearchMaxRuns')?.value || ''),
+        decisionBuyTolerance: String(document.getElementById('decisionBuyToleranceInput')?.value || ''),
         meTeConfig: getCurrentMETEConfig(),
         copyRequests: collectBlueprintCopyRequestState(),
         structure: {
@@ -1819,6 +2092,8 @@ function applyCraftPageSessionState(parsedState) {
     window.craftBPFlags = window.craftBPFlags || {};
     window.craftBPFlags.restoringSessionState = true;
     window.craftBPFlags.restoredSessionState = parsedState;
+    window.craftBPFlags.pendingBuyTypeIds = buyTypeIds;
+    window.craftBPFlags.stockAllocations = normalizeCraftStockAllocations(parsedState?.stockAllocations);
 
     applyCraftPageRunsValue(parsedState?.runs);
     if (parsedState?.meTeConfig) {
@@ -1830,6 +2105,13 @@ function applyCraftPageSessionState(parsedState) {
         refreshSimulation: false,
     });
     if (parsedState?.activeBlueprintTab) {
+        if (parsedState.activeBlueprintTab === 'financial') {
+            showCraftMainTab('buy');
+        } else if (parsedState.activeBlueprintTab === 'stock') {
+            showCraftMainTab('stock');
+        } else if (parsedState.activeBlueprintTab === 'cycles') {
+            showCraftMainTab('build');
+        }
         showBlueprintSubTab(parsedState.activeBlueprintTab);
     }
     applyManualPriceOverrides(parsedState?.manualPrices);
@@ -1839,9 +2121,9 @@ function applyCraftPageSessionState(parsedState) {
         simulationNameInput.value = String(parsedState.simulationName);
     }
 
-    const runOptimizedInput = document.getElementById('runOptimizedSearchMaxRuns');
-    if (runOptimizedInput && parsedState?.runOptimizedMaxRuns != null) {
-        runOptimizedInput.value = String(parsedState.runOptimizedMaxRuns);
+    const decisionToleranceInput = document.getElementById('decisionBuyToleranceInput');
+    if (decisionToleranceInput && parsedState?.decisionBuyTolerance != null) {
+        decisionToleranceInput.value = String(parsedState.decisionBuyTolerance);
     }
 
     applyBlueprintCopyRequestState(parsedState?.copyRequests);
@@ -1981,11 +2263,11 @@ function initializeCraftPageSessionPersistence() {
         simulationNameInput.dataset.sessionPersistenceAttached = 'true';
     }
 
-    const runOptimizedInput = document.getElementById('runOptimizedSearchMaxRuns');
-    if (runOptimizedInput && runOptimizedInput.dataset.sessionPersistenceAttached !== 'true') {
-        runOptimizedInput.addEventListener('input', persistOnChange);
-        runOptimizedInput.addEventListener('change', persistOnChange);
-        runOptimizedInput.dataset.sessionPersistenceAttached = 'true';
+    const decisionToleranceInput = document.getElementById('decisionBuyToleranceInput');
+    if (decisionToleranceInput && decisionToleranceInput.dataset.sessionPersistenceAttached !== 'true') {
+        decisionToleranceInput.addEventListener('input', persistOnChange);
+        decisionToleranceInput.addEventListener('change', persistOnChange);
+        decisionToleranceInput.dataset.sessionPersistenceAttached = 'true';
     }
 
     if (document.body && document.body.dataset.blueprintSessionPersistenceAttached !== 'true') {
@@ -2111,11 +2393,11 @@ document.addEventListener('DOMContentLoaded', function() {
     initializeBlueprintIcons();
     initializeCollapseHandlers();
     initializeBuyCraftSwitches();
+    initializeDecisionStrategyTab();
     initializeCraftPageSessionPersistence();
     if (!restoreCraftPageSessionState()) {
         restoreBuyCraftStateFromURL();
     }
-    initializeRunOptimizedTab();
     initializeStructureMotherSystemControls();
     if (window.CraftBPLoading && typeof window.CraftBPLoading.stepBootstrap === 'function') {
         window.CraftBPLoading.stepBootstrap('loading-interface', {
@@ -2148,20 +2430,20 @@ function initializeBlueprintIcons() {
  * DISABLED - Now handled by template event listeners to prevent page reloads
  */
 function initializeBuyCraftSwitches() {
-    const treeTab = document.getElementById('tab-tree');
-    if (!treeTab) {
+    const switchRoot = document.getElementById('decisionStrategySection') || document.getElementById('tab-tree');
+    if (!switchRoot) {
         return;
     }
 
-    if (treeTab.dataset.switchesInitialized === 'true') {
+    if (switchRoot.dataset.switchesInitialized === 'true') {
         refreshTreeSwitchHierarchy();
         return;
     }
-    treeTab.dataset.switchesInitialized = 'true';
+    switchRoot.dataset.switchesInitialized = 'true';
 
     window.refreshTreeSwitchHierarchy = refreshTreeSwitchHierarchy;
 
-    const switches = Array.from(treeTab.querySelectorAll('input.mat-switch'));
+    const switches = getDecisionSwitchElements();
     switches.forEach(sw => {
         if (!sw.dataset.userState) {
             if (sw.disabled && sw.closest('.mat-switch-group')?.querySelector('.mode-label')?.textContent?.trim().toLowerCase() === 'useless') {
@@ -2185,7 +2467,7 @@ function initializeBuyCraftSwitches() {
 
     refreshTreeSwitchHierarchy();
 
-    treeTab.addEventListener('change', handleTreeSwitchChange, true);
+    switchRoot.addEventListener('change', handleTreeSwitchChange, true);
 }
 
 function handleTreeSwitchChange(event) {
@@ -2213,13 +2495,8 @@ function handleTreeSwitchChange(event) {
 }
 
 function refreshTreeSwitchHierarchy() {
-    const treeTab = document.getElementById('tab-tree');
-    if (!treeTab) {
-        return;
-    }
-
-    const switches = Array.from(treeTab.querySelectorAll('input.mat-switch'));
-    switches.forEach(applyParentLockState);
+    getDecisionSwitchElements().forEach(applyParentLockState);
+    updateTreeModeBadges();
 }
 
 if (typeof window !== 'undefined' && !window.refreshTreeSwitchHierarchy) {
@@ -2266,6 +2543,20 @@ function applyParentLockState(switchEl) {
 }
 
 function countBuyAncestors(switchEl) {
+    const explicitAncestorIds = String(switchEl?.dataset?.ancestorIds || '').split(',').map((entry) => Number(entry) || 0).filter((entry) => entry > 0);
+    if (explicitAncestorIds.length > 0) {
+        return explicitAncestorIds.reduce((count, ancestorId) => {
+            const ancestorSwitch = document.querySelector(`input.mat-switch[data-type-id="${ancestorId}"]`);
+            if (!ancestorSwitch) {
+                return count;
+            }
+            const ancestorMode = ancestorSwitch.dataset.fixedMode;
+            const ancestorForced = ancestorSwitch.dataset.lockedByParent === 'true';
+            const ancestorIsBuy = (!ancestorSwitch.checked) || ancestorMode === 'useless';
+            return (ancestorIsBuy || ancestorForced) ? count + 1 : count;
+        }, 0);
+    }
+
     let count = 0;
     let currentDetail = switchEl.closest('details');
     if (!currentDetail) {
@@ -2336,13 +2627,12 @@ function collapseAllTreeNodes() {
 }
 
 function setTreeModeForAll(mode) {
-    const treeTab = document.getElementById('tab-tree');
-    if (!treeTab) {
+    const switches = getDecisionSwitchElements();
+    if (switches.length === 0) {
         return;
     }
 
     const desiredState = mode === 'buy' ? 'buy' : 'prod';
-    const switches = Array.from(treeTab.querySelectorAll('input.mat-switch'));
 
     switches.forEach(sw => {
         if (sw.dataset.fixedMode === 'useless') {
@@ -2360,650 +2650,855 @@ function setTreeModeForAll(mode) {
     refreshTabsAfterStateChange();
 }
 
-async function optimizeProfitabilityConfig() {
-    // Heuristic optimizer: choose Buy vs Prod per craftable node by comparing
-    // buy cost vs best sub-tree production cost (including surplus credit).
-    // Uses current run count + ME/TE because those are already baked into materials_tree quantities.
+let decisionStrategyPanelPromise = null;
 
+function getDecisionBuyToleranceValue() {
+    const input = document.getElementById('decisionBuyToleranceInput');
+    const value = Number(input?.value || 0);
+    return Number.isFinite(value) ? Math.max(0, value) : 0;
+}
+
+function getCraftDecisionBuyUnitPrice(typeId) {
+    const state = (typeof window.SimulationAPI?.getState === 'function') ? window.SimulationAPI.getState() : null;
+    const prices = state && state.prices ? state.prices : null;
+    const record = prices && (prices instanceof Map ? prices.get(Number(typeId)) : prices[Number(typeId)]);
+    const real = record ? (Number(record.real) || 0) : 0;
+    if (real > 0) return real;
+    const fuzz = record ? (Number(record.fuzzwork) || 0) : 0;
+    if (fuzz > 0) return fuzz;
+    return 0;
+}
+
+function getCraftDecisionSellUnitPrice(typeId) {
+    const state = (typeof window.SimulationAPI?.getState === 'function') ? window.SimulationAPI.getState() : null;
+    const prices = state && state.prices ? state.prices : null;
+    const record = prices && (prices instanceof Map ? prices.get(Number(typeId)) : prices[Number(typeId)]);
+    const sale = record ? (Number(record.sale) || 0) : 0;
+    if (sale > 0) return sale;
+    const fuzz = record ? (Number(record.fuzzwork) || 0) : 0;
+    if (fuzz > 0) return fuzz;
+    const real = record ? (Number(record.real) || 0) : 0;
+    if (real > 0) return real;
+    return 0;
+}
+
+function getCraftDecisionBuyUnitPriceOrInf(typeId) {
+    const price = getCraftDecisionBuyUnitPrice(typeId);
+    return price > 0 ? price : Number.POSITIVE_INFINITY;
+}
+
+async function ensureCraftDecisionPricesLoaded(nodes, options = {}) {
+    if (!window.SimulationAPI || typeof window.SimulationAPI.setPrice !== 'function') {
+        return false;
+    }
+
+    const allTypeIds = Array.from(collectTypeIdsFromMaterialsTree(nodes || []));
+    if (!allTypeIds.length || typeof fetchAllPrices !== 'function') {
+        return false;
+    }
+
+    const buttonIds = Array.isArray(options.buttonIds) ? options.buttonIds : [];
+    const buttons = buttonIds
+        .map((id) => document.getElementById(id))
+        .filter(Boolean);
+
+    buttons.forEach((button) => {
+        button.disabled = true;
+    });
+
+    try {
+        const prices = await fetchAllPrices(allTypeIds);
+        allTypeIds.forEach((typeId) => {
+            const raw = prices[typeId] ?? prices[String(parseInt(typeId, 10))];
+            const price = raw != null ? (parseFloat(raw) || 0) : 0;
+            if (price > 0) {
+                window.SimulationAPI.setPrice(typeId, 'fuzzwork', price);
+            }
+        });
+
+        if (typeof window.SimulationAPI.refreshFromDom === 'function') {
+            window.SimulationAPI.refreshFromDom();
+        }
+
+        return true;
+    } catch (error) {
+        if (window.CraftBP && typeof window.CraftBP.pushStatus === 'function') {
+            window.CraftBP.pushStatus(__('Failed to load prices for the decision center'), 'warning');
+        }
+        return false;
+    } finally {
+        buttons.forEach((button) => {
+            button.disabled = false;
+        });
+    }
+}
+
+async function computeCraftDecisionAnalysis(options = {}) {
     const tree = window.BLUEPRINT_DATA?.materials_tree;
     if (!Array.isArray(tree) || tree.length === 0) {
-        if (window.CraftBP && typeof window.CraftBP.pushStatus === 'function') {
-            window.CraftBP.pushStatus(__('No production tree to optimize'), 'warning');
-        }
-        return;
+        return { error: __('No production tree to analyze'), rows: [] };
     }
 
     if (!window.SimulationAPI || typeof window.SimulationAPI.getPrice !== 'function' || typeof window.SimulationAPI.setPrice !== 'function') {
-        if (window.CraftBP && typeof window.CraftBP.pushStatus === 'function') {
-            window.CraftBP.pushStatus(__('Prices are not ready yet'), 'warning');
-        }
-        return;
+        return { error: __('Prices are not ready yet'), rows: [] };
     }
 
-    // Ensure we read any manual overrides already present in the DOM.
     if (typeof window.SimulationAPI.refreshFromDom === 'function') {
         window.SimulationAPI.refreshFromDom();
     }
 
-    // Preload buy prices for every node in the tree.
-    // This avoids optimizing with missing prices (which can incorrectly bias toward PROD).
-    function collectTypeIds(nodes, out = new Set()) {
-        (Array.isArray(nodes) ? nodes : []).forEach(node => {
-            const tid = Number(node?.type_id || node?.typeId) || 0;
-            if (tid > 0) {
-                out.add(String(tid));
-            }
-            const kids = node && (node.sub_materials || node.subMaterials);
-            if (Array.isArray(kids) && kids.length) {
-                collectTypeIds(kids, out);
-            }
+    if (options.ensurePrices) {
+        await ensureCraftDecisionPricesLoaded(tree, {
+            buttonIds: ['optimize-profit', 'decisionStrategyRefreshBtn'],
         });
-        return out;
     }
 
-    const allTypeIds = Array.from(collectTypeIds(tree));
-    if (typeof fetchAllPrices === 'function' && allTypeIds.length > 0) {
-        try {
-            const optimizeBtn = document.getElementById('optimize-profit');
-            if (optimizeBtn) {
-                optimizeBtn.disabled = true;
-            }
-            if (window.CraftBP && typeof window.CraftBP.pushStatus === 'function') {
-                window.CraftBP.pushStatus(__('Loading market prices for optimization…'), 'info');
-            }
-
-            const prices = await fetchAllPrices(allTypeIds);
-            // Stash fuzzwork prices so getBuyPrice can fall back to them.
-            allTypeIds.forEach(tid => {
-                const raw = prices[tid] ?? prices[String(parseInt(tid, 10))];
-                const price = raw != null ? (parseFloat(raw) || 0) : 0;
-                if (price > 0) {
-                    window.SimulationAPI.setPrice(tid, 'fuzzwork', price);
-                }
-            });
-
-            // Re-read DOM again so manual overrides (real/sale) keep priority.
-            if (typeof window.SimulationAPI.refreshFromDom === 'function') {
-                window.SimulationAPI.refreshFromDom();
-            }
-            if (optimizeBtn) {
-                optimizeBtn.disabled = false;
-            }
-        } catch (error) {
-            const optimizeBtn = document.getElementById('optimize-profit');
-            if (optimizeBtn) {
-                optimizeBtn.disabled = false;
-            }
-            if (window.CraftBP && typeof window.CraftBP.pushStatus === 'function') {
-                window.CraftBP.pushStatus(__('Failed to load prices for optimization'), 'warning');
-            }
-        }
-    }
-
+    const toleranceISK = Number.isFinite(Number(options.toleranceISK))
+        ? Math.max(0, Number(options.toleranceISK))
+        : getDecisionBuyToleranceValue();
     const productTypeId = Number(CRAFT_BP.productTypeId) || 0;
-
-    // For optimization we need to distinguish BUY vs SELL prices.
-    // BUY: prefer real (manual buy override) then fuzzwork, never fall back to sale.
-    // SELL: prefer sale (manual sell override) then fuzzwork, then real.
-    function getBuyUnitPrice(typeId) {
-        const state = (typeof window.SimulationAPI.getState === 'function') ? window.SimulationAPI.getState() : null;
-        const prices = state && state.prices ? state.prices : null;
-        const record = prices && (prices instanceof Map ? prices.get(Number(typeId)) : prices[Number(typeId)]);
-        const real = record ? (Number(record.real) || 0) : 0;
-        if (real > 0) return real;
-        const fuzz = record ? (Number(record.fuzzwork) || 0) : 0;
-        if (fuzz > 0) return fuzz;
-        return 0;
-    }
-
-    function getSellUnitPrice(typeId) {
-        const state = (typeof window.SimulationAPI.getState === 'function') ? window.SimulationAPI.getState() : null;
-        const prices = state && state.prices ? state.prices : null;
-        const record = prices && (prices instanceof Map ? prices.get(Number(typeId)) : prices[Number(typeId)]);
-        const sale = record ? (Number(record.sale) || 0) : 0;
-        if (sale > 0) return sale;
-        const fuzz = record ? (Number(record.fuzzwork) || 0) : 0;
-        if (fuzz > 0) return fuzz;
-        const real = record ? (Number(record.real) || 0) : 0;
-        if (real > 0) return real;
-        return 0;
-    }
-
-    function getBuyUnitPriceOrInf(typeId) {
-        const p = getBuyUnitPrice(typeId);
-        return p > 0 ? p : Number.POSITIVE_INFINITY;
-    }
-
-    function readChildren(node) {
-        const kids = node && (node.sub_materials || node.subMaterials);
-        return Array.isArray(kids) ? kids : [];
-    }
+    const occurrencesByType = new Map();
+    const nameByType = new Map();
+    const depthByType = new Map();
+    const ancestorIdsByType = new Map();
 
     function readTypeId(node) {
         return Number(node?.type_id || node?.typeId) || 0;
     }
 
     function readQty(node) {
-        const q = Number(node?.quantity ?? node?.qty ?? 0);
-        return Number.isFinite(q) ? Math.max(0, Math.ceil(q)) : 0;
+        const quantity = Number(node?.quantity ?? node?.qty ?? 0);
+        return Number.isFinite(quantity) ? Math.max(0, Math.ceil(quantity)) : 0;
     }
 
     function readProducedPerCycle(node) {
-        const p = Number(node?.produced_per_cycle ?? node?.producedPerCycle ?? 0);
-        return Number.isFinite(p) ? Math.max(0, Math.ceil(p)) : 0;
+        const producedPerCycle = Number(node?.produced_per_cycle ?? node?.producedPerCycle ?? 0);
+        return Number.isFinite(producedPerCycle) ? Math.max(0, Math.ceil(producedPerCycle)) : 0;
     }
 
-    // --- Global aggregated optimizer (handles shared children + cycle rounding economies of scale) ---
-    // Build per-type recipes from the expanded materials_tree.
-    // For a craftable typeId, a recipe is defined by produced_per_cycle and input quantities per *cycle*.
-    const occurrencesByType = new Map();
-    const nameByType = new Map();
-    (function collectOccurrences(nodes) {
-        (Array.isArray(nodes) ? nodes : []).forEach(node => {
+    function cloneDecisionNodeWithQuantity(node, quantity) {
+        return Object.assign({}, node, { quantity: Math.max(0, Math.ceil(Number(quantity) || 0)) });
+    }
+
+    function getDecisionStructureMaterialBonusPercent(typeId) {
+        if (!window.SimulationAPI || typeof window.SimulationAPI.getStructureOption !== 'function') {
+            return 0;
+        }
+        const option = window.SimulationAPI.getStructureOption(typeId);
+        if (!option) {
+            return 0;
+        }
+        const bonus = Number(
+            option.material_bonus_percent
+            ?? option.materialBonusPercent
+            ?? option.rig_material_bonus_percent
+            ?? option.rigMaterialBonusPercent
+            ?? 0
+        );
+        return Number.isFinite(bonus) && bonus > 0 ? bonus : 0;
+    }
+
+    function adjustDecisionChildrenForStructure(children, parentTypeId) {
+        if (!Array.isArray(children) || children.length === 0) {
+            return [];
+        }
+        const materialBonusPercent = getDecisionStructureMaterialBonusPercent(parentTypeId);
+        if (!(materialBonusPercent > 0)) {
+            return children;
+        }
+        const multiplier = Math.max(0, 1 - (materialBonusPercent / 100));
+        return children.map((child) => {
+            const quantity = readQty(child);
+            const materialBonusApplicable = child?.material_bonus_applicable ?? child?.materialBonusApplicable;
+            if (materialBonusApplicable === false) {
+                return cloneDecisionNodeWithQuantity(child, quantity);
+            }
+            return cloneDecisionNodeWithQuantity(child, Math.ceil(quantity * multiplier));
+        });
+    }
+
+    function readDecisionChildren(node) {
+        return adjustDecisionChildrenForStructure(
+            readMaterialsTreeChildren(node),
+            readTypeId(node)
+        );
+    }
+
+    const analysisTree = productTypeId > 0
+        ? adjustDecisionChildrenForStructure(tree, productTypeId)
+        : tree;
+
+    (function collectOccurrences(nodes, ancestorIds = []) {
+        (Array.isArray(nodes) ? nodes : []).forEach((node) => {
             const typeId = readTypeId(node);
-            if (typeId) {
-                const typeName = node?.type_name || node?.typeName || '';
-                if (typeName && !nameByType.has(typeId)) {
-                    nameByType.set(typeId, typeName);
-                }
+            const children = readDecisionChildren(node);
+            const typeName = String(node?.type_name || node?.typeName || '');
+
+            if (typeId && typeName && !nameByType.has(typeId)) {
+                nameByType.set(typeId, typeName);
             }
 
-            const children = readChildren(node);
             if (typeId && children.length > 0) {
                 if (!occurrencesByType.has(typeId)) {
                     occurrencesByType.set(typeId, []);
                 }
                 occurrencesByType.get(typeId).push(node);
+                if (!ancestorIdsByType.has(typeId)) {
+                    ancestorIdsByType.set(typeId, ancestorIds.slice());
+                    depthByType.set(typeId, ancestorIds.length);
+                }
             }
 
             if (children.length > 0) {
-                collectOccurrences(children);
+                const nextAncestorIds = typeId ? ancestorIds.concat(typeId) : ancestorIds;
+                collectOccurrences(children, nextAncestorIds);
             }
         });
-    })(tree);
+    })(analysisTree);
 
-    const recipes = new Map(); // typeId -> { producedPerCycle, inputsPerCycle: Map<childTypeId, perCycleQty> }
+    const recipes = new Map();
     occurrencesByType.forEach((nodes, typeId) => {
-        // Choose an occurrence with the largest cycle count for stability.
         let best = null;
         let bestCycles = 0;
-        nodes.forEach(n => {
-            const ppc = readProducedPerCycle(n);
-            const needed = readQty(n);
-            if (!ppc || !needed) return;
-            const cycles = Math.max(1, Math.ceil(needed / ppc));
+        nodes.forEach((node) => {
+            const producedPerCycle = readProducedPerCycle(node);
+            const needed = readQty(node);
+            if (!producedPerCycle || !needed) {
+                return;
+            }
+            const cycles = Math.max(1, Math.ceil(needed / producedPerCycle));
             if (cycles >= bestCycles) {
                 bestCycles = cycles;
-                best = n;
+                best = node;
             }
         });
 
-        if (!best) return;
-        const ppc = readProducedPerCycle(best);
-        const needed = readQty(best);
-        if (!ppc || !needed) return;
-        const cycles = Math.max(1, Math.ceil(needed / ppc));
+        if (!best) {
+            return;
+        }
 
+        const producedPerCycle = readProducedPerCycle(best);
+        const needed = readQty(best);
+        const cycles = Math.max(1, Math.ceil(needed / producedPerCycle));
         const inputsPerCycle = new Map();
-        readChildren(best).forEach(child => {
+
+        readDecisionChildren(best).forEach((child) => {
             const childTypeId = readTypeId(child);
-            if (!childTypeId) return;
             const childQty = readQty(child);
-            if (!childQty) return;
+            if (!(childTypeId > 0) || !(childQty > 0)) {
+                return;
+            }
             inputsPerCycle.set(childTypeId, childQty / cycles);
         });
-        recipes.set(typeId, { producedPerCycle: ppc, inputsPerCycle });
+
+        recipes.set(typeId, { producedPerCycle, inputsPerCycle });
     });
 
-    // Seed decisions from current switch states (keeps optimizer deterministic for the user).
-    const decisions = new Map(); // typeId -> 'buy' | 'prod'
-    document.querySelectorAll('#tab-tree input.mat-switch[data-type-id]').forEach(sw => {
-        const id = Number(sw.getAttribute('data-type-id')) || 0;
-        if (!id) return;
-        if (sw.dataset.fixedMode === 'useless' || sw.dataset.userState === 'useless') return;
-        decisions.set(id, sw.checked ? 'prod' : 'buy');
-    });
-
-    // Top-level requirements (materials needed for the final product).
-    const rootDemand = new Map();
-    tree.forEach(rootNode => {
-        const id = readTypeId(rootNode);
-        if (!id) return;
-        if (productTypeId && id === productTypeId) return;
-        const q = readQty(rootNode);
-        if (!q) return;
-        rootDemand.set(id, (rootDemand.get(id) || 0) + q);
-    });
-
-    // Build dependency graph parent -> child (only for craftables we have recipes for).
     const craftables = new Set(recipes.keys());
-    const edges = new Map();
-    const indegree = new Map();
-    craftables.forEach(id => {
-        edges.set(id, new Set());
-        indegree.set(id, 0);
-    });
+    const currentDecisions = getCurrentDecisionsFromSimulationOrDom();
+    const decisions = new Map(currentDecisions);
+    const hiddenByParentBuyCache = new Map();
+    const dashboardOrdering = typeof getDashboardMaterialsOrdering === 'function'
+        ? getDashboardMaterialsOrdering()
+        : { groupOrder: new Map(), itemOrder: new Map(), fallbackGroupName: __('Other') };
+    const decisionMarketGroupMap = window.BLUEPRINT_DATA?.market_group_map || {};
 
-    recipes.forEach((rec, parentId) => {
-        rec.inputsPerCycle.forEach((_, childId) => {
-            if (!craftables.has(parentId)) return;
-            if (!edges.has(parentId)) edges.set(parentId, new Set());
-            edges.get(parentId).add(childId);
-            if (craftables.has(childId)) {
-                indegree.set(childId, (indegree.get(childId) || 0) + 1);
-            }
-        });
-    });
-
-    // Kahn topo order: parents before children.
-    const queue = [];
-    indegree.forEach((deg, id) => {
-        if (deg === 0) queue.push(id);
-    });
-    const topo = [];
-    while (queue.length) {
-        const id = queue.shift();
-        topo.push(id);
-        (edges.get(id) || new Set()).forEach(childId => {
-            if (!craftables.has(childId)) return;
-            const nextDeg = (indegree.get(childId) || 0) - 1;
-            indegree.set(childId, nextDeg);
-            if (nextDeg === 0) queue.push(childId);
-        });
+    function getDecisionMarketGroup(typeId) {
+        const numericTypeId = Number(typeId) || 0;
+        if (!(numericTypeId > 0)) {
+            return dashboardOrdering.fallbackGroupName || __('Other');
+        }
+        const info = decisionMarketGroupMap[String(numericTypeId)] || decisionMarketGroupMap[numericTypeId];
+        if (info && typeof info === 'object') {
+            return info.group_name || info.groupName || dashboardOrdering.fallbackGroupName || __('Other');
+        }
+        return dashboardOrdering.fallbackGroupName || __('Other');
     }
 
-    // Demand propagation in topo order so shared children aggregate before cycle rounding.
-    function computeDemand(currentDecisions) {
-        const demand = new Map(rootDemand);
-        topo.forEach(typeId => {
-            if (!craftables.has(typeId)) return;
-            if ((currentDecisions.get(typeId) || 'prod') !== 'prod') return;
-            const needed = demand.get(typeId) || 0;
-            if (needed <= 0) return;
-            const rec = recipes.get(typeId);
-            if (!rec || !rec.producedPerCycle) return;
-            const cycles = Math.max(1, Math.ceil(needed / rec.producedPerCycle));
-            rec.inputsPerCycle.forEach((perCycleQty, childId) => {
-                // Keep demand integer-safe; avoid float noise accumulation.
-                const add = Math.max(0, Math.ceil((perCycleQty * cycles) - 1e-9));
-                if (add <= 0) return;
-                demand.set(childId, (demand.get(childId) || 0) + add);
-            });
+    function isHiddenByParentBuy(typeId) {
+        const numericTypeId = Number(typeId) || 0;
+        if (!(numericTypeId > 0)) {
+            return false;
+        }
+        if (hiddenByParentBuyCache.has(numericTypeId)) {
+            return hiddenByParentBuyCache.get(numericTypeId);
+        }
+
+        const ancestorIds = ancestorIdsByType.get(numericTypeId) || [];
+        const hidden = ancestorIds.some((ancestorId) => {
+            const ancestorMode = currentDecisions.get(ancestorId) || 'prod';
+            return ancestorMode === 'buy' || ancestorMode === 'useless' || isHiddenByParentBuy(ancestorId);
         });
+
+        hiddenByParentBuyCache.set(numericTypeId, hidden);
+        return hidden;
+    }
+
+    function chooseMode({ buyTotal, prodTotal, currentMode }) {
+        if (!Number.isFinite(prodTotal) && !Number.isFinite(buyTotal)) {
+            return currentMode || 'prod';
+        }
+        if (!Number.isFinite(prodTotal)) {
+            return 'buy';
+        }
+        if (!Number.isFinite(buyTotal)) {
+            return 'prod';
+        }
+        if (buyTotal <= prodTotal + toleranceISK) {
+            return 'buy';
+        }
+        return prodTotal < buyTotal ? 'prod' : 'buy';
+    }
+
+    function addDemandQuantity(map, typeId, quantity) {
+        const numericTypeId = Number(typeId) || 0;
+        const normalizedQty = Number.isFinite(Number(quantity)) ? Math.max(0, Math.ceil(Number(quantity))) : 0;
+        if (!(numericTypeId > 0) || !(normalizedQty > 0)) {
+            return;
+        }
+        map.set(numericTypeId, (map.get(numericTypeId) || 0) + normalizedQty);
+    }
+
+    function computeDemand(currentModes) {
+        const demand = new Map();
+
+        (function walk(nodes, blockedByBuyAncestor = false) {
+            (Array.isArray(nodes) ? nodes : []).forEach((node) => {
+                const typeId = readTypeId(node);
+                if (!(typeId > 0) || blockedByBuyAncestor) {
+                    return;
+                }
+
+                const quantity = readQty(node);
+                if (!(quantity > 0)) {
+                    return;
+                }
+
+                const children = readDecisionChildren(node);
+                if (children.length === 0) {
+                    return;
+                }
+
+                const state = currentModes.get(typeId) || 'prod';
+                if (state === 'useless') {
+                    return;
+                }
+
+                addDemandQuantity(demand, typeId, quantity);
+                if (state === 'buy') {
+                    return;
+                }
+
+                walk(children, false);
+            });
+        })(analysisTree, false);
+
         return demand;
     }
 
-    // Compute best unit costs bottom-up for a given demand snapshot.
-    function computeBestUnitCosts(demand, currentDecisions) {
-        const bestUnitCost = new Map();
-        const chosenMode = new Map();
-        const reverseTopo = topo.slice().reverse();
+    function createScenarioEvaluator(currentModes) {
+        const scenarioCache = new Map();
 
-        reverseTopo.forEach(typeId => {
-            const needed = demand.get(typeId) || 0;
-            if (!craftables.has(typeId) || needed <= 0) {
-                return;
+        function buildScenarioKey(typeId, needed, forcedMode) {
+            return `${typeId}:${needed}:${forcedMode || 'auto'}`;
+        }
+
+        function evaluateType(typeId, needed, forcedMode = null) {
+            const normalizedTypeId = Number(typeId) || 0;
+            const normalizedNeeded = Number.isFinite(Number(needed)) ? Math.max(0, Math.ceil(Number(needed))) : 0;
+            const scenarioKey = buildScenarioKey(normalizedTypeId, normalizedNeeded, forcedMode);
+            if (scenarioCache.has(scenarioKey)) {
+                return scenarioCache.get(scenarioKey);
             }
 
-            const buyUnit = getBuyUnitPriceOrInf(typeId);
-            const buyTotal = buyUnit * needed;
+            const buyUnitRaw = getCraftDecisionBuyUnitPrice(normalizedTypeId);
+            const buyUnit = getCraftDecisionBuyUnitPriceOrInf(normalizedTypeId);
+            const buyTotal = normalizedNeeded > 0 && Number.isFinite(buyUnit)
+                ? buyUnit * normalizedNeeded
+                : Number.POSITIVE_INFINITY;
+            const recipe = recipes.get(normalizedTypeId);
+            const sellUnit = getCraftDecisionSellUnitPrice(normalizedTypeId);
 
-            const rec = recipes.get(typeId);
-            if (!rec || !rec.producedPerCycle) {
-                bestUnitCost.set(typeId, buyUnit > 0 ? buyUnit : 0);
-                chosenMode.set(typeId, 'buy');
-                return;
+            let result;
+            if (!(normalizedNeeded > 0)) {
+                result = {
+                    typeId: normalizedTypeId,
+                    needed: normalizedNeeded,
+                    buyUnit: buyUnitRaw,
+                    buyTotal: 0,
+                    prodTotal: 0,
+                    prodUnit: 0,
+                    chosenMode: forcedMode || (currentModes.get(normalizedTypeId) || 'prod'),
+                    chosenTotal: 0,
+                    cycles: 0,
+                    produced: 0,
+                    surplus: 0,
+                    surplusCredit: 0,
+                };
+                scenarioCache.set(scenarioKey, result);
+                return result;
             }
 
-            const cycles = Math.max(1, Math.ceil(needed / rec.producedPerCycle));
-            const produced = cycles * rec.producedPerCycle;
-            const surplus = Math.max(0, produced - needed);
+            if (!recipe || !recipe.producedPerCycle) {
+                const fallbackMode = Number.isFinite(buyTotal) ? 'buy' : (currentModes.get(normalizedTypeId) || 'prod');
+                const chosenMode = forcedMode || fallbackMode;
+                const chosenTotal = chosenMode === 'buy' ? buyTotal : Number.POSITIVE_INFINITY;
+                result = {
+                    typeId: normalizedTypeId,
+                    needed: normalizedNeeded,
+                    buyUnit: buyUnitRaw,
+                    buyTotal: Number.isFinite(buyTotal) ? buyTotal : null,
+                    prodTotal: null,
+                    prodUnit: null,
+                    chosenMode,
+                    chosenTotal,
+                    cycles: null,
+                    produced: null,
+                    surplus: null,
+                    surplusCredit: null,
+                };
+                scenarioCache.set(scenarioKey, result);
+                return result;
+            }
 
+            const cycles = Math.max(1, Math.ceil(normalizedNeeded / recipe.producedPerCycle));
+            const produced = cycles * recipe.producedPerCycle;
+            const surplus = Math.max(0, produced - normalizedNeeded);
             let inputsCost = 0;
-            rec.inputsPerCycle.forEach((perCycleQty, childId) => {
+
+            recipe.inputsPerCycle.forEach((perCycleQty, childId) => {
                 const childQtyTotal = Math.max(0, Math.ceil((perCycleQty * cycles) - 1e-9));
-                if (childQtyTotal <= 0) return;
-                const childIsCraftable = craftables.has(childId);
-                const childUnit = childIsCraftable
-                    ? (bestUnitCost.get(childId) ?? getBuyUnitPriceOrInf(childId))
-                    : getBuyUnitPriceOrInf(childId);
-                inputsCost += childUnit * childQtyTotal;
+                if (!(childQtyTotal > 0)) {
+                    return;
+                }
+                const childScenario = evaluateType(childId, childQtyTotal, null);
+                const childTotal = Number.isFinite(childScenario.chosenTotal)
+                    ? childScenario.chosenTotal
+                    : (getCraftDecisionBuyUnitPriceOrInf(childId) * childQtyTotal);
+                inputsCost += childTotal;
             });
 
-            const sellUnit = getSellUnitPrice(typeId);
-            const credit = (sellUnit > 0 ? sellUnit : 0) * surplus;
-            const prodTotal = inputsCost - credit;
-            const prodUnit = needed > 0 ? (prodTotal / needed) : Number.POSITIVE_INFINITY;
+            const prodTotal = inputsCost;
+            const prodUnit = normalizedNeeded > 0 ? (prodTotal / normalizedNeeded) : Number.POSITIVE_INFINITY;
+            const autoMode = chooseMode({
+                buyTotal,
+                prodTotal,
+                currentMode: currentModes.get(normalizedTypeId) || 'prod',
+            });
+            const chosenMode = forcedMode || autoMode;
+            const chosenTotal = chosenMode === 'buy' ? buyTotal : prodTotal;
 
-            // Choose best mode for this demand snapshot.
-            let mode;
-            if (!Number.isFinite(prodTotal) && !Number.isFinite(buyTotal)) {
-                mode = currentDecisions.get(typeId) || 'prod';
-            } else {
-                mode = (prodTotal <= buyTotal) ? 'prod' : 'buy';
+            result = {
+                typeId: normalizedTypeId,
+                needed: normalizedNeeded,
+                buyUnit: buyUnitRaw,
+                buyTotal: Number.isFinite(buyTotal) ? buyTotal : null,
+                prodTotal: Number.isFinite(prodTotal) ? prodTotal : null,
+                prodUnit: Number.isFinite(prodUnit) ? prodUnit : null,
+                chosenMode,
+                chosenTotal,
+                cycles,
+                produced,
+                surplus,
+                surplusCredit: Number.isFinite(sellUnit) && sellUnit > 0 ? (sellUnit * surplus) : 0,
+            };
+            scenarioCache.set(scenarioKey, result);
+            return result;
+        }
+
+        return evaluateType;
+    }
+
+    function computeBestUnitCosts(demand, currentModes) {
+        const bestUnitCost = new Map();
+        const chosenMode = new Map();
+
+        const evaluateScenario = createScenarioEvaluator(currentModes);
+        demand.forEach((needed, typeId) => {
+            if (!craftables.has(typeId) || !(needed > 0)) {
+                return;
             }
-            chosenMode.set(typeId, mode);
-            bestUnitCost.set(typeId, mode === 'prod' ? prodUnit : buyUnit);
+
+            const scenario = evaluateScenario(typeId, needed, null);
+            chosenMode.set(typeId, scenario.chosenMode);
+            if (scenario.chosenMode === 'buy') {
+                bestUnitCost.set(typeId, getCraftDecisionBuyUnitPriceOrInf(typeId));
+                return;
+            }
+            if (Number.isFinite(scenario.prodUnit)) {
+                bestUnitCost.set(typeId, scenario.prodUnit);
+            }
         });
 
-        // Keep existing decisions for types not in topo/demand.
-        craftables.forEach(typeId => {
+        craftables.forEach((typeId) => {
             if (!chosenMode.has(typeId)) {
-                chosenMode.set(typeId, currentDecisions.get(typeId) || 'prod');
+                chosenMode.set(typeId, currentModes.get(typeId) || 'prod');
             }
         });
 
         return { bestUnitCost, chosenMode };
     }
 
-    function computeCostsBreakdown(demand, currentDecisions) {
-        const reverseTopo = topo.slice().reverse();
+    function computeCostsBreakdown(demand, currentModes) {
         const bestUnitCost = new Map();
         const chosenMode = new Map();
         const breakdown = new Map();
 
-        reverseTopo.forEach(typeId => {
-            const needed = demand.get(typeId) || 0;
-            if (!craftables.has(typeId) || needed <= 0) {
+        const evaluateScenario = createScenarioEvaluator(currentModes);
+        demand.forEach((needed, typeId) => {
+            if (!craftables.has(typeId) || !(needed > 0)) {
                 return;
             }
 
-            const buyUnitRaw = getBuyUnitPrice(typeId);
-            const buyUnit = getBuyUnitPriceOrInf(typeId);
-            const buyTotal = buyUnit * needed;
-
-            const rec = recipes.get(typeId);
-            if (!rec || !rec.producedPerCycle) {
-                chosenMode.set(typeId, Number.isFinite(buyTotal) ? 'buy' : (currentDecisions.get(typeId) || 'prod'));
-                bestUnitCost.set(typeId, buyUnit);
-                breakdown.set(typeId, {
-                    typeId,
-                    name: nameByType.get(typeId) || '',
-                    needed,
-                    buyUnit: buyUnitRaw,
-                    buyTotal: Number.isFinite(buyTotal) ? buyTotal : null,
-                    prodTotal: null,
-                    prodUnit: null,
-                    cycles: null,
-                    produced: null,
-                    surplus: null,
-                    surplusCredit: null,
-                    mode: chosenMode.get(typeId),
-                });
-                return;
-            }
-
-            const cycles = Math.max(1, Math.ceil(needed / rec.producedPerCycle));
-            const produced = cycles * rec.producedPerCycle;
-            const surplus = Math.max(0, produced - needed);
-
-            let inputsCost = 0;
-            rec.inputsPerCycle.forEach((perCycleQty, childId) => {
-                const childQtyTotal = Math.max(0, Math.ceil((perCycleQty * cycles) - 1e-9));
-                if (childQtyTotal <= 0) return;
-
-                const childIsCraftable = craftables.has(childId);
-                const childUnitCost = childIsCraftable
-                    ? (bestUnitCost.get(childId) ?? getBuyUnitPriceOrInf(childId))
-                    : getBuyUnitPriceOrInf(childId);
-                inputsCost += childUnitCost * childQtyTotal;
-            });
-
-            const sellUnit = getSellUnitPrice(typeId);
-            const surplusCredit = (sellUnit > 0 ? sellUnit : 0) * surplus;
-            const prodTotal = inputsCost - surplusCredit;
-            const prodUnit = needed > 0 ? (prodTotal / needed) : Number.POSITIVE_INFINITY;
-
-            let mode;
-            if (!Number.isFinite(prodTotal) && !Number.isFinite(buyTotal)) {
-                mode = currentDecisions.get(typeId) || 'prod';
-            } else {
-                mode = (prodTotal <= buyTotal) ? 'prod' : 'buy';
-            }
+            const automaticScenario = evaluateScenario(typeId, needed, null);
+            const buyScenario = evaluateScenario(typeId, needed, 'buy');
+            const prodScenario = evaluateScenario(typeId, needed, 'prod');
+            const mode = automaticScenario.chosenMode;
 
             chosenMode.set(typeId, mode);
-            bestUnitCost.set(typeId, mode === 'prod' ? prodUnit : buyUnit);
+            if (mode === 'prod' && Number.isFinite(prodScenario.prodUnit)) {
+                bestUnitCost.set(typeId, prodScenario.prodUnit);
+            } else {
+                bestUnitCost.set(typeId, getCraftDecisionBuyUnitPriceOrInf(typeId));
+            }
+
             breakdown.set(typeId, {
                 typeId,
                 name: nameByType.get(typeId) || '',
                 needed,
-                buyUnit: buyUnitRaw,
-                buyTotal: Number.isFinite(buyTotal) ? buyTotal : null,
-                prodTotal: Number.isFinite(prodTotal) ? prodTotal : null,
-                prodUnit: Number.isFinite(prodUnit) ? prodUnit : null,
-                cycles,
-                produced,
-                surplus,
-                surplusCredit: Number.isFinite(surplusCredit) ? surplusCredit : null,
+                buyUnit: buyScenario.buyUnit,
+                buyTotal: buyScenario.buyTotal,
+                prodTotal: prodScenario.prodTotal,
+                prodUnit: prodScenario.prodUnit,
+                cycles: prodScenario.cycles,
+                produced: prodScenario.produced,
+                surplus: prodScenario.surplus,
+                surplusCredit: prodScenario.surplusCredit,
                 mode,
             });
         });
 
-        return { breakdown, chosenMode, bestUnitCost };
+        return { breakdown, chosenMode };
     }
 
-    // Iterate to stability: decisions influence demand (cycle rounding), which influences costs.
     let lastChangeCount = 0;
-    for (let iter = 0; iter < 6; iter += 1) {
+    for (let iteration = 0; iteration < 6; iteration += 1) {
         const demand = computeDemand(decisions);
         const { chosenMode } = computeBestUnitCosts(demand, decisions);
-
         let changed = 0;
+
         chosenMode.forEach((mode, typeId) => {
-            const prev = decisions.get(typeId) || 'prod';
-            if (prev !== mode) {
+            const previousMode = decisions.get(typeId) || 'prod';
+            if (previousMode !== mode) {
                 decisions.set(typeId, mode);
                 changed += 1;
             }
         });
+
         lastChangeCount = changed;
         if (changed === 0) {
             break;
         }
     }
 
-    const aggregateDecisions = decisions;
-
-    // --- Margin-first refinement ---
-    // The global optimizer above minimizes net production cost (incl. surplus credit) per node.
-    // The user expectation is: optimize for best displayed margin (profit / revenue).
-    // We therefore evaluate the same model used by the financial tab (financial items + final sale + surplus)
-    // and greedily flip switches when it improves margin.
-    function computeDisplayedMarginSnapshot() {
-        const api = window.SimulationAPI;
-        if (!api || typeof api.getFinancialItems !== 'function' || typeof api.getPrice !== 'function') {
-            return { margin: Number.NEGATIVE_INFINITY, profit: 0, revenue: 0, cost: 0, surplusRevenue: 0 };
-        }
-
-        const productTypeIdLocal = Number(CRAFT_BP.productTypeId) || 0;
-
-        // Cost: sum of buy items (real>fuzzwork) from financial items.
-        let costTotal = 0;
-        const items = api.getFinancialItems() || [];
-        items.forEach(item => {
-            const typeId = Number(item.typeId ?? item.type_id) || 0;
-            if (!typeId || (productTypeIdLocal && typeId === productTypeIdLocal)) return;
-            const qty = Math.max(0, Math.ceil(Number(item.quantity ?? item.qty ?? 0))) || 0;
-            if (!qty) return;
-            const unit = api.getPrice(typeId, 'buy');
-            const unitPrice = unit && typeof unit.value === 'number' ? unit.value : 0;
-            if (unitPrice > 0) costTotal += unitPrice * qty;
-        });
-
-        // Revenue: final products + surplus credit.
-        let revenueTotal = 0;
-
-        try {
-            revenueTotal += computeFinalOutputRevenue(api);
-        } catch (e) {
-            // ignore
-        }
-
-        let surplusRevenue = 0;
-        try {
-            const cycles = (typeof api.getProductionCycles === 'function') ? (api.getProductionCycles() || []) : [];
-            if (Array.isArray(cycles) && cycles.length) {
-                cycles.forEach(entry => {
-                    const typeId = Number(entry.typeId || entry.type_id || 0) || 0;
-                    const surplusQty = Number(entry.surplus) || 0;
-                    if (!typeId || surplusQty <= 0) return;
-                    if (productTypeIdLocal && typeId === productTypeIdLocal) return;
-                    const unit = api.getPrice(typeId, 'sale');
-                    const unitPrice = unit && typeof unit.value === 'number' ? unit.value : 0;
-                    if (unitPrice > 0) {
-                        surplusRevenue += unitPrice * surplusQty;
-                    }
-                });
+    const recommendedDecisions = decisions;
+    const finalDemand = computeDemand(recommendedDecisions);
+    const { breakdown } = computeCostsBreakdown(finalDemand, recommendedDecisions);
+    const rows = Array.from(finalDemand.keys())
+        .map((typeId) => {
+            const row = breakdown.get(typeId);
+            if (!row) {
+                return null;
             }
-        } catch (e) {
-            // ignore
-        }
 
-        revenueTotal += surplusRevenue;
-        const profit = revenueTotal - costTotal;
-        const margin = revenueTotal > 0 ? (profit / revenueTotal) : Number.NEGATIVE_INFINITY;
-        return { margin, profit, revenue: revenueTotal, cost: costTotal, surplusRevenue };
-    }
+            const currentMode = currentDecisions.get(typeId) || 'prod';
+            const recommendedMode = recommendedDecisions.get(typeId) || row.mode || currentMode;
+            const buyTotal = row.buyTotal;
+            const prodTotal = row.prodTotal;
+            const deltaISK = Number.isFinite(buyTotal) && Number.isFinite(prodTotal)
+                ? buyTotal - prodTotal
+                : null;
+            const ratio = Number.isFinite(buyTotal) && Number.isFinite(prodTotal) && prodTotal > 0
+                ? (buyTotal / prodTotal)
+                : null;
+            const withinTolerance = deltaISK !== null && deltaISK >= 0 && deltaISK <= toleranceISK;
+            const currentTotal = currentMode === 'buy' ? buyTotal : prodTotal;
+            const recommendedTotal = recommendedMode === 'buy' ? buyTotal : prodTotal;
+            const potentialSavings = Number.isFinite(currentTotal) && Number.isFinite(recommendedTotal)
+                ? Math.max(0, currentTotal - recommendedTotal)
+                : 0;
+            const baseNote = row.buyTotal == null && row.prodTotal == null
+                ? __('Missing buy and produce costs')
+                : row.buyTotal == null
+                    ? __('Missing buy price')
+                    : row.prodTotal == null
+                        ? __('Cannot estimate production cost')
+                        : withinTolerance && recommendedMode === 'buy' && deltaISK > 0
+                            ? __('Buy stays preferred because it remains inside the global tolerance')
+                            : recommendedMode === 'buy'
+                                ? __('Buying is currently the smarter choice')
+                                : __('Producing is currently the smarter choice');
+            const surplusNote = row.surplus > 0 && row.surplusCredit > 0
+                ? __('Surplus resale is tracked separately and is not deducted from production cost.')
+                : row.surplus > 0
+                    ? __('Surplus from one cycle is tracked separately and is not deducted from production cost.')
+                    : '';
 
-    // Apply current decisions into SimulationAPI so evaluation uses the right state.
-    if (window.SimulationAPI && typeof window.SimulationAPI.setSwitchState === 'function') {
-        aggregateDecisions.forEach((mode, typeId) => {
-            window.SimulationAPI.setSwitchState(typeId, mode);
-        });
-    }
-
-    // Greedy improvement: flip one switch at a time if it increases margin.
-    // Keep iterations small to avoid UI freezes on large trees.
-    try {
-        const api = window.SimulationAPI;
-        if (api && typeof api.setSwitchState === 'function' && typeof api.getSwitchState === 'function') {
-            const candidates = Array.from(aggregateDecisions.keys());
-            let best = computeDisplayedMarginSnapshot();
-            const epsilon = 1e-9;
-
-            for (let iter = 0; iter < 3; iter += 1) {
-                let bestType = null;
-                let bestNewState = null;
-                let bestNew = null;
-                let bestGain = 0;
-
-                candidates.forEach(typeId => {
-                    const current = api.getSwitchState(typeId) || (aggregateDecisions.get(typeId) || 'prod');
-                    if (current !== 'buy' && current !== 'prod') return;
-                    const trial = current === 'buy' ? 'prod' : 'buy';
-
-                    api.setSwitchState(typeId, trial);
-                    const snap = computeDisplayedMarginSnapshot();
-                    const gain = snap.margin - best.margin;
-                    api.setSwitchState(typeId, current);
-
-                    if (gain > bestGain + epsilon) {
-                        bestGain = gain;
-                        bestType = typeId;
-                        bestNewState = trial;
-                        bestNew = snap;
-                    }
-                });
-
-                if (!bestType || !bestNewState || !bestNew || bestGain <= epsilon) {
-                    break;
-                }
-
-                api.setSwitchState(bestType, bestNewState);
-                aggregateDecisions.set(bestType, bestNewState);
-                best = bestNew;
-            }
-        }
-    } catch (e) {
-        console.warn('[IndyHub] Margin-first refinement failed', e);
-    }
-
-    // --- Debug dump (console) ---
-    // Provides buy/prod totals per item so the user can paste the full dataset.
-    if (craftBPIsDebugEnabled()) {
-        try {
-            const finalDemand = computeDemand(aggregateDecisions);
-            const { breakdown } = computeCostsBreakdown(finalDemand, aggregateDecisions);
-
-            const demandIds = Array.from(finalDemand.keys()).map(Number).filter(Boolean);
-            demandIds.sort((a, b) => a - b);
-
-            const rows = demandIds.map(typeId => {
-                const needed = finalDemand.get(typeId) || 0;
-                const buyUnitRaw = getBuyUnitPrice(typeId);
-                const buyTotal = buyUnitRaw > 0 ? (buyUnitRaw * needed) : null;
-                const craftRow = breakdown.get(typeId);
-
-                return {
-                    typeId,
-                    name: craftRow?.name || nameByType.get(typeId) || '',
-                    needed,
-                    buyUnit: buyUnitRaw || null,
-                    buyTotal,
-                    prodTotal: craftRow?.prodTotal ?? null,
-                    prodUnit: craftRow?.prodUnit ?? null,
-                    cycles: craftRow?.cycles ?? null,
-                    produced: craftRow?.produced ?? null,
-                    surplus: craftRow?.surplus ?? null,
-                    surplusCredit: craftRow?.surplusCredit ?? null,
-                    mode: aggregateDecisions.get(typeId) || craftRow?.mode || null,
-                };
-            });
-
-            // Persist the full dataset for copy/paste during explicit debug sessions.
-            window.__IndyHubOptimizeDebug = {
-                productTypeId,
-                generatedAt: new Date().toISOString(),
-                rows,
+            return {
+                ...row,
+                currentMode,
+                recommendedMode,
+                deltaISK,
+                ratio,
+                withinTolerance,
+                potentialSavings,
+                note: surplusNote ? `${baseNote} ${surplusNote}` : baseNote,
+                ancestorIds: ancestorIdsByType.get(typeId) || [],
+                depth: depthByType.get(typeId) || 0,
+                hiddenByParentBuy: isHiddenByParentBuy(typeId),
+                marketGroup: getDecisionMarketGroup(typeId),
             };
+        })
+        .filter(Boolean)
+        .filter((row) => !row.hiddenByParentBuy)
+        .sort((left, right) => {
+            const modeRank = { buy: 0, prod: 1 };
+            const leftModeRank = Object.prototype.hasOwnProperty.call(modeRank, left.currentMode) ? modeRank[left.currentMode] : 99;
+            const rightModeRank = Object.prototype.hasOwnProperty.call(modeRank, right.currentMode) ? modeRank[right.currentMode] : 99;
+            if (leftModeRank !== rightModeRank) {
+                return leftModeRank - rightModeRank;
+            }
 
-            const json = JSON.stringify(rows);
-            window.__IndyHubOptimizeDebugJson = json;
-
-            console.groupCollapsed('[IndyHub] Optimize debug: buy/prod costs per item');
-            console.log('productTypeId', productTypeId);
-            console.log('unique items in demand', rows.length);
-            console.log('Export JSON (fallback): window.__IndyHubOptimizeDebugJson');
-            console.table(rows);
-            console.groupEnd();
-
-            // Try to put the full JSON into the clipboard automatically.
-            // This avoids relying on DevTools-specific copy() helpers.
-            try {
-                if (navigator && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-                    await navigator.clipboard.writeText(json);
-                    if (window.CraftBP && typeof window.CraftBP.pushStatus === 'function') {
-                        window.CraftBP.pushStatus(__('Optimizer debug JSON copied to clipboard'), 'success');
-                    }
-                } else {
-                    // Fallback: prompt with the full JSON for manual copy.
-                    window.prompt('Copy optimizer debug JSON:', json);
-                    if (window.CraftBP && typeof window.CraftBP.pushStatus === 'function') {
-                        window.CraftBP.pushStatus(__('Optimizer debug JSON ready to copy (prompt opened)'), 'info');
-                    }
+            const leftGroup = left.marketGroup || dashboardOrdering.fallbackGroupName || __('Other');
+            const rightGroup = right.marketGroup || dashboardOrdering.fallbackGroupName || __('Other');
+            const leftHasGroup = dashboardOrdering.groupOrder.has(leftGroup);
+            const rightHasGroup = dashboardOrdering.groupOrder.has(rightGroup);
+            if (leftHasGroup && rightHasGroup) {
+                const leftGroupIdx = dashboardOrdering.groupOrder.get(leftGroup);
+                const rightGroupIdx = dashboardOrdering.groupOrder.get(rightGroup);
+                if (leftGroupIdx !== rightGroupIdx) {
+                    return leftGroupIdx - rightGroupIdx;
                 }
-            } catch (err) {
-                // Clipboard can be blocked by browser permissions; fall back to prompt.
-                window.prompt('Copy optimizer debug JSON:', json);
-                if (window.CraftBP && typeof window.CraftBP.pushStatus === 'function') {
-                    window.CraftBP.pushStatus(__('Clipboard blocked: debug JSON shown in prompt'), 'warning');
+            } else if (leftHasGroup !== rightHasGroup) {
+                return leftHasGroup ? -1 : 1;
+            } else {
+                const groupCmp = String(leftGroup).localeCompare(String(rightGroup), undefined, { sensitivity: 'base' });
+                if (groupCmp !== 0) {
+                    return groupCmp;
                 }
             }
-        } catch (e) {
-            // Debug should never break optimization.
-            console.warn('[IndyHub] Optimize debug failed', e);
-        }
+
+            const leftNeedsReview = left.currentMode !== left.recommendedMode ? 0 : 1;
+            const rightNeedsReview = right.currentMode !== right.recommendedMode ? 0 : 1;
+            if (leftNeedsReview !== rightNeedsReview) {
+                return leftNeedsReview - rightNeedsReview;
+            }
+
+            const leftDashboardItem = dashboardOrdering.itemOrder.get(Number(left.typeId) || 0);
+            const rightDashboardItem = dashboardOrdering.itemOrder.get(Number(right.typeId) || 0);
+            const leftItemIdx = leftDashboardItem ? leftDashboardItem.itemIdx : Number.POSITIVE_INFINITY;
+            const rightItemIdx = rightDashboardItem ? rightDashboardItem.itemIdx : Number.POSITIVE_INFINITY;
+            if (leftItemIdx !== rightItemIdx) {
+                return leftItemIdx - rightItemIdx;
+            }
+
+            return (right.potentialSavings || 0) - (left.potentialSavings || 0);
+        });
+
+    return {
+        rows,
+        currentDecisions,
+        recommendedDecisions,
+        toleranceISK,
+        lastChangeCount,
+        currentBuyCount: rows.filter((row) => row.currentMode === 'buy').length,
+        recommendedBuyCount: rows.filter((row) => row.recommendedMode === 'buy').length,
+        potentialSavingsISK: rows.reduce((sum, row) => sum + (row.potentialSavings || 0), 0),
+    };
+}
+
+function renderDecisionStrategyPanel(options = {}) {
+    const rowsBody = document.getElementById('decisionStrategyRows');
+    if (!rowsBody) {
+        return Promise.resolve(null);
     }
 
-    // Apply decisions to switches.
+    if (decisionStrategyPanelPromise && !options.force) {
+        return decisionStrategyPanelPromise;
+    }
+
+    decisionStrategyPanelPromise = (async () => {
+        const analysis = await computeCraftDecisionAnalysis({
+            ensurePrices: options.ensurePrices === true,
+            toleranceISK: options.toleranceISK,
+        });
+
+        const summaryEl = document.getElementById('decisionStrategySummary');
+        const itemCountEl = document.getElementById('decisionStrategyItemCount');
+        const currentBuyCountEl = document.getElementById('decisionStrategyCurrentBuyCount');
+        const recommendedBuyCountEl = document.getElementById('decisionStrategyRecommendedBuyCount');
+        const potentialSavingsEl = document.getElementById('decisionStrategyPotentialSavings');
+
+        if (!analysis || analysis.error) {
+            rowsBody.innerHTML = `
+                <tr>
+                    <td colspan="8" class="text-center text-muted py-4">${escapeHtml(analysis?.error || __('Decision analysis is unavailable.'))}</td>
+                </tr>
+            `;
+            if (summaryEl) {
+                summaryEl.textContent = analysis?.error || __('Decision analysis is unavailable.');
+            }
+            if (itemCountEl) itemCountEl.textContent = '0';
+            if (currentBuyCountEl) currentBuyCountEl.textContent = '0';
+            if (recommendedBuyCountEl) recommendedBuyCountEl.textContent = '0';
+            if (potentialSavingsEl) potentialSavingsEl.textContent = formatPrice(0);
+            updateTreeModeBadges();
+            return analysis;
+        }
+
+        function buildDecisionRowMarkup(row) {
+            const recommendationClass = row.recommendedMode === 'buy'
+                ? 'bg-danger-subtle text-danger-emphasis'
+                : 'bg-success-subtle text-success-emphasis';
+            const recommendationLabel = row.recommendedMode === 'buy' ? __('Buy') : __('Produce');
+            const deltaLabel = row.deltaISK == null
+                ? '—'
+                : `${row.deltaISK >= 0 ? '+' : '-'}${formatPrice(Math.abs(row.deltaISK))}`;
+            const ratioLabel = row.ratio == null ? '—' : `${row.ratio.toFixed(2)}x`;
+            const actionChecked = row.currentMode !== 'buy';
+
+            return `
+                <tr class="${row.currentMode !== row.recommendedMode ? 'craft-decision-row-needs-review' : ''}">
+                    <td>
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="blueprint-icon" style="width:28px;height:28px;">
+                                <img src="https://images.evetech.net/types/${row.typeId}/icon?size=32" alt="${escapeHtml(row.name)}" loading="lazy" decoding="async" fetchpriority="low" style="width:28px;height:28px;object-fit:cover;border-radius:6px;background:#f3f4f6;" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+                                <span class="fallback" style="display:none;"><i class="fas fa-cube"></i></span>
+                            </span>
+                            <div>
+                                <div class="fw-semibold">${escapeHtml(row.name)}</div>
+                                <div class="small text-muted">${escapeHtml(row.note)}</div>
+                            </div>
+                        </div>
+                    </td>
+                    <td class="text-end">${formatInteger(row.needed)}</td>
+                    <td class="text-end">${row.buyTotal == null ? '—' : formatPrice(row.buyTotal)}</td>
+                    <td class="text-end">${row.prodTotal == null ? '—' : formatPrice(row.prodTotal)}</td>
+                    <td class="text-end">
+                        <div class="fw-semibold ${row.deltaISK == null ? 'text-muted' : row.deltaISK > 0 ? 'text-danger' : row.deltaISK < 0 ? 'text-success' : 'text-body'}">${escapeHtml(deltaLabel)}</div>
+                        ${row.withinTolerance ? `<div class="small text-muted">${escapeHtml(__('Inside tolerance'))}</div>` : ''}
+                    </td>
+                    <td class="text-end">${escapeHtml(ratioLabel)}</td>
+                    <td>
+                        <span class="badge ${recommendationClass}">${escapeHtml(recommendationLabel)}</span>
+                        ${row.potentialSavings > 0 ? `<div class="small text-muted mt-1">${escapeHtml(__('Save'))} ${escapeHtml(formatPrice(row.potentialSavings))}</div>` : ''}
+                    </td>
+                    <td>
+                        <div class="mat-switch-group d-inline-flex align-items-center gap-2">
+                            <div class="form-switch mb-0">
+                                <input class="form-check-input mat-switch" type="checkbox" data-type-id="${row.typeId}" data-user-state="${row.currentMode}" data-ancestor-ids="${escapeHtml((row.ancestorIds || []).join(','))}"${actionChecked ? ' checked' : ''}>
+                            </div>
+                            <span class="mode-label badge px-2 py-1 fw-bold ${buildTreeModeBadgeClass(row.currentMode === 'buy' ? 'buy' : 'prod')}">${escapeHtml(row.currentMode === 'buy' ? __('Buy') : __('Prod'))}</span>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }
+
+        const rowsMarkup = analysis.rows.length > 0
+            ? (() => {
+                const modeLabels = {
+                    buy: __('Buy'),
+                    prod: __('Prod'),
+                };
+                const sections = [];
+                let currentMode = null;
+                let currentCategory = null;
+
+                analysis.rows.forEach((row) => {
+                    const rowMode = row.currentMode === 'buy' ? 'buy' : 'prod';
+                    const rowCategory = row.marketGroup || __('Other');
+
+                    if (currentMode !== rowMode) {
+                        currentMode = rowMode;
+                        currentCategory = null;
+                        const modeCount = analysis.rows.filter((entry) => (entry.currentMode === 'buy' ? 'buy' : 'prod') === rowMode).length;
+                        sections.push(`
+                            <tr class="table-secondary">
+                                <td colspan="8" class="fw-semibold">${escapeHtml(modeLabels[rowMode] || rowMode)} <span class="text-muted fw-normal">(${escapeHtml(formatInteger(modeCount))})</span></td>
+                            </tr>
+                        `);
+                    }
+
+                    if (currentCategory !== rowCategory) {
+                        currentCategory = rowCategory;
+                        sections.push(`
+                            <tr class="table-light">
+                                <td colspan="8" class="ps-4 text-muted fw-semibold">${escapeHtml(rowCategory)}</td>
+                            </tr>
+                        `);
+                    }
+
+                    sections.push(buildDecisionRowMarkup(row));
+                });
+
+                return sections.join('');
+            })()
+            : `
+                <tr>
+                    <td colspan="8" class="text-center text-muted py-4">${escapeHtml(__('No craftable items require a buy / produce review.'))}</td>
+                </tr>
+            `;
+
+        rowsBody.innerHTML = rowsMarkup;
+
+        if (summaryEl) {
+            summaryEl.textContent = analysis.rows.length > 0
+                ? __(`Reviewed ${analysis.rows.length} craftable items. Global buy tolerance: ${formatPrice(analysis.toleranceISK)}.`)
+                : __('No craftable items require a buy / produce review.');
+        }
+        if (itemCountEl) itemCountEl.textContent = formatInteger(analysis.rows.length);
+        if (currentBuyCountEl) currentBuyCountEl.textContent = formatInteger(analysis.currentBuyCount);
+        if (recommendedBuyCountEl) recommendedBuyCountEl.textContent = formatInteger(analysis.recommendedBuyCount);
+        if (potentialSavingsEl) potentialSavingsEl.textContent = formatPrice(analysis.potentialSavingsISK || 0);
+
+        initializeBuyCraftSwitches();
+        refreshTreeSwitchHierarchy();
+        updateTreeModeBadges();
+        return analysis;
+    })().finally(() => {
+        decisionStrategyPanelPromise = null;
+    });
+
+    return decisionStrategyPanelPromise;
+}
+
+async function optimizeProfitabilityConfig() {
+    const analysis = await renderDecisionStrategyPanel({
+        ensurePrices: true,
+        force: true,
+        toleranceISK: getDecisionBuyToleranceValue(),
+    });
+
+    if (!analysis || !Array.isArray(analysis.rows) || analysis.rows.length === 0) {
+        if (window.CraftBP && typeof window.CraftBP.pushStatus === 'function') {
+            window.CraftBP.pushStatus(__('No production tree to optimize'), 'warning');
+        }
+        return;
+    }
+
     const applied = { buy: 0, prod: 0 };
-    aggregateDecisions.forEach((mode, typeId) => {
-        const switches = document.querySelectorAll(`input.mat-switch[data-type-id="${typeId}"]`);
-        if (!switches || switches.length === 0) return;
-        switches.forEach(switchEl => {
-            if (switchEl.dataset.fixedMode === 'useless') return;
+    analysis.recommendedDecisions.forEach((mode, typeId) => {
+        if (window.SimulationAPI && typeof window.SimulationAPI.setSwitchState === 'function') {
+            window.SimulationAPI.setSwitchState(typeId, mode);
+        }
+        document.querySelectorAll(`input.mat-switch[data-type-id="${typeId}"]`).forEach((switchEl) => {
+            if (switchEl.dataset.fixedMode === 'useless') {
+                return;
+            }
             switchEl.dataset.userState = mode;
             switchEl.checked = mode !== 'buy';
+            updateSwitchLabel(switchEl);
         });
         applied[mode] += 1;
     });
@@ -3018,68 +3513,11 @@ async function optimizeProfitabilityConfig() {
     }
 
     if (window.CraftBP && typeof window.CraftBP.pushStatus === 'function') {
-        const msg = __(`Optimized: ${applied.prod} prod, ${applied.buy} buy`);
-        window.CraftBP.pushStatus(msg, lastChangeCount === 0 ? 'info' : 'success');
+        window.CraftBP.pushStatus(
+            __(`Recommendations applied: ${applied.prod} produce, ${applied.buy} buy`),
+            analysis.lastChangeCount === 0 ? 'info' : 'success'
+        );
     }
-}
-
-// ==============================
-// Run optimized tab (profitability vs runs)
-// ==============================
-
-function getPriceSnapshotFromSimulation(typeIds) {
-    const state = (window.SimulationAPI && typeof window.SimulationAPI.getState === 'function')
-        ? window.SimulationAPI.getState()
-        : null;
-    const prices = state && state.prices ? state.prices : null;
-    const snapshot = new Map();
-
-    if (prices instanceof Map && prices.size > 0) {
-        prices.forEach((value, key) => {
-            snapshot.set(Number(key), {
-                fuzzwork: Number(value?.fuzzwork) || 0,
-                real: Number(value?.real) || 0,
-                sale: Number(value?.sale) || 0,
-            });
-        });
-        return snapshot;
-    }
-
-    if (prices && typeof prices === 'object' && Object.keys(prices).length > 0) {
-        Object.keys(prices).forEach((key) => {
-            const id = Number(key);
-            if (!id) return;
-            const value = prices[key] || {};
-            snapshot.set(id, {
-                fuzzwork: Number(value?.fuzzwork) || 0,
-                real: Number(value?.real) || 0,
-                sale: Number(value?.sale) || 0,
-            });
-        });
-        return snapshot;
-    }
-
-    // Fallback: some pages keep prices in SimulationAPI internals without exposing state.prices.
-    // Build a minimal snapshot from getPrice() for the typeIds we care about.
-    const ids = Array.isArray(typeIds) ? typeIds : [];
-    const api = window.SimulationAPI;
-    if (api && typeof api.getPrice === 'function') {
-        ids.forEach((tid) => {
-            const id = Number(tid);
-            if (!Number.isFinite(id) || id <= 0) return;
-            const buyInfo = api.getPrice(id, 'buy');
-            const saleInfo = api.getPrice(id, 'sale');
-            const buy = buyInfo && typeof buyInfo.value === 'number' ? buyInfo.value : 0;
-            const sale = saleInfo && typeof saleInfo.value === 'number' ? saleInfo.value : 0;
-            snapshot.set(id, {
-                fuzzwork: Number(buy) || 0,
-                real: Number(buy) || 0,
-                sale: Number(sale) || 0,
-            });
-        });
-    }
-
-    return snapshot;
 }
 
 function collectTypeIdsFromMaterialsTree(nodes, out = new Set()) {
@@ -3096,10 +3534,7 @@ function collectTypeIdsFromMaterialsTree(nodes, out = new Set()) {
 
 function getCurrentDecisionsFromDom() {
     const decisions = new Map();
-    const treeTab = document.getElementById('tab-tree');
-    if (!treeTab) return decisions;
-
-    treeTab.querySelectorAll('input.mat-switch[data-type-id]').forEach((sw) => {
+    getDecisionSwitchElements().forEach((sw) => {
         const id = Number(sw.getAttribute('data-type-id')) || 0;
         if (!id) return;
         if (sw.dataset.fixedMode === 'useless' || sw.dataset.userState === 'useless') return;
@@ -3112,10 +3547,7 @@ function syncSimulationSwitchStatesFromDom() {
     const api = window.SimulationAPI;
     if (!api || typeof api.setSwitchState !== 'function') return;
 
-    const treeTab = document.getElementById('tab-tree');
-    if (!treeTab) return;
-
-    treeTab.querySelectorAll('input.mat-switch[data-type-id]').forEach((sw) => {
+    getDecisionSwitchElements().forEach((sw) => {
         const id = Number(sw.getAttribute('data-type-id')) || 0;
         if (!id) return;
         if (sw.dataset.fixedMode === 'useless' || sw.dataset.userState === 'useless') {
@@ -3130,12 +3562,21 @@ function getCurrentDecisionsFromSimulationOrDom() {
     const api = window.SimulationAPI;
     if (api && typeof api.getSwitchState === 'function') {
         const decisions = new Map();
-        const treeTab = document.getElementById('tab-tree');
-        if (!treeTab) return getCurrentDecisionsFromDom();
+        const simulationState = typeof api.getState === 'function' ? api.getState() : null;
+        const switchStateMap = simulationState?.switches;
 
-        treeTab.querySelectorAll('input.mat-switch[data-type-id]').forEach((sw) => {
+        if (switchStateMap && typeof switchStateMap.forEach === 'function') {
+            switchStateMap.forEach((entry, typeId) => {
+                const state = entry && typeof entry === 'object' ? entry.state : entry;
+                if (state === 'buy' || state === 'prod' || state === 'useless') {
+                    decisions.set(Number(typeId) || 0, state);
+                }
+            });
+        }
+
+        getDecisionSwitchElements().forEach((sw) => {
             const id = Number(sw.getAttribute('data-type-id')) || 0;
-            if (!id) return;
+            if (!id || decisions.has(id)) return;
             const state = api.getSwitchState(id);
             if (state === 'buy' || state === 'prod' || state === 'useless') {
                 decisions.set(id, state);
@@ -3148,1382 +3589,6 @@ function getCurrentDecisionsFromSimulationOrDom() {
 
     return getCurrentDecisionsFromDom();
 }
-
-function generateRunScenarios(maxRuns) {
-    const maxValue = Math.max(1, Number(maxRuns) || 1);
-
-    // Evenly spaced scenarios:
-    // - Target ~10 points across the range
-    // - Examples: 100 -> step 10, 1000 -> step 100
-    const targetPoints = 10;
-    const step = Math.max(1, Math.round(maxValue / targetPoints));
-    const runs = [1];
-    for (let v = step; v < maxValue; v += step) {
-        runs.push(v);
-    }
-    if (!runs.includes(maxValue)) {
-        runs.push(maxValue);
-    }
-
-    return Array.from(new Set(runs))
-        .map((v) => Math.max(1, Math.floor(Number(v) || 1)))
-        .sort((a, b) => a - b);
-}
-
-function buildCraftPayloadUrlForRuns(testRuns) {
-    let base = window.BLUEPRINT_DATA?.urls?.craft_bp_payload;
-    let bpTypeId = Number(window.BLUEPRINT_DATA?.bp_type_id || window.BLUEPRINT_DATA?.bpTypeId || window.BLUEPRINT_DATA?.type_id || window.BLUEPRINT_DATA?.typeId || 0);
-
-    // If the backend provided a craft_bp_payload URL, it is the most reliable source of the
-    // blueprint type id; parse it so we don't depend on potentially mutated JS state.
-    if (base) {
-        const match = String(base).match(/\/craft-bp-payload\/(\d+)\//);
-        if (match && match[1]) {
-            const parsed = Number(match[1]);
-            if (Number.isFinite(parsed) && parsed > 0) {
-                bpTypeId = parsed;
-            }
-        }
-    }
-
-    // Fallback: construct endpoint if missing.
-    if (!base && bpTypeId > 0) {
-        base = `/indy_hub/api/craft-bp-payload/${bpTypeId}/`;
-    }
-
-    if (!base) {
-        craftBPDebugLog('[RunOptimized] Missing craft_bp_payload base URL (urls.craft_bp_payload). bpTypeId=', bpTypeId);
-        return null;
-    }
-
-    const url = new URL(base, window.location.origin);
-    // IMPORTANT:
-    // Run optimized must use the same ME/TE configuration that the server used to render
-    // the current dashboard payload. We therefore read the last applied values from the
-    // payload-backed blueprint config, not from the visible URL and not from unsaved inputs.
-    const appliedConfig = buildDefaultMETEConfig();
-
-    const rootME = Number(appliedConfig.mainME ?? window.BLUEPRINT_DATA?.me ?? 0) || 0;
-    const rootTE = Number(appliedConfig.mainTE ?? window.BLUEPRINT_DATA?.te ?? 0) || 0;
-
-    url.searchParams.set('runs', String(Math.max(1, Number(testRuns) || 1)));
-    url.searchParams.set('me', String(rootME));
-    url.searchParams.set('te', String(rootTE));
-
-    // Propagate debug flag to backend so it can include _debug info in the JSON.
-    if (window.INDY_HUB_DEBUG) {
-        url.searchParams.set('indy_debug', '1');
-    }
-
-    Object.entries(appliedConfig.blueprintConfigs || {}).forEach(([typeId, bpConfig]) => {
-        if (bpConfig && bpConfig.me !== undefined) {
-            url.searchParams.set(`me_${typeId}`, String(bpConfig.me));
-        }
-        if (bpConfig && bpConfig.te !== undefined) {
-            url.searchParams.set(`te_${typeId}`, String(bpConfig.te));
-        }
-    });
-
-    const finalUrl = url.toString();
-    craftBPDebugLog('[RunOptimized] craft_bp_payload URL built', finalUrl);
-    return finalUrl;
-}
-
-async function fetchBlueprintPayloadForRuns(testRuns) {
-    window.__indyHubRunOptimizedCache = window.__indyHubRunOptimizedCache || {};
-    const cache = window.__indyHubRunOptimizedCache;
-    const url = buildCraftPayloadUrlForRuns(testRuns);
-    if (!url) {
-        throw new Error('Missing craft_bp_payload URL');
-    }
-
-    // Cache by full URL (runs + ME/TE + blueprint configs + debug flag), not only by runs.
-    const key = String(url);
-    if (cache[key]) {
-        return cache[key];
-    }
-
-    const response = await fetch(url, {
-        headers: { 'Accept': 'application/json' },
-        credentials: 'same-origin',
-    });
-    if (!response.ok) {
-        throw new Error(`craft_bp_payload failed: ${response.status}`);
-    }
-    const json = await response.json();
-
-    craftBPDebugLog('[RunOptimized] craft_bp_payload response', {
-        requestUrl: url,
-        responseUrl: response.url,
-        type_id: json?.type_id,
-        bp_type_id: json?.bp_type_id,
-        product_type_id: json?.product_type_id,
-        me: json?.me,
-        te: json?.te,
-        num_runs: json?.num_runs,
-        final_product_qty: json?.final_product_qty,
-        materials_tree_roots: Array.isArray(json?.materials_tree) ? json.materials_tree.length : null,
-        recipe_map_keys: (json?.recipe_map && typeof json.recipe_map === 'object') ? Object.keys(json.recipe_map).length : null,
-        _debug: json?._debug ?? null,
-    });
-
-    cache[key] = json;
-    return json;
-}
-
-function computeOptimizedProfitabilityForPayload(payload, pricesSnapshot, options = {}) {
-    const tree = Array.isArray(payload?.materials_tree) ? payload.materials_tree : [];
-    const productTypeId = Number(payload?.product_type_id) || 0;
-    const finalProductQty = Math.max(0, Math.ceil(Number(payload?.final_product_qty) || 0));
-
-    // Prefer live SimulationAPI prices when available so Run optimized uses
-    // the same buy/sale logic as the dashboard (real/fuzzwork overrides).
-    const simulationApi = window.SimulationAPI;
-
-    function getPriceRecord(typeId) {
-        return pricesSnapshot.get(Number(typeId)) || { fuzzwork: 0, real: 0, sale: 0 };
-    }
-
-    function getBuyUnitPrice(typeId) {
-        if (simulationApi && typeof simulationApi.getPrice === 'function') {
-            const info = simulationApi.getPrice(typeId, 'buy');
-            const v = info && typeof info.value === 'number' ? info.value : 0;
-            if (v > 0) return v;
-        }
-        const record = getPriceRecord(typeId);
-        const real = Number(record.real) || 0;
-        if (real > 0) return real;
-        const fuzz = Number(record.fuzzwork) || 0;
-        if (fuzz > 0) return fuzz;
-        return 0;
-    }
-
-    function getSellUnitPrice(typeId) {
-        if (simulationApi && typeof simulationApi.getPrice === 'function') {
-            const info = simulationApi.getPrice(typeId, 'sale');
-            const v = info && typeof info.value === 'number' ? info.value : 0;
-            if (v > 0) return v;
-        }
-        const record = getPriceRecord(typeId);
-        const sale = Number(record.sale) || 0;
-        if (sale > 0) return sale;
-        const fuzz = Number(record.fuzzwork) || 0;
-        if (fuzz > 0) return fuzz;
-        const real = Number(record.real) || 0;
-        if (real > 0) return real;
-        return 0;
-    }
-
-    function getBuyUnitPriceOrInf(typeId) {
-        const p = getBuyUnitPrice(typeId);
-        return p > 0 ? p : Number.POSITIVE_INFINITY;
-    }
-
-    function readChildren(node) {
-        const kids = node && (node.sub_materials || node.subMaterials);
-        return Array.isArray(kids) ? kids : [];
-    }
-
-    function readTypeId(node) {
-        return Number(node?.type_id || node?.typeId) || 0;
-    }
-
-    function readQty(node) {
-        const q = Number(node?.quantity ?? node?.qty ?? 0);
-        return Number.isFinite(q) ? Math.max(0, Math.ceil(q)) : 0;
-    }
-
-    function readProducedPerCycle(node) {
-        const p = Number(node?.produced_per_cycle ?? node?.producedPerCycle ?? 0);
-        return Number.isFinite(p) ? Math.max(0, Math.ceil(p)) : 0;
-    }
-
-    // Dashboard-aligned model: cost = bought items (leaf + craftables switched to BUY)
-    // revenue = final product sale + surplus credit computed from pooled cycles per craftable type.
-    function computeDisplayedMarginFromTreeTraversal(currentDecisions) {
-        const leafNeeds = new Map();
-        const buyCraftables = new Map();
-        const prodCraftables = new Map();
-        const producedPerCycleByType = new Map();
-
-        function addToCounter(map, typeId, qty) {
-            if (!typeId || qty <= 0) return;
-            map.set(typeId, (map.get(typeId) || 0) + qty);
-        }
-
-        const walk = (nodes, blockedByBuyAncestor = false) => {
-            (Array.isArray(nodes) ? nodes : []).forEach((node) => {
-                if (blockedByBuyAncestor) return;
-                const typeId = readTypeId(node);
-                if (!typeId) return;
-
-                const qty = readQty(node);
-                const children = readChildren(node);
-                const craftable = children.length > 0;
-
-                const ppc = readProducedPerCycle(node);
-                if (ppc > 0 && !producedPerCycleByType.has(typeId)) {
-                    producedPerCycleByType.set(typeId, ppc);
-                }
-
-                if (craftable) {
-                    const state = currentDecisions.get(typeId) || 'prod';
-                    if (state === 'useless') return;
-                    if (state === 'buy') {
-                        addToCounter(buyCraftables, typeId, qty);
-                        return;
-                    }
-                    addToCounter(prodCraftables, typeId, qty);
-                    walk(children, false);
-                    return;
-                }
-
-                addToCounter(leafNeeds, typeId, qty);
-            });
-        };
-
-        walk(tree, false);
-
-        let cost = 0;
-        leafNeeds.forEach((qty, typeId) => {
-            const unit = getBuyUnitPrice(typeId);
-            if (unit > 0) cost += unit * qty;
-        });
-        buyCraftables.forEach((qty, typeId) => {
-            const unit = getBuyUnitPrice(typeId);
-            if (unit > 0) cost += unit * qty;
-        });
-
-        let surplusRevenue = 0;
-        prodCraftables.forEach((totalNeeded, typeId) => {
-            const ppc = producedPerCycleByType.get(typeId) || 0;
-            if (!(ppc > 0) || !(totalNeeded > 0)) return;
-            const cycles = Math.max(1, Math.ceil(totalNeeded / ppc));
-            const totalProduced = cycles * ppc;
-            const surplus = Math.max(0, totalProduced - totalNeeded);
-            if (surplus <= 0) return;
-            const unit = getSellUnitPrice(typeId);
-            if (unit > 0) surplusRevenue += unit * surplus;
-        });
-
-        const productUnitSale = productTypeId ? getSellUnitPrice(productTypeId) : 0;
-        const finalRev = (productUnitSale > 0 && finalProductQty > 0) ? (productUnitSale * finalProductQty) : 0;
-        const revenue = finalRev + surplusRevenue;
-        const profit = revenue - cost;
-        const margin = revenue > 0 ? (profit / revenue) : Number.NEGATIVE_INFINITY;
-        return { margin, profit, revenue, cost, surplusRevenue };
-    }
-
-    // If we were provided explicit decisions (e.g. current dashboard switches),
-    // skip optimization and just compute the displayed margin for those decisions.
-    if (options && options.decisions instanceof Map) {
-        const snap = computeDisplayedMarginFromTreeTraversal(options.decisions);
-        const marginPct = Number.isFinite(snap.margin) ? (snap.margin * 100) : 0;
-        return {
-            runs: Number(payload?.num_runs) || 1,
-            cost: snap.cost,
-            revenue: snap.revenue,
-            profit: snap.profit,
-            margin: marginPct,
-        };
-    }
-
-    const occurrencesByType = new Map();
-    const nameByType = new Map();
-    (function collect(nodes) {
-        (Array.isArray(nodes) ? nodes : []).forEach((node) => {
-            const id = readTypeId(node);
-            if (id) {
-                const typeName = node?.type_name || node?.typeName || '';
-                if (typeName && !nameByType.has(id)) nameByType.set(id, typeName);
-            }
-            const children = readChildren(node);
-            if (id && children.length > 0) {
-                if (!occurrencesByType.has(id)) occurrencesByType.set(id, []);
-                occurrencesByType.get(id).push(node);
-            }
-            if (children.length > 0) {
-                collect(children);
-            }
-        });
-    })(tree);
-
-    const recipes = new Map();
-    const backendRecipeMap = payload?.recipe_map || payload?.recipeMap;
-    if (backendRecipeMap && typeof backendRecipeMap === 'object' && Object.keys(backendRecipeMap).length > 0) {
-        Object.entries(backendRecipeMap).forEach(([typeIdStr, recipe]) => {
-            const typeId = Number(typeIdStr);
-            if (!Number.isFinite(typeId) || !recipe) return;
-
-            const producedPerCycle = Number(recipe?.produced_per_cycle ?? recipe?.producedPerCycle ?? 0);
-            if (!Number.isFinite(producedPerCycle) || producedPerCycle <= 0) return;
-
-            const inputsPerCycle = new Map();
-            const inputs = recipe?.inputs_per_cycle ?? recipe?.inputsPerCycle ?? [];
-            (Array.isArray(inputs) ? inputs : []).forEach((inp) => {
-                const childTypeId = Number(inp?.type_id ?? inp?.typeId ?? 0);
-                const perCycleQty = Number(inp?.quantity ?? inp?.qty ?? 0);
-                if (!Number.isFinite(childTypeId) || childTypeId <= 0) return;
-                if (!Number.isFinite(perCycleQty) || perCycleQty <= 0) return;
-                inputsPerCycle.set(childTypeId, perCycleQty);
-            });
-            if (inputsPerCycle.size === 0) return;
-
-            recipes.set(typeId, { producedPerCycle, inputsPerCycle });
-        });
-    } else {
-        // Legacy fallback: infer a recipe from a single occurrence (less precise if a craftable appears multiple times).
-        occurrencesByType.forEach((nodes, typeId) => {
-            let best = null;
-            let bestCycles = 0;
-            nodes.forEach((n) => {
-                const ppc = readProducedPerCycle(n);
-                const needed = readQty(n);
-                if (!ppc || !needed) return;
-                const cycles = Math.max(1, Math.ceil(needed / ppc));
-                if (cycles >= bestCycles) {
-                    bestCycles = cycles;
-                    best = n;
-                }
-            });
-            if (!best) return;
-
-            const ppc = readProducedPerCycle(best);
-            const needed = readQty(best);
-            if (!ppc || !needed) return;
-            const cycles = Math.max(1, Math.ceil(needed / ppc));
-
-            const inputsPerCycle = new Map();
-            readChildren(best).forEach((child) => {
-                const childTypeId = readTypeId(child);
-                if (!childTypeId) return;
-                const childQty = readQty(child);
-                if (!childQty) return;
-                inputsPerCycle.set(childTypeId, childQty / cycles);
-            });
-            recipes.set(typeId, { producedPerCycle: ppc, inputsPerCycle });
-        });
-    }
-
-    const craftables = new Set(recipes.keys());
-    const decisions = new Map();
-    craftables.forEach((id) => decisions.set(id, 'prod'));
-
-    function summarizeDecisions(decisionsMap) {
-        const buy = [];
-        const prod = [];
-
-        if (!(decisionsMap instanceof Map)) {
-            return { craftablesCount: 0, buyCount: 0, prodCount: 0, buy, prod };
-        }
-
-        decisionsMap.forEach((state, typeId) => {
-            const id = Number(typeId) || 0;
-            if (!id) return;
-            const name = nameByType.get(id) || '';
-            const entry = { typeId: id, typeName: name };
-            if (state === 'buy') buy.push(entry);
-            else prod.push(entry);
-        });
-
-        const byName = (a, b) => String(a.typeName || '').localeCompare(String(b.typeName || ''), undefined, { sensitivity: 'base' });
-        buy.sort(byName);
-        prod.sort(byName);
-
-        return {
-            craftablesCount: decisionsMap.size,
-            buyCount: buy.length,
-            prodCount: prod.length,
-            buy,
-            prod,
-        };
-    }
-
-    const rootDemand = new Map();
-    tree.forEach((rootNode) => {
-        const id = readTypeId(rootNode);
-        if (!id) return;
-        const q = readQty(rootNode);
-        if (!q) return;
-        rootDemand.set(id, (rootDemand.get(id) || 0) + q);
-    });
-
-    const edges = new Map();
-    const indegree = new Map();
-    craftables.forEach((id) => {
-        edges.set(id, new Set());
-        indegree.set(id, 0);
-    });
-    recipes.forEach((rec, parentId) => {
-        rec.inputsPerCycle.forEach((_, childId) => {
-            if (!edges.has(parentId)) edges.set(parentId, new Set());
-            edges.get(parentId).add(childId);
-            if (craftables.has(childId)) {
-                indegree.set(childId, (indegree.get(childId) || 0) + 1);
-            }
-        });
-    });
-
-    const queue = [];
-    indegree.forEach((deg, id) => { if (deg === 0) queue.push(id); });
-    const topo = [];
-    while (queue.length) {
-        const id = queue.shift();
-        topo.push(id);
-        (edges.get(id) || new Set()).forEach((childId) => {
-            if (!craftables.has(childId)) return;
-            const nextDeg = (indegree.get(childId) || 0) - 1;
-            indegree.set(childId, nextDeg);
-            if (nextDeg === 0) queue.push(childId);
-        });
-    }
-
-    function computeDemand(currentDecisions) {
-        const demand = new Map(rootDemand);
-        topo.forEach((typeId) => {
-            if (!craftables.has(typeId)) return;
-            if ((currentDecisions.get(typeId) || 'prod') !== 'prod') return;
-            const needed = demand.get(typeId) || 0;
-            if (needed <= 0) return;
-            const rec = recipes.get(typeId);
-            if (!rec || !rec.producedPerCycle) return;
-            const cycles = Math.max(1, Math.ceil(needed / rec.producedPerCycle));
-            rec.inputsPerCycle.forEach((perCycleQty, childId) => {
-                const add = Math.max(0, Math.ceil((perCycleQty * cycles) - 1e-9));
-                if (add <= 0) return;
-                demand.set(childId, (demand.get(childId) || 0) + add);
-            });
-        });
-        return demand;
-    }
-
-    function computeBestUnitCosts(demand, currentDecisions) {
-        const bestUnitCost = new Map();
-        const chosenMode = new Map();
-        const reverseTopo = topo.slice().reverse();
-
-        reverseTopo.forEach((typeId) => {
-            const needed = demand.get(typeId) || 0;
-            if (!craftables.has(typeId) || needed <= 0) return;
-
-            const buyUnit = getBuyUnitPriceOrInf(typeId);
-            const buyTotal = buyUnit * needed;
-
-            const rec = recipes.get(typeId);
-            if (!rec || !rec.producedPerCycle) {
-                bestUnitCost.set(typeId, buyUnit > 0 ? buyUnit : 0);
-                chosenMode.set(typeId, 'buy');
-                return;
-            }
-
-            const cycles = Math.max(1, Math.ceil(needed / rec.producedPerCycle));
-            const produced = cycles * rec.producedPerCycle;
-            const surplus = Math.max(0, produced - needed);
-
-            let inputsCost = 0;
-            rec.inputsPerCycle.forEach((perCycleQty, childId) => {
-                const childQtyTotal = Math.max(0, Math.ceil((perCycleQty * cycles) - 1e-9));
-                if (childQtyTotal <= 0) return;
-                const childIsCraftable = craftables.has(childId);
-                const childUnit = childIsCraftable
-                    ? (bestUnitCost.get(childId) ?? getBuyUnitPriceOrInf(childId))
-                    : getBuyUnitPriceOrInf(childId);
-                inputsCost += childUnit * childQtyTotal;
-            });
-
-            const sellUnit = getSellUnitPrice(typeId);
-            const credit = (sellUnit > 0 ? sellUnit : 0) * surplus;
-            const prodTotal = inputsCost - credit;
-            const prodUnit = needed > 0 ? (prodTotal / needed) : Number.POSITIVE_INFINITY;
-
-            let mode;
-            if (!Number.isFinite(prodTotal) && !Number.isFinite(buyTotal)) {
-                mode = currentDecisions.get(typeId) || 'prod';
-            } else {
-                mode = (prodTotal <= buyTotal) ? 'prod' : 'buy';
-            }
-            chosenMode.set(typeId, mode);
-            bestUnitCost.set(typeId, mode === 'prod' ? prodUnit : buyUnit);
-        });
-
-        craftables.forEach((typeId) => {
-            if (!chosenMode.has(typeId)) {
-                chosenMode.set(typeId, currentDecisions.get(typeId) || 'prod');
-            }
-        });
-
-        return { chosenMode };
-    }
-
-    function stabilizeBottomUp(decisionsMap) {
-        let totalChanged = 0;
-        for (let iter = 0; iter < 6; iter += 1) {
-            const demand = computeDemand(decisionsMap);
-            const { chosenMode } = computeBestUnitCosts(demand, decisionsMap);
-            let changed = 0;
-            chosenMode.forEach((mode, typeId) => {
-                const prev = decisionsMap.get(typeId) || 'prod';
-                if (prev !== mode) {
-                    decisionsMap.set(typeId, mode);
-                    changed += 1;
-                }
-            });
-            totalChanged += changed;
-            if (changed === 0) break;
-        }
-        return totalChanged;
-    }
-
-    // Helper: compute the "displayed" margin (as in the KPI dashboard) for a given decision set
-    function computeDisplayedMargin(currentDecisions) {
-        const demand = computeDemand(currentDecisions);
-
-        let cost = 0;
-        demand.forEach((qty, typeId) => {
-            const id = Number(typeId) || 0;
-            if (!id) return;
-
-            const isCraftable = craftables.has(id);
-            if (isCraftable) {
-                if ((currentDecisions.get(id) || 'prod') !== 'buy') {
-                    return;
-                }
-            }
-
-            const unit = getBuyUnitPrice(id);
-            if (unit > 0) {
-                cost += unit * qty;
-            }
-        });
-
-        let surplusRev = 0;
-        craftables.forEach((typeId) => {
-            if ((currentDecisions.get(typeId) || 'prod') !== 'prod') return;
-            const needed = demand.get(typeId) || 0;
-            if (needed <= 0) return;
-            const rec = recipes.get(typeId);
-            if (!rec || !rec.producedPerCycle) return;
-            const cycles = Math.max(1, Math.ceil(needed / rec.producedPerCycle));
-            const produced = cycles * rec.producedPerCycle;
-            const surplus = Math.max(0, produced - needed);
-            if (surplus <= 0) return;
-            const unit = getSellUnitPrice(typeId);
-            if (unit > 0) surplusRev += unit * surplus;
-        });
-
-        const productUnitSale = productTypeId ? getSellUnitPrice(productTypeId) : 0;
-        const finalRev = (productUnitSale > 0 && finalProductQty > 0) ? (productUnitSale * finalProductQty) : 0;
-        const revenue = finalRev + surplusRev;
-        const profit = revenue - cost;
-        const margin = revenue > 0 ? (profit / revenue) : Number.NEGATIVE_INFINITY;
-
-        return { margin, profit, revenue, cost, surplusRevenue: surplusRev };
-    }
-
-    // Margin-first refinement: greedily flip switches (more iterations) to maximize displayed margin
-    function greedyImproveMargin(decisionsMap, startingSnap) {
-        const candidates = Array.from(craftables.keys());
-        let best = startingSnap;
-        const epsilon = 1e-9;
-        let improved = false;
-
-        for (let iter = 0; iter < 10; iter += 1) {
-            let bestType = null;
-            let bestNewState = null;
-            let bestNew = null;
-            let bestGain = 0;
-
-            candidates.forEach((typeId) => {
-                const current = decisionsMap.get(typeId) || 'prod';
-                if (current !== 'buy' && current !== 'prod') return;
-                const trial = current === 'buy' ? 'prod' : 'buy';
-
-                decisionsMap.set(typeId, trial);
-                const snap = computeDisplayedMargin(decisionsMap);
-                const gain = snap.margin - best.margin;
-                decisionsMap.set(typeId, current);
-
-                if (gain > bestGain + epsilon) {
-                    bestGain = gain;
-                    bestType = typeId;
-                    bestNewState = trial;
-                    bestNew = snap;
-                }
-            });
-
-            if (!bestType || !bestNewState || !bestNew || bestGain <= epsilon) {
-                break;
-            }
-
-            decisionsMap.set(bestType, bestNewState);
-            best = bestNew;
-            improved = true;
-        }
-
-        return { best, improved };
-    }
-
-    // Multi-pass: bottom-up then greedy, until stable or max passes
-    let bestSnapshot = computeDisplayedMargin(decisions);
-    let bestDecisions = new Map(decisions);
-    for (let pass = 0; pass < 5; pass += 1) {
-        const changedBottomUp = stabilizeBottomUp(decisions);
-        const snapAfterBottomUp = computeDisplayedMargin(decisions);
-        const { best, improved } = greedyImproveMargin(decisions, snapAfterBottomUp);
-        bestSnapshot = best;
-        bestDecisions = new Map(decisions);
-        if (changedBottomUp === 0 && !improved) {
-            break;
-        }
-    }
-
-    // Use the best margin-first result after passes
-    const marginPct = Number.isFinite(bestSnapshot.margin) ? (bestSnapshot.margin * 100) : 0;
-    return {
-        runs: Number(payload?.num_runs) || 1,
-        cost: bestSnapshot.cost,
-        revenue: bestSnapshot.revenue,
-        profit: bestSnapshot.profit,
-        margin: marginPct, // Convert to percentage (clamped for display)
-        config: summarizeDecisions(bestDecisions),
-    };
-}
-
-function renderRunOptimizedChart(canvas, points) {
-    if (!canvas || !canvas.getContext || !Array.isArray(points) || points.length === 0) {
-        return;
-    }
-
-    const normalizedPoints = points
-        .map((p) => {
-            const runs = Math.max(1, Number(p?.runs) || 1);
-            const rawMargin = Number(p?.margin);
-            const margin = Number.isFinite(rawMargin) ? rawMargin : 0;
-            return { runs, margin };
-        })
-        .sort((a, b) => a.runs - b.runs);
-
-    const dpr = window.devicePixelRatio || 1;
-    const cssWidth = canvas.clientWidth || 600;
-    const cssHeight = canvas.getAttribute('height') ? Number(canvas.getAttribute('height')) : 240;
-    canvas.width = Math.floor(cssWidth * dpr);
-    canvas.height = Math.floor(cssHeight * dpr);
-    const ctx = canvas.getContext('2d');
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-    const padding = 40;
-    const w = cssWidth;
-    const h = cssHeight;
-
-    const xs = normalizedPoints.map((p) => p.runs);
-    const ys = normalizedPoints.map((p) => p.margin);
-    const minX = Math.min.apply(null, xs);
-    const maxX = Math.max.apply(null, xs);
-
-    // Force margin axis to 0–100% for consistent readability.
-    // (Negative or >100% margins will be clipped to the chart bounds.)
-    const minY = 0;
-    const maxY = 100;
-
-    function xToPx(x) {
-        const safeX = Math.max(1, Number(x) || 1);
-        const t = (maxX - minX) > 0 ? ((safeX - minX) / (maxX - minX)) : 0.5;
-        return padding + t * (w - padding * 2);
-    }
-
-    function yToPx(y) {
-        const safeY = Math.max(minY, Math.min(maxY, Number(y) || 0));
-        const t = (maxY - minY) > 0 ? ((safeY - minY) / (maxY - minY)) : 0.5;
-        return (h - padding) - t * (h - padding * 2);
-    }
-
-    // Clear
-    ctx.clearRect(0, 0, w, h);
-
-    // Axes
-    ctx.strokeStyle = 'rgba(0,0,0,0.25)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(padding, padding);
-    ctx.lineTo(padding, h - padding);
-    ctx.lineTo(w - padding, h - padding);
-    ctx.stroke();
-
-    // Y ticks
-    ctx.fillStyle = 'rgba(0,0,0,0.7)';
-    ctx.font = '12px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif';
-    const yTicks = 4;
-    for (let i = 0; i <= yTicks; i += 1) {
-        const v = minY + (i / yTicks) * (maxY - minY);
-        const y = yToPx(v);
-        ctx.strokeStyle = 'rgba(0,0,0,0.08)';
-        ctx.beginPath();
-        ctx.moveTo(padding, y);
-        ctx.lineTo(w - padding, y);
-        ctx.stroke();
-        ctx.fillText(`${v.toFixed(1)}%`, 6, y + 4);
-    }
-
-    // X ticks (evenly spaced)
-    const xTickSet = new Set();
-    xTickSet.add(minX);
-    xTickSet.add(maxX);
-
-    const targetXTicks = 10;
-    const xStep = Math.max(1, Math.round(maxX / targetXTicks));
-    for (let v = xStep; v < maxX; v += xStep) {
-        if (v >= minX) {
-            xTickSet.add(v);
-        }
-    }
-    // Always label scenario points so users see what was computed.
-    normalizedPoints.forEach((p) => xTickSet.add(p.runs));
-
-    const xTicks = Array.from(xTickSet).sort((a, b) => a - b);
-    ctx.font = '11px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif';
-    ctx.fillStyle = 'rgba(0,0,0,0.7)';
-    let lastLabelX = -Infinity;
-    xTicks.forEach((v) => {
-        const x = xToPx(v);
-
-        // Vertical grid line
-        ctx.strokeStyle = 'rgba(0,0,0,0.06)';
-        ctx.beginPath();
-        ctx.moveTo(x, padding);
-        ctx.lineTo(x, h - padding);
-        ctx.stroke();
-
-        // Tick mark
-        ctx.strokeStyle = 'rgba(0,0,0,0.18)';
-        ctx.beginPath();
-        ctx.moveTo(x, h - padding);
-        ctx.lineTo(x, h - padding + 5);
-        ctx.stroke();
-
-        // Label (skip if too close to previous to avoid clutter)
-        if ((x - lastLabelX) >= 28 || v === minX || v === maxX) {
-            const label = String(v);
-            const tw = ctx.measureText(label).width;
-            ctx.fillText(label, x - (tw / 2), h - 12);
-            lastLabelX = x;
-        }
-    });
-
-    // Line
-    ctx.strokeStyle = '#0d6efd';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    normalizedPoints.forEach((p, idx) => {
-        const x = xToPx(p.runs);
-        const y = yToPx(p.margin);
-        if (idx === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-    });
-    ctx.stroke();
-
-    // Points
-    ctx.fillStyle = '#0d6efd';
-    normalizedPoints.forEach((p) => {
-        const x = xToPx(p.runs);
-        const y = yToPx(p.margin);
-        ctx.beginPath();
-        ctx.arc(x, y, 3, 0, Math.PI * 2);
-        ctx.fill();
-    });
-
-    // Margin labels per computed point
-    ctx.font = '10px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif';
-    ctx.textBaseline = 'middle';
-    normalizedPoints.forEach((p) => {
-        const x = xToPx(p.runs);
-        const y = yToPx(p.margin);
-        const label = `${Number(p.margin).toFixed(1)}%`;
-        // Simple outline for readability
-        ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-        ctx.lineWidth = 3;
-        ctx.strokeText(label, x + 6, y - 10);
-        ctx.fillStyle = 'rgba(13,110,253,0.95)';
-        ctx.fillText(label, x + 6, y - 10);
-        ctx.fillStyle = '#0d6efd';
-    });
-
-    // X axis label
-    ctx.fillStyle = 'rgba(0,0,0,0.7)';
-    ctx.font = '12px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif';
-    ctx.fillText('runs', padding, padding - 10);
-}
-
-function pickBestRunPoint(points) {
-    if (!Array.isArray(points) || points.length === 0) return null;
-    let best = null;
-    points.forEach((p) => {
-        const runs = Number(p?.runs) || 0;
-        const margin = Number(p?.margin);
-        const revenue = Number(p?.revenue);
-        const profit = Number(p?.profit);
-        if (!(runs > 0)) return;
-        if (!Number.isFinite(margin)) return;
-        if (!Number.isFinite(revenue) || revenue <= 0) return;
-        if (!best) {
-            best = p;
-            return;
-        }
-        const bestMargin = Number(best?.margin);
-        if (margin > bestMargin + 1e-9) {
-            best = p;
-            return;
-        }
-        // Tie-break: prefer higher profit if margins are equal-ish.
-        if (Math.abs(margin - bestMargin) <= 1e-6) {
-            const bestProfit = Number(best?.profit);
-            if (Number.isFinite(profit) && Number.isFinite(bestProfit) && profit > bestProfit) {
-                best = p;
-            }
-        }
-    });
-    return best;
-}
-
-function buildRunSearchCandidates(maxRuns) {
-    const maxValue = Math.max(1, Number(maxRuns) || 1);
-    const set = new Set();
-
-    const addRange = (start, end, step) => {
-        const s = Math.max(1, Math.floor(Number(start) || 1));
-        const e = Math.max(1, Math.floor(Number(end) || 1));
-        const st = Math.max(1, Math.floor(Number(step) || 1));
-        for (let r = s; r <= e; r += st) {
-            set.add(r);
-        }
-    };
-
-    // Dense sampling for small run counts (rounding effects are strongest here).
-    if (maxValue <= 250) {
-        addRange(1, maxValue, 1);
-        return Array.from(set).sort((a, b) => a - b);
-    }
-
-    addRange(1, Math.min(50, maxValue), 1);
-    addRange(60, Math.min(500, maxValue), 10);
-    addRange(600, Math.min(2000, maxValue), 50);
-
-    if (maxValue > 2000) {
-        const step = Math.max(100, Math.round(maxValue / 60));
-        addRange(2500, maxValue, step);
-    }
-
-    set.add(maxValue);
-    return Array.from(set).sort((a, b) => a - b);
-}
-
-function renderBestRunSummary(bestEl, bestPoint, label) {
-    if (!bestEl) return;
-    if (!bestPoint) {
-        bestEl.textContent = '';
-        return;
-    }
-    const runs = Number(bestPoint?.runs) || 0;
-    const margin = Number(bestPoint?.margin);
-    const profit = Number(bestPoint?.profit);
-    const revenue = Number(bestPoint?.revenue);
-
-    if (!(runs > 0) || !Number.isFinite(margin)) {
-        bestEl.textContent = '';
-        return;
-    }
-
-    const parts = [];
-    if (label) parts.push(`<span class="text-muted">${label}:</span>`);
-    parts.push(`<span class="badge text-bg-primary">${__('Best')} ${margin.toFixed(1)}% @ ${runs} runs</span>`);
-    if (Number.isFinite(profit) && Number.isFinite(revenue) && revenue > 0) {
-        parts.push(`<span class="text-muted">${__('Profit')} ${formatPrice(profit)}</span>`);
-    }
-    bestEl.innerHTML = parts.join(' ');
-}
-
-function renderBestRunConfigDetails(bestPoint) {
-    const detailsEl = document.getElementById('runOptimizedBestConfigDetails');
-    const preEl = document.getElementById('runOptimizedBestConfigPre');
-    const hintEl = document.getElementById('runOptimizedBestConfigHint');
-    const copyBtn = document.getElementById('runOptimizedCopyBestConfig');
-
-    if (!detailsEl || !preEl) return;
-
-    const cfg = bestPoint && bestPoint.config;
-    if (!cfg || typeof cfg !== 'object' || !Array.isArray(cfg.buy)) {
-        detailsEl.style.display = 'none';
-        preEl.textContent = '';
-        if (hintEl) hintEl.textContent = '';
-        return;
-    }
-
-    const runs = Number(bestPoint?.runs) || 0;
-    const margin = Number(bestPoint?.margin);
-
-    const lines = [];
-    lines.push(`runs: ${runs}`);
-    if (Number.isFinite(margin)) lines.push(`margin_pct: ${margin.toFixed(4)}`);
-    lines.push(`craftables_total: ${Number(cfg.craftablesCount) || 0}`);
-    lines.push(`buy_count: ${Number(cfg.buyCount) || 0}`);
-    lines.push(`prod_count: ${Number(cfg.prodCount) || 0}`);
-    lines.push('');
-    lines.push('BUY:');
-    cfg.buy.forEach((e) => {
-        const id = Number(e?.typeId) || 0;
-        const name = String(e?.typeName || '').trim();
-        lines.push(`- ${id}${name ? `  ${name}` : ''}`);
-    });
-
-    preEl.textContent = lines.join('\n');
-    detailsEl.style.display = '';
-    if (hintEl) {
-        hintEl.textContent = __('This is the best per-run optimized Buy/Prod configuration for the selected runs value.');
-    }
-
-    if (copyBtn && !copyBtn.__indyHubBound) {
-        copyBtn.__indyHubBound = true;
-        copyBtn.addEventListener('click', async () => {
-            const text = preEl.textContent || '';
-            try {
-                if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-                    await navigator.clipboard.writeText(text);
-                    return;
-                }
-            } catch (e) {
-                // ignore
-            }
-            try {
-                const ta = document.createElement('textarea');
-                ta.value = text;
-                document.body.appendChild(ta);
-                ta.select();
-                document.execCommand('copy');
-                ta.remove();
-            } catch (e) {
-                // ignore
-            }
-        });
-    }
-}
-
-async function findOptimalRuns({
-    searchMaxRuns,
-    pricesSnapshot,
-    mode,
-    decisions,
-    statusEl,
-}) {
-    const maxValue = Math.max(1, Math.floor(Number(searchMaxRuns) || 1));
-    const candidates = buildRunSearchCandidates(maxValue);
-    const results = [];
-
-    const computeForPayload = (payload) => {
-        if (mode === 'dashboard' && decisions instanceof Map) {
-            return computeOptimizedProfitabilityForPayload(payload, pricesSnapshot, { decisions });
-        }
-        return computeOptimizedProfitabilityForPayload(payload, pricesSnapshot);
-    };
-
-    for (let i = 0; i < candidates.length; i += 1) {
-        const runs = candidates[i];
-        if (statusEl) {
-            statusEl.textContent = __(`Searching best runs: ${i + 1}/${candidates.length} (runs=${runs})…`);
-        }
-        const payload = await fetchBlueprintPayloadForRuns(runs);
-        const snap = computeForPayload(payload);
-        results.push(snap);
-    }
-
-    // Local refinement around the best candidate (±50 runs) when the range is large.
-    const bestCoarse = pickBestRunPoint(results);
-    if (bestCoarse && maxValue > 250) {
-        const center = Math.max(1, Math.floor(Number(bestCoarse.runs) || 1));
-        const start = Math.max(1, center - 50);
-        const end = Math.min(maxValue, center + 50);
-        const refineRuns = [];
-        for (let r = start; r <= end; r += 1) refineRuns.push(r);
-
-        for (let i = 0; i < refineRuns.length; i += 1) {
-            const runs = refineRuns[i];
-            if (statusEl) {
-                statusEl.textContent = __(`Refining: ${i + 1}/${refineRuns.length} (runs=${runs})…`);
-            }
-            const payload = await fetchBlueprintPayloadForRuns(runs);
-            const snap = computeForPayload(payload);
-            results.push(snap);
-        }
-    }
-
-    return { best: pickBestRunPoint(results), samples: results.length };
-}
-
-function initializeRunOptimizedTab() {
-    const tabBtn = document.getElementById('run-optimized-tab-btn');
-    if (!tabBtn) return;
-
-    let inFlight = false;
-    let initialized = false;
-
-    // Persist state across tab shows so click handlers can reuse it.
-    const state = {
-        pricesSnapshot: null,
-        ids: null,
-        decisions: null,
-        mode: 'dashboard',
-        ui: {},
-        computeAndRenderCurve: null,
-    };
-    tabBtn.addEventListener('shown.bs.tab', async function () {
-
-        const modeToggleEl = document.getElementById('runOptimizedUseDashboardDecisions');
-        const searchMaxRunsEl = document.getElementById('runOptimizedSearchMaxRuns');
-        const findBestBtn = document.getElementById('runOptimizedFindBestBtn');
-        const bestResultEl = document.getElementById('runOptimizedBestResult');
-
-        state.ui = { modeToggleEl, searchMaxRunsEl, findBestBtn, bestResultEl };
-
-        function getRunOptimizedMode() {
-            return (modeToggleEl && modeToggleEl.checked) ? 'dashboard' : 'optimize';
-        }
-
-        async function computeAndRenderCurve() {
-            if (inFlight) return;
-            inFlight = true;
-
-            const statusEl = document.getElementById('run-optimized-status');
-            const canvas = document.getElementById('runOptimizedChart');
-
-            craftBPDebugLog('[RunOptimized] Tab shown');
-            craftBPDebugLog('[RunOptimized] URL', window.location && window.location.href);
-            craftBPDebugLog('[RunOptimized] SimulationAPI available?', Boolean(window.SimulationAPI));
-            craftBPDebugLog('[RunOptimized] SimulationAPI methods', {
-                getPrice: typeof window.SimulationAPI?.getPrice,
-                setPrice: typeof window.SimulationAPI?.setPrice,
-                refreshFromDom: typeof window.SimulationAPI?.refreshFromDom,
-                getState: typeof window.SimulationAPI?.getState,
-                getFinancialItems: typeof window.SimulationAPI?.getFinancialItems,
-            });
-
-            const mode = getRunOptimizedMode();
-            state.mode = mode;
-
-            try {
-                if (statusEl) {
-                    statusEl.className = 'alert alert-info mb-3';
-                    statusEl.textContent = __('Loading prices and computing profitability curve…');
-                }
-
-                // Ensure we have fuzzwork buy prices available.
-                const currentTree = window.BLUEPRINT_DATA?.materials_tree;
-                const productTypeId = Number(window.BLUEPRINT_DATA?.product_type_id || window.BLUEPRINT_DATA?.productTypeId || CRAFT_BP?.productTypeId) || 0;
-
-                const ids = Array.from(collectTypeIdsFromMaterialsTree(currentTree || []));
-                if (productTypeId) ids.push(String(productTypeId));
-                state.ids = ids;
-
-                craftBPDebugLog('[RunOptimized] productTypeId', productTypeId);
-                craftBPDebugLog('[RunOptimized] IDs count', ids.length);
-                craftBPDebugLog('[RunOptimized] IDs sample (first 25)', ids.slice(0, 25));
-                craftBPDebugLog('[RunOptimized] fuzzworkUrl (CRAFT_BP)', CRAFT_BP.fuzzworkUrl);
-                craftBPDebugLog('[RunOptimized] fuzzworkUrl (BLUEPRINT_DATA)', window.BLUEPRINT_DATA?.urls?.fuzzwork_price || window.BLUEPRINT_DATA?.fuzzwork_price_url);
-
-                if (typeof fetchAllPrices === 'function' && ids.length > 0 && window.SimulationAPI && typeof window.SimulationAPI.setPrice === 'function') {
-                    craftBPDebugLog('[RunOptimized] Fetching Fuzzwork prices…');
-                    const prices = await fetchAllPrices(ids);
-
-                    const priceKeys = prices && typeof prices === 'object' ? Object.keys(prices) : [];
-                    craftBPDebugLog('[RunOptimized] Fuzzwork prices keys', priceKeys.length);
-                    if (productTypeId) {
-                        const k = String(productTypeId);
-                        craftBPDebugLog('[RunOptimized] Fuzzwork product raw price', prices[k] ?? prices[String(parseInt(k, 10))]);
-                    }
-
-                    let missingCount = 0;
-                    let zeroCount = 0;
-                    ids.forEach((tid) => {
-                        const raw = prices[tid] ?? prices[String(parseInt(tid, 10))];
-                        if (raw === undefined || raw === null) {
-                            missingCount += 1;
-                            return;
-                        }
-                        const p = parseFloat(raw);
-                        if (!(p > 0)) {
-                            zeroCount += 1;
-                        }
-                    });
-                    craftBPDebugLog('[RunOptimized] Fuzzwork missing count', missingCount, 'zero/non-positive count', zeroCount);
-
-                    ids.forEach((tid) => {
-                        const raw = prices[tid] ?? prices[String(parseInt(tid, 10))];
-                        const price = raw != null ? (parseFloat(raw) || 0) : 0;
-                        if (price > 0) {
-                            window.SimulationAPI.setPrice(tid, 'fuzzwork', price);
-                        }
-                    });
-
-                    // Ensure final product has a sell price fallback when not explicitly set.
-                    if (productTypeId) {
-                        const finalKey = String(productTypeId);
-                        const rawFinal = prices[finalKey] ?? prices[String(parseInt(finalKey, 10))];
-                        const finalPrice = rawFinal != null ? (parseFloat(rawFinal) || 0) : 0;
-                        if (finalPrice > 0 && typeof window.SimulationAPI.getPrice === 'function') {
-                            const existingSale = window.SimulationAPI.getPrice(productTypeId, 'sale');
-                            const existingSaleValue = existingSale && typeof existingSale.value === 'number' ? existingSale.value : 0;
-                            if (!(existingSaleValue > 0)) {
-                                window.SimulationAPI.setPrice(productTypeId, 'sale', finalPrice);
-                            }
-                        }
-                    }
-                }
-
-                const pricesSnapshot = getPriceSnapshotFromSimulation(ids);
-                state.pricesSnapshot = pricesSnapshot;
-
-                craftBPDebugLog('[RunOptimized] Snapshot size', pricesSnapshot instanceof Map ? pricesSnapshot.size : null);
-                if (productTypeId) {
-                    craftBPDebugLog('[RunOptimized] Snapshot product record', pricesSnapshot.get(Number(productTypeId)));
-                    if (window.SimulationAPI && typeof window.SimulationAPI.getPrice === 'function') {
-                        craftBPDebugLog('[RunOptimized] SimulationAPI product buy/sale', {
-                            buy: window.SimulationAPI.getPrice(productTypeId, 'buy'),
-                            sale: window.SimulationAPI.getPrice(productTypeId, 'sale'),
-                        });
-                    }
-                }
-
-                const maxRuns = Number(document.getElementById('runsInput')?.value || window.BLUEPRINT_DATA?.num_runs || 1);
-                const scenarios = generateRunScenarios(maxRuns);
-
-                craftBPDebugLog('[RunOptimized] maxRuns', maxRuns);
-                craftBPDebugLog('[RunOptimized] scenarios', scenarios);
-
-                // Default search upper bound.
-                if (searchMaxRunsEl && !String(searchMaxRunsEl.value || '').trim()) {
-                    const suggested = Math.min(10000, Math.max(maxRuns, maxRuns * 10));
-                    searchMaxRunsEl.value = String(suggested);
-                }
-
-                // Keep SimulationAPI switch state aligned with the DOM without touching prices.
-                syncSimulationSwitchStatesFromDom();
-                const decisions = getCurrentDecisionsFromSimulationOrDom();
-                state.decisions = decisions;
-
-                const results = [];
-                for (let i = 0; i < scenarios.length; i += 1) {
-                    const runs = scenarios[i];
-                    if (statusEl) {
-                        statusEl.textContent = __(`Computing ${i + 1}/${scenarios.length} (runs=${runs})…`);
-                    }
-
-                    const payload = await fetchBlueprintPayloadForRuns(runs);
-                    craftBPDebugLog('[RunOptimized] payload received', {
-                        type_id: payload?.type_id,
-                        bp_type_id: payload?.bp_type_id,
-                        runs: payload?.num_runs,
-                        product_type_id: payload?.product_type_id,
-                        final_product_qty: payload?.final_product_qty,
-                        recipe_map_keys: payload?.recipe_map ? Object.keys(payload.recipe_map).length : 0,
-                        materials_tree_roots: Array.isArray(payload?.materials_tree) ? payload.materials_tree.length : 0,
-                    });
-
-                    const snap = (mode === 'dashboard')
-                        ? computeOptimizedProfitabilityForPayload(payload, pricesSnapshot, { decisions })
-                        : computeOptimizedProfitabilityForPayload(payload, pricesSnapshot);
-                    results.push(snap);
-
-                    craftBPDebugLog('[RunOptimized] scenario result', {
-                        runs: snap?.runs,
-                        cost: snap?.cost,
-                        revenue: snap?.revenue,
-                        profit: snap?.profit,
-                        marginPct: snap?.margin,
-                    });
-                }
-
-                // Debug: compare dashboard margin vs maxRuns point margin only in dashboard-aligned mode.
-                if (mode === 'dashboard' && window.INDY_HUB_DEBUG && window.SimulationAPI && typeof window.SimulationAPI.getFinancialItems === 'function') {
-                    try {
-                        const api = window.SimulationAPI;
-                        const productTypeIdDbg = Number(window.BLUEPRINT_DATA?.product_type_id || window.BLUEPRINT_DATA?.productTypeId || CRAFT_BP?.productTypeId) || 0;
-
-                        let costTotal = 0;
-                        const items = api.getFinancialItems() || [];
-                        items.forEach((item) => {
-                            const typeId = Number(item.typeId ?? item.type_id) || 0;
-                            if (!typeId || (productTypeIdDbg && typeId === productTypeIdDbg)) return;
-                            const qty = Math.max(0, Math.ceil(Number(item.quantity ?? item.qty ?? 0))) || 0;
-                            if (!qty) return;
-                            const unit = api.getPrice(typeId, 'buy');
-                            const unitPrice = unit && typeof unit.value === 'number' ? unit.value : 0;
-                            if (unitPrice > 0) costTotal += unitPrice * qty;
-                        });
-
-                        let revenueTotal = 0;
-                        try {
-                            revenueTotal += computeFinalOutputRevenue(api);
-                        } catch (e) {
-                            // ignore
-                        }
-
-                        let surplusRevenue = 0;
-                        const cycles = (typeof api.getProductionCycles === 'function') ? (api.getProductionCycles() || []) : [];
-                        if (Array.isArray(cycles) && cycles.length) {
-                            cycles.forEach((entry) => {
-                                const typeId = Number(entry.typeId || entry.type_id || 0) || 0;
-                                const surplusQty = Number(entry.surplus) || 0;
-                                if (!typeId || surplusQty <= 0) return;
-                                if (productTypeIdDbg && typeId === productTypeIdDbg) return;
-                                const unit = api.getPrice(typeId, 'sale');
-                                const unitPrice = unit && typeof unit.value === 'number' ? unit.value : 0;
-                                if (unitPrice > 0) surplusRevenue += unitPrice * surplusQty;
-                            });
-                        }
-                        revenueTotal += surplusRevenue;
-
-                        const dashboardMargin = revenueTotal > 0 ? ((revenueTotal - costTotal) / revenueTotal) * 100 : 0;
-                        const maxRunsPoint = results.find((r) => Number(r?.runs) === Number(maxRuns));
-
-                        const domSummaryMargin = document.getElementById('financialSummaryMargin')?.textContent || null;
-                        const domQuickMargin = document.getElementById('quickMargin')?.textContent || null;
-                        const domHeroMargin = document.getElementById('heroMargin')?.textContent || null;
-                        craftBPDebugLog('[RunOptimized] dashboard vs maxRuns point', {
-                            maxRuns,
-                            dashboard: { marginPct: dashboardMargin, revenue: revenueTotal, cost: costTotal, surplusRevenue },
-                            point: maxRunsPoint || null,
-                            dom: { financialSummaryMargin: domSummaryMargin, quickMargin: domQuickMargin, heroMargin: domHeroMargin },
-                        });
-
-                        try {
-                            console.log('[RunOptimized] dashboard vs maxRuns point JSON', JSON.stringify({
-                                maxRuns,
-                                dashboard: { marginPct: dashboardMargin, revenue: revenueTotal, cost: costTotal, surplusRevenue },
-                                point: maxRunsPoint || null,
-                                dom: { financialSummaryMargin: domSummaryMargin, quickMargin: domQuickMargin, heroMargin: domHeroMargin },
-                            }));
-                        } catch (e) {
-                            // ignore
-                        }
-                    } catch (e) {
-                        craftBPDebugLog('[RunOptimized] dashboard compare failed', e);
-                    }
-                }
-
-                renderRunOptimizedChart(canvas, results);
-
-                // Render a compact list of computed points (runs -> margin %)
-                const pointsListEl = document.getElementById('runOptimizedPointsList');
-                if (pointsListEl) {
-                    const items = results
-                        .slice()
-                        .sort((a, b) => (Number(a?.runs) || 0) - (Number(b?.runs) || 0))
-                        .map((r) => {
-                            const runs = Number(r?.runs) || 0;
-                            const margin = Number.isFinite(Number(r?.margin)) ? Number(r.margin) : 0;
-                            return `<span class="badge text-bg-light border me-1 mb-1">${runs}: ${margin.toFixed(1)}%</span>`;
-                        })
-                        .join('');
-
-                    pointsListEl.innerHTML = items || '';
-                }
-
-                // Show best run within displayed points.
-                renderBestRunSummary(bestResultEl, pickBestRunPoint(results), __('Best within chart'));
-
-                // Hint if flat 0.
-                const productTypeIdForHint = Number(window.BLUEPRINT_DATA?.product_type_id || window.BLUEPRINT_DATA?.productTypeId || CRAFT_BP?.productTypeId) || 0;
-                const api = window.SimulationAPI;
-                const unitSale = (api && typeof api.getPrice === 'function') ? api.getPrice(productTypeIdForHint, 'sale') : null;
-                const unitSaleValue = unitSale && typeof unitSale.value === 'number' ? unitSale.value : 0;
-                const anyNonZero = results.some(r => Number(r?.margin) !== 0);
-
-                if (statusEl) {
-                    if (!anyNonZero && productTypeIdForHint && unitSaleValue <= 0) {
-                        statusEl.className = 'alert alert-warning mb-3';
-                        statusEl.textContent = __('Profitability curve is flat because the final product sell price is 0. Set a Sale price (or load prices) and retry.');
-                    } else {
-                        statusEl.className = 'alert alert-success mb-3';
-                        statusEl.textContent = (mode === 'dashboard')
-                            ? __('Profitability curve computed (dashboard-aligned).')
-                            : __('Profitability curve computed (re-optimized per run).');
-                    }
-                }
-            } catch (e) {
-                console.error('[IndyHub] Run optimized failed', e);
-                const statusEl = document.getElementById('run-optimized-status');
-                if (statusEl) {
-                    statusEl.className = 'alert alert-warning mb-3';
-                    statusEl.textContent = __('Failed to compute profitability curve.');
-                }
-            } finally {
-                inFlight = false;
-            }
-        }
-
-        // Keep a reference to the latest compute function so one-time handlers can call it.
-        state.computeAndRenderCurve = computeAndRenderCurve;
-
-        if (!initialized) {
-            // Recompute curve when the mode toggle changes.
-            if (modeToggleEl) {
-                modeToggleEl.addEventListener('change', () => {
-                    state.computeAndRenderCurve?.();
-                });
-            }
-
-            // Find optimal runs beyond the chart range.
-            if (findBestBtn) {
-                findBestBtn.addEventListener('click', async () => {
-                    if (inFlight) return;
-
-                    const statusEl = document.getElementById('run-optimized-status');
-                    const modeToggle = state.ui?.modeToggleEl;
-                    const mode = (modeToggle && modeToggle.checked) ? 'dashboard' : 'optimize';
-
-                    // Make sure we have a price snapshot.
-                    if (!state.pricesSnapshot) {
-                        await state.computeAndRenderCurve?.();
-                    }
-
-                    const maxValue = Math.max(1, Math.floor(Number(state.ui?.searchMaxRunsEl?.value || 0) || 1));
-                    const decisions = (mode === 'dashboard')
-                        ? (state.decisions || getCurrentDecisionsFromSimulationOrDom())
-                        : null;
-
-                    try {
-                        if (statusEl) {
-                            statusEl.className = 'alert alert-info mb-3';
-                            statusEl.textContent = __(`Searching optimal runs up to ${maxValue}…`);
-                        }
-
-                        const res = await findOptimalRuns({
-                            searchMaxRuns: maxValue,
-                            pricesSnapshot: state.pricesSnapshot,
-                            mode,
-                            decisions,
-                            statusEl,
-                        });
-
-                        renderBestRunSummary(state.ui?.bestResultEl, res.best, __(`Best up to ${maxValue}`));
-                        renderBestRunConfigDetails(res.best);
-                        if (statusEl) {
-                            statusEl.className = 'alert alert-success mb-3';
-                            statusEl.textContent = __(`Optimal runs found (samples=${res.samples}).`);
-                        }
-                    } catch (e) {
-                        console.error('[IndyHub] Run optimized best-runs search failed', e);
-                        if (statusEl) {
-                            statusEl.className = 'alert alert-warning mb-3';
-                            statusEl.textContent = __('Failed to search optimal runs.');
-                        }
-                    }
-                });
-            }
-
-            initialized = true;
-        }
-
-            await computeAndRenderCurve();
-        });
-    }
 
     /**
  * Collect current buy/craft decisions from the tree
@@ -4680,6 +3745,35 @@ function initializeCollapseHandlers() {
     }
 }
 
+function initializeDecisionStrategyTab() {
+    const tabBtn = document.getElementById('run-optimized-tab-btn');
+    const refreshBtn = document.getElementById('decisionStrategyRefreshBtn');
+    const toleranceInput = document.getElementById('decisionBuyToleranceInput');
+
+    if (tabBtn && tabBtn.dataset.decisionStrategyBound !== 'true') {
+        tabBtn.addEventListener('shown.bs.tab', () => {
+            renderDecisionStrategyPanel({ ensurePrices: true, force: true });
+        });
+        tabBtn.dataset.decisionStrategyBound = 'true';
+    }
+
+    if (refreshBtn && refreshBtn.dataset.decisionStrategyBound !== 'true') {
+        refreshBtn.addEventListener('click', () => {
+            renderDecisionStrategyPanel({ ensurePrices: true, force: true });
+        });
+        refreshBtn.dataset.decisionStrategyBound = 'true';
+    }
+
+    if (toleranceInput && toleranceInput.dataset.decisionStrategyBound !== 'true') {
+        const refreshAnalysis = () => {
+            renderDecisionStrategyPanel({ ensurePrices: false, force: true });
+        };
+        toleranceInput.addEventListener('input', refreshAnalysis);
+        toleranceInput.addEventListener('change', refreshAnalysis);
+        toleranceInput.dataset.decisionStrategyBound = 'true';
+    }
+}
+
 /**
  * Initialize financial calculations
  */
@@ -4747,7 +3841,14 @@ function initializeFinancialCalculations() {
         });
     }
 
-    const initialFinancialSyncPromise = fetchAllPrices(typeIds).then(prices => {
+    const restoredFuzzworkPrices = window.craftBPFlags?.restoredSessionState?.fuzzworkPrices;
+    const hasRestoredFuzzworkPrices = Boolean(
+        restoredFuzzworkPrices
+        && typeof restoredFuzzworkPrices === 'object'
+        && Object.keys(restoredFuzzworkPrices).length > 0
+    );
+
+    function applyResolvedPriceState(prices) {
         populatePrices(fetchInputs, prices);
         stashExtraFuzzworkPrices(prices);
         applyManualPriceOverrides(window.craftBPFlags?.restoredSessionState?.manualPrices);
@@ -4758,23 +3859,19 @@ function initializeFinancialCalculations() {
         }
         recalcFinancials();
         return Promise.resolve();
-    });
+    }
+
+    const initialFinancialSyncPromise = (window.BLUEPRINT_DATA?.project_ref && hasRestoredFuzzworkPrices)
+        ? Promise.resolve(applyResolvedPriceState(restoredFuzzworkPrices))
+        : fetchAllPrices(typeIds).then(prices => applyResolvedPriceState(prices));
 
     // Bind Load Fuzzwork Prices button
     const loadBtn = document.getElementById('loadFuzzworkBtn');
     if (loadBtn) {
         loadBtn.addEventListener('click', function() {
             fetchAllPrices(typeIds).then(prices => {
-                populatePrices(fetchInputs, prices);
-                stashExtraFuzzworkPrices(prices);
-                applyManualPriceOverrides(window.craftBPFlags?.restoredSessionState?.manualPrices);
-                if (typeof updateFinancialTabFromState === 'function') {
-                    Promise.resolve(updateFinancialTabFromState()).then(() => {
-                        recalcFinancials();
-                    });
-                    return;
-                }
-                recalcFinancials();
+                applyResolvedPriceState(prices);
+                persistCraftPageSessionState();
             });
         });
     }
@@ -4876,6 +3973,10 @@ function initializeMETEHandlers() {
         button.addEventListener('shown.bs.tab', function(event) {
             const targetTab = event.target.getAttribute('data-tab-name');
             craftBPDebugLog(`Tab switched to: ${targetTab}`);
+
+            if (targetTab === 'stock' && typeof updateStockManagementTabFromState === 'function') {
+                updateStockManagementTabFromState(true);
+            }
 
             const sourceTab = String(window.craftBPFlags?.pendingWorkspaceSourceTab || '').trim();
 
@@ -5932,6 +5033,8 @@ function renderStructurePlanner() {
  */
 function recalcFinancials() {
     let materialCostTotal = 0;
+    let materialInvestmentTotal = 0;
+    let stockValueTotal = 0;
     let revTotal = 0;
 
     document.querySelectorAll('#financialItemsBody tr').forEach(tr => {
@@ -5971,11 +5074,19 @@ function recalcFinancials() {
             }
 
             const cost = unitCost * qty;
+            const allocatedQty = Math.max(0, Math.floor(Number(tr.dataset.stockAllocatedQty || 0)));
+            const remainingQty = Math.max(0, Math.ceil(Number(tr.dataset.buyRemainingQty || Math.max(0, qty - allocatedQty))));
+            const investmentCost = unitCost * remainingQty;
+            const stockValue = unitCost * allocatedQty;
             const totalCostEl = tr.querySelector('.total-cost');
             if (totalCostEl) {
-                totalCostEl.textContent = formatPrice(cost);
+                totalCostEl.innerHTML = stockValue > 0
+                    ? `${escapeHtml(formatPrice(investmentCost))}<div class="small text-muted">${escapeHtml(__('Full cost'))}: ${escapeHtml(formatPrice(cost))}</div>`
+                    : escapeHtml(formatPrice(investmentCost));
             }
             materialCostTotal += cost;
+            materialInvestmentTotal += investmentCost;
+            stockValueTotal += stockValue;
         }
 
         if (revInput) {
@@ -6049,6 +5160,7 @@ function recalcFinancials() {
     const structureSummary = renderStructureFinancialSummary();
     const installationCostTotal = structureSummary.totalInstallation;
     const costTotal = materialCostTotal + installationCostTotal;
+    const investmentNeededTotal = materialInvestmentTotal + installationCostTotal;
 
     const profit = revTotal - costTotal;
     // Margin = profit / revenue (not markup on cost).
@@ -6056,8 +5168,11 @@ function recalcFinancials() {
     const marginText = marginValue.toFixed(1);
 
     const grandTotalMaterialCostEl = document.querySelector('.grand-total-material-cost');
+    const grandTotalMaterialInvestmentEl = document.querySelector('.grand-total-material-investment');
     const grandTotalInstallationEl = document.querySelector('.grand-total-installation');
     const grandTotalFacilityTaxEl = document.querySelector('.grand-total-facility-tax');
+    const grandTotalStockValueEl = document.querySelector('.grand-total-stock-value');
+    const grandTotalInvestmentNeededEl = document.querySelector('.grand-total-investment-needed');
     const grandTotalCostEl = document.querySelector('.grand-total-cost');
     const grandTotalRevEl = document.querySelector('.grand-total-rev');
     const profitEl = document.querySelector('.profit');
@@ -6067,12 +5182,24 @@ function recalcFinancials() {
         grandTotalMaterialCostEl.textContent = formatPrice(materialCostTotal);
     }
 
+    if (grandTotalMaterialInvestmentEl) {
+        grandTotalMaterialInvestmentEl.textContent = formatPrice(materialInvestmentTotal);
+    }
+
     if (grandTotalInstallationEl) {
         grandTotalInstallationEl.textContent = formatPrice(installationCostTotal);
     }
 
     if (grandTotalFacilityTaxEl) {
         grandTotalFacilityTaxEl.textContent = formatPrice(structureSummary.facilityTax);
+    }
+
+    if (grandTotalStockValueEl) {
+        grandTotalStockValueEl.textContent = formatPrice(stockValueTotal);
+    }
+
+    if (grandTotalInvestmentNeededEl) {
+        grandTotalInvestmentNeededEl.textContent = formatPrice(investmentNeededTotal);
     }
 
     if (grandTotalCostEl) {
@@ -6098,6 +5225,16 @@ function recalcFinancials() {
     const summaryMaterialCostEl = document.getElementById('financialSummaryMaterialCost');
     if (summaryMaterialCostEl) {
         summaryMaterialCostEl.textContent = formatPrice(materialCostTotal);
+    }
+
+    const summaryStockValueEl = document.getElementById('financialSummaryStockValue');
+    if (summaryStockValueEl) {
+        summaryStockValueEl.textContent = formatPrice(stockValueTotal);
+    }
+
+    const summaryInvestmentNeededEl = document.getElementById('financialSummaryInvestmentNeeded');
+    if (summaryInvestmentNeededEl) {
+        summaryInvestmentNeededEl.textContent = formatPrice(investmentNeededTotal);
     }
 
     const summaryInstallationCostEl = document.getElementById('financialSummaryInstallationCost');
@@ -6492,6 +5629,148 @@ function updateNeededTabFromState(force = false) {
     }
 }
 
+function updateStockManagementTabFromState(force = false) {
+    const stockPane = document.getElementById('stock-pane');
+    if (!stockPane) {
+        return;
+    }
+    if (!force && !stockPane.classList.contains('active')) {
+        return;
+    }
+    renderCraftStockManagement();
+}
+
+function initializeStockManagementInteractions() {
+    const rowsBody = document.getElementById('stockManagementRows');
+    const resetButton = document.getElementById('stockResetAllocationsBtn');
+    if (rowsBody && rowsBody.dataset.stockBound !== 'true') {
+        const handleStockInput = (event) => {
+            const input = event.target.closest('.craft-stock-allocation-input[data-type-id]');
+            if (!input) {
+                return;
+            }
+            const typeId = Number(input.getAttribute('data-type-id')) || 0;
+            const maxQty = Math.max(0, Math.floor(Number(input.getAttribute('max') || 0)));
+            const nextValue = Math.min(maxQty, Math.max(0, Math.floor(Number(input.value) || 0)));
+            input.value = String(nextValue);
+            setCraftStockAllocation(typeId, nextValue);
+        };
+
+        rowsBody.addEventListener('input', handleStockInput);
+        rowsBody.addEventListener('change', handleStockInput);
+        rowsBody.dataset.stockBound = 'true';
+    }
+
+    if (resetButton && resetButton.dataset.stockBound !== 'true') {
+        resetButton.addEventListener('click', () => {
+            window.craftBPFlags = window.craftBPFlags || {};
+            window.craftBPFlags.stockAllocations = {};
+            if (typeof updateFinancialTabFromState === 'function') {
+                updateFinancialTabFromState();
+            }
+            renderCraftStockManagement();
+            computeNeededPurchases();
+            recalcFinancials();
+            persistCraftPageSessionState();
+        });
+        resetButton.dataset.stockBound = 'true';
+    }
+}
+
+function renderCraftStockManagement() {
+    const rowsBody = document.getElementById('stockManagementRows');
+    if (!rowsBody) {
+        return;
+    }
+
+    const rows = getCraftSourceRequirementRows();
+    const api = window.SimulationAPI;
+    let totalRequiredQty = 0;
+    let totalAllocatedQty = 0;
+    let totalRemainingQty = 0;
+    let totalStockValue = 0;
+
+    const renderedRows = rows.map((item) => {
+        const stockSummary = getCraftStockAllocationSummary(item.typeId, item.quantity);
+        const maxAllocatable = Math.min(stockSummary.requiredQty, stockSummary.availableQty);
+        const unitInfo = api && typeof api.getPrice === 'function' ? api.getPrice(item.typeId, 'buy') : { value: 0 };
+        const unitPrice = unitInfo && typeof unitInfo.value === 'number' ? unitInfo.value : 0;
+        const stockValue = unitPrice * stockSummary.allocatedQty;
+        const remainingValue = unitPrice * stockSummary.remainingQty;
+
+        totalRequiredQty += stockSummary.requiredQty;
+        totalAllocatedQty += stockSummary.allocatedQty;
+        totalRemainingQty += stockSummary.remainingQty;
+        totalStockValue += stockValue;
+
+        const characterMarkup = stockSummary.characters.length > 0
+            ? stockSummary.characters.map((entry) => `
+                <span class="badge bg-secondary-subtle text-secondary-emphasis">${escapeHtml(entry.characterName)}: ${formatInteger(entry.quantity)}</span>
+            `).join('')
+            : `<span class="small text-muted">${escapeHtml(getCraftCharacterStockSnapshot().scope_missing ? __('Assets scope missing') : __('No cached stock'))}</span>`;
+
+        return `
+            <tr>
+                <td>
+                    <div class="d-flex align-items-start gap-2">
+                        <img src="https://images.evetech.net/types/${item.typeId}/icon?size=32" alt="${escapeHtml(item.typeName)}" loading="lazy" decoding="async" fetchpriority="low" class="rounded eve-type-icon eve-type-icon--28" onerror="this.style.display='none';">
+                        <div>
+                            <div class="fw-semibold">${escapeHtml(item.typeName)}</div>
+                            <div class="small text-muted">${escapeHtml(item.marketGroup || __('Other'))}</div>
+                        </div>
+                    </div>
+                </td>
+                <td class="text-end">${formatInteger(stockSummary.requiredQty)}</td>
+                <td class="text-end">${formatInteger(stockSummary.availableQty)}</td>
+                <td class="text-end">
+                    <input type="number" min="0" max="${formatInteger(maxAllocatable)}" step="1" class="form-control form-control-sm text-end craft-stock-allocation-input" data-type-id="${item.typeId}" value="${formatInteger(stockSummary.allocatedQty)}" ${maxAllocatable > 0 ? '' : 'disabled'}>
+                </td>
+                <td class="text-end">${formatInteger(stockSummary.remainingQty)}</td>
+                <td class="text-end">${formatPrice(stockValue)}</td>
+                <td>
+                    <div class="d-flex flex-wrap gap-1">${characterMarkup}</div>
+                    ${remainingValue > 0 ? `<div class="small text-muted mt-1">${escapeHtml(__('Still to buy'))}: ${escapeHtml(formatPrice(remainingValue))}</div>` : ''}
+                </td>
+            </tr>
+        `;
+    });
+
+    rowsBody.innerHTML = renderedRows.length > 0
+        ? renderedRows.join('')
+        : `
+            <tr>
+                <td colspan="7" class="text-center text-muted py-4">${escapeHtml(__('No sourceable items require stock management right now.'))}</td>
+            </tr>
+        `;
+
+    const setText = (id, value) => {
+        const element = document.getElementById(id);
+        if (element) {
+            element.textContent = value;
+        }
+    };
+
+    setText('stockSummaryLineCount', formatInteger(rows.length));
+    setText('stockSummaryRequiredQty', formatInteger(totalRequiredQty));
+    setText('stockSummaryAllocatedQty', formatInteger(totalAllocatedQty));
+    setText('stockSummaryRemainingQty', formatInteger(totalRemainingQty));
+    setText('stockSummaryValue', formatPrice(totalStockValue));
+
+    const syncEl = document.getElementById('stockSummaryUpdated');
+    if (syncEl) {
+        syncEl.textContent = getCraftCharacterStockSnapshot().synced_at
+            ? new Date(getCraftCharacterStockSnapshot().synced_at).toLocaleString()
+            : __('No asset sync yet');
+    }
+
+    const scopeMissingEl = document.getElementById('stockScopeMissingNotice');
+    if (scopeMissingEl) {
+        scopeMissingEl.classList.toggle('d-none', !getCraftCharacterStockSnapshot().scope_missing);
+    }
+
+    initializeStockManagementInteractions();
+}
+
 /**
  * Compute needed purchase list based on user selections
  */
@@ -6512,51 +5791,12 @@ function computeNeededPurchases() {
         return;
     }
 
-    // Needed = leaf inputs + craftables switched to BUY (path-aware, handles shared children correctly).
-    const items = api.getNeededMaterials() || [];
-    const aggregated = new Map(); // typeId -> { typeId, name, qty, marketGroup }
-    items.forEach((item) => {
-        const typeId = Number(item.typeId ?? item.type_id) || 0;
-        if (!typeId) return;
-        const qty = Math.max(0, Math.ceil(Number(item.quantity ?? item.qty ?? 0))) || 0;
-        if (!qty) return;
-        const name = String(item.typeName || item.type_name || '');
-        const marketGroup = String(item.marketGroup || item.market_group || '');
-        const existing = aggregated.get(typeId) || { typeId, name, qty: 0, marketGroup };
-        existing.qty += qty;
-        if (!existing.name && name) existing.name = name;
-        if (!existing.marketGroup && marketGroup) existing.marketGroup = marketGroup;
-        aggregated.set(typeId, existing);
-    });
-
-    const ordering = getDashboardMaterialsOrdering();
-    const rows = Array.from(aggregated.values()).sort((a, b) => {
-        const typeA = Number(a.typeId) || 0;
-        const typeB = Number(b.typeId) || 0;
-
-        const dashboardA = ordering.itemOrder.get(typeA);
-        const dashboardB = ordering.itemOrder.get(typeB);
-        const groupA = (a.marketGroup || ordering.fallbackGroupName);
-        const groupB = (b.marketGroup || ordering.fallbackGroupName);
-
-        const groupIdxA = dashboardA ? dashboardA.groupIdx : (ordering.groupOrder.has(groupA) ? ordering.groupOrder.get(groupA) : Number.POSITIVE_INFINITY);
-        const groupIdxB = dashboardB ? dashboardB.groupIdx : (ordering.groupOrder.has(groupB) ? ordering.groupOrder.get(groupB) : Number.POSITIVE_INFINITY);
-        if (groupIdxA !== groupIdxB) {
-            return groupIdxA - groupIdxB;
-        }
-
-        const itemIdxA = dashboardA ? dashboardA.itemIdx : Number.POSITIVE_INFINITY;
-        const itemIdxB = dashboardB ? dashboardB.itemIdx : Number.POSITIVE_INFINITY;
-        if (itemIdxA !== itemIdxB) {
-            return itemIdxA - itemIdxB;
-        }
-
-        const groupCmp = String(groupA).localeCompare(String(groupB), undefined, { sensitivity: 'base' });
-        if (groupCmp !== 0) {
-            return groupCmp;
-        }
-        return String(a.name).localeCompare(String(b.name), undefined, { sensitivity: 'base' });
-    });
+    const rows = getCraftSourceRequirementRows().map((row) => ({
+        typeId: row.typeId,
+        name: row.typeName,
+        qty: row.quantity,
+        marketGroup: row.marketGroup,
+    }));
     const typeIds = rows.map(r => String(r.typeId));
 
     // Ensure we have fuzzwork prices where possible, but keep real prices as user overrides.
@@ -6586,15 +5826,19 @@ function computeNeededPurchases() {
     ensurePrices(typeIds).finally(() => {
         let totalCost = 0;
         rows.forEach((item) => {
+            const stockSummary = getCraftStockAllocationSummary(item.typeId, item.qty);
             const unitInfo = (api && typeof api.getPrice === 'function') ? api.getPrice(item.typeId, 'buy') : { value: 0 };
             const unit = unitInfo && typeof unitInfo.value === 'number' ? unitInfo.value : 0;
-            const line = (unit > 0 ? unit : 0) * item.qty;
+            const line = (unit > 0 ? unit : 0) * stockSummary.remainingQty;
             totalCost += line;
 
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td>${escapeHtml(item.name || String(item.typeId))}</td>
-                <td class="text-end">${formatNumber(item.qty)}</td>
+                <td class="text-end">
+                    <div>${formatNumber(stockSummary.remainingQty)}</div>
+                    ${stockSummary.allocatedQty > 0 ? `<div class="small text-muted">${escapeHtml(__('Stock'))}: ${formatNumber(stockSummary.allocatedQty)} / ${formatNumber(stockSummary.requiredQty)}</div>` : ''}
+                </td>
                 <td class="text-end">${formatPrice(unit)}</td>
                 <td class="text-end">${formatPrice(line)}</td>
             `;
@@ -6620,6 +5864,7 @@ function setCraftBPConfig(fuzzworkUrl, productTypeId) {
 window.updateMaterialsTabFromState = updateMaterialsTabFromState;
 window.updateFinancialTabFromState = updateFinancialTabFromState;
 window.updateNeededTabFromState = updateNeededTabFromState;
+window.updateStockManagementTabFromState = updateStockManagementTabFromState;
 
 function getCraftProductionCyclesSummary() {
     if (window.SimulationAPI && typeof window.SimulationAPI.getProductionCycles === 'function') {

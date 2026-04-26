@@ -9,10 +9,461 @@
 <link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
 <link rel="stylesheet" href="{% static 'indy_hub/css/bp_copy_list.css' %}?v=20260413-2335">
 <link rel="stylesheet" href="{% static 'indy_hub/css/bp_copy_fulfill_page.css' %}?v=20260418-1400">
+<style>
+    .bp-history-page {
+        --bh-surface: color-mix(in srgb, var(--fp-surface, #ffffff), transparent 0%);
+        --bh-surface-soft: color-mix(in srgb, var(--fp-surface-2, #f5f8fe), transparent 0%);
+        --bh-border: color-mix(in srgb, var(--fp-border, #d6e0ef), transparent 0%);
+        --bh-border-strong: color-mix(in srgb, var(--fp-border-mid, #aabdd8), transparent 10%);
+        --bh-ink: color-mix(in srgb, var(--fp-ink, #152236), transparent 0%);
+        --bh-ink-soft: color-mix(in srgb, var(--fp-ink-soft, #4a617d), transparent 0%);
+        --bh-ink-muted: color-mix(in srgb, var(--fp-ink-muted, #7891ab), transparent 0%);
+        --bh-brand: color-mix(in srgb, var(--fp-brand, #1169d9), transparent 0%);
+        --bh-brand-soft: color-mix(in srgb, var(--fp-brand-soft, #e4efff), transparent 0%);
+        --bh-success: color-mix(in srgb, var(--fp-success, #0a9560), transparent 0%);
+        --bh-danger: color-mix(in srgb, var(--fp-danger, #d03535), transparent 0%);
+        --bh-warning: color-mix(in srgb, var(--fp-accent, #d97706), transparent 0%);
+    }
+
+    .bp-history-page .bp-history-toolbar,
+    .bp-history-page .bp-history-results,
+    .bp-history-page .bp-history-pagination {
+        border: 1px solid var(--bh-border);
+        border-radius: 1rem;
+        background: linear-gradient(180deg, color-mix(in srgb, var(--bh-surface), white 8%), var(--bh-surface));
+        box-shadow: var(--fp-shadow-sm, 0 2px 8px rgba(16, 34, 60, 0.07));
+    }
+
+    .bp-history-page .page-header {
+        box-shadow: var(--fp-shadow-md, 0 6px 22px rgba(16, 34, 60, 0.12));
+    }
+
+    .bp-history-page .page-header .description {
+        max-width: 52rem;
+    }
+
+    .bp-history-page .bp-history-header-meta {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        padding: 0.45rem 0.8rem;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        background: rgba(255, 255, 255, 0.08);
+        color: rgba(255, 255, 255, 0.92);
+        font-size: 0.76rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+    }
+
+    .bp-history-page .bp-history-toolbar {
+        padding: 1rem;
+        margin-top: 1rem;
+    }
+
+    .bp-history-page .bp-history-toolbar__top {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.8rem;
+        margin-bottom: 0.9rem;
+    }
+
+    .bp-history-page .bp-history-toolbar__title {
+        display: grid;
+        gap: 0.2rem;
+    }
+
+    .bp-history-page .bp-history-kicker {
+        color: var(--bh-ink-muted);
+        font-size: 0.74rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+    }
+
+    .bp-history-page .bp-history-toolbar__title strong {
+        color: var(--bh-ink);
+        font-size: 1rem;
+    }
+
+    .bp-history-page .bp-history-active-filters {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.45rem;
+        justify-content: flex-end;
+    }
+
+    .bp-history-page .bp-history-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.35rem 0.75rem;
+        border-radius: 999px;
+        border: 1px solid var(--bh-border);
+        background: var(--bh-surface-soft);
+        color: var(--bh-ink-soft);
+        font-size: 0.78rem;
+        font-weight: 700;
+    }
+
+    .bp-history-page .bp-history-chip i {
+        color: var(--bh-brand);
+    }
+
+    .bp-history-page .bp-history-filters {
+        display: grid;
+        grid-template-columns: minmax(160px, 190px) minmax(220px, 1.2fr) minmax(120px, 140px) auto;
+        gap: 0.85rem;
+        align-items: end;
+    }
+
+    .bp-history-page .bp-history-field {
+        display: grid;
+        gap: 0.35rem;
+    }
+
+    .bp-history-page .bp-history-field .form-label {
+        margin: 0;
+        color: var(--bh-ink-muted);
+        font-size: 0.72rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+    }
+
+    .bp-history-page .bp-history-field .form-select,
+    .bp-history-page .bp-history-field .form-control {
+        min-height: 2.85rem;
+        border-color: var(--bh-border-strong);
+        border-radius: 0.85rem;
+        background: var(--bh-surface-soft);
+        color: var(--bh-ink);
+        box-shadow: none;
+    }
+
+    .bp-history-page .bp-history-field .form-select:focus,
+    .bp-history-page .bp-history-field .form-control:focus {
+        border-color: color-mix(in srgb, var(--bh-brand), white 20%);
+        box-shadow: 0 0 0 0.2rem color-mix(in srgb, var(--bh-brand), transparent 82%);
+    }
+
+    .bp-history-page .bp-history-field--search {
+        position: relative;
+    }
+
+    .bp-history-page .bp-history-field--search i {
+        position: absolute;
+        left: 0.95rem;
+        bottom: 0.98rem;
+        color: var(--bh-ink-muted);
+        pointer-events: none;
+    }
+
+    .bp-history-page .bp-history-field--search .form-control {
+        padding-left: 2.5rem;
+    }
+
+    .bp-history-page .bp-history-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.65rem;
+        justify-content: flex-end;
+    }
+
+    .bp-history-page .bp-history-actions .btn {
+        min-height: 2.85rem;
+        border-radius: 0.85rem;
+        padding-inline: 1rem;
+        font-weight: 700;
+    }
+
+    .bp-history-page .bp-history-results {
+        overflow: hidden;
+    }
+
+    .bp-history-page .bp-history-results__head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.8rem;
+        padding: 1rem 1.1rem;
+        border-bottom: 1px solid var(--bh-border);
+        background: linear-gradient(135deg, color-mix(in srgb, var(--bh-brand-soft), white 40%), color-mix(in srgb, var(--bh-surface), white 4%));
+    }
+
+    .bp-history-page .bp-history-results__head h3 {
+        margin: 0;
+        color: var(--bh-ink);
+        font-size: 1rem;
+        font-weight: 800;
+    }
+
+    .bp-history-page .bp-history-results__head p {
+        margin: 0.15rem 0 0;
+        color: var(--bh-ink-soft);
+        font-size: 0.84rem;
+    }
+
+    .bp-history-page .bp-history-results__meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.45rem;
+        align-items: center;
+        justify-content: flex-end;
+    }
+
+    .bp-history-page .bp-history-count {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        padding: 0.5rem 0.8rem;
+        border-radius: 999px;
+        background: var(--bh-surface);
+        border: 1px solid var(--bh-border);
+        color: var(--bh-ink);
+        font-weight: 800;
+    }
+
+    .bp-history-page .bp-history-table {
+        margin: 0;
+    }
+
+    .bp-history-page .bp-history-table thead th {
+        padding: 0.85rem 0.8rem;
+        border-bottom-color: var(--bh-border);
+        background: color-mix(in srgb, var(--bh-surface-soft), white 12%);
+        color: var(--bh-ink-muted);
+        font-size: 0.72rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        white-space: nowrap;
+    }
+
+    .bp-history-page .bp-history-table tbody td {
+        padding: 1rem 0.8rem;
+        border-bottom-color: var(--bh-border);
+        vertical-align: top;
+    }
+
+    .bp-history-page .bp-history-table tbody tr:last-child td {
+        border-bottom: 0;
+    }
+
+    .bp-history-page .bp-history-table tbody tr:hover {
+        background: color-mix(in srgb, var(--bh-brand-soft), transparent 62%);
+    }
+
+    .bp-history-page .bp-history-request {
+        display: grid;
+        gap: 0.3rem;
+    }
+
+    .bp-history-page .bp-history-request__id {
+        display: inline-flex;
+        width: fit-content;
+        padding: 0.2rem 0.55rem;
+        border-radius: 999px;
+        background: var(--bh-brand-soft);
+        color: var(--bh-brand);
+        font-size: 0.74rem;
+        font-weight: 800;
+    }
+
+    .bp-history-page .bp-history-request__relative {
+        color: var(--bh-ink);
+        font-weight: 700;
+    }
+
+    .bp-history-page .bp-history-request__absolute {
+        color: var(--bh-ink-muted);
+        font-size: 0.8rem;
+    }
+
+    .bp-history-page .bp-history-blueprint {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.8rem;
+        min-width: 18rem;
+    }
+
+    .bp-history-page .bp-history-blueprint__icon {
+        width: 2.5rem;
+        height: 2.5rem;
+        border-radius: 0.75rem;
+        border: 1px solid var(--bh-border);
+        background: var(--bh-surface-soft);
+        object-fit: cover;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+    }
+
+    .bp-history-page .bp-history-blueprint__title {
+        color: var(--bh-ink);
+        font-weight: 800;
+        line-height: 1.25;
+        margin-bottom: 0.4rem;
+    }
+
+    .bp-history-page .bp-history-blueprint__meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+    }
+
+    .bp-history-page .bp-history-meta-pill,
+    .bp-history-page .bp-history-person,
+    .bp-history-page .bp-history-status,
+    .bp-history-page .bp-history-scope {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.28rem 0.55rem;
+        border-radius: 999px;
+        border: 1px solid var(--bh-border);
+        background: var(--bh-surface-soft);
+        color: var(--bh-ink-soft);
+        font-size: 0.76rem;
+        font-weight: 700;
+        white-space: nowrap;
+    }
+
+    .bp-history-page .bp-history-meta-pill--me {
+        color: var(--bh-success);
+        border-color: color-mix(in srgb, var(--bh-success), transparent 70%);
+        background: color-mix(in srgb, var(--bh-success), transparent 92%);
+    }
+
+    .bp-history-page .bp-history-meta-pill--te {
+        color: var(--bh-brand);
+        border-color: color-mix(in srgb, var(--bh-brand), transparent 70%);
+        background: color-mix(in srgb, var(--bh-brand), transparent 92%);
+    }
+
+    .bp-history-page .bp-history-meta-pill--runs,
+    .bp-history-page .bp-history-meta-pill--copies {
+        color: var(--bh-ink-soft);
+    }
+
+    .bp-history-page .bp-history-person--missing {
+        color: var(--bh-ink-muted);
+        background: transparent;
+    }
+
+    .bp-history-page .bp-history-status {
+        min-width: 6.3rem;
+        justify-content: center;
+    }
+
+    .bp-history-page .bp-history-status--yes {
+        color: var(--bh-success);
+        border-color: color-mix(in srgb, var(--bh-success), transparent 68%);
+        background: color-mix(in srgb, var(--bh-success), transparent 91%);
+    }
+
+    .bp-history-page .bp-history-status--no {
+        color: var(--bh-warning);
+        border-color: color-mix(in srgb, var(--bh-warning), transparent 68%);
+        background: color-mix(in srgb, var(--bh-warning), transparent 90%);
+    }
+
+    .bp-history-page .bp-history-status__date {
+        margin-top: 0.35rem;
+        color: var(--bh-ink-muted);
+        font-size: 0.79rem;
+    }
+
+    .bp-history-page .bp-history-scope--personal {
+        color: var(--bh-brand);
+        border-color: color-mix(in srgb, var(--bh-brand), transparent 68%);
+        background: color-mix(in srgb, var(--bh-brand), transparent 91%);
+    }
+
+    .bp-history-page .bp-history-scope--corporation {
+        color: var(--bh-warning);
+        border-color: color-mix(in srgb, var(--bh-warning), transparent 68%);
+        background: color-mix(in srgb, var(--bh-warning), transparent 91%);
+    }
+
+    .bp-history-page .bp-history-empty {
+        display: grid;
+        justify-items: center;
+        gap: 0.45rem;
+        padding: 2.6rem 1rem;
+        color: var(--bh-ink-soft);
+    }
+
+    .bp-history-page .bp-history-empty i {
+        font-size: 1.35rem;
+        color: var(--bh-brand);
+    }
+
+    .bp-history-page .bp-history-pagination {
+        padding: 0.9rem 1rem;
+        margin-top: 1rem;
+    }
+
+    .bp-history-page .bp-history-pagination .pagination {
+        flex-wrap: wrap;
+        gap: 0.35rem;
+    }
+
+    .bp-history-page .bp-history-pagination .page-link {
+        border-radius: 0.75rem;
+        border-color: var(--bh-border);
+        color: var(--bh-ink-soft);
+        min-width: 2.6rem;
+        text-align: center;
+        box-shadow: none;
+    }
+
+    .bp-history-page .bp-history-pagination .page-item.active .page-link {
+        border-color: var(--bh-brand);
+        background: var(--bh-brand);
+        color: #fff;
+    }
+
+    @media (max-width: 991.98px) {
+        .bp-history-page .bp-history-filters {
+            grid-template-columns: 1fr 1fr;
+        }
+
+        .bp-history-page .bp-history-actions {
+            grid-column: 1 / -1;
+            justify-content: stretch;
+        }
+
+        .bp-history-page .bp-history-actions .btn {
+            flex: 1 1 0;
+        }
+    }
+
+    @media (max-width: 767.98px) {
+        .bp-history-page .bp-history-filters {
+            grid-template-columns: 1fr;
+        }
+
+        .bp-history-page .bp-history-results__head {
+            align-items: flex-start;
+        }
+
+        .bp-history-page .bp-history-results__meta,
+        .bp-history-page .bp-history-active-filters {
+            justify-content: flex-start;
+        }
+
+        .bp-history-page .bp-history-blueprint {
+            min-width: 14rem;
+        }
+    }
+</style>
 {% endblock %}
 
 {% block content %}
-<div class="container-fluid py-4 fulfill-page">
+<div class="container-fluid py-4 fulfill-page bp-history-page">
 
     <div class="page-header mb-4">
         <i class="fas fa-history header-bg"></i>
@@ -25,6 +476,10 @@
                 <p class="description mb-0">{% trans "Review recent requests and who accepted them." %}</p>
             </div>
             <div class="d-flex flex-wrap align-items-center gap-2">
+                <span class="bp-history-header-meta">
+                    <i class="fas fa-clock-rotate-left"></i>
+                    {% blocktrans with total=metrics.total|default:0 %}{{ total }} requests tracked{% endblocktrans %}
+                </span>
                 <a href="{% url 'indy_hub:bp_copy_fulfill_requests' %}" class="btn btn-outline-light">
                     <i class="fas fa-handshake me-1"></i>{% trans "Back to Fulfill" %}
                 </a>
@@ -69,39 +524,133 @@
     </div>
 
     {# Filters #}
-    <form method="get" class="hist-filters">
-        <div>
-            <label for="bp-history-status" class="form-label">{% trans "Status" %}</label>
-            <select id="bp-history-status" name="status" class="form-select form-select-sm" onchange="this.form.submit()">
-                <option value="all" {% if status == 'all' %}selected{% endif %}>{% trans "All" %}</option>
-                <option value="open" {% if status == 'open' %}selected{% endif %}>{% trans "Open" %}</option>
-                <option value="fulfilled" {% if status == 'fulfilled' %}selected{% endif %}>{% trans "Fulfilled" %}</option>
-                <option value="delivered" {% if status == 'delivered' %}selected{% endif %}>{% trans "Delivered" %}</option>
-            </select>
+    <form method="get" class="bp-history-toolbar">
+        <div class="bp-history-toolbar__top">
+            <div class="bp-history-toolbar__title">
+                <span class="bp-history-kicker">{% trans "Filter Console" %}</span>
+                <strong>{% trans "Refine the archive view" %}</strong>
+            </div>
+            <div class="bp-history-active-filters">
+                <span class="bp-history-chip">
+                    <i class="fas fa-layer-group"></i>
+                    {% if status == 'all' %}
+                        {% trans "All statuses" %}
+                    {% elif status == 'open' %}
+                        {% trans "Open only" %}
+                    {% elif status == 'fulfilled' %}
+                        {% trans "Fulfilled only" %}
+                    {% elif status == 'delivered' %}
+                        {% trans "Delivered only" %}
+                    {% else %}
+                        {{ status|default:_('All statuses') }}
+                    {% endif %}
+                </span>
+                <span class="bp-history-chip">
+                    <i class="fas fa-table-list"></i>
+                    {{ per_page }} {% trans "per page" %}
+                </span>
+                {% if search %}
+                <span class="bp-history-chip">
+                    <i class="fas fa-search"></i>
+                    {{ search }}
+                </span>
+                {% endif %}
+            </div>
         </div>
-        <div>
-            <label for="bp-history-search" class="form-label">{% trans "Search" %}</label>
-            <input id="bp-history-search" name="search" value="{{ search }}" class="form-control form-control-sm" placeholder="{% trans 'Username or type ID' %}">
-        </div>
-        <div>
-            <label for="bp-history-per-page" class="form-label">{% trans "Per page" %}</label>
-            <select id="bp-history-per-page" name="per_page" class="form-select form-select-sm" onchange="this.form.submit()">
-                {% for pp in per_page_options %}
-                <option value="{{ pp }}" {% if per_page|stringformat:'s' == pp|stringformat:'s' %}selected{% endif %}>{{ pp }}</option>
-                {% endfor %}
-            </select>
-        </div>
-        <div class="ms-auto">
-            <button type="submit" class="btn btn-sm btn-primary">
-                <i class="fas fa-filter me-1"></i>{% trans "Apply" %}
-            </button>
+
+        <div class="bp-history-filters">
+            <div class="bp-history-field">
+                <label for="bp-history-status" class="form-label">{% trans "Status" %}</label>
+                <select id="bp-history-status" name="status" class="form-select" onchange="this.form.submit()">
+                    <option value="all" {% if status == 'all' %}selected{% endif %}>{% trans "All" %}</option>
+                    <option value="open" {% if status == 'open' %}selected{% endif %}>{% trans "Open" %}</option>
+                    <option value="fulfilled" {% if status == 'fulfilled' %}selected{% endif %}>{% trans "Fulfilled" %}</option>
+                    <option value="delivered" {% if status == 'delivered' %}selected{% endif %}>{% trans "Delivered" %}</option>
+                </select>
+            </div>
+            <div class="bp-history-field bp-history-field--search">
+                <label for="bp-history-search" class="form-label">{% trans "Search" %}</label>
+                <i class="fas fa-search"></i>
+                <input id="bp-history-search" name="search" value="{{ search }}" class="form-control" placeholder="{% trans 'Username or blueprint name' %}">
+            </div>
+            <div class="bp-history-field">
+                <label for="bp-history-per-page" class="form-label">{% trans "Per page" %}</label>
+                <select id="bp-history-per-page" name="per_page" class="form-select" onchange="this.form.submit()">
+                    {% for pp in per_page_options %}
+                    <option value="{{ pp }}" {% if per_page|stringformat:'s' == pp|stringformat:'s' %}selected{% endif %}>{{ pp }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="bp-history-actions">
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-filter me-1"></i>{% trans "Apply" %}
+                </button>
+                {% if status != 'all' or search %}
+                <a href="?status=all&per_page={{ per_page }}" class="btn btn-outline-secondary">
+                    <i class="fas fa-rotate-left me-1"></i>{% trans "Reset" %}
+                </a>
+                {% endif %}
+            </div>
         </div>
     </form>
 
     {# Results table #}
-    <div class="fwp-section fwp-section--flush">
+    <div class="bp-history-results mt-4">
+        {% if page_obj %}
+            {% with total_results=page_obj.paginator.count %}
+        <div class="bp-history-results__head">
+            <div>
+                <h3>{% trans "Request Timeline" %}</h3>
+                <p>
+                    {% blocktrans count counter=total_results %}
+                    {{ counter }} request matches the current filters.
+                    {% plural %}
+                    {{ counter }} requests match the current filters.
+                    {% endblocktrans %}
+                </p>
+            </div>
+            <div class="bp-history-results__meta">
+                <span class="bp-history-count">
+                    <i class="fas fa-list-check text-primary"></i>
+                    {{ total_results }}
+                </span>
+                {% if search %}
+                <span class="bp-history-chip">
+                    <i class="fas fa-user-tag"></i>
+                    {% trans "Filtered search" %}
+                </span>
+                {% endif %}
+            </div>
+        </div>
+            {% endwith %}
+        {% else %}
+        <div class="bp-history-results__head">
+            <div>
+                <h3>{% trans "Request Timeline" %}</h3>
+                <p>
+                    {% blocktrans count counter=rows|length %}
+                    {{ counter }} request matches the current filters.
+                    {% plural %}
+                    {{ counter }} requests match the current filters.
+                    {% endblocktrans %}
+                </p>
+            </div>
+            <div class="bp-history-results__meta">
+                <span class="bp-history-count">
+                    <i class="fas fa-list-check text-primary"></i>
+                    {{ rows|length }}
+                </span>
+                {% if search %}
+                <span class="bp-history-chip">
+                    <i class="fas fa-user-tag"></i>
+                    {% trans "Filtered search" %}
+                </span>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
         <div class="table-responsive">
-            <table class="table table-sm table-hover align-middle mb-0">
+            <table class="table table-hover align-middle bp-history-table">
                 <thead>
                     <tr>
                         <th style="width: 90px;">{% trans "Request" %}</th>
@@ -117,60 +666,104 @@
                     {% for row in rows %}
                     <tr>
                         <td>
-                            <div class="small text-muted">#{{ row.id }}</div>
-                            <div class="small">{{ row.created_at|naturaltime }}</div>
+                            <div class="bp-history-request">
+                                <span class="bp-history-request__id">#{{ row.id }}</span>
+                                <span class="bp-history-request__relative">{{ row.created_at|naturaltime }}</span>
+                                <span class="bp-history-request__absolute">{{ row.created_at|date:'Y-m-d H:i' }}</span>
+                            </div>
                         </td>
                         <td>
-                            <div class="d-flex align-items-center gap-2">
-                                <img src="{{ row.icon_url }}" width="24" height="24" alt="">
+                            <div class="bp-history-blueprint">
+                                <img src="{{ row.icon_url }}" width="40" height="40" alt="" class="bp-history-blueprint__icon">
                                 <div>
-                                    <div class="fw-semibold">{{ row.type_name }}</div>
-                                    <div class="small text-muted">ME{{ row.material_efficiency }} · TE{{ row.time_efficiency }} · {{ row.runs_requested }} run(s) · {{ row.copies_requested }} copie(s)</div>
+                                    <div class="bp-history-blueprint__title">{{ row.type_name }}</div>
+                                    <div class="bp-history-blueprint__meta">
+                                        <span class="bp-history-meta-pill bp-history-meta-pill--me">ME{{ row.material_efficiency }}</span>
+                                        <span class="bp-history-meta-pill bp-history-meta-pill--te">TE{{ row.time_efficiency }}</span>
+                                        <span class="bp-history-meta-pill bp-history-meta-pill--runs">{{ row.runs_requested }} {% trans "run(s)" %}</span>
+                                        <span class="bp-history-meta-pill bp-history-meta-pill--copies">{{ row.copies_requested }} {% trans "copy(ies)" %}</span>
+                                    </div>
                                 </div>
                             </div>
                         </td>
-                        <td>{{ row.requested_by.username }}</td>
+                        <td>
+                            <span class="bp-history-person">
+                                <i class="fas fa-user text-primary"></i>
+                                {{ row.requested_by.username }}
+                            </span>
+                        </td>
                         <td>
                             {% if row.acceptor %}
-                                {{ row.acceptor.username }}
+                                <span class="bp-history-person">
+                                    <i class="fas fa-user-check text-success"></i>
+                                    {{ row.acceptor.username }}
+                                </span>
                             {% else %}
-                                <span class="text-muted">—</span>
+                                <span class="bp-history-person bp-history-person--missing">
+                                    <i class="fas fa-user-slash"></i>
+                                    {% trans "Unassigned" %}
+                                </span>
                             {% endif %}
                         </td>
                         <td>
                             {% if row.fulfilled %}
-                                <span class="badge bg-success">{% trans "Yes" %}</span>
+                                <span class="bp-history-status bp-history-status--yes">
+                                    <i class="fas fa-check"></i>
+                                    {% trans "Yes" %}
+                                </span>
                                 {% if row.fulfilled_at %}
-                                    <div class="small text-muted">{{ row.fulfilled_at|date:'Y-m-d H:i' }}</div>
+                                    <div class="bp-history-status__date">{{ row.fulfilled_at|date:'Y-m-d H:i' }}</div>
                                 {% endif %}
                             {% else %}
-                                <span class="badge bg-warning text-dark">{% trans "No" %}</span>
+                                <span class="bp-history-status bp-history-status--no">
+                                    <i class="fas fa-hourglass-half"></i>
+                                    {% trans "No" %}
+                                </span>
                             {% endif %}
                         </td>
                         <td>
                             {% if row.delivered %}
-                                <span class="badge bg-secondary">{% trans "Yes" %}</span>
+                                <span class="bp-history-status bp-history-status--yes">
+                                    <i class="fas fa-inbox"></i>
+                                    {% trans "Yes" %}
+                                </span>
                                 {% if row.delivered_at %}
-                                    <div class="small text-muted">{{ row.delivered_at|date:'Y-m-d H:i' }}</div>
+                                    <div class="bp-history-status__date">{{ row.delivered_at|date:'Y-m-d H:i' }}</div>
                                 {% endif %}
                             {% else %}
-                                <span class="badge bg-light text-dark">{% trans "No" %}</span>
+                                <span class="bp-history-status bp-history-status--no">
+                                    <i class="fas fa-box-open"></i>
+                                    {% trans "No" %}
+                                </span>
                             {% endif %}
                         </td>
                         <td>
                             {% if row.source_scope == 'personal' %}
-                                <span class="badge bg-primary">{% trans "Personal" %}</span>
+                                <span class="bp-history-scope bp-history-scope--personal">
+                                    <i class="fas fa-user"></i>
+                                    {% trans "Personal" %}
+                                </span>
                             {% elif row.source_scope == 'corporation' %}
-                                <span class="badge bg-info text-white">{% trans "Corporation" %}</span>
+                                <span class="bp-history-scope bp-history-scope--corporation">
+                                    <i class="fas fa-building"></i>
+                                    {% trans "Corporation" %}
+                                </span>
                             {% else %}
-                                <span class="text-muted">—</span>
+                                <span class="bp-history-scope">
+                                    <i class="fas fa-minus"></i>
+                                    {% trans "Unknown" %}
+                                </span>
                             {% endif %}
                         </td>
                     </tr>
                     {% empty %}
                     <tr>
                         <td colspan="7" class="text-center text-muted py-4">
-                            <i class="fas fa-search me-1"></i>{% trans "No requests found." %}
+                            <div class="bp-history-empty">
+                                <i class="fas fa-search"></i>
+                                <strong>{% trans "No requests found." %}</strong>
+                                <span>{% trans "Try widening the filters or clearing the search term." %}</span>
+                            </div>
                         </td>
                     </tr>
                     {% endfor %}
@@ -181,7 +774,7 @@
 
     {# Pagination #}
     {% if page_obj.has_other_pages %}
-    <nav aria-label="{% trans 'History pagination' %}" class="mt-3">
+    <nav aria-label="{% trans 'History pagination' %}" class="bp-history-pagination">
         <div class="d-flex justify-content-center">
             <ul class="pagination mb-0">
                 {% if page_obj.number == 1 %}

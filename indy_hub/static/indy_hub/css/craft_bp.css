@@ -2066,6 +2066,8 @@ html[data-theme="darkly"] .craft-header-icon {
 /* ========== MODERN TAB NAVIGATION ========== */
 .craft-tabs-modern {
     margin-bottom: 2rem;
+    min-width: 0;
+    overflow: visible;
 }
 
 .craft-tab-content {
@@ -2079,12 +2081,17 @@ html[data-theme="darkly"] .craft-header-icon {
     align-items: center;
     border-bottom: 2px solid var(--bs-border-color);
     gap: 0;
-    flex-wrap: nowrap;
-    overflow-x: auto;
+    flex-wrap: wrap;
+    overflow-x: visible;
     overflow-y: visible;
     background: transparent;
     padding: 0;
     margin-bottom: 1.5rem;
+    row-gap: 0.5rem;
+}
+
+.craft-nav-tabs .nav-item {
+    min-width: 0;
 }
 
 .craft-nav-tabs .nav-link {
@@ -2354,11 +2361,155 @@ html[data-theme="darkly"] .craft-header-icon {
     color: var(--bs-body-color);
 }
 
+/* ========== DECISION CENTER ========== */
+.craft-decision-center {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.craft-decision-metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 0.75rem;
+}
+
+.craft-decision-metric {
+    background: var(--bs-secondary-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.75rem;
+    padding: 0.9rem 1rem;
+}
+
+.craft-decision-metric-label {
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--bs-secondary-color);
+}
+
+.craft-decision-metric-value {
+    margin-top: 0.35rem;
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--bs-body-color);
+}
+
+.craft-decision-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 0.75rem;
+}
+
+.craft-decision-controls .form-label {
+    margin-bottom: 0.35rem;
+}
+
+.craft-decision-tolerance {
+    width: min(220px, 100%);
+}
+
+.craft-decision-table-wrap {
+    width: 100%;
+    overflow-x: auto;
+}
+
+.craft-decision-table {
+    min-width: 880px;
+}
+
+.craft-decision-table td,
+.craft-decision-table th {
+    vertical-align: middle;
+}
+
+.craft-decision-table tbody tr {
+    transition: background-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.craft-decision-row-needs-review {
+    background: rgba(var(--bs-warning-rgb), 0.08);
+}
+
+.craft-decision-row-needs-review:hover {
+    background: rgba(var(--bs-warning-rgb), 0.14);
+}
+
+.tree-mode-label {
+    white-space: nowrap;
+}
+
+.financial-stock-state {
+    white-space: nowrap;
+}
+
+.craft-financial-row-stock-covered {
+    background: rgba(var(--bs-success-rgb), 0.06);
+}
+
+.craft-stock-kpis {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 0.75rem;
+}
+
+.craft-stock-kpi-card {
+    background: var(--bs-secondary-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.75rem;
+    padding: 0.9rem 1rem;
+}
+
+.craft-stock-kpi-label {
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--bs-secondary-color);
+}
+
+.craft-stock-kpi-value {
+    margin-top: 0.35rem;
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--bs-body-color);
+}
+
+.craft-stock-table-wrap {
+    width: 100%;
+    overflow-x: auto;
+}
+
+.craft-stock-table {
+    min-width: 960px;
+}
+
+.craft-stock-table td,
+.craft-stock-table th {
+    vertical-align: middle;
+}
+
 /* ========== RESPONSIVE ADJUSTMENTS ========== */
 @media (max-width: 768px) {
+    .craft-nav-tabs {
+        border-bottom: none;
+        gap: 0.5rem;
+        margin-bottom: 1rem;
+    }
+
     .craft-nav-tabs .nav-link {
+        border: 1px solid var(--bs-border-color);
+        border-bottom-width: 1px;
+        border-radius: 999px;
         padding: 0.875rem 1.25rem;
         font-size: 0.875rem;
+    }
+
+    .craft-nav-tabs .nav-link:hover,
+    .craft-nav-tabs .nav-link.active {
+        background: rgba(var(--bs-primary-rgb), 0.08);
     }
 
     .craft-nav-tabs .nav-link i {
@@ -2395,6 +2546,23 @@ html[data-theme="darkly"] .craft-header-icon {
 
     .craft-financial-hero .craft-kpi {
         padding: 1rem;
+    }
+
+    .craft-decision-controls {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .craft-decision-tolerance {
+        width: 100%;
+    }
+
+    .craft-decision-metrics {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .craft-stock-kpis {
+        grid-template-columns: repeat(2, 1fr);
     }
 
     .craft-financial-hero .craft-kpi-value {

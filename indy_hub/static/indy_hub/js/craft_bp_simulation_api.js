@@ -485,23 +485,59 @@
         markTabsDirty(['materials', 'financial', 'needed']);
     }
 
-    function deriveStateFromDom() {
-        const treeTab = document.getElementById('tab-tree');
-        if (treeTab) {
-            treeTab.querySelectorAll('summary input.mat-switch').forEach((input) => {
-                const typeId = Number(input.getAttribute('data-type-id'));
-                if (!typeId) {
-                    return;
-                }
-                let state = 'prod';
-                if (input.disabled) {
-                    state = 'useless';
-                } else if (!input.checked) {
-                    state = 'buy';
-                }
-                setSwitchState(typeId, state);
-            });
+    function resolveSwitchStateFromInput(input) {
+        if (!input) {
+            return 'prod';
         }
+
+        const fixedMode = String(input.dataset.fixedMode || '').trim();
+        const userState = String(input.dataset.userState || '').trim();
+        const isLockedByParent = input.disabled && input.dataset.lockedByParent === 'true';
+
+        if (fixedMode === 'useless' || userState === 'useless') {
+            return 'useless';
+        }
+
+        if (isLockedByParent) {
+            return userState === 'buy' ? 'buy' : 'prod';
+        }
+
+        if (!input.checked) {
+            return 'buy';
+        }
+
+        return 'prod';
+    }
+
+    function deriveStateFromDom() {
+        const switchInputs = [];
+        const seenTypeIds = new Set();
+
+        document.querySelectorAll('#decisionStrategyRows input.mat-switch[data-type-id]').forEach((input) => {
+            const typeId = Number(input.getAttribute('data-type-id'));
+            if (!typeId || seenTypeIds.has(typeId)) {
+                return;
+            }
+            seenTypeIds.add(typeId);
+            switchInputs.push(input);
+        });
+
+        document.querySelectorAll('#tab-tree summary input.mat-switch[data-type-id]').forEach((input) => {
+            const typeId = Number(input.getAttribute('data-type-id'));
+            if (!typeId || seenTypeIds.has(typeId)) {
+                return;
+            }
+            seenTypeIds.add(typeId);
+            switchInputs.push(input);
+        });
+
+        switchInputs.forEach((input) => {
+            const typeId = Number(input.getAttribute('data-type-id'));
+            if (!typeId) {
+                return;
+            }
+            setSwitchState(typeId, resolveSwitchStateFromInput(input));
+        });
 
         // Keep pricesMap in sync with the visible UI so optimizer and financials
         // use the same price values.
@@ -975,13 +1011,7 @@
         if (!typeId) {
             return;
         }
-        let state = 'prod';
-        if (target.disabled) {
-            state = 'useless';
-        } else if (!target.checked) {
-            state = 'buy';
-        }
-        setSwitchState(typeId, state);
+        setSwitchState(typeId, resolveSwitchStateFromInput(target));
     });
 
     window.SimulationAPI = api;

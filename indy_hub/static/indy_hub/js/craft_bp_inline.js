@@ -12,6 +12,7 @@
     let cachedSimulations = null;
     let isFetchingSimulations = false;
     let projectWorkspaceDirty = false;
+    let projectWorkspaceStateInitialized = !isProjectWorkspace;
 
     function buildWorkspaceSignature(state) {
         const source = state && typeof state === 'object' ? { ...state } : {};
@@ -56,16 +57,31 @@
             : (Array.isArray(state.items)
                 ? state.items.filter((item) => String(item?.mode || '') === 'buy').map((item) => Number(item?.type_id || item?.typeId || 0)).filter((typeId) => typeId > 0)
                 : []);
+        const rawFuzzworkPrices = state.fuzzworkPrices || state.fuzzwork_prices;
+        const fuzzworkPrices = rawFuzzworkPrices && typeof rawFuzzworkPrices === 'object' && !Array.isArray(rawFuzzworkPrices)
+            ? Object.fromEntries(
+                Object.entries(rawFuzzworkPrices)
+                    .map(([typeId, value]) => [String(Number(typeId) || 0), Number(value) || 0])
+                    .filter(([typeId]) => typeId !== '0')
+            )
+            : {};
 
         return {
             buyTypeIds,
+            stockAllocations: state.stockAllocations && typeof state.stockAllocations === 'object' && !Array.isArray(state.stockAllocations)
+                ? Object.fromEntries(
+                    Object.entries(state.stockAllocations)
+                        .map(([typeId, quantity]) => [String(Number(typeId) || 0), Math.max(0, Math.floor(Number(quantity) || 0))])
+                        .filter(([typeId, quantity]) => typeId !== '0' && quantity > 0)
+                )
+                : {},
             runs: Math.max(1, parseInt(state.runs, 10) || 1),
             activeBlueprintTab: String(state.activeBlueprintTab || state.active_tab || 'materials'),
             manualPrices: Array.isArray(state.manualPrices)
                 ? state.manualPrices
                 : buildManualPricesFromLegacyPrices(state.custom_prices),
             simulationName: String(state.simulationName || state.simulation_name || state.project_name || ''),
-            runOptimizedMaxRuns: String(state.runOptimizedMaxRuns || ''),
+            decisionBuyTolerance: String(state.decisionBuyTolerance || ''),
             meTeConfig: state.meTeConfig && typeof state.meTeConfig === 'object'
                 ? state.meTeConfig
                 : buildMeTeConfigFromLegacyEfficiencies(state.blueprint_efficiencies),
@@ -78,9 +94,79 @@
                     selectedSolarSystemName: '',
                     assignments: [],
                 },
+            fuzzworkPrices,
             pendingWorkspaceRefresh: Boolean(state.pendingWorkspaceRefresh),
             pendingWorkspaceSourceTab: String(state.pendingWorkspaceSourceTab || ''),
         };
+    }
+
+    function cloneSerializable(value) {
+        try {
+            return JSON.parse(JSON.stringify(value));
+        } catch (error) {
+            return null;
+        }
+    }
+
+    function applyInclusionModesToTreeSnapshot(nodes, buyTypeIds) {
+        return (Array.isArray(nodes) ? nodes : []).map((node) => {
+            const clonedNode = node && typeof node === 'object' ? { ...node } : {};
+            const typeId = Number(clonedNode.type_id || clonedNode.typeId || 0) || 0;
+            const inclusionMode = typeId > 0 && buyTypeIds.has(typeId) ? 'buy' : 'prod';
+            clonedNode.project_inclusion_mode = inclusionMode;
+            const children = Array.isArray(clonedNode.sub_materials)
+                ? clonedNode.sub_materials
+                : (Array.isArray(clonedNode.subMaterials) ? clonedNode.subMaterials : []);
+            const nextChildren = applyInclusionModesToTreeSnapshot(children, buyTypeIds);
+            if (Array.isArray(clonedNode.sub_materials)) {
+                clonedNode.sub_materials = nextChildren;
+            }
+            if (Array.isArray(clonedNode.subMaterials)) {
+                clonedNode.subMaterials = nextChildren;
+            }
+            return clonedNode;
+        });
+    }
+
+    function collectCachedProjectPayloadSnapshot(normalizedState) {
+        const snapshot = cloneSerializable(window.BLUEPRINT_DATA || {});
+        if (!snapshot || typeof snapshot !== 'object') {
+            return null;
+        }
+
+        const buyTypeIds = new Set(
+            (Array.isArray(normalizedState.buyTypeIds) ? normalizedState.buyTypeIds : [])
+                .map((typeId) => Number(typeId) || 0)
+                .filter((typeId) => typeId > 0)
+        );
+
+        snapshot.active_tab = normalizedState.activeBlueprintTab;
+        snapshot.workspace_state = {
+            ...(snapshot.workspace_state && typeof snapshot.workspace_state === 'object' ? snapshot.workspace_state : {}),
+            buyTypeIds: normalizedState.buyTypeIds,
+            stockAllocations: normalizedState.stockAllocations,
+            manualPrices: normalizedState.manualPrices,
+            fuzzworkPrices: normalizedState.fuzzworkPrices,
+            simulation_name: normalizedState.simulationName,
+            simulationName: normalizedState.simulationName,
+            runs: normalizedState.runs,
+            active_tab: normalizedState.activeBlueprintTab,
+            activeBlueprintTab: normalizedState.activeBlueprintTab,
+            meTeConfig: normalizedState.meTeConfig,
+            copyRequests: normalizedState.copyRequests,
+            structure: normalizedState.structure,
+            pendingWorkspaceRefresh: normalizedState.pendingWorkspaceRefresh,
+            pendingWorkspaceSourceTab: normalizedState.pendingWorkspaceSourceTab,
+        };
+
+        if (Array.isArray(snapshot.materials_tree)) {
+            snapshot.materials_tree = applyInclusionModesToTreeSnapshot(
+                snapshot.materials_tree,
+                buyTypeIds
+            );
+        }
+
+        return snapshot;
     }
 
     function collectProjectWorkspacePayload() {
@@ -101,6 +187,8 @@
             runs: normalizedState.runs,
             simulation_name: normalizedState.simulationName,
             active_tab: normalizedState.activeBlueprintTab,
+            decisionBuyTolerance: normalizedState.decisionBuyTolerance,
+            cachedPayload: collectCachedProjectPayloadSnapshot(normalizedState),
             items: gatherProductionItems(),
             blueprint_efficiencies: gatherBlueprintEfficiencies(),
             custom_prices: gatherCustomPrices(),
@@ -441,6 +529,28 @@
         }
     }
 
+    async function saveProjectWorkspaceFromHeader(event) {
+        if (event) {
+            event.preventDefault();
+        }
+
+        const saveButton = document.getElementById('saveSimulationBtn');
+        if (saveButton) {
+            saveButton.disabled = true;
+        }
+
+        try {
+            await persistProjectWorkspace({ showSuccessStatus: true });
+        } catch (error) {
+            console.error('[CraftBP] Failed to save project workspace', error);
+            showSimulationStatus(__('Failed to save table.'), 'danger');
+        } finally {
+            if (saveButton) {
+                saveButton.disabled = false;
+            }
+        }
+    }
+
     async function fetchSimulationsList() {
         if (cachedSimulations) {
             return cachedSimulations;
@@ -692,6 +802,11 @@
             saveModal.addEventListener('show.bs.modal', refreshSaveSummary);
         }
 
+        const saveToolbarButton = document.getElementById('saveSimulationBtn');
+        if (saveToolbarButton && isProjectWorkspace) {
+            saveToolbarButton.addEventListener('click', saveProjectWorkspaceFromHeader);
+        }
+
         const saveButton = document.getElementById('confirmSaveSimulation');
         if (saveButton) {
             saveButton.addEventListener('click', saveSimulation);
@@ -718,7 +833,7 @@
     });
 
     document.addEventListener('CraftBP:sessionStateChanged', (event) => {
-        if (!isProjectWorkspace) {
+        if (!isProjectWorkspace || !projectWorkspaceStateInitialized) {
             return;
         }
         const sessionState = normalizeWorkspaceStateForSession(event.detail?.state || {});
@@ -752,5 +867,6 @@
             lastSavedProjectStateSignature = buildWorkspaceSignature(normalizedState);
             setProjectWorkspaceDirty(false);
         }
+        projectWorkspaceStateInitialized = true;
     });
 })();

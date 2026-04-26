@@ -22,7 +22,7 @@ from ..models import (
     Blueprint,
     ProductionProject,
     ProductionProjectItem,
-    ProductionSimulation,
+    SDESyncCompatState,
 )
 from ..utils.eve import get_blueprint_product_type_id, get_type_name
 from .craft_materials import (
@@ -61,6 +61,127 @@ EFT_CATEGORY_SPEC_BY_KEY = {
 }
 DRONE_GROUP_KEYWORDS = ("drone", "fighter", "fighter bomber")
 SUBSYSTEM_GROUP_KEYWORDS = ("subsystem", "strategic cruiser")
+PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY = "cachedProjectPayload"
+PROJECT_WORKSPACE_SDE_SIGNATURE_KEY = "cachedProjectSdeSignature"
+
+
+def strip_project_workspace_cache(
+    workspace_state: dict[str, object] | None,
+) -> dict[str, object]:
+    cleaned_state = dict(workspace_state or {})
+    cleaned_state.pop(PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY, None)
+    cleaned_state.pop(PROJECT_WORKSPACE_SDE_SIGNATURE_KEY, None)
+    return cleaned_state
+
+
+def get_project_workspace_sde_signature() -> dict[str, object]:
+    state = SDESyncCompatState.objects.filter(pk=1).first()
+    if not state:
+        return {}
+
+    return {
+        "build_number": state.last_source_build_number,
+        "release_date": (
+            state.last_source_release_date.isoformat()
+            if state.last_source_release_date
+            else ""
+        ),
+        "last_synced_at": (
+            state.last_synced_at.isoformat() if state.last_synced_at else ""
+        ),
+        "updated_at": state.updated_at.isoformat() if state.updated_at else "",
+    }
+
+
+def _payload_uses_unpublished_blueprints(payload: dict[str, object] | None) -> bool:
+    if not isinstance(payload, dict):
+        return False
+
+    blueprint_type_ids: set[int] = set()
+
+    def collect(nodes: object) -> None:
+        for node in nodes if isinstance(nodes, list) else []:
+            if not isinstance(node, dict):
+                continue
+            blueprint_type_id = int(node.get("blueprint_type_id") or 0)
+            if blueprint_type_id > 0:
+                blueprint_type_ids.add(blueprint_type_id)
+            collect(node.get("sub_materials"))
+
+    collect(payload.get("materials_tree"))
+    if not blueprint_type_ids:
+        return False
+
+    placeholders = ", ".join(["%s"] * len(blueprint_type_ids))
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT id
+            FROM eve_sde_itemtype
+            WHERE id IN ({placeholders}) AND COALESCE(published, 0) = 0
+            LIMIT 1
+            """,
+            list(sorted(blueprint_type_ids)),
+        )
+        return cursor.fetchone() is not None
+
+
+def get_cached_project_workspace_payload(
+    project: ProductionProject,
+) -> tuple[dict[str, object] | None, bool]:
+    workspace_state = dict(project.workspace_state or {})
+    cached_payload = workspace_state.get(PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY)
+    if not isinstance(cached_payload, dict):
+        return None, False
+    if _payload_uses_unpublished_blueprints(cached_payload):
+        logger.info(
+            "Discarding cached craft payload for project %s because it references unpublished blueprint types.",
+            getattr(project, "id", None),
+        )
+        return None, False
+
+    cached_signature = workspace_state.get(PROJECT_WORKSPACE_SDE_SIGNATURE_KEY)
+    payload = dict(cached_payload)
+    payload.update(
+        {
+            "project_id": project.id,
+            "project_ref": project.project_ref,
+            "name": project.name,
+            "project_status": project.status,
+            "source_kind": project.source_kind,
+            "workspace_state": strip_project_workspace_cache(workspace_state),
+        }
+    )
+    current_signature = get_project_workspace_sde_signature()
+    sde_has_changed = bool(cached_signature and cached_signature != current_signature)
+    return payload, sde_has_changed
+
+
+def _resolve_preferred_blueprint_for_product(product_type_id: int) -> int | None:
+    numeric_product_type_id = int(product_type_id or 0)
+    if numeric_product_type_id <= 0:
+        return None
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT p.eve_type_id
+            FROM indy_hub_sdeindustryactivityproduct p
+                        JOIN eve_sde_itemtype t ON t.id = p.eve_type_id
+                        JOIN eve_sde_itemtype product_t ON product_t.id = p.product_eve_type_id
+                        WHERE p.product_eve_type_id = %s
+                            AND p.activity_id IN (1, 11)
+                            AND COALESCE(t.published, 0) = 1
+                            AND COALESCE(product_t.published, 0) = 1
+                        ORDER BY CASE p.activity_id WHEN 1 THEN 0 WHEN 11 THEN 1 ELSE 99 END,
+                        p.eve_type_id ASC
+            LIMIT 1
+            """,
+            [numeric_product_type_id],
+        )
+        row = cursor.fetchone()
+
+    return int(row[0]) if row and row[0] is not None else None
 
 
 def detect_project_import_kind(raw_text: str) -> str:
@@ -386,9 +507,14 @@ def _get_blueprint_output_quantity(blueprint_type_id: int) -> int:
     with connection.cursor() as cursor:
         cursor.execute(
             """
-            SELECT quantity
-            FROM indy_hub_sdeindustryactivityproduct
-            WHERE eve_type_id = %s AND activity_id IN (1, 11)
+            SELECT p.quantity
+            FROM indy_hub_sdeindustryactivityproduct p
+            JOIN eve_sde_itemtype blueprint_t ON blueprint_t.id = p.eve_type_id
+            JOIN eve_sde_itemtype product_t ON product_t.id = p.product_eve_type_id
+            WHERE p.eve_type_id = %s
+                        AND p.activity_id IN (1, 11)
+                        AND COALESCE(blueprint_t.published, 0) = 1
+                        AND COALESCE(product_t.published, 0) = 1
             ORDER BY CASE activity_id WHEN 1 THEN 0 WHEN 11 THEN 1 ELSE 99 END
             LIMIT 1
             """,
@@ -396,50 +522,6 @@ def _get_blueprint_output_quantity(blueprint_type_id: int) -> int:
         )
         row = cursor.fetchone()
     return max(1, int((row[0] if row else 1) or 1))
-
-
-def build_legacy_workspace_state(
-    simulation: ProductionSimulation,
-) -> dict[str, object]:
-    return {
-        "blueprint_type_id": int(simulation.blueprint_type_id or 0),
-        "blueprint_name": simulation.blueprint_name,
-        "runs": max(1, int(simulation.runs or 1)),
-        "simulation_name": simulation.simulation_name,
-        "active_tab": simulation.active_tab or "materials",
-        "items": [
-            {
-                "type_id": int(config.item_type_id),
-                "mode": str(config.production_mode or "prod"),
-                "quantity": int(config.quantity_needed or 0),
-            }
-            for config in simulation.production_configs.all().order_by("item_type_id")
-        ],
-        "blueprint_efficiencies": [
-            {
-                "blueprint_type_id": int(eff.blueprint_type_id),
-                "material_efficiency": int(eff.material_efficiency or 0),
-                "time_efficiency": int(eff.time_efficiency or 0),
-            }
-            for eff in simulation.blueprint_efficiencies.all().order_by(
-                "blueprint_type_id"
-            )
-        ],
-        "custom_prices": [
-            {
-                "item_type_id": int(price.item_type_id),
-                "unit_price": float(price.unit_price or 0),
-                "is_sale_price": bool(price.is_sale_price),
-            }
-            for price in simulation.custom_prices.all().order_by("item_type_id")
-        ],
-        "estimated_cost": float(simulation.estimated_cost or 0),
-        "estimated_revenue": float(simulation.estimated_revenue or 0),
-        "estimated_profit": float(simulation.estimated_profit or 0),
-        "total_items": int(simulation.total_items or 0),
-        "total_buy_items": int(simulation.total_buy_items or 0),
-        "total_prod_items": int(simulation.total_prod_items or 0),
-    }
 
 
 def create_project_from_single_blueprint(
@@ -538,44 +620,6 @@ def create_project_from_single_blueprint(
     return project
 
 
-def migrate_user_legacy_simulations_to_projects(user) -> dict[str, int]:
-    simulations = list(
-        ProductionSimulation.objects.filter(user=user)
-        .order_by("updated_at")
-        .prefetch_related(
-            "production_configs", "blueprint_efficiencies", "custom_prices"
-        )
-    )
-    summary = {"migrated": 0, "failed": 0}
-    if not simulations:
-        return summary
-
-    for simulation in simulations:
-        try:
-            project_name = simulation.simulation_name or simulation.display_name
-            create_project_from_single_blueprint(
-                user=user,
-                blueprint_type_id=int(simulation.blueprint_type_id),
-                blueprint_name=simulation.blueprint_name,
-                runs=max(1, int(simulation.runs or 1)),
-                name=project_name,
-                status=ProductionProject.Status.SAVED,
-                workspace_state=build_legacy_workspace_state(simulation),
-                active_tab=simulation.active_tab or "materials",
-            )
-            simulation.delete()
-            summary["migrated"] += 1
-        except Exception:
-            logger.exception(
-                "Unable to migrate legacy production simulation %s for user %s",
-                simulation.id,
-                getattr(user, "id", None),
-            )
-            summary["failed"] += 1
-
-    return summary
-
-
 def build_project_workspace_payload(
     project: ProductionProject,
     *,
@@ -623,7 +667,7 @@ def build_project_workspace_payload(
             "name": project.name,
             "project_status": project.status,
             "source_kind": project.source_kind,
-            "workspace_state": dict(project.workspace_state or {}),
+            "workspace_state": strip_project_workspace_cache(project.workspace_state),
             "product_type_id": None,
             "final_product_qty": 0,
             "materials_tree": [],
@@ -680,7 +724,7 @@ def build_project_workspace_payload(
                 SELECT t.meta_group_id_raw, g.category_id
                 FROM eve_sde_itemtype t
                 LEFT JOIN eve_sde_itemgroup g ON t.group_id = g.id
-                WHERE t.id = %s
+                WHERE t.id = %s AND COALESCE(t.published, 0) = 1
                 LIMIT 1
                 """,
                 [numeric_type_id],
@@ -706,7 +750,7 @@ def build_project_workspace_payload(
                 SELECT COALESCE(g.name, ''), g.id
                 FROM eve_sde_itemtype t
                 LEFT JOIN eve_sde_itemgroup g ON t.group_id = g.id
-                WHERE t.id = %s
+                WHERE t.id = %s AND COALESCE(t.published, 0) = 1
                 LIMIT 1
                 """,
                 [numeric_type_id],
@@ -737,9 +781,13 @@ def build_project_workspace_payload(
                     COALESCE(g.name, ''),
                     g.id
                 FROM indy_hub_sdeindustryactivityproduct p
-                JOIN eve_sde_itemtype t ON t.id = p.product_eve_type_id
+                                JOIN eve_sde_itemtype t ON t.id = p.product_eve_type_id
+                                JOIN eve_sde_itemtype blueprint_t ON blueprint_t.id = p.eve_type_id
                 LEFT JOIN eve_sde_itemgroup g ON t.group_id = g.id
-                WHERE p.eve_type_id = %s AND p.activity_id IN (1, 11)
+                                WHERE p.eve_type_id = %s
+                                    AND p.activity_id IN (1, 11)
+                                    AND COALESCE(t.published, 0) = 1
+                                    AND COALESCE(blueprint_t.published, 0) = 1
                 ORDER BY CASE p.activity_id WHEN 1 THEN 0 WHEN 11 THEN 1 ELSE 99 END
                 LIMIT 1
                 """,
@@ -768,19 +816,8 @@ def build_project_workspace_payload(
         if numeric_product_type_id in product_blueprint_cache:
             return product_blueprint_cache[numeric_product_type_id]
 
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT MIN(eve_type_id)
-                FROM indy_hub_sdeindustryactivityproduct
-                WHERE product_eve_type_id = %s AND activity_id IN (1, 11)
-                """,
-                [numeric_product_type_id],
-            )
-            row = cursor.fetchone()
-
         product_blueprint_cache[numeric_product_type_id] = (
-            int(row[0]) if row and row[0] is not None else None
+            _resolve_preferred_blueprint_for_product(numeric_product_type_id)
         )
         return product_blueprint_cache[numeric_product_type_id]
 
@@ -818,9 +855,12 @@ def build_project_workspace_payload(
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT material_eve_type_id, quantity
-                FROM indy_hub_sdeindustryactivitymaterial
-                WHERE eve_type_id = %s AND activity_id IN (1, 11)
+                SELECT m.material_eve_type_id, m.quantity
+                FROM indy_hub_sdeindustryactivitymaterial m
+                JOIN eve_sde_itemtype t ON t.id = m.material_eve_type_id
+                WHERE m.eve_type_id = %s
+                                AND m.activity_id IN (1, 11)
+                                AND COALESCE(t.published, 0) = 1
                 """,
                 [int(blueprint_type_id)],
             )
@@ -927,7 +967,9 @@ def build_project_workspace_payload(
                 SELECT m.material_eve_type_id, COALESCE(t.name_en, t.name), m.quantity
                 FROM indy_hub_sdeindustryactivitymaterial m
                 JOIN eve_sde_itemtype t ON t.id = m.material_eve_type_id
-                WHERE m.eve_type_id = %s AND m.activity_id IN (1, 11)
+                                WHERE m.eve_type_id = %s
+                                    AND m.activity_id IN (1, 11)
+                                    AND COALESCE(t.published, 0) = 1
                 """,
                 [numeric_blueprint_type_id],
             )
@@ -1136,7 +1178,7 @@ def build_project_workspace_payload(
             }
         )
 
-    workspace_state = dict(project.workspace_state or {})
+    workspace_state = strip_project_workspace_cache(project.workspace_state)
     main_blueprint_info = {}
     root_blueprint_type_id = 0
     root_product_type_id = 0
@@ -1417,10 +1459,11 @@ def _resolve_item_types_by_name(names: Sequence[str]) -> dict[str, dict[str, obj
     placeholders = ", ".join(["%s"] * len(names))
     lower_names = [name.casefold() for name in names]
     query = f"""
-        SELECT t.id, t.name, COALESCE(g.name, '')
+                SELECT t.id, t.name, COALESCE(g.name, '')
         FROM eve_sde_itemtype t
         LEFT JOIN eve_sde_itemgroup g ON t.group_id = g.id
-        WHERE LOWER(t.name) IN ({placeholders})
+                WHERE LOWER(t.name) IN ({placeholders})
+                    AND COALESCE(t.published, 0) = 1
     """
 
     resolved: dict[str, dict[str, object]] = {}
@@ -1442,19 +1485,30 @@ def _resolve_blueprints_for_products(type_ids: Iterable[int]) -> dict[int, int]:
 
     placeholders = ", ".join(["%s"] * len(type_id_list))
     query = f"""
-        SELECT product_eve_type_id, MIN(eve_type_id) AS blueprint_type_id
-        FROM indy_hub_sdeindustryactivityproduct
-        WHERE activity_id IN (1, 11) AND product_eve_type_id IN ({placeholders})
-        GROUP BY product_eve_type_id
+        SELECT p.product_eve_type_id, p.eve_type_id, p.activity_id
+        FROM indy_hub_sdeindustryactivityproduct p
+        JOIN eve_sde_itemtype blueprint_t ON blueprint_t.id = p.eve_type_id
+        JOIN eve_sde_itemtype product_t ON product_t.id = p.product_eve_type_id
+        WHERE p.activity_id IN (1, 11)
+                AND p.product_eve_type_id IN ({placeholders})
+                AND COALESCE(blueprint_t.published, 0) = 1
+                AND COALESCE(product_t.published, 0) = 1
+        ORDER BY
+            p.product_eve_type_id,
+            CASE p.activity_id WHEN 1 THEN 0 WHEN 11 THEN 1 ELSE 99 END,
+            p.eve_type_id
     """
 
     blueprint_map: dict[int, int] = {}
     with connection.cursor() as cursor:
         cursor.execute(query, type_id_list)
-        for product_type_id, blueprint_type_id in cursor.fetchall():
+        for product_type_id, blueprint_type_id, _activity_id in cursor.fetchall():
             if product_type_id is None or blueprint_type_id is None:
                 continue
-            blueprint_map[int(product_type_id)] = int(blueprint_type_id)
+            numeric_product_type_id = int(product_type_id)
+            if numeric_product_type_id in blueprint_map:
+                continue
+            blueprint_map[numeric_product_type_id] = int(blueprint_type_id)
     return blueprint_map
 
 
@@ -1584,7 +1638,8 @@ def _resolve_type_names(type_ids: Iterable[int | None]) -> dict[int, str]:
             f"""
             SELECT id, COALESCE(name_en, name)
             FROM eve_sde_itemtype
-            WHERE id IN ({placeholders})
+                        WHERE id IN ({placeholders})
+                            AND COALESCE(published, 0) = 1
             """,
             numeric_ids,
         )
@@ -1608,7 +1663,8 @@ def _resolve_market_groups(type_ids: Iterable[int]) -> dict[int, dict[str, objec
             SELECT t.id, COALESCE(g.name, ''), g.id
             FROM eve_sde_itemtype t
             LEFT JOIN eve_sde_itemgroup g ON t.group_id = g.id
-            WHERE t.id IN ({placeholders})
+                        WHERE t.id IN ({placeholders})
+                            AND COALESCE(t.published, 0) = 1
             """,
             numeric_ids,
         )

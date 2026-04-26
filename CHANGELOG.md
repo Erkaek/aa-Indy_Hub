@@ -14,6 +14,8 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 ### Added
 
 - Crafting Projects: added a unified craft-table workflow backed by dedicated project models and APIs, with EFT or manual-list imports, aggregated multi-item outputs, saved workspaces, explicit save actions, and per-item production progress tracking.
+- Crafting Projects: added a stock-management tab backed by cached character asset snapshots so tables can allocate owned items by character, reduce cash investment, and surface stock coverage directly in planning views.
+- Crafting Projects: added a dedicated decision center that centralizes Buy vs Produce recommendations, tolerance-based strategy review, and grouped sourcing analysis in one workspace.
 - Industry Structures: added a full structure registry with create, edit, duplicate, delete, bulk update, bulk import, rig guidance, and persisted structure plus solar-system industry datasets for craft calculations.
 - Material Exchange: added in-page contract paste-check helpers, sell-order paste import, accepted multi-location support, and explicit item allowlists that extend hub configuration beyond market-group filtering.
 - Blueprint Sharing: added structured proposal and counter-proposal handling directly in copy-request negotiations, with tracked confirmation states inside the request workflow.
@@ -22,23 +24,32 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 ### Changed
 
 - Crafting workflow: removed the legacy single-blueprint simulation path in favor of project workspaces, redirected old craft entry points into craft tables, renamed simulations into Crafting Projects, and replaced the list view with a project dashboard split between draft and saved tables.
+- Crafting workflow: finished the legacy simulation retirement by migrating stored single-blueprint data through the reversible `0096` project migration, removing the old simulation tables and returning explicit `410` responses from deprecated simulation endpoints.
 - Craft page UX: reworked the craft frontend around payload-driven workspaces, manual save with unsaved-change warnings, lazy pane hydration, staged loading feedback, persisted session restoration, richer financial planning tools, and a more usable structure planner.
+- Craft page UX: replaced the old run-optimized view with the decision center, added a dedicated stock tab, and limited the blueprint configuration tab to blueprints actually used by the current project state.
+- Crafting Projects: saved workspaces now keep a cached craft payload snapshot and restore table context, manual prices, stock allocations, and sourcing choices more faithfully across reloads and SDE refreshes.
 - Production tracking: redesigned project progress around item-level coverage, linked industry jobs, manual override states, and a clearer modal focused on what is finished, active, or still missing.
 - Blueprint Sharing: turned request, history, and fulfill pages into richer negotiation workspaces with better copy-time estimates, stricter production-limit checks, clearer handoff states, and improved chat action visibility.
+- Blueprint Sharing: refreshed the copy-request history page to match the newer fulfill workspace styling and tightened fulfill actions so scope-specific decisions stay aligned with the source actually selected.
 - Material Exchange: improved contract validation, buy and sell flows, multi-location behavior, bulk actions, transaction history summaries, sell-page character switching, and configuration usability on top of the new hub rules.
 - Performance and navigation: reduced repeated location and skill lookups, reused skill and slot snapshots more broadly, improved corporation read-only navigation, and restored native Alliance Auth badge rendering with richer Indy Hub counts.
 
 ### Fixed
 
 - Crafting Projects: fixed mono-blueprint project loading by normalizing blueprint and product identities, preserving blueprint context on workspace saves, and keeping project payloads consistent when legacy data is migrated into craft tables.
+- Crafting Projects: fixed decision-state drift between the tree, decision table, and blueprint tab so parent-locked items, apply-recommendations flows, and descendant cost comparisons now stay coherent.
+- Crafting Projects: fixed stock-aware finance calculations so allocated inventory reduces cash investment without lowering production cost, and surfaced the remaining buy requirement consistently across finance and stock views.
+- Industry data: hardened craft payload, structure, timing, import, and EVE helper queries so only `published = 1` SDE rows are used when resolving blueprints, products, materials, rigs, and type names.
 - Material Exchange: fixed large form payload and `TooManyFieldsSent` issues, contract structure or item-name resolution edge cases, duplicate transaction processing, and several sell-page submission or rendering regressions.
 - Corporation and industry UX: fixed corporation jobs visibility, stale blueprint `bp_type` states, structure-name cache write-through and retry behavior, settings refresh feedback, and several stale location-label inconsistencies.
+- Blueprint Sharing: fixed dual-source fulfill queue behavior so rejecting a corporation source no longer hides a request that is still fulfillable with a personal source, and kept request finalization aligned with remaining eligible scopes.
 - Navigation and badges: fixed stale Indy Hub badge invalidation, improved cold-cache badge rendering, and ensured new blueprint-sharing or Material Exchange activity is reflected more reliably in the menu.
 - Frontend polish: fixed duplicate input bindings, noisy debug exports, lazy-loaded tree rendering, structure edit feedback, and dark-theme readability issues across the refreshed craft and hub views.
 
 ### Internal
 
 - Added broad regression coverage for the project workflow, structure registry, system cost index sync, Material Exchange contract handling, badge computation, access-control changes, and the new project progress behaviors shipped in this release.
+- Added focused regression coverage for published-only SDE resolution, cached project payload handling, reversible legacy simulation migration, and scope-aware blueprint fulfill rejections.
 - Added the supporting migrations, scheduled tasks, and service layers required for structure datasets, system cost indices, craft timing or skill helpers, and the new production-project models.
 - Updated release metadata, frontend package versions, and compatibility redirects to complete the `1.16.0` transition away from legacy single-blueprint simulations.
 

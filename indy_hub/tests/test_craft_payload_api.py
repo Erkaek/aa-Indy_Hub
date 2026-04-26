@@ -60,6 +60,55 @@ class CraftBlueprintPayloadApiTests(TestCase):
     @patch("indy_hub.views.api.emit_view_analytics_event")
     @patch("indy_hub.views.api.build_craft_structure_planner")
     @patch("indy_hub.views.api.build_craft_character_advisor")
+    def test_payload_queries_only_use_published_sde_rows(
+        self,
+        mock_build_craft_character_advisor,
+        mock_build_structure_planner,
+        mock_emit_view_analytics_event,
+        mock_build_craft_time_map,
+    ) -> None:
+        mock_build_structure_planner.return_value = {"items": [], "summary": {}}
+        mock_build_craft_character_advisor.return_value = {
+            "characters": [],
+            "items": {},
+            "summary": {
+                "characters": 0,
+                "eligible_items": 0,
+                "blocked_items": 0,
+                "missing_skill_data_characters": 0,
+            },
+        }
+        mock_emit_view_analytics_event.return_value = None
+        mock_build_craft_time_map.return_value = {}
+
+        request = self.factory.get("/indy_hub/api/craft-bp-payload/1234/", {"runs": 1})
+        request.user = self.user
+
+        view = craft_bp_payload
+        while hasattr(view, "__wrapped__"):
+            view = view.__wrapped__
+
+        stubs = [
+            _CursorStub(fetchone_result=(2000, 2)),
+            _CursorStub(fetchall_result=[]),
+            _CursorStub(fetchone_result=(2,), fetchall_result=[]),
+        ]
+
+        with patch(
+            "indy_hub.views.api.connection.cursor",
+            side_effect=iter(stubs),
+        ):
+            response = view(request, 1234)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("COALESCE(blueprint_t.published, 0) = 1", stubs[0].last_query)
+        self.assertIn("COALESCE(product_t.published, 0) = 1", stubs[0].last_query)
+        self.assertIn("COALESCE(t.published, 0) = 1", stubs[2].last_query)
+
+    @patch("indy_hub.views.api.build_craft_time_map")
+    @patch("indy_hub.views.api.emit_view_analytics_event")
+    @patch("indy_hub.views.api.build_craft_structure_planner")
+    @patch("indy_hub.views.api.build_craft_character_advisor")
     def test_payload_includes_structure_planner_data(
         self,
         mock_build_craft_character_advisor,

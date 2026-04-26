@@ -556,10 +556,13 @@ def _fetch_craftable_item_rows(type_ids: list[int]) -> list[dict[str, object]]:
                 COALESCE(category.name_en, category.name) AS category_name
             FROM indy_hub_sdeindustryactivityproduct product
             JOIN eve_sde_itemtype item ON item.id = product.product_eve_type_id
+            JOIN eve_sde_itemtype blueprint_item ON blueprint_item.id = product.eve_type_id
             JOIN eve_sde_itemgroup grp ON grp.id = item.group_id
             JOIN eve_sde_itemcategory category ON category.id = grp.category_id
             WHERE product.product_eve_type_id IN ({placeholders})
                         AND product.activity_id IN (1, 9, 11)
+                        AND COALESCE(item.published, 0) = 1
+                        AND COALESCE(blueprint_item.published, 0) = 1
             ORDER BY COALESCE(item.name_en, item.name)
             """,
             type_ids,
