@@ -2518,16 +2518,28 @@ def craft_project(request, project_ref):
         project_ref=normalized_project_ref,
         user=request.user,
     )
+    if "runs" in request.GET:
+        try:
+            runs_override = max(1, int(request.GET.get("runs") or 1))
+        except (TypeError, ValueError):
+            runs_override = 1
+    else:
+        runs_override = None
+
     workspace_state = strip_project_workspace_cache(project.workspace_state)
     active_tab = request.GET.get("active_tab") or workspace_state.get(
         "active_tab", "materials"
     )
-    payload, sde_has_changed = get_cached_project_workspace_payload(project)
+    payload = None
+    sde_has_changed = False
+    if runs_override is None:
+        payload, sde_has_changed = get_cached_project_workspace_payload(project)
     if payload is None:
         payload = build_project_workspace_payload(
             project,
             skill_cache_ttl=SKILL_CACHE_TTL,
             me_te_overrides=parse_project_me_te_overrides(request.GET),
+            runs_override=runs_override,
             include_full_structure_options=False,
         )
         sde_has_changed = False
@@ -2540,10 +2552,13 @@ def craft_project(request, project_ref):
             ),
         )
 
+    render_workspace_state = dict(payload.get("workspace_state") or workspace_state)
+    render_workspace_state["active_tab"] = active_tab
+
     payload.update(
         {
             "active_tab": active_tab,
-            "workspace_state": workspace_state,
+            "workspace_state": render_workspace_state,
             "character_stock_snapshot": build_user_asset_inventory_snapshot(
                 request.user,
                 allow_refresh=False,

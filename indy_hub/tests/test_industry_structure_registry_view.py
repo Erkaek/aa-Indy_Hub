@@ -9,6 +9,7 @@ from unittest.mock import patch
 from django.contrib.auth.models import Permission, User
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.contrib.sessions.middleware import SessionMiddleware
+from django.core.exceptions import ValidationError
 from django.http import Http404, HttpRequest
 from django.test import TestCase
 from django.test.client import RequestFactory
@@ -1703,6 +1704,60 @@ class IndustryStructureRegistryViewTests(TestCase):
 
         self.assertEqual(response.status_code, 302)
         self.assertFalse(IndustryStructure.objects.filter(id=structure.id).exists())
+
+    def test_model_save_rejects_duplicate_public_name_without_partial_constraint(
+        self,
+    ) -> None:
+        IndustryStructure.objects.create(
+            name="C-N4OD - Kuat Drive Yards",
+            solar_system_name="Jita",
+            structure_type_id=35827,
+            structure_type_name="Sotiyo",
+            visibility_scope=IndustryStructure.VisibilityScope.PUBLIC,
+        )
+
+        with self.assertRaises(ValidationError) as caught:
+            IndustryStructure.objects.create(
+                name="C-N4OD  -   Kuat Drive Yards",
+                solar_system_name="Perimeter",
+                structure_type_id=35827,
+                structure_type_name="Sotiyo",
+                visibility_scope=IndustryStructure.VisibilityScope.PUBLIC,
+            )
+
+        self.assertIn(
+            "A shared structure with this registry name already exists, even when whitespace is ignored.",
+            caught.exception.message_dict["name"],
+        )
+
+    def test_model_save_rejects_duplicate_personal_tag_without_partial_constraint(
+        self,
+    ) -> None:
+        IndustryStructure.objects.create(
+            name="Azbel Profile",
+            personal_tag="mine",
+            owner_user=self.user,
+            visibility_scope=IndustryStructure.VisibilityScope.PERSONAL,
+            solar_system_name="Jita",
+            structure_type_id=35826,
+            structure_type_name="Azbel",
+        )
+
+        with self.assertRaises(ValidationError) as caught:
+            IndustryStructure.objects.create(
+                name="Azbel Profile",
+                personal_tag="Mine",
+                owner_user=self.user,
+                visibility_scope=IndustryStructure.VisibilityScope.PERSONAL,
+                solar_system_name="Perimeter",
+                structure_type_id=35826,
+                structure_type_name="Azbel",
+            )
+
+        self.assertIn(
+            "You already have a personal copy with this tag for this structure.",
+            caught.exception.message_dict["personal_tag"],
+        )
 
     def test_bulk_update_view_applies_tax_only_to_matching_structures(self) -> None:
         matched_structure = IndustryStructure.objects.create(

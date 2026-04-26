@@ -16,14 +16,21 @@ from django.urls import reverse
 from django.utils import timezone
 
 # AA Example App
-from indy_hub.models import IndustryJob, ProductionProject
-from indy_hub.services.production_projects import create_project_from_single_blueprint
+from indy_hub.models import IndustryJob, ProductionProject, ProductionProjectItem
+from indy_hub.services.production_projects import (
+    LEGACY_SINGLE_BLUEPRINT_PROJECT_NOTE,
+    _scale_project_selected_items_for_runs,
+    create_project_from_single_blueprint,
+    get_cached_project_workspace_payload,
+    strip_project_workspace_cache,
+)
 from indy_hub.services.project_progress import normalize_project_progress
 from indy_hub.views.api import (
+    production_project_payload,
     save_production_project_progress,
     save_production_project_workspace,
 )
-from indy_hub.views.industry import craft_bp
+from indy_hub.views.industry import craft_bp, craft_project
 
 
 def _unwrap_view(view):
@@ -53,6 +60,14 @@ class LegacySimulationUnificationTests(TestCase):
     @property
     def _save_progress_view(self):
         return _unwrap_view(save_production_project_progress)
+
+    @property
+    def _production_project_payload_view(self):
+        return _unwrap_view(production_project_payload)
+
+    @property
+    def _craft_project_view(self):
+        return _unwrap_view(craft_project)
 
     def _prepare_request(self, request: HttpRequest, *, user=None) -> HttpRequest:
         request.user = user or self.user
@@ -232,6 +247,105 @@ class LegacySimulationUnificationTests(TestCase):
         self.assertEqual(project.workspace_state["blueprint_type_id"], 950)
         self.assertEqual(project.workspace_state["blueprint_name"], "Merlin Blueprint")
 
+    @patch("indy_hub.views.api.build_project_workspace_payload")
+    def test_save_production_project_workspace_rebuilds_stale_cached_runs_payload(
+        self, mock_build_project_workspace_payload
+    ):
+        project = ProductionProject.objects.create(
+            user=self.user,
+            name="Abatis",
+            status=ProductionProject.Status.DRAFT,
+            source_kind=ProductionProject.SourceKind.MANUAL,
+        )
+        mock_build_project_workspace_payload.return_value = {
+            "num_runs": 4,
+            "final_product_qty": 4,
+            "materials_tree": [
+                {
+                    "type_id": 23783,
+                    "quantity": 4,
+                    "sub_materials": [],
+                }
+            ],
+        }
+
+        request = self._prepare_request(
+            self.factory.post(
+                reverse(
+                    "indy_hub:save_production_project_workspace",
+                    args=[project.project_ref],
+                ),
+                data=json.dumps(
+                    {
+                        "runs": 4,
+                        "pendingWorkspaceRefresh": True,
+                        "pendingWorkspaceSourceTab": "cycles",
+                        "cachedPayload": {
+                            "num_runs": 1,
+                            "final_product_qty": 1,
+                            "workspace_state": {"runs": 4},
+                            "materials_tree": [
+                                {
+                                    "type_id": 23783,
+                                    "quantity": 1,
+                                    "sub_materials": [],
+                                }
+                            ],
+                        },
+                    }
+                ),
+                content_type="application/json",
+            )
+        )
+
+        response = self._save_workspace_view(request, project.project_ref)
+
+        self.assertEqual(response.status_code, 200)
+        mock_build_project_workspace_payload.assert_called_once()
+        project.refresh_from_db()
+        self.assertEqual(project.workspace_state["runs"], 4)
+        self.assertFalse(project.workspace_state["pendingWorkspaceRefresh"])
+        self.assertEqual(project.workspace_state["cachedProjectPayload"]["num_runs"], 4)
+        self.assertEqual(
+            project.workspace_state["cachedProjectPayload"]["materials_tree"][0][
+                "quantity"
+            ],
+            4,
+        )
+
+    def test_get_cached_project_workspace_payload_discards_mismatched_runs_cache(self):
+        project = ProductionProject.objects.create(
+            user=self.user,
+            name="Cached Runs",
+            status=ProductionProject.Status.DRAFT,
+            source_kind=ProductionProject.SourceKind.MANUAL,
+            workspace_state={
+                "runs": 4,
+                "cachedProjectPayload": {
+                    "num_runs": 1,
+                    "materials_tree": [],
+                },
+                "cachedProjectSdeSignature": {},
+            },
+        )
+
+        payload, sde_has_changed = get_cached_project_workspace_payload(project)
+
+        self.assertIsNone(payload)
+        self.assertFalse(sde_has_changed)
+
+    def test_strip_project_workspace_cache_removes_pending_refresh_flags(self):
+        self.assertEqual(
+            strip_project_workspace_cache(
+                {
+                    "runs": 4,
+                    "pendingWorkspaceRefresh": True,
+                    "pendingWorkspaceSourceTab": "plan",
+                }
+            ),
+            {"runs": 4},
+        )
+
     @patch("indy_hub.services.production_projects.get_type_name")
     @patch("indy_hub.services.production_projects._get_blueprint_output_quantity")
     @patch("indy_hub.services.production_projects._resolve_blueprints_for_products")
@@ -266,6 +380,151 @@ class LegacySimulationUnificationTests(TestCase):
         self.assertEqual(item.quantity_requested, 4)
         self.assertEqual(project.workspace_state["blueprint_type_id"], 950)
         self.assertEqual(project.workspace_state["blueprint_name"], "Merlin Blueprint")
+
+    def test_scale_project_selected_items_for_runs_multiplies_all_project_outputs(self):
+        project = ProductionProject(
+            user=self.user,
+            name="Batch Project",
+            status=ProductionProject.Status.DRAFT,
+            source_kind=ProductionProject.SourceKind.MANUAL,
+            notes="",
+        )
+        selected_items = [
+            ProductionProjectItem(
+                type_id=603, type_name="Merlin", quantity_requested=3
+            ),
+            ProductionProjectItem(
+                type_id=621, type_name="Caracal", quantity_requested=5
+            ),
+        ]
+
+        scaled_items = _scale_project_selected_items_for_runs(
+            project=project,
+            selected_items=selected_items,
+            saved_runs=1,
+            target_runs=2,
+        )
+
+        self.assertEqual([item.quantity_requested for item in scaled_items], [6, 10])
+        self.assertEqual([item.quantity_requested for item in selected_items], [3, 5])
+
+    @patch("indy_hub.services.production_projects._get_blueprint_output_quantity")
+    def test_scale_project_selected_items_for_runs_normalizes_legacy_single_blueprint_base(
+        self, mock_get_blueprint_output_quantity
+    ):
+        mock_get_blueprint_output_quantity.return_value = 2
+        project = ProductionProject(
+            user=self.user,
+            name="Merlin",
+            status=ProductionProject.Status.DRAFT,
+            source_kind=ProductionProject.SourceKind.MANUAL,
+            notes=LEGACY_SINGLE_BLUEPRINT_PROJECT_NOTE,
+        )
+        selected_items = [
+            ProductionProjectItem(
+                type_id=603,
+                type_name="Merlin",
+                quantity_requested=8,
+                blueprint_type_id=950,
+            )
+        ]
+
+        scaled_items = _scale_project_selected_items_for_runs(
+            project=project,
+            selected_items=selected_items,
+            saved_runs=4,
+            target_runs=3,
+        )
+
+        self.assertEqual(scaled_items[0].quantity_requested, 6)
+        self.assertEqual(selected_items[0].quantity_requested, 8)
+
+    @patch("indy_hub.views.api.build_project_workspace_payload")
+    def test_production_project_payload_passes_runs_override(
+        self, mock_build_project_workspace_payload
+    ):
+        project = ProductionProject.objects.create(
+            user=self.user,
+            name="Runs Test",
+            status=ProductionProject.Status.DRAFT,
+            source_kind=ProductionProject.SourceKind.MANUAL,
+        )
+        mock_build_project_workspace_payload.return_value = {"num_runs": 5}
+
+        request = self._prepare_request(
+            self.factory.get(
+                reverse(
+                    "indy_hub:production_project_payload",
+                    args=[project.project_ref],
+                ),
+                data={"runs": 5},
+            )
+        )
+        response = self._production_project_payload_view(request, project.project_ref)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            mock_build_project_workspace_payload.call_args.kwargs["runs_override"], 5
+        )
+
+    @patch("indy_hub.views.industry.build_project_workspace_payload")
+    @patch("indy_hub.views.industry.get_cached_project_workspace_payload")
+    def test_craft_project_renders_runs_control_and_uses_runs_override(
+        self,
+        mock_get_cached_project_workspace_payload,
+        mock_build_project_workspace_payload,
+    ):
+        project = ProductionProject.objects.create(
+            user=self.user,
+            name="Runs Workspace",
+            status=ProductionProject.Status.DRAFT,
+            source_kind=ProductionProject.SourceKind.MANUAL,
+        )
+        mock_get_cached_project_workspace_payload.return_value = (
+            {"num_runs": 3},
+            False,
+        )
+        mock_build_project_workspace_payload.return_value = {
+            "bp_type_id": 950,
+            "num_runs": 7,
+            "final_product_qty": 14,
+            "product_type_id": 603,
+            "me": 0,
+            "te": 0,
+            "materials": [],
+            "direct_materials": [],
+            "materials_tree": [],
+            "craft_cycles_summary": {},
+            "blueprint_configs_grouped": [],
+            "materials_by_group": {},
+            "market_group_map": {},
+            "recipe_map": {},
+            "debug": {},
+            "fuzzwork_price_url": "",
+            "main_bp_info": {},
+            "copy_request_preview": {},
+            "copy_request_pages": [],
+            "production_time_map": {},
+            "craft_character_advisor": {},
+            "structure_planner": {},
+            "final_outputs": [{"type_id": 603, "quantity": 14}],
+        }
+
+        request = self._prepare_request(
+            self.factory.get(
+                reverse("indy_hub:craft_project", args=[project.project_ref]),
+                data={"runs": 7},
+            )
+        )
+        response = self._craft_project_view(request, project.project_ref)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            mock_build_project_workspace_payload.call_args.kwargs["runs_override"], 7
+        )
+        self.assertContains(response, 'id="runsInput"', html=False)
+        self.assertContains(response, 'value="7"', html=False)
+        self.assertContains(response, 'id="recalcNowBtn"', html=False)
 
     def test_save_production_project_progress_persists_summary_progress(self):
         project = ProductionProject.objects.create(

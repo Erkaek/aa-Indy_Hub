@@ -45,6 +45,7 @@ from ..services.production_projects import (
     PROJECT_WORKSPACE_SDE_SIGNATURE_KEY,
     build_project_import_preview,
     build_project_workspace_payload,
+    cached_project_workspace_payload_matches_state,
     create_project_from_entries,
     get_project_workspace_sde_signature,
     normalize_production_project_ref,
@@ -201,10 +202,19 @@ def production_project_payload(request, project_ref: str):
         project_ref=normalized_project_ref,
         user=request.user,
     )
+    if "runs" in request.GET:
+        try:
+            runs_override = max(1, int(request.GET.get("runs") or 1))
+        except (TypeError, ValueError):
+            runs_override = 1
+    else:
+        runs_override = None
+
     payload = build_project_workspace_payload(
         project,
         skill_cache_ttl=SKILL_CACHE_TTL,
         me_te_overrides=parse_project_me_te_overrides(request.GET),
+        runs_override=runs_override,
     )
     return JsonResponse(_to_serializable(payload))
 
@@ -279,8 +289,8 @@ def save_production_project_workspace(request, project_ref: str):
         "fuzzworkPrices": sanitize_dict(
             data.get("fuzzworkPrices") or data.get("fuzzwork_prices")
         ),
-        "pendingWorkspaceRefresh": bool(data.get("pendingWorkspaceRefresh")),
-        "pendingWorkspaceSourceTab": str(data.get("pendingWorkspaceSourceTab") or ""),
+        "pendingWorkspaceRefresh": False,
+        "pendingWorkspaceSourceTab": "",
         "items": sanitize_list(data.get("items")),
         "blueprint_efficiencies": sanitize_list(data.get("blueprint_efficiencies")),
         "custom_prices": sanitize_list(data.get("custom_prices")),
@@ -292,6 +302,19 @@ def save_production_project_workspace(request, project_ref: str):
         "total_prod_items": int(data.get("total_prod_items") or 0),
     }
 
+    cache_validation_state = dict(workspace_state)
+    cache_validation_state["pendingWorkspaceRefresh"] = bool(
+        data.get("pendingWorkspaceRefresh")
+    )
+    cache_validation_state["pendingWorkspaceSourceTab"] = str(
+        data.get("pendingWorkspaceSourceTab") or ""
+    )
+
+    provided_cached_payload = data.get("cachedPayload")
+    reuse_cached_payload = cached_project_workspace_payload_matches_state(
+        provided_cached_payload, cache_validation_state
+    )
+
     new_name = workspace_state["simulation_name"]
     update_fields = ["workspace_state", "updated_at"]
     project.workspace_state = workspace_state
@@ -300,8 +323,7 @@ def save_production_project_workspace(request, project_ref: str):
         update_fields.append("name")
     project.save(update_fields=update_fields)
 
-    provided_cached_payload = data.get("cachedPayload")
-    if isinstance(provided_cached_payload, dict):
+    if reuse_cached_payload:
         cached_payload = _to_serializable(provided_cached_payload)
     else:
         cached_payload = _to_serializable(

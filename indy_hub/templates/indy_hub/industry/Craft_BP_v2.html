@@ -59,6 +59,37 @@
 
     {% with current_tab=active_tab|default:'materials' %}
 
+    {% if bp_type_id and final_outputs|length <= 1 %}
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-body py-3">
+            <div class="d-flex flex-column flex-lg-row align-items-lg-end justify-content-between gap-3">
+                <div>
+                    <h2 class="h6 mb-1">{% if is_project_workspace %}{% trans "Production target" %}{% else %}{% trans "Runs target" %}{% endif %}</h2>
+                    <p class="text-muted small mb-0">{% trans "Adjust the final run count for this workspace, then apply to refresh the plan." %}</p>
+                </div>
+                <div class="d-flex flex-wrap align-items-end gap-2">
+                    <div>
+                        <label for="runsInput" class="form-label form-label-sm text-uppercase small fw-semibold mb-1">{% if is_project_workspace %}{% trans "Final runs" %}{% else %}{% trans "Runs" %}{% endif %}</label>
+                        <input
+                            type="number"
+                            min="1"
+                            step="1"
+                            class="form-control"
+                            id="runsInput"
+                            value="{{ num_runs|default:1 }}"
+                            inputmode="numeric"
+                        >
+                    </div>
+                    <input type="hidden" id="activeTabInput" value="{{ current_tab }}">
+                    <button type="button" class="btn btn-primary" id="recalcNowBtn">
+                        <i class="fas fa-arrows-rotate me-1"></i>{% trans "Apply" %}
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     <!-- HIDDEN TAB SYSTEM FOR JS COMPATIBILITY -->
     <div id="bpTabs" class="d-none nav nav-pills" role="tablist">
         <button class="nav-link blueprint-tab {% if current_tab == 'materials' %}active{% endif %}" id="materials-tab" data-bs-toggle="tab" data-bs-target="#tab-materials" type="button" role="tab" aria-controls="tab-materials" aria-selected="{% if current_tab == 'materials' %}true{% else %}false{% endif %}"></button>
@@ -1068,12 +1099,12 @@
 
 {% block extra_javascript %}
 {{ blueprint_payload|json_script:"blueprint-payload" }}
-<script src="{% static 'indy_hub/js/craft_bp_page.js' %}?v=20260426-blueprint-used-only"></script>
+<script src="{% static 'indy_hub/js/craft_bp_page.js' %}?v=20260426-pending-refresh-fix"></script>
 {% if not deferred_shell %}
-<script src="{% static 'indy_hub/js/craft_bp_simulation_api.js' %}?v=20260426-decision-apply-fix"></script>
+<script src="{% static 'indy_hub/js/craft_bp_simulation_api.js' %}?v=20260426-root-demand-dedupe"></script>
 <script src="{% static 'indy_hub/js/craft_bp_active_tab.js' %}?v=20260425-loading-replay2"></script>
 <script src="{% static 'indy_hub/js/craft_bp_financial_planner.js' %}?v=20260426-stock-management"></script>
-<script src="{% static 'indy_hub/js/craft_bp.js' %}?v=20260426-decision-child-impact-costs"></script>
+<script src="{% static 'indy_hub/js/craft_bp.js' %}?v=20260426-tab-refresh-fix"></script>
 <script src="{% static 'indy_hub/js/craft_bp_inline.js' %}?v=20260426-decision-child-impact-costs"></script>
 {% endif %}
 {% endblock extra_javascript %}

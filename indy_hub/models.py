@@ -3003,6 +3003,10 @@ class IndustryStructure(models.Model):
         "composite_reactions_tax_percent",
     )
 
+    @staticmethod
+    def normalize_registry_name(value: str | None) -> str:
+        return "".join(str(value or "").split()).casefold()
+
     name = models.CharField(max_length=255)
     personal_tag = models.CharField(max_length=80, blank=True)
     structure_type_id = models.BigIntegerField(blank=True, null=True)
@@ -3142,18 +3146,6 @@ class IndustryStructure(models.Model):
             models.Index(fields=["region_name"]),
             models.Index(fields=["visibility_scope", "owner_user"]),
             models.Index(fields=["source_structure"]),
-        ]
-        constraints = [
-            models.UniqueConstraint(
-                fields=["name"],
-                condition=models.Q(visibility_scope="public"),
-                name="indy_hub_structure_public_name_uq",
-            ),
-            models.UniqueConstraint(
-                fields=["owner_user", "name", "personal_tag"],
-                condition=models.Q(visibility_scope="personal"),
-                name="indy_hub_structure_personal_owner_name_tag_uq",
-            ),
         ]
 
     def __str__(self) -> str:
@@ -3498,6 +3490,52 @@ class IndustryStructure(models.Model):
 
     def is_profile_incomplete(self) -> bool:
         return bool(self.get_missing_profile_sections())
+
+    def clean(self) -> None:
+        super().clean()
+
+        validation_errors: dict[str, ValidationError] = {}
+
+        if self.visibility_scope == self.VisibilityScope.PUBLIC:
+            normalized_name = self.normalize_registry_name(self.name)
+            public_name_conflict = IndustryStructure.objects.filter(
+                visibility_scope=self.VisibilityScope.PUBLIC,
+            )
+            if self.pk:
+                public_name_conflict = public_name_conflict.exclude(pk=self.pk)
+            if any(
+                self.normalize_registry_name(existing_name) == normalized_name
+                for existing_name in public_name_conflict.values_list("name", flat=True)
+            ):
+                validation_errors["name"] = ValidationError(
+                    "A shared structure with this registry name already exists, even when whitespace is ignored."
+                )
+
+        if (
+            self.visibility_scope == self.VisibilityScope.PERSONAL
+            and self.owner_user_id
+            and str(self.personal_tag or "").strip()
+        ):
+            personal_conflict = IndustryStructure.objects.filter(
+                visibility_scope=self.VisibilityScope.PERSONAL,
+                owner_user_id=self.owner_user_id,
+                name=self.name,
+                personal_tag__iexact=str(self.personal_tag).strip(),
+            )
+            if self.pk:
+                personal_conflict = personal_conflict.exclude(pk=self.pk)
+            if personal_conflict.exists():
+                validation_errors["personal_tag"] = ValidationError(
+                    "You already have a personal copy with this tag for this structure."
+                )
+
+        if validation_errors:
+            raise ValidationError(validation_errors)
+
+    def save(self, *args, **kwargs):
+        if not kwargs.get("raw", False):
+            self.full_clean()
+        super().save(*args, **kwargs)
 
 
 class IndustryStructureRig(models.Model):

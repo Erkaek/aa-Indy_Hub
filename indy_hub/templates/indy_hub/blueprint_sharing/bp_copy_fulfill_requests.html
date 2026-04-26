@@ -375,8 +375,8 @@
                                         <i class="fas fa-times"></i>{% trans "Decline negotiation" %}
                                     </button>
                                 </form>
-                                {% endif %}
                                 </div>
+                                {% endif %}
                                 {% if req.can_mark_delivered %}
                                 <form method="post" action="{% url 'indy_hub:bp_mark_copy_delivered' req.id %}">
                                     {% csrf_token %}

@@ -6,6 +6,7 @@ from __future__ import annotations
 import re
 from collections import OrderedDict
 from collections.abc import Iterable, Sequence
+from copy import copy
 from datetime import timedelta
 from math import ceil
 from time import perf_counter
@@ -63,6 +64,9 @@ DRONE_GROUP_KEYWORDS = ("drone", "fighter", "fighter bomber")
 SUBSYSTEM_GROUP_KEYWORDS = ("subsystem", "strategic cruiser")
 PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY = "cachedProjectPayload"
 PROJECT_WORKSPACE_SDE_SIGNATURE_KEY = "cachedProjectSdeSignature"
+LEGACY_SINGLE_BLUEPRINT_PROJECT_NOTE = (
+    "Migrated from legacy single-blueprint craft flow."
+)
 
 
 def strip_project_workspace_cache(
@@ -71,6 +75,8 @@ def strip_project_workspace_cache(
     cleaned_state = dict(workspace_state or {})
     cleaned_state.pop(PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY, None)
     cleaned_state.pop(PROJECT_WORKSPACE_SDE_SIGNATURE_KEY, None)
+    cleaned_state.pop("pendingWorkspaceRefresh", None)
+    cleaned_state.pop("pendingWorkspaceSourceTab", None)
     return cleaned_state
 
 
@@ -126,12 +132,48 @@ def _payload_uses_unpublished_blueprints(payload: dict[str, object] | None) -> b
         return cursor.fetchone() is not None
 
 
+def cached_project_workspace_payload_matches_state(
+    cached_payload: dict[str, object] | None,
+    workspace_state: dict[str, object] | None,
+) -> bool:
+    if not isinstance(cached_payload, dict):
+        return False
+
+    normalized_workspace_state = strip_project_workspace_cache(workspace_state)
+    if normalized_workspace_state.get("pendingWorkspaceRefresh"):
+        return False
+
+    try:
+        saved_runs = max(1, int(normalized_workspace_state.get("runs") or 1))
+    except (TypeError, ValueError):
+        saved_runs = 1
+
+    payload_runs = cached_payload.get("num_runs")
+    if payload_runs is None:
+        return True
+
+    try:
+        normalized_payload_runs = max(1, int(payload_runs or 1))
+    except (TypeError, ValueError):
+        return False
+
+    return normalized_payload_runs == saved_runs
+
+
 def get_cached_project_workspace_payload(
     project: ProductionProject,
 ) -> tuple[dict[str, object] | None, bool]:
     workspace_state = dict(project.workspace_state or {})
     cached_payload = workspace_state.get(PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY)
     if not isinstance(cached_payload, dict):
+        return None, False
+    if not cached_project_workspace_payload_matches_state(
+        cached_payload, workspace_state
+    ):
+        logger.info(
+            "Discarding cached craft payload for project %s because it is out of sync with the saved workspace state.",
+            getattr(project, "id", None),
+        )
         return None, False
     if _payload_uses_unpublished_blueprints(cached_payload):
         logger.info(
@@ -524,6 +566,54 @@ def _get_blueprint_output_quantity(blueprint_type_id: int) -> int:
     return max(1, int((row[0] if row else 1) or 1))
 
 
+def _get_project_item_base_quantity_for_runs(
+    *,
+    project: ProductionProject,
+    item: ProductionProjectItem,
+    saved_runs: int,
+    is_single_item_project: bool,
+) -> int:
+    raw_quantity = max(1, int(item.quantity_requested or 1))
+    normalized_saved_runs = max(1, int(saved_runs or 1))
+    if (
+        is_single_item_project
+        and normalized_saved_runs > 1
+        and str(project.notes or "").strip() == LEGACY_SINGLE_BLUEPRINT_PROJECT_NOTE
+    ):
+        blueprint_type_id = int(item.blueprint_type_id or 0)
+        if blueprint_type_id > 0:
+            output_quantity = _get_blueprint_output_quantity(blueprint_type_id)
+            if raw_quantity == output_quantity * normalized_saved_runs:
+                return output_quantity
+    return raw_quantity
+
+
+def _scale_project_selected_items_for_runs(
+    *,
+    project: ProductionProject,
+    selected_items: Sequence[ProductionProjectItem],
+    saved_runs: int,
+    target_runs: int,
+) -> list[ProductionProjectItem]:
+    normalized_saved_runs = max(1, int(saved_runs or 1))
+    normalized_target_runs = max(1, int(target_runs or 1))
+    is_single_item_project = len(selected_items) == 1
+
+    scaled_items: list[ProductionProjectItem] = []
+    for item in selected_items:
+        scaled_item = copy(item)
+        base_quantity = _get_project_item_base_quantity_for_runs(
+            project=project,
+            item=item,
+            saved_runs=normalized_saved_runs,
+            is_single_item_project=is_single_item_project,
+        )
+        scaled_item.quantity_requested = max(1, base_quantity * normalized_target_runs)
+        scaled_items.append(scaled_item)
+
+    return scaled_items
+
+
 def create_project_from_single_blueprint(
     *,
     user,
@@ -594,7 +684,7 @@ def create_project_from_single_blueprint(
                 "inclusion_mode": ProductionProjectItem.InclusionMode.PRODUCE,
             }
         ],
-        notes="Migrated from legacy single-blueprint craft flow.",
+        notes=LEGACY_SINGLE_BLUEPRINT_PROJECT_NOTE,
     )
 
     persisted_workspace_state = dict(workspace_state or {})
@@ -625,6 +715,7 @@ def build_project_workspace_payload(
     *,
     skill_cache_ttl=timedelta(hours=1),
     me_te_overrides: dict[int, dict[str, int]] | None = None,
+    runs_override: int | None = None,
     include_full_structure_options: bool = True,
 ) -> dict[str, object]:
     """Build a craft workspace payload for a multi-product project."""
@@ -658,6 +749,17 @@ def build_project_workspace_payload(
         "selected-items", "Project items query", selected_items_started_at
     )
 
+    workspace_state = strip_project_workspace_cache(project.workspace_state)
+    saved_runs = max(1, int(workspace_state.get("runs") or 1))
+    if runs_override is not None:
+        try:
+            target_runs = max(1, int(runs_override))
+        except (TypeError, ValueError):
+            target_runs = 1
+    else:
+        target_runs = saved_runs
+    workspace_state["runs"] = target_runs
+
     if not selected_items:
         return {
             "type_id": 0,
@@ -667,7 +769,7 @@ def build_project_workspace_payload(
             "name": project.name,
             "project_status": project.status,
             "source_kind": project.source_kind,
-            "workspace_state": strip_project_workspace_cache(project.workspace_state),
+            "workspace_state": workspace_state,
             "product_type_id": None,
             "final_product_qty": 0,
             "materials_tree": [],
@@ -693,6 +795,13 @@ def build_project_workspace_payload(
                 "workspace_timing": build_workspace_timing(),
             },
         }
+
+    selected_items = _scale_project_selected_items_for_runs(
+        project=project,
+        selected_items=selected_items,
+        saved_runs=saved_runs,
+        target_runs=target_runs,
+    )
 
     blueprint_product_cache: dict[int, dict[str, object] | None] = {}
     blueprint_recipe_cache: dict[tuple[int, int], dict[str, object]] = {}
@@ -1178,7 +1287,6 @@ def build_project_workspace_payload(
             }
         )
 
-    workspace_state = strip_project_workspace_cache(project.workspace_state)
     main_blueprint_info = {}
     root_blueprint_type_id = 0
     root_product_type_id = 0

@@ -1042,6 +1042,12 @@
                     window.CraftBP.markPendingWorkspaceRefresh('configure');
                 }
             }
+
+            if (event.target.id === 'runsInput') {
+                if (window.CraftBP && typeof window.CraftBP.markPendingWorkspaceRefresh === 'function') {
+                    window.CraftBP.markPendingWorkspaceRefresh('plan');
+                }
+            }
         }, true);
 
         let craftInitPromise = Promise.resolve();

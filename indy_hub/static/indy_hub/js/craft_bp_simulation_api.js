@@ -650,6 +650,11 @@
         const leafNeeds = new Map();
         const buyCraftables = new Map();
         const prodCraftables = new Map();
+        const rootNodes = Array.isArray(payload.materials_tree) ? payload.materials_tree : [];
+        const treeAlreadyIncludesRoot = Boolean(
+            rootProductTypeId
+            && rootNodes.some((node) => Number(readValue(node, 'type_id', 'typeId')) === rootProductTypeId)
+        );
 
         const walk = (nodes, blockedByBuyAncestor = false) => {
             if (!Array.isArray(nodes) || nodes.length === 0) {
@@ -691,11 +696,13 @@
             });
         };
 
-        if (rootProductTypeId && Array.isArray(payload.materials_tree) && payload.materials_tree.length > 0) {
-            addToCounter(prodCraftables, rootProductTypeId, normalizeQuantity(payload.final_product_qty || payload.finalProductQty || 0));
-            walk(adjustChildrenForStructure(payload.materials_tree, rootProductTypeId), false);
+        if (rootProductTypeId && rootNodes.length > 0) {
+            if (!treeAlreadyIncludesRoot) {
+                addToCounter(prodCraftables, rootProductTypeId, normalizeQuantity(payload.final_product_qty || payload.finalProductQty || 0));
+            }
+            walk(adjustChildrenForStructure(rootNodes, rootProductTypeId), false);
         } else {
-            walk(Array.isArray(payload.materials_tree) ? payload.materials_tree : [], false);
+            walk(rootNodes, false);
         }
         return { leafNeeds, buyCraftables, prodCraftables };
     }

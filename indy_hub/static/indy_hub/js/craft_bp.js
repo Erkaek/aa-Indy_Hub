@@ -1483,6 +1483,13 @@ async function recalculateBlueprintWorkspace(options = {}) {
             window.SimulationAPI.refreshFromDom();
         }
 
+        // Some derived client state is refreshed after the payload swap; rerender the
+        // visible production tree from the final in-memory payload so root quantities
+        // stay aligned with the rest of the workspace.
+        renderPlanTreeFromPayload();
+        initializeBuyCraftSwitches();
+        refreshTreeSummaryIcons();
+
         refreshTabsAfterStateChange({ forceNeeded: true });
         clearPendingMETEChanges();
         syncCraftBrowserUrl();
@@ -2143,7 +2150,13 @@ function applyCraftPageSessionState(parsedState) {
         window.SimulationAPI.refreshFromDom();
     }
 
-    if (parsedState?.pendingWorkspaceRefresh) {
+    const payloadWorkspaceState = window.BLUEPRINT_DATA?.workspace_state;
+    const shouldRestorePendingWorkspaceRefresh = Boolean(
+        parsedState?.pendingWorkspaceRefresh
+        && payloadWorkspaceState?.pendingWorkspaceRefresh
+    );
+
+    if (shouldRestorePendingWorkspaceRefresh) {
         window.craftBPFlags.hasPendingWorkspaceRefresh = true;
         window.craftBPFlags.hasPendingMETEChanges = true;
         window.craftBPFlags.pendingWorkspaceSourceTab = String(parsedState.pendingWorkspaceSourceTab || '');

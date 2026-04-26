@@ -9,6 +9,15 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 ## [Unreleased]
 
+## [1.16.2] - 2026-04-26
+
+### Fixed
+
+- Crafting Projects: fixed project run scaling, Apply refreshes, save/reopen behavior, and stale cached payload reuse so multi-item craft workspaces stay consistent after changing the final run count.
+- Crafting Projects: fixed false `Changes pending` and `Unable to refresh workspace` states when switching craft tabs without real edits by treating pending refresh markers as transient client state.
+- Blueprint Sharing: fixed the fulfill workspace on `/indy_hub/bp-copy/fulfill/` so switching between multiple requests in `Awaiting response` works again. A malformed actions block could break the workbench DOM, leaving only the first request panel selectable.
+- Industry Structures: removed MySQL-incompatible conditional unique constraints from `IndustryStructure`, replaced them with model validation, and added a migration to silence `models.W036` while preserving duplicate protection for public names and personal tags.
+
 ## [1.16.1] - 2026-04-26
 
 ### Fixed
