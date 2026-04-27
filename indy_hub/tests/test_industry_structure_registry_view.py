@@ -769,6 +769,25 @@ class IndustryStructureRegistryViewTests(TestCase):
             f"Expected an error message about save failure, got: {emitted_messages}",
         )
 
+    def test_npc_station_does_not_report_missing_rigs_section(self) -> None:
+        """Regression for #70: NPC stations have no rig sockets so the registry
+        list must not flag them as ``Setup needed`` because of missing rigs."""
+
+        structure = IndustryStructure.objects.create(
+            name="Iralaja IX - Test NPC",
+            structure_type_id=NPC_STATION_STRUCTURE_TYPE_ID,
+            structure_type_name="NPC Station",
+            solar_system_id=30002780,
+            solar_system_name="Iralaja",
+            visibility_scope=IndustryStructure.VisibilityScope.PUBLIC,
+            enable_manufacturing=True,
+            manufacturing_tax_percent=Decimal("0.25"),
+        )
+
+        missing = structure.get_missing_profile_sections()
+        self.assertNotIn("Rigs", missing)
+        self.assertFalse(structure.is_profile_incomplete(), missing)
+
     @patch(
         "indy_hub.forms.industry_structures.sde_item_types_loaded", return_value=True
     )
