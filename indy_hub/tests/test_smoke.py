@@ -720,9 +720,10 @@ class MaterialExchangeContractCheckTests(TestCase):
         )
 
     def test_sell_order_detail_missing_renders_friendly_404(self) -> None:
+        material_exchange_index = reverse("indy_hub:material_exchange_index")
         response = self.client.get(
             reverse("indy_hub:sell_order_detail", args=[99999999])
-            + "?next=/indy_hub/material-exchange/"
+            + f"?next={material_exchange_index}"
         )
         self.assertEqual(response.status_code, 404)
         self.assertContains(
@@ -732,7 +733,7 @@ class MaterialExchangeContractCheckTests(TestCase):
         )
         self.assertContains(
             response,
-            "/indy_hub/material-exchange/",
+            material_exchange_index,
             status_code=404,
         )
 
@@ -746,6 +747,20 @@ class MaterialExchangeContractCheckTests(TestCase):
             "no longer available",
             status_code=404,
         )
+
+    def test_order_not_found_drops_unsafe_next_url(self) -> None:
+        """An absolute URL to another host must not be honored as the
+        Continue link target — guards against open-redirect regressions."""
+        unsafe_next = "https://evil.example.com/phish"
+        response = self.client.get(
+            reverse("indy_hub:sell_order_detail", args=[99999999])
+            + f"?next={unsafe_next}"
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertNotContains(response, unsafe_next, status_code=404)
+        self.assertNotContains(response, "evil.example.com", status_code=404)
+        # No "Continue" CTA should be rendered when next_url is dropped.
+        self.assertNotContains(response, ">Continue<", status_code=404)
 
 
 class BlueprintModelClassificationTests(TestCase):

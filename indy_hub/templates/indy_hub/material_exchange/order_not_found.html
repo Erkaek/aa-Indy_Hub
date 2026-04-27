@@ -36,9 +36,9 @@
                         <h3 class="h4">{% trans "This order is no longer available" %}</h3>
                         <p class="text-muted mb-4">
                             {% if order_type == "buy" %}
-                            {% blocktrans with order_id=order_id %}The buy order #{{ order_id }} could not be found. It may have been completed, cancelled, or deleted.{% endblocktrans %}
+                            {% blocktrans with order_id=order_id %}The buy order #{{ order_id }} is not available. It may have been completed, cancelled, deleted, or you may not have access to it.{% endblocktrans %}
                             {% else %}
-                            {% blocktrans with order_id=order_id %}The sell order #{{ order_id }} could not be found. It may have been completed, cancelled, or deleted.{% endblocktrans %}
+                            {% blocktrans with order_id=order_id %}The sell order #{{ order_id }} is not available. It may have been completed, cancelled, deleted, or you may not have access to it.{% endblocktrans %}
                             {% endif %}
                         </p>
                         <div class="d-flex justify-content-center gap-2 flex-wrap">

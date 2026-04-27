@@ -216,12 +216,19 @@ def my_orders(request):
 
 
 def _render_order_not_found(request, *, order_id, order_type: str):
-    """Render a friendly 404 page when a Material Exchange order is missing.
+    """Render a friendly 404 page when a Material Exchange order is unavailable.
 
-    Used when users follow a stale link (e.g. from a Discord notification) to a
-    sell/buy order that has been completed, cancelled, or deleted. Honors a
-    safe ``next`` query parameter so the user can continue back to where they
-    came from.
+    Shown in two cases, both indistinguishable from the user's perspective and
+    intentionally surfaced as the same neutral "no longer available" page so we
+    do not leak information about other users' orders:
+
+    * The order does not exist (e.g. completed, cancelled, or deleted) — typical
+      when following a stale link from a Discord notification.
+    * The order exists but the current user is not allowed to view it (i.e.
+      they are not the seller/buyer and lack ``indy_hub.can_manage_material_hub``).
+
+    Honors a safe ``next`` query parameter so the user can continue back to
+    where they came from.
     """
     next_url = request.GET.get("next") or ""
     if next_url and not url_has_allowed_host_and_scheme(
