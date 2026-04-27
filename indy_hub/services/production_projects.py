@@ -1268,6 +1268,7 @@ def build_project_workspace_payload(
             product_blueprint_cache=product_blueprint_cache,
             overrides=overrides,
             type_name_cache=type_name_cache,
+            market_group_map=market_group_map,
         )
     )
     record_timing_step(
@@ -1866,7 +1867,9 @@ def _build_project_blueprint_configs_grouped(
     product_blueprint_cache: dict[int, int | None],
     overrides: dict[int, dict[str, int]],
     type_name_cache: dict[int, str],
+    market_group_map: dict[int, dict[str, object]] | None = None,
 ) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    market_group_map = market_group_map or {}
     user_bp_map = _resolve_user_blueprint_inventory(
         user=user,
         blueprint_type_ids=product_blueprint_cache.values(),
@@ -1905,6 +1908,12 @@ def _build_project_blueprint_configs_grouped(
             user_material_efficiency if user_material_efficiency is not None else 0
         )
         default_te = user_time_efficiency if user_time_efficiency is not None else 0
+        market_group_info = (
+            market_group_map.get(int(type_id))
+            or market_group_map.get(str(type_id))
+            or {}
+        )
+        category_name = str(market_group_info.get("group_name") or "").strip()
         blueprints.append(
             {
                 "type_id": int(blueprint_type_id),
@@ -1926,21 +1935,33 @@ def _build_project_blueprint_configs_grouped(
                 "product_type_id": int(type_id),
                 "product_type_name": str(entry.get("type_name") or ""),
                 "total_needed": int(entry.get("total_needed") or 0),
+                "category_name": category_name,
             }
         )
 
     if not blueprints:
         return ([], [])
 
-    return (
-        blueprints,
-        [
-            {
-                "group_name": "Project blueprints",
-                "levels": [{"level": 0, "blueprints": blueprints}],
-            }
-        ],
-    )
+    # Group cards by product category (eve_sde item group) so the Blueprints
+    # tab is easier to scan when a project mixes ships, modules, ammo, …
+    fallback_group = "Other"
+    grouped_by_category: dict[str, list[dict[str, object]]] = {}
+    for bp in blueprints:
+        key = bp.get("category_name") or fallback_group
+        grouped_by_category.setdefault(key, []).append(bp)
+
+    grouped = [
+        {
+            "group_name": group_name,
+            "levels": [{"level": 0, "blueprints": cards}],
+        }
+        for group_name, cards in sorted(
+            grouped_by_category.items(),
+            key=lambda item: (item[0] == fallback_group, item[0].casefold()),
+        )
+    ]
+
+    return (blueprints, grouped)
 
 
 def _coerce_category_order(value: object) -> int:

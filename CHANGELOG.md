@@ -21,6 +21,7 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 - Packaging: widened supported version ranges to `allianceauth>=4.6,<6` and `django-esi>=7,<10`, and added the `Framework :: Django :: 5.2` classifier so the package advertises its Alliance Auth 5 compatibility.
 - Internals: replaced removed Django 5 timezone helpers (`django.utils.timezone.utc`) with `datetime.timezone.utc` across industry tasks, job notifications, and Material Exchange flows so the same code path runs on Django 4.2 and Django 5.2.
 - Migrations: added schema-alignment migrations (`0098`, `0099`) that normalize corporation sharing scope choices and rename a few indexes, eliminating Django `makemigrations` drift on both Django 4.2 and Django 5.2.
+- Crafting Projects: the project *Blueprints* tab now organises blueprint cards into one accordion section per product category (Battlecruiser, Battleship, Combat Drone, Module, Charge, …), sorted alphabetically. Cards whose product has no resolved category land in a single "Other" group rendered last. Mixed projects are much easier to scan than the single flat "Project blueprints" list.
 
 ### Fixed
 

@@ -763,3 +763,127 @@ Mobile Depot x1
             [bp["type_id"] for bp in grouped[0]["levels"][0]["blueprints"]],
             [23920],
         )
+
+    @patch("indy_hub.services.production_projects.is_reaction_blueprint")
+    @patch("indy_hub.services.production_projects._resolve_user_blueprint_inventory")
+    def test_project_blueprint_configs_grouped_by_product_category(
+        self,
+        mock_inventory,
+        mock_is_reaction,
+    ) -> None:
+        """Project Blueprints tab groups cards by product category so a project
+        mixing ships, modules and ammo is easier to scan."""
+
+        mock_inventory.return_value = {}
+        mock_is_reaction.return_value = False
+
+        blueprints, grouped = _build_project_blueprint_configs_grouped(
+            user=object(),
+            cycle_summary={
+                23919: {
+                    "type_id": 23919,
+                    "type_name": "Cyclone Fleet Issue",
+                    "total_needed": 1,
+                },
+                17738: {
+                    "type_id": 17738,
+                    "type_name": "Machariel",
+                    "total_needed": 1,
+                },
+                2488: {
+                    "type_id": 2488,
+                    "type_name": "Warrior II",
+                    "total_needed": 5,
+                },
+                34: {
+                    "type_id": 34,
+                    "type_name": "Tritanium",
+                    "total_needed": 1000,
+                },
+            },
+            product_blueprint_cache={
+                23919: 23920,
+                17738: 17739,
+                2488: 2489,
+                # No blueprint for Tritanium → ignored entirely
+                34: None,
+            },
+            overrides={},
+            type_name_cache={
+                23920: "Cyclone Fleet Issue Blueprint",
+                17739: "Machariel Blueprint",
+                2489: "Warrior II Blueprint",
+            },
+            market_group_map={
+                23919: {"group_name": "Battlecruiser", "group_id": 1},
+                17738: {"group_name": "Battleship", "group_id": 2},
+                2488: {"group_name": "Combat Drone", "group_id": 3},
+            },
+        )
+
+        self.assertEqual(len(blueprints), 3)
+
+        # One group per distinct category, sorted alphabetically.
+        self.assertEqual(
+            [group["group_name"] for group in grouped],
+            ["Battlecruiser", "Battleship", "Combat Drone"],
+        )
+        # Each group contains a single level holding only its category's cards.
+        battlecruiser = grouped[0]["levels"][0]["blueprints"]
+        battleship = grouped[1]["levels"][0]["blueprints"]
+        drones = grouped[2]["levels"][0]["blueprints"]
+        self.assertEqual([bp["type_id"] for bp in battlecruiser], [23920])
+        self.assertEqual([bp["type_id"] for bp in battleship], [17739])
+        self.assertEqual([bp["type_id"] for bp in drones], [2489])
+        for bp in battlecruiser:
+            self.assertEqual(bp["category_name"], "Battlecruiser")
+
+    @patch("indy_hub.services.production_projects.is_reaction_blueprint")
+    @patch("indy_hub.services.production_projects._resolve_user_blueprint_inventory")
+    def test_project_blueprint_configs_unknown_category_falls_back_to_other(
+        self,
+        mock_inventory,
+        mock_is_reaction,
+    ) -> None:
+        """Cards whose product has no item-group entry land in the 'Other'
+        bucket, which is always rendered last so named categories stay on top.
+        """
+
+        mock_inventory.return_value = {}
+        mock_is_reaction.return_value = False
+
+        blueprints, grouped = _build_project_blueprint_configs_grouped(
+            user=object(),
+            cycle_summary={
+                23919: {
+                    "type_id": 23919,
+                    "type_name": "Cyclone Fleet Issue",
+                    "total_needed": 1,
+                },
+                99999: {
+                    "type_id": 99999,
+                    "type_name": "Mystery Item",
+                    "total_needed": 1,
+                },
+            },
+            product_blueprint_cache={23919: 23920, 99999: 99998},
+            overrides={},
+            type_name_cache={
+                23920: "Cyclone Fleet Issue Blueprint",
+                99998: "Mystery Item Blueprint",
+            },
+            market_group_map={
+                23919: {"group_name": "Battlecruiser", "group_id": 1},
+                # 99999 deliberately missing → falls back to "Other"
+            },
+        )
+
+        self.assertEqual(len(blueprints), 2)
+        self.assertEqual(
+            [group["group_name"] for group in grouped],
+            ["Battlecruiser", "Other"],
+        )
+        self.assertEqual(
+            [bp["type_id"] for bp in grouped[1]["levels"][0]["blueprints"]],
+            [99998],
+        )
