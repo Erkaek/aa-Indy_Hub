@@ -58,9 +58,21 @@ def _resolve_industry_activity_product_model():
     try:
         # Django
         from django.apps import apps
+        from django.core.exceptions import (
+            AppRegistryNotReady,
+            ImproperlyConfigured,
+        )
 
         return apps.get_model("indy_hub", "SDEBlueprintActivityProduct")
+    except (AppRegistryNotReady, LookupError, ImproperlyConfigured):
+        # Expected during early bootstrap or on installs where the
+        # ``indy_hub`` app / model is not (yet) registered.
+        return None
     except Exception:  # pragma: no cover - defensive fallback
+        logger.warning(
+            "Unexpected error resolving SDEBlueprintActivityProduct model",
+            exc_info=True,
+        )
         return None
 
 
