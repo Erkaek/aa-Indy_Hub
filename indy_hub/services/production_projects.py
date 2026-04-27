@@ -1908,11 +1908,7 @@ def _build_project_blueprint_configs_grouped(
             user_material_efficiency if user_material_efficiency is not None else 0
         )
         default_te = user_time_efficiency if user_time_efficiency is not None else 0
-        market_group_info = (
-            market_group_map.get(int(type_id))
-            or market_group_map.get(str(type_id))
-            or {}
-        )
+        market_group_info = market_group_map.get(int(type_id)) or {}
         category_name = str(market_group_info.get("group_name") or "").strip()
         blueprints.append(
             {
