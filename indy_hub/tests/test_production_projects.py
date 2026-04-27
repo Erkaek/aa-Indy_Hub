@@ -690,10 +690,15 @@ Mobile Depot x1
         mock_inventory,
         mock_is_reaction,
     ) -> None:
+        """Regression for #69: reaction formulas must NOT appear in the project
+        blueprint configuration tab. They cannot have non-zero ME/TE and cannot
+        be copied, so the per-blueprint card with ME/TE/copy controls is
+        meaningless for them."""
+
         mock_inventory.return_value = {}
         mock_is_reaction.return_value = True
 
-        blueprints, _grouped = _build_project_blueprint_configs_grouped(
+        blueprints, grouped = _build_project_blueprint_configs_grouped(
             user=object(),
             cycle_summary={
                 16670: {
@@ -707,6 +712,54 @@ Mobile Depot x1
             type_name_cache={17887: "Carbon Fiber Reaction Formula"},
         )
 
-        self.assertEqual(len(blueprints), 1)
-        self.assertTrue(blueprints[0]["is_reaction"])
+        self.assertEqual(blueprints, [])
+        self.assertEqual(grouped, [])
         mock_is_reaction.assert_called_with(17887)
+
+    @patch("indy_hub.services.production_projects.is_reaction_blueprint")
+    @patch("indy_hub.services.production_projects._resolve_user_blueprint_inventory")
+    def test_project_blueprint_configs_keep_non_reaction_when_mixed(
+        self,
+        mock_inventory,
+        mock_is_reaction,
+    ) -> None:
+        """Regression for #69: when a project mixes reaction and standard
+        blueprints, only the standard blueprints should remain in the config
+        tab list."""
+
+        mock_inventory.return_value = {}
+        # 17887 (reaction formula) -> True, anything else -> False
+        mock_is_reaction.side_effect = lambda type_id: int(type_id) == 17887
+
+        blueprints, grouped = _build_project_blueprint_configs_grouped(
+            user=object(),
+            cycle_summary={
+                16670: {
+                    "type_id": 16670,
+                    "type_name": "Carbon Fiber",
+                    "total_needed": 5,
+                },
+                23919: {
+                    "type_id": 23919,
+                    "type_name": "Cyclone Fleet Issue",
+                    "total_needed": 1,
+                },
+            },
+            product_blueprint_cache={16670: 17887, 23919: 23920},
+            overrides={},
+            type_name_cache={
+                17887: "Carbon Fiber Reaction Formula",
+                23920: "Cyclone Fleet Issue Blueprint",
+            },
+        )
+
+        self.assertEqual(len(blueprints), 1)
+        self.assertEqual(blueprints[0]["type_id"], 23920)
+        self.assertEqual(blueprints[0]["type_name"], "Cyclone Fleet Issue Blueprint")
+        self.assertFalse(blueprints[0]["is_reaction"])
+        # Group must reflect the same filtered list.
+        self.assertEqual(len(grouped), 1)
+        self.assertEqual(
+            [bp["type_id"] for bp in grouped[0]["levels"][0]["blueprints"]],
+            [23920],
+        )

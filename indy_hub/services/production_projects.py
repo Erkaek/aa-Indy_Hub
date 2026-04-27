@@ -1879,6 +1879,13 @@ def _build_project_blueprint_configs_grouped(
         blueprint_type_id = product_blueprint_cache.get(int(type_id))
         if not blueprint_type_id:
             continue
+        # Reaction "blueprints" (Reaction Formulas) cannot have non-zero ME/TE
+        # and cannot be copied. They are surfaced in the cycles / materials
+        # tabs via ``cycle_summary`` and don't belong in the per-blueprint
+        # configuration tab where every card exposes ME/TE inputs and copy
+        # request controls. See issue #69.
+        if is_reaction_blueprint(int(blueprint_type_id)):
+            continue
         override = overrides.get(int(blueprint_type_id), {})
         user_entry = user_bp_map.get(int(blueprint_type_id), {})
         original = user_entry.get("original") or None
