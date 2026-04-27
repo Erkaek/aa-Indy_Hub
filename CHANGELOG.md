@@ -9,6 +9,10 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 ## [Unreleased]
 
+### Fixed
+
+- Material Exchange: clicking a stale Discord link to a sell or buy order that has been completed, cancelled, or deleted now lands on a friendly "order no longer available" page (HTTP 404) with a button back to the Material Exchange index, instead of Django's raw 404 debug page (`No MaterialExchangeSellOrder matches the given query.`). Honors the `next=` query parameter when present and safe (issue #68).
+
 ## [1.17.0] - 2026-04-26
 
 ### Added
