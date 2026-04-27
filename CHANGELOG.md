@@ -15,6 +15,7 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 - ESI client: introduced a small compatibility shim around bravado/aiopenapi3 so blueprint, jobs, assets, structures, location, and corporation roles operations resolve transparently on django-esi 8 and 9, with a unified `HTTPError` tuple replacing the old bravado-only error handling.
 - CharLink hook: added the `esi-location.read_online.v1` scope to the personal authorization set so freshly-linked characters keep online-status access without an extra ESI re-authorization round trip.
 - Forms: Indy Hub now raises Django's `DATA_UPLOAD_MAX_NUMBER_FIELDS` to 50 000 at startup (configurable via `INDY_HUB_MAX_FORM_FIELDS`) so Material Exchange and craft project configuration pages no longer raise `TooManyFieldsSent` when thousands of EVE market groups or type ids are submitted at once.
+- Forms: Indy Hub now also raises Django's `DATA_UPLOAD_MAX_MEMORY_SIZE` to 50 MB at startup (configurable via `INDY_HUB_MAX_REQUEST_BODY_BYTES`) so saving a craft project workspace no longer fails with a generic "Failed to save table" notification when the JSON payload (cached project snapshot, decisions, structures, …) exceeds Django's 2.5 MB default body limit.
 
 ### Changed
 
