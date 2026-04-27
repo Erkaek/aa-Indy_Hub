@@ -1908,6 +1908,11 @@ def _build_project_blueprint_configs_grouped(
             default_te = 0
             shared_copies: list[dict[str, object]] = []
             runs_available = None
+            # Reactions cannot be copied in EVE: any owned reaction formula is
+            # by definition an original, so never flag the card as "copy
+            # owned" (the template would otherwise display a misleading
+            # "COPY OWNED" badge).
+            is_copy = False
         else:
             default_me = (
                 user_material_efficiency if user_material_efficiency is not None else 0

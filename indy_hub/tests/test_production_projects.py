@@ -723,6 +723,10 @@ Mobile Depot x1
         # No copy / shared-copy data so the card never enters the orange branch.
         self.assertEqual(card["shared_copies_available"], [])
         self.assertIsNone(card["runs_available"])
+        # Reactions cannot be copied in EVE: the card must never claim the
+        # owned blueprint is a copy (the template would otherwise render a
+        # misleading "COPY OWNED" badge).
+        self.assertFalse(card["is_copy"])
         # Dedicated 'Reactions' group, single level.
         self.assertEqual(len(grouped), 1)
         self.assertEqual(grouped[0]["group_name"], "Reactions")
