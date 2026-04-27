@@ -6542,6 +6542,47 @@ def _set_structure_form_read_only(structure_form) -> None:
         field.widget.attrs["disabled"] = "disabled"
 
 
+def _emit_structure_form_errors(request, structure_form, rig_formset) -> None:
+    """Surface form/formset errors as a flash message.
+
+    Without this, an invalid POST silently re-renders the same page and the
+    user perceives the submission as a no-op (see issue #70: NPC Station with
+    capital activity flag was rejected with no visible feedback).
+    """
+
+    error_fragments: list[str] = []
+    for field_name, errors in structure_form.errors.items():
+        label = field_name
+        bound_field = structure_form.fields.get(field_name)
+        if bound_field is not None and getattr(bound_field, "label", None):
+            label = str(bound_field.label)
+        elif field_name == "__all__":
+            label = str(_("Form"))
+        for error in errors:
+            error_fragments.append(f"{label}: {error}")
+
+    for index, formset_errors in enumerate(rig_formset.errors):
+        for field_name, errors in formset_errors.items():
+            for error in errors:
+                error_fragments.append(
+                    str(_("Rig slot %(index)s — %(field)s: %(error)s"))
+                    % {"index": index + 1, "field": field_name, "error": error}
+                )
+    for error in rig_formset.non_form_errors():
+        error_fragments.append(f"{_('Rigs')}: {error}")
+
+    if not error_fragments:
+        return
+
+    summary = "; ".join(error_fragments[:6])
+    if len(error_fragments) > 6:
+        summary += "…"
+    messages.error(
+        request,
+        _("Could not save the structure: %(details)s") % {"details": summary},
+    )
+
+
 def _save_structure_rigs(structure: IndustryStructure, rig_formset) -> int:
     structure.rigs.all().delete()
     created_rig_count = 0
@@ -6761,6 +6802,8 @@ def industry_structure_add(request):
                 % {"count": created_rig_count},
             )
             return redirect("indy_hub:industry_structure_registry")
+
+        _emit_structure_form_errors(request, structure_form, rig_formset)
     else:
         structure_form = IndustryStructureRegistryForm()
         rig_formset = _build_structure_rig_formset()
@@ -6868,6 +6911,8 @@ def industry_structure_edit(request, structure_id):
                 % {"count": saved_rig_count},
             )
             return redirect("indy_hub:industry_structure_registry")
+
+        _emit_structure_form_errors(request, structure_form, rig_formset)
     else:
         structure_form = IndustryStructureRegistryForm(instance=structure)
         if is_synced_structure_locked:

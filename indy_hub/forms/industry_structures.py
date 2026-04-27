@@ -237,11 +237,16 @@ class IndustryStructureRegistryForm(forms.ModelForm):
             )
 
         structure_entry = get_structure_type_catalog_entry(int(resolved_type_id))
-        rig_size = (
-            None
-            if structure_entry is None
-            else int(structure_entry.get("rig_size") or 0)
+        # ``rig_size`` is left as ``None`` for structure types that do not have rig
+        # sockets (currently the synthetic NPC Station entry). In that case the
+        # capability of running capital / super-capital activities cannot be
+        # inferred from rig size, so we skip the guard entirely and let the
+        # registry record the activity flag as informational metadata. For real
+        # player structures, ``rig_size`` is always populated from the SDE.
+        raw_rig_size = (
+            None if structure_entry is None else structure_entry.get("rig_size")
         )
+        rig_size = None if raw_rig_size is None else int(raw_rig_size)
         if (
             cleaned_data.get("enable_manufacturing_capitals")
             and rig_size is not None
