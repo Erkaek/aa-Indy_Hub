@@ -380,6 +380,20 @@
             return;
         }
 
+        if (bp && bp.is_reaction) {
+            const reactionAlert = document.querySelector(`.runs-validation-alert[data-bp-type-id="${typeId}"]`);
+            if (reactionAlert) {
+                reactionAlert.innerHTML = `
+                    <div class="alert alert-warning py-1 px-2 mb-2 text-center" style="font-size: 0.8rem;">
+                        <i class="fas fa-exclamation-triangle me-1"></i>
+                        <strong>${getMessage('missing_runs_label', 'Missing')} ${shortfallRuns} ${getMessage('runs_label', 'runs')}</strong>
+                        <div class="small text-muted mt-1">${getMessage('reaction_not_copyable', 'Reaction blueprints cannot be copied. Acquire the formula from the market.')}</div>
+                    </div>
+                `;
+            }
+            return;
+        }
+
         const selectedEfficiency = getSelectedCopyEfficiencies(typeId, bp?.time_efficiency);
         const launchLimit = getCopyRequestLaunchLimit(typeId, bp?.product_type_id, selectedEfficiency.te);
         const maxRunsPerCopy = Number(launchLimit.maxRunsPerCopy || 0) || 0;

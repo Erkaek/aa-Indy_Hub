@@ -2652,6 +2652,35 @@ class BlueprintCopyRequestPageTests(TestCase):
         )
         self.assertEqual(mock_notify.call_count, 0)
 
+    def test_reaction_blueprint_request_is_rejected(self) -> None:
+        url = reverse("indy_hub:bp_copy_request_create")
+        post_data = {
+            "type_id": 605001,
+            "material_efficiency": 0,
+            "time_efficiency": 0,
+            "runs_requested": 1,
+            "copies_requested": 1,
+        }
+
+        with (
+            patch(
+                "indy_hub.views.industry.is_reaction_blueprint",
+                return_value=True,
+            ),
+            patch("indy_hub.views.industry.notify_user") as mock_notify,
+        ):
+            response = self.client.post(url, post_data)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(
+            BlueprintCopyRequest.objects.filter(
+                type_id=605001,
+                requested_by=self.user,
+                fulfilled=False,
+            ).exists()
+        )
+        self.assertEqual(mock_notify.call_count, 0)
+
     def test_everyone_scope_shows_blueprint(self) -> None:
         settings = CharacterSettings.objects.get(user=self.owner, character_id=0)
         settings.copy_sharing_scope = CharacterSettings.SCOPE_EVERYONE

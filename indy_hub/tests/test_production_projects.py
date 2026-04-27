@@ -166,12 +166,26 @@ Warp Disruptor II x2
         )
 
         self.assertEqual(payload["source_kind"], "eft")
-        self.assertEqual(payload["source_name"], "PVE - Vedmak Stronghold")
+        self.assertEqual(payload["source_name"], "Vedmak / PVE - Vedmak Stronghold")
         self.assertEqual(payload["entries"][0]["type_name"], "Vedmak")
         self.assertEqual(payload["entries"][0]["category_key"], "hull")
         self.assertEqual(payload["entries"][1]["category_key"], "low_slots")
         self.assertEqual(payload["entries"][3]["category_key"], "mid_slots")
         self.assertEqual(payload["entries"][3]["quantity"], 2)
+
+    def test_parse_eft_import_supports_brackets_in_fit_name(self) -> None:
+        payload = parse_project_import_text(
+            """
+[Retribution,   [PRIME] SD 01]
+
+Heat Sink II
+""".strip()
+        )
+
+        self.assertEqual(payload["source_kind"], "eft")
+        self.assertEqual(payload["source_name"], "Retribution / [PRIME] SD 01")
+        self.assertEqual(payload["entries"][0]["type_name"], "Retribution")
+        self.assertEqual(payload["entries"][0]["category_key"], "hull")
 
     def test_parse_manual_import_supports_prefix_and_suffix_quantities(self) -> None:
         payload = parse_project_import_text(
@@ -668,3 +682,31 @@ Mobile Depot x1
             grouped[0]["levels"][0]["blueprints"][0]["type_name"],
             "Cyclone Fleet Issue Blueprint",
         )
+
+    @patch("indy_hub.services.production_projects.is_reaction_blueprint")
+    @patch("indy_hub.services.production_projects._resolve_user_blueprint_inventory")
+    def test_project_blueprint_configs_flag_reaction_blueprints(
+        self,
+        mock_inventory,
+        mock_is_reaction,
+    ) -> None:
+        mock_inventory.return_value = {}
+        mock_is_reaction.return_value = True
+
+        blueprints, _grouped = _build_project_blueprint_configs_grouped(
+            user=object(),
+            cycle_summary={
+                16670: {
+                    "type_id": 16670,
+                    "type_name": "Carbon Fiber",
+                    "total_needed": 5,
+                }
+            },
+            product_blueprint_cache={16670: 17887},
+            overrides={},
+            type_name_cache={17887: "Carbon Fiber Reaction Formula"},
+        )
+
+        self.assertEqual(len(blueprints), 1)
+        self.assertTrue(blueprints[0]["is_reaction"])
+        mock_is_reaction.assert_called_with(17887)

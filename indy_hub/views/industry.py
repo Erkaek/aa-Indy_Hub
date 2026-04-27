@@ -135,6 +135,7 @@ from ..utils.eve import (
     get_corporation_name,
     get_corporation_ticker,
     get_type_name,
+    is_reaction_blueprint,
 )
 from .navigation import build_nav_context
 
@@ -2659,6 +2660,22 @@ def bp_copy_request_create(request):
 
     if type_id <= 0:
         messages.error(request, _("Invalid blueprint type."))
+        return redirect("indy_hub:bp_copy_request_page")
+
+    if is_reaction_blueprint(type_id):
+        messages.error(
+            request,
+            _(
+                "Reaction blueprints cannot be copied. Acquire the formula from the market instead."
+            ),
+        )
+        referer = request.headers.get("referer", "")
+        if referer and url_has_allowed_host_and_scheme(
+            url=referer,
+            allowed_hosts={request.get_host()},
+            require_https=request.is_secure(),
+        ):
+            return redirect(referer)
         return redirect("indy_hub:bp_copy_request_page")
 
     max_runs_per_copy = get_max_copy_runs_per_request(

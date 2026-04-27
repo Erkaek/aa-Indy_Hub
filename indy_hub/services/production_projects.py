@@ -25,7 +25,11 @@ from ..models import (
     ProductionProjectItem,
     SDESyncCompatState,
 )
-from ..utils.eve import get_blueprint_product_type_id, get_type_name
+from ..utils.eve import (
+    get_blueprint_product_type_id,
+    get_type_name,
+    is_reaction_blueprint,
+)
 from .craft_materials import (
     compute_job_material_quantity,
     is_base_item_material_efficiency_exempt,
@@ -36,7 +40,7 @@ from .industry_skills import build_craft_character_advisor
 
 logger = get_extension_logger(__name__)
 
-EFT_HEADER_RE = re.compile(r"^\[(?P<hull>[^,\]]+?)\s*,\s*(?P<fit_name>[^\]]*?)\s*\]$")
+EFT_HEADER_RE = re.compile(r"^\[(?P<hull>[^,\]]+?)\s*,\s*(?P<fit_name>.*?)\s*\]$")
 QUANTITY_SUFFIX_RE = re.compile(r"^(?P<name>.+?)\s+x(?P<quantity>\d+)$", re.IGNORECASE)
 QUANTITY_PREFIX_RE = re.compile(
     r"^(?P<quantity>\d+)\s*x?\s+(?P<name>.+)$", re.IGNORECASE
@@ -1506,9 +1510,16 @@ def _parse_eft_project_import(raw_text: str) -> dict[str, object]:
                 )
             )
 
+    hull_name = header_match.group("hull").strip()
+    fit_name = header_match.group("fit_name").strip()
+    if hull_name and fit_name:
+        source_name = f"{hull_name} / {fit_name}"
+    else:
+        source_name = fit_name or hull_name
+
     return {
         "source_kind": "eft",
-        "source_name": header_match.group("fit_name").strip(),
+        "source_name": source_name,
         "entries": entries,
     }
 
@@ -1902,6 +1913,7 @@ def _build_project_blueprint_configs_grouped(
                 "user_time_efficiency": user_time_efficiency,
                 "user_owns": user_owns,
                 "is_copy": is_copy,
+                "is_reaction": bool(is_reaction_blueprint(int(blueprint_type_id))),
                 "runs_available": runs_available,
                 "shared_copies_available": [],
                 "product_type_id": int(type_id),

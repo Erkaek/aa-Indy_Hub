@@ -26,6 +26,9 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 - Material Exchange: clicking a stale Discord link to a sell or buy order that has been completed, cancelled, or deleted now lands on a friendly "order no longer available" page (HTTP 404) with a button back to the Material Exchange index, instead of Django's raw 404 debug message. Honors the `next=` query parameter when present and safe (issue #68).
 - Material Exchange: saving the hub configuration on `/indy_hub/material-exchange/config/` no longer crashes with `TooManyFieldsSent` when many market groups are toggled at once.
+- Crafting Projects: reaction blueprints (e.g. `Carbon Fiber Reaction Formula`) are no longer surfaced as copy candidates in the per-blueprint configuration cards. The copy request UI is hidden for reactions and the server-side `bp_copy_request_create` endpoint now rejects reaction `type_id`s, since reactions cannot be copied in EVE (issue #69).
+- Crafting Projects: EFT fittings whose fit name contains square brackets (for example `[Retribution,   [PRIME] SD 01]`) are now parsed correctly. Previously the header regex bailed out on the inner `]`, the hull was treated as an unknown item and the rest of the fit was discarded.
+- Crafting Projects: when importing an EFT fitting and leaving the project name blank, the modal now pre-fills it as `Hull / Fit Name` (for example `Hurricane / s.2012 T2`) instead of just the fit name, making project lists easier to scan.
 
 ## [1.16.2] - 2026-04-26
 
