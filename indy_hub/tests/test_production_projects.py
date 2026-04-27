@@ -690,10 +690,10 @@ Mobile Depot x1
         mock_inventory,
         mock_is_reaction,
     ) -> None:
-        """Regression for #69: reaction formulas must NOT appear in the project
-        blueprint configuration tab. They cannot have non-zero ME/TE and cannot
-        be copied, so the per-blueprint card with ME/TE/copy controls is
-        meaningless for them."""
+        """Issue #69: reaction formulas are surfaced in the Blueprints tab so
+        players can see which formulas the project consumes, but in a
+        dedicated 'Reactions' group with no copy controls and ME/TE forced
+        to 0."""
 
         mock_inventory.return_value = {}
         mock_is_reaction.return_value = True
@@ -708,12 +708,28 @@ Mobile Depot x1
                 }
             },
             product_blueprint_cache={16670: 17887},
-            overrides={},
+            overrides={16670: {"me": 8, "te": 14}},
             type_name_cache={17887: "Carbon Fiber Reaction Formula"},
         )
 
-        self.assertEqual(blueprints, [])
-        self.assertEqual(grouped, [])
+        self.assertEqual(len(blueprints), 1)
+        card = blueprints[0]
+        self.assertEqual(card["type_id"], 17887)
+        self.assertTrue(card["is_reaction"])
+        # ME/TE inputs are hidden in the template; values are forced to 0
+        # even when an override exists.
+        self.assertEqual(card["material_efficiency"], 0)
+        self.assertEqual(card["time_efficiency"], 0)
+        # No copy / shared-copy data so the card never enters the orange branch.
+        self.assertEqual(card["shared_copies_available"], [])
+        self.assertIsNone(card["runs_available"])
+        # Dedicated 'Reactions' group, single level.
+        self.assertEqual(len(grouped), 1)
+        self.assertEqual(grouped[0]["group_name"], "Reactions")
+        self.assertEqual(
+            [bp["type_id"] for bp in grouped[0]["levels"][0]["blueprints"]],
+            [17887],
+        )
         mock_is_reaction.assert_called_with(17887)
 
     @patch("indy_hub.services.production_projects.is_reaction_blueprint")
@@ -723,9 +739,9 @@ Mobile Depot x1
         mock_inventory,
         mock_is_reaction,
     ) -> None:
-        """Regression for #69: when a project mixes reaction and standard
-        blueprints, only the standard blueprints should remain in the config
-        tab list."""
+        """When a project mixes reaction and standard blueprints, the latter
+        keep their normal category section and reactions land in the dedicated
+        'Reactions' group rendered last."""
 
         mock_inventory.return_value = {}
         # 17887 (reaction formula) -> True, anything else -> False
@@ -751,17 +767,26 @@ Mobile Depot x1
                 17887: "Carbon Fiber Reaction Formula",
                 23920: "Cyclone Fleet Issue Blueprint",
             },
+            market_group_map={
+                23919: {"group_name": "Battlecruiser", "group_id": 1},
+                16670: {"group_name": "Composite Reaction", "group_id": 2},
+            },
         )
 
-        self.assertEqual(len(blueprints), 1)
-        self.assertEqual(blueprints[0]["type_id"], 23920)
-        self.assertEqual(blueprints[0]["type_name"], "Cyclone Fleet Issue Blueprint")
-        self.assertFalse(blueprints[0]["is_reaction"])
-        # Group must reflect the same filtered list.
-        self.assertEqual(len(grouped), 1)
+        self.assertEqual(len(blueprints), 2)
+        # Standard blueprint stays in its product category, reactions are
+        # bucketed under 'Reactions' regardless of their product's category.
+        self.assertEqual(
+            [group["group_name"] for group in grouped],
+            ["Battlecruiser", "Reactions"],
+        )
         self.assertEqual(
             [bp["type_id"] for bp in grouped[0]["levels"][0]["blueprints"]],
             [23920],
+        )
+        self.assertEqual(
+            [bp["type_id"] for bp in grouped[1]["levels"][0]["blueprints"]],
+            [17887],
         )
 
     @patch("indy_hub.services.production_projects.is_reaction_blueprint")

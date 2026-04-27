@@ -1882,13 +1882,7 @@ def _build_project_blueprint_configs_grouped(
         blueprint_type_id = product_blueprint_cache.get(int(type_id))
         if not blueprint_type_id:
             continue
-        # Reaction "blueprints" (Reaction Formulas) cannot have non-zero ME/TE
-        # and cannot be copied. They are surfaced in the cycles / materials
-        # tabs via ``cycle_summary`` and don't belong in the per-blueprint
-        # configuration tab where every card exposes ME/TE inputs and copy
-        # request controls. See issue #69.
-        if is_reaction_blueprint(int(blueprint_type_id)):
-            continue
+        is_reaction = bool(is_reaction_blueprint(int(blueprint_type_id)))
         override = overrides.get(int(blueprint_type_id), {})
         user_entry = user_bp_map.get(int(blueprint_type_id), {})
         original = user_entry.get("original") or None
@@ -1904,10 +1898,22 @@ def _build_project_blueprint_configs_grouped(
         user_time_efficiency = (
             int((original or best_copy or {}).get("te") or 0) if user_owns else None
         )
-        default_me = (
-            user_material_efficiency if user_material_efficiency is not None else 0
-        )
-        default_te = user_time_efficiency if user_time_efficiency is not None else 0
+        # Reaction "blueprints" (Reaction Formulas) cannot have non-zero ME/TE
+        # and cannot be copied: force ME/TE to 0 (template hides the inputs)
+        # and clear runs/shared copies so the card never enters the orange
+        # "shared copies available" branch. They still belong in the tab so
+        # players can see which formulas the project consumes (issue #69).
+        if is_reaction:
+            default_me = 0
+            default_te = 0
+            shared_copies: list[dict[str, object]] = []
+            runs_available = None
+        else:
+            default_me = (
+                user_material_efficiency if user_material_efficiency is not None else 0
+            )
+            default_te = user_time_efficiency if user_time_efficiency is not None else 0
+            shared_copies = []
         market_group_info = market_group_map.get(int(type_id)) or {}
         category_name = str(market_group_info.get("group_name") or "").strip()
         blueprints.append(
@@ -1916,18 +1922,22 @@ def _build_project_blueprint_configs_grouped(
                 "type_name": type_name_cache.get(int(blueprint_type_id))
                 or f"Blueprint {blueprint_type_id}",
                 "material_efficiency": (
-                    int(override["me"]) if "me" in override else default_me
+                    int(override["me"])
+                    if "me" in override and not is_reaction
+                    else default_me
                 ),
                 "time_efficiency": (
-                    int(override["te"]) if "te" in override else default_te
+                    int(override["te"])
+                    if "te" in override and not is_reaction
+                    else default_te
                 ),
                 "user_material_efficiency": user_material_efficiency,
                 "user_time_efficiency": user_time_efficiency,
                 "user_owns": user_owns,
                 "is_copy": is_copy,
-                "is_reaction": bool(is_reaction_blueprint(int(blueprint_type_id))),
+                "is_reaction": is_reaction,
                 "runs_available": runs_available,
-                "shared_copies_available": [],
+                "shared_copies_available": shared_copies,
                 "product_type_id": int(type_id),
                 "product_type_name": str(entry.get("type_name") or ""),
                 "total_needed": int(entry.get("total_needed") or 0),
@@ -1940,11 +1950,26 @@ def _build_project_blueprint_configs_grouped(
 
     # Group cards by product category (eve_sde item group) so the Blueprints
     # tab is easier to scan when a project mixes ships, modules, ammo, …
+    # Reactions are always rendered last in their own dedicated section since
+    # their cards are simpler (no ME/TE / copy controls).
     fallback_group = "Other"
+    reactions_group = "Reactions"
     grouped_by_category: dict[str, list[dict[str, object]]] = {}
     for bp in blueprints:
-        key = bp.get("category_name") or fallback_group
+        if bp.get("is_reaction"):
+            key = reactions_group
+        else:
+            key = bp.get("category_name") or fallback_group
         grouped_by_category.setdefault(key, []).append(bp)
+
+    def _group_sort_key(item: tuple[str, list[dict[str, object]]]) -> tuple:
+        name, _cards = item
+        # Reactions last, then "Other" before reactions, then alphabetical.
+        return (
+            name == reactions_group,
+            name == fallback_group,
+            name.casefold(),
+        )
 
     grouped = [
         {
@@ -1952,8 +1977,7 @@ def _build_project_blueprint_configs_grouped(
             "levels": [{"level": 0, "blueprints": cards}],
         }
         for group_name, cards in sorted(
-            grouped_by_category.items(),
-            key=lambda item: (item[0] == fallback_group, item[0].casefold()),
+            grouped_by_category.items(), key=_group_sort_key
         )
     ]
 
