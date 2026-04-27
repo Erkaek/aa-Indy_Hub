@@ -1703,7 +1703,16 @@ function getCraftNormalizedStockAllocationsForCurrentPlan() {
         }
     });
 
-    window.craftBPFlags.stockAllocations = normalized;
+    // NB: do NOT overwrite craftBPFlags.stockAllocations with the
+    // clamped view here. This function is called from rendering paths
+    // (financial planner, stock tab) and clobbering the persistent
+    // state with the current-plan view would silently drop user-saved
+    // allocations whenever the current plan does not require them
+    // (e.g. stale character stock snapshot, intermediate currently in
+    // produce mode, runs reduced). Those entries must survive in the
+    // DB so they reappear when the plan changes back. The persistent
+    // state is only mutated by setCraftStockAllocation() and the
+    // explicit reset button.
     return normalized;
 }
 
@@ -2080,7 +2089,15 @@ function applyBlueprintCopyRequestState(items) {
 function collectCraftPageSessionState() {
     return {
         buyTypeIds: getCurrentBuyTypeIds(),
-        stockAllocations: getCraftNormalizedStockAllocationsForCurrentPlan(),
+        // Persist the raw user intent for stock allocations rather than the
+        // current-plan-clamped view. Otherwise an allocation on an
+        // intermediate that is not currently required (because of a runs
+        // change, a buy/prod toggle, or a stale character stock snapshot)
+        // would be silently zeroed out and dropped from the DB on save.
+        // Display-time clamping still happens via
+        // getCraftStockAllocationSummary() so the visible allocated qty is
+        // always coherent with the current plan.
+        stockAllocations: normalizeCraftStockAllocations(getCraftStockAllocations()),
         runs: Math.max(1, parseInt(document.getElementById('runsInput')?.value || '1', 10) || 1),
         activeBlueprintTab: getCurrentActiveBlueprintTab() || 'materials',
         manualPrices: collectManualPriceOverrides(),
