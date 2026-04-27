@@ -222,10 +222,10 @@ def _render_order_not_found(request, *, order_id, order_type: str):
     intentionally surfaced as the same neutral "no longer available" page so we
     do not leak information about other users' orders:
 
-    * The order does not exist (e.g. completed, cancelled, or deleted) — typical
-      when following a stale link from a Discord notification.
+    * The order does not exist (e.g. completed, cancelled, or deleted) —
+        typical when following a stale link from a Discord notification.
     * The order exists but the current user is not allowed to view it (i.e.
-      they are not the seller/buyer and lack ``indy_hub.can_manage_material_hub``).
+        they are not the seller/buyer and lack ``indy_hub.can_manage_material_hub``).
 
     Honors a safe ``next`` query parameter so the user can continue back to
     where they came from.
