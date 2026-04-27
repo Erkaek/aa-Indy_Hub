@@ -1513,7 +1513,7 @@ def _parse_eft_project_import(raw_text: str) -> dict[str, object]:
     hull_name = header_match.group("hull").strip()
     fit_name = header_match.group("fit_name").strip()
     if hull_name and fit_name:
-        source_name = f"{hull_name} / {fit_name}"
+        source_name = f"{hull_name} // {fit_name}"
     else:
         source_name = fit_name or hull_name
 
