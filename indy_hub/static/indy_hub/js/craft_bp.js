@@ -5133,11 +5133,17 @@ function recalcFinancials() {
         const productTypeId = Number(CRAFT_BP.productTypeId) || 0;
 
         if (window.SimulationAPI && typeof window.SimulationAPI.getPrice === 'function') {
-            const cycles = (typeof window.SimulationAPI.getProductionCycles === 'function')
-                ? window.SimulationAPI.getProductionCycles()
-                : [];
+            const hasLiveCycles = typeof window.SimulationAPI.getProductionCycles === 'function';
+            const cycles = hasLiveCycles ? (window.SimulationAPI.getProductionCycles() || []) : null;
 
-            if (Array.isArray(cycles) && cycles.length) {
+            if (hasLiveCycles) {
+                // SimulationAPI is the source of truth. An empty array means
+                // no production is happening (e.g. every item is in *Buy*
+                // mode), so there is no rounding surplus to credit. Do NOT
+                // fall back to the static `craft_cycles_summary` here — it is
+                // computed server-side under the "produce everything" view
+                // and would inject phantom surplus revenue that ignores the
+                // user's Buy/Prod choices.
                 cycles.forEach(entry => {
                     const typeId = Number(entry.typeId || entry.type_id || 0) || 0;
                     const surplusQty = Number(entry.surplus) || 0;
@@ -5151,7 +5157,8 @@ function recalcFinancials() {
                     }
                 });
             } else {
-                // Fallback for older payloads (static). Note: does NOT reflect switch state.
+                // Fallback for older payloads that do not expose
+                // getProductionCycles. Note: does NOT reflect switch state.
                 const cyclesSummary = window.BLUEPRINT_DATA?.craft_cycles_summary || {};
                 Object.keys(cyclesSummary).forEach(key => {
                     const entry = cyclesSummary[key] || {};
