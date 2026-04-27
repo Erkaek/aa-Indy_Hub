@@ -3476,7 +3476,17 @@ class IndustryStructure(models.Model):
         ):
             missing_sections.append("Activities")
 
-        if not self.rigs.exists():
+        # Local import to avoid a circular dependency with services -> models.
+        # AA Example App
+        from indy_hub.services.industry_structures import (
+            structure_type_supports_rigs,
+        )
+
+        if (
+            self.structure_type_id
+            and structure_type_supports_rigs(self.structure_type_id)
+            and not self.rigs.exists()
+        ):
             missing_sections.append("Rigs")
 
         has_non_zero_tax = any(

@@ -650,6 +650,150 @@ class IndustryStructureRegistryViewTests(TestCase):
     @patch("indy_hub.views.industry.sde_item_types_loaded", return_value=True)
     @patch("indy_hub.forms.industry_structures.resolve_solar_system_location_reference")
     @patch("indy_hub.forms.industry_structures.resolve_solar_system_reference")
+    def test_registry_can_create_npc_station_with_capital_manufacturing(
+        self,
+        mock_resolve_solar_system_reference,
+        mock_resolve_solar_system_location_reference,
+        _mock_view_sde_loaded,
+        _mock_form_sde_loaded,
+    ) -> None:
+        """Regression for #70: NPC Station with capital manufacturing flag must save."""
+
+        mock_resolve_solar_system_reference.return_value = (
+            30002780,
+            "Iralaja",
+            IndustryStructure.SecurityBand.HIGHSEC,
+        )
+        mock_resolve_solar_system_location_reference.return_value = {
+            "solar_system_id": 30002780,
+            "solar_system_name": "Iralaja",
+            "system_security_band": IndustryStructure.SecurityBand.HIGHSEC,
+            "constellation_id": 20000406,
+            "constellation_name": "Subhatoun",
+            "region_id": 10000033,
+            "region_name": "The Citadel",
+        }
+
+        request = self._prepare_request(
+            self.factory.post(
+                reverse("indy_hub:industry_structure_add"),
+                {
+                    "name": "Iralaja IX - Home Guard Testing Facilities",
+                    "structure_type_id": str(NPC_STATION_STRUCTURE_TYPE_ID),
+                    "solar_system_name": "Iralaja",
+                    "enable_manufacturing": "1",
+                    "enable_manufacturing_capitals": "1",
+                    "manufacturing_tax_percent": "0.250",
+                    "manufacturing_capitals_tax_percent": "0.250",
+                    "rigs-TOTAL_FORMS": "3",
+                    "rigs-INITIAL_FORMS": "0",
+                    "rigs-MIN_NUM_FORMS": "0",
+                    "rigs-MAX_NUM_FORMS": "1000",
+                    "rigs-0-slot_index": "",
+                    "rigs-0-rig_type_id": "",
+                    "rigs-1-slot_index": "",
+                    "rigs-1-rig_type_id": "",
+                    "rigs-2-slot_index": "",
+                    "rigs-2-rig_type_id": "",
+                },
+            )
+        )
+
+        response = self._add_view(request)
+
+        self.assertEqual(response.status_code, 302)
+        structure = IndustryStructure.objects.get(
+            name="Iralaja IX - Home Guard Testing Facilities"
+        )
+        self.assertEqual(structure.structure_type_id, NPC_STATION_STRUCTURE_TYPE_ID)
+        self.assertTrue(structure.enable_manufacturing)
+        self.assertTrue(structure.enable_manufacturing_capitals)
+
+    @patch(
+        "indy_hub.forms.industry_structures.sde_item_types_loaded", return_value=True
+    )
+    @patch("indy_hub.views.industry.sde_item_types_loaded", return_value=True)
+    @patch("indy_hub.forms.industry_structures.resolve_solar_system_location_reference")
+    @patch("indy_hub.forms.industry_structures.resolve_solar_system_reference")
+    def test_registry_add_view_surfaces_form_errors_as_messages(
+        self,
+        mock_resolve_solar_system_reference,
+        mock_resolve_solar_system_location_reference,
+        _mock_view_sde_loaded,
+        _mock_form_sde_loaded,
+    ) -> None:
+        """Regression for #70: invalid POST must surface validation errors via messages."""
+
+        mock_resolve_solar_system_reference.return_value = (
+            30000142,
+            "Jita",
+            IndustryStructure.SecurityBand.HIGHSEC,
+        )
+        mock_resolve_solar_system_location_reference.return_value = {
+            "solar_system_id": 30000142,
+            "solar_system_name": "Jita",
+            "system_security_band": IndustryStructure.SecurityBand.HIGHSEC,
+            "constellation_id": 20000020,
+            "constellation_name": "Kimotoro",
+            "region_id": 10000002,
+            "region_name": "The Forge",
+        }
+
+        request = self._prepare_request(
+            self.factory.post(
+                reverse("indy_hub:industry_structure_add"),
+                {
+                    # Missing required ``name`` and no activity flag enabled.
+                    "structure_type_id": str(NPC_STATION_STRUCTURE_TYPE_ID),
+                    "solar_system_name": "Jita",
+                    "rigs-TOTAL_FORMS": "3",
+                    "rigs-INITIAL_FORMS": "0",
+                    "rigs-MIN_NUM_FORMS": "0",
+                    "rigs-MAX_NUM_FORMS": "1000",
+                    "rigs-0-slot_index": "",
+                    "rigs-0-rig_type_id": "",
+                    "rigs-1-slot_index": "",
+                    "rigs-1-rig_type_id": "",
+                    "rigs-2-slot_index": "",
+                    "rigs-2-rig_type_id": "",
+                },
+            )
+        )
+
+        response = self._add_view(request)
+
+        self.assertEqual(response.status_code, 200)
+        emitted_messages = [str(message) for message in request._messages]
+        self.assertTrue(
+            any("Could not save the structure" in m for m in emitted_messages),
+            f"Expected an error message about save failure, got: {emitted_messages}",
+        )
+
+    def test_npc_station_does_not_report_missing_rigs_section(self) -> None:
+        """Regression for #70: NPC stations have no rig sockets so the registry
+        list must not flag them as ``Setup needed`` because of missing rigs."""
+
+        structure = IndustryStructure.objects.create(
+            name="Iralaja IX - Test NPC",
+            structure_type_id=NPC_STATION_STRUCTURE_TYPE_ID,
+            structure_type_name="NPC Station",
+            solar_system_id=30002780,
+            solar_system_name="Iralaja",
+            visibility_scope=IndustryStructure.VisibilityScope.PUBLIC,
+            enable_manufacturing=True,
+            manufacturing_tax_percent=Decimal("0.25"),
+        )
+
+        missing = structure.get_missing_profile_sections()
+        self.assertNotIn("Rigs", missing)
+        self.assertFalse(structure.is_profile_incomplete(), missing)
+
+    @patch(
+        "indy_hub.forms.industry_structures.sde_item_types_loaded", return_value=True
+    )
+    @patch("indy_hub.views.industry.sde_item_types_loaded", return_value=True)
+    @patch("indy_hub.forms.industry_structures.resolve_solar_system_location_reference")
+    @patch("indy_hub.forms.industry_structures.resolve_solar_system_reference")
     @patch("indy_hub.forms.industry_structures.resolve_item_type_reference")
     def test_registry_ignores_posted_rigs_for_npc_station(
         self,
