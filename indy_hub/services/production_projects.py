@@ -1268,6 +1268,7 @@ def build_project_workspace_payload(
             product_blueprint_cache=product_blueprint_cache,
             overrides=overrides,
             type_name_cache=type_name_cache,
+            market_group_map=market_group_map,
         )
     )
     record_timing_step(
@@ -1866,7 +1867,9 @@ def _build_project_blueprint_configs_grouped(
     product_blueprint_cache: dict[int, int | None],
     overrides: dict[int, dict[str, int]],
     type_name_cache: dict[int, str],
+    market_group_map: dict[int, dict[str, object]] | None = None,
 ) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    market_group_map = market_group_map or {}
     user_bp_map = _resolve_user_blueprint_inventory(
         user=user,
         blueprint_type_ids=product_blueprint_cache.values(),
@@ -1879,6 +1882,7 @@ def _build_project_blueprint_configs_grouped(
         blueprint_type_id = product_blueprint_cache.get(int(type_id))
         if not blueprint_type_id:
             continue
+        is_reaction = bool(is_reaction_blueprint(int(blueprint_type_id)))
         override = overrides.get(int(blueprint_type_id), {})
         user_entry = user_bp_map.get(int(blueprint_type_id), {})
         original = user_entry.get("original") or None
@@ -1894,46 +1898,95 @@ def _build_project_blueprint_configs_grouped(
         user_time_efficiency = (
             int((original or best_copy or {}).get("te") or 0) if user_owns else None
         )
-        default_me = (
-            user_material_efficiency if user_material_efficiency is not None else 0
-        )
-        default_te = user_time_efficiency if user_time_efficiency is not None else 0
+        # Reaction "blueprints" (Reaction Formulas) cannot have non-zero ME/TE
+        # and cannot be copied: force ME/TE to 0 (template hides the inputs)
+        # and clear runs/shared copies so the card never enters the orange
+        # "shared copies available" branch. They still belong in the tab so
+        # players can see which formulas the project consumes (issue #69).
+        if is_reaction:
+            default_me = 0
+            default_te = 0
+            shared_copies: list[dict[str, object]] = []
+            runs_available = None
+            # Reactions cannot be copied in EVE: any owned reaction formula is
+            # by definition an original, so never flag the card as "copy
+            # owned" (the template would otherwise display a misleading
+            # "COPY OWNED" badge).
+            is_copy = False
+        else:
+            default_me = (
+                user_material_efficiency if user_material_efficiency is not None else 0
+            )
+            default_te = user_time_efficiency if user_time_efficiency is not None else 0
+            shared_copies = []
+        market_group_info = market_group_map.get(int(type_id)) or {}
+        category_name = str(market_group_info.get("group_name") or "").strip()
         blueprints.append(
             {
                 "type_id": int(blueprint_type_id),
                 "type_name": type_name_cache.get(int(blueprint_type_id))
                 or f"Blueprint {blueprint_type_id}",
                 "material_efficiency": (
-                    int(override["me"]) if "me" in override else default_me
+                    int(override["me"])
+                    if "me" in override and not is_reaction
+                    else default_me
                 ),
                 "time_efficiency": (
-                    int(override["te"]) if "te" in override else default_te
+                    int(override["te"])
+                    if "te" in override and not is_reaction
+                    else default_te
                 ),
                 "user_material_efficiency": user_material_efficiency,
                 "user_time_efficiency": user_time_efficiency,
                 "user_owns": user_owns,
                 "is_copy": is_copy,
-                "is_reaction": bool(is_reaction_blueprint(int(blueprint_type_id))),
+                "is_reaction": is_reaction,
                 "runs_available": runs_available,
-                "shared_copies_available": [],
+                "shared_copies_available": shared_copies,
                 "product_type_id": int(type_id),
                 "product_type_name": str(entry.get("type_name") or ""),
                 "total_needed": int(entry.get("total_needed") or 0),
+                "category_name": category_name,
             }
         )
 
     if not blueprints:
         return ([], [])
 
-    return (
-        blueprints,
-        [
-            {
-                "group_name": "Project blueprints",
-                "levels": [{"level": 0, "blueprints": blueprints}],
-            }
-        ],
-    )
+    # Group cards by product category (eve_sde item group) so the Blueprints
+    # tab is easier to scan when a project mixes ships, modules, ammo, …
+    # Reactions are always rendered last in their own dedicated section since
+    # their cards are simpler (no ME/TE / copy controls).
+    fallback_group = "Other"
+    reactions_group = "Reactions"
+    grouped_by_category: dict[str, list[dict[str, object]]] = {}
+    for bp in blueprints:
+        if bp.get("is_reaction"):
+            key = reactions_group
+        else:
+            key = bp.get("category_name") or fallback_group
+        grouped_by_category.setdefault(key, []).append(bp)
+
+    def _group_sort_key(item: tuple[str, list[dict[str, object]]]) -> tuple:
+        name, _cards = item
+        # Reactions last, then "Other" before reactions, then alphabetical.
+        return (
+            name == reactions_group,
+            name == fallback_group,
+            name.casefold(),
+        )
+
+    grouped = [
+        {
+            "group_name": group_name,
+            "levels": [{"level": 0, "blueprints": cards}],
+        }
+        for group_name, cards in sorted(
+            grouped_by_category.items(), key=_group_sort_key
+        )
+    ]
+
+    return (blueprints, grouped)
 
 
 def _coerce_category_order(value: object) -> int:

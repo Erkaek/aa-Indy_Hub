@@ -33,10 +33,12 @@ class EvePublishedDataTests(TestCase):
         )
         self.assertEqual(result, {34: "Tritanium", 35: "35"})
 
-    @patch("indy_hub.utils.eve.EveIndustryActivityProduct")
+    @patch("indy_hub.utils.eve._resolve_industry_activity_product_model")
     def test_get_blueprint_product_type_id_requires_published_blueprint_and_product(
-        self, mock_activity_product
+        self, mock_resolve
     ) -> None:
+        mock_activity_product = MagicMock()
+        mock_resolve.return_value = mock_activity_product
         product_row = SimpleNamespace(product_eve_type_id=16672)
         queryset = MagicMock()
         queryset.exists.return_value = True
@@ -53,10 +55,12 @@ class EvePublishedDataTests(TestCase):
         )
         self.assertEqual(resolved, 16672)
 
-    @patch("indy_hub.utils.eve.EveIndustryActivityProduct")
+    @patch("indy_hub.utils.eve._resolve_industry_activity_product_model")
     def test_is_reaction_blueprint_requires_published_blueprint_and_product(
-        self, mock_activity_product
+        self, mock_resolve
     ) -> None:
+        mock_activity_product = MagicMock()
+        mock_resolve.return_value = mock_activity_product
         mock_activity_product.objects.filter.return_value.exists.return_value = True
 
         value = eve.is_reaction_blueprint(46207)

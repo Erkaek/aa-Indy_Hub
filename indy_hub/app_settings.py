@@ -54,6 +54,19 @@ MAX_FORM_FIELDS = clean_setting(
     required_type=int,
 )
 
+# The craft project workspace save endpoint posts a JSON body that includes
+# a full cached project payload snapshot (every blueprint card, decision row,
+# material breakdown, structure list, …). For moderately complex projects this
+# easily exceeds Django's default `DATA_UPLOAD_MAX_MEMORY_SIZE = 2_621_440`
+# (2.5 MB), which surfaces in the UI as a generic "Failed to save table"
+# notification. Raise the limit so realistic projects round-trip cleanly.
+MAX_REQUEST_BODY_BYTES = clean_setting(
+    "INDY_HUB_MAX_REQUEST_BODY_BYTES",
+    52_428_800,  # 50 MB
+    min_value=2_621_440,
+    required_type=int,
+)
+
 MANUAL_REFRESH_COOLDOWN_SECONDS = clean_setting(
     "INDY_HUB_MANUAL_REFRESH_COOLDOWN_SECONDS",
     300,

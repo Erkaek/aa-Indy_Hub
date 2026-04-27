@@ -42,6 +42,40 @@ def _is_eve_sde_installed() -> bool:
     )
 
 
+def _resolve_industry_activity_product_model():
+    """Return the ``SDEBlueprintActivityProduct`` model, resolved lazily.
+
+    The module-level ``from ..models import SDEBlueprintActivityProduct`` import
+    runs while Django is still bootstrapping, before ``indy_hub`` has been
+    fully populated in the app registry, and silently fails with ``ImportError``
+    on real Alliance Auth deployments. That left :func:`is_reaction_blueprint`
+    permanently returning ``False`` for every blueprint (issue #69 follow-up).
+    Resolving the model on demand via ``apps.get_model`` defers the lookup
+    until the registry is ready and works for both Django 4.2 and 5.2.
+    """
+    if not _is_eve_sde_installed():
+        return None
+    try:
+        # Django
+        from django.apps import apps
+        from django.core.exceptions import (
+            AppRegistryNotReady,
+            ImproperlyConfigured,
+        )
+
+        return apps.get_model("indy_hub", "SDEBlueprintActivityProduct")
+    except (AppRegistryNotReady, LookupError, ImproperlyConfigured):
+        # Expected during early bootstrap or on installs where the
+        # ``indy_hub`` app / model is not (yet) registered.
+        return None
+    except Exception:  # pragma: no cover - defensive fallback
+        logger.warning(
+            "Unexpected error resolving SDEBlueprintActivityProduct model",
+            exc_info=True,
+        )
+        return None
+
+
 if (
     getattr(settings, "configured", False) and _is_eve_sde_installed()
 ):  # pragma: no branch
@@ -50,14 +84,8 @@ if (
         from eve_sde.models import ItemType as EveType
     except ImportError:  # pragma: no cover - fallback when eve_sde is not installed
         EveType = None
-
-    try:
-        from ..models import SDEBlueprintActivityProduct as EveIndustryActivityProduct
-    except ImportError:  # pragma: no cover - model import can fail during app loading
-        EveIndustryActivityProduct = None
 else:  # pragma: no cover - eve_sde app not installed
     EveType = None
-    EveIndustryActivityProduct = None
 
 logger = get_extension_logger(__name__)
 
@@ -569,10 +597,14 @@ def get_blueprint_product_type_id(blueprint_type_id: int | None) -> int | None:
         return _BP_PRODUCT_CACHE[blueprint_type_id]
 
     product_id: int | None = None
+    resolution_failed = False
 
-    if EveIndustryActivityProduct is not None:
+    _activity_product_model = _resolve_industry_activity_product_model()
+    if _activity_product_model is None:
+        resolution_failed = True
+    else:
         try:
-            qs = EveIndustryActivityProduct.objects.filter(
+            qs = _activity_product_model.objects.filter(
                 eve_type_id=blueprint_type_id,
                 eve_type__published=True,
                 product_eve_type__published=True,
@@ -587,8 +619,13 @@ def get_blueprint_product_type_id(blueprint_type_id: int | None) -> int | None:
                 blueprint_type_id,
                 exc_info=True,
             )
+            resolution_failed = True
 
-    _BP_PRODUCT_CACHE[blueprint_type_id] = product_id
+    # Don't cache transient failures (e.g. AppRegistryNotReady during early
+    # bootstrap) so a later call can recompute the real value instead of
+    # returning ``None`` for the lifetime of the process.
+    if not resolution_failed:
+        _BP_PRODUCT_CACHE[blueprint_type_id] = product_id
     return product_id
 
 
@@ -601,23 +638,28 @@ def is_reaction_blueprint(blueprint_type_id: int | None) -> bool:
     if blueprint_type_id in _REACTION_CACHE:
         return _REACTION_CACHE[blueprint_type_id]
 
-    if EveIndustryActivityProduct is None:
-        value = False
-    else:
-        try:
-            value = EveIndustryActivityProduct.objects.filter(
-                eve_type_id=blueprint_type_id,
-                activity_id__in=[9, 11],
-                eve_type__published=True,
-                product_eve_type__published=True,
-            ).exists()
-        except Exception:  # pragma: no cover - defensive fallback
-            logger.debug(
-                "Unable to determine the activity for blueprint %s",
-                blueprint_type_id,
-                exc_info=True,
-            )
-            value = False
+    model = _resolve_industry_activity_product_model()
+    if model is None:
+        # Don't cache: the model registry may not be ready yet. Returning
+        # ``False`` once is fine, but caching it would make every subsequent
+        # call permanently return ``False`` for this ``type_id``.
+        return False
+
+    try:
+        value = model.objects.filter(
+            eve_type_id=blueprint_type_id,
+            activity_id__in=[9, 11],
+            eve_type__published=True,
+            product_eve_type__published=True,
+        ).exists()
+    except Exception:  # pragma: no cover - defensive fallback
+        logger.debug(
+            "Unable to determine the activity for blueprint %s",
+            blueprint_type_id,
+            exc_info=True,
+        )
+        # Same rationale: a transient DB / ORM failure should not be cached.
+        return False
 
     _REACTION_CACHE[blueprint_type_id] = value
     return value
