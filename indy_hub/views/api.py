@@ -252,6 +252,13 @@ def save_production_project_workspace(request, project_ref: str):
     def sanitize_dict(value):
         return value if isinstance(value, dict) else {}
 
+    def sanitize_positive_float(value):
+        try:
+            num = float(value or 0)
+        except (TypeError, ValueError):
+            return 0.0
+        return max(0.0, num)
+
     existing_workspace_state = strip_project_workspace_cache(project.workspace_state)
 
     simulation_name = str(
@@ -283,6 +290,14 @@ def save_production_project_workspace(request, project_ref: str):
         "stockAllocations": sanitize_dict(data.get("stockAllocations")),
         "manualPrices": sanitize_list(data.get("manualPrices")),
         "decisionBuyTolerance": str(data.get("decisionBuyTolerance") or ""),
+        "revenueMode": (
+            "total"
+            if str(data.get("revenueMode") or "").strip().lower() == "total"
+            else "per_unit"
+        ),
+        "revenueTotalOverride": sanitize_positive_float(
+            data.get("revenueTotalOverride")
+        ),
         "meTeConfig": sanitize_dict(data.get("meTeConfig")),
         "copyRequests": sanitize_list(data.get("copyRequests")),
         "structure": sanitize_dict(data.get("structure")),

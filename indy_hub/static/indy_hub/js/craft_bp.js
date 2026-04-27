@@ -2104,6 +2104,8 @@ function collectCraftPageSessionState() {
         fuzzworkPrices: collectFuzzworkPriceSnapshot(),
         simulationName: String(document.getElementById('simulationName')?.value || ''),
         decisionBuyTolerance: String(document.getElementById('decisionBuyToleranceInput')?.value || ''),
+        revenueMode: getRevenueMode(),
+        revenueTotalOverride: getRevenueTotalOverride(),
         meTeConfig: getCurrentMETEConfig(),
         copyRequests: collectBlueprintCopyRequestState(),
         structure: {
@@ -2131,6 +2133,8 @@ function applyCraftPageSessionState(parsedState) {
     window.craftBPFlags.restoredSessionState = parsedState;
     window.craftBPFlags.pendingBuyTypeIds = buyTypeIds;
     window.craftBPFlags.stockAllocations = normalizeCraftStockAllocations(parsedState?.stockAllocations);
+    window.craftBPFlags.revenueMode = normalizeRevenueMode(parsedState?.revenueMode);
+    window.craftBPFlags.revenueTotalOverride = normalizeRevenueTotalOverride(parsedState?.revenueTotalOverride);
 
     applyCraftPageRunsValue(parsedState?.runs);
     if (parsedState?.meTeConfig) {
@@ -2178,6 +2182,13 @@ function applyCraftPageSessionState(parsedState) {
 
     if (window.SimulationAPI && typeof window.SimulationAPI.refreshFromDom === 'function') {
         window.SimulationAPI.refreshFromDom();
+    }
+
+    // Sync the revenue-mode UI controls with the freshly restored values
+    // (idempotent: also re-applied by initializeRevenueModeControls when the
+    // financial tab is initialized later in the bootstrap sequence).
+    if (typeof applyRevenueModeToInputs === 'function') {
+        applyRevenueModeToInputs();
     }
 
     const payloadWorkspaceState = window.BLUEPRINT_DATA?.workspace_state;
@@ -3958,6 +3969,9 @@ function initializeFinancialCalculations() {
         computeButton.addEventListener('click', computeNeededPurchases);
     }
 
+    // Initialize revenue mode controls (per-unit vs. total project revenue)
+    initializeRevenueModeControls();
+
     // Initialize ME/TE configuration change handlers
     initializeMETEHandlers();
 }
@@ -5071,6 +5085,141 @@ function renderStructurePlanner() {
     });
 }
 
+// ---------------------------------------------------------------------------
+// Revenue mode (per-unit sale prices vs. lump-sum total project revenue)
+// ---------------------------------------------------------------------------
+
+const REVENUE_MODE_PER_UNIT = 'per_unit';
+const REVENUE_MODE_TOTAL = 'total';
+
+function normalizeRevenueMode(value) {
+    return String(value || '').trim().toLowerCase() === REVENUE_MODE_TOTAL
+        ? REVENUE_MODE_TOTAL
+        : REVENUE_MODE_PER_UNIT;
+}
+
+function normalizeRevenueTotalOverride(value) {
+    const num = Number.parseFloat(value);
+    return Number.isFinite(num) && num > 0 ? num : 0;
+}
+
+function getRevenueMode() {
+    window.craftBPFlags = window.craftBPFlags || {};
+    if (window.craftBPFlags.revenueMode === REVENUE_MODE_TOTAL
+        || window.craftBPFlags.revenueMode === REVENUE_MODE_PER_UNIT) {
+        return window.craftBPFlags.revenueMode;
+    }
+    const restored = window.craftBPFlags?.restoredSessionState?.revenueMode
+        || window.BLUEPRINT_DATA?.workspace_state?.revenueMode;
+    const normalized = normalizeRevenueMode(restored);
+    window.craftBPFlags.revenueMode = normalized;
+    return normalized;
+}
+
+function getRevenueTotalOverride() {
+    window.craftBPFlags = window.craftBPFlags || {};
+    if (Number.isFinite(window.craftBPFlags.revenueTotalOverride)) {
+        return Math.max(0, Number(window.craftBPFlags.revenueTotalOverride));
+    }
+    const restored = window.craftBPFlags?.restoredSessionState?.revenueTotalOverride
+        ?? window.BLUEPRINT_DATA?.workspace_state?.revenueTotalOverride;
+    const normalized = normalizeRevenueTotalOverride(restored);
+    window.craftBPFlags.revenueTotalOverride = normalized;
+    return normalized;
+}
+
+function setRevenueMode(mode, options = {}) {
+    const normalized = normalizeRevenueMode(mode);
+    window.craftBPFlags = window.craftBPFlags || {};
+    window.craftBPFlags.revenueMode = normalized;
+    applyRevenueModeToInputs();
+    if (options.recalc !== false && typeof recalcFinancials === 'function') {
+        recalcFinancials();
+    }
+    if (options.persist !== false && typeof persistCraftPageSessionState === 'function') {
+        persistCraftPageSessionState();
+    }
+}
+
+function setRevenueTotalOverride(value, options = {}) {
+    const normalized = normalizeRevenueTotalOverride(value);
+    window.craftBPFlags = window.craftBPFlags || {};
+    window.craftBPFlags.revenueTotalOverride = normalized;
+    if (options.recalc !== false && typeof recalcFinancials === 'function') {
+        recalcFinancials();
+    }
+    if (options.persist !== false && typeof persistCraftPageSessionState === 'function') {
+        persistCraftPageSessionState();
+    }
+}
+
+function applyRevenueModeToInputs() {
+    const mode = getRevenueMode();
+    const totalGroup = document.getElementById('financialRevenueTotalGroup');
+    const totalInput = document.getElementById('financialRevenueTotalOverride');
+    const modeSelect = document.getElementById('financialRevenueMode');
+    const hint = document.getElementById('financialRevenueModeHint');
+
+    if (modeSelect && modeSelect.value !== mode) {
+        modeSelect.value = mode;
+    }
+    if (totalInput) {
+        const override = getRevenueTotalOverride();
+        const formatted = override > 0 ? override.toFixed(2) : '0';
+        if (totalInput.value !== formatted) {
+            totalInput.value = formatted;
+        }
+    }
+    if (totalGroup) {
+        totalGroup.hidden = mode !== REVENUE_MODE_TOTAL;
+    }
+    if (hint) {
+        hint.textContent = mode === REVENUE_MODE_TOTAL
+            ? __('A single lump-sum revenue applies to the whole project; per-unit sale prices are ignored.')
+            : __('Per-unit prices are summed across every final output.');
+    }
+
+    // Disable/enable per-unit sale-price inputs on final-output rows so the
+    // user clearly sees they have no effect when total mode is on. The inputs
+    // remain visible (non-destructive) so they can be tweaked freely; their
+    // values are re-used the moment the mode flips back to per-unit.
+    document.querySelectorAll('#financialItemsBody tr[data-final-output="true"] .sale-price-unit').forEach((input) => {
+        if (mode === REVENUE_MODE_TOTAL) {
+            input.setAttribute('disabled', 'disabled');
+            input.classList.add('craft-revenue-input-disabled');
+        } else {
+            input.removeAttribute('disabled');
+            input.classList.remove('craft-revenue-input-disabled');
+        }
+    });
+}
+
+function initializeRevenueModeControls() {
+    const modeSelect = document.getElementById('financialRevenueMode');
+    const totalInput = document.getElementById('financialRevenueTotalOverride');
+
+    if (modeSelect && modeSelect.dataset.revenueModeBound !== 'true') {
+        modeSelect.value = getRevenueMode();
+        modeSelect.addEventListener('change', () => {
+            setRevenueMode(modeSelect.value);
+        });
+        modeSelect.dataset.revenueModeBound = 'true';
+    }
+
+    if (totalInput && totalInput.dataset.revenueOverrideBound !== 'true') {
+        const override = getRevenueTotalOverride();
+        totalInput.value = override > 0 ? override.toFixed(2) : '0';
+        const handle = () => {
+            setRevenueTotalOverride(totalInput.value);
+        };
+        totalInput.addEventListener('input', handle);
+        totalInput.addEventListener('change', handle);
+        totalInput.dataset.revenueOverrideBound = 'true';
+    }
+
+    applyRevenueModeToInputs();
+}
+
 /**
  * Recalculate financial totals
  */
@@ -5142,6 +5291,43 @@ function recalcFinancials() {
         }
     });
 
+    // ----- Revenue mode override -----------------------------------------
+    // When the user opts for a single lump-sum sale price for the whole
+    // project (typical for fits / multi-output projects), the per-row
+    // sum we just computed is replaced by the override and the per-row
+    // total-revenue cells are repainted accordingly so the table totals
+    // and the KPI block stay coherent.
+    const revenueMode = getRevenueMode();
+    const revenueTotalOverride = getRevenueTotalOverride();
+    if (revenueMode === REVENUE_MODE_TOTAL) {
+        revTotal = revenueTotalOverride;
+        const finalOutputRows = Array.from(document.querySelectorAll('#financialItemsBody tr[data-final-output="true"]'));
+        const totalFinalQty = finalOutputRows.reduce((sum, row) => {
+            const qtyCell = row.querySelector('[data-qty]');
+            const rawQty = qtyCell ? (qtyCell.getAttribute('data-qty') || qtyCell.dataset?.qty || '0') : '0';
+            const qty = Math.max(0, Math.ceil(parseFloat(rawQty))) || 0;
+            return sum + qty;
+        }, 0);
+        finalOutputRows.forEach((row) => {
+            const totalRevenueEl = row.querySelector('.total-revenue');
+            if (!totalRevenueEl) {
+                return;
+            }
+            if (totalFinalQty > 0 && finalOutputRows.length > 1) {
+                // Distribute the lump-sum revenue across rows proportionally
+                // to their final quantity so each row still shows a coherent
+                // per-row revenue figure (informational only).
+                const qtyCell = row.querySelector('[data-qty]');
+                const rawQty = qtyCell ? (qtyCell.getAttribute('data-qty') || qtyCell.dataset?.qty || '0') : '0';
+                const qty = Math.max(0, Math.ceil(parseFloat(rawQty))) || 0;
+                const share = totalFinalQty > 0 ? (qty / totalFinalQty) * revenueTotalOverride : 0;
+                totalRevenueEl.textContent = formatPrice(share);
+            } else {
+                totalRevenueEl.textContent = formatPrice(revenueTotalOverride);
+            }
+        });
+    }
+
     // Credit any craft-cycle surplus (extra produced due to cycle rounding).
     // IMPORTANT: This must depend on the current Buy/Prod switches.
     // We therefore compute cycles from SimulationAPI state when available.
@@ -5198,14 +5384,21 @@ function recalcFinancials() {
 
     const surplusWrapperEl = document.getElementById('financialSurplusWrapper');
     const surplusValueEl = document.getElementById('financialSummarySurplus');
+    // In lump-sum revenue mode the user has already declared the total
+    // sale price for the whole project, so we do NOT credit surplus from
+    // production rounding on top — that would double-count revenue. The
+    // surplus block is hidden in that mode.
+    const showSurplus = revenueMode !== REVENUE_MODE_TOTAL && surplusRevenue > 0;
     if (surplusValueEl) {
-        surplusValueEl.textContent = formatPrice(surplusRevenue);
+        surplusValueEl.textContent = formatPrice(showSurplus ? surplusRevenue : 0);
     }
     if (surplusWrapperEl) {
-        surplusWrapperEl.classList.toggle('d-none', !(surplusRevenue > 0));
+        surplusWrapperEl.classList.toggle('d-none', !showSurplus);
     }
 
-    revTotal += surplusRevenue;
+    if (revenueMode !== REVENUE_MODE_TOTAL) {
+        revTotal += surplusRevenue;
+    }
 
     const structureSummary = renderStructureFinancialSummary();
     const installationCostTotal = structureSummary.totalInstallation;
