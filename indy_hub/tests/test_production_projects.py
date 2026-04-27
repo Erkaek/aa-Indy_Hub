@@ -166,7 +166,7 @@ Warp Disruptor II x2
         )
 
         self.assertEqual(payload["source_kind"], "eft")
-        self.assertEqual(payload["source_name"], "Vedmak / PVE - Vedmak Stronghold")
+        self.assertEqual(payload["source_name"], "Vedmak // PVE - Vedmak Stronghold")
         self.assertEqual(payload["entries"][0]["type_name"], "Vedmak")
         self.assertEqual(payload["entries"][0]["category_key"], "hull")
         self.assertEqual(payload["entries"][1]["category_key"], "low_slots")
@@ -183,7 +183,7 @@ Heat Sink II
         )
 
         self.assertEqual(payload["source_kind"], "eft")
-        self.assertEqual(payload["source_name"], "Retribution / [PRIME] SD 01")
+        self.assertEqual(payload["source_name"], "Retribution // [PRIME] SD 01")
         self.assertEqual(payload["entries"][0]["type_name"], "Retribution")
         self.assertEqual(payload["entries"][0]["category_key"], "hull")
 
