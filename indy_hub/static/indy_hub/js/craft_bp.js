@@ -789,7 +789,15 @@ function buildTreeModeBadgeClass(state) {
 }
 
 function getDecisionSwitchRoot() {
-    return document.getElementById('decisionStrategyRows') || document.getElementById('tab-tree');
+    // Prefer the Decisions tab strategy rows if populated, but fall back to
+    // the materials tree when that container is empty (e.g. user clicks the
+    // "all to buy / all to prod" buttons on the Tree tab before the Decisions
+    // tab has been opened, so its rows have not been lazily rendered yet).
+    const decisionRoot = document.getElementById('decisionStrategyRows');
+    if (decisionRoot && decisionRoot.querySelector('input.mat-switch[data-type-id]')) {
+        return decisionRoot;
+    }
+    return document.getElementById('tab-tree') || decisionRoot;
 }
 
 function getDecisionSwitchElements() {
@@ -1774,13 +1782,18 @@ function getCraftSourceRequirementRows() {
         return [];
     }
 
-    const finalOutputTypeIds = getFinalOutputTypeIds();
+    // NOTE: Items returned by getFinancialItems() are leafNeeds + buyCraftables.
+    // Final-outputs are only present here when the user explicitly toggled them
+    // to 'buy' mode (e.g. project workspace items set to all-buy). They MUST
+    // appear as buy rows so their purchase cost is summed into Total Material
+    // Cost. They will also remain as revenue rows (final-outputs are rendered
+    // separately) which is correct: cost = buy price, revenue = sale price.
     const aggregated = new Map();
     const items = api.getFinancialItems() || [];
 
     items.forEach((item) => {
         const typeId = Number(item.typeId ?? item.type_id) || 0;
-        if (!typeId || finalOutputTypeIds.has(typeId)) {
+        if (!typeId) {
             return;
         }
         const quantity = Math.ceil(Number(item.quantity ?? item.qty ?? 0));
@@ -5524,14 +5537,16 @@ function updateMaterialsTabFromState() {
     }
 
     const emptyState = document.getElementById('materialsEmptyState');
-    const finalOutputTypeIds = getFinalOutputTypeIds();
+    // See getCraftSourceRequirementRows: do not filter out final-outputs here
+    // either. When the user sets project items to 'buy', they must show up as
+    // materials to purchase.
     const fallbackGroupName = __('Other');
     const aggregated = new Map();
     const items = window.SimulationAPI.getFinancialItems() || [];
 
     items.forEach(item => {
         const typeId = Number(item.typeId ?? item.type_id);
-        if (!typeId || finalOutputTypeIds.has(typeId)) {
+        if (!typeId) {
             return;
         }
         const quantity = Math.ceil(Number(item.quantity ?? item.qty ?? 0));
