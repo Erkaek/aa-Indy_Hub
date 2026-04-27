@@ -10,6 +10,7 @@ from django.core.paginator import Paginator
 from django.db.models import Count, Q
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.translation import gettext as _
 from django.views.decorators.http import require_POST
 
@@ -214,6 +215,36 @@ def my_orders(request):
     return render(request, "indy_hub/material_exchange/my_orders.html", context)
 
 
+def _render_order_not_found(request, *, order_id, order_type: str):
+    """Render a friendly 404 page when a Material Exchange order is missing.
+
+    Used when users follow a stale link (e.g. from a Discord notification) to a
+    sell/buy order that has been completed, cancelled, or deleted. Honors a
+    safe ``next`` query parameter so the user can continue back to where they
+    came from.
+    """
+    next_url = request.GET.get("next") or ""
+    if next_url and not url_has_allowed_host_and_scheme(
+        url=next_url,
+        allowed_hosts={request.get_host()},
+        require_https=request.is_secure(),
+    ):
+        next_url = ""
+
+    context = {
+        "order_id": order_id,
+        "order_type": order_type,
+        "next_url": next_url,
+    }
+    context.update(build_nav_context(request.user, active_tab="material_hub"))
+    return render(
+        request,
+        "indy_hub/material_exchange/order_not_found.html",
+        context,
+        status=404,
+    )
+
+
 @indy_hub_permission_required("can_access_indy_hub")
 @login_required
 def sell_order_detail(request, order_id):
@@ -238,7 +269,7 @@ def sell_order_detail(request, order_id):
             order_id,
             request.user.id,
         )
-        raise
+        return _render_order_not_found(request, order_id=order_id, order_type="sell")
 
     logger.debug(
         "Sell order detail accessed (order_id=%s, user_id=%s)",
@@ -297,7 +328,7 @@ def buy_order_detail(request, order_id):
             order_id,
             request.user.id,
         )
-        raise
+        return _render_order_not_found(request, order_id=order_id, order_type="buy")
 
     logger.debug(
         "Buy order detail accessed (order_id=%s, user_id=%s)",

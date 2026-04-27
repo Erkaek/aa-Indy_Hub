@@ -719,6 +719,34 @@ class MaterialExchangeContractCheckTests(TestCase):
             response, reverse("indy_hub:buy_order_check_contract", args=[order.id])
         )
 
+    def test_sell_order_detail_missing_renders_friendly_404(self) -> None:
+        response = self.client.get(
+            reverse("indy_hub:sell_order_detail", args=[99999999])
+            + "?next=/indy_hub/material-exchange/"
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertContains(
+            response,
+            "no longer available",
+            status_code=404,
+        )
+        self.assertContains(
+            response,
+            "/indy_hub/material-exchange/",
+            status_code=404,
+        )
+
+    def test_buy_order_detail_missing_renders_friendly_404(self) -> None:
+        response = self.client.get(
+            reverse("indy_hub:buy_order_detail", args=[99999999])
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertContains(
+            response,
+            "no longer available",
+            status_code=404,
+        )
+
 
 class BlueprintModelClassificationTests(TestCase):
     def setUp(self) -> None:
