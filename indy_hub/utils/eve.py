@@ -597,9 +597,12 @@ def get_blueprint_product_type_id(blueprint_type_id: int | None) -> int | None:
         return _BP_PRODUCT_CACHE[blueprint_type_id]
 
     product_id: int | None = None
+    resolution_failed = False
 
     _activity_product_model = _resolve_industry_activity_product_model()
-    if _activity_product_model is not None:
+    if _activity_product_model is None:
+        resolution_failed = True
+    else:
         try:
             qs = _activity_product_model.objects.filter(
                 eve_type_id=blueprint_type_id,
@@ -616,8 +619,13 @@ def get_blueprint_product_type_id(blueprint_type_id: int | None) -> int | None:
                 blueprint_type_id,
                 exc_info=True,
             )
+            resolution_failed = True
 
-    _BP_PRODUCT_CACHE[blueprint_type_id] = product_id
+    # Don't cache transient failures (e.g. AppRegistryNotReady during early
+    # bootstrap) so a later call can recompute the real value instead of
+    # returning ``None`` for the lifetime of the process.
+    if not resolution_failed:
+        _BP_PRODUCT_CACHE[blueprint_type_id] = product_id
     return product_id
 
 
@@ -632,22 +640,26 @@ def is_reaction_blueprint(blueprint_type_id: int | None) -> bool:
 
     model = _resolve_industry_activity_product_model()
     if model is None:
-        value = False
-    else:
-        try:
-            value = model.objects.filter(
-                eve_type_id=blueprint_type_id,
-                activity_id__in=[9, 11],
-                eve_type__published=True,
-                product_eve_type__published=True,
-            ).exists()
-        except Exception:  # pragma: no cover - defensive fallback
-            logger.debug(
-                "Unable to determine the activity for blueprint %s",
-                blueprint_type_id,
-                exc_info=True,
-            )
-            value = False
+        # Don't cache: the model registry may not be ready yet. Returning
+        # ``False`` once is fine, but caching it would make every subsequent
+        # call permanently return ``False`` for this ``type_id``.
+        return False
+
+    try:
+        value = model.objects.filter(
+            eve_type_id=blueprint_type_id,
+            activity_id__in=[9, 11],
+            eve_type__published=True,
+            product_eve_type__published=True,
+        ).exists()
+    except Exception:  # pragma: no cover - defensive fallback
+        logger.debug(
+            "Unable to determine the activity for blueprint %s",
+            blueprint_type_id,
+            exc_info=True,
+        )
+        # Same rationale: a transient DB / ORM failure should not be cached.
+        return False
 
     _REACTION_CACHE[blueprint_type_id] = value
     return value
