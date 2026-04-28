@@ -1380,9 +1380,7 @@
                 );
             }
             html += grandRow(
-                labels.grandTotal + " (" + formatInteger(payload.copies_requested) + " "
-                    + (toNumber(payload.copies_requested) > 1 ? labels.copyPlural : labels.copySingular)
-                    + ")",
+                labels.grandTotal,
                 formatIsk(payload.total_installation_cost)
             );
             rowsEl.innerHTML = html;
