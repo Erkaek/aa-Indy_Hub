@@ -61,6 +61,7 @@ from ..models import (
     NotificationWebhookMessage,
     ProductionProject,
     SDEBlueprintActivity,
+    SDEBlueprintActivityMaterial,
     SDEBlueprintActivityProduct,
 )
 from ..notifications import (
@@ -2992,6 +2993,10 @@ def _build_copy_estimated_item_values(
     if not blueprint_type_ids:
         return {}
 
+    # EVE computes the Estimated Item Value (EIV) for copying jobs from the
+    # blueprint's manufacturing materials, NOT from the product's price:
+    #   per-run EIV = sum(material_qty * material_adjusted_price)
+    # Then JCB = per-run EIV * runs * 2% (the copying activity multiplier).
     product_type_by_blueprint = {
         int(row.eve_type_id): int(row.product_eve_type_id)
         for row in SDEBlueprintActivityProduct.objects.filter(
@@ -3000,48 +3005,85 @@ def _build_copy_estimated_item_values(
         ).order_by("eve_type_id", "product_eve_type_id")
     }
 
-    product_type_ids = sorted(set(product_type_by_blueprint.values()))
-    product_base_prices = _fetch_item_base_prices(product_type_ids)
+    materials_by_blueprint: dict[int, list[tuple[int, int]]] = {}
+    for row in SDEBlueprintActivityMaterial.objects.filter(
+        eve_type_id__in=blueprint_type_ids,
+        activity_id=IndustryActivityMixin.ACTIVITY_MANUFACTURING,
+    ).values("eve_type_id", "material_eve_type_id", "quantity"):
+        bp_type_id = int(row["eve_type_id"])
+        material_type_id = int(row["material_eve_type_id"])
+        quantity = int(row["quantity"] or 0)
+        if material_type_id <= 0 or quantity <= 0:
+            continue
+        materials_by_blueprint.setdefault(bp_type_id, []).append(
+            (material_type_id, quantity)
+        )
+
+    material_type_ids = sorted(
+        {
+            material_type_id
+            for entries in materials_by_blueprint.values()
+            for material_type_id, _qty in entries
+        }
+    )
+    material_base_prices = _fetch_item_base_prices(material_type_ids)
     try:
-        adjusted_price_refs = fetch_adjusted_prices(product_type_ids, timeout=10)
+        material_price_refs = fetch_adjusted_prices(material_type_ids, timeout=10)
     except MarketPriceError:
-        adjusted_price_refs = {}
+        material_price_refs = {}
+
+    def _material_price(material_type_id: int) -> tuple[Decimal, str]:
+        price_ref = material_price_refs.get(material_type_id, {})
+        adjusted_price = Decimal(str(price_ref.get("adjusted_price") or 0))
+        if adjusted_price > 0:
+            return adjusted_price, "adjusted_price"
+        average_price = Decimal(str(price_ref.get("average_price") or 0))
+        if average_price > 0:
+            return average_price, "average_price"
+        base_price = material_base_prices.get(material_type_id, Decimal("0"))
+        if base_price > 0:
+            return base_price, "base_price"
+        return Decimal("0"), ""
+
+    # Source priority across the basket: prefer the strongest source actually
+    # used (adjusted_price > average_price > base_price). If any material falls
+    # back to a weaker source, that is the source reported for the basket.
+    source_rank = {"adjusted_price": 3, "average_price": 2, "base_price": 1, "": 0}
 
     result: dict[int, dict[str, Any]] = {}
     for req in requests:
         blueprint_type_id = int(req.type_id or 0)
         if blueprint_type_id <= 0:
             continue
-        product_type_id = product_type_by_blueprint.get(blueprint_type_id)
-        if not product_type_id:
+        materials = materials_by_blueprint.get(blueprint_type_id) or []
+        if not materials:
             continue
 
-        price_ref = adjusted_price_refs.get(product_type_id, {})
-        adjusted_price = Decimal(str(price_ref.get("adjusted_price") or 0))
-        average_price = Decimal(str(price_ref.get("average_price") or 0))
-        base_price = product_base_prices.get(product_type_id, Decimal("0"))
+        per_run_value = Decimal("0")
+        worst_source_rank = source_rank["adjusted_price"]
+        worst_source = "adjusted_price"
+        any_priced = False
+        for material_type_id, quantity in materials:
+            unit_price, src = _material_price(material_type_id)
+            if unit_price <= 0:
+                continue
+            any_priced = True
+            per_run_value += unit_price * Decimal(quantity)
+            rank = source_rank.get(src, 0)
+            if rank < worst_source_rank:
+                worst_source_rank = rank
+                worst_source = src
 
-        unit_value = Decimal("0")
-        source = ""
-        if adjusted_price > 0:
-            unit_value = adjusted_price
-            source = "adjusted_price"
-        elif average_price > 0:
-            unit_value = average_price
-            source = "average_price"
-        elif base_price > 0:
-            unit_value = base_price
-            source = "base_price"
-
-        if unit_value <= 0:
+        if not any_priced or per_run_value <= 0:
             continue
 
         runs_requested = max(int(getattr(req, "runs_requested", 1) or 1), 1)
+        product_type_id = product_type_by_blueprint.get(blueprint_type_id)
         result[blueprint_type_id] = {
             "product_type_id": product_type_id,
-            "unit_value": unit_value,
-            "estimated_item_value": unit_value * runs_requested,
-            "source": source,
+            "unit_value": per_run_value,
+            "estimated_item_value": per_run_value * runs_requested,
+            "source": worst_source,
             "runs_requested": runs_requested,
         }
 
