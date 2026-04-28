@@ -5148,6 +5148,16 @@ function setRevenueTotalOverride(value, options = {}) {
     if (options.recalc !== false && typeof recalcFinancials === 'function') {
         recalcFinancials();
     }
+    // Re-sync the visible input with the normalized value so the UI cannot
+    // diverge from the persisted/computed override (e.g. when the user types
+    // a negative or non-numeric value, the field would otherwise still show
+    // the raw text while calculations and persistence use the normalized 0).
+    // Skipped during 'input' events (syncInput=false) to avoid disrupting
+    // the cursor while the user is still typing — the 'change' handler
+    // performs the resync on blur/Enter.
+    if (options.syncInput !== false && typeof applyRevenueModeToInputs === 'function') {
+        applyRevenueModeToInputs();
+    }
     if (options.persist !== false && typeof persistCraftPageSessionState === 'function') {
         persistCraftPageSessionState();
     }
@@ -5209,11 +5219,18 @@ function initializeRevenueModeControls() {
     if (totalInput && totalInput.dataset.revenueOverrideBound !== 'true') {
         const override = getRevenueTotalOverride();
         totalInput.value = override > 0 ? override.toFixed(2) : '0';
-        const handle = () => {
+        // While the user is still typing, only update the stored value and
+        // recompute totals — do NOT rewrite the input back, otherwise the
+        // cursor/selection jumps as soon as the value is normalized.
+        totalInput.addEventListener('input', () => {
+            setRevenueTotalOverride(totalInput.value, { syncInput: false });
+        });
+        // On blur / Enter, re-sync the visible input with the normalized
+        // value so any invalid entry (negative, NaN, etc.) is visibly
+        // corrected to match the persisted/computed override.
+        totalInput.addEventListener('change', () => {
             setRevenueTotalOverride(totalInput.value);
-        };
-        totalInput.addEventListener('input', handle);
-        totalInput.addEventListener('change', handle);
+        });
         totalInput.dataset.revenueOverrideBound = 'true';
     }
 
