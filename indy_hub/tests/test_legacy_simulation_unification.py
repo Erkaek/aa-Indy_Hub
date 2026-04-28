@@ -178,6 +178,8 @@ class LegacySimulationUnificationTests(TestCase):
                                 "is_sale_price": False,
                             }
                         ],
+                        "revenueMode": "total",
+                        "revenueTotalOverride": 12345.5,
                     }
                 ),
                 content_type="application/json",
@@ -188,6 +190,8 @@ class LegacySimulationUnificationTests(TestCase):
         self.assertEqual(response.status_code, 200)
         project.refresh_from_db()
         self.assertEqual(project.name, "Saved Vedmak Table")
+        self.assertEqual(project.workspace_state["revenueMode"], "total")
+        self.assertEqual(project.workspace_state["revenueTotalOverride"], 12345.5)
         self.assertEqual(project.workspace_state["active_tab"], "financial")
         self.assertEqual(project.workspace_state["items"][0]["mode"], "buy")
         self.assertEqual(project.workspace_state["buyTypeIds"], [34])
@@ -246,6 +250,75 @@ class LegacySimulationUnificationTests(TestCase):
         project.refresh_from_db()
         self.assertEqual(project.workspace_state["blueprint_type_id"], 950)
         self.assertEqual(project.workspace_state["blueprint_name"], "Merlin Blueprint")
+
+    def test_save_production_project_workspace_normalizes_revenue_mode(self):
+        """`revenueMode` defaults to per_unit; 'total' is accepted; bad
+        `revenueTotalOverride` (negative, garbage, NaN/inf) clamps to 0.0."""
+
+        cases = [
+            # (payload_extras, expected_mode, expected_override)
+            ({}, "per_unit", 0.0),
+            ({"revenueMode": "TOTAL"}, "total", 0.0),
+            ({"revenueMode": "bogus"}, "per_unit", 0.0),
+            (
+                {"revenueMode": "total", "revenueTotalOverride": 250000.5},
+                "total",
+                250000.5,
+            ),
+            (
+                {"revenueMode": "per_unit", "revenueTotalOverride": -42},
+                "per_unit",
+                0.0,
+            ),
+            (
+                {"revenueMode": "total", "revenueTotalOverride": "not-a-number"},
+                "total",
+                0.0,
+            ),
+            (
+                {"revenueMode": "total", "revenueTotalOverride": "1e309"},
+                "total",
+                0.0,
+            ),
+            (
+                {"revenueMode": "total", "revenueTotalOverride": float("nan")},
+                "total",
+                0.0,
+            ),
+        ]
+
+        for idx, (extras, expected_mode, expected_override) in enumerate(cases):
+            with self.subTest(case=idx, extras=extras):
+                project = ProductionProject.objects.create(
+                    user=self.user,
+                    name=f"RevMode {idx}",
+                    status=ProductionProject.Status.DRAFT,
+                    source_kind=ProductionProject.SourceKind.MANUAL,
+                )
+                payload = {
+                    "blueprint_type_id": 603,
+                    "runs": 1,
+                    "active_tab": "financial",
+                    **extras,
+                }
+                request = self._prepare_request(
+                    self.factory.post(
+                        reverse(
+                            "indy_hub:save_production_project_workspace",
+                            args=[project.project_ref],
+                        ),
+                        data=json.dumps(payload),
+                        content_type="application/json",
+                    )
+                )
+                response = self._save_workspace_view(request, project.project_ref)
+                self.assertEqual(response.status_code, 200)
+                project.refresh_from_db()
+                self.assertEqual(project.workspace_state["revenueMode"], expected_mode)
+                self.assertEqual(
+                    project.workspace_state["revenueTotalOverride"],
+                    expected_override,
+                )
 
     @patch("indy_hub.views.api.build_project_workspace_payload")
     def test_save_production_project_workspace_rebuilds_stale_cached_runs_payload(
