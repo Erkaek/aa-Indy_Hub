@@ -1212,6 +1212,8 @@
             totalTaxes: modalEl.getAttribute("data-label-total-taxes") || "Total taxes",
             totalJob: modalEl.getAttribute("data-label-total-job") || "Total job cost (per copy)",
             grandTotal: modalEl.getAttribute("data-label-grand-total") || "Total install cost",
+            copySingular: modalEl.getAttribute("data-label-copy-singular") || "copy",
+            copyPlural: modalEl.getAttribute("data-label-copy-plural") || "copies",
             runs: modalEl.getAttribute("data-label-runs") || "Runs per copy",
             copies: modalEl.getAttribute("data-label-copies") || "Copies requested",
             isk: modalEl.getAttribute("data-label-isk") || "ISK"
@@ -1378,7 +1380,9 @@
                 );
             }
             html += grandRow(
-                labels.grandTotal + " (× " + formatInteger(payload.copies_requested) + ")",
+                labels.grandTotal + " (" + formatInteger(payload.copies_requested) + " "
+                    + (toNumber(payload.copies_requested) > 1 ? labels.copyPlural : labels.copySingular)
+                    + ")",
                 formatIsk(payload.total_installation_cost)
             );
             rowsEl.innerHTML = html;
