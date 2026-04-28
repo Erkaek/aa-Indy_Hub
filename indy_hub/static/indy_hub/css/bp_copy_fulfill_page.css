@@ -751,17 +751,55 @@ html[data-theme="darkly"] .fulfill-page .fulfill-request-item.is-active {
     color: var(--fp-muted);
 }
 
-.fwp-cost-breakdown-table tbody tr.fwp-cost-breakdown-table__total td {
+.fwp-cost-breakdown-table {
+    margin-bottom: 0;
+}
+
+.fwp-cost-breakdown-table tbody tr td {
+    padding: 0.45rem 0.7rem;
+    border-color: var(--fp-border, rgba(127, 127, 127, 0.18));
+}
+
+/* Section headers (colored band) */
+.fwp-cost-breakdown-table tbody tr.fwp-cost-breakdown-table__header td {
+    background: var(--fp-brand, #2c6cf6);
+    color: #fff;
     font-weight: 700;
-    border-top: 2px solid var(--fp-border-mid, rgba(127, 127, 127, 0.4));
+    font-size: 0.78rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 0.5rem 0.7rem;
+    text-align: center;
+    border-top: none;
+    border-bottom: none;
 }
 
-.fwp-cost-breakdown-table tbody tr.fwp-cost-breakdown-table__subtotal td {
-    font-weight: 600;
+/* Bold subtotal rows */
+.fwp-cost-breakdown-table tbody tr.fwp-cost-breakdown-table__bold td {
+    font-weight: 700;
+    border-top: 1px solid var(--fp-border-mid, rgba(127, 127, 127, 0.4));
 }
 
-.fwp-cost-breakdown-table tbody tr.fwp-cost-breakdown-table__group td {
-    padding-top: 0.6rem;
+/* Tax rows shown in red */
+.fwp-cost-breakdown-table tbody tr.fwp-cost-breakdown-table__danger td {
+    color: var(--fp-danger, #d03535);
+}
+
+/* Secondary informational row (e.g. per-copy cost when total is shown) */
+.fwp-cost-breakdown-table tbody tr.fwp-cost-breakdown-table__muted td {
+    color: var(--fp-muted, #6b7280);
+    font-size: 0.85rem;
+    font-style: italic;
+}
+
+/* Grand total — large, bold, colored background */
+.fwp-cost-breakdown-table tbody tr.fwp-cost-breakdown-table__grand td {
+    background: var(--fp-brand, #2c6cf6);
+    color: #fff;
+    font-weight: 800;
+    font-size: 1.05rem;
+    padding: 0.7rem 0.7rem;
+    border-top: 2px solid var(--fp-brand, #2c6cf6);
 }
 
 .fwp-cost-breakdown-table td:last-child {

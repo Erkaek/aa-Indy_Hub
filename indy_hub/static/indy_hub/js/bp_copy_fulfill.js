@@ -1174,6 +1174,14 @@
             return;
         }
 
+        // The fulfill page wraps the modal inside `.fulfill-page` which has
+        // `isolation: isolate`, creating a new stacking context that traps the
+        // modal underneath the body-level backdrop. Move the modal element to
+        // `<body>` so Bootstrap can layer it above the backdrop properly.
+        if (modalEl.parentNode !== document.body) {
+            document.body.appendChild(modalEl);
+        }
+
         var bootstrapModalCtor = null;
         if (typeof window !== "undefined") {
             if (window.bootstrap && window.bootstrap.Modal) {
@@ -1193,7 +1201,9 @@
             eiv: modalEl.getAttribute("data-label-eiv") || "Estimated items value (EIV)",
             jcb: modalEl.getAttribute("data-label-jcb") || "Job cost base (JCB)",
             sci: modalEl.getAttribute("data-label-sci") || "System cost index",
+            grossSection: modalEl.getAttribute("data-label-gross-section") || "JOB GROSS COST",
             gross: modalEl.getAttribute("data-label-gross") || "Total job gross cost",
+            taxesSection: modalEl.getAttribute("data-label-taxes-section") || "TAXES",
             structureBonus: modalEl.getAttribute("data-label-structure-bonus") || "Structure role bonus",
             rigBonus: modalEl.getAttribute("data-label-rig-bonus") || "Rig bonus",
             adjusted: modalEl.getAttribute("data-label-adjusted") || "Adjusted job cost",
@@ -1267,6 +1277,16 @@
             return "<tr" + cls + "><td>" + escapeHtml(label) + "</td><td>" + escapeHtml(value) + "</td></tr>";
         }
 
+        function headerRow(label) {
+            return '<tr class="fwp-cost-breakdown-table__header"><td colspan="2">'
+                + escapeHtml(label) + "</td></tr>";
+        }
+
+        function grandRow(label, value) {
+            return '<tr class="fwp-cost-breakdown-table__grand"><td>'
+                + escapeHtml(label) + "</td><td>" + escapeHtml(value) + "</td></tr>";
+        }
+
         function readPayload(payloadId) {
             var node = document.getElementById(payloadId);
             if (!node) {
@@ -1305,53 +1325,62 @@
             }
 
             var html = "";
+
+            // Inputs
             html += row(labels.eiv, formatIsk(payload.estimated_item_value));
             html += row(
                 labels.jcb + " (" + formatPercent(payload.jcb_percent, 2) + ")",
                 formatIsk(payload.job_cost_base)
             );
+
+            // ── Job gross cost section ────────────────────────────
+            html += headerRow(labels.grossSection || "JOB GROSS COST");
             html += row(
                 labels.sci + " (" + formatPercent(payload.system_cost_index_percent, 4) + ")",
-                formatIsk(payload.base_job_cost),
-                "fwp-cost-breakdown-table__group"
+                formatIsk(payload.base_job_cost)
             );
-            if (toNumber(payload.structure_role_bonus_percent) > 0) {
-                html += row(labels.structureBonus, "−" + formatPercent(payload.structure_role_bonus_percent, 2));
-            }
             if (toNumber(payload.rig_bonus_percent) > 0) {
-                html += row(labels.rigBonus, "−" + formatPercent(payload.rig_bonus_percent, 2));
+                html += row(
+                    labels.rigBonus,
+                    "−" + formatPercent(payload.rig_bonus_percent, 2)
+                );
             }
             html += row(
-                labels.adjusted,
+                labels.gross,
                 formatIsk(payload.adjusted_job_cost),
-                "fwp-cost-breakdown-table__subtotal"
+                "fwp-cost-breakdown-table__bold"
             );
+
+            // ── Taxes section ─────────────────────────────────────
+            html += headerRow(labels.taxesSection || "TAXES");
             html += row(
                 labels.facilityTax + " (" + formatPercent(payload.facility_tax_percent, 2) + ")",
                 formatIsk(payload.facility_tax),
-                "fwp-cost-breakdown-table__group"
+                "fwp-cost-breakdown-table__danger"
             );
             html += row(
                 labels.scc + " (" + formatPercent(payload.scc_surcharge_percent, 2) + ")",
-                formatIsk(payload.scc_surcharge)
+                formatIsk(payload.scc_surcharge),
+                "fwp-cost-breakdown-table__danger"
             );
             html += row(
                 labels.totalTaxes,
                 formatIsk(payload.total_taxes),
-                "fwp-cost-breakdown-table__subtotal"
+                "fwp-cost-breakdown-table__bold"
             );
-            html += row(
-                labels.totalJob,
-                formatIsk(payload.per_copy_installation_cost),
-                "fwp-cost-breakdown-table__total"
-            );
+
+            // ── Per-copy info (secondary) + Grand total ───────────
             if (toNumber(payload.copies_requested) > 1) {
                 html += row(
-                    labels.grandTotal + " (× " + formatInteger(payload.copies_requested) + ")",
-                    formatIsk(payload.total_installation_cost),
-                    "fwp-cost-breakdown-table__total"
+                    labels.totalJob,
+                    formatIsk(payload.per_copy_installation_cost),
+                    "fwp-cost-breakdown-table__muted"
                 );
             }
+            html += grandRow(
+                labels.grandTotal + " (× " + formatInteger(payload.copies_requested) + ")",
+                formatIsk(payload.total_installation_cost)
+            );
             rowsEl.innerHTML = html;
         }
 
@@ -1359,6 +1388,19 @@
             trigger.addEventListener("click", function (event) {
                 event.preventDefault();
                 var payloadId = trigger.getAttribute("data-copy-cost-breakdown-id");
+                var prefix = trigger.getAttribute("data-copy-cost-breakdown-prefix");
+                var requestId = trigger.getAttribute("data-request-id");
+                if (prefix && requestId) {
+                    var select = document.querySelector(
+                        '[data-copy-structure-select][data-request-id="' + requestId + '"]'
+                    );
+                    if (select && select.value) {
+                        var perStructureId = prefix + select.value;
+                        if (document.getElementById(perStructureId)) {
+                            payloadId = perStructureId;
+                        }
+                    }
+                }
                 if (!payloadId) {
                     return;
                 }

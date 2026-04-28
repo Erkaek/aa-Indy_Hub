@@ -3895,6 +3895,39 @@ def bp_copy_fulfill_requests(request):
                     breakdown.estimated_item_value * jcb_percent_value / Decimal("100")
                 )
                 total_taxes_value = breakdown.facility_tax + breakdown.scc_surcharge
+                copies_decimal = Decimal(int(copies_requested or 1))
+                # Single EVE copy job groups all copies × all runs into one
+                # installation. Scale every per-copy ISK row by the number of
+                # copies so the modal matches the EVE in-game breakdown.
+                breakdown_payload = {
+                    "structure_name": cached_structure.name,
+                    "solar_system_name": cached_structure.solar_system_name or "",
+                    "runs_requested": int(
+                        estimated_item_value_meta.get(
+                            "runs_requested", req.runs_requested
+                        )
+                        or 1
+                    ),
+                    "copies_requested": int(copies_requested),
+                    "estimated_item_value": breakdown.estimated_item_value
+                    * copies_decimal,
+                    "jcb_percent": jcb_percent_value,
+                    "job_cost_base": job_cost_base_value * copies_decimal,
+                    "system_cost_index_percent": breakdown.system_cost_index_percent,
+                    "base_job_cost": breakdown.base_job_cost * copies_decimal,
+                    "rig_bonus_percent": breakdown.rig_bonus_percent,
+                    "total_job_cost_bonus_percent": breakdown.total_job_cost_bonus_percent,
+                    "adjusted_job_cost": breakdown.adjusted_job_cost * copies_decimal,
+                    "facility_tax_percent": breakdown.facility_tax_percent,
+                    "facility_tax": breakdown.facility_tax * copies_decimal,
+                    "scc_surcharge_percent": breakdown.scc_surcharge_percent,
+                    "scc_surcharge": breakdown.scc_surcharge * copies_decimal,
+                    "total_taxes": total_taxes_value * copies_decimal,
+                    "per_copy_installation_cost": breakdown.total_installation_cost,
+                    "total_installation_cost": (
+                        breakdown.total_installation_cost * copies_decimal
+                    ),
+                }
                 option = {
                     "id": int(cached_structure.id),
                     "structure_name": cached_structure.name,
@@ -3920,35 +3953,7 @@ def bp_copy_fulfill_requests(request):
                         "runs_requested", req.runs_requested
                     ),
                     "uses_fallback_structure": not bool(matched_structures),
-                    "breakdown_payload": {
-                        "structure_name": cached_structure.name,
-                        "solar_system_name": cached_structure.solar_system_name or "",
-                        "runs_requested": int(
-                            estimated_item_value_meta.get(
-                                "runs_requested", req.runs_requested
-                            )
-                            or 1
-                        ),
-                        "copies_requested": int(copies_requested),
-                        "estimated_item_value": breakdown.estimated_item_value,
-                        "jcb_percent": jcb_percent_value,
-                        "job_cost_base": job_cost_base_value,
-                        "system_cost_index_percent": breakdown.system_cost_index_percent,
-                        "base_job_cost": breakdown.base_job_cost,
-                        "structure_role_bonus_percent": breakdown.structure_role_bonus_percent,
-                        "rig_bonus_percent": breakdown.rig_bonus_percent,
-                        "total_job_cost_bonus_percent": breakdown.total_job_cost_bonus_percent,
-                        "adjusted_job_cost": breakdown.adjusted_job_cost,
-                        "facility_tax_percent": breakdown.facility_tax_percent,
-                        "facility_tax": breakdown.facility_tax,
-                        "scc_surcharge_percent": breakdown.scc_surcharge_percent,
-                        "scc_surcharge": breakdown.scc_surcharge,
-                        "total_taxes": total_taxes_value,
-                        "per_copy_installation_cost": breakdown.total_installation_cost,
-                        "total_installation_cost": (
-                            breakdown.total_installation_cost * copies_requested
-                        ),
-                    },
+                    "breakdown_payload": breakdown_payload,
                 }
                 copy_structure_options.append(option)
 

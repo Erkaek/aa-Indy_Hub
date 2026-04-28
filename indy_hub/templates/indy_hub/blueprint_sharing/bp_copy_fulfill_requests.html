@@ -9,7 +9,7 @@
 <link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
 <link rel="stylesheet" href="{% static 'indy_hub/css/bp_copy_list.css' %}?v=20260413-2335">
 <link rel="stylesheet" href="{% static 'indy_hub/css/chat.css' %}?v=20260418-1100">
-<link rel="stylesheet" href="{% static 'indy_hub/css/bp_copy_fulfill_page.css' %}?v=20260418-1400">
+<link rel="stylesheet" href="{% static 'indy_hub/css/bp_copy_fulfill_page.css' %}?v=20260428-cost-breakdown-r2">
 {% endblock %}
 
 {% block content %}
@@ -454,12 +454,22 @@
                                 </div>
                                 {% endif %}
                                 {% if req.copy_cost %}
-                                {% with bd_id="copy-cost-breakdown-"|add:req.id|stringformat:"s" %}
+                                {% with req_id_str=req.id|stringformat:"s" %}
+                                {% with bd_id="copy-cost-breakdown-"|add:req_id_str %}
                                 {{ req.copy_cost.breakdown_payload|json_script:bd_id }}
+                                {% for option in req.copy_structure_options %}
+                                    {% with opt_id_str=option.id|stringformat:"s" %}
+                                    {% with opt_bd_id="copy-cost-breakdown-"|add:req_id_str|add:"-"|add:opt_id_str %}
+                                    {{ option.breakdown_payload|json_script:opt_bd_id }}
+                                    {% endwith %}
+                                    {% endwith %}
+                                {% endfor %}
                                 <button type="button"
                                         class="fwp-estimate-card fwp-estimate-card--cost fwp-estimate-card--clickable"
                                         data-copy-cost-breakdown-trigger
                                         data-copy-cost-breakdown-id="{{ bd_id }}"
+                                        data-copy-cost-breakdown-prefix="copy-cost-breakdown-{{ req_id_str }}-"
+                                        data-request-id="{{ req.id }}"
                                         aria-label="{% trans "Show installation cost breakdown" %}">
                                     <span class="fwp-estimate-card__icon"><i class="fas fa-wallet"></i></span>
                                     <div>
@@ -470,6 +480,7 @@
                                         <span class="fwp-estimate-card__hint"><i class="fas fa-circle-info"></i> {% trans "Click for full breakdown" %}</span>
                                     </div>
                                 </button>
+                                {% endwith %}
                                 {% endwith %}
                                 {% endif %}
                             </div>
@@ -586,7 +597,9 @@
      data-label-eiv="{% trans "Estimated items value (EIV)" %}"
      data-label-jcb="{% trans "Job cost base (JCB)" %}"
      data-label-sci="{% trans "System cost index" %}"
+     data-label-gross-section="{% trans "JOB GROSS COST" %}"
      data-label-gross="{% trans "Total job gross cost" %}"
+     data-label-taxes-section="{% trans "TAXES" %}"
      data-label-structure-bonus="{% trans "Structure role bonus" %}"
      data-label-rig-bonus="{% trans "Rig bonus" %}"
      data-label-adjusted="{% trans "Adjusted job cost" %}"
@@ -638,5 +651,5 @@
     });
 </script>
 <script src="{% static 'indy_hub/js/bp_copy_chat.js' %}?v=20260412-1915"></script>
-<script src="{% static 'indy_hub/js/bp_copy_fulfill.js' %}?v=20260428-cost-breakdown-modal"></script>
+<script src="{% static 'indy_hub/js/bp_copy_fulfill.js' %}?v=20260428-cost-breakdown-r2"></script>
 {% endblock %}
