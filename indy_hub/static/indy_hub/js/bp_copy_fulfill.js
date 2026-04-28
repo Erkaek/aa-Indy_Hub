@@ -1230,14 +1230,14 @@
         }
 
         function formatIsk(value) {
-            var n = toNumber(value);
+            var n = Math.round(toNumber(value));
             try {
                 return n.toLocaleString(undefined, {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2
+                    minimumFractionDigits: 0,
+                    maximumFractionDigits: 0
                 }) + " " + labels.isk;
             } catch (err) {
-                return n.toFixed(2) + " " + labels.isk;
+                return String(n) + " " + labels.isk;
             }
         }
 
