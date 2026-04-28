@@ -1377,11 +1377,6 @@
                 formatIsk(payload.facility_tax),
                 "fwp-cost-breakdown-table__danger"
             );
-            html += row(
-                labels.scc + " (" + formatPercent(payload.scc_surcharge_percent, 2) + ")",
-                formatIsk(payload.scc_surcharge),
-                "fwp-cost-breakdown-table__danger"
-            );
             if (payload.is_alpha_clone && toNumber(payload.alpha_clone_tax_percent) > 0) {
                 html += row(
                     labels.alphaTax + " (" + formatPercent(payload.alpha_clone_tax_percent, 2) + ")",
@@ -1389,6 +1384,11 @@
                     "fwp-cost-breakdown-table__danger"
                 );
             }
+            html += row(
+                labels.scc + " (" + formatPercent(payload.scc_surcharge_percent, 2) + ")",
+                formatIsk(payload.scc_surcharge),
+                "fwp-cost-breakdown-table__danger"
+            );
             html += row(
                 labels.totalTaxes,
                 formatIsk(payload.total_taxes),
