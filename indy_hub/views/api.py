@@ -9,7 +9,7 @@ import json
 import re
 from datetime import timedelta
 from decimal import Decimal
-from math import ceil
+from math import ceil, isfinite
 
 # Django
 from django.contrib.auth.decorators import login_required
@@ -256,6 +256,8 @@ def save_production_project_workspace(request, project_ref: str):
         try:
             num = float(value or 0)
         except (TypeError, ValueError):
+            return 0.0
+        if not isfinite(num):
             return 0.0
         return max(0.0, num)
 
