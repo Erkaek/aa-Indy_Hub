@@ -1164,6 +1164,210 @@
         });
     }
 
+    function initCopyCostBreakdownModal() {
+        var modalEl = document.getElementById("bpCopyCostBreakdownModal");
+        if (!modalEl) {
+            return;
+        }
+        var triggers = document.querySelectorAll("[data-copy-cost-breakdown-trigger]");
+        if (!triggers.length) {
+            return;
+        }
+
+        var bootstrapModalCtor = null;
+        if (typeof window !== "undefined") {
+            if (window.bootstrap && window.bootstrap.Modal) {
+                bootstrapModalCtor = window.bootstrap.Modal;
+            } else if (window.bootstrap5 && window.bootstrap5.Modal) {
+                bootstrapModalCtor = window.bootstrap5.Modal;
+            }
+        }
+        if (!bootstrapModalCtor) {
+            return;
+        }
+        var modal = (typeof bootstrapModalCtor.getOrCreateInstance === "function")
+            ? bootstrapModalCtor.getOrCreateInstance(modalEl)
+            : new bootstrapModalCtor(modalEl);
+
+        var labels = {
+            eiv: modalEl.getAttribute("data-label-eiv") || "Estimated items value (EIV)",
+            jcb: modalEl.getAttribute("data-label-jcb") || "Job cost base (JCB)",
+            sci: modalEl.getAttribute("data-label-sci") || "System cost index",
+            gross: modalEl.getAttribute("data-label-gross") || "Total job gross cost",
+            structureBonus: modalEl.getAttribute("data-label-structure-bonus") || "Structure role bonus",
+            rigBonus: modalEl.getAttribute("data-label-rig-bonus") || "Rig bonus",
+            adjusted: modalEl.getAttribute("data-label-adjusted") || "Adjusted job cost",
+            facilityTax: modalEl.getAttribute("data-label-facility-tax") || "Facility tax",
+            scc: modalEl.getAttribute("data-label-scc") || "SCC surcharge",
+            totalTaxes: modalEl.getAttribute("data-label-total-taxes") || "Total taxes",
+            totalJob: modalEl.getAttribute("data-label-total-job") || "Total job cost (per copy)",
+            grandTotal: modalEl.getAttribute("data-label-grand-total") || "Total install cost",
+            runs: modalEl.getAttribute("data-label-runs") || "Runs per copy",
+            copies: modalEl.getAttribute("data-label-copies") || "Copies requested",
+            isk: modalEl.getAttribute("data-label-isk") || "ISK"
+        };
+
+        var structureEl = modalEl.querySelector("[data-cost-bd-structure]");
+        var contextEl = modalEl.querySelector("[data-cost-bd-context]");
+        var rowsEl = modalEl.querySelector("[data-cost-bd-rows]");
+
+        function toNumber(value) {
+            if (value === null || value === undefined || value === "") {
+                return 0;
+            }
+            var n = Number(value);
+            return isFinite(n) ? n : 0;
+        }
+
+        function formatIsk(value) {
+            var n = toNumber(value);
+            try {
+                return n.toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
+                }) + " " + labels.isk;
+            } catch (err) {
+                return n.toFixed(2) + " " + labels.isk;
+            }
+        }
+
+        function formatPercent(value, digits) {
+            var d = (typeof digits === "number") ? digits : 2;
+            var n = toNumber(value);
+            try {
+                return n.toLocaleString(undefined, {
+                    minimumFractionDigits: d,
+                    maximumFractionDigits: d
+                }) + " %";
+            } catch (err) {
+                return n.toFixed(d) + " %";
+            }
+        }
+
+        function formatInteger(value) {
+            var n = Math.trunc(toNumber(value));
+            try {
+                return n.toLocaleString();
+            } catch (err) {
+                return String(n);
+            }
+        }
+
+        function escapeHtml(value) {
+            return String(value === null || value === undefined ? "" : value)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#39;");
+        }
+
+        function row(label, value, modifier) {
+            var cls = modifier ? ' class="' + escapeHtml(modifier) + '"' : "";
+            return "<tr" + cls + "><td>" + escapeHtml(label) + "</td><td>" + escapeHtml(value) + "</td></tr>";
+        }
+
+        function readPayload(payloadId) {
+            var node = document.getElementById(payloadId);
+            if (!node) {
+                return null;
+            }
+            try {
+                return JSON.parse(node.textContent || "null");
+            } catch (err) {
+                return null;
+            }
+        }
+
+        function render(payload) {
+            if (!payload) {
+                if (structureEl) structureEl.textContent = "";
+                if (contextEl) contextEl.textContent = "";
+                if (rowsEl) rowsEl.innerHTML = "";
+                return;
+            }
+
+            var structureLine = payload.structure_name || "";
+            if (payload.solar_system_name) {
+                structureLine += structureLine ? " · " + payload.solar_system_name : payload.solar_system_name;
+            }
+            if (structureEl) {
+                structureEl.textContent = structureLine;
+            }
+            if (contextEl) {
+                var copies = formatInteger(payload.copies_requested);
+                var runs = formatInteger(payload.runs_requested);
+                contextEl.textContent = labels.copies + ": " + copies + " · " + labels.runs + ": " + runs;
+            }
+
+            if (!rowsEl) {
+                return;
+            }
+
+            var html = "";
+            html += row(labels.eiv, formatIsk(payload.estimated_item_value));
+            html += row(
+                labels.jcb + " (" + formatPercent(payload.jcb_percent, 2) + ")",
+                formatIsk(payload.job_cost_base)
+            );
+            html += row(
+                labels.sci + " (" + formatPercent(payload.system_cost_index_percent, 4) + ")",
+                formatIsk(payload.base_job_cost),
+                "fwp-cost-breakdown-table__group"
+            );
+            if (toNumber(payload.structure_role_bonus_percent) > 0) {
+                html += row(labels.structureBonus, "−" + formatPercent(payload.structure_role_bonus_percent, 2));
+            }
+            if (toNumber(payload.rig_bonus_percent) > 0) {
+                html += row(labels.rigBonus, "−" + formatPercent(payload.rig_bonus_percent, 2));
+            }
+            html += row(
+                labels.adjusted,
+                formatIsk(payload.adjusted_job_cost),
+                "fwp-cost-breakdown-table__subtotal"
+            );
+            html += row(
+                labels.facilityTax + " (" + formatPercent(payload.facility_tax_percent, 2) + ")",
+                formatIsk(payload.facility_tax),
+                "fwp-cost-breakdown-table__group"
+            );
+            html += row(
+                labels.scc + " (" + formatPercent(payload.scc_surcharge_percent, 2) + ")",
+                formatIsk(payload.scc_surcharge)
+            );
+            html += row(
+                labels.totalTaxes,
+                formatIsk(payload.total_taxes),
+                "fwp-cost-breakdown-table__subtotal"
+            );
+            html += row(
+                labels.totalJob,
+                formatIsk(payload.per_copy_installation_cost),
+                "fwp-cost-breakdown-table__total"
+            );
+            if (toNumber(payload.copies_requested) > 1) {
+                html += row(
+                    labels.grandTotal + " (× " + formatInteger(payload.copies_requested) + ")",
+                    formatIsk(payload.total_installation_cost),
+                    "fwp-cost-breakdown-table__total"
+                );
+            }
+            rowsEl.innerHTML = html;
+        }
+
+        Array.prototype.forEach.call(triggers, function (trigger) {
+            trigger.addEventListener("click", function (event) {
+                event.preventDefault();
+                var payloadId = trigger.getAttribute("data-copy-cost-breakdown-id");
+                if (!payloadId) {
+                    return;
+                }
+                render(readPayload(payloadId));
+                modal.show();
+            });
+        });
+    }
+
     document.addEventListener("DOMContentLoaded", function () {
         initFulfillChatHeightSync();
         initCopyButtons();
@@ -1171,5 +1375,6 @@
         initConditionalToggles();
         initFulfillWorkspace();
         initCopyStructureSelectors();
+        initCopyCostBreakdownModal();
     });
 })();

@@ -454,15 +454,23 @@
                                 </div>
                                 {% endif %}
                                 {% if req.copy_cost %}
-                                <div class="fwp-estimate-card fwp-estimate-card--cost">
+                                {% with bd_id="copy-cost-breakdown-"|add:req.id|stringformat:"s" %}
+                                {{ req.copy_cost.breakdown_payload|json_script:bd_id }}
+                                <button type="button"
+                                        class="fwp-estimate-card fwp-estimate-card--cost fwp-estimate-card--clickable"
+                                        data-copy-cost-breakdown-trigger
+                                        data-copy-cost-breakdown-id="{{ bd_id }}"
+                                        aria-label="{% trans "Show installation cost breakdown" %}">
                                     <span class="fwp-estimate-card__icon"><i class="fas fa-wallet"></i></span>
                                     <div>
                                         <p class="fwp-section__eyebrow">{% trans "Install estimate" %}</p>
                                         <strong class="fwp-estimate-card__value" data-copy-estimate-total>{{ req.copy_cost.total_installation_cost|floatformat:0|intcomma }} ISK</strong>
                                         <p class="fwp-section__hint-sm" data-copy-estimate-structure>{{ req.copy_cost.structure_name }}{% if req.copy_cost.solar_system_name %} · {{ req.copy_cost.solar_system_name }}{% endif %}</p>
                                         <p class="fwp-section__hint-sm" data-copy-estimate-meta>{% blocktrans with index=req.copy_cost.system_cost_index_percent|floatformat:2 tax=req.copy_cost.facility_tax_percent|floatformat:2 surcharge=req.copy_cost.scc_surcharge_percent|floatformat:2 %}SCI {{ index }}% · Tax {{ tax }}% · SCC {{ surcharge }}%{% endblocktrans %}</p>
+                                        <span class="fwp-estimate-card__hint"><i class="fas fa-circle-info"></i> {% trans "Click for full breakdown" %}</span>
                                     </div>
-                                </div>
+                                </button>
+                                {% endwith %}
                                 {% endif %}
                             </div>
                         </div>{# /fwp-section--estimates #}
@@ -573,6 +581,46 @@
         </div>
     </div>
 </div>
+
+<div class="modal fade" id="bpCopyCostBreakdownModal" tabindex="-1" aria-hidden="true"
+     data-label-eiv="{% trans "Estimated items value (EIV)" %}"
+     data-label-jcb="{% trans "Job cost base (JCB)" %}"
+     data-label-sci="{% trans "System cost index" %}"
+     data-label-gross="{% trans "Total job gross cost" %}"
+     data-label-structure-bonus="{% trans "Structure role bonus" %}"
+     data-label-rig-bonus="{% trans "Rig bonus" %}"
+     data-label-adjusted="{% trans "Adjusted job cost" %}"
+     data-label-facility-tax="{% trans "Facility tax" %}"
+     data-label-scc="{% trans "SCC surcharge" %}"
+     data-label-total-taxes="{% trans "Total taxes" %}"
+     data-label-total-job="{% trans "Total job cost (per copy)" %}"
+     data-label-grand-total="{% trans "Total install cost" %}"
+     data-label-runs="{% trans "Runs per copy" %}"
+     data-label-copies="{% trans "Copies requested" %}"
+     data-label-isk="ISK">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-calculator me-2"></i>{% trans "Installation cost breakdown" %}
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans "Close" %}"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small mb-2" data-cost-bd-structure></p>
+                <p class="text-muted small mb-3" data-cost-bd-context></p>
+                <table class="table table-sm fwp-cost-breakdown-table mb-0">
+                    <tbody data-cost-bd-rows></tbody>
+                </table>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">
+                    {% trans "Close" %}
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 </div>
 {% endblock %}
 
@@ -590,5 +638,5 @@
     });
 </script>
 <script src="{% static 'indy_hub/js/bp_copy_chat.js' %}?v=20260412-1915"></script>
-<script src="{% static 'indy_hub/js/bp_copy_fulfill.js' %}?v=20260413-2118"></script>
+<script src="{% static 'indy_hub/js/bp_copy_fulfill.js' %}?v=20260428-cost-breakdown-modal"></script>
 {% endblock %}

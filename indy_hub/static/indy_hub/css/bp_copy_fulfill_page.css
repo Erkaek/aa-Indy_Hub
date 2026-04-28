@@ -721,6 +721,55 @@ html[data-theme="darkly"] .fulfill-page .fulfill-request-item.is-active {
     color: var(--fp-ink);
 }
 
+.fulfill-page button.fwp-estimate-card,
+.fulfill-page .fwp-estimate-card--clickable {
+    width: 100%;
+    cursor: pointer;
+    text-align: left;
+    color: inherit;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.fulfill-page button.fwp-estimate-card:hover,
+.fulfill-page .fwp-estimate-card--clickable:hover {
+    border-color: var(--fp-brand);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--fp-brand), transparent 80%);
+}
+
+.fulfill-page button.fwp-estimate-card:focus-visible,
+.fulfill-page .fwp-estimate-card--clickable:focus-visible {
+    outline: 2px solid var(--fp-brand);
+    outline-offset: 2px;
+}
+
+.fulfill-page .fwp-estimate-card__hint {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    margin-top: 0.25rem;
+    font-size: 0.72rem;
+    color: var(--fp-muted);
+}
+
+.fwp-cost-breakdown-table tbody tr.fwp-cost-breakdown-table__total td {
+    font-weight: 700;
+    border-top: 2px solid var(--fp-border-mid, rgba(127, 127, 127, 0.4));
+}
+
+.fwp-cost-breakdown-table tbody tr.fwp-cost-breakdown-table__subtotal td {
+    font-weight: 600;
+}
+
+.fwp-cost-breakdown-table tbody tr.fwp-cost-breakdown-table__group td {
+    padding-top: 0.6rem;
+}
+
+.fwp-cost-breakdown-table td:last-child {
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
 /* ── Availability ────────────────────────────────────────────── */
 .fulfill-page .fwp-detail-list {
     display: grid;
