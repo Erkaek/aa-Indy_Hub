@@ -6,7 +6,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 # Django
-from django.db import connection
+from django.db import connection, transaction
 from django.utils import timezone
 
 # Alliance Auth
@@ -144,18 +144,25 @@ def sync_system_cost_indices(*, force_refresh: bool = False) -> dict[str, int]:
                     unchanged += 1
 
     if to_create:
-        IndustrySystemCostIndex.objects.bulk_create(to_create, batch_size=1000)
+        for chunk_start in range(0, len(to_create), 500):
+            chunk = to_create[chunk_start : chunk_start + 500]
+            with transaction.atomic():
+                IndustrySystemCostIndex.objects.bulk_create(chunk, batch_size=500)
     if to_update:
-        IndustrySystemCostIndex.objects.bulk_update(
-            to_update,
-            [
-                "solar_system_name",
-                "cost_index_percent",
-                "source_updated_at",
-                "updated_at",
-            ],
-            batch_size=1000,
-        )
+        update_fields = [
+            "solar_system_name",
+            "cost_index_percent",
+            "source_updated_at",
+            "updated_at",
+        ]
+        for chunk_start in range(0, len(to_update), 200):
+            chunk = to_update[chunk_start : chunk_start + 200]
+            with transaction.atomic():
+                IndustrySystemCostIndex.objects.bulk_update(
+                    chunk,
+                    update_fields,
+                    batch_size=200,
+                )
 
     return {
         "systems": len(system_ids),
