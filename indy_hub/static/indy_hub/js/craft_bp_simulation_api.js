@@ -135,6 +135,12 @@
             }
             const typeName = readValue(node, 'type_name', 'typeName') || '';
             const quantity = normalizeQuantity(readValue(node, 'quantity', 'qty'));
+            const inclusionModeRaw = String(
+                readValue(node, 'project_inclusion_mode', 'projectInclusionMode') || ''
+            ).trim().toLowerCase();
+            const inclusionMode = (inclusionModeRaw === 'buy' || inclusionModeRaw === 'useless')
+                ? inclusionModeRaw
+                : (inclusionModeRaw === 'prod' || inclusionModeRaw === 'produce' ? 'prod' : '');
 
             if (!treeMap.has(typeId)) {
                 treeMap.set(typeId, {
@@ -143,13 +149,21 @@
                     quantity: 0,
                     parentIds: new Set(),
                     children: new Set(),
-                    craftable: false
+                    craftable: false,
+                    inclusionMode: ''
                 });
             }
             const treeEntry = treeMap.get(typeId);
             treeEntry.quantity = Math.max(treeEntry.quantity, quantity);
             if (parentId) {
                 treeEntry.parentIds.add(parentId);
+            }
+            // Capture the saved buy/prod choice carried by the project
+            // workspace cache so the SimulationAPI initializes its switches
+            // to the user's last saved decisions instead of defaulting every
+            // craftable to 'prod' on page reload.
+            if (inclusionMode && !treeEntry.inclusionMode) {
+                treeEntry.inclusionMode = inclusionMode;
             }
 
             const marketGroupInfo = readMarketGroup(typeId);
@@ -401,10 +415,25 @@
             }
 
             const preserved = preservedSwitches.get(entry.typeId);
+            // Initial state precedence:
+            //   1. Preserved switch state from a previous ingest (set/refresh).
+            //   2. project_inclusion_mode carried by the materials_tree node
+            //      (this reflects the saved buy/prod decisions stored in the
+            //      project workspace cache, so the user's choices survive
+            //      reload).
+            //   3. 'prod' default.
+            let initialState = 'prod';
+            if (preserved && preserved.state) {
+                initialState = preserved.state;
+            } else if (entry.inclusionMode === 'buy' || entry.inclusionMode === 'useless') {
+                initialState = entry.inclusionMode;
+            } else if (entry.inclusionMode === 'prod') {
+                initialState = 'prod';
+            }
             switchesMap.set(entry.typeId, {
                 typeId: entry.typeId,
                 typeName: entry.typeName,
-                state: preserved && preserved.state ? preserved.state : 'prod'
+                state: initialState
             });
         });
 

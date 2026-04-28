@@ -524,6 +524,27 @@
                                     <th colspan="4" class="text-end text-xs">{% trans "Total Cost" %}</th>
                                     <th class="text-end text-xs grand-total-cost fw-semibold text-danger" colspan="2">0</th>
                                 </tr>
+                                <tr class="craft-revenue-mode-row" data-export-skip="true">
+                                    <td colspan="6" class="py-2">
+                                        <div class="d-flex flex-wrap align-items-center gap-2 justify-content-end">
+                                            <label for="financialRevenueMode" class="text-xs fw-semibold mb-0 me-1">
+                                                {% trans "Revenue mode" %}
+                                            </label>
+                                            <select id="financialRevenueMode" class="form-select form-select-sm w-auto" data-revenue-mode>
+                                                <option value="per_unit">{% trans "Per-unit sale prices (× qty)" %}</option>
+                                                <option value="total">{% trans "Total sale price (whole project)" %}</option>
+                                            </select>
+                                            <div class="input-group input-group-sm w-auto" id="financialRevenueTotalGroup" hidden>
+                                                <span class="input-group-text">{% trans "Total" %}</span>
+                                                <input id="financialRevenueTotalOverride" type="number" min="0" step="0.01" class="form-control form-control-sm text-end" value="0" data-revenue-total-override>
+                                                <span class="input-group-text">ISK</span>
+                                            </div>
+                                            <span class="small text-muted" id="financialRevenueModeHint">
+                                                {% trans "Per-unit prices are summed across every final output." %}
+                                            </span>
+                                        </div>
+                                    </td>
+                                </tr>
                                 <tr>
                                     <th colspan="4" class="text-end text-xs">{% trans "Total Revenue" %}</th>
                                     <th class="text-end text-xs grand-total-rev fw-semibold text-success" colspan="2">0</th>
@@ -1107,10 +1128,10 @@
 {{ blueprint_payload|json_script:"blueprint-payload" }}
 <script src="{% static 'indy_hub/js/craft_bp_page.js' %}?v=20260426-pending-refresh-fix"></script>
 {% if not deferred_shell %}
-<script src="{% static 'indy_hub/js/craft_bp_simulation_api.js' %}?v=20260426-root-demand-dedupe"></script>
+<script src="{% static 'indy_hub/js/craft_bp_simulation_api.js' %}?v=20260427-inclusion-mode-restore"></script>
 <script src="{% static 'indy_hub/js/craft_bp_active_tab.js' %}?v=20260425-loading-replay2"></script>
-<script src="{% static 'indy_hub/js/craft_bp_financial_planner.js' %}?v=20260426-stock-management"></script>
-<script src="{% static 'indy_hub/js/craft_bp.js' %}?v=20260426-tab-refresh-fix"></script>
-<script src="{% static 'indy_hub/js/craft_bp_inline.js' %}?v=20260426-decision-child-impact-costs"></script>
+<script src="{% static 'indy_hub/js/craft_bp_financial_planner.js' %}?v=20260428-no-output-override"></script>
+<script src="{% static 'indy_hub/js/craft_bp.js' %}?v=20260428-no-output-override"></script>
+<script src="{% static 'indy_hub/js/craft_bp_inline.js' %}?v=20260427-revenue-mode-total"></script>
 {% endif %}
 {% endblock extra_javascript %}

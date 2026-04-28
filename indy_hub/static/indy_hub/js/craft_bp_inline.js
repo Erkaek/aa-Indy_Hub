@@ -82,6 +82,11 @@
                 : buildManualPricesFromLegacyPrices(state.custom_prices),
             simulationName: String(state.simulationName || state.simulation_name || state.project_name || ''),
             decisionBuyTolerance: String(state.decisionBuyTolerance || ''),
+            revenueMode: (String(state.revenueMode || '').trim().toLowerCase() === 'total') ? 'total' : 'per_unit',
+            revenueTotalOverride: (() => {
+                const v = Number.parseFloat(state.revenueTotalOverride);
+                return Number.isFinite(v) && v > 0 ? v : 0;
+            })(),
             meTeConfig: state.meTeConfig && typeof state.meTeConfig === 'object'
                 ? state.meTeConfig
                 : buildMeTeConfigFromLegacyEfficiencies(state.blueprint_efficiencies),
@@ -155,6 +160,8 @@
             meTeConfig: normalizedState.meTeConfig,
             copyRequests: normalizedState.copyRequests,
             structure: normalizedState.structure,
+            revenueMode: normalizedState.revenueMode,
+            revenueTotalOverride: normalizedState.revenueTotalOverride,
             pendingWorkspaceRefresh: normalizedState.pendingWorkspaceRefresh,
             pendingWorkspaceSourceTab: normalizedState.pendingWorkspaceSourceTab,
         };

@@ -789,7 +789,15 @@ function buildTreeModeBadgeClass(state) {
 }
 
 function getDecisionSwitchRoot() {
-    return document.getElementById('decisionStrategyRows') || document.getElementById('tab-tree');
+    // Prefer the Decisions tab strategy rows if populated, but fall back to
+    // the materials tree when that container is empty (e.g. user clicks the
+    // "all to buy / all to prod" buttons on the Tree tab before the Decisions
+    // tab has been opened, so its rows have not been lazily rendered yet).
+    const decisionRoot = document.getElementById('decisionStrategyRows');
+    if (decisionRoot && decisionRoot.querySelector('input.mat-switch[data-type-id]')) {
+        return decisionRoot;
+    }
+    return document.getElementById('tab-tree') || decisionRoot;
 }
 
 function getDecisionSwitchElements() {
@@ -1695,7 +1703,16 @@ function getCraftNormalizedStockAllocationsForCurrentPlan() {
         }
     });
 
-    window.craftBPFlags.stockAllocations = normalized;
+    // NB: do NOT overwrite craftBPFlags.stockAllocations with the
+    // clamped view here. This function is called from rendering paths
+    // (financial planner, stock tab) and clobbering the persistent
+    // state with the current-plan view would silently drop user-saved
+    // allocations whenever the current plan does not require them
+    // (e.g. stale character stock snapshot, intermediate currently in
+    // produce mode, runs reduced). Those entries must survive in the
+    // DB so they reappear when the plan changes back. The persistent
+    // state is only mutated by setCraftStockAllocation() and the
+    // explicit reset button.
     return normalized;
 }
 
@@ -1774,13 +1791,18 @@ function getCraftSourceRequirementRows() {
         return [];
     }
 
-    const finalOutputTypeIds = getFinalOutputTypeIds();
+    // NOTE: Items returned by getFinancialItems() are leafNeeds + buyCraftables.
+    // Final-outputs are only present here when the user explicitly toggled them
+    // to 'buy' mode (e.g. project workspace items set to all-buy). They MUST
+    // appear as buy rows so their purchase cost is summed into Total Material
+    // Cost. They will also remain as revenue rows (final-outputs are rendered
+    // separately) which is correct: cost = buy price, revenue = sale price.
     const aggregated = new Map();
     const items = api.getFinancialItems() || [];
 
     items.forEach((item) => {
         const typeId = Number(item.typeId ?? item.type_id) || 0;
-        if (!typeId || finalOutputTypeIds.has(typeId)) {
+        if (!typeId) {
             return;
         }
         const quantity = Math.ceil(Number(item.quantity ?? item.qty ?? 0));
@@ -2067,13 +2089,23 @@ function applyBlueprintCopyRequestState(items) {
 function collectCraftPageSessionState() {
     return {
         buyTypeIds: getCurrentBuyTypeIds(),
-        stockAllocations: getCraftNormalizedStockAllocationsForCurrentPlan(),
+        // Persist the raw user intent for stock allocations rather than the
+        // current-plan-clamped view. Otherwise an allocation on an
+        // intermediate that is not currently required (because of a runs
+        // change, a buy/prod toggle, or a stale character stock snapshot)
+        // would be silently zeroed out and dropped from the DB on save.
+        // Display-time clamping still happens via
+        // getCraftStockAllocationSummary() so the visible allocated qty is
+        // always coherent with the current plan.
+        stockAllocations: normalizeCraftStockAllocations(getCraftStockAllocations()),
         runs: Math.max(1, parseInt(document.getElementById('runsInput')?.value || '1', 10) || 1),
         activeBlueprintTab: getCurrentActiveBlueprintTab() || 'materials',
         manualPrices: collectManualPriceOverrides(),
         fuzzworkPrices: collectFuzzworkPriceSnapshot(),
         simulationName: String(document.getElementById('simulationName')?.value || ''),
         decisionBuyTolerance: String(document.getElementById('decisionBuyToleranceInput')?.value || ''),
+        revenueMode: getRevenueMode(),
+        revenueTotalOverride: getRevenueTotalOverride(),
         meTeConfig: getCurrentMETEConfig(),
         copyRequests: collectBlueprintCopyRequestState(),
         structure: {
@@ -2101,6 +2133,8 @@ function applyCraftPageSessionState(parsedState) {
     window.craftBPFlags.restoredSessionState = parsedState;
     window.craftBPFlags.pendingBuyTypeIds = buyTypeIds;
     window.craftBPFlags.stockAllocations = normalizeCraftStockAllocations(parsedState?.stockAllocations);
+    window.craftBPFlags.revenueMode = normalizeRevenueMode(parsedState?.revenueMode);
+    window.craftBPFlags.revenueTotalOverride = normalizeRevenueTotalOverride(parsedState?.revenueTotalOverride);
 
     applyCraftPageRunsValue(parsedState?.runs);
     if (parsedState?.meTeConfig) {
@@ -2148,6 +2182,13 @@ function applyCraftPageSessionState(parsedState) {
 
     if (window.SimulationAPI && typeof window.SimulationAPI.refreshFromDom === 'function') {
         window.SimulationAPI.refreshFromDom();
+    }
+
+    // Sync the revenue-mode UI controls with the freshly restored values
+    // (idempotent: also re-applied by initializeRevenueModeControls when the
+    // financial tab is initialized later in the bootstrap sequence).
+    if (typeof applyRevenueModeToInputs === 'function') {
+        applyRevenueModeToInputs();
     }
 
     const payloadWorkspaceState = window.BLUEPRINT_DATA?.workspace_state;
@@ -3895,22 +3936,15 @@ function initializeFinancialCalculations() {
             const priceInputs = document.querySelectorAll('.real-price[data-type-id], .sale-price-unit[data-type-id]');
             priceInputs.forEach(input => {
                 const tid = input.getAttribute('data-type-id');
-                if (input.classList.contains('sale-price-unit')) {
-                    const fuzzInp = document.querySelector(`.fuzzwork-price[data-type-id="${tid}"]`);
-                    input.value = (fuzzInp ? (fuzzInp.value || '0') : '0');
-                    updatePriceInputManualState(input, false);
+                const priceType = input.classList.contains('sale-price-unit') ? 'sale' : 'real';
 
-                    if (window.SimulationAPI && typeof window.SimulationAPI.setPrice === 'function' && tid) {
-                        window.SimulationAPI.setPrice(tid, 'sale', parseFloat(input.value) || 0);
-                    }
-                } else {
-                    // Real price resets to 0; calculations fall back to fuzzwork.
-                    input.value = '0';
-                    updatePriceInputManualState(input, false);
+                // Both Override columns reset to 0 / empty; calculations fall
+                // back to the Reference (fuzzwork) price via SimulationAPI.
+                input.value = '0';
+                updatePriceInputManualState(input, false);
 
-                    if (window.SimulationAPI && typeof window.SimulationAPI.setPrice === 'function' && tid) {
-                        window.SimulationAPI.setPrice(tid, 'real', 0);
-                    }
+                if (window.SimulationAPI && typeof window.SimulationAPI.setPrice === 'function' && tid) {
+                    window.SimulationAPI.setPrice(tid, priceType, 0);
                 }
             });
 
@@ -3927,6 +3961,9 @@ function initializeFinancialCalculations() {
     if (computeButton) {
         computeButton.addEventListener('click', computeNeededPurchases);
     }
+
+    // Initialize revenue mode controls (per-unit vs. total project revenue)
+    initializeRevenueModeControls();
 
     // Initialize ME/TE configuration change handlers
     initializeMETEHandlers();
@@ -5041,6 +5078,158 @@ function renderStructurePlanner() {
     });
 }
 
+// ---------------------------------------------------------------------------
+// Revenue mode (per-unit sale prices vs. lump-sum total project revenue)
+// ---------------------------------------------------------------------------
+
+const REVENUE_MODE_PER_UNIT = 'per_unit';
+const REVENUE_MODE_TOTAL = 'total';
+
+function normalizeRevenueMode(value) {
+    return String(value || '').trim().toLowerCase() === REVENUE_MODE_TOTAL
+        ? REVENUE_MODE_TOTAL
+        : REVENUE_MODE_PER_UNIT;
+}
+
+function normalizeRevenueTotalOverride(value) {
+    const num = Number.parseFloat(value);
+    return Number.isFinite(num) && num > 0 ? num : 0;
+}
+
+function getRevenueMode() {
+    window.craftBPFlags = window.craftBPFlags || {};
+    if (window.craftBPFlags.revenueMode === REVENUE_MODE_TOTAL
+        || window.craftBPFlags.revenueMode === REVENUE_MODE_PER_UNIT) {
+        return window.craftBPFlags.revenueMode;
+    }
+    const restored = window.craftBPFlags?.restoredSessionState?.revenueMode
+        || window.BLUEPRINT_DATA?.workspace_state?.revenueMode;
+    const normalized = normalizeRevenueMode(restored);
+    window.craftBPFlags.revenueMode = normalized;
+    return normalized;
+}
+
+function getRevenueTotalOverride() {
+    window.craftBPFlags = window.craftBPFlags || {};
+    if (Number.isFinite(window.craftBPFlags.revenueTotalOverride)) {
+        return Math.max(0, Number(window.craftBPFlags.revenueTotalOverride));
+    }
+    const restored = window.craftBPFlags?.restoredSessionState?.revenueTotalOverride
+        ?? window.BLUEPRINT_DATA?.workspace_state?.revenueTotalOverride;
+    const normalized = normalizeRevenueTotalOverride(restored);
+    window.craftBPFlags.revenueTotalOverride = normalized;
+    return normalized;
+}
+
+function setRevenueMode(mode, options = {}) {
+    const normalized = normalizeRevenueMode(mode);
+    window.craftBPFlags = window.craftBPFlags || {};
+    window.craftBPFlags.revenueMode = normalized;
+    applyRevenueModeToInputs();
+    if (options.recalc !== false && typeof recalcFinancials === 'function') {
+        recalcFinancials();
+    }
+    if (options.persist !== false && typeof persistCraftPageSessionState === 'function') {
+        persistCraftPageSessionState();
+    }
+}
+
+function setRevenueTotalOverride(value, options = {}) {
+    const normalized = normalizeRevenueTotalOverride(value);
+    window.craftBPFlags = window.craftBPFlags || {};
+    window.craftBPFlags.revenueTotalOverride = normalized;
+    if (options.recalc !== false && typeof recalcFinancials === 'function') {
+        recalcFinancials();
+    }
+    // Re-sync the visible input with the normalized value so the UI cannot
+    // diverge from the persisted/computed override (e.g. when the user types
+    // a negative or non-numeric value, the field would otherwise still show
+    // the raw text while calculations and persistence use the normalized 0).
+    // Skipped during 'input' events (syncInput=false) to avoid disrupting
+    // the cursor while the user is still typing — the 'change' handler
+    // performs the resync on blur/Enter.
+    if (options.syncInput !== false && typeof applyRevenueModeToInputs === 'function') {
+        applyRevenueModeToInputs();
+    }
+    if (options.persist !== false && typeof persistCraftPageSessionState === 'function') {
+        persistCraftPageSessionState();
+    }
+}
+
+function applyRevenueModeToInputs() {
+    const mode = getRevenueMode();
+    const totalGroup = document.getElementById('financialRevenueTotalGroup');
+    const totalInput = document.getElementById('financialRevenueTotalOverride');
+    const modeSelect = document.getElementById('financialRevenueMode');
+    const hint = document.getElementById('financialRevenueModeHint');
+
+    if (modeSelect && modeSelect.value !== mode) {
+        modeSelect.value = mode;
+    }
+    if (totalInput) {
+        const override = getRevenueTotalOverride();
+        const formatted = override > 0 ? override.toFixed(2) : '0';
+        if (totalInput.value !== formatted) {
+            totalInput.value = formatted;
+        }
+    }
+    if (totalGroup) {
+        totalGroup.hidden = mode !== REVENUE_MODE_TOTAL;
+    }
+    if (hint) {
+        hint.textContent = mode === REVENUE_MODE_TOTAL
+            ? __('A single lump-sum revenue applies to the whole project; per-unit sale prices are ignored.')
+            : __('Per-unit prices are summed across every final output.');
+    }
+
+    // Disable/enable per-unit sale-price inputs on final-output rows so the
+    // user clearly sees they have no effect when total mode is on. The inputs
+    // remain visible (non-destructive) so they can be tweaked freely; their
+    // values are re-used the moment the mode flips back to per-unit.
+    document.querySelectorAll('#financialItemsBody tr[data-final-output="true"] .sale-price-unit').forEach((input) => {
+        if (mode === REVENUE_MODE_TOTAL) {
+            input.setAttribute('disabled', 'disabled');
+            input.classList.add('craft-revenue-input-disabled');
+        } else {
+            input.removeAttribute('disabled');
+            input.classList.remove('craft-revenue-input-disabled');
+        }
+    });
+}
+
+function initializeRevenueModeControls() {
+    const modeSelect = document.getElementById('financialRevenueMode');
+    const totalInput = document.getElementById('financialRevenueTotalOverride');
+
+    if (modeSelect && modeSelect.dataset.revenueModeBound !== 'true') {
+        modeSelect.value = getRevenueMode();
+        modeSelect.addEventListener('change', () => {
+            setRevenueMode(modeSelect.value);
+        });
+        modeSelect.dataset.revenueModeBound = 'true';
+    }
+
+    if (totalInput && totalInput.dataset.revenueOverrideBound !== 'true') {
+        const override = getRevenueTotalOverride();
+        totalInput.value = override > 0 ? override.toFixed(2) : '0';
+        // While the user is still typing, only update the stored value and
+        // recompute totals — do NOT rewrite the input back, otherwise the
+        // cursor/selection jumps as soon as the value is normalized.
+        totalInput.addEventListener('input', () => {
+            setRevenueTotalOverride(totalInput.value, { syncInput: false });
+        });
+        // On blur / Enter, re-sync the visible input with the normalized
+        // value so any invalid entry (negative, NaN, etc.) is visibly
+        // corrected to match the persisted/computed override.
+        totalInput.addEventListener('change', () => {
+            setRevenueTotalOverride(totalInput.value);
+        });
+        totalInput.dataset.revenueOverrideBound = 'true';
+    }
+
+    applyRevenueModeToInputs();
+}
+
 /**
  * Recalculate financial totals
  */
@@ -5103,7 +5292,24 @@ function recalcFinancials() {
         }
 
         if (revInput) {
-            const rev = (parseFloat(revInput.value) || 0) * qty;
+            const typeId = Number(tr.getAttribute('data-type-id')) || 0;
+            let unitRev = parseFloat(revInput.value) || 0;
+
+            // If the Override is left empty (0), fall back to the Reference
+            // (fuzzwork) price exactly like the .real-price column does for
+            // material rows. This keeps revenue calculations correct without
+            // the UI having to auto-fill the Override input.
+            if (unitRev <= 0) {
+                if (window.SimulationAPI && typeof window.SimulationAPI.getPrice === 'function' && typeId) {
+                    const info = window.SimulationAPI.getPrice(typeId, 'sale');
+                    unitRev = info && typeof info.value === 'number' ? info.value : 0;
+                } else {
+                    const fuzzInp = tr.querySelector('.fuzzwork-price');
+                    unitRev = parseFloat(fuzzInp ? fuzzInp.value : 0) || 0;
+                }
+            }
+
+            const rev = unitRev * qty;
             const totalRevenueEl = tr.querySelector('.total-revenue');
             if (totalRevenueEl) {
                 totalRevenueEl.textContent = formatPrice(rev);
@@ -5111,6 +5317,43 @@ function recalcFinancials() {
             revTotal += rev;
         }
     });
+
+    // ----- Revenue mode override -----------------------------------------
+    // When the user opts for a single lump-sum sale price for the whole
+    // project (typical for fits / multi-output projects), the per-row
+    // sum we just computed is replaced by the override and the per-row
+    // total-revenue cells are repainted accordingly so the table totals
+    // and the KPI block stay coherent.
+    const revenueMode = getRevenueMode();
+    const revenueTotalOverride = getRevenueTotalOverride();
+    if (revenueMode === REVENUE_MODE_TOTAL) {
+        revTotal = revenueTotalOverride;
+        const finalOutputRows = Array.from(document.querySelectorAll('#financialItemsBody tr[data-final-output="true"]'));
+        const totalFinalQty = finalOutputRows.reduce((sum, row) => {
+            const qtyCell = row.querySelector('[data-qty]');
+            const rawQty = qtyCell ? (qtyCell.getAttribute('data-qty') || qtyCell.dataset?.qty || '0') : '0';
+            const qty = Math.max(0, Math.ceil(parseFloat(rawQty))) || 0;
+            return sum + qty;
+        }, 0);
+        finalOutputRows.forEach((row) => {
+            const totalRevenueEl = row.querySelector('.total-revenue');
+            if (!totalRevenueEl) {
+                return;
+            }
+            if (totalFinalQty > 0 && finalOutputRows.length > 1) {
+                // Distribute the lump-sum revenue across rows proportionally
+                // to their final quantity so each row still shows a coherent
+                // per-row revenue figure (informational only).
+                const qtyCell = row.querySelector('[data-qty]');
+                const rawQty = qtyCell ? (qtyCell.getAttribute('data-qty') || qtyCell.dataset?.qty || '0') : '0';
+                const qty = Math.max(0, Math.ceil(parseFloat(rawQty))) || 0;
+                const share = totalFinalQty > 0 ? (qty / totalFinalQty) * revenueTotalOverride : 0;
+                totalRevenueEl.textContent = formatPrice(share);
+            } else {
+                totalRevenueEl.textContent = formatPrice(revenueTotalOverride);
+            }
+        });
+    }
 
     // Credit any craft-cycle surplus (extra produced due to cycle rounding).
     // IMPORTANT: This must depend on the current Buy/Prod switches.
@@ -5120,11 +5363,17 @@ function recalcFinancials() {
         const productTypeId = Number(CRAFT_BP.productTypeId) || 0;
 
         if (window.SimulationAPI && typeof window.SimulationAPI.getPrice === 'function') {
-            const cycles = (typeof window.SimulationAPI.getProductionCycles === 'function')
-                ? window.SimulationAPI.getProductionCycles()
-                : [];
+            const hasLiveCycles = typeof window.SimulationAPI.getProductionCycles === 'function';
+            const cycles = hasLiveCycles ? (window.SimulationAPI.getProductionCycles() || []) : null;
 
-            if (Array.isArray(cycles) && cycles.length) {
+            if (hasLiveCycles) {
+                // SimulationAPI is the source of truth. An empty array means
+                // no production is happening (e.g. every item is in *Buy*
+                // mode), so there is no rounding surplus to credit. Do NOT
+                // fall back to the static `craft_cycles_summary` here — it is
+                // computed server-side under the "produce everything" view
+                // and would inject phantom surplus revenue that ignores the
+                // user's Buy/Prod choices.
                 cycles.forEach(entry => {
                     const typeId = Number(entry.typeId || entry.type_id || 0) || 0;
                     const surplusQty = Number(entry.surplus) || 0;
@@ -5138,7 +5387,8 @@ function recalcFinancials() {
                     }
                 });
             } else {
-                // Fallback for older payloads (static). Note: does NOT reflect switch state.
+                // Fallback for older payloads that do not expose
+                // getProductionCycles. Note: does NOT reflect switch state.
                 const cyclesSummary = window.BLUEPRINT_DATA?.craft_cycles_summary || {};
                 Object.keys(cyclesSummary).forEach(key => {
                     const entry = cyclesSummary[key] || {};
@@ -5161,14 +5411,21 @@ function recalcFinancials() {
 
     const surplusWrapperEl = document.getElementById('financialSurplusWrapper');
     const surplusValueEl = document.getElementById('financialSummarySurplus');
+    // In lump-sum revenue mode the user has already declared the total
+    // sale price for the whole project, so we do NOT credit surplus from
+    // production rounding on top — that would double-count revenue. The
+    // surplus block is hidden in that mode.
+    const showSurplus = revenueMode !== REVENUE_MODE_TOTAL && surplusRevenue > 0;
     if (surplusValueEl) {
-        surplusValueEl.textContent = formatPrice(surplusRevenue);
+        surplusValueEl.textContent = formatPrice(showSurplus ? surplusRevenue : 0);
     }
     if (surplusWrapperEl) {
-        surplusWrapperEl.classList.toggle('d-none', !(surplusRevenue > 0));
+        surplusWrapperEl.classList.toggle('d-none', !showSurplus);
     }
 
-    revTotal += surplusRevenue;
+    if (revenueMode !== REVENUE_MODE_TOTAL) {
+        revTotal += surplusRevenue;
+    }
 
     const structureSummary = renderStructureFinancialSummary();
     const installationCostTotal = structureSummary.totalInstallation;
@@ -5464,55 +5721,45 @@ function sortFuzzworkColumnKeys(keys) {
  * @param {Object} prices - Price data from API
  */
 function populatePrices(allInputs, prices) {
-    // Populate all material and sale price inputs
+    // Populate the read-only Reference (fuzzwork-price) column and stash
+    // every fetched price in the SimulationAPI under the 'fuzzwork' slot.
+    //
+    // The editable Override columns (.real-price for inputs, .sale-price-unit
+    // for outputs) are intentionally *not* auto-filled here. They must stay
+    // at their initial value (0 / empty) until the user explicitly types a
+    // value, otherwise the UI would falsely advertise a manual override on
+    // every output row. recalcFinancials() falls back to the SimulationAPI
+    // 'fuzzwork' slot when the Override input is left at 0, so calculations
+    // remain correct without polluting the user's data.
     allInputs.forEach(inp => {
         const tid = inp.getAttribute('data-type-id');
         const raw = prices[tid] ?? prices[String(parseInt(tid, 10))];
         let price = raw != null ? parseFloat(raw) : NaN;
         if (isNaN(price)) price = 0;
 
-        inp.value = price.toFixed(2);
+        const isFuzzworkInput = inp.classList.contains('fuzzwork-price');
+
+        if (isFuzzworkInput) {
+            inp.value = price.toFixed(2);
+        }
 
         if (window.SimulationAPI && typeof window.SimulationAPI.setPrice === 'function') {
             window.SimulationAPI.setPrice(tid, 'fuzzwork', price);
         }
 
-        if (price <= 0) {
-            inp.classList.add('bg-warning', 'border-warning');
-            inp.setAttribute('title', __('Price not available (Fuzzwork)'));
-        } else {
-            inp.classList.remove('bg-warning', 'border-warning');
-            inp.removeAttribute('title');
+        // Only flag the visible Reference cell when its price is missing.
+        // Override cells must remain neutral so the absence of a manual
+        // entry is not styled as a warning.
+        if (isFuzzworkInput) {
+            if (price <= 0) {
+                inp.classList.add('bg-warning', 'border-warning');
+                inp.setAttribute('title', __('Price not available (Fuzzwork)'));
+            } else {
+                inp.classList.remove('bg-warning', 'border-warning');
+                inp.removeAttribute('title');
+            }
         }
     });
-
-    // Override final product sale price using its true type_id
-    if (CRAFT_BP.productTypeId) {
-        const finalKey = String(CRAFT_BP.productTypeId);
-        const rawFinal = prices[finalKey] ?? prices[String(parseInt(finalKey, 10))];
-        let finalPrice = rawFinal != null ? parseFloat(rawFinal) : NaN;
-        if (isNaN(finalPrice)) finalPrice = 0;
-
-        const saleSelector = `.sale-price-unit[data-type-id="${finalKey}"]`;
-        const saleInput = document.querySelector(saleSelector);
-        if (saleInput) {
-            if (saleInput.dataset.userModified !== 'true') {
-                saleInput.value = finalPrice.toFixed(2);
-                updatePriceInputManualState(saleInput, false);
-            }
-            if (finalPrice <= 0) {
-                saleInput.classList.add('bg-warning', 'border-warning');
-                saleInput.setAttribute('title', __('Price not available (Fuzzwork)'));
-            } else {
-                saleInput.classList.remove('bg-warning', 'border-warning');
-                saleInput.removeAttribute('title');
-            }
-        }
-
-        if (window.SimulationAPI && typeof window.SimulationAPI.setPrice === 'function') {
-            window.SimulationAPI.setPrice(CRAFT_BP.productTypeId, 'sale', finalPrice);
-        }
-    }
 }
 
 function updateMaterialsTabFromState() {
@@ -5524,14 +5771,16 @@ function updateMaterialsTabFromState() {
     }
 
     const emptyState = document.getElementById('materialsEmptyState');
-    const finalOutputTypeIds = getFinalOutputTypeIds();
+    // See getCraftSourceRequirementRows: do not filter out final-outputs here
+    // either. When the user sets project items to 'buy', they must show up as
+    // materials to purchase.
     const fallbackGroupName = __('Other');
     const aggregated = new Map();
     const items = window.SimulationAPI.getFinancialItems() || [];
 
     items.forEach(item => {
         const typeId = Number(item.typeId ?? item.type_id);
-        if (!typeId || finalOutputTypeIds.has(typeId)) {
+        if (!typeId) {
             return;
         }
         const quantity = Math.ceil(Number(item.quantity ?? item.qty ?? 0));
