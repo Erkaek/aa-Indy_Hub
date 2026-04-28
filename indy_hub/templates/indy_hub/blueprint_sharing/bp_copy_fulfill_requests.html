@@ -413,10 +413,13 @@
                                             data-solar-system-name="{{ option.solar_system_name|default:'' }}"
                                             data-time-bonus-percent="{{ option.structure_time_bonus_percent }}"
                                             data-total-installation-cost="{{ option.total_installation_cost }}"
+                                            data-total-installation-cost-alpha="{{ option.total_installation_cost_alpha }}"
                                             data-per-copy-installation-cost="{{ option.per_copy_installation_cost }}"
                                             data-system-cost-index-percent="{{ option.system_cost_index_percent }}"
                                             data-facility-tax-percent="{{ option.facility_tax_percent }}"
                                             data-scc-surcharge-percent="{{ option.scc_surcharge_percent }}"
+                                            data-alpha-clone-tax-percent="{{ option.alpha_clone_tax_percent }}"
+                                            data-alpha-clone-tax-total="{{ option.alpha_clone_tax_total }}"
                                             data-job-cost-bonus-percent="{{ option.job_cost_bonus_percent }}"
                                             data-estimated-item-value="{{ option.estimated_item_value }}"
                                             data-uses-fallback-structure="{% if option.uses_fallback_structure %}1{% else %}0{% endif %}"
@@ -436,6 +439,7 @@
                                             value="{{ option.id }}"
                                             {% if option.id == req.copy_producer_selected_id %}selected{% endif %}
                                             data-character-time-bonus-percent="{{ option.time_bonus_percent }}"
+                                            data-is-alpha-clone="{% if option.is_alpha_clone %}1{% else %}0{% endif %}"
                                         >{{ option.name }} · -{{ option.time_bonus_label }}% · {{ option.available_slots }}/{{ option.total_slots }} {% trans "slots" %}</option>
                                         {% endfor %}
                                     </select>
@@ -605,6 +609,7 @@
     data-label-adjusted="{% trans "Adjusted job cost" %}"
     data-label-facility-tax="{% trans "Facility tax" %}"
     data-label-scc="{% trans "SCC surcharge" %}"
+    data-label-alpha-tax="{% trans "Alpha clone tax" %}"
     data-label-total-taxes="{% trans "Total taxes" %}"
     data-label-total-job="{% trans "Total job cost (per copy)" %}"
     data-label-grand-total="{% trans "Total install cost" %}"
@@ -653,5 +658,5 @@
     });
 </script>
 <script src="{% static 'indy_hub/js/bp_copy_chat.js' %}?v=20260412-1915"></script>
-<script src="{% static 'indy_hub/js/bp_copy_fulfill.js' %}?v=20260428-cost-breakdown-r7"></script>
+<script src="{% static 'indy_hub/js/bp_copy_fulfill.js' %}?v=20260428-cost-breakdown-r8"></script>
 {% endblock %}

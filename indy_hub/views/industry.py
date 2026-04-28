@@ -3799,15 +3799,30 @@ def bp_copy_fulfill_requests(request):
         selected_producer_id = None
         selected_producer_name = ""
         selected_producer_bonus_percent = Decimal("0")
+        producer_character_ids = [
+            int(producer.get("character_id") or 0)
+            for producer in producer_item.get("eligible_characters", [])
+            if int(producer.get("character_id") or 0) > 0
+        ]
+        producer_alpha_map: dict[int, bool] = {}
+        if producer_character_ids:
+            for snapshot in IndustrySkillSnapshot.objects.filter(
+                character_id__in=producer_character_ids
+            ):
+                producer_alpha_map[int(snapshot.character_id)] = bool(
+                    snapshot.is_alpha_clone
+                )
         for producer in producer_item.get("eligible_characters", []):
             producer_bonus = Decimal(str(producer.get("time_bonus_percent") or 0))
+            character_id = int(producer.get("character_id") or 0)
             option = {
-                "id": int(producer.get("character_id") or 0),
+                "id": character_id,
                 "name": str(producer.get("name") or ""),
                 "time_bonus_percent": producer_bonus,
                 "time_bonus_label": _format_percent_compact(producer_bonus),
                 "available_slots": int(producer.get("available_slots") or 0),
                 "total_slots": int(producer.get("total_slots") or 0),
+                "is_alpha_clone": bool(producer_alpha_map.get(character_id, False)),
             }
             copy_producer_options.append(option)
 
@@ -3918,6 +3933,13 @@ def bp_copy_fulfill_requests(request):
                 total_taxes_modal = (
                     total_breakdown.facility_tax + total_breakdown.scc_surcharge
                 )
+                selected_producer_is_alpha = bool(
+                    producer_alpha_map.get(int(selected_producer_id or 0), False)
+                )
+                if selected_producer_is_alpha:
+                    total_taxes_modal = (
+                        total_taxes_modal + total_breakdown.alpha_clone_tax
+                    )
                 breakdown_payload = {
                     "structure_name": cached_structure.name,
                     "solar_system_name": cached_structure.solar_system_name or "",
@@ -3941,9 +3963,26 @@ def bp_copy_fulfill_requests(request):
                     "facility_tax": total_breakdown.facility_tax,
                     "scc_surcharge_percent": total_breakdown.scc_surcharge_percent,
                     "scc_surcharge": total_breakdown.scc_surcharge,
+                    "alpha_clone_tax_percent": total_breakdown.alpha_clone_tax_percent,
+                    "alpha_clone_tax": total_breakdown.alpha_clone_tax,
+                    "is_alpha_clone": selected_producer_is_alpha,
                     "total_taxes": total_taxes_modal,
-                    "per_copy_installation_cost": breakdown.total_installation_cost,
-                    "total_installation_cost": total_breakdown.total_installation_cost,
+                    "per_copy_installation_cost": (
+                        breakdown.total_installation_cost
+                        + (
+                            breakdown.alpha_clone_tax
+                            if selected_producer_is_alpha
+                            else Decimal("0")
+                        )
+                    ),
+                    "total_installation_cost": (
+                        total_breakdown.total_installation_cost
+                        + (
+                            total_breakdown.alpha_clone_tax
+                            if selected_producer_is_alpha
+                            else Decimal("0")
+                        )
+                    ),
                 }
                 option = {
                     "id": int(cached_structure.id),
@@ -3961,9 +4000,13 @@ def bp_copy_fulfill_requests(request):
                     "job_cost_bonus_percent": breakdown.total_job_cost_bonus_percent,
                     "facility_tax_percent": breakdown.facility_tax_percent,
                     "scc_surcharge_percent": breakdown.scc_surcharge_percent,
+                    "alpha_clone_tax_percent": total_breakdown.alpha_clone_tax_percent,
+                    "alpha_clone_tax_total": total_breakdown.alpha_clone_tax,
                     "per_copy_installation_cost": breakdown.total_installation_cost,
-                    "total_installation_cost": (
-                        breakdown.total_installation_cost * copies_requested
+                    "total_installation_cost": total_breakdown.total_installation_cost,
+                    "total_installation_cost_alpha": (
+                        total_breakdown.total_installation_cost
+                        + total_breakdown.alpha_clone_tax
                     ),
                     "copies_requested": copies_requested,
                     "runs_requested": estimated_item_value_meta.get(

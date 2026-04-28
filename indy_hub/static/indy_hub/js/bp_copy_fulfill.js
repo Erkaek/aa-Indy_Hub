@@ -1063,9 +1063,17 @@
             var durationMetaEl = panel.querySelector("[data-copy-duration-meta]");
 
             if (totalEl && option) {
-                totalEl.textContent = formatISK(
-                    option.getAttribute("data-total-installation-cost") || 0
-                );
+                var totalCost = option.getAttribute("data-total-installation-cost") || 0;
+                if (
+                    producerOption
+                    && producerOption.getAttribute("data-is-alpha-clone") === "1"
+                ) {
+                    var alphaTotal = option.getAttribute("data-total-installation-cost-alpha");
+                    if (alphaTotal) {
+                        totalCost = alphaTotal;
+                    }
+                }
+                totalEl.textContent = formatISK(totalCost);
             }
 
             if (structureEl && option) {
@@ -1209,6 +1217,7 @@
             adjusted: modalEl.getAttribute("data-label-adjusted") || "Adjusted job cost",
             facilityTax: modalEl.getAttribute("data-label-facility-tax") || "Facility tax",
             scc: modalEl.getAttribute("data-label-scc") || "SCC surcharge",
+            alphaTax: modalEl.getAttribute("data-label-alpha-tax") || "Alpha clone tax",
             totalTaxes: modalEl.getAttribute("data-label-total-taxes") || "Total taxes",
             totalJob: modalEl.getAttribute("data-label-total-job") || "Total job cost (per copy)",
             grandTotal: modalEl.getAttribute("data-label-grand-total") || "Total install cost",
@@ -1371,6 +1380,13 @@
                 formatIsk(payload.scc_surcharge),
                 "fwp-cost-breakdown-table__danger"
             );
+            if (payload.is_alpha_clone && toNumber(payload.alpha_clone_tax_percent) > 0) {
+                html += row(
+                    labels.alphaTax + " (" + formatPercent(payload.alpha_clone_tax_percent, 2) + ")",
+                    formatIsk(payload.alpha_clone_tax),
+                    "fwp-cost-breakdown-table__danger"
+                );
+            }
             html += row(
                 labels.totalTaxes,
                 formatIsk(payload.total_taxes),
@@ -1398,6 +1414,18 @@
                 var payloadId = trigger.getAttribute("data-copy-cost-breakdown-id");
                 var prefix = trigger.getAttribute("data-copy-cost-breakdown-prefix");
                 var requestId = trigger.getAttribute("data-request-id");
+                var producerIsAlpha = false;
+                if (requestId) {
+                    var producerSelect = document.querySelector(
+                        '[data-copy-producer-select][data-request-id="' + requestId + '"]'
+                    );
+                    if (producerSelect) {
+                        var producerOption = producerSelect.options[producerSelect.selectedIndex];
+                        if (producerOption) {
+                            producerIsAlpha = producerOption.getAttribute("data-is-alpha-clone") === "1";
+                        }
+                    }
+                }
                 if (prefix && requestId) {
                     var select = document.querySelector(
                         '[data-copy-structure-select][data-request-id="' + requestId + '"]'
@@ -1412,7 +1440,32 @@
                 if (!payloadId) {
                     return;
                 }
-                render(readPayload(payloadId));
+                var payload = readPayload(payloadId);
+                if (payload) {
+                    var serverAlpha = !!payload.is_alpha_clone;
+                    if (producerIsAlpha !== serverAlpha) {
+                        var alphaTaxAmount = toNumber(payload.alpha_clone_tax);
+                        var baseTotal = toNumber(payload.total_installation_cost);
+                        var baseTaxes = toNumber(payload.total_taxes);
+                        var basePerCopy = toNumber(payload.per_copy_installation_cost);
+                        // Reverse server‐side alpha contribution if needed.
+                        if (serverAlpha) {
+                            baseTotal -= alphaTaxAmount;
+                            baseTaxes -= alphaTaxAmount;
+                            basePerCopy = Math.max(0, basePerCopy);
+                        }
+                        if (producerIsAlpha) {
+                            payload.is_alpha_clone = true;
+                            payload.total_installation_cost = baseTotal + alphaTaxAmount;
+                            payload.total_taxes = baseTaxes + alphaTaxAmount;
+                        } else {
+                            payload.is_alpha_clone = false;
+                            payload.total_installation_cost = baseTotal;
+                            payload.total_taxes = baseTaxes;
+                        }
+                    }
+                }
+                render(payload);
                 modal.show();
             });
         });
