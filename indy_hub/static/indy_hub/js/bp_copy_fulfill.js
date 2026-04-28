@@ -1353,13 +1353,15 @@
             if (toNumber(payload.structure_role_bonus_percent) > 0) {
                 html += row(
                     labels.structureBonus,
-                    "−" + formatPercent(payload.structure_role_bonus_percent, 2)
+                    "−" + formatPercent(payload.structure_role_bonus_percent, 2),
+                    "fwp-cost-breakdown-table__success"
                 );
             }
             if (toNumber(payload.rig_bonus_percent) > 0) {
                 html += row(
                     labels.rigBonus,
-                    "−" + formatPercent(payload.rig_bonus_percent, 2)
+                    "−" + formatPercent(payload.rig_bonus_percent, 2),
+                    "fwp-cost-breakdown-table__success"
                 );
             }
             html += row(

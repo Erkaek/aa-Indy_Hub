@@ -785,6 +785,11 @@ html[data-theme="darkly"] .fulfill-page .fulfill-request-item.is-active {
     color: var(--fp-danger, #d03535);
 }
 
+/* Bonus rows shown in green (reductions) */
+.fwp-cost-breakdown-table tbody tr.fwp-cost-breakdown-table__success td {
+    color: var(--fp-success, #16a34a);
+}
+
 /* Secondary informational row (e.g. per-copy cost when total is shown) */
 .fwp-cost-breakdown-table tbody tr.fwp-cost-breakdown-table__muted td {
     color: var(--fp-muted, #6b7280);
