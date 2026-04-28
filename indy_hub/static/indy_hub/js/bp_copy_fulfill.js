@@ -1338,7 +1338,7 @@
             // ── Job gross cost section ────────────────────────────
             html += headerRow(labels.grossSection || "JOB GROSS COST");
             html += row(
-                labels.sci + " (" + formatPercent(payload.system_cost_index_percent, 4) + ")",
+                labels.sci + " (" + formatPercent(payload.system_cost_index_percent, 2) + ")",
                 formatIsk(payload.base_job_cost)
             );
             if (toNumber(payload.rig_bonus_percent) > 0) {
