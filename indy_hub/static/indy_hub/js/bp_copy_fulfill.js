@@ -1341,6 +1341,12 @@
                 labels.sci + " (" + formatPercent(payload.system_cost_index_percent, 2) + ")",
                 formatIsk(payload.base_job_cost)
             );
+            if (toNumber(payload.structure_role_bonus_percent) > 0) {
+                html += row(
+                    labels.structureBonus,
+                    "−" + formatPercent(payload.structure_role_bonus_percent, 2)
+                );
+            }
             if (toNumber(payload.rig_bonus_percent) > 0) {
                 html += row(
                     labels.rigBonus,

@@ -3933,6 +3933,7 @@ def bp_copy_fulfill_requests(request):
                     "job_cost_base": total_job_cost_base,
                     "system_cost_index_percent": total_breakdown.system_cost_index_percent,
                     "base_job_cost": total_breakdown.base_job_cost,
+                    "structure_role_bonus_percent": total_breakdown.structure_role_bonus_percent,
                     "rig_bonus_percent": total_breakdown.rig_bonus_percent,
                     "total_job_cost_bonus_percent": total_breakdown.total_job_cost_bonus_percent,
                     "adjusted_job_cost": total_breakdown.adjusted_job_cost,
