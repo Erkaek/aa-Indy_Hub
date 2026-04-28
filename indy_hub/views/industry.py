@@ -61,6 +61,7 @@ from ..models import (
     NotificationWebhookMessage,
     ProductionProject,
     SDEBlueprintActivity,
+    SDEBlueprintActivityMaterial,
     SDEBlueprintActivityProduct,
 )
 from ..notifications import (
@@ -2992,6 +2993,10 @@ def _build_copy_estimated_item_values(
     if not blueprint_type_ids:
         return {}
 
+    # EVE computes the Estimated Item Value (EIV) for copying jobs from the
+    # blueprint's manufacturing materials, NOT from the product's price:
+    #   per-run EIV = sum(material_qty * material_adjusted_price)
+    # Then JCB = per-run EIV * runs * 2% (the copying activity multiplier).
     product_type_by_blueprint = {
         int(row.eve_type_id): int(row.product_eve_type_id)
         for row in SDEBlueprintActivityProduct.objects.filter(
@@ -3000,48 +3005,85 @@ def _build_copy_estimated_item_values(
         ).order_by("eve_type_id", "product_eve_type_id")
     }
 
-    product_type_ids = sorted(set(product_type_by_blueprint.values()))
-    product_base_prices = _fetch_item_base_prices(product_type_ids)
+    materials_by_blueprint: dict[int, list[tuple[int, int]]] = {}
+    for row in SDEBlueprintActivityMaterial.objects.filter(
+        eve_type_id__in=blueprint_type_ids,
+        activity_id=IndustryActivityMixin.ACTIVITY_MANUFACTURING,
+    ).values("eve_type_id", "material_eve_type_id", "quantity"):
+        bp_type_id = int(row["eve_type_id"])
+        material_type_id = int(row["material_eve_type_id"])
+        quantity = int(row["quantity"] or 0)
+        if material_type_id <= 0 or quantity <= 0:
+            continue
+        materials_by_blueprint.setdefault(bp_type_id, []).append(
+            (material_type_id, quantity)
+        )
+
+    material_type_ids = sorted(
+        {
+            material_type_id
+            for entries in materials_by_blueprint.values()
+            for material_type_id, _qty in entries
+        }
+    )
+    material_base_prices = _fetch_item_base_prices(material_type_ids)
     try:
-        adjusted_price_refs = fetch_adjusted_prices(product_type_ids, timeout=10)
+        material_price_refs = fetch_adjusted_prices(material_type_ids, timeout=10)
     except MarketPriceError:
-        adjusted_price_refs = {}
+        material_price_refs = {}
+
+    def _material_price(material_type_id: int) -> tuple[Decimal, str]:
+        price_ref = material_price_refs.get(material_type_id, {})
+        adjusted_price = Decimal(str(price_ref.get("adjusted_price") or 0))
+        if adjusted_price > 0:
+            return adjusted_price, "adjusted_price"
+        average_price = Decimal(str(price_ref.get("average_price") or 0))
+        if average_price > 0:
+            return average_price, "average_price"
+        base_price = material_base_prices.get(material_type_id, Decimal("0"))
+        if base_price > 0:
+            return base_price, "base_price"
+        return Decimal("0"), ""
+
+    # Source priority across the basket: prefer the strongest source actually
+    # used (adjusted_price > average_price > base_price). If any material falls
+    # back to a weaker source, that is the source reported for the basket.
+    source_rank = {"adjusted_price": 3, "average_price": 2, "base_price": 1, "": 0}
 
     result: dict[int, dict[str, Any]] = {}
     for req in requests:
         blueprint_type_id = int(req.type_id or 0)
         if blueprint_type_id <= 0:
             continue
-        product_type_id = product_type_by_blueprint.get(blueprint_type_id)
-        if not product_type_id:
+        materials = materials_by_blueprint.get(blueprint_type_id) or []
+        if not materials:
             continue
 
-        price_ref = adjusted_price_refs.get(product_type_id, {})
-        adjusted_price = Decimal(str(price_ref.get("adjusted_price") or 0))
-        average_price = Decimal(str(price_ref.get("average_price") or 0))
-        base_price = product_base_prices.get(product_type_id, Decimal("0"))
+        per_run_value = Decimal("0")
+        worst_source_rank = source_rank["adjusted_price"]
+        worst_source = "adjusted_price"
+        any_priced = False
+        for material_type_id, quantity in materials:
+            unit_price, src = _material_price(material_type_id)
+            if unit_price <= 0:
+                continue
+            any_priced = True
+            per_run_value += unit_price * Decimal(quantity)
+            rank = source_rank.get(src, 0)
+            if rank < worst_source_rank:
+                worst_source_rank = rank
+                worst_source = src
 
-        unit_value = Decimal("0")
-        source = ""
-        if adjusted_price > 0:
-            unit_value = adjusted_price
-            source = "adjusted_price"
-        elif average_price > 0:
-            unit_value = average_price
-            source = "average_price"
-        elif base_price > 0:
-            unit_value = base_price
-            source = "base_price"
-
-        if unit_value <= 0:
+        if not any_priced or per_run_value <= 0:
             continue
 
         runs_requested = max(int(getattr(req, "runs_requested", 1) or 1), 1)
+        product_type_id = product_type_by_blueprint.get(blueprint_type_id)
         result[blueprint_type_id] = {
             "product_type_id": product_type_id,
-            "unit_value": unit_value,
-            "estimated_item_value": unit_value * runs_requested,
-            "source": source,
+            "unit_value": per_run_value,
+            "estimated_item_value": per_run_value * runs_requested,
+            "source": worst_source,
             "runs_requested": runs_requested,
         }
 
@@ -3757,15 +3799,30 @@ def bp_copy_fulfill_requests(request):
         selected_producer_id = None
         selected_producer_name = ""
         selected_producer_bonus_percent = Decimal("0")
+        producer_character_ids = [
+            int(producer.get("character_id") or 0)
+            for producer in producer_item.get("eligible_characters", [])
+            if int(producer.get("character_id") or 0) > 0
+        ]
+        producer_alpha_map: dict[int, bool] = {}
+        if producer_character_ids:
+            for snapshot in IndustrySkillSnapshot.objects.filter(
+                character_id__in=producer_character_ids
+            ):
+                producer_alpha_map[int(snapshot.character_id)] = bool(
+                    snapshot.is_alpha_clone
+                )
         for producer in producer_item.get("eligible_characters", []):
             producer_bonus = Decimal(str(producer.get("time_bonus_percent") or 0))
+            character_id = int(producer.get("character_id") or 0)
             option = {
-                "id": int(producer.get("character_id") or 0),
+                "id": character_id,
                 "name": str(producer.get("name") or ""),
                 "time_bonus_percent": producer_bonus,
                 "time_bonus_label": _format_percent_compact(producer_bonus),
                 "available_slots": int(producer.get("available_slots") or 0),
                 "total_slots": int(producer.get("total_slots") or 0),
+                "is_alpha_clone": bool(producer_alpha_map.get(character_id, False)),
             }
             copy_producer_options.append(option)
 
@@ -3848,6 +3905,83 @@ def bp_copy_fulfill_requests(request):
                     continue
 
                 cached_structure, breakdown = cached_breakdown
+                jcb_percent_value = Decimal("2")  # copying activity job-cost-base
+                copies_decimal = Decimal(int(copies_requested or 1))
+                # Single EVE copy job groups all copies × all runs into one
+                # installation. Recompute the breakdown with EIV scaled by the
+                # number of copies so each ISK row is rounded ONCE on the true
+                # total — multiplying pre-rounded per-copy values would inflate
+                # small taxes by up to (copies − 1) ISK.
+                try:
+                    total_breakdown = calculate_installation_cost(
+                        structure=cached_structure,
+                        activity_id=IndustryActivityMixin.ACTIVITY_COPYING,
+                        estimated_item_value=(estimated_item_value * copies_decimal),
+                        system_cost_index=visible_copying_system_indices.get(
+                            int(cached_structure.solar_system_id or 0)
+                        ),
+                    )
+                except ValidationError:
+                    total_breakdown = breakdown
+                total_job_cost_base = (
+                    total_breakdown.estimated_item_value
+                    * jcb_percent_value
+                    / Decimal("100")
+                )
+                total_taxes_modal = (
+                    total_breakdown.facility_tax + total_breakdown.scc_surcharge
+                )
+                selected_producer_is_alpha = bool(
+                    producer_alpha_map.get(int(selected_producer_id or 0), False)
+                )
+                if selected_producer_is_alpha:
+                    total_taxes_modal = (
+                        total_taxes_modal + total_breakdown.alpha_clone_tax
+                    )
+                breakdown_payload = {
+                    "structure_name": cached_structure.name,
+                    "solar_system_name": cached_structure.solar_system_name or "",
+                    "runs_requested": int(
+                        estimated_item_value_meta.get(
+                            "runs_requested", req.runs_requested
+                        )
+                        or 1
+                    ),
+                    "copies_requested": int(copies_requested),
+                    "estimated_item_value": total_breakdown.estimated_item_value,
+                    "jcb_percent": jcb_percent_value,
+                    "job_cost_base": total_job_cost_base,
+                    "system_cost_index_percent": total_breakdown.system_cost_index_percent,
+                    "base_job_cost": total_breakdown.base_job_cost,
+                    "structure_role_bonus_percent": total_breakdown.structure_role_bonus_percent,
+                    "rig_bonus_percent": total_breakdown.rig_bonus_percent,
+                    "total_job_cost_bonus_percent": total_breakdown.total_job_cost_bonus_percent,
+                    "adjusted_job_cost": total_breakdown.adjusted_job_cost,
+                    "facility_tax_percent": total_breakdown.facility_tax_percent,
+                    "facility_tax": total_breakdown.facility_tax,
+                    "scc_surcharge_percent": total_breakdown.scc_surcharge_percent,
+                    "scc_surcharge": total_breakdown.scc_surcharge,
+                    "alpha_clone_tax_percent": total_breakdown.alpha_clone_tax_percent,
+                    "alpha_clone_tax": total_breakdown.alpha_clone_tax,
+                    "is_alpha_clone": selected_producer_is_alpha,
+                    "total_taxes": total_taxes_modal,
+                    "per_copy_installation_cost": (
+                        breakdown.total_installation_cost
+                        + (
+                            breakdown.alpha_clone_tax
+                            if selected_producer_is_alpha
+                            else Decimal("0")
+                        )
+                    ),
+                    "total_installation_cost": (
+                        total_breakdown.total_installation_cost
+                        + (
+                            total_breakdown.alpha_clone_tax
+                            if selected_producer_is_alpha
+                            else Decimal("0")
+                        )
+                    ),
+                }
                 option = {
                     "id": int(cached_structure.id),
                     "structure_name": cached_structure.name,
@@ -3864,15 +3998,20 @@ def bp_copy_fulfill_requests(request):
                     "job_cost_bonus_percent": breakdown.total_job_cost_bonus_percent,
                     "facility_tax_percent": breakdown.facility_tax_percent,
                     "scc_surcharge_percent": breakdown.scc_surcharge_percent,
+                    "alpha_clone_tax_percent": total_breakdown.alpha_clone_tax_percent,
+                    "alpha_clone_tax_total": total_breakdown.alpha_clone_tax,
                     "per_copy_installation_cost": breakdown.total_installation_cost,
-                    "total_installation_cost": (
-                        breakdown.total_installation_cost * copies_requested
+                    "total_installation_cost": total_breakdown.total_installation_cost,
+                    "total_installation_cost_alpha": (
+                        total_breakdown.total_installation_cost
+                        + total_breakdown.alpha_clone_tax
                     ),
                     "copies_requested": copies_requested,
                     "runs_requested": estimated_item_value_meta.get(
                         "runs_requested", req.runs_requested
                     ),
                     "uses_fallback_structure": not bool(matched_structures),
+                    "breakdown_payload": breakdown_payload,
                 }
                 copy_structure_options.append(option)
 

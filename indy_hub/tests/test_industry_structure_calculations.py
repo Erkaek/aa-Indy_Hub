@@ -188,6 +188,33 @@ class IndustryStructureCalculationTests(TestCase):
         self.assertEqual(breakdown.scc_surcharge, Decimal("40"))
         self.assertEqual(breakdown.total_installation_cost, Decimal("115"))
 
+    def test_copying_installation_cost_exposes_alpha_clone_tax_without_total_impact(
+        self,
+    ) -> None:
+        # Alpha clone tax is fixed at 0.25% of the job cost base. The breakdown
+        # always exposes the would-be charge so that callers can decide whether
+        # to apply it (per the producer's clone state) without recomputing.
+        self.structure.research_tax_percent = Decimal("2.500")
+        self.structure.save(update_fields=["research_tax_percent"])
+        IndustrySystemCostIndex.objects.create(
+            solar_system_id=self.structure.solar_system_id,
+            solar_system_name=self.structure.solar_system_name,
+            activity_id=IndustryActivityMixin.ACTIVITY_COPYING,
+            cost_index_percent=Decimal("5.00000"),
+        )
+
+        breakdown = calculate_installation_cost(
+            structure=self.structure,
+            activity_id=IndustryActivityMixin.ACTIVITY_COPYING,
+            estimated_item_value=Decimal("50000"),
+        )
+
+        self.assertEqual(breakdown.alpha_clone_tax_percent, Decimal("0.25"))
+        # 0.25% of job cost base (1000) rounds to 3 ISK.
+        self.assertEqual(breakdown.alpha_clone_tax, Decimal("3"))
+        # Total stays unchanged: callers add the alpha tax themselves.
+        self.assertEqual(breakdown.total_installation_cost, Decimal("115"))
+
     def test_basic_component_rigs_cover_construction_components(self) -> None:
         supported_types = _supported_type_names_for_effect(
             "rigcomponentmanufacturematerialbonus"

@@ -22,6 +22,7 @@ from indy_hub.models import (
 ISK_QUANTUM = Decimal("1")
 PERCENT_FACTOR = Decimal("100")
 DEFAULT_SCC_SURCHARGE_PERCENT = Decimal("4")
+ALPHA_CLONE_TAX_PERCENT = Decimal("0.25")
 COPYING_JOB_COST_BASE_PERCENT = Decimal("2")
 
 RIG_SIZE_ATTRIBUTE_ID = 1547
@@ -427,6 +428,8 @@ class IndustryStructureCostBreakdown:
     facility_tax: Decimal
     scc_surcharge_percent: Decimal
     scc_surcharge: Decimal
+    alpha_clone_tax_percent: Decimal
+    alpha_clone_tax: Decimal
     total_installation_cost: Decimal
     material_bonus_percent: Decimal
     time_bonus_percent: Decimal
@@ -1945,6 +1948,13 @@ def calculate_installation_cost(
     scc_surcharge_percent = DEFAULT_SCC_SURCHARGE_PERCENT
     facility_tax = job_cost_base * (facility_tax_percent / PERCENT_FACTOR)
     scc_surcharge = job_cost_base * (scc_surcharge_percent / PERCENT_FACTOR)
+    alpha_clone_tax_percent = ALPHA_CLONE_TAX_PERCENT
+    # `alpha_clone_tax` is always exposed as the would-be charge for an Alpha
+    # clone (0.25% of job cost base). It is NOT folded into
+    # `total_installation_cost` here — callers know whether the producer is an
+    # alpha clone and add the surcharge themselves so the same breakdown can
+    # be reused regardless of the selected character.
+    alpha_clone_tax = job_cost_base * (alpha_clone_tax_percent / PERCENT_FACTOR)
 
     structure_role_bonus_percent = (
         Decimal("1") - structure_role_multiplier
@@ -1966,6 +1976,8 @@ def calculate_installation_cost(
         facility_tax=_round_isk(facility_tax),
         scc_surcharge_percent=scc_surcharge_percent,
         scc_surcharge=_round_isk(scc_surcharge),
+        alpha_clone_tax_percent=alpha_clone_tax_percent,
+        alpha_clone_tax=_round_isk(alpha_clone_tax),
         total_installation_cost=_round_isk(
             adjusted_job_cost + facility_tax + scc_surcharge
         ),

@@ -9,7 +9,7 @@
 <link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
 <link rel="stylesheet" href="{% static 'indy_hub/css/bp_copy_list.css' %}?v=20260413-2335">
 <link rel="stylesheet" href="{% static 'indy_hub/css/chat.css' %}?v=20260418-1100">
-<link rel="stylesheet" href="{% static 'indy_hub/css/bp_copy_fulfill_page.css' %}?v=20260418-1400">
+<link rel="stylesheet" href="{% static 'indy_hub/css/bp_copy_fulfill_page.css' %}?v=20260428-cost-breakdown-r3">
 {% endblock %}
 
 {% block content %}
@@ -413,10 +413,13 @@
                                             data-solar-system-name="{{ option.solar_system_name|default:'' }}"
                                             data-time-bonus-percent="{{ option.structure_time_bonus_percent }}"
                                             data-total-installation-cost="{{ option.total_installation_cost }}"
+                                            data-total-installation-cost-alpha="{{ option.total_installation_cost_alpha }}"
                                             data-per-copy-installation-cost="{{ option.per_copy_installation_cost }}"
                                             data-system-cost-index-percent="{{ option.system_cost_index_percent }}"
                                             data-facility-tax-percent="{{ option.facility_tax_percent }}"
                                             data-scc-surcharge-percent="{{ option.scc_surcharge_percent }}"
+                                            data-alpha-clone-tax-percent="{{ option.alpha_clone_tax_percent }}"
+                                            data-alpha-clone-tax-total="{{ option.alpha_clone_tax_total }}"
                                             data-job-cost-bonus-percent="{{ option.job_cost_bonus_percent }}"
                                             data-estimated-item-value="{{ option.estimated_item_value }}"
                                             data-uses-fallback-structure="{% if option.uses_fallback_structure %}1{% else %}0{% endif %}"
@@ -436,6 +439,7 @@
                                             value="{{ option.id }}"
                                             {% if option.id == req.copy_producer_selected_id %}selected{% endif %}
                                             data-character-time-bonus-percent="{{ option.time_bonus_percent }}"
+                                            data-is-alpha-clone="{% if option.is_alpha_clone %}1{% else %}0{% endif %}"
                                         >{{ option.name }} · -{{ option.time_bonus_label }}% · {{ option.available_slots }}/{{ option.total_slots }} {% trans "slots" %}</option>
                                         {% endfor %}
                                     </select>
@@ -454,15 +458,34 @@
                                 </div>
                                 {% endif %}
                                 {% if req.copy_cost %}
-                                <div class="fwp-estimate-card fwp-estimate-card--cost">
+                                {% with req_id_str=req.id|stringformat:"s" %}
+                                {% with bd_id="copy-cost-breakdown-"|add:req_id_str %}
+                                {{ req.copy_cost.breakdown_payload|json_script:bd_id }}
+                                {% for option in req.copy_structure_options %}
+                                    {% with opt_id_str=option.id|stringformat:"s" %}
+                                    {% with opt_bd_id="copy-cost-breakdown-"|add:req_id_str|add:"-"|add:opt_id_str %}
+                                    {{ option.breakdown_payload|json_script:opt_bd_id }}
+                                    {% endwith %}
+                                    {% endwith %}
+                                {% endfor %}
+                                <button type="button"
+                                        class="fwp-estimate-card fwp-estimate-card--cost fwp-estimate-card--clickable"
+                                        data-copy-cost-breakdown-trigger
+                                        data-copy-cost-breakdown-id="{{ bd_id }}"
+                                        data-copy-cost-breakdown-prefix="copy-cost-breakdown-{{ req_id_str }}-"
+                                        data-request-id="{{ req.id }}"
+                                        aria-label="{% trans "Show installation cost breakdown" %}">
                                     <span class="fwp-estimate-card__icon"><i class="fas fa-wallet"></i></span>
                                     <div>
                                         <p class="fwp-section__eyebrow">{% trans "Install estimate" %}</p>
                                         <strong class="fwp-estimate-card__value" data-copy-estimate-total>{{ req.copy_cost.total_installation_cost|floatformat:0|intcomma }} ISK</strong>
                                         <p class="fwp-section__hint-sm" data-copy-estimate-structure>{{ req.copy_cost.structure_name }}{% if req.copy_cost.solar_system_name %} · {{ req.copy_cost.solar_system_name }}{% endif %}</p>
                                         <p class="fwp-section__hint-sm" data-copy-estimate-meta>{% blocktrans with index=req.copy_cost.system_cost_index_percent|floatformat:2 tax=req.copy_cost.facility_tax_percent|floatformat:2 surcharge=req.copy_cost.scc_surcharge_percent|floatformat:2 %}SCI {{ index }}% · Tax {{ tax }}% · SCC {{ surcharge }}%{% endblocktrans %}</p>
+                                        <span class="fwp-estimate-card__hint"><i class="fas fa-circle-info"></i> {% trans "Click for full breakdown" %}</span>
                                     </div>
-                                </div>
+                                </button>
+                                {% endwith %}
+                                {% endwith %}
                                 {% endif %}
                             </div>
                         </div>{# /fwp-section--estimates #}
@@ -573,6 +596,51 @@
         </div>
     </div>
 </div>
+
+<div class="modal fade" id="bpCopyCostBreakdownModal" tabindex="-1" aria-hidden="true"
+    data-label-eiv="{% trans "Estimated items value (EIV)" %}"
+    data-label-jcb="{% trans "Job cost base (JCB)" %}"
+    data-label-sci="{% trans "System cost index" %}"
+    data-label-gross-section="{% trans "JOB GROSS COST" %}"
+    data-label-gross="{% trans "Total job gross cost" %}"
+    data-label-taxes-section="{% trans "TAXES" %}"
+    data-label-structure-bonus="{% trans "Structure role bonus" %}"
+    data-label-rig-bonus="{% trans "Rig bonus" %}"
+    data-label-adjusted="{% trans "Adjusted job cost" %}"
+    data-label-facility-tax="{% trans "Facility tax" %}"
+    data-label-scc="{% trans "SCC surcharge" %}"
+    data-label-alpha-tax="{% trans "Alpha clone tax" %}"
+    data-label-total-taxes="{% trans "Total taxes" %}"
+    data-label-total-job="{% trans "Total job cost (per copy)" %}"
+    data-label-grand-total="{% trans "Total install cost" %}"
+    data-label-copy-singular="{% trans "copy" %}"
+    data-label-copy-plural="{% trans "copies" %}"
+    data-label-runs="{% trans "Runs per copy" %}"
+    data-label-copies="{% trans "Copies requested" %}"
+    data-label-isk="ISK">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-calculator me-2"></i>{% trans "Installation cost breakdown" %}
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans "Close" %}"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small mb-2" data-cost-bd-structure></p>
+                <p class="text-muted small mb-3" data-cost-bd-context></p>
+                <table class="table table-sm fwp-cost-breakdown-table mb-0">
+                    <tbody data-cost-bd-rows></tbody>
+                </table>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">
+                    {% trans "Close" %}
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 </div>
 {% endblock %}
 
@@ -590,5 +658,5 @@
     });
 </script>
 <script src="{% static 'indy_hub/js/bp_copy_chat.js' %}?v=20260412-1915"></script>
-<script src="{% static 'indy_hub/js/bp_copy_fulfill.js' %}?v=20260413-2118"></script>
+<script src="{% static 'indy_hub/js/bp_copy_fulfill.js' %}?v=20260428-cost-breakdown-r11"></script>
 {% endblock %}

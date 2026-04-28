@@ -1063,9 +1063,17 @@
             var durationMetaEl = panel.querySelector("[data-copy-duration-meta]");
 
             if (totalEl && option) {
-                totalEl.textContent = formatISK(
-                    option.getAttribute("data-total-installation-cost") || 0
-                );
+                var totalCost = option.getAttribute("data-total-installation-cost") || 0;
+                if (
+                    producerOption
+                    && producerOption.getAttribute("data-is-alpha-clone") === "1"
+                ) {
+                    var alphaTotal = option.getAttribute("data-total-installation-cost-alpha");
+                    if (alphaTotal) {
+                        totalCost = alphaTotal;
+                    }
+                }
+                totalEl.textContent = formatISK(totalCost);
             }
 
             if (structureEl && option) {
@@ -1164,6 +1172,315 @@
         });
     }
 
+    function initCopyCostBreakdownModal() {
+        var modalEl = document.getElementById("bpCopyCostBreakdownModal");
+        if (!modalEl) {
+            return;
+        }
+        var triggers = document.querySelectorAll("[data-copy-cost-breakdown-trigger]");
+        if (!triggers.length) {
+            return;
+        }
+
+        // The fulfill page wraps the modal inside `.fulfill-page` which has
+        // `isolation: isolate`, creating a new stacking context that traps the
+        // modal underneath the body-level backdrop. Move the modal element to
+        // `<body>` so Bootstrap can layer it above the backdrop properly.
+        if (modalEl.parentNode !== document.body) {
+            document.body.appendChild(modalEl);
+        }
+
+        var bootstrapModalCtor = null;
+        if (typeof window !== "undefined") {
+            if (window.bootstrap && window.bootstrap.Modal) {
+                bootstrapModalCtor = window.bootstrap.Modal;
+            } else if (window.bootstrap5 && window.bootstrap5.Modal) {
+                bootstrapModalCtor = window.bootstrap5.Modal;
+            }
+        }
+        if (!bootstrapModalCtor) {
+            return;
+        }
+        var modal = (typeof bootstrapModalCtor.getOrCreateInstance === "function")
+            ? bootstrapModalCtor.getOrCreateInstance(modalEl)
+            : new bootstrapModalCtor(modalEl);
+
+        var labels = {
+            eiv: modalEl.getAttribute("data-label-eiv") || "Estimated items value (EIV)",
+            jcb: modalEl.getAttribute("data-label-jcb") || "Job cost base (JCB)",
+            sci: modalEl.getAttribute("data-label-sci") || "System cost index",
+            grossSection: modalEl.getAttribute("data-label-gross-section") || "JOB GROSS COST",
+            gross: modalEl.getAttribute("data-label-gross") || "Total job gross cost",
+            taxesSection: modalEl.getAttribute("data-label-taxes-section") || "TAXES",
+            structureBonus: modalEl.getAttribute("data-label-structure-bonus") || "Structure role bonus",
+            rigBonus: modalEl.getAttribute("data-label-rig-bonus") || "Rig bonus",
+            adjusted: modalEl.getAttribute("data-label-adjusted") || "Adjusted job cost",
+            facilityTax: modalEl.getAttribute("data-label-facility-tax") || "Facility tax",
+            scc: modalEl.getAttribute("data-label-scc") || "SCC surcharge",
+            alphaTax: modalEl.getAttribute("data-label-alpha-tax") || "Alpha clone tax",
+            totalTaxes: modalEl.getAttribute("data-label-total-taxes") || "Total taxes",
+            totalJob: modalEl.getAttribute("data-label-total-job") || "Total job cost (per copy)",
+            grandTotal: modalEl.getAttribute("data-label-grand-total") || "Total install cost",
+            copySingular: modalEl.getAttribute("data-label-copy-singular") || "copy",
+            copyPlural: modalEl.getAttribute("data-label-copy-plural") || "copies",
+            runs: modalEl.getAttribute("data-label-runs") || "Runs per copy",
+            copies: modalEl.getAttribute("data-label-copies") || "Copies requested",
+            isk: modalEl.getAttribute("data-label-isk") || "ISK"
+        };
+
+        var structureEl = modalEl.querySelector("[data-cost-bd-structure]");
+        var contextEl = modalEl.querySelector("[data-cost-bd-context]");
+        var rowsEl = modalEl.querySelector("[data-cost-bd-rows]");
+
+        function toNumber(value) {
+            if (value === null || value === undefined || value === "") {
+                return 0;
+            }
+            var n = Number(value);
+            return isFinite(n) ? n : 0;
+        }
+
+        function formatIsk(value) {
+            var n = Math.round(toNumber(value));
+            try {
+                return n.toLocaleString(undefined, {
+                    minimumFractionDigits: 0,
+                    maximumFractionDigits: 0
+                }) + " " + labels.isk;
+            } catch (err) {
+                return String(n) + " " + labels.isk;
+            }
+        }
+
+        function formatPercent(value, digits) {
+            var d = (typeof digits === "number") ? digits : 2;
+            var n = toNumber(value);
+            try {
+                return n.toLocaleString(undefined, {
+                    minimumFractionDigits: d,
+                    maximumFractionDigits: d
+                }) + " %";
+            } catch (err) {
+                return n.toFixed(d) + " %";
+            }
+        }
+
+        function formatInteger(value) {
+            var n = Math.trunc(toNumber(value));
+            try {
+                return n.toLocaleString();
+            } catch (err) {
+                return String(n);
+            }
+        }
+
+        function escapeHtml(value) {
+            return String(value === null || value === undefined ? "" : value)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#39;");
+        }
+
+        function row(label, value, modifier) {
+            var cls = modifier ? ' class="' + escapeHtml(modifier) + '"' : "";
+            return "<tr" + cls + "><td>" + escapeHtml(label) + "</td><td>" + escapeHtml(value) + "</td></tr>";
+        }
+
+        function headerRow(label) {
+            return '<tr class="fwp-cost-breakdown-table__header"><td colspan="2">'
+                + escapeHtml(label) + "</td></tr>";
+        }
+
+        function grandRow(label, value) {
+            return '<tr class="fwp-cost-breakdown-table__grand"><td>'
+                + escapeHtml(label) + "</td><td>" + escapeHtml(value) + "</td></tr>";
+        }
+
+        function readPayload(payloadId) {
+            var node = document.getElementById(payloadId);
+            if (!node) {
+                return null;
+            }
+            try {
+                return JSON.parse(node.textContent || "null");
+            } catch (err) {
+                return null;
+            }
+        }
+
+        function render(payload) {
+            if (!payload) {
+                if (structureEl) structureEl.textContent = "";
+                if (contextEl) contextEl.textContent = "";
+                if (rowsEl) rowsEl.innerHTML = "";
+                return;
+            }
+
+            var structureLine = payload.structure_name || "";
+            if (payload.solar_system_name) {
+                structureLine += structureLine ? " · " + payload.solar_system_name : payload.solar_system_name;
+            }
+            if (structureEl) {
+                structureEl.textContent = structureLine;
+            }
+            if (contextEl) {
+                var copies = formatInteger(payload.copies_requested);
+                var runs = formatInteger(payload.runs_requested);
+                contextEl.textContent = labels.copies + ": " + copies + " · " + labels.runs + ": " + runs;
+            }
+
+            if (!rowsEl) {
+                return;
+            }
+
+            var html = "";
+
+            // Inputs
+            html += row(labels.eiv, formatIsk(payload.estimated_item_value));
+            html += row(
+                labels.jcb + " (" + formatPercent(payload.jcb_percent, 2) + ")",
+                formatIsk(payload.job_cost_base)
+            );
+
+            // ── Job gross cost section ────────────────────────────
+            html += headerRow(labels.grossSection || "JOB GROSS COST");
+            html += row(
+                labels.sci + " (" + formatPercent(payload.system_cost_index_percent, 2) + ")",
+                formatIsk(payload.base_job_cost)
+            );
+            if (toNumber(payload.structure_role_bonus_percent) > 0) {
+                html += row(
+                    labels.structureBonus,
+                    "−" + formatPercent(payload.structure_role_bonus_percent, 2),
+                    "fwp-cost-breakdown-table__success"
+                );
+            }
+            if (toNumber(payload.rig_bonus_percent) > 0) {
+                html += row(
+                    labels.rigBonus,
+                    "−" + formatPercent(payload.rig_bonus_percent, 2),
+                    "fwp-cost-breakdown-table__success"
+                );
+            }
+            html += row(
+                labels.gross,
+                formatIsk(payload.adjusted_job_cost),
+                "fwp-cost-breakdown-table__bold"
+            );
+
+            // ── Taxes section ─────────────────────────────────────
+            html += headerRow(labels.taxesSection || "TAXES");
+            html += row(
+                labels.facilityTax + " (" + formatPercent(payload.facility_tax_percent, 2) + ")",
+                formatIsk(payload.facility_tax),
+                "fwp-cost-breakdown-table__danger"
+            );
+            if (payload.is_alpha_clone && toNumber(payload.alpha_clone_tax_percent) > 0) {
+                html += row(
+                    labels.alphaTax + " (" + formatPercent(payload.alpha_clone_tax_percent, 2) + ")",
+                    formatIsk(payload.alpha_clone_tax),
+                    "fwp-cost-breakdown-table__danger"
+                );
+            }
+            html += row(
+                labels.scc + " (" + formatPercent(payload.scc_surcharge_percent, 2) + ")",
+                formatIsk(payload.scc_surcharge),
+                "fwp-cost-breakdown-table__danger"
+            );
+            html += row(
+                labels.totalTaxes,
+                formatIsk(payload.total_taxes),
+                "fwp-cost-breakdown-table__bold"
+            );
+
+            // ── Per-copy info (secondary) + Grand total ───────────
+            if (toNumber(payload.copies_requested) > 1) {
+                html += row(
+                    labels.totalJob,
+                    formatIsk(payload.per_copy_installation_cost),
+                    "fwp-cost-breakdown-table__muted"
+                );
+            }
+            html += grandRow(
+                labels.grandTotal,
+                formatIsk(payload.total_installation_cost)
+            );
+            rowsEl.innerHTML = html;
+        }
+
+        Array.prototype.forEach.call(triggers, function (trigger) {
+            trigger.addEventListener("click", function (event) {
+                event.preventDefault();
+                var payloadId = trigger.getAttribute("data-copy-cost-breakdown-id");
+                var prefix = trigger.getAttribute("data-copy-cost-breakdown-prefix");
+                var requestId = trigger.getAttribute("data-request-id");
+                var producerIsAlpha = false;
+                if (requestId) {
+                    var producerSelect = document.querySelector(
+                        '[data-copy-producer-select][data-request-id="' + requestId + '"]'
+                    );
+                    if (producerSelect) {
+                        var producerOption = producerSelect.options[producerSelect.selectedIndex];
+                        if (producerOption) {
+                            producerIsAlpha = producerOption.getAttribute("data-is-alpha-clone") === "1";
+                        }
+                    }
+                }
+                if (prefix && requestId) {
+                    var select = document.querySelector(
+                        '[data-copy-structure-select][data-request-id="' + requestId + '"]'
+                    );
+                    if (select && select.value) {
+                        var perStructureId = prefix + select.value;
+                        if (document.getElementById(perStructureId)) {
+                            payloadId = perStructureId;
+                        }
+                    }
+                }
+                if (!payloadId) {
+                    return;
+                }
+                var payload = readPayload(payloadId);
+                if (payload) {
+                    var serverAlpha = !!payload.is_alpha_clone;
+                    if (producerIsAlpha !== serverAlpha) {
+                        var alphaTaxAmount = toNumber(payload.alpha_clone_tax);
+                        var copiesCount = Math.max(
+                            1,
+                            toNumber(payload.copies_requested) || 1
+                        );
+                        var alphaTaxPerCopy = alphaTaxAmount / copiesCount;
+                        var baseTotal = toNumber(payload.total_installation_cost);
+                        var baseTaxes = toNumber(payload.total_taxes);
+                        var basePerCopy = toNumber(payload.per_copy_installation_cost);
+                        // Reverse server‐side alpha contribution if needed.
+                        if (serverAlpha) {
+                            baseTotal -= alphaTaxAmount;
+                            baseTaxes -= alphaTaxAmount;
+                            basePerCopy = Math.max(0, basePerCopy - alphaTaxPerCopy);
+                        }
+                        if (producerIsAlpha) {
+                            payload.is_alpha_clone = true;
+                            payload.total_installation_cost = baseTotal + alphaTaxAmount;
+                            payload.total_taxes = baseTaxes + alphaTaxAmount;
+                            payload.per_copy_installation_cost =
+                                basePerCopy + alphaTaxPerCopy;
+                        } else {
+                            payload.is_alpha_clone = false;
+                            payload.total_installation_cost = baseTotal;
+                            payload.total_taxes = baseTaxes;
+                            payload.per_copy_installation_cost = basePerCopy;
+                        }
+                    }
+                }
+                render(payload);
+                modal.show();
+            });
+        });
+    }
+
     document.addEventListener("DOMContentLoaded", function () {
         initFulfillChatHeightSync();
         initCopyButtons();
@@ -1171,5 +1488,6 @@
         initConditionalToggles();
         initFulfillWorkspace();
         initCopyStructureSelectors();
+        initCopyCostBreakdownModal();
     });
 })();

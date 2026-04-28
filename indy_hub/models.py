@@ -474,6 +474,29 @@ class IndustrySkillSnapshot(models.Model):
     def __str__(self) -> str:
         return f"Skills for {self.character_id}"
 
+    @property
+    def is_alpha_clone(self) -> bool:
+        # Alpha clone detection: when an account is downgraded from omega to
+        # alpha, EVE keeps the trained skill level intact but caps the active
+        # level (often at 5 for non-alpha-eligible skills). Therefore any
+        # `trained > active` mismatch is a reliable signal that the character
+        # is currently an alpha clone. Omega characters always have
+        # `trained == active` for every skill.
+        levels = self.skill_levels or {}
+        if not isinstance(levels, dict):
+            return False
+        for entry in levels.values():
+            if not isinstance(entry, dict):
+                continue
+            try:
+                active = int(entry.get("active") or 0)
+                trained = int(entry.get("trained") or 0)
+            except (TypeError, ValueError):
+                continue
+            if trained > active:
+                return True
+        return False
+
     def get_skill_level(self, skill_id: int, *, trained: bool = False) -> int:
         from .services.industry_skills import get_snapshot_skill_level
 

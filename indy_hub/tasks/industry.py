@@ -2339,6 +2339,13 @@ def update_character_skill_snapshot_for_character(
             force_refresh=table_empty or snapshot is None,
         )
     except ESIUnmodifiedError:
+        # ESI confirmed nothing changed since our last successful fetch (304
+        # Not Modified via ETag). The cached `skill_levels` are still accurate
+        # so just bump `last_updated` to reflect the freshness check, otherwise
+        # the snapshot stays marked stale forever and we keep re-hitting ESI
+        # for nothing every hour.
+        if snapshot is not None:
+            snapshot.save(update_fields=["last_updated"])
         return {"status": "skipped", "reason": "not_modified"}
     except ESIRateLimitError as exc:
         delay = get_retry_after_seconds(exc)
