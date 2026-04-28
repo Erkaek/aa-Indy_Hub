@@ -3936,22 +3936,15 @@ function initializeFinancialCalculations() {
             const priceInputs = document.querySelectorAll('.real-price[data-type-id], .sale-price-unit[data-type-id]');
             priceInputs.forEach(input => {
                 const tid = input.getAttribute('data-type-id');
-                if (input.classList.contains('sale-price-unit')) {
-                    const fuzzInp = document.querySelector(`.fuzzwork-price[data-type-id="${tid}"]`);
-                    input.value = (fuzzInp ? (fuzzInp.value || '0') : '0');
-                    updatePriceInputManualState(input, false);
+                const priceType = input.classList.contains('sale-price-unit') ? 'sale' : 'real';
 
-                    if (window.SimulationAPI && typeof window.SimulationAPI.setPrice === 'function' && tid) {
-                        window.SimulationAPI.setPrice(tid, 'sale', parseFloat(input.value) || 0);
-                    }
-                } else {
-                    // Real price resets to 0; calculations fall back to fuzzwork.
-                    input.value = '0';
-                    updatePriceInputManualState(input, false);
+                // Both Override columns reset to 0 / empty; calculations fall
+                // back to the Reference (fuzzwork) price via SimulationAPI.
+                input.value = '0';
+                updatePriceInputManualState(input, false);
 
-                    if (window.SimulationAPI && typeof window.SimulationAPI.setPrice === 'function' && tid) {
-                        window.SimulationAPI.setPrice(tid, 'real', 0);
-                    }
+                if (window.SimulationAPI && typeof window.SimulationAPI.setPrice === 'function' && tid) {
+                    window.SimulationAPI.setPrice(tid, priceType, 0);
                 }
             });
 
@@ -5299,7 +5292,24 @@ function recalcFinancials() {
         }
 
         if (revInput) {
-            const rev = (parseFloat(revInput.value) || 0) * qty;
+            const typeId = Number(tr.getAttribute('data-type-id')) || 0;
+            let unitRev = parseFloat(revInput.value) || 0;
+
+            // If the Override is left empty (0), fall back to the Reference
+            // (fuzzwork) price exactly like the .real-price column does for
+            // material rows. This keeps revenue calculations correct without
+            // the UI having to auto-fill the Override input.
+            if (unitRev <= 0) {
+                if (window.SimulationAPI && typeof window.SimulationAPI.getPrice === 'function' && typeId) {
+                    const info = window.SimulationAPI.getPrice(typeId, 'sale');
+                    unitRev = info && typeof info.value === 'number' ? info.value : 0;
+                } else {
+                    const fuzzInp = tr.querySelector('.fuzzwork-price');
+                    unitRev = parseFloat(fuzzInp ? fuzzInp.value : 0) || 0;
+                }
+            }
+
+            const rev = unitRev * qty;
             const totalRevenueEl = tr.querySelector('.total-revenue');
             if (totalRevenueEl) {
                 totalRevenueEl.textContent = formatPrice(rev);
@@ -5711,55 +5721,45 @@ function sortFuzzworkColumnKeys(keys) {
  * @param {Object} prices - Price data from API
  */
 function populatePrices(allInputs, prices) {
-    // Populate all material and sale price inputs
+    // Populate the read-only Reference (fuzzwork-price) column and stash
+    // every fetched price in the SimulationAPI under the 'fuzzwork' slot.
+    //
+    // The editable Override columns (.real-price for inputs, .sale-price-unit
+    // for outputs) are intentionally *not* auto-filled here. They must stay
+    // at their initial value (0 / empty) until the user explicitly types a
+    // value, otherwise the UI would falsely advertise a manual override on
+    // every output row. recalcFinancials() falls back to the SimulationAPI
+    // 'fuzzwork' slot when the Override input is left at 0, so calculations
+    // remain correct without polluting the user's data.
     allInputs.forEach(inp => {
         const tid = inp.getAttribute('data-type-id');
         const raw = prices[tid] ?? prices[String(parseInt(tid, 10))];
         let price = raw != null ? parseFloat(raw) : NaN;
         if (isNaN(price)) price = 0;
 
-        inp.value = price.toFixed(2);
+        const isFuzzworkInput = inp.classList.contains('fuzzwork-price');
+
+        if (isFuzzworkInput) {
+            inp.value = price.toFixed(2);
+        }
 
         if (window.SimulationAPI && typeof window.SimulationAPI.setPrice === 'function') {
             window.SimulationAPI.setPrice(tid, 'fuzzwork', price);
         }
 
-        if (price <= 0) {
-            inp.classList.add('bg-warning', 'border-warning');
-            inp.setAttribute('title', __('Price not available (Fuzzwork)'));
-        } else {
-            inp.classList.remove('bg-warning', 'border-warning');
-            inp.removeAttribute('title');
+        // Only flag the visible Reference cell when its price is missing.
+        // Override cells must remain neutral so the absence of a manual
+        // entry is not styled as a warning.
+        if (isFuzzworkInput) {
+            if (price <= 0) {
+                inp.classList.add('bg-warning', 'border-warning');
+                inp.setAttribute('title', __('Price not available (Fuzzwork)'));
+            } else {
+                inp.classList.remove('bg-warning', 'border-warning');
+                inp.removeAttribute('title');
+            }
         }
     });
-
-    // Override final product sale price using its true type_id
-    if (CRAFT_BP.productTypeId) {
-        const finalKey = String(CRAFT_BP.productTypeId);
-        const rawFinal = prices[finalKey] ?? prices[String(parseInt(finalKey, 10))];
-        let finalPrice = rawFinal != null ? parseFloat(rawFinal) : NaN;
-        if (isNaN(finalPrice)) finalPrice = 0;
-
-        const saleSelector = `.sale-price-unit[data-type-id="${finalKey}"]`;
-        const saleInput = document.querySelector(saleSelector);
-        if (saleInput) {
-            if (saleInput.dataset.userModified !== 'true') {
-                saleInput.value = finalPrice.toFixed(2);
-                updatePriceInputManualState(saleInput, false);
-            }
-            if (finalPrice <= 0) {
-                saleInput.classList.add('bg-warning', 'border-warning');
-                saleInput.setAttribute('title', __('Price not available (Fuzzwork)'));
-            } else {
-                saleInput.classList.remove('bg-warning', 'border-warning');
-                saleInput.removeAttribute('title');
-            }
-        }
-
-        if (window.SimulationAPI && typeof window.SimulationAPI.setPrice === 'function') {
-            window.SimulationAPI.setPrice(CRAFT_BP.productTypeId, 'sale', finalPrice);
-        }
-    }
 }
 
 function updateMaterialsTabFromState() {

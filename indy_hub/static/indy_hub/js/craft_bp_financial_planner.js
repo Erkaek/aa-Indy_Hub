@@ -303,13 +303,14 @@ function resetFinancialRowManualOverride(row) {
     const typeId = row.getAttribute('data-type-id');
     const saleInput = row.querySelector('.sale-price-unit');
     const realInput = row.querySelector('.real-price');
-    const fuzzInput = row.querySelector('.fuzzwork-price');
 
+    // Both Override columns reset to 0 / empty; calculations fall back to the
+    // Reference (fuzzwork) price via SimulationAPI / recalcFinancials.
     if (saleInput) {
-        saleInput.value = fuzzInput ? (fuzzInput.value || '0') : '0';
+        saleInput.value = '0';
         updatePriceInputManualState(saleInput, false);
         if (window.SimulationAPI && typeof window.SimulationAPI.setPrice === 'function' && typeId) {
-            window.SimulationAPI.setPrice(typeId, 'sale', parseFloat(saleInput.value) || 0);
+            window.SimulationAPI.setPrice(typeId, 'sale', 0);
         }
     }
 
