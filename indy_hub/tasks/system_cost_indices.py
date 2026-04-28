@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+# Standard Library
+import uuid
+
 # Third Party
 from celery import shared_task
 
@@ -32,7 +35,11 @@ def sync_industry_system_cost_indices(
     force_refresh: bool = True,
 ) -> dict[str, int | str]:
     """Refresh public industry system cost indices from ESI."""
-    if not cache.add(_SYNC_LOCK_KEY, 1, _SYNC_LOCK_TTL):
+    # Use a unique token as the lock value so that, if our run exceeds the
+    # TTL and a second run later acquires the lock, our `finally` block
+    # below does not delete *that* second run's lock.
+    lock_token = uuid.uuid4().hex
+    if not cache.add(_SYNC_LOCK_KEY, lock_token, _SYNC_LOCK_TTL):
         logger.info(
             "Skipping sync_industry_system_cost_indices: another run is in progress"
         )
@@ -61,4 +68,8 @@ def sync_industry_system_cost_indices(
         )
         return {"status": "ok", **summary}
     finally:
-        cache.delete(_SYNC_LOCK_KEY)
+        # Only release the lock if it still belongs to us; if the TTL
+        # elapsed and another worker grabbed it we must leave their lock
+        # intact.
+        if cache.get(_SYNC_LOCK_KEY) == lock_token:
+            cache.delete(_SYNC_LOCK_KEY)

@@ -3916,9 +3916,7 @@ def bp_copy_fulfill_requests(request):
                     total_breakdown = calculate_installation_cost(
                         structure=cached_structure,
                         activity_id=IndustryActivityMixin.ACTIVITY_COPYING,
-                        estimated_item_value=(
-                            breakdown.estimated_item_value * copies_decimal
-                        ),
+                        estimated_item_value=(estimated_item_value * copies_decimal),
                         system_cost_index=visible_copying_system_indices.get(
                             int(cached_structure.solar_system_id or 0)
                         ),

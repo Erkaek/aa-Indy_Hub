@@ -1447,6 +1447,11 @@
                     var serverAlpha = !!payload.is_alpha_clone;
                     if (producerIsAlpha !== serverAlpha) {
                         var alphaTaxAmount = toNumber(payload.alpha_clone_tax);
+                        var copiesCount = Math.max(
+                            1,
+                            toNumber(payload.copies_requested) || 1
+                        );
+                        var alphaTaxPerCopy = alphaTaxAmount / copiesCount;
                         var baseTotal = toNumber(payload.total_installation_cost);
                         var baseTaxes = toNumber(payload.total_taxes);
                         var basePerCopy = toNumber(payload.per_copy_installation_cost);
@@ -1454,16 +1459,19 @@
                         if (serverAlpha) {
                             baseTotal -= alphaTaxAmount;
                             baseTaxes -= alphaTaxAmount;
-                            basePerCopy = Math.max(0, basePerCopy);
+                            basePerCopy = Math.max(0, basePerCopy - alphaTaxPerCopy);
                         }
                         if (producerIsAlpha) {
                             payload.is_alpha_clone = true;
                             payload.total_installation_cost = baseTotal + alphaTaxAmount;
                             payload.total_taxes = baseTaxes + alphaTaxAmount;
+                            payload.per_copy_installation_cost =
+                                basePerCopy + alphaTaxPerCopy;
                         } else {
                             payload.is_alpha_clone = false;
                             payload.total_installation_cost = baseTotal;
                             payload.total_taxes = baseTaxes;
+                            payload.per_copy_installation_cost = basePerCopy;
                         }
                     }
                 }
