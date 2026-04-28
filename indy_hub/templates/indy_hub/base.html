@@ -89,7 +89,7 @@
             <div class="nav-item dropdown">
                 <a class="nav-link {{ blueprints_nav_class }} dropdown-toggle" href="#" id="blueprintsDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                     <i class="fa-solid fa-copy me-2"></i>
-                    <span class="d-none d-lg-inline">{{ blueprints_tab_title }}</span>
+                    <span class="nav-link-label">{{ blueprints_tab_title }}</span>
                 </a>
                 <ul class="dropdown-menu" aria-labelledby="blueprintsDropdown">
                     <li><a class="dropdown-item" href="{% url 'indy_hub:personnal_bp_list' %}">
@@ -112,7 +112,7 @@
             <div class="nav-item dropdown">
                 <a class="nav-link {{ blueprint_sharing_nav_class }} dropdown-toggle" href="#" id="blueprintSharingDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                     <i class="fa-solid fa-share-nodes me-2"></i>
-                    <span class="d-none d-lg-inline">{{ blueprint_sharing_tab_title }}</span>
+                    <span class="nav-link-label">{{ blueprint_sharing_tab_title }}</span>
                     {% if blueprint_sharing_nav_badge_count %}
                         <span class="badge rounded-pill indy-hub-nav-badge bg-warning-subtle text-warning ms-1" data-nav-badge="blueprint-sharing">{{ blueprint_sharing_nav_badge_count }}</span>
                     {% endif %}
@@ -147,7 +147,7 @@
             <div class="nav-item dropdown">
                 <a class="nav-link {{ industry_nav_class }} dropdown-toggle" href="#" id="industryDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                     <i class="fa-solid fa-industry me-2"></i>
-                    <span class="d-none d-lg-inline">{{ industry_tab_title }}</span>
+                    <span class="nav-link-label">{{ industry_tab_title }}</span>
                 </a>
                 <ul class="dropdown-menu" aria-labelledby="industryDropdown">
                     <li><a class="dropdown-item" href="{% url 'indy_hub:personnal_job_list' %}">
