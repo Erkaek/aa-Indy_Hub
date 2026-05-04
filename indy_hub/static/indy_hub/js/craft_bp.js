@@ -5906,20 +5906,58 @@ function initializeStockManagementInteractions() {
     const rowsBody = document.getElementById('stockManagementRows');
     const resetButton = document.getElementById('stockResetAllocationsBtn');
     if (rowsBody && rowsBody.dataset.stockBound !== 'true') {
+        const readStockInputValue = (input) => {
+            const typeId = Number(input.getAttribute('data-type-id')) || 0;
+            const maxQty = Math.max(0, Math.floor(Number(input.getAttribute('max') || 0)));
+            const rawValue = String(input.value || '').trim();
+            if (rawValue === '') {
+                return { typeId, maxQty, nextValue: null };
+            }
+            const nextValue = Math.min(maxQty, Math.max(0, Math.floor(Number(rawValue) || 0)));
+            return { typeId, maxQty, nextValue };
+        };
+
         const handleStockInput = (event) => {
             const input = event.target.closest('.craft-stock-allocation-input[data-type-id]');
             if (!input) {
                 return;
             }
-            const typeId = Number(input.getAttribute('data-type-id')) || 0;
-            const maxQty = Math.max(0, Math.floor(Number(input.getAttribute('max') || 0)));
-            const nextValue = Math.min(maxQty, Math.max(0, Math.floor(Number(input.value) || 0)));
-            input.value = String(nextValue);
-            setCraftStockAllocation(typeId, nextValue);
+
+            const { maxQty, nextValue } = readStockInputValue(input);
+            if (nextValue !== null && nextValue >= maxQty && Number(input.value) > maxQty) {
+                input.value = String(maxQty);
+            }
+        };
+
+        const handleStockChange = (event) => {
+            const input = event.target.closest('.craft-stock-allocation-input[data-type-id]');
+            if (!input) {
+                return;
+            }
+
+            const { typeId, nextValue } = readStockInputValue(input);
+            if (!typeId) {
+                return;
+            }
+            const normalizedValue = nextValue === null ? 0 : nextValue;
+            input.value = String(normalizedValue);
+            setCraftStockAllocation(typeId, normalizedValue);
+        };
+
+        const handleStockKeydown = (event) => {
+            if (event.key !== 'Enter') {
+                return;
+            }
+            const input = event.target.closest('.craft-stock-allocation-input[data-type-id]');
+            if (!input) {
+                return;
+            }
+            input.blur();
         };
 
         rowsBody.addEventListener('input', handleStockInput);
-        rowsBody.addEventListener('change', handleStockInput);
+        rowsBody.addEventListener('change', handleStockChange);
+        rowsBody.addEventListener('keydown', handleStockKeydown);
         rowsBody.dataset.stockBound = 'true';
     }
 
@@ -5985,7 +6023,7 @@ function renderCraftStockManagement() {
                 <td class="text-end">${formatInteger(stockSummary.requiredQty)}</td>
                 <td class="text-end">${formatInteger(stockSummary.availableQty)}</td>
                 <td class="text-end">
-                    <input type="number" min="0" max="${formatInteger(maxAllocatable)}" step="1" class="form-control form-control-sm text-end craft-stock-allocation-input" data-type-id="${item.typeId}" value="${formatInteger(stockSummary.allocatedQty)}" ${maxAllocatable > 0 ? '' : 'disabled'}>
+                    <input type="number" min="0" max="${maxAllocatable}" step="1" class="form-control form-control-sm text-end craft-stock-allocation-input" data-type-id="${item.typeId}" value="${stockSummary.allocatedQty}" ${maxAllocatable > 0 ? '' : 'disabled'}>
                 </td>
                 <td class="text-end">${formatInteger(stockSummary.remainingQty)}</td>
                 <td class="text-end">${formatPrice(stockValue)}</td>
