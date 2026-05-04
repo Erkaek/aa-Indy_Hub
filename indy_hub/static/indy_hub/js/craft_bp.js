@@ -9,6 +9,8 @@ const CRAFT_BP = {
     productTypeId: null,
     adjustedPriceCache: new Map(),
     adjustedPriceRequests: new Map(),
+    stockAllocationCommitQueue: new Map(),
+    stockAllocationCommitScheduled: false,
 };
 
 const __ = (typeof window !== 'undefined' && typeof window.gettext === 'function')
@@ -1753,11 +1755,17 @@ function getCraftStockAllocationSummary(typeId, requiredQty) {
 function setCraftStockAllocation(typeId, quantity, options = {}) {
     const normalizedTypeId = String(Number(typeId) || 0);
     if (normalizedTypeId === '0') {
-        return;
+        return false;
     }
 
     const normalizedQuantity = Math.max(0, Math.floor(Number(quantity) || 0));
-    const nextAllocations = { ...getCraftStockAllocations() };
+    const currentAllocations = getCraftStockAllocations();
+    const currentQuantity = Math.max(0, Math.floor(Number(currentAllocations[normalizedTypeId] || 0)));
+    if (currentQuantity === normalizedQuantity) {
+        return false;
+    }
+
+    const nextAllocations = { ...currentAllocations };
     if (normalizedQuantity > 0) {
         nextAllocations[normalizedTypeId] = normalizedQuantity;
     } else {
@@ -1766,23 +1774,67 @@ function setCraftStockAllocation(typeId, quantity, options = {}) {
     window.craftBPFlags.stockAllocations = normalizeCraftStockAllocations(nextAllocations);
 
     if (options.refresh !== false) {
-        if (typeof updateFinancialTabFromState === 'function') {
-            updateFinancialTabFromState();
-        }
-        if (typeof updateStockManagementTabFromState === 'function') {
-            updateStockManagementTabFromState(true);
-        }
-        if (typeof updateNeededTabFromState === 'function') {
-            updateNeededTabFromState(true);
-        }
-        if (typeof recalcFinancials === 'function') {
-            recalcFinancials();
-        }
+        refreshCraftStockAllocationSurfaces();
     }
 
     if (options.persist !== false) {
         persistCraftPageSessionState();
     }
+
+    return true;
+}
+
+function refreshCraftStockAllocationSurfaces() {
+    if (typeof updateFinancialTabFromState === 'function') {
+        updateFinancialTabFromState();
+    }
+    if (typeof updateStockManagementTabFromState === 'function') {
+        updateStockManagementTabFromState(true);
+    }
+    if (typeof updateNeededTabFromState === 'function') {
+        updateNeededTabFromState(true);
+    }
+    if (typeof recalcFinancials === 'function') {
+        recalcFinancials();
+    }
+}
+
+function scheduleCraftStockAllocationCommit(typeId, quantity) {
+    const normalizedTypeId = String(Number(typeId) || 0);
+    if (normalizedTypeId === '0') {
+        return;
+    }
+
+    CRAFT_BP.stockAllocationCommitQueue.set(
+        normalizedTypeId,
+        Math.max(0, Math.floor(Number(quantity) || 0))
+    );
+
+    if (CRAFT_BP.stockAllocationCommitScheduled) {
+        return;
+    }
+
+    CRAFT_BP.stockAllocationCommitScheduled = true;
+    const schedule = (typeof window.requestAnimationFrame === 'function')
+        ? window.requestAnimationFrame.bind(window)
+        : (callback) => window.setTimeout(callback, 0);
+
+    schedule(() => {
+        const queuedCommits = Array.from(CRAFT_BP.stockAllocationCommitQueue.entries());
+        CRAFT_BP.stockAllocationCommitQueue.clear();
+        CRAFT_BP.stockAllocationCommitScheduled = false;
+
+        const changed = queuedCommits.reduce((hasChanged, [queuedTypeId, queuedQuantity]) => (
+            setCraftStockAllocation(queuedTypeId, queuedQuantity, { refresh: false, persist: false }) || hasChanged
+        ), false);
+
+        if (!changed) {
+            return;
+        }
+
+        refreshCraftStockAllocationSurfaces();
+        persistCraftPageSessionState();
+    });
 }
 
 function getCraftSourceRequirementRows() {
@@ -5941,7 +5993,7 @@ function initializeStockManagementInteractions() {
             }
             const normalizedValue = nextValue === null ? 0 : nextValue;
             input.value = String(normalizedValue);
-            setCraftStockAllocation(typeId, normalizedValue);
+            scheduleCraftStockAllocationCommit(typeId, normalizedValue);
         };
 
         const handleStockKeydown = (event) => {
@@ -5952,7 +6004,15 @@ function initializeStockManagementInteractions() {
             if (!input) {
                 return;
             }
-            input.blur();
+
+            const { typeId, nextValue } = readStockInputValue(input);
+            if (!typeId) {
+                return;
+            }
+            event.preventDefault();
+            const normalizedValue = nextValue === null ? 0 : nextValue;
+            input.value = String(normalizedValue);
+            scheduleCraftStockAllocationCommit(typeId, normalizedValue);
         };
 
         rowsBody.addEventListener('input', handleStockInput);
@@ -5964,13 +6024,9 @@ function initializeStockManagementInteractions() {
     if (resetButton && resetButton.dataset.stockBound !== 'true') {
         resetButton.addEventListener('click', () => {
             window.craftBPFlags = window.craftBPFlags || {};
+            CRAFT_BP.stockAllocationCommitQueue.clear();
             window.craftBPFlags.stockAllocations = {};
-            if (typeof updateFinancialTabFromState === 'function') {
-                updateFinancialTabFromState();
-            }
-            renderCraftStockManagement();
-            computeNeededPurchases();
-            recalcFinancials();
+            refreshCraftStockAllocationSurfaces();
             persistCraftPageSessionState();
         });
         resetButton.dataset.stockBound = 'true';
