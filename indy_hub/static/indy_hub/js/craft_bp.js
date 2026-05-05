@@ -11,6 +11,8 @@ const CRAFT_BP = {
     adjustedPriceRequests: new Map(),
     stockAllocationCommitQueue: new Map(),
     stockAllocationCommitScheduled: false,
+    stockAllocationRefreshScheduled: false,
+    stockAllocationRefreshPending: false,
 };
 
 const __ = (typeof window !== 'undefined' && typeof window.gettext === 'function')
@@ -1784,19 +1786,85 @@ function setCraftStockAllocation(typeId, quantity, options = {}) {
     return true;
 }
 
-function refreshCraftStockAllocationSurfaces() {
-    if (typeof updateFinancialTabFromState === 'function') {
+function updateFinancialStockRowsFromState() {
+    const tableBody = document.getElementById('financialItemsBody');
+    if (!tableBody || typeof applyFinancialRowStockState !== 'function') {
+        return false;
+    }
+
+    const rowsByTypeId = new Map();
+    tableBody.querySelectorAll('tr[data-type-id]').forEach((row) => {
+        if (row.getAttribute('data-final-output') === 'true') {
+            return;
+        }
+        const typeId = Number(row.getAttribute('data-type-id')) || 0;
+        if (typeId > 0) {
+            rowsByTypeId.set(typeId, row);
+        }
+    });
+
+    if (rowsByTypeId.size === 0) {
+        return false;
+    }
+
+    getCraftSourceRequirementRows().forEach((item) => {
+        const row = rowsByTypeId.get(Number(item.typeId) || 0);
+        if (row) {
+            applyFinancialRowStockState(row, item);
+        }
+    });
+    return true;
+}
+
+function refreshCraftStockAllocationSurfaces(options = {}) {
+    const force = options.force !== false;
+    const fullFinancialRefresh = options.fullFinancialRefresh !== false;
+    if (fullFinancialRefresh && typeof updateFinancialTabFromState === 'function') {
         updateFinancialTabFromState();
+    } else {
+        updateFinancialStockRowsFromState();
     }
     if (typeof updateStockManagementTabFromState === 'function') {
-        updateStockManagementTabFromState(true);
+        updateStockManagementTabFromState(force);
     }
     if (typeof updateNeededTabFromState === 'function') {
-        updateNeededTabFromState(true);
+        updateNeededTabFromState(force);
     }
     if (typeof recalcFinancials === 'function') {
         recalcFinancials();
     }
+}
+
+function scheduleCraftStockAllocationSurfaceRefresh() {
+    if (CRAFT_BP.stockAllocationRefreshScheduled) {
+        CRAFT_BP.stockAllocationRefreshPending = true;
+        return;
+    }
+    CRAFT_BP.stockAllocationRefreshScheduled = true;
+
+    const tasks = [
+        () => updateFinancialStockRowsFromState(),
+        () => updateStockManagementTabFromState(false),
+        () => updateNeededTabFromState(false),
+        () => recalcFinancials(),
+        () => persistCraftPageSessionState(),
+    ];
+
+    const runNextTask = () => {
+        const task = tasks.shift();
+        if (!task) {
+            CRAFT_BP.stockAllocationRefreshScheduled = false;
+            if (CRAFT_BP.stockAllocationRefreshPending) {
+                CRAFT_BP.stockAllocationRefreshPending = false;
+                scheduleCraftStockAllocationSurfaceRefresh();
+            }
+            return;
+        }
+        task();
+        window.setTimeout(runNextTask, 0);
+    };
+
+    window.setTimeout(runNextTask, 0);
 }
 
 function scheduleCraftStockAllocationCommit(typeId, quantity) {
@@ -1815,11 +1883,7 @@ function scheduleCraftStockAllocationCommit(typeId, quantity) {
     }
 
     CRAFT_BP.stockAllocationCommitScheduled = true;
-    const schedule = (typeof window.requestAnimationFrame === 'function')
-        ? window.requestAnimationFrame.bind(window)
-        : (callback) => window.setTimeout(callback, 0);
-
-    schedule(() => {
+    window.setTimeout(() => {
         const queuedCommits = Array.from(CRAFT_BP.stockAllocationCommitQueue.entries());
         CRAFT_BP.stockAllocationCommitQueue.clear();
         CRAFT_BP.stockAllocationCommitScheduled = false;
@@ -1832,9 +1896,8 @@ function scheduleCraftStockAllocationCommit(typeId, quantity) {
             return;
         }
 
-        refreshCraftStockAllocationSurfaces();
-        persistCraftPageSessionState();
-    });
+        scheduleCraftStockAllocationSurfaceRefresh();
+    }, 0);
 }
 
 function getCraftSourceRequirementRows() {
@@ -6025,6 +6088,7 @@ function initializeStockManagementInteractions() {
         resetButton.addEventListener('click', () => {
             window.craftBPFlags = window.craftBPFlags || {};
             CRAFT_BP.stockAllocationCommitQueue.clear();
+            CRAFT_BP.stockAllocationRefreshPending = false;
             window.craftBPFlags.stockAllocations = {};
             refreshCraftStockAllocationSurfaces();
             persistCraftPageSessionState();
