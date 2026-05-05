@@ -9,6 +9,10 @@ const CRAFT_BP = {
     productTypeId: null,
     adjustedPriceCache: new Map(),
     adjustedPriceRequests: new Map(),
+    stockAllocationCommitQueue: new Map(),
+    stockAllocationCommitScheduled: false,
+    stockAllocationRefreshScheduled: false,
+    stockAllocationRefreshPending: false,
 };
 
 const __ = (typeof window !== 'undefined' && typeof window.gettext === 'function')
@@ -1753,11 +1757,17 @@ function getCraftStockAllocationSummary(typeId, requiredQty) {
 function setCraftStockAllocation(typeId, quantity, options = {}) {
     const normalizedTypeId = String(Number(typeId) || 0);
     if (normalizedTypeId === '0') {
-        return;
+        return false;
     }
 
     const normalizedQuantity = Math.max(0, Math.floor(Number(quantity) || 0));
-    const nextAllocations = { ...getCraftStockAllocations() };
+    const currentAllocations = getCraftStockAllocations();
+    const currentQuantity = Math.max(0, Math.floor(Number(currentAllocations[normalizedTypeId] || 0)));
+    if (currentQuantity === normalizedQuantity) {
+        return false;
+    }
+
+    const nextAllocations = { ...currentAllocations };
     if (normalizedQuantity > 0) {
         nextAllocations[normalizedTypeId] = normalizedQuantity;
     } else {
@@ -1766,23 +1776,128 @@ function setCraftStockAllocation(typeId, quantity, options = {}) {
     window.craftBPFlags.stockAllocations = normalizeCraftStockAllocations(nextAllocations);
 
     if (options.refresh !== false) {
-        if (typeof updateFinancialTabFromState === 'function') {
-            updateFinancialTabFromState();
-        }
-        if (typeof updateStockManagementTabFromState === 'function') {
-            updateStockManagementTabFromState(true);
-        }
-        if (typeof updateNeededTabFromState === 'function') {
-            updateNeededTabFromState(true);
-        }
-        if (typeof recalcFinancials === 'function') {
-            recalcFinancials();
-        }
+        refreshCraftStockAllocationSurfaces();
     }
 
     if (options.persist !== false) {
         persistCraftPageSessionState();
     }
+
+    return true;
+}
+
+function updateFinancialStockRowsFromState() {
+    const tableBody = document.getElementById('financialItemsBody');
+    if (!tableBody || typeof applyFinancialRowStockState !== 'function') {
+        return false;
+    }
+
+    const rowsByTypeId = new Map();
+    tableBody.querySelectorAll('tr[data-type-id]').forEach((row) => {
+        if (row.getAttribute('data-final-output') === 'true') {
+            return;
+        }
+        const typeId = Number(row.getAttribute('data-type-id')) || 0;
+        if (typeId > 0) {
+            rowsByTypeId.set(typeId, row);
+        }
+    });
+
+    if (rowsByTypeId.size === 0) {
+        return false;
+    }
+
+    getCraftSourceRequirementRows().forEach((item) => {
+        const row = rowsByTypeId.get(Number(item.typeId) || 0);
+        if (row) {
+            applyFinancialRowStockState(row, item);
+        }
+    });
+    return true;
+}
+
+function refreshCraftStockAllocationSurfaces(options = {}) {
+    const force = options.force !== false;
+    const fullFinancialRefresh = options.fullFinancialRefresh !== false;
+    if (fullFinancialRefresh && typeof updateFinancialTabFromState === 'function') {
+        updateFinancialTabFromState();
+    } else {
+        updateFinancialStockRowsFromState();
+    }
+    if (typeof updateStockManagementTabFromState === 'function') {
+        updateStockManagementTabFromState(force);
+    }
+    if (typeof updateNeededTabFromState === 'function') {
+        updateNeededTabFromState(force);
+    }
+    if (typeof recalcFinancials === 'function') {
+        recalcFinancials();
+    }
+}
+
+function scheduleCraftStockAllocationSurfaceRefresh() {
+    if (CRAFT_BP.stockAllocationRefreshScheduled) {
+        CRAFT_BP.stockAllocationRefreshPending = true;
+        return;
+    }
+    CRAFT_BP.stockAllocationRefreshScheduled = true;
+
+    const tasks = [
+        () => updateFinancialStockRowsFromState(),
+        () => updateStockManagementTabFromState(false),
+        () => updateNeededTabFromState(false),
+        () => recalcFinancials(),
+        () => persistCraftPageSessionState(),
+    ];
+
+    const runNextTask = () => {
+        const task = tasks.shift();
+        if (!task) {
+            CRAFT_BP.stockAllocationRefreshScheduled = false;
+            if (CRAFT_BP.stockAllocationRefreshPending) {
+                CRAFT_BP.stockAllocationRefreshPending = false;
+                scheduleCraftStockAllocationSurfaceRefresh();
+            }
+            return;
+        }
+        task();
+        window.setTimeout(runNextTask, 0);
+    };
+
+    window.setTimeout(runNextTask, 0);
+}
+
+function scheduleCraftStockAllocationCommit(typeId, quantity) {
+    const normalizedTypeId = String(Number(typeId) || 0);
+    if (normalizedTypeId === '0') {
+        return;
+    }
+
+    CRAFT_BP.stockAllocationCommitQueue.set(
+        normalizedTypeId,
+        Math.max(0, Math.floor(Number(quantity) || 0))
+    );
+
+    if (CRAFT_BP.stockAllocationCommitScheduled) {
+        return;
+    }
+
+    CRAFT_BP.stockAllocationCommitScheduled = true;
+    window.setTimeout(() => {
+        const queuedCommits = Array.from(CRAFT_BP.stockAllocationCommitQueue.entries());
+        CRAFT_BP.stockAllocationCommitQueue.clear();
+        CRAFT_BP.stockAllocationCommitScheduled = false;
+
+        const changed = queuedCommits.reduce((hasChanged, [queuedTypeId, queuedQuantity]) => (
+            setCraftStockAllocation(queuedTypeId, queuedQuantity, { refresh: false, persist: false }) || hasChanged
+        ), false);
+
+        if (!changed) {
+            return;
+        }
+
+        scheduleCraftStockAllocationSurfaceRefresh();
+    }, 0);
 }
 
 function getCraftSourceRequirementRows() {
@@ -5906,33 +6021,76 @@ function initializeStockManagementInteractions() {
     const rowsBody = document.getElementById('stockManagementRows');
     const resetButton = document.getElementById('stockResetAllocationsBtn');
     if (rowsBody && rowsBody.dataset.stockBound !== 'true') {
+        const readStockInputValue = (input) => {
+            const typeId = Number(input.getAttribute('data-type-id')) || 0;
+            const maxQty = Math.max(0, Math.floor(Number(input.getAttribute('max') || 0)));
+            const rawValue = String(input.value || '').trim();
+            if (rawValue === '') {
+                return { typeId, maxQty, nextValue: null };
+            }
+            const nextValue = Math.min(maxQty, Math.max(0, Math.floor(Number(rawValue) || 0)));
+            return { typeId, maxQty, nextValue };
+        };
+
         const handleStockInput = (event) => {
             const input = event.target.closest('.craft-stock-allocation-input[data-type-id]');
             if (!input) {
                 return;
             }
-            const typeId = Number(input.getAttribute('data-type-id')) || 0;
-            const maxQty = Math.max(0, Math.floor(Number(input.getAttribute('max') || 0)));
-            const nextValue = Math.min(maxQty, Math.max(0, Math.floor(Number(input.value) || 0)));
-            input.value = String(nextValue);
-            setCraftStockAllocation(typeId, nextValue);
+
+            const { maxQty, nextValue } = readStockInputValue(input);
+            if (nextValue !== null && nextValue >= maxQty && Number(input.value) > maxQty) {
+                input.value = String(maxQty);
+            }
+        };
+
+        const handleStockChange = (event) => {
+            const input = event.target.closest('.craft-stock-allocation-input[data-type-id]');
+            if (!input) {
+                return;
+            }
+
+            const { typeId, nextValue } = readStockInputValue(input);
+            if (!typeId) {
+                return;
+            }
+            const normalizedValue = nextValue === null ? 0 : nextValue;
+            input.value = String(normalizedValue);
+            scheduleCraftStockAllocationCommit(typeId, normalizedValue);
+        };
+
+        const handleStockKeydown = (event) => {
+            if (event.key !== 'Enter') {
+                return;
+            }
+            const input = event.target.closest('.craft-stock-allocation-input[data-type-id]');
+            if (!input) {
+                return;
+            }
+
+            const { typeId, nextValue } = readStockInputValue(input);
+            if (!typeId) {
+                return;
+            }
+            event.preventDefault();
+            const normalizedValue = nextValue === null ? 0 : nextValue;
+            input.value = String(normalizedValue);
+            scheduleCraftStockAllocationCommit(typeId, normalizedValue);
         };
 
         rowsBody.addEventListener('input', handleStockInput);
-        rowsBody.addEventListener('change', handleStockInput);
+        rowsBody.addEventListener('change', handleStockChange);
+        rowsBody.addEventListener('keydown', handleStockKeydown);
         rowsBody.dataset.stockBound = 'true';
     }
 
     if (resetButton && resetButton.dataset.stockBound !== 'true') {
         resetButton.addEventListener('click', () => {
             window.craftBPFlags = window.craftBPFlags || {};
+            CRAFT_BP.stockAllocationCommitQueue.clear();
+            CRAFT_BP.stockAllocationRefreshPending = false;
             window.craftBPFlags.stockAllocations = {};
-            if (typeof updateFinancialTabFromState === 'function') {
-                updateFinancialTabFromState();
-            }
-            renderCraftStockManagement();
-            computeNeededPurchases();
-            recalcFinancials();
+            refreshCraftStockAllocationSurfaces();
             persistCraftPageSessionState();
         });
         resetButton.dataset.stockBound = 'true';
@@ -5985,7 +6143,7 @@ function renderCraftStockManagement() {
                 <td class="text-end">${formatInteger(stockSummary.requiredQty)}</td>
                 <td class="text-end">${formatInteger(stockSummary.availableQty)}</td>
                 <td class="text-end">
-                    <input type="number" min="0" max="${formatInteger(maxAllocatable)}" step="1" class="form-control form-control-sm text-end craft-stock-allocation-input" data-type-id="${item.typeId}" value="${formatInteger(stockSummary.allocatedQty)}" ${maxAllocatable > 0 ? '' : 'disabled'}>
+                    <input type="number" min="0" max="${maxAllocatable}" step="1" class="form-control form-control-sm text-end craft-stock-allocation-input" data-type-id="${item.typeId}" value="${stockSummary.allocatedQty}" ${maxAllocatable > 0 ? '' : 'disabled'}>
                 </td>
                 <td class="text-end">${formatInteger(stockSummary.remainingQty)}</td>
                 <td class="text-end">${formatPrice(stockValue)}</td>
