@@ -136,6 +136,68 @@ def _payload_uses_unpublished_blueprints(payload: dict[str, object] | None) -> b
         return cursor.fetchone() is not None
 
 
+def _collect_payload_blueprint_type_ids(payload: dict[str, object] | None) -> set[int]:
+    blueprint_type_ids: set[int] = set()
+    if not isinstance(payload, dict):
+        return blueprint_type_ids
+
+    def collect(nodes: object) -> None:
+        for node in nodes if isinstance(nodes, list) else []:
+            if not isinstance(node, dict):
+                continue
+            blueprint_type_id = int(node.get("blueprint_type_id") or 0)
+            if blueprint_type_id > 0:
+                blueprint_type_ids.add(blueprint_type_id)
+            collect(node.get("sub_materials"))
+
+    collect(payload.get("materials_tree"))
+    for key in ("bp_type_id", "type_id"):
+        try:
+            blueprint_type_id = int(payload.get(key) or 0)
+        except (TypeError, ValueError):
+            blueprint_type_id = 0
+        if blueprint_type_id > 0:
+            blueprint_type_ids.add(blueprint_type_id)
+    return blueprint_type_ids
+
+
+def _cached_payload_includes_blueprint_configs(
+    cached_payload: dict[str, object] | None,
+    workspace_state: dict[str, object] | None,
+) -> bool:
+    if not isinstance(cached_payload, dict):
+        return False
+
+    used_blueprint_type_ids = _collect_payload_blueprint_type_ids(cached_payload)
+    if isinstance(workspace_state, dict):
+        try:
+            workspace_blueprint_type_id = int(
+                workspace_state.get("blueprint_type_id") or 0
+            )
+        except (TypeError, ValueError):
+            workspace_blueprint_type_id = 0
+        if workspace_blueprint_type_id > 0:
+            used_blueprint_type_ids.add(workspace_blueprint_type_id)
+    if not used_blueprint_type_ids:
+        return True
+
+    page = cached_payload.get("page")
+    if not isinstance(page, dict):
+        return True
+    blueprint_configs = page.get("blueprint_configs")
+    configured_blueprint_type_ids: set[int] = set()
+    for config in blueprint_configs if isinstance(blueprint_configs, list) else []:
+        if not isinstance(config, dict):
+            continue
+        try:
+            blueprint_type_id = int(config.get("type_id") or 0)
+        except (TypeError, ValueError):
+            continue
+        if blueprint_type_id > 0:
+            configured_blueprint_type_ids.add(blueprint_type_id)
+    return used_blueprint_type_ids.issubset(configured_blueprint_type_ids)
+
+
 def cached_project_workspace_payload_matches_state(
     cached_payload: dict[str, object] | None,
     workspace_state: dict[str, object] | None,
@@ -145,6 +207,12 @@ def cached_project_workspace_payload_matches_state(
 
     normalized_workspace_state = strip_project_workspace_cache(workspace_state)
     if normalized_workspace_state.get("pendingWorkspaceRefresh"):
+        return False
+
+    if not _cached_payload_includes_blueprint_configs(
+        cached_payload,
+        normalized_workspace_state,
+    ):
         return False
 
     try:
@@ -484,6 +552,94 @@ def parse_project_me_te_overrides(query_params) -> dict[int, dict[str, int]]:
     return overrides
 
 
+def _clamp_blueprint_me(value) -> int:
+    try:
+        return max(0, min(int(value or 0), 10))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _clamp_blueprint_te(value) -> int:
+    try:
+        return max(0, min(int(value or 0), 20))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _extract_workspace_me_te_overrides(
+    workspace_state: dict[str, object] | None,
+) -> dict[int, dict[str, int]]:
+    """Extract saved per-blueprint ME/TE choices from project workspace state."""
+
+    state = workspace_state if isinstance(workspace_state, dict) else {}
+    overrides: dict[int, dict[str, int]] = {}
+    me_te_config = state.get("meTeConfig")
+    if isinstance(me_te_config, dict):
+        blueprint_configs = me_te_config.get("blueprintConfigs")
+        if isinstance(blueprint_configs, dict):
+            for raw_type_id, raw_config in blueprint_configs.items():
+                try:
+                    blueprint_type_id = int(raw_type_id)
+                except (TypeError, ValueError):
+                    continue
+                if blueprint_type_id <= 0 or not isinstance(raw_config, dict):
+                    continue
+                entry: dict[str, int] = {}
+                if "me" in raw_config:
+                    entry["me"] = _clamp_blueprint_me(raw_config.get("me"))
+                if "te" in raw_config:
+                    entry["te"] = _clamp_blueprint_te(raw_config.get("te"))
+                if entry:
+                    overrides[blueprint_type_id] = entry
+        return overrides
+
+    for raw_config in state.get("blueprint_efficiencies") or []:
+        if not isinstance(raw_config, dict):
+            continue
+        try:
+            blueprint_type_id = int(raw_config.get("blueprint_type_id") or 0)
+        except (TypeError, ValueError):
+            continue
+        if blueprint_type_id <= 0:
+            continue
+        me = _clamp_blueprint_me(raw_config.get("material_efficiency"))
+        te = _clamp_blueprint_te(raw_config.get("time_efficiency"))
+        if me or te:
+            overrides[blueprint_type_id] = {"me": me, "te": te}
+    return overrides
+
+
+def _merge_me_te_overrides(
+    *sources: dict[int, dict[str, int]] | None,
+) -> dict[int, dict[str, int]]:
+    merged: dict[int, dict[str, int]] = {}
+    for source in sources:
+        for raw_type_id, raw_config in (source or {}).items():
+            try:
+                blueprint_type_id = int(raw_type_id)
+            except (TypeError, ValueError):
+                continue
+            if blueprint_type_id <= 0 or not isinstance(raw_config, dict):
+                continue
+            entry = merged.setdefault(blueprint_type_id, {})
+            if "me" in raw_config:
+                entry["me"] = _clamp_blueprint_me(raw_config.get("me"))
+            if "te" in raw_config:
+                entry["te"] = _clamp_blueprint_te(raw_config.get("te"))
+    return merged
+
+
+def _remember_project_blueprint_for_product(
+    product_blueprint_cache: dict[int, int | None],
+    product_type_id: int | None,
+    blueprint_type_id: int | None,
+) -> None:
+    numeric_product_type_id = int(product_type_id or 0)
+    numeric_blueprint_type_id = int(blueprint_type_id or 0)
+    if numeric_product_type_id > 0 and numeric_blueprint_type_id > 0:
+        product_blueprint_cache[numeric_product_type_id] = numeric_blueprint_type_id
+
+
 def create_project_from_entries(
     *,
     user,
@@ -742,7 +898,6 @@ def build_project_workspace_payload(
             "steps": workspace_timing_steps,
         }
 
-    overrides = me_te_overrides or {}
     selected_items_started_at = perf_counter()
     selected_items = list(
         project.items.filter(is_selected=True)
@@ -754,6 +909,53 @@ def build_project_workspace_payload(
     )
 
     workspace_state = strip_project_workspace_cache(project.workspace_state)
+    overrides = _merge_me_te_overrides(
+        _extract_workspace_me_te_overrides(workspace_state),
+        me_te_overrides,
+    )
+    owned_blueprint_efficiency_cache: dict[int, dict[str, int]] = {}
+
+    def get_owned_blueprint_efficiency(blueprint_type_id: int) -> dict[str, int]:
+        numeric_blueprint_type_id = int(blueprint_type_id or 0)
+        if numeric_blueprint_type_id <= 0:
+            return {}
+        if numeric_blueprint_type_id in owned_blueprint_efficiency_cache:
+            return owned_blueprint_efficiency_cache[numeric_blueprint_type_id]
+
+        user_entry = _resolve_user_blueprint_inventory(
+            user=project.user,
+            blueprint_type_ids=[numeric_blueprint_type_id],
+        ).get(numeric_blueprint_type_id, {})
+        owned_entry = user_entry.get("original") or user_entry.get("best_copy") or {}
+        owned_blueprint_efficiency_cache[numeric_blueprint_type_id] = (
+            {
+                "me": _clamp_blueprint_me(owned_entry.get("me")),
+                "te": _clamp_blueprint_te(owned_entry.get("te")),
+            }
+            if owned_entry
+            else {}
+        )
+        return owned_blueprint_efficiency_cache[numeric_blueprint_type_id]
+
+    def get_effective_blueprint_efficiency(blueprint_type_id: int) -> dict[str, int]:
+        numeric_blueprint_type_id = int(blueprint_type_id or 0)
+        if numeric_blueprint_type_id <= 0:
+            return {"me": 0, "te": 0}
+        override = overrides.get(numeric_blueprint_type_id) or {}
+        owned_efficiency = get_owned_blueprint_efficiency(numeric_blueprint_type_id)
+        return {
+            "me": (
+                _clamp_blueprint_me(override.get("me"))
+                if "me" in override
+                else _clamp_blueprint_me(owned_efficiency.get("me"))
+            ),
+            "te": (
+                _clamp_blueprint_te(override.get("te"))
+                if "te" in override
+                else _clamp_blueprint_te(owned_efficiency.get("te"))
+            ),
+        }
+
     saved_runs = max(1, int(workspace_state.get("runs") or 1))
     if runs_override is not None:
         try:
@@ -1060,13 +1262,25 @@ def build_project_workspace_payload(
 
         current_seen.add(numeric_blueprint_type_id)
         product_row = get_blueprint_product_row(numeric_blueprint_type_id) or {}
+        resolved_product_type_id = int(
+            numeric_type_id or product_row.get("product_type_id") or 0
+        )
+        resolved_product_type_name = str(
+            product_row.get("product_type_name") or type_name or ""
+        )
+        _remember_project_blueprint_for_product(
+            product_blueprint_cache,
+            resolved_product_type_id,
+            numeric_blueprint_type_id,
+        )
         produced_per_cycle = max(1, int(product_row.get("produced_per_cycle") or 1))
         cycles = max(1, ceil(numeric_quantity / produced_per_cycle))
         total_produced = cycles * produced_per_cycle
         surplus = max(0, total_produced - numeric_quantity)
-        blueprint_me = int(
-            (overrides.get(numeric_blueprint_type_id) or {}).get("me") or 0
+        blueprint_efficiency = get_effective_blueprint_efficiency(
+            numeric_blueprint_type_id
         )
+        blueprint_me = int(blueprint_efficiency.get("me") or 0)
 
         recipe_map.setdefault(
             int(numeric_type_id or product_row.get("product_type_id") or 0),
@@ -1118,8 +1332,10 @@ def build_project_workspace_payload(
             children.append(child_node)
 
         return {
-            "type_id": numeric_type_id or int(product_row.get("product_type_id") or 0),
-            "type_name": type_name or str(product_row.get("product_type_name") or ""),
+            "type_id": resolved_product_type_id,
+            "type_name": (
+                resolved_product_type_name if not numeric_type_id else type_name
+            ),
             "quantity": numeric_quantity,
             "cycles": cycles,
             "produced_per_cycle": produced_per_cycle,
@@ -1326,17 +1542,9 @@ def build_project_workspace_payload(
             int(root_item.quantity_requested or root_node.get("quantity") or 0),
         )
 
-        me_te_config = workspace_state.get("meTeConfig")
-        if not isinstance(me_te_config, dict):
-            me_te_config = {}
-        blueprint_configs_state = me_te_config.get("blueprintConfigs")
-        if not isinstance(blueprint_configs_state, dict):
-            blueprint_configs_state = {}
-        root_me_te = blueprint_configs_state.get(str(root_blueprint_type_id))
-        if not isinstance(root_me_te, dict):
-            root_me_te = {}
-        main_me = int(root_me_te.get("me") or me_te_config.get("mainME") or 0)
-        main_te = int(root_me_te.get("te") or me_te_config.get("mainTE") or 0)
+        root_efficiency = get_effective_blueprint_efficiency(root_blueprint_type_id)
+        main_me = int(root_efficiency.get("me") or 0)
+        main_te = int(root_efficiency.get("te") or 0)
 
         root_children = (
             root_node.get("sub_materials")

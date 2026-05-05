@@ -633,6 +633,28 @@ function buildCraftRecalculationUrl(options = {}) {
     return cleanUrl;
 }
 
+function resolveRecalculationTabForMainTab(mainTabName) {
+    const normalizedTabName = String(mainTabName || '').trim();
+    if (normalizedTabName === 'plan') {
+        const hiddenActiveTab = document.querySelector('#bpTabs .nav-link.active');
+        const hiddenTarget = hiddenActiveTab ? String(hiddenActiveTab.getAttribute('data-bs-target') || '').trim() : '';
+        return hiddenTarget ? hiddenTarget.replace('#tab-', '') : 'materials';
+    }
+    if (normalizedTabName === 'buy') {
+        return 'financial';
+    }
+    if (normalizedTabName === 'build') {
+        return 'cycles';
+    }
+    if (normalizedTabName === 'structure' || normalizedTabName === 'configure') {
+        return 'config';
+    }
+    if (normalizedTabName === 'stock') {
+        return 'stock';
+    }
+    return normalizedTabName || getCurrentActiveBlueprintTab() || 'materials';
+}
+
 function getCurrentActiveBlueprintTab() {
     const activeMainTab = document.querySelector('#craftMainTabs .nav-link.active');
     const mainTabName = activeMainTab ? String(activeMainTab.getAttribute('data-tab-name') || '').trim() : '';
@@ -910,6 +932,7 @@ function hydratePlanPane() {
     planPane.dataset.planHydrated = 'true';
 
     renderPlanTreeFromPayload();
+    updatePlanMETEIndicators();
 
     const notice = document.getElementById('planPaneLazyNotice');
     if (notice) {
@@ -943,9 +966,23 @@ function replaceTreeMarkup(nextTreeNode) {
     }
 
     renderPlanTreeFromPayload();
+    updatePlanMETEIndicators();
 
     initializeBuyCraftSwitches();
     refreshTreeSummaryIcons();
+}
+
+function updatePlanMETEIndicators(config = null) {
+    const normalized = normalizeMETEConfig(config || buildDefaultMETEConfig());
+    const meEl = document.getElementById('craftPlanMEValue');
+    const teEl = document.getElementById('craftPlanTEValue');
+
+    if (meEl) {
+        meEl.textContent = String(normalized.mainME || 0);
+    }
+    if (teEl) {
+        teEl.textContent = String(normalized.mainTE || 0);
+    }
 }
 
 function updateFinalProductRowFromPayload(payload) {
@@ -954,6 +991,7 @@ function updateFinalProductRowFromPayload(payload) {
         return;
     }
 
+    updatePlanMETEIndicators();
     const outputs = getFinalOutputEntries(payload);
     if (outputs.length === 0) {
         return;
@@ -1465,6 +1503,7 @@ async function recalculateBlueprintWorkspace(options = {}) {
     try {
         const snapshot = await fetchCraftPageSnapshot(url);
         syncBlueprintPayloadNode(snapshot.payload);
+        updatePlanMETEIndicators();
 
         if (window.SimulationAPI && typeof window.SimulationAPI.replacePayload === 'function') {
             window.SimulationAPI.replacePayload(window.BLUEPRINT_DATA, {
@@ -1499,6 +1538,7 @@ async function recalculateBlueprintWorkspace(options = {}) {
         // visible production tree from the final in-memory payload so root quantities
         // stay aligned with the rest of the workspace.
         renderPlanTreeFromPayload();
+        updatePlanMETEIndicators();
         initializeBuyCraftSwitches();
         refreshTreeSummaryIcons();
 
@@ -1679,6 +1719,116 @@ function getCraftCharacterStockSnapshot() {
     return snapshot && typeof snapshot === 'object'
         ? snapshot
         : { totals_by_type: {}, characters: [], scope_missing: false, synced_at: '' };
+}
+
+function getCraftStockRefreshState() {
+    const state = window.BLUEPRINT_DATA?.character_stock_refresh;
+    return state && typeof state === 'object' ? state : {};
+}
+
+function setCraftStockRefreshNotice(state = {}) {
+    const notice = document.getElementById('stockRefreshStatusNotice');
+    if (!notice) {
+        return;
+    }
+
+    notice.classList.remove('alert-info', 'alert-warning', 'alert-danger', 'd-none');
+    notice.innerHTML = '';
+
+    const appendReloadButton = () => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'btn btn-sm btn-dark ms-2 py-0 fw-semibold';
+        button.textContent = __('Reload');
+        button.addEventListener('click', () => window.location.reload());
+        notice.appendChild(button);
+    };
+
+    if (state.changed) {
+        notice.classList.add('alert-warning');
+        notice.appendChild(document.createTextNode(__('Character assets were refreshed after this project loaded. Reload the page to show the updated Stock tab.')));
+        appendReloadButton();
+        return;
+    }
+
+    if (state.running) {
+        const total = Math.max(0, Math.floor(Number(state.total || 0)));
+        const done = Math.max(0, Math.floor(Number(state.done || 0)));
+        const progressText = total > 0 ? ` (${formatInteger(done)}/${formatInteger(total)})` : '';
+        notice.classList.add('alert-info');
+        notice.textContent = `${__('Refreshing character assets in the background. Stock may change when it finishes.')}${progressText}`;
+        return;
+    }
+
+    if (state.error === 'missing_assets_scope') {
+        notice.classList.add('alert-warning');
+        notice.textContent = __('Character assets scope is missing. Stock data may be incomplete until assets access is granted.');
+        return;
+    }
+
+    if (state.error === 'esi_down') {
+        notice.classList.add('alert-warning');
+        notice.textContent = __('ESI is temporarily unavailable. Stock uses the latest cached asset snapshot.');
+        return;
+    }
+
+    if (state.error === 'no_assets_fetched') {
+        notice.classList.add('alert-warning');
+        notice.textContent = __('Character asset refresh finished, but no assets were returned. Stock uses the latest cached snapshot.');
+        return;
+    }
+
+    if (state.error && state.error !== 'no_assets_fetched') {
+        notice.classList.add('alert-danger');
+        notice.textContent = __('Character asset refresh did not complete. Stock uses the latest cached asset snapshot.');
+        return;
+    }
+
+    if (state.finished) {
+        notice.classList.add('alert-info');
+        notice.textContent = __('Character asset refresh finished. The Stock tab is already using the latest cached snapshot available at page load.');
+        return;
+    }
+
+    notice.classList.add('d-none', 'alert-info');
+}
+
+function scheduleCraftStockRefreshStatusPolling() {
+    window.craftBPFlags = window.craftBPFlags || {};
+    if (window.craftBPFlags.stockRefreshPollingStarted) {
+        return;
+    }
+
+    const url = String(window.BLUEPRINT_DATA?.urls?.craft_stock_refresh_status || '').trim();
+    const initialSyncedAt = String(getCraftCharacterStockSnapshot().synced_at || '').trim();
+    const initialState = getCraftStockRefreshState();
+    setCraftStockRefreshNotice(initialState);
+    if (!url || (!initialState.running && !initialState.error)) {
+        return;
+    }
+
+    window.craftBPFlags.stockRefreshPollingStarted = true;
+    const poll = () => {
+        const statusUrl = new URL(url, window.location.origin);
+        statusUrl.searchParams.set('since', initialSyncedAt);
+        fetch(statusUrl.toString(), {
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            credentials: 'same-origin',
+        })
+            .then((response) => (response.ok ? response.json() : Promise.reject(response)))
+            .then((state) => {
+                setCraftStockRefreshNotice(state);
+                if (state.running) {
+                    window.setTimeout(poll, 3000);
+                    return;
+                }
+                window.craftBPFlags.stockRefreshPollingStarted = false;
+            })
+            .catch(() => {
+                window.craftBPFlags.stockRefreshPollingStarted = false;
+            });
+    };
+    window.setTimeout(poll, 3000);
 }
 
 function getCraftStockAllocations() {
@@ -2552,31 +2702,58 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Capture the initial dashboard Materials ordering before any UI updates replace the markup.
-    try {
-        getDashboardMaterialsOrdering();
-    } catch (e) {
-        // ignore
-    }
+    const scheduleStartupPhase = (callback) => {
+        if (typeof window.requestAnimationFrame === 'function') {
+            window.requestAnimationFrame(() => window.setTimeout(callback, 0));
+            return;
+        }
+        window.setTimeout(callback, 0);
+    };
+    const startupPhases = [
+        () => {
+            // Capture the initial dashboard Materials ordering before any UI updates replace the markup.
+            try {
+                getDashboardMaterialsOrdering();
+            } catch (e) {
+                // ignore
+            }
+            initializeBlueprintIcons();
+            initializeCollapseHandlers();
+        },
+        () => {
+            initializeBuyCraftSwitches();
+            initializeDecisionStrategyTab();
+        },
+        () => {
+            initializeCraftPageSessionPersistence();
+            if (!restoreCraftPageSessionState()) {
+                restoreBuyCraftStateFromURL();
+            }
+            initializeStructureMotherSystemControls();
+        },
+        () => {
+            if (window.CraftBPLoading && typeof window.CraftBPLoading.stepBootstrap === 'function') {
+                window.CraftBPLoading.stepBootstrap('loading-interface', {
+                    detail: __('Opening the main workspace view.'),
+                    message: __('Loading workspace...'),
+                });
+            }
+            hydrateVisibleCraftStartupTab();
+        },
+        () => {
+            persistCraftPageSessionState();
+            syncCraftBrowserUrl();
+        },
+    ];
+    const runStartupPhase = (index) => {
+        if (index >= startupPhases.length) {
+            return;
+        }
+        startupPhases[index]();
+        scheduleStartupPhase(() => runStartupPhase(index + 1));
+    };
 
-    initializeBlueprintIcons();
-    initializeCollapseHandlers();
-    initializeBuyCraftSwitches();
-    initializeDecisionStrategyTab();
-    initializeCraftPageSessionPersistence();
-    if (!restoreCraftPageSessionState()) {
-        restoreBuyCraftStateFromURL();
-    }
-    initializeStructureMotherSystemControls();
-    if (window.CraftBPLoading && typeof window.CraftBPLoading.stepBootstrap === 'function') {
-        window.CraftBPLoading.stepBootstrap('loading-interface', {
-            detail: __('Opening the main workspace view.'),
-            message: __('Loading workspace...'),
-        });
-    }
-    hydrateVisibleCraftStartupTab();
-    persistCraftPageSessionState();
-    syncCraftBrowserUrl();
+    scheduleStartupPhase(() => runStartupPhase(0));
     // Financial calculations will be initialized via CraftBP.init()
 });
 
@@ -4100,6 +4277,8 @@ function initializeMETEHandlers() {
 
     function saveMETEToLocalStorage() {
         const config = getCurrentMETEConfig();
+        window.craftBPFlags = window.craftBPFlags || {};
+        window.craftBPFlags.pendingMETEConfig = config;
         try {
             withCraftPageSessionStorage((storage) => {
                 storage.setItem(storageKey, JSON.stringify(config));
@@ -4146,8 +4325,9 @@ function initializeMETEHandlers() {
             const sourceTab = String(window.craftBPFlags?.pendingWorkspaceSourceTab || '').trim();
 
             if (targetTab && targetTab !== sourceTab && window.craftBPFlags?.hasPendingWorkspaceRefresh) {
-                window.craftBPFlags.pendingWorkspaceTargetTab = getCurrentActiveBlueprintTab();
-                window.craftBPFlags.switchingToTab = getCurrentActiveBlueprintTab();
+                const recalculationTab = resolveRecalculationTabForMainTab(targetTab);
+                window.craftBPFlags.pendingWorkspaceTargetTab = recalculationTab;
+                window.craftBPFlags.switchingToTab = recalculationTab;
                 craftBPDebugLog('Applying pending workspace changes...');
                 applyPendingMETEChanges();
             }
@@ -5345,6 +5525,85 @@ function initializeRevenueModeControls() {
     applyRevenueModeToInputs();
 }
 
+function getFinancialRowLabel(row) {
+    return String(row?.querySelector('.craft-planner-item-name')?.textContent || '').trim()
+        || String(row?.getAttribute('data-type-id') || '').trim()
+        || __('Unknown item');
+}
+
+function getFinancialRowEffectiveUnitPrice(row, priceKind) {
+    const typeId = Number(row?.getAttribute('data-type-id') || 0) || 0;
+    const overrideSelector = priceKind === 'sale' ? '.sale-price-unit' : '.real-price';
+    const overrideValue = Number.parseFloat(row?.querySelector(overrideSelector)?.value) || 0;
+    if (overrideValue > 0) {
+        return overrideValue;
+    }
+
+    if (window.SimulationAPI && typeof window.SimulationAPI.getPrice === 'function' && typeId) {
+        const info = window.SimulationAPI.getPrice(typeId, priceKind === 'sale' ? 'sale' : 'buy');
+        const apiValue = info && typeof info.value === 'number' ? info.value : 0;
+        if (apiValue > 0) {
+            return apiValue;
+        }
+    }
+
+    return Number.parseFloat(row?.querySelector('.fuzzwork-price')?.value) || 0;
+}
+
+function getZeroPricedFinancialRows(revenueMode) {
+    return Array.from(document.querySelectorAll('#financialItemsBody tr[data-type-id]'))
+        .filter((row) => {
+            const isFinalOutput = row.getAttribute('data-final-output') === 'true';
+            if (isFinalOutput && revenueMode === REVENUE_MODE_TOTAL) {
+                return false;
+            }
+            const priceKind = isFinalOutput ? 'sale' : 'buy';
+            return getFinancialRowEffectiveUnitPrice(row, priceKind) <= 0;
+        })
+        .map(getFinancialRowLabel);
+}
+
+function triggerZeroPriceAlertAnimation(alertEl) {
+    if (!alertEl || (typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches)) {
+        return;
+    }
+    alertEl.classList.remove('craft-zero-price-alert--pulse');
+    const scheduleAnimation = typeof window.requestAnimationFrame === 'function'
+        ? window.requestAnimationFrame.bind(window)
+        : (callback) => window.setTimeout(callback, 0);
+    scheduleAnimation(() => {
+        if (!alertEl.classList.contains('d-none')) {
+            alertEl.classList.add('craft-zero-price-alert--pulse');
+        }
+    });
+}
+
+function updateQuickMarginZeroPriceAlert(zeroPricedRows) {
+    const alertEl = document.getElementById('quickMarginZeroPriceAlert');
+    if (!alertEl) {
+        return;
+    }
+
+    const names = Array.isArray(zeroPricedRows) ? zeroPricedRows.filter(Boolean) : [];
+    if (names.length === 0) {
+        alertEl.textContent = '';
+        alertEl.classList.add('d-none');
+        alertEl.removeAttribute('title');
+        return;
+    }
+
+    const nextText = names.length === 1
+        ? __('1 Buy line has no price')
+        : `${formatInteger(names.length)} ${__('Buy lines have no price')}`;
+    const shouldAnimate = alertEl.classList.contains('d-none') || alertEl.textContent !== nextText;
+    alertEl.textContent = nextText;
+    alertEl.setAttribute('title', names.slice(0, 8).join(', '));
+    alertEl.classList.remove('d-none');
+    if (shouldAnimate) {
+        triggerZeroPriceAlertAnimation(alertEl);
+    }
+}
+
 /**
  * Recalculate financial totals
  */
@@ -5441,6 +5700,7 @@ function recalcFinancials() {
     // and the KPI block stay coherent.
     const revenueMode = getRevenueMode();
     const revenueTotalOverride = getRevenueTotalOverride();
+    const zeroPricedRows = getZeroPricedFinancialRows(revenueMode);
     if (revenueMode === REVENUE_MODE_TOTAL) {
         revTotal = revenueTotalOverride;
         const finalOutputRows = Array.from(document.querySelectorAll('#financialItemsBody tr[data-final-output="true"]'));
@@ -5689,6 +5949,7 @@ function recalcFinancials() {
     if (quickMarginEl) {
         quickMarginEl.textContent = `${marginText}%`;
     }
+    updateQuickMarginZeroPriceAlert(zeroPricedRows);
 
     applyFinancialPlannerFilters();
 
@@ -6104,14 +6365,20 @@ function renderCraftStockManagement() {
     }
 
     const rows = getCraftSourceRequirementRows();
+    const rowsWithStock = rows
+        .map((item) => ({
+            item,
+            stockSummary: getCraftStockAllocationSummary(item.typeId, item.quantity),
+        }))
+        .filter(({ stockSummary }) => stockSummary.availableQty > 0);
+    const hiddenZeroStockCount = Math.max(0, rows.length - rowsWithStock.length);
     const api = window.SimulationAPI;
     let totalRequiredQty = 0;
     let totalAllocatedQty = 0;
     let totalRemainingQty = 0;
     let totalStockValue = 0;
 
-    const renderedRows = rows.map((item) => {
-        const stockSummary = getCraftStockAllocationSummary(item.typeId, item.quantity);
+    const renderedRows = rowsWithStock.map(({ item, stockSummary }) => {
         const maxAllocatable = Math.min(stockSummary.requiredQty, stockSummary.availableQty);
         const unitInfo = api && typeof api.getPrice === 'function' ? api.getPrice(item.typeId, 'buy') : { value: 0 };
         const unitPrice = unitInfo && typeof unitInfo.value === 'number' ? unitInfo.value : 0;
@@ -6159,7 +6426,7 @@ function renderCraftStockManagement() {
         ? renderedRows.join('')
         : `
             <tr>
-                <td colspan="7" class="text-center text-muted py-4">${escapeHtml(__('No sourceable items require stock management right now.'))}</td>
+                <td colspan="7" class="text-center text-muted py-4">${escapeHtml(__('No required items have cached stock available right now.'))}</td>
             </tr>
         `;
 
@@ -6170,11 +6437,19 @@ function renderCraftStockManagement() {
         }
     };
 
-    setText('stockSummaryLineCount', formatInteger(rows.length));
+    setText('stockSummaryLineCount', formatInteger(rowsWithStock.length));
     setText('stockSummaryRequiredQty', formatInteger(totalRequiredQty));
     setText('stockSummaryAllocatedQty', formatInteger(totalAllocatedQty));
     setText('stockSummaryRemainingQty', formatInteger(totalRemainingQty));
     setText('stockSummaryValue', formatPrice(totalStockValue));
+
+    const availableOnlyNotice = document.getElementById('stockAvailableOnlyNotice');
+    if (availableOnlyNotice) {
+        const hiddenText = hiddenZeroStockCount > 0
+            ? ` ${formatInteger(hiddenZeroStockCount)} ${hiddenZeroStockCount === 1 ? __('line with 0 stock is hidden.') : __('lines with 0 stock are hidden.')}`
+            : '';
+        availableOnlyNotice.textContent = `${__('Only required items with cached stock available are shown.')}${hiddenText}`;
+    }
 
     const syncEl = document.getElementById('stockSummaryUpdated');
     if (syncEl) {
@@ -6188,6 +6463,7 @@ function renderCraftStockManagement() {
         scopeMissingEl.classList.toggle('d-none', !getCraftCharacterStockSnapshot().scope_missing);
     }
 
+    scheduleCraftStockRefreshStatusPolling();
     initializeStockManagementInteractions();
 }
 

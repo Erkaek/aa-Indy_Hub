@@ -1,6 +1,7 @@
 """Tests for character asset refresh caching structure names."""
 
 # Standard Library
+from datetime import timedelta
 from unittest.mock import patch
 
 # Django
@@ -31,6 +32,71 @@ class _FakeTokenQuerySet(list):
 
 
 class CharacterAssetRefreshStructureNameTests(TestCase):
+    def test_user_assets_cached_skips_esi_when_cache_is_younger_than_one_hour(
+        self,
+    ) -> None:
+        user = User.objects.create_user("recent_assets_user", password="secret123")
+        CachedCharacterAsset.objects.create(
+            user=user,
+            character_id=12345,
+            location_id=60003760,
+            location_flag="Hangar",
+            type_id=34,
+            quantity=100,
+            synced_at=timezone.now() - timedelta(minutes=30),
+        )
+
+        with patch.object(asset_cache, "_refresh_character_assets") as refresh_mock:
+            assets, scope_missing = asset_cache.get_user_assets_cached(
+                user,
+                allow_refresh=True,
+                max_age_minutes=60,
+            )
+
+        refresh_mock.assert_not_called()
+        self.assertFalse(scope_missing)
+        self.assertEqual(assets[0]["type_id"], 34)
+
+    def test_user_assets_cached_refreshes_when_cache_is_older_than_one_hour(
+        self,
+    ) -> None:
+        user = User.objects.create_user("stale_assets_user", password="secret123")
+        CachedCharacterAsset.objects.create(
+            user=user,
+            character_id=12345,
+            location_id=60003760,
+            location_flag="Hangar",
+            type_id=34,
+            quantity=100,
+            synced_at=timezone.now() - timedelta(minutes=61),
+        )
+        refreshed_assets = [
+            {
+                "character_id": 12345,
+                "location_id": 60003760,
+                "location_flag": "Hangar",
+                "type_id": 35,
+                "quantity": 200,
+                "is_singleton": False,
+                "is_blueprint": False,
+            }
+        ]
+
+        with patch.object(
+            asset_cache,
+            "_refresh_character_assets",
+            return_value=(refreshed_assets, False),
+        ) as refresh_mock:
+            assets, scope_missing = asset_cache.get_user_assets_cached(
+                user,
+                allow_refresh=True,
+                max_age_minutes=60,
+            )
+
+        refresh_mock.assert_called_once_with(user)
+        self.assertFalse(scope_missing)
+        self.assertEqual(assets, refreshed_assets)
+
     def test_refresh_character_assets_triggers_structure_name_cache(self) -> None:
         user = User.objects.create_user("assets_user", password="secret123")
 

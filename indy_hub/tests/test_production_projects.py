@@ -8,7 +8,11 @@ from unittest.mock import patch
 from indy_hub.models import generate_production_project_ref
 from indy_hub.services.production_projects import (
     _build_project_blueprint_configs_grouped,
+    _cached_payload_includes_blueprint_configs,
+    _extract_workspace_me_te_overrides,
+    _merge_me_te_overrides,
     _payload_uses_unpublished_blueprints,
+    _remember_project_blueprint_for_product,
     _resolve_blueprints_for_products,
     _resolve_preferred_blueprint_for_product,
     aggregate_project_import_entries,
@@ -102,6 +106,114 @@ class ProductionProjectImportTests(TestCase):
         self.assertEqual(
             normalize_production_project_ref("ABC123DEF4"),
             "abc123def4",
+        )
+
+    def test_workspace_mete_overrides_ignore_legacy_zero_defaults(self) -> None:
+        overrides = _extract_workspace_me_te_overrides(
+            {
+                "blueprint_efficiencies": [
+                    {
+                        "blueprint_type_id": 23916,
+                        "material_efficiency": 0,
+                        "time_efficiency": 0,
+                    },
+                    {
+                        "blueprint_type_id": 23920,
+                        "material_efficiency": 10,
+                        "time_efficiency": 20,
+                    },
+                ]
+            }
+        )
+
+        self.assertNotIn(23916, overrides)
+        self.assertEqual(overrides[23920], {"me": 10, "te": 20})
+
+    def test_workspace_mete_overrides_preserve_modern_zero_choices(self) -> None:
+        overrides = _extract_workspace_me_te_overrides(
+            {"meTeConfig": {"blueprintConfigs": {"23916": {"me": 0, "te": 0}}}}
+        )
+
+        self.assertEqual(overrides[23916], {"me": 0, "te": 0})
+
+    def test_request_mete_overrides_replace_saved_workspace_choices(self) -> None:
+        merged = _merge_me_te_overrides(
+            {23916: {"me": 8, "te": 16}},
+            {23916: {"me": 10}},
+        )
+
+        self.assertEqual(merged[23916], {"me": 10, "te": 16})
+
+    def test_project_blueprint_cache_remembers_explicit_root_blueprint(self) -> None:
+        product_blueprint_cache = {}
+
+        _remember_project_blueprint_for_product(
+            product_blueprint_cache,
+            product_type_id=23915,
+            blueprint_type_id=23916,
+        )
+
+        self.assertEqual(product_blueprint_cache, {23915: 23916})
+
+    def test_cached_payload_requires_cards_for_used_blueprints(self) -> None:
+        self.assertFalse(
+            _cached_payload_includes_blueprint_configs(
+                {
+                    "materials_tree": [
+                        {
+                            "type_id": 23915,
+                            "blueprint_type_id": 23916,
+                            "sub_materials": [],
+                        }
+                    ],
+                    "page": {"blueprint_configs": []},
+                },
+                {"blueprint_type_id": 23916},
+            )
+        )
+
+    def test_cached_payload_allows_legacy_payload_without_page_configs(self) -> None:
+        self.assertTrue(
+            _cached_payload_includes_blueprint_configs(
+                {
+                    "materials_tree": [
+                        {
+                            "type_id": 23915,
+                            "blueprint_type_id": 23916,
+                            "sub_materials": [],
+                        }
+                    ]
+                },
+                {"blueprint_type_id": 23916},
+            )
+        )
+
+    def test_cached_payload_accepts_cards_for_all_used_blueprints(self) -> None:
+        self.assertTrue(
+            _cached_payload_includes_blueprint_configs(
+                {
+                    "materials_tree": [
+                        {
+                            "type_id": 23915,
+                            "blueprint_type_id": 23916,
+                            "sub_materials": [
+                                {
+                                    "type_id": 123,
+                                    "blueprint_type_id": 456,
+                                    "sub_materials": [],
+                                }
+                            ],
+                        }
+                    ],
+                    "page": {
+                        "blueprint_configs": [
+                            {"type_id": 23916},
+                            {"type_id": 456},
+                        ]
+                    },
+                },
+                {"blueprint_type_id": 23916},
+            )
         )
 
     @patch("indy_hub.services.production_projects.connection.cursor")

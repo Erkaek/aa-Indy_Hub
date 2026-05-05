@@ -1,5 +1,6 @@
 # Standard Library
 import json
+from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -8,6 +9,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.contrib.sessions.middleware import SessionMiddleware
+from django.core.cache import cache
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
 from django.http import HttpRequest
@@ -16,7 +18,12 @@ from django.urls import reverse
 from django.utils import timezone
 
 # AA Example App
-from indy_hub.models import IndustryJob, ProductionProject, ProductionProjectItem
+from indy_hub.models import (
+    CachedCharacterAsset,
+    IndustryJob,
+    ProductionProject,
+    ProductionProjectItem,
+)
 from indy_hub.services.production_projects import (
     LEGACY_SINGLE_BLUEPRINT_PROJECT_NOTE,
     _scale_project_selected_items_for_runs,
@@ -30,13 +37,48 @@ from indy_hub.views.api import (
     save_production_project_progress,
     save_production_project_workspace,
 )
-from indy_hub.views.industry import craft_bp, craft_project
+from indy_hub.views.industry import (
+    _craft_project_stock_refresh_progress_key,
+    _ensure_craft_project_stock_refresh_started,
+    _get_craft_project_stock_refresh_progress,
+    craft_bp,
+    craft_project,
+    craft_project_stock_refresh_status,
+)
 
 
 def _unwrap_view(view):
     while hasattr(view, "__wrapped__"):
         view = view.__wrapped__
     return view
+
+
+class _FakeOwnershipCountQuerySet:
+    def __init__(self, count: int):
+        self._count = int(count)
+
+    def values_list(self, *args, **kwargs):
+        return self
+
+    def distinct(self):
+        return self
+
+    def count(self):
+        return self._count
+
+
+class _FakeTokenQuerySet:
+    def __init__(self, exists: bool):
+        self._exists = bool(exists)
+
+    def require_scopes(self, scopes):
+        return self
+
+    def require_valid(self):
+        return self
+
+    def exists(self):
+        return self._exists
 
 
 class LegacySimulationUnificationTests(TestCase):
@@ -68,6 +110,10 @@ class LegacySimulationUnificationTests(TestCase):
     @property
     def _craft_project_view(self):
         return _unwrap_view(craft_project)
+
+    @property
+    def _craft_project_stock_refresh_status_view(self):
+        return _unwrap_view(craft_project_stock_refresh_status)
 
     def _prepare_request(self, request: HttpRequest, *, user=None) -> HttpRequest:
         request.user = user or self.user
@@ -540,12 +586,16 @@ class LegacySimulationUnificationTests(TestCase):
             mock_build_project_workspace_payload.call_args.kwargs["runs_override"], 5
         )
 
+    @patch("indy_hub.views.industry.build_user_asset_inventory_snapshot")
+    @patch("indy_hub.views.industry._get_craft_project_stock_refresh_progress")
     @patch("indy_hub.views.industry.build_project_workspace_payload")
     @patch("indy_hub.views.industry.get_cached_project_workspace_payload")
     def test_craft_project_renders_runs_control_and_uses_runs_override(
         self,
         mock_get_cached_project_workspace_payload,
         mock_build_project_workspace_payload,
+        mock_get_stock_refresh_progress,
+        mock_build_user_asset_inventory_snapshot,
     ):
         project = ProductionProject.objects.create(
             user=self.user,
@@ -582,6 +632,13 @@ class LegacySimulationUnificationTests(TestCase):
             "structure_planner": {},
             "final_outputs": [{"type_id": 603, "quantity": 14}],
         }
+        mock_build_user_asset_inventory_snapshot.return_value = {
+            "scope_missing": False,
+            "synced_at": "",
+            "totals_by_type": {},
+            "characters": [],
+        }
+        mock_get_stock_refresh_progress.return_value = {"running": True}
 
         request = self._prepare_request(
             self.factory.get(
@@ -595,9 +652,145 @@ class LegacySimulationUnificationTests(TestCase):
         self.assertEqual(
             mock_build_project_workspace_payload.call_args.kwargs["runs_override"], 7
         )
+        mock_get_stock_refresh_progress.assert_called_once_with(self.user)
+        mock_build_user_asset_inventory_snapshot.assert_called_once_with(
+            self.user,
+            allow_refresh=False,
+        )
         self.assertContains(response, 'id="runsInput"', html=False)
         self.assertContains(response, 'value="7"', html=False)
         self.assertContains(response, 'id="recalcNowBtn"', html=False)
+
+    @patch("indy_hub.views.industry._ensure_craft_project_stock_refresh_started")
+    def test_craft_project_stock_refresh_progress_skips_recent_asset_cache(
+        self,
+        mock_ensure_refresh_started,
+    ):
+        cache.delete(_craft_project_stock_refresh_progress_key(int(self.user.id)))
+        CachedCharacterAsset.objects.create(
+            user=self.user,
+            character_id=12345,
+            location_id=60003760,
+            location_flag="Hangar",
+            type_id=34,
+            quantity=100,
+            synced_at=timezone.now() - timedelta(minutes=30),
+        )
+
+        progress = _get_craft_project_stock_refresh_progress(self.user)
+
+        self.assertEqual(progress, {})
+        mock_ensure_refresh_started.assert_not_called()
+
+    @patch(
+        "indy_hub.views.industry._ensure_craft_project_stock_refresh_started",
+        return_value={"running": True},
+    )
+    def test_craft_project_stock_refresh_progress_starts_stale_asset_cache(
+        self,
+        mock_ensure_refresh_started,
+    ):
+        cache.delete(_craft_project_stock_refresh_progress_key(int(self.user.id)))
+        CachedCharacterAsset.objects.create(
+            user=self.user,
+            character_id=12345,
+            location_id=60003760,
+            location_flag="Hangar",
+            type_id=34,
+            quantity=100,
+            synced_at=timezone.now() - timedelta(minutes=61),
+        )
+
+        progress = _get_craft_project_stock_refresh_progress(self.user)
+
+        self.assertEqual(progress, {"running": True})
+        mock_ensure_refresh_started.assert_called_once_with(self.user)
+
+    @patch("indy_hub.views.industry.refresh_material_exchange_sell_user_assets.delay")
+    @patch("indy_hub.views.industry.Token.objects.filter")
+    @patch("indy_hub.views.industry.CharacterOwnership.objects.filter")
+    def test_ensure_craft_project_stock_refresh_started_enqueues_celery_task(
+        self,
+        mock_character_ownership_filter,
+        mock_token_filter,
+        mock_delay,
+    ):
+        progress_key = _craft_project_stock_refresh_progress_key(int(self.user.id))
+        cache.delete(progress_key)
+        mock_character_ownership_filter.return_value = _FakeOwnershipCountQuerySet(1)
+        mock_token_filter.return_value = _FakeTokenQuerySet(True)
+        mock_delay.return_value = type("TaskResult", (), {"id": "task-123"})()
+
+        progress = _ensure_craft_project_stock_refresh_started(self.user)
+
+        self.assertTrue(progress["running"])
+        self.assertEqual(progress["total"], 1)
+        mock_delay.assert_called_once_with(int(self.user.id))
+
+    def test_craft_project_stock_refresh_status_reports_changed_assets(self):
+        progress_key = _craft_project_stock_refresh_progress_key(int(self.user.id))
+        cache.set(
+            progress_key,
+            {"running": False, "finished": True, "error": None},
+            600,
+        )
+        old_sync = timezone.now() - timedelta(minutes=70)
+        latest_sync = timezone.now()
+        CachedCharacterAsset.objects.create(
+            user=self.user,
+            character_id=12345,
+            location_id=60003760,
+            location_flag="Hangar",
+            type_id=34,
+            quantity=100,
+            synced_at=latest_sync,
+        )
+
+        request = self._prepare_request(
+            self.factory.get(
+                reverse("indy_hub:craft_project_stock_refresh_status"),
+                data={"since": old_sync.isoformat()},
+            )
+        )
+        response = self._craft_project_stock_refresh_status_view(request)
+
+        self.assertEqual(response.status_code, 200)
+        payload = json.loads(response.content.decode())
+        self.assertTrue(payload["changed"])
+        self.assertEqual(payload["synced_at"], latest_sync.isoformat())
+
+    def test_craft_project_stock_refresh_status_reports_changed_from_empty_snapshot(
+        self,
+    ):
+        progress_key = _craft_project_stock_refresh_progress_key(int(self.user.id))
+        cache.set(
+            progress_key,
+            {"running": False, "finished": True, "error": None},
+            600,
+        )
+        latest_sync = timezone.now()
+        CachedCharacterAsset.objects.create(
+            user=self.user,
+            character_id=12345,
+            location_id=60003760,
+            location_flag="Hangar",
+            type_id=34,
+            quantity=100,
+            synced_at=latest_sync,
+        )
+
+        request = self._prepare_request(
+            self.factory.get(
+                reverse("indy_hub:craft_project_stock_refresh_status"),
+                data={"since": ""},
+            )
+        )
+        response = self._craft_project_stock_refresh_status_view(request)
+
+        self.assertEqual(response.status_code, 200)
+        payload = json.loads(response.content.decode())
+        self.assertTrue(payload["changed"])
+        self.assertEqual(payload["synced_at"], latest_sync.isoformat())
 
     def test_save_production_project_progress_persists_summary_progress(self):
         project = ProductionProject.objects.create(

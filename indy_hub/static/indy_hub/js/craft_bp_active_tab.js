@@ -78,10 +78,17 @@ window.CraftBPTabs = {
 
         // Silently preload the Tree tab to initialize switches, but keep the
         // workspace hidden until the page bootstrap reports that it is ready.
-        try {
-            this.preloadTreeTab();
-        } catch (error) {
-            console.error('[IndyHub] Failed during initial craft workspace hydration', error);
+        const runTreePreload = () => {
+            try {
+                this.preloadTreeTab();
+            } catch (error) {
+                console.error('[IndyHub] Failed during initial craft workspace hydration', error);
+            }
+        };
+        if (typeof window.requestAnimationFrame === 'function') {
+            window.requestAnimationFrame(() => window.setTimeout(runTreePreload, 0));
+        } else {
+            window.setTimeout(runTreePreload, 0);
         }
 
     },
@@ -301,5 +308,9 @@ document.addEventListener('DOMContentLoaded', function() {
             setTimeout(checkAndInit, 100);
         }
     };
-    checkAndInit();
+    if (typeof window.requestAnimationFrame === 'function') {
+        window.requestAnimationFrame(checkAndInit);
+        return;
+    }
+    window.setTimeout(checkAndInit, 0);
 });

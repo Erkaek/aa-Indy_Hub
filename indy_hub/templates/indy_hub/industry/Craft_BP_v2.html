@@ -8,7 +8,7 @@
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
 <link rel="stylesheet" href="{% static 'indy_hub/css/blueprints.css' %}">
-<link rel="stylesheet" href="{% static 'indy_hub/css/craft_bp.css' %}?v=20260426-tabs-responsive">
+<link rel="stylesheet" href="{% static 'indy_hub/css/craft_bp.css' %}?v=20260505-zero-price-alert">
 {% endblock extra_css %}
 
 {% block content %}
@@ -193,6 +193,7 @@
                         <div class="craft-stat-content">
                             <div class="craft-stat-label">{% trans "Margin" %}</div>
                             <div class="craft-stat-value" id="quickMargin">-</div>
+                            <div class="small text-warning fw-semibold craft-zero-price-alert d-none" id="quickMarginZeroPriceAlert"></div>
                         </div>
                     </div>
                 </div>
@@ -208,11 +209,11 @@
                     </div>
                     <div class="craft-kpi craft-kpi-sm">
                         <span class="craft-kpi-label">ME</span>
-                        <span class="craft-kpi-value">{{ me|default:0 }}</span>
+                        <span class="craft-kpi-value" id="craftPlanMEValue">{{ me|default:0 }}</span>
                     </div>
                     <div class="craft-kpi craft-kpi-sm">
                         <span class="craft-kpi-label">TE</span>
-                        <span class="craft-kpi-value">{{ te|default:0 }}</span>
+                        <span class="craft-kpi-value" id="craftPlanTEValue">{{ te|default:0 }}</span>
                     </div>
                 </div>
 
@@ -645,6 +646,12 @@
 
                     <div class="small text-muted mb-3">
                         {% trans "Last cached asset sync" %}: <span id="stockSummaryUpdated">{% trans "No asset sync yet" %}</span>
+                    </div>
+
+                    <div class="alert alert-info py-2 small mb-3 d-none" id="stockRefreshStatusNotice"></div>
+
+                    <div class="alert alert-info py-2 small mb-3" id="stockAvailableOnlyNotice">
+                        {% trans "Only required items with cached stock available are shown." %}
                     </div>
 
                     <div class="table-responsive craft-stock-table-wrap">
@@ -1129,9 +1136,9 @@
 <script src="{% static 'indy_hub/js/craft_bp_page.js' %}?v=20260426-pending-refresh-fix"></script>
 {% if not deferred_shell %}
 <script src="{% static 'indy_hub/js/craft_bp_simulation_api.js' %}?v=20260427-inclusion-mode-restore"></script>
-<script src="{% static 'indy_hub/js/craft_bp_active_tab.js' %}?v=20260425-loading-replay2"></script>
+<script src="{% static 'indy_hub/js/craft_bp_active_tab.js' %}?v=20260505-deferred-tab-init"></script>
 <script src="{% static 'indy_hub/js/craft_bp_financial_planner.js' %}?v=20260428-no-output-override"></script>
-<script src="{% static 'indy_hub/js/craft_bp.js' %}?v=20260505-stock-input-task-split"></script>
-<script src="{% static 'indy_hub/js/craft_bp_inline.js' %}?v=20260427-revenue-mode-total"></script>
+<script src="{% static 'indy_hub/js/craft_bp.js' %}?v=20260505-stock-refresh-notice"></script>
+<script src="{% static 'indy_hub/js/craft_bp_inline.js' %}?v=20260505-owned-bp-mete-defaults"></script>
 {% endif %}
 {% endblock extra_javascript %}

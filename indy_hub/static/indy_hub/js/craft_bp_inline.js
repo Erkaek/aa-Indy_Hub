@@ -22,15 +22,31 @@
 
     function buildMeTeConfigFromLegacyEfficiencies(efficiencies) {
         const blueprintConfigs = {};
+        const pageBlueprintConfigs = Array.isArray(blueprintData.page?.blueprint_configs)
+            ? blueprintData.page.blueprint_configs
+            : [];
+
+        pageBlueprintConfigs.forEach((entry) => {
+            const blueprintTypeId = Number(entry?.type_id || 0) || 0;
+            if (!(blueprintTypeId > 0)) {
+                return;
+            }
+            blueprintConfigs[String(blueprintTypeId)] = {
+                me: Math.max(0, Math.min(Number(entry?.material_efficiency || 0) || 0, 10)),
+                te: Math.max(0, Math.min(Number(entry?.time_efficiency || 0) || 0, 20)),
+            };
+        });
+
         (Array.isArray(efficiencies) ? efficiencies : []).forEach((entry) => {
             const blueprintTypeId = Number(entry?.blueprint_type_id || entry?.blueprintTypeId || 0) || 0;
             if (!(blueprintTypeId > 0)) {
                 return;
             }
-            blueprintConfigs[String(blueprintTypeId)] = {
-                me: Math.max(0, Math.min(Number(entry?.material_efficiency || entry?.materialEfficiency || 0) || 0, 10)),
-                te: Math.max(0, Math.min(Number(entry?.time_efficiency || entry?.timeEfficiency || 0) || 0, 20)),
-            };
+            const me = Math.max(0, Math.min(Number(entry?.material_efficiency || entry?.materialEfficiency || 0) || 0, 10));
+            const te = Math.max(0, Math.min(Number(entry?.time_efficiency || entry?.timeEfficiency || 0) || 0, 20));
+            if (me || te || !blueprintConfigs[String(blueprintTypeId)]) {
+                blueprintConfigs[String(blueprintTypeId)] = { me, te };
+            }
         });
 
         const mainBlueprintTypeId = Number((blueprintData.bp_type_id || blueprintData.type_id || 0)) || 0;
