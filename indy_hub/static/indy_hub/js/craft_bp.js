@@ -1778,6 +1778,12 @@ function setCraftStockRefreshNotice(state = {}) {
         return;
     }
 
+    if (state.error === 'stock_status_unavailable') {
+        notice.classList.add('alert-warning');
+        notice.textContent = state.message || __('Unable to refresh stock status. Stock uses the latest cached asset snapshot.');
+        return;
+    }
+
     if (state.error && state.error !== 'no_assets_fetched') {
         notice.classList.add('alert-danger');
         notice.textContent = __('Character asset refresh did not complete. Stock uses the latest cached asset snapshot.');
@@ -1825,6 +1831,11 @@ function scheduleCraftStockRefreshStatusPolling() {
                 window.craftBPFlags.stockRefreshPollingStarted = false;
             })
             .catch(() => {
+                setCraftStockRefreshNotice({
+                    running: false,
+                    error: 'stock_status_unavailable',
+                    message: __('Unable to refresh stock status. Please try again.'),
+                });
                 window.craftBPFlags.stockRefreshPollingStarted = false;
             });
     };
