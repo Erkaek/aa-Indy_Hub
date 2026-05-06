@@ -1,6 +1,7 @@
 """Tests for production project import parsing and resolution."""
 
 # Standard Library
+from types import SimpleNamespace
 from unittest import TestCase
 from unittest.mock import patch
 
@@ -17,6 +18,7 @@ from indy_hub.services.production_projects import (
     _resolve_preferred_blueprint_for_product,
     aggregate_project_import_entries,
     build_project_import_preview,
+    build_project_workspace_payload,
     normalize_production_project_ref,
     parse_project_import_text,
     resolve_project_import_entries,
@@ -79,6 +81,69 @@ class _FetchoneCursorStub:
 
     def fetchone(self):
         return self._fetchone_result
+
+
+class _ProjectItemsQueryStub:
+    def __init__(self, items):
+        self._items = items
+
+    def filter(self, **kwargs):
+        return self
+
+    def exclude(self, **kwargs):
+        return self
+
+    def order_by(self, *fields):
+        return list(self._items)
+
+
+class _WorkspacePayloadCursorStub:
+    product_rows = {
+        1000: (2000, "Root Product", 1, 1, "Ships", 10),
+        3001: (3000, "Child Product", 1, 1, "Modules", 11),
+    }
+    material_rows = {
+        1000: [(3000, "Child Product", 10), (34, "Tritanium", 100)],
+        3001: [],
+    }
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def execute(self, sql, params=None):
+        query = " ".join(str(sql).split())
+        blueprint_type_id = int((params or [0])[0] or 0)
+        if "SELECT p.product_eve_type_id" in query:
+            row = self.product_rows.get(blueprint_type_id)
+            self._result = [row] if row else []
+            return
+        if "SELECT m.material_eve_type_id, COALESCE" in query:
+            self._result = self.material_rows.get(blueprint_type_id, [])
+            return
+        if "SELECT m.material_eve_type_id, m.quantity" in query:
+            self._result = [
+                (type_id, quantity)
+                for type_id, _name, quantity in self.material_rows.get(
+                    blueprint_type_id, []
+                )
+            ]
+            return
+        if "SELECT t.meta_group_id_raw, g.category_id" in query:
+            self._result = [(None, None)]
+            return
+        if "SELECT COALESCE(g.name, ''), g.id" in query:
+            self._result = [("", None)]
+            return
+        self._result = []
+
+    def fetchone(self):
+        return self._result[0] if self._result else None
+
+    def fetchall(self):
+        return self._result
 
 
 class ProductionProjectImportTests(TestCase):
@@ -214,6 +279,111 @@ class ProductionProjectImportTests(TestCase):
                 },
                 {"blueprint_type_id": 23916},
             )
+        )
+
+    def test_workspace_payload_resolves_user_blueprints_once_for_project_tree(
+        self,
+    ) -> None:
+        project_item = SimpleNamespace(
+            id=1,
+            type_id=2000,
+            type_name="Root Product",
+            quantity_requested=1,
+            is_selected=True,
+            is_craftable=True,
+            inclusion_mode="produce",
+            blueprint_type_id=1000,
+            category_key="manual",
+            category_label="Manual list",
+            category_order=90,
+        )
+        project = SimpleNamespace(
+            id=1,
+            project_ref="abc123def4",
+            name="Root Project",
+            status="draft",
+            source_kind="manual",
+            workspace_state={},
+            notes="",
+            user=object(),
+            items=_ProjectItemsQueryStub([project_item]),
+        )
+        inventory_map = {
+            1000: {
+                "original": {"me": 10, "te": 20},
+                "best_copy": None,
+                "copy_runs_total": 0,
+            },
+            3001: {
+                "original": {"me": 8, "te": 16},
+                "best_copy": None,
+                "copy_runs_total": 0,
+            },
+        }
+
+        with (
+            patch(
+                "indy_hub.services.production_projects.connection.cursor",
+                side_effect=lambda: _WorkspacePayloadCursorStub(),
+            ),
+            patch(
+                "indy_hub.services.production_projects._resolve_type_names",
+                return_value={
+                    34: "Tritanium",
+                    1000: "Root Blueprint",
+                    2000: "Root Product",
+                    3000: "Child Product",
+                    3001: "Child Blueprint",
+                },
+            ),
+            patch(
+                "indy_hub.services.production_projects._resolve_preferred_blueprint_for_product",
+                side_effect=lambda type_id: {3000: 3001}.get(int(type_id)),
+            ),
+            patch(
+                "indy_hub.services.production_projects._resolve_market_groups",
+                return_value={},
+            ),
+            patch(
+                "indy_hub.services.production_projects.is_base_item_material_efficiency_exempt",
+                return_value=False,
+            ),
+            patch(
+                "indy_hub.services.production_projects.build_craft_time_map",
+                return_value={},
+            ),
+            patch(
+                "indy_hub.services.production_projects.build_craft_character_advisor",
+                return_value={"characters": [], "items": {}, "summary": {}},
+            ),
+            patch(
+                "indy_hub.services.production_projects.build_craft_structure_planner",
+                return_value={},
+            ),
+            patch(
+                "indy_hub.services.production_projects._resolve_user_blueprint_inventory",
+                return_value=inventory_map,
+            ) as mock_inventory,
+            patch(
+                "indy_hub.services.production_projects._build_project_blueprint_configs_grouped",
+                return_value=([], []),
+            ) as mock_blueprint_configs,
+        ):
+            payload = build_project_workspace_payload(project)
+
+        mock_inventory.assert_called_once()
+        self.assertSetEqual(
+            set(mock_inventory.call_args.kwargs["blueprint_type_ids"]),
+            {1000, 3001},
+        )
+        self.assertEqual(payload["me"], 10)
+        self.assertEqual(
+            payload["materials_tree"][0]["sub_materials"][0]["blueprint_type_id"],
+            3001,
+        )
+        self.assertIs(
+            mock_blueprint_configs.call_args.kwargs["user_bp_map"],
+            inventory_map,
         )
 
     @patch("indy_hub.services.production_projects.connection.cursor")

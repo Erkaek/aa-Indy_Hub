@@ -913,6 +913,7 @@ def build_project_workspace_payload(
         _extract_workspace_me_te_overrides(workspace_state),
         me_te_overrides,
     )
+    owned_blueprint_inventory_map: dict[int, dict[str, object]] = {}
     owned_blueprint_efficiency_cache: dict[int, dict[str, int]] = {}
 
     def get_owned_blueprint_efficiency(blueprint_type_id: int) -> dict[str, int]:
@@ -922,10 +923,7 @@ def build_project_workspace_payload(
         if numeric_blueprint_type_id in owned_blueprint_efficiency_cache:
             return owned_blueprint_efficiency_cache[numeric_blueprint_type_id]
 
-        user_entry = _resolve_user_blueprint_inventory(
-            user=project.user,
-            blueprint_type_ids=[numeric_blueprint_type_id],
-        ).get(numeric_blueprint_type_id, {})
+        user_entry = owned_blueprint_inventory_map.get(numeric_blueprint_type_id, {})
         owned_entry = user_entry.get("original") or user_entry.get("best_copy") or {}
         owned_blueprint_efficiency_cache[numeric_blueprint_type_id] = (
             {
@@ -1011,6 +1009,7 @@ def build_project_workspace_payload(
 
     blueprint_product_cache: dict[int, dict[str, object] | None] = {}
     blueprint_recipe_cache: dict[tuple[int, int], dict[str, object]] = {}
+    blueprint_material_rows_cache: dict[int, list[tuple[int, str, int]]] = {}
     product_blueprint_cache: dict[int, int | None] = {}
     type_meta_cache: dict[int, tuple[int | None, int | None]] = {}
     type_name_cache_started_at = perf_counter()
@@ -1202,6 +1201,110 @@ def build_project_workspace_payload(
         }
         return blueprint_recipe_cache[cache_key]
 
+    def get_blueprint_material_rows(
+        blueprint_type_id: int,
+    ) -> list[tuple[int, str, int]]:
+        numeric_blueprint_type_id = int(blueprint_type_id or 0)
+        if numeric_blueprint_type_id <= 0:
+            return []
+        if numeric_blueprint_type_id in blueprint_material_rows_cache:
+            return blueprint_material_rows_cache[numeric_blueprint_type_id]
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT m.material_eve_type_id, COALESCE(t.name_en, t.name), m.quantity
+                FROM indy_hub_sdeindustryactivitymaterial m
+                JOIN eve_sde_itemtype t ON t.id = m.material_eve_type_id
+                                WHERE m.eve_type_id = %s
+                                    AND m.activity_id IN (1, 11)
+                                    AND COALESCE(t.published, 0) = 1
+                """,
+                [numeric_blueprint_type_id],
+            )
+            rows = [
+                (
+                    int(material_type_id),
+                    str(material_name or ""),
+                    int(base_quantity or 0),
+                )
+                for material_type_id, material_name, base_quantity in cursor.fetchall()
+            ]
+
+        blueprint_material_rows_cache[numeric_blueprint_type_id] = rows
+        return rows
+
+    def collect_project_blueprint_type_ids() -> set[int]:
+        blueprint_type_ids: set[int] = set()
+
+        def collect_output_blueprints(
+            *,
+            type_id: int | None,
+            blueprint_type_id: int | None,
+            seen: set[int] | None = None,
+        ) -> None:
+            numeric_type_id = int(type_id or 0) if type_id else None
+            numeric_blueprint_type_id = (
+                int(blueprint_type_id or 0) if blueprint_type_id else 0
+            )
+            if numeric_blueprint_type_id > 0 and not get_blueprint_product_row(
+                numeric_blueprint_type_id
+            ):
+                normalized_blueprint_type_id = get_blueprint_for_product(
+                    numeric_type_id or numeric_blueprint_type_id
+                )
+                if normalized_blueprint_type_id:
+                    numeric_blueprint_type_id = int(normalized_blueprint_type_id)
+            if numeric_blueprint_type_id <= 0:
+                return
+
+            current_seen = set(seen or set())
+            if numeric_blueprint_type_id in current_seen:
+                return
+            current_seen.add(numeric_blueprint_type_id)
+            blueprint_type_ids.add(numeric_blueprint_type_id)
+
+            product_row = get_blueprint_product_row(numeric_blueprint_type_id) or {}
+            resolved_product_type_id = int(
+                numeric_type_id or product_row.get("product_type_id") or 0
+            )
+            _remember_project_blueprint_for_product(
+                product_blueprint_cache,
+                resolved_product_type_id,
+                numeric_blueprint_type_id,
+            )
+
+            for (
+                material_type_id,
+                _material_name,
+                _base_quantity,
+            ) in get_blueprint_material_rows(numeric_blueprint_type_id):
+                child_blueprint_type_id = get_blueprint_for_product(material_type_id)
+                collect_output_blueprints(
+                    type_id=material_type_id,
+                    blueprint_type_id=child_blueprint_type_id,
+                    seen=current_seen,
+                )
+
+        for item in selected_items:
+            collect_output_blueprints(
+                type_id=item.type_id,
+                blueprint_type_id=item.blueprint_type_id,
+            )
+
+        return blueprint_type_ids
+
+    blueprint_inventory_started_at = perf_counter()
+    owned_blueprint_inventory_map = _resolve_user_blueprint_inventory(
+        user=project.user,
+        blueprint_type_ids=collect_project_blueprint_type_ids(),
+    )
+    record_timing_step(
+        "blueprint-inventory",
+        "Resolve owned blueprint inventory",
+        blueprint_inventory_started_at,
+    )
+
     def build_project_output_node(
         *,
         type_id: int | None,
@@ -1288,20 +1391,7 @@ def build_project_workspace_payload(
         )
 
         children: list[dict[str, object]] = []
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT m.material_eve_type_id, COALESCE(t.name_en, t.name), m.quantity
-                FROM indy_hub_sdeindustryactivitymaterial m
-                JOIN eve_sde_itemtype t ON t.id = m.material_eve_type_id
-                                WHERE m.eve_type_id = %s
-                                    AND m.activity_id IN (1, 11)
-                                    AND COALESCE(t.published, 0) = 1
-                """,
-                [numeric_blueprint_type_id],
-            )
-            material_rows = list(cursor.fetchall())
-
+        material_rows = get_blueprint_material_rows(numeric_blueprint_type_id)
         for material_type_id, material_name, base_quantity in material_rows:
             material_type_id = int(material_type_id)
             apply_material_efficiency = material_efficiency_applies(
@@ -1485,6 +1575,7 @@ def build_project_workspace_payload(
             overrides=overrides,
             type_name_cache=type_name_cache,
             market_group_map=market_group_map,
+            user_bp_map=owned_blueprint_inventory_map,
         )
     )
     record_timing_step(
@@ -2076,12 +2167,14 @@ def _build_project_blueprint_configs_grouped(
     overrides: dict[int, dict[str, int]],
     type_name_cache: dict[int, str],
     market_group_map: dict[int, dict[str, object]] | None = None,
+    user_bp_map: dict[int, dict[str, object]] | None = None,
 ) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
     market_group_map = market_group_map or {}
-    user_bp_map = _resolve_user_blueprint_inventory(
-        user=user,
-        blueprint_type_ids=product_blueprint_cache.values(),
-    )
+    if user_bp_map is None:
+        user_bp_map = _resolve_user_blueprint_inventory(
+            user=user,
+            blueprint_type_ids=product_blueprint_cache.values(),
+        )
     blueprints = []
     for type_id, entry in sorted(
         cycle_summary.items(),
