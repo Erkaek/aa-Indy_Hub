@@ -566,6 +566,29 @@ def _clamp_blueprint_te(value) -> int:
         return 0
 
 
+def _select_best_owned_blueprint_entry(
+    user_entry: dict[str, object],
+) -> tuple[dict[str, object] | None, bool]:
+    candidates: list[tuple[dict[str, object], bool]] = []
+    original = user_entry.get("original")
+    if isinstance(original, dict) and original:
+        candidates.append((original, False))
+    best_copy = user_entry.get("best_copy")
+    if isinstance(best_copy, dict) and best_copy:
+        candidates.append((best_copy, True))
+    if not candidates:
+        return None, False
+
+    return max(
+        candidates,
+        key=lambda candidate: (
+            _clamp_blueprint_me(candidate[0].get("me")),
+            _clamp_blueprint_te(candidate[0].get("te")),
+            0 if candidate[1] else 1,
+        ),
+    )
+
+
 def _extract_workspace_me_te_overrides(
     workspace_state: dict[str, object] | None,
 ) -> dict[int, dict[str, int]]:
@@ -924,7 +947,7 @@ def build_project_workspace_payload(
             return owned_blueprint_efficiency_cache[numeric_blueprint_type_id]
 
         user_entry = owned_blueprint_inventory_map.get(numeric_blueprint_type_id, {})
-        owned_entry = user_entry.get("original") or user_entry.get("best_copy") or {}
+        owned_entry, _is_copy = _select_best_owned_blueprint_entry(user_entry)
         owned_blueprint_efficiency_cache[numeric_blueprint_type_id] = (
             {
                 "me": _clamp_blueprint_me(owned_entry.get("me")),
@@ -2186,18 +2209,19 @@ def _build_project_blueprint_configs_grouped(
         is_reaction = bool(is_reaction_blueprint(int(blueprint_type_id)))
         override = overrides.get(int(blueprint_type_id), {})
         user_entry = user_bp_map.get(int(blueprint_type_id), {})
-        original = user_entry.get("original") or None
-        best_copy = user_entry.get("best_copy") or None
-        user_owns = bool(original or best_copy)
-        is_copy = bool(best_copy) and not bool(original)
+        selected_owned_entry, selected_is_copy = _select_best_owned_blueprint_entry(
+            user_entry
+        )
+        user_owns = bool(selected_owned_entry)
+        is_copy = bool(selected_is_copy)
         runs_available = (
             int(user_entry.get("copy_runs_total") or 0) if is_copy else None
         )
         user_material_efficiency = (
-            int((original or best_copy or {}).get("me") or 0) if user_owns else None
+            int(selected_owned_entry.get("me") or 0) if selected_owned_entry else None
         )
         user_time_efficiency = (
-            int((original or best_copy or {}).get("te") or 0) if user_owns else None
+            int(selected_owned_entry.get("te") or 0) if selected_owned_entry else None
         )
         # Reaction "blueprints" (Reaction Formulas) cannot have non-zero ME/TE
         # and cannot be copied: force ME/TE to 0 (template hides the inputs)

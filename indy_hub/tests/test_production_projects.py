@@ -310,9 +310,9 @@ class ProductionProjectImportTests(TestCase):
         )
         inventory_map = {
             1000: {
-                "original": {"me": 10, "te": 20},
-                "best_copy": None,
-                "copy_runs_total": 0,
+                "original": {"me": 0, "te": 0},
+                "best_copy": {"me": 10, "te": 20},
+                "copy_runs_total": 3,
             },
             3001: {
                 "original": {"me": 8, "te": 16},
@@ -385,6 +385,41 @@ class ProductionProjectImportTests(TestCase):
             mock_blueprint_configs.call_args.kwargs["user_bp_map"],
             inventory_map,
         )
+
+    @patch("indy_hub.services.production_projects._resolve_user_blueprint_inventory")
+    def test_project_blueprint_configs_use_best_copy_when_better_than_original(
+        self,
+        mock_inventory,
+    ) -> None:
+        mock_inventory.return_value = {
+            46165: {
+                "original": {"me": 0, "te": 0},
+                "best_copy": {"me": 8, "te": 16},
+                "copy_runs_total": 5,
+            }
+        }
+
+        blueprints, _grouped = _build_project_blueprint_configs_grouped(
+            user=object(),
+            cycle_summary={
+                78272: {
+                    "type_id": 78272,
+                    "type_name": "Cyclone Fleet Issue",
+                    "total_needed": 2,
+                }
+            },
+            product_blueprint_cache={78272: 46165},
+            overrides={},
+            type_name_cache={46165: "Cyclone Fleet Issue Blueprint"},
+        )
+
+        self.assertEqual(len(blueprints), 1)
+        self.assertEqual(blueprints[0]["material_efficiency"], 8)
+        self.assertEqual(blueprints[0]["time_efficiency"], 16)
+        self.assertEqual(blueprints[0]["user_material_efficiency"], 8)
+        self.assertEqual(blueprints[0]["user_time_efficiency"], 16)
+        self.assertTrue(blueprints[0]["is_copy"])
+        self.assertEqual(blueprints[0]["runs_available"], 5)
 
     @patch("indy_hub.services.production_projects.connection.cursor")
     def test_resolve_preferred_blueprint_for_product_prefers_published_types(
