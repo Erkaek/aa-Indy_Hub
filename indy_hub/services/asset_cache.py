@@ -1523,12 +1523,16 @@ def get_user_assets_cached(
 
 
 def build_user_asset_inventory_snapshot(
-    user, *, allow_refresh: bool = True, include_blueprints: bool = False
+    user,
+    *,
+    allow_refresh: bool = True,
+    include_blueprints: bool = False,
+    max_age_minutes: int | None = None,
 ) -> dict[str, Any]:
     """Return a craft-friendly summary of cached user assets grouped by item and character."""
 
     assets, assets_scope_missing = get_user_assets_cached(
-        user, allow_refresh=allow_refresh
+        user, allow_refresh=allow_refresh, max_age_minutes=max_age_minutes
     )
     character_names = {
         int(character_id): str(character_name or character_id)

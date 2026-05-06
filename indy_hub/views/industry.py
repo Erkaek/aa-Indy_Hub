@@ -16,6 +16,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
+from django.core.cache import cache
 from django.core.exceptions import FieldDoesNotExist, ValidationError
 from django.core.paginator import Paginator
 from django.db import connection
@@ -51,6 +52,7 @@ from ..models import (
     BlueprintCopyMessage,
     BlueprintCopyOffer,
     BlueprintCopyRequest,
+    CachedCharacterAsset,
     IndustryActivityMixin,
     IndustryJob,
     IndustrySkillSnapshot,
@@ -103,6 +105,12 @@ from ..services.industry_structures import (
     search_solar_system_options,
 )
 from ..services.market_prices import MarketPriceError, fetch_adjusted_prices
+from ..services.material_exchange_assets import (
+    SELL_ASSETS_REFRESH_PROGRESS_TTL_SECONDS,
+    ensure_sell_assets_refresh_started,
+    get_sell_assets_refresh_progress,
+    material_exchange_sell_assets_progress_key,
+)
 from ..services.production_projects import (
     build_project_workspace_payload,
     create_project_from_single_blueprint,
@@ -166,6 +174,73 @@ else:  # pragma: no cover - eve_sde not installed
     EveType = None
 
 logger = get_extension_logger(__name__)
+CRAFT_PROJECT_STOCK_CACHE_MAX_AGE_MINUTES = 60
+CRAFT_PROJECT_STOCK_REFRESH_PROGRESS_TTL_SECONDS = (
+    SELL_ASSETS_REFRESH_PROGRESS_TTL_SECONDS
+)
+
+
+def _craft_project_stock_refresh_progress_key(user_id: int) -> str:
+    return material_exchange_sell_assets_progress_key(int(user_id))
+
+
+def _ensure_craft_project_stock_refresh_started(user) -> dict:
+    """Start an async character asset refresh for Craft stock when needed."""
+    return ensure_sell_assets_refresh_started(user, log_context="Craft stock asset")
+
+
+def _get_craft_project_stock_refresh_progress(user) -> dict:
+    latest_update = (
+        CachedCharacterAsset.objects.filter(user=user)
+        .order_by("-synced_at")
+        .values_list("synced_at", flat=True)
+        .first()
+    )
+    try:
+        stock_is_stale = (
+            not latest_update
+            or (timezone.now() - latest_update).total_seconds()
+            > CRAFT_PROJECT_STOCK_CACHE_MAX_AGE_MINUTES * 60
+        )
+    except Exception:
+        stock_is_stale = True
+
+    progress_key = _craft_project_stock_refresh_progress_key(int(user.id))
+    cached_progress = cache.get(progress_key)
+    progress = get_sell_assets_refresh_progress(int(user.id)) if cached_progress else {}
+    if stock_is_stale:
+        progress = _ensure_craft_project_stock_refresh_started(user)
+    return progress
+
+
+def _get_latest_character_asset_sync(user):
+    return (
+        CachedCharacterAsset.objects.filter(user=user)
+        .order_by("-synced_at")
+        .values_list("synced_at", flat=True)
+        .first()
+    )
+
+
+@indy_hub_access_required
+@login_required
+@require_http_methods(["GET"])
+def craft_project_stock_refresh_status(request):
+    emit_view_analytics_event(
+        view_name="industry.craft_project_stock_refresh_status", request=request
+    )
+
+    state = get_sell_assets_refresh_progress(int(request.user.id))
+
+    latest_update = _get_latest_character_asset_sync(request.user)
+    response = dict(state)
+    response["synced_at"] = latest_update.isoformat() if latest_update else ""
+    initial_synced_at = str(request.GET.get("since") or "").strip()
+    response["changed"] = bool(
+        latest_update and latest_update.isoformat() != initial_synced_at
+    )
+    return JsonResponse(response)
+
 
 try:
     # Alliance Auth
@@ -2556,6 +2631,7 @@ def craft_project(request, project_ref):
 
     render_workspace_state = dict(payload.get("workspace_state") or workspace_state)
     render_workspace_state["active_tab"] = active_tab
+    stock_refresh_progress = _get_craft_project_stock_refresh_progress(request.user)
 
     payload.update(
         {
@@ -2565,6 +2641,7 @@ def craft_project(request, project_ref):
                 request.user,
                 allow_refresh=False,
             ),
+            "character_stock_refresh": stock_refresh_progress,
             "urls": {
                 "save": reverse(
                     "indy_hub:save_production_project_workspace",
@@ -2576,6 +2653,9 @@ def craft_project(request, project_ref):
                 "craft_bp_payload": reverse(
                     "indy_hub:production_project_payload",
                     args=[project.project_ref],
+                ),
+                "craft_stock_refresh_status": reverse(
+                    "indy_hub:craft_project_stock_refresh_status"
                 ),
                 "structure_solar_system_search": reverse(
                     "indy_hub:industry_structure_solar_system_search"

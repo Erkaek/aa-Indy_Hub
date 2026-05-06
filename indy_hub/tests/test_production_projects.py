@@ -1,6 +1,7 @@
 """Tests for production project import parsing and resolution."""
 
 # Standard Library
+from types import SimpleNamespace
 from unittest import TestCase
 from unittest.mock import patch
 
@@ -8,11 +9,16 @@ from unittest.mock import patch
 from indy_hub.models import generate_production_project_ref
 from indy_hub.services.production_projects import (
     _build_project_blueprint_configs_grouped,
+    _cached_payload_includes_blueprint_configs,
+    _extract_workspace_me_te_overrides,
+    _merge_me_te_overrides,
     _payload_uses_unpublished_blueprints,
+    _remember_project_blueprint_for_product,
     _resolve_blueprints_for_products,
     _resolve_preferred_blueprint_for_product,
     aggregate_project_import_entries,
     build_project_import_preview,
+    build_project_workspace_payload,
     normalize_production_project_ref,
     parse_project_import_text,
     resolve_project_import_entries,
@@ -77,6 +83,69 @@ class _FetchoneCursorStub:
         return self._fetchone_result
 
 
+class _ProjectItemsQueryStub:
+    def __init__(self, items):
+        self._items = items
+
+    def filter(self, **kwargs):
+        return self
+
+    def exclude(self, **kwargs):
+        return self
+
+    def order_by(self, *fields):
+        return list(self._items)
+
+
+class _WorkspacePayloadCursorStub:
+    product_rows = {
+        1000: (2000, "Root Product", 1, 1, "Ships", 10),
+        3001: (3000, "Child Product", 1, 1, "Modules", 11),
+    }
+    material_rows = {
+        1000: [(3000, "Child Product", 10), (34, "Tritanium", 100)],
+        3001: [],
+    }
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def execute(self, sql, params=None):
+        query = " ".join(str(sql).split())
+        blueprint_type_id = int((params or [0])[0] or 0)
+        if "SELECT p.product_eve_type_id" in query:
+            row = self.product_rows.get(blueprint_type_id)
+            self._result = [row] if row else []
+            return
+        if "SELECT m.material_eve_type_id, COALESCE" in query:
+            self._result = self.material_rows.get(blueprint_type_id, [])
+            return
+        if "SELECT m.material_eve_type_id, m.quantity" in query:
+            self._result = [
+                (type_id, quantity)
+                for type_id, _name, quantity in self.material_rows.get(
+                    blueprint_type_id, []
+                )
+            ]
+            return
+        if "SELECT t.meta_group_id_raw, g.category_id" in query:
+            self._result = [(None, None)]
+            return
+        if "SELECT COALESCE(g.name, ''), g.id" in query:
+            self._result = [("", None)]
+            return
+        self._result = []
+
+    def fetchone(self):
+        return self._result[0] if self._result else None
+
+    def fetchall(self):
+        return self._result
+
+
 class ProductionProjectImportTests(TestCase):
     @patch(
         "indy_hub.models.secrets.choice",
@@ -103,6 +172,254 @@ class ProductionProjectImportTests(TestCase):
             normalize_production_project_ref("ABC123DEF4"),
             "abc123def4",
         )
+
+    def test_workspace_mete_overrides_ignore_legacy_zero_defaults(self) -> None:
+        overrides = _extract_workspace_me_te_overrides(
+            {
+                "blueprint_efficiencies": [
+                    {
+                        "blueprint_type_id": 23916,
+                        "material_efficiency": 0,
+                        "time_efficiency": 0,
+                    },
+                    {
+                        "blueprint_type_id": 23920,
+                        "material_efficiency": 10,
+                        "time_efficiency": 20,
+                    },
+                ]
+            }
+        )
+
+        self.assertNotIn(23916, overrides)
+        self.assertEqual(overrides[23920], {"me": 10, "te": 20})
+
+    def test_workspace_mete_overrides_preserve_modern_zero_choices(self) -> None:
+        overrides = _extract_workspace_me_te_overrides(
+            {"meTeConfig": {"blueprintConfigs": {"23916": {"me": 0, "te": 0}}}}
+        )
+
+        self.assertEqual(overrides[23916], {"me": 0, "te": 0})
+
+    def test_request_mete_overrides_replace_saved_workspace_choices(self) -> None:
+        merged = _merge_me_te_overrides(
+            {23916: {"me": 8, "te": 16}},
+            {23916: {"me": 10}},
+        )
+
+        self.assertEqual(merged[23916], {"me": 10, "te": 16})
+
+    def test_project_blueprint_cache_remembers_explicit_root_blueprint(self) -> None:
+        product_blueprint_cache = {}
+
+        _remember_project_blueprint_for_product(
+            product_blueprint_cache,
+            product_type_id=23915,
+            blueprint_type_id=23916,
+        )
+
+        self.assertEqual(product_blueprint_cache, {23915: 23916})
+
+    def test_cached_payload_requires_cards_for_used_blueprints(self) -> None:
+        self.assertFalse(
+            _cached_payload_includes_blueprint_configs(
+                {
+                    "materials_tree": [
+                        {
+                            "type_id": 23915,
+                            "blueprint_type_id": 23916,
+                            "sub_materials": [],
+                        }
+                    ],
+                    "page": {"blueprint_configs": []},
+                },
+                {"blueprint_type_id": 23916},
+            )
+        )
+
+    def test_cached_payload_allows_legacy_payload_without_page_configs(self) -> None:
+        self.assertTrue(
+            _cached_payload_includes_blueprint_configs(
+                {
+                    "materials_tree": [
+                        {
+                            "type_id": 23915,
+                            "blueprint_type_id": 23916,
+                            "sub_materials": [],
+                        }
+                    ]
+                },
+                {"blueprint_type_id": 23916},
+            )
+        )
+
+    def test_cached_payload_accepts_cards_for_all_used_blueprints(self) -> None:
+        self.assertTrue(
+            _cached_payload_includes_blueprint_configs(
+                {
+                    "materials_tree": [
+                        {
+                            "type_id": 23915,
+                            "blueprint_type_id": 23916,
+                            "sub_materials": [
+                                {
+                                    "type_id": 123,
+                                    "blueprint_type_id": 456,
+                                    "sub_materials": [],
+                                }
+                            ],
+                        }
+                    ],
+                    "page": {
+                        "blueprint_configs": [
+                            {"type_id": 23916},
+                            {"type_id": 456},
+                        ]
+                    },
+                },
+                {"blueprint_type_id": 23916},
+            )
+        )
+
+    def test_workspace_payload_resolves_user_blueprints_once_for_project_tree(
+        self,
+    ) -> None:
+        project_item = SimpleNamespace(
+            id=1,
+            type_id=2000,
+            type_name="Root Product",
+            quantity_requested=1,
+            is_selected=True,
+            is_craftable=True,
+            inclusion_mode="produce",
+            blueprint_type_id=1000,
+            category_key="manual",
+            category_label="Manual list",
+            category_order=90,
+        )
+        project = SimpleNamespace(
+            id=1,
+            project_ref="abc123def4",
+            name="Root Project",
+            status="draft",
+            source_kind="manual",
+            workspace_state={},
+            notes="",
+            user=object(),
+            items=_ProjectItemsQueryStub([project_item]),
+        )
+        inventory_map = {
+            1000: {
+                "original": {"me": 0, "te": 0},
+                "best_copy": {"me": 10, "te": 20},
+                "copy_runs_total": 3,
+            },
+            3001: {
+                "original": {"me": 8, "te": 16},
+                "best_copy": None,
+                "copy_runs_total": 0,
+            },
+        }
+
+        with (
+            patch(
+                "indy_hub.services.production_projects.connection.cursor",
+                side_effect=lambda: _WorkspacePayloadCursorStub(),
+            ),
+            patch(
+                "indy_hub.services.production_projects._resolve_type_names",
+                return_value={
+                    34: "Tritanium",
+                    1000: "Root Blueprint",
+                    2000: "Root Product",
+                    3000: "Child Product",
+                    3001: "Child Blueprint",
+                },
+            ),
+            patch(
+                "indy_hub.services.production_projects._resolve_preferred_blueprint_for_product",
+                side_effect=lambda type_id: {3000: 3001}.get(int(type_id)),
+            ),
+            patch(
+                "indy_hub.services.production_projects._resolve_market_groups",
+                return_value={},
+            ),
+            patch(
+                "indy_hub.services.production_projects.is_base_item_material_efficiency_exempt",
+                return_value=False,
+            ),
+            patch(
+                "indy_hub.services.production_projects.build_craft_time_map",
+                return_value={},
+            ),
+            patch(
+                "indy_hub.services.production_projects.build_craft_character_advisor",
+                return_value={"characters": [], "items": {}, "summary": {}},
+            ),
+            patch(
+                "indy_hub.services.production_projects.build_craft_structure_planner",
+                return_value={},
+            ),
+            patch(
+                "indy_hub.services.production_projects._resolve_user_blueprint_inventory",
+                return_value=inventory_map,
+            ) as mock_inventory,
+            patch(
+                "indy_hub.services.production_projects._build_project_blueprint_configs_grouped",
+                return_value=([], []),
+            ) as mock_blueprint_configs,
+        ):
+            payload = build_project_workspace_payload(project)
+
+        mock_inventory.assert_called_once()
+        self.assertSetEqual(
+            set(mock_inventory.call_args.kwargs["blueprint_type_ids"]),
+            {1000, 3001},
+        )
+        self.assertEqual(payload["me"], 10)
+        self.assertEqual(
+            payload["materials_tree"][0]["sub_materials"][0]["blueprint_type_id"],
+            3001,
+        )
+        self.assertIs(
+            mock_blueprint_configs.call_args.kwargs["user_bp_map"],
+            inventory_map,
+        )
+
+    @patch("indy_hub.services.production_projects._resolve_user_blueprint_inventory")
+    def test_project_blueprint_configs_use_best_copy_when_better_than_original(
+        self,
+        mock_inventory,
+    ) -> None:
+        mock_inventory.return_value = {
+            46165: {
+                "original": {"me": 0, "te": 0},
+                "best_copy": {"me": 8, "te": 16},
+                "copy_runs_total": 5,
+            }
+        }
+
+        blueprints, _grouped = _build_project_blueprint_configs_grouped(
+            user=object(),
+            cycle_summary={
+                78272: {
+                    "type_id": 78272,
+                    "type_name": "Cyclone Fleet Issue",
+                    "total_needed": 2,
+                }
+            },
+            product_blueprint_cache={78272: 46165},
+            overrides={},
+            type_name_cache={46165: "Cyclone Fleet Issue Blueprint"},
+        )
+
+        self.assertEqual(len(blueprints), 1)
+        self.assertEqual(blueprints[0]["material_efficiency"], 8)
+        self.assertEqual(blueprints[0]["time_efficiency"], 16)
+        self.assertEqual(blueprints[0]["user_material_efficiency"], 8)
+        self.assertEqual(blueprints[0]["user_time_efficiency"], 16)
+        self.assertTrue(blueprints[0]["is_copy"])
+        self.assertEqual(blueprints[0]["runs_available"], 5)
 
     @patch("indy_hub.services.production_projects.connection.cursor")
     def test_resolve_preferred_blueprint_for_product_prefers_published_types(

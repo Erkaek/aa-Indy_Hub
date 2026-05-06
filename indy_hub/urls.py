@@ -39,6 +39,7 @@ from .views.industry import (
     bp_update_copy_request,
     craft_bp,
     craft_project,
+    craft_project_stock_refresh_status,
     delete_production_project,
 )
 from .views.industry import (
@@ -481,6 +482,11 @@ urlpatterns = [
         "material-exchange/api/debug-tokens/<int:corp_id>/",
         material_exchange_debug_tokens,
         name="material_exchange_debug_tokens",
+    ),
+    path(
+        "craft/project/api/stock-refresh-status/",
+        craft_project_stock_refresh_status,
+        name="craft_project_stock_refresh_status",
     ),
     path(
         "material-exchange/sell/",

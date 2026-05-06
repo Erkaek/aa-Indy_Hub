@@ -54,6 +54,18 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 - Crafting Projects / Stock allocations: the Stock tab's *Use* inputs now accept large quantities reliably. Numeric input attributes use raw integers instead of display-formatted values with thousands separators, and allocation changes are batched into a deferred commit after editing; dependent Stock, Needed, Financial and session-state refreshes are then split into separate tasks instead of running inside each keystroke, Enter key event, or animation frame (issue #83).
 
+- Crafting Projects / Blueprint planning: project workspaces now default to the best owned blueprint ME/TE when no saved override exists, so Plan, material requirements, timing and financial calculations no longer fall back to 0/0 for researched blueprints. Legacy single-blueprint projects whose selected item only stores a `blueprint_type_id` also register that final blueprint in the *Blueprints* tab, ensuring final products such as Chimera show their blueprint card alongside every intermediate blueprint used by the project. ME/TE edits made in the *Blueprints* tab now refresh the Plan view immediately when switching tabs, without requiring Save Table plus a full reload (issue #85).
+
+- Crafting Projects / Financial planner: the Margin quick-stat now warns when Buy tab rows have no effective price, while ignoring zero per-output sale inputs when *Total sale price* revenue mode is active because those row prices are intentionally bypassed.
+
+- Crafting Projects: reduced browser console performance warnings on project pages by deferring heavier startup tab initialisation out of the immediate `DOMContentLoaded` handlers and removing the forced-layout read used to restart the missing-price alert animation.
+
+- Crafting Projects / Stock: the Stock tab now lists only required items that have cached character stock available, with a notice explaining that zero-stock lines are hidden.
+
+- Crafting Projects / Stock: opening a saved project now schedules the same Celery character-asset refresh used by Material Hub sell pages when cached data is older than one hour; projects opened within that window reuse the cached snapshot without another ESI assets call.
+
+- Crafting Projects / Stock: when the background character-asset refresh finishes after the project page has already loaded, the Stock tab now shows a reload prompt so users know the cached stock snapshot changed.
+
 - Crafting Projects / Financial planner: the *Buy* tab now supports two revenue modes for projects with one or several final outputs (typical of fits or multi-item production projects). The default *Per-unit sale prices (× qty)* keeps the existing behaviour, summing each row's unit price × quantity. The new *Total sale price (whole project)* mode lets the user enter a single lump-sum revenue for the whole project; per-unit price inputs are visually disabled and the surplus credit is suppressed (the user-declared total is authoritative). Per-row revenue cells distribute the lump sum proportionally to quantity for readability. The selected mode and the override amount are persisted in `workspace_state` and survive reload (issue #71).
 
 ## [1.16.2] - 2026-04-26
