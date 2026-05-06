@@ -5554,11 +5554,10 @@ function getZeroPricedFinancialRows(revenueMode) {
     return Array.from(document.querySelectorAll('#financialItemsBody tr[data-type-id]'))
         .filter((row) => {
             const isFinalOutput = row.getAttribute('data-final-output') === 'true';
-            if (isFinalOutput && revenueMode === REVENUE_MODE_TOTAL) {
+            if (isFinalOutput) {
                 return false;
             }
-            const priceKind = isFinalOutput ? 'sale' : 'buy';
-            return getFinancialRowEffectiveUnitPrice(row, priceKind) <= 0;
+            return getFinancialRowEffectiveUnitPrice(row, 'buy') <= 0;
         })
         .map(getFinancialRowLabel);
 }
