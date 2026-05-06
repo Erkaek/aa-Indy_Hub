@@ -648,7 +648,7 @@
                         {% trans "Last cached asset sync" %}: <span id="stockSummaryUpdated">{% trans "No asset sync yet" %}</span>
                     </div>
 
-                    <div class="alert alert-info py-2 small mb-3 d-none" id="stockRefreshStatusNotice"></div>
+                    <div class="alert alert-info py-2 small mb-3 d-none" id="stockRefreshStatusNotice" role="status" aria-live="polite" aria-atomic="true"></div>
 
                     <div class="alert alert-info py-2 small mb-3" id="stockAvailableOnlyNotice">
                         {% trans "Only required items with cached stock available are shown." %}
