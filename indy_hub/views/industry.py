@@ -93,6 +93,7 @@ from ..services.industry_skills import (
 from ..services.industry_structure_import import import_indy_structure_paste
 from ..services.industry_structure_sync import get_available_structure_sync_targets
 from ..services.industry_structures import (
+    COPYING_JOB_COST_BASE_PERCENT,
     build_structure_activity_previews,
     build_structure_rig_advisor_rows,
     calculate_installation_cost,
@@ -751,7 +752,6 @@ def _build_blueprint_copy_request_notification_content(
         )
         % notification_context
     )
-
     corporate_source_line = ""
     corporate_blueprint_qs = (
         Blueprint.objects.filter(
@@ -2814,31 +2814,14 @@ def bp_copy_request_create(request):
     return redirect("indy_hub:bp_copy_my_requests")
 
 
-@indy_hub_access_required
-@indy_hub_permission_required("can_access_indy_hub")
-@login_required
-def bp_copy_request_page(request):
-    emit_view_analytics_event(
-        view_name="industry.bp_copy_request_page", request=request
-    )
+def _build_copy_request_blueprint_visibility_filter(user: User) -> Q | None:
     # Alliance Auth
     from allianceauth.eveonline.models import EveCharacter
 
-    search = request.GET.get("search", "").strip()
-    min_me = request.GET.get("min_me", "")
-    min_te = request.GET.get("min_te", "")
-    page = request.GET.get("page", 1)
-    try:
-        per_page = int(request.GET.get("per_page", 24))
-    except (TypeError, ValueError):
-        per_page = 24
-    if per_page not in {12, 24, 48, 96}:
-        per_page = 24
-    # Determine viewer affiliations (corporation / alliance)
     viewer_corp_ids: set[int] = set()
     viewer_alliance_ids: set[int] = set()
     viewer_characters = EveCharacter.objects.filter(
-        character_ownership__user=request.user
+        character_ownership__user=user
     ).values("corporation_id", "alliance_id")
     for char in viewer_characters:
         corp_id = char.get("corporation_id")
@@ -2848,7 +2831,7 @@ def bp_copy_request_page(request):
         if alliance_id is not None:
             viewer_alliance_ids.add(alliance_id)
 
-    viewer_can_request_copies = request.user.has_perm("indy_hub.can_access_indy_hub")
+    viewer_can_request_copies = user.has_perm("indy_hub.can_access_indy_hub")
 
     # Fetch copy sharing configuration for character-owned and corporation-owned originals
     character_settings = list(
@@ -2975,30 +2958,63 @@ def bp_copy_request_page(request):
             else combined_blueprint_filter | condition
         )
 
-    if combined_blueprint_filter is None:
+    return combined_blueprint_filter
+
+
+def _build_visible_copy_request_blueprint_entries(user: User) -> list[dict[str, Any]]:
+    visibility_filter = _build_copy_request_blueprint_visibility_filter(user)
+    if visibility_filter is None:
         qs = Blueprint.objects.none()
     else:
         qs = (
-            Blueprint.objects.filter(combined_blueprint_filter)
+            Blueprint.objects.filter(visibility_filter)
             .filter(bp_type=Blueprint.BPType.ORIGINAL)
+            .values(
+                "type_id",
+                "type_name",
+                "material_efficiency",
+                "time_efficiency",
+            )
             .order_by("type_name", "material_efficiency", "time_efficiency")
         )
     seen = set()
     bp_list = []
     for bp in qs:
-        key = (bp.type_id, bp.material_efficiency, bp.time_efficiency)
+        key = (bp["type_id"], bp["material_efficiency"], bp["time_efficiency"])
         if key in seen:
             continue
         seen.add(key)
         bp_list.append(
             {
-                "type_id": bp.type_id,
-                "type_name": bp.type_name or str(bp.type_id),
-                "icon_url": f"https://images.evetech.net/types/{bp.type_id}/bp?size=32",
-                "material_efficiency": bp.material_efficiency,
-                "time_efficiency": bp.time_efficiency,
+                "type_id": bp["type_id"],
+                "type_name": bp["type_name"] or str(bp["type_id"]),
+                "icon_url": f"https://images.evetech.net/types/{bp['type_id']}/bp?size=32",
+                "material_efficiency": bp["material_efficiency"],
+                "time_efficiency": bp["time_efficiency"],
             }
         )
+    return bp_list
+
+
+@indy_hub_access_required
+@indy_hub_permission_required("can_access_indy_hub")
+@login_required
+def bp_copy_request_page(request):
+    emit_view_analytics_event(
+        view_name="industry.bp_copy_request_page", request=request
+    )
+    search = request.GET.get("search", "").strip()
+    min_me = request.GET.get("min_me", "")
+    min_te = request.GET.get("min_te", "")
+    page = request.GET.get("page", 1)
+    try:
+        per_page = int(request.GET.get("per_page", 24))
+    except (TypeError, ValueError):
+        per_page = 24
+    if per_page not in {12, 24, 48, 96}:
+        per_page = 24
+
+    bp_list = _build_visible_copy_request_blueprint_entries(request.user)
     if search:
         bp_list = [bp for bp in bp_list if search.lower() in bp["type_name"].lower()]
     if min_me.isdigit():
@@ -3044,6 +3060,81 @@ def bp_copy_request_page(request):
 
     return render(
         request, "indy_hub/blueprint_sharing/bp_copy_request_page.html", context
+    )
+
+
+def _serialize_copy_request_price_estimate(
+    estimate: dict[str, Any],
+) -> dict[str, Any]:
+    def _estimate_str(key: str, default: str = "0") -> str:
+        value = estimate.get(key)
+        return str(default if value is None else value)
+
+    return {
+        "amount": _estimate_str("amount"),
+        "amount_display": _estimate_str("amount_display", ""),
+        "estimated_item_unit_value": _estimate_str("estimated_item_unit_value"),
+        "job_cost_base_percent": _estimate_str("job_cost_base_percent", ""),
+        "system_cost_index_percent": _estimate_str("system_cost_index_percent", ""),
+        "job_cost_bonus_percent": _estimate_str("job_cost_bonus_percent"),
+        "facility_tax_percent": _estimate_str("facility_tax_percent"),
+        "scc_surcharge_percent": _estimate_str("scc_surcharge_percent"),
+    }
+
+
+@require_http_methods(["GET"])
+@indy_hub_access_required
+@indy_hub_permission_required("can_access_indy_hub")
+@login_required
+def bp_copy_request_estimate(request):
+    try:
+        type_id = int(request.GET.get("type_id") or 0)
+        material_efficiency = int(request.GET.get("material_efficiency") or 0)
+        time_efficiency = int(request.GET.get("time_efficiency") or 0)
+    except (TypeError, ValueError):
+        return JsonResponse({"error": "invalid_blueprint"}, status=400)
+
+    if type_id <= 0:
+        return JsonResponse({"error": "invalid_blueprint"}, status=400)
+
+    estimate_key = (type_id, material_efficiency, time_efficiency)
+    visibility_filter = _build_copy_request_blueprint_visibility_filter(request.user)
+    if visibility_filter is None:
+        return JsonResponse({"error": "not_found"}, status=404)
+    if (
+        not Blueprint.objects.filter(visibility_filter)
+        .filter(
+            bp_type=Blueprint.BPType.ORIGINAL,
+            type_id=type_id,
+            material_efficiency=material_efficiency,
+            time_efficiency=time_efficiency,
+        )
+        .exists()
+    ):
+        return JsonResponse({"error": "not_found"}, status=404)
+
+    probe_request = BlueprintCopyRequest(
+        requested_by=request.user,
+        requested_by_id=request.user.id,
+        type_id=type_id,
+        material_efficiency=material_efficiency,
+        time_efficiency=time_efficiency,
+        runs_requested=1,
+        copies_requested=1,
+    )
+    estimates = _build_copy_request_price_estimates(
+        requester=request.user,
+        requests=[probe_request],
+    )
+    estimate = estimates.get(estimate_key)
+    if not estimate:
+        return JsonResponse({"available": False})
+
+    return JsonResponse(
+        {
+            "available": True,
+            "estimate": _serialize_copy_request_price_estimate(estimate),
+        }
     )
 
 
@@ -3168,6 +3259,159 @@ def _build_copy_estimated_item_values(
         }
 
     return result
+
+
+def _copy_estimate_decimal(value: Any) -> Decimal:
+    try:
+        return Decimal(str(value or 0))
+    except (InvalidOperation, TypeError, ValueError):
+        return Decimal("0")
+
+
+def _copy_estimate_cost_rate(breakdown: Any) -> Decimal:
+    percent_factor = Decimal("100")
+    job_cost_base_rate = (
+        _copy_estimate_decimal(COPYING_JOB_COST_BASE_PERCENT) / percent_factor
+    )
+    job_cost_multiplier = max(
+        Decimal("0"),
+        Decimal("1")
+        - (
+            _copy_estimate_decimal(breakdown.total_job_cost_bonus_percent)
+            / percent_factor
+        ),
+    )
+    system_cost_rate = (
+        _copy_estimate_decimal(breakdown.system_cost_index_percent) / percent_factor
+    ) * job_cost_multiplier
+    tax_rate = _copy_estimate_decimal(breakdown.facility_tax_percent) / percent_factor
+    scc_rate = _copy_estimate_decimal(breakdown.scc_surcharge_percent) / percent_factor
+    return job_cost_base_rate * (system_cost_rate + tax_rate + scc_rate)
+
+
+def _build_copy_request_price_estimates(
+    *,
+    requester: User,
+    requests: list[BlueprintCopyRequest],
+) -> dict[tuple[int, int, int], dict[str, Any]]:
+    if not requests:
+        return {}
+
+    visible_copying_structures = [
+        structure
+        for structure in _get_visible_industry_structures_queryset(requester)
+        .prefetch_related("rigs")
+        .order_by("name", "id")
+        if IndustryActivityMixin.ACTIVITY_COPYING
+        in structure.get_enabled_activity_ids()
+    ]
+    if not visible_copying_structures:
+        return {}
+
+    visible_copying_solar_system_ids = {
+        int(structure.solar_system_id)
+        for structure in visible_copying_structures
+        if structure.solar_system_id
+    }
+    if not visible_copying_solar_system_ids:
+        return {}
+
+    visible_copying_system_indices = {
+        int(cost_index.solar_system_id): cost_index
+        for cost_index in IndustrySystemCostIndex.objects.filter(
+            solar_system_id__in=visible_copying_solar_system_ids,
+            activity_id=IndustryActivityMixin.ACTIVITY_COPYING,
+        )
+    }
+    if not visible_copying_system_indices:
+        return {}
+
+    copying_cost_options: list[dict[str, Any]] = []
+    for structure in visible_copying_structures:
+        system_cost_index = visible_copying_system_indices.get(
+            int(structure.solar_system_id or 0)
+        )
+        if system_cost_index is None:
+            continue
+        try:
+            rate_breakdown = calculate_installation_cost(
+                structure=structure,
+                activity_id=IndustryActivityMixin.ACTIVITY_COPYING,
+                estimated_item_value=Decimal("1"),
+                system_cost_index=system_cost_index,
+            )
+        except ValidationError:
+            continue
+        copying_cost_options.append(
+            {
+                "structure": structure,
+                "system_cost_index": system_cost_index,
+                "cost_rate": _copy_estimate_cost_rate(rate_breakdown),
+            }
+        )
+    if not copying_cost_options:
+        return {}
+    selected_option = min(
+        copying_cost_options,
+        key=lambda option: option["cost_rate"],
+    )
+
+    estimated_item_values = _build_copy_estimated_item_values(requests)
+    estimates: dict[tuple[int, int, int], dict[str, Any]] = {}
+
+    for req in requests:
+        blueprint_type_id = int(req.type_id or 0)
+        if blueprint_type_id <= 0:
+            continue
+
+        value_meta = estimated_item_values.get(blueprint_type_id) or {}
+        estimated_item_value = _copy_estimate_decimal(
+            value_meta.get("estimated_item_value")
+        )
+        copies_requested = max(int(getattr(req, "copies_requested", 1) or 1), 1)
+        if estimated_item_value <= 0 or copies_requested <= 0:
+            continue
+
+        total_estimated_item_value = estimated_item_value * Decimal(copies_requested)
+        structure = selected_option["structure"]
+        system_cost_index = selected_option["system_cost_index"]
+        try:
+            breakdown = calculate_installation_cost(
+                structure=structure,
+                activity_id=IndustryActivityMixin.ACTIVITY_COPYING,
+                estimated_item_value=total_estimated_item_value,
+                system_cost_index=system_cost_index,
+            )
+        except ValidationError:
+            continue
+
+        amount = breakdown.total_installation_cost
+        selected_estimate = {
+            "available": True,
+            "amount": amount,
+            "amount_display": _format_isk_amount(amount),
+            "estimated_item_value": breakdown.estimated_item_value,
+            "estimated_item_unit_value": value_meta.get("unit_value") or Decimal("0"),
+            "runs_requested": max(
+                int(value_meta.get("runs_requested") or req.runs_requested or 1),
+                1,
+            ),
+            "copies_requested": copies_requested,
+            "job_cost_base_percent": COPYING_JOB_COST_BASE_PERCENT,
+            "system_cost_index_percent": breakdown.system_cost_index_percent,
+            "job_cost_bonus_percent": breakdown.total_job_cost_bonus_percent,
+            "facility_tax_percent": breakdown.facility_tax_percent,
+            "scc_surcharge_percent": breakdown.scc_surcharge_percent,
+        }
+
+        key = (
+            blueprint_type_id,
+            int(req.material_efficiency or 0),
+            int(req.time_efficiency or 0),
+        )
+        estimates[key] = selected_estimate
+
+    return estimates
 
 
 def _normalize_structure_lookup_name(value: str | None) -> str:
@@ -5232,6 +5476,7 @@ def bp_copy_my_requests(request):
             metrics[metrics_key] += 1
 
         status_info = status_meta[status_key]
+        status_hint = status_info["hint"]
 
         chat_actions = []
         if cond_waiting_buyer and cond_waiting_buyer.get("chat"):
@@ -5291,6 +5536,9 @@ def bp_copy_my_requests(request):
             {
                 "owner_username": accepted_offer_obj.owner.username,
                 "message": accepted_offer_obj.message,
+                "amount_display": _format_isk_amount(
+                    accepted_offer_obj.proposed_amount
+                ),
             }
             if accepted_offer_obj
             else None
@@ -5309,7 +5557,7 @@ def bp_copy_my_requests(request):
                     "copies_requested": req.copies_requested,
                     "runs_requested": req.runs_requested,
                     "status_label": status_info["label"],
-                    "status_hint": status_info["hint"],
+                    "status_hint": status_hint,
                     "closed_at": closed_at,
                 }
             )
@@ -5335,7 +5583,7 @@ def bp_copy_my_requests(request):
                 "status_key": status_key,
                 "status_label": status_info["label"],
                 "status_class": status_info["badge"],
-                "status_hint": status_info["hint"],
+                "status_hint": status_hint,
                 "created_at": req.created_at,
                 "can_cancel": not req.delivered,
             }

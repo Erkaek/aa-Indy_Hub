@@ -257,6 +257,12 @@
                         <div class="small text-muted" id="bpCopyRequestDurationHint"></div>
                     </div>
 
+                    <div class="rounded border p-3 bg-light-subtle" id="bpCopyRequestPriceBlock">
+                        <div class="small text-muted mb-1">{% trans "Estimated copy price" %}</div>
+                        <div class="fw-semibold" id="bpCopyRequestPriceValue">-</div>
+                        <div class="small text-muted" id="bpCopyRequestPriceHint"></div>
+                    </div>
+
                     <div class="alert alert-warning d-none mb-0" id="bpCopyRequestLaunchLimitAlert"></div>
                 </div>
                 <div class="modal-footer">
@@ -269,6 +275,9 @@
 </div>
 
 <script>
+const bpCopyRequestPriceEstimateUrl = '{% url "indy_hub:bp_copy_request_estimate" %}';
+const bpCopyRequestPriceEstimateCache = new Map();
+
 function sortBlueprints(sortBy) {
     const container = document.querySelector('.bp-request-grid__container');
     if (!container) return;
@@ -320,6 +329,120 @@ function formatDuration(totalSeconds) {
     return parts.join(' ');
 }
 
+function parseNumber(value) {
+    const parsed = Number.parseFloat(value || '0');
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatIsk(value) {
+    const amount = Math.max(0, Math.ceil(parseNumber(value)));
+    return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(amount)} ISK`;
+}
+
+function calculateCopyRequestPriceEstimate(modal, copies, runs) {
+    if (!modal || modal.dataset.estimatedCopyPriceAvailable !== '1') {
+        return null;
+    }
+
+    const unitValue = parseNumber(modal.dataset.estimatedCopyPriceUnitValue);
+    const jobCostBasePercentRaw = modal.dataset.estimatedCopyPriceJobCostBasePercent;
+    const systemCostIndexPercentRaw = modal.dataset.estimatedCopyPriceSystemCostIndexPercent;
+    if (
+        !jobCostBasePercentRaw
+        || systemCostIndexPercentRaw === undefined
+        || systemCostIndexPercentRaw === null
+        || systemCostIndexPercentRaw === ''
+    ) {
+        return null;
+    }
+    const jobCostBasePercent = parseNumber(jobCostBasePercentRaw);
+    const systemCostIndexPercent = parseNumber(systemCostIndexPercentRaw);
+    const jobCostBonusPercent = parseNumber(modal.dataset.estimatedCopyPriceJobCostBonusPercent);
+    const facilityTaxPercent = parseNumber(modal.dataset.estimatedCopyPriceFacilityTaxPercent);
+    const sccSurchargePercent = parseNumber(modal.dataset.estimatedCopyPriceSccSurchargePercent);
+    if (unitValue <= 0 || jobCostBasePercent <= 0) {
+        return null;
+    }
+
+    const estimatedItemValue = unitValue * runs * copies;
+    const jobCostBase = estimatedItemValue * (jobCostBasePercent / 100);
+    const jobCostMultiplier = Math.max(0, 1 - (jobCostBonusPercent / 100));
+    const adjustedJobCost = jobCostBase * (systemCostIndexPercent / 100) * jobCostMultiplier;
+    const facilityTax = jobCostBase * (facilityTaxPercent / 100);
+    const sccSurcharge = jobCostBase * (sccSurchargePercent / 100);
+    const totalInstallationCost = adjustedJobCost + facilityTax + sccSurcharge;
+
+    return Math.ceil(totalInstallationCost);
+}
+
+function clearCopyRequestPriceEstimate(modal) {
+    modal.dataset.estimatedCopyPriceAvailable = '0';
+    modal.dataset.estimatedCopyPriceUnitValue = '0';
+    modal.dataset.estimatedCopyPriceJobCostBasePercent = '';
+    modal.dataset.estimatedCopyPriceSystemCostIndexPercent = '';
+    modal.dataset.estimatedCopyPriceJobCostBonusPercent = '0';
+    modal.dataset.estimatedCopyPriceFacilityTaxPercent = '0';
+    modal.dataset.estimatedCopyPriceSccSurchargePercent = '0';
+}
+
+function applyCopyRequestPriceEstimate(modal, payload) {
+    const estimate = payload && payload.available ? payload.estimate || {} : null;
+    if (!estimate) {
+        clearCopyRequestPriceEstimate(modal);
+        modal.dataset.estimatedCopyPriceLoading = '0';
+        updateCopyRequestModalEstimates();
+        return;
+    }
+
+    modal.dataset.estimatedCopyPriceAvailable = '1';
+    modal.dataset.estimatedCopyPriceUnitValue = estimate.estimated_item_unit_value || '0';
+    modal.dataset.estimatedCopyPriceJobCostBasePercent = estimate.job_cost_base_percent || '';
+    modal.dataset.estimatedCopyPriceSystemCostIndexPercent = estimate.system_cost_index_percent ?? '';
+    modal.dataset.estimatedCopyPriceJobCostBonusPercent = estimate.job_cost_bonus_percent || '0';
+    modal.dataset.estimatedCopyPriceFacilityTaxPercent = estimate.facility_tax_percent || '0';
+    modal.dataset.estimatedCopyPriceSccSurchargePercent = estimate.scc_surcharge_percent || '0';
+    modal.dataset.estimatedCopyPriceLoading = '0';
+    updateCopyRequestModalEstimates();
+}
+
+function loadCopyRequestPriceEstimate(modal) {
+    const typeId = modal.dataset.typeId || '';
+    const materialEfficiency = modal.dataset.materialEfficiency || '0';
+    const timeEfficiency = modal.dataset.timeEfficiency || '0';
+    const cacheKey = `${typeId}:${materialEfficiency}:${timeEfficiency}`;
+    modal.dataset.estimatedCopyPriceRequestKey = cacheKey;
+    clearCopyRequestPriceEstimate(modal);
+    modal.dataset.estimatedCopyPriceLoading = '1';
+    updateCopyRequestModalEstimates();
+
+    if (bpCopyRequestPriceEstimateCache.has(cacheKey)) {
+        applyCopyRequestPriceEstimate(modal, bpCopyRequestPriceEstimateCache.get(cacheKey));
+        return;
+    }
+
+    const url = new URL(bpCopyRequestPriceEstimateUrl, window.location.origin);
+    url.searchParams.set('type_id', typeId);
+    url.searchParams.set('material_efficiency', materialEfficiency);
+    url.searchParams.set('time_efficiency', timeEfficiency);
+
+    fetch(url.toString(), {
+        credentials: 'same-origin',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    })
+        .then(response => (response.ok ? response.json() : { available: false }))
+        .then(payload => {
+            bpCopyRequestPriceEstimateCache.set(cacheKey, payload);
+            if (modal.dataset.estimatedCopyPriceRequestKey === cacheKey) {
+                applyCopyRequestPriceEstimate(modal, payload);
+            }
+        })
+        .catch(() => {
+            if (modal.dataset.estimatedCopyPriceRequestKey === cacheKey) {
+                applyCopyRequestPriceEstimate(modal, { available: false });
+            }
+        });
+}
+
 function updateCopyRequestModalEstimates() {
     const modal = document.getElementById('bpCopyRequestModal');
     if (!modal || !modal.dataset.typeId) {
@@ -338,6 +461,22 @@ function updateCopyRequestModalEstimates() {
         ? '{% trans "Base copy duration only. Character skill bonuses are not included." %}'
         : '{% trans "No copy-time estimate available for this blueprint yet." %}';
     document.getElementById('bpCopyRequestDurationHint').textContent = durationHint;
+
+    const priceValue = document.getElementById('bpCopyRequestPriceValue');
+    const priceHint = document.getElementById('bpCopyRequestPriceHint');
+    if (modal.dataset.estimatedCopyPriceLoading === '1') {
+        priceValue.textContent = '-';
+        priceHint.textContent = '{% trans "Calculating estimated amount..." %}';
+    } else {
+        const estimatedPrice = calculateCopyRequestPriceEstimate(modal, copies, runs);
+        if (estimatedPrice !== null && estimatedPrice > 0) {
+            priceValue.textContent = formatIsk(estimatedPrice);
+            priceHint.textContent = '{% trans "Estimated amount for information only. It can only be confirmed by the producer." %}';
+        } else {
+            priceValue.textContent = '-';
+            priceHint.textContent = '{% trans "No reliable copy price estimate is available yet. Send a normal request instead." %}';
+        }
+    }
 
     const alertEl = document.getElementById('bpCopyRequestLaunchLimitAlert');
     const submitBtn = document.getElementById('bpCopyRequestSubmitBtn');
@@ -379,6 +518,8 @@ document.addEventListener('DOMContentLoaded', function() {
         button.addEventListener('click', function() {
             const modal = document.getElementById('bpCopyRequestModal');
             modal.dataset.typeId = this.dataset.typeId || '';
+            modal.dataset.materialEfficiency = this.dataset.materialEfficiency || '0';
+            modal.dataset.timeEfficiency = this.dataset.timeEfficiency || '0';
             modal.dataset.perRunCopySeconds = this.dataset.perRunCopySeconds || '0';
             modal.dataset.maxRunsPerCopy = this.dataset.maxRunsPerCopy || '';
 
@@ -390,9 +531,18 @@ document.addEventListener('DOMContentLoaded', function() {
             document.getElementById('bpCopyRequestCopies').value = '1';
             document.getElementById('bpCopyRequestRuns').value = '1';
 
-            updateCopyRequestModalEstimates();
+            loadCopyRequestPriceEstimate(modal);
         });
     });
+
+    const copyRequestModal = document.getElementById('bpCopyRequestModal');
+    if (copyRequestModal) {
+        copyRequestModal.addEventListener('hide.bs.modal', function() {
+            if (copyRequestModal.contains(document.activeElement)) {
+                document.activeElement.blur();
+            }
+        });
+    }
 
     ['bpCopyRequestCopies', 'bpCopyRequestRuns'].forEach(id => {
         const input = document.getElementById(id);

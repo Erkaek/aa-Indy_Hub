@@ -2572,6 +2572,74 @@ class BlueprintCopyRequestPageTests(TestCase):
         self.assertIn("max_runs_per_copy", page_entry["copy_request_preview"])
         self.assertContains(response, "bpCopyRequestModal")
 
+    @patch("indy_hub.views.industry._build_copy_estimated_item_values")
+    def test_request_modal_loads_estimated_copy_price_on_demand(
+        self,
+        mock_build_copy_estimated_item_values,
+    ) -> None:
+        mock_build_copy_estimated_item_values.return_value = {
+            605001: {
+                "product_type_id": 705001,
+                "unit_value": Decimal("1"),
+                "estimated_item_value": Decimal("1"),
+                "source": "adjusted_price",
+                "runs_requested": 1,
+            }
+        }
+        IndustryStructure.objects.create(
+            name="Requester Raitaru",
+            structure_type_id=35825,
+            structure_type_name="Raitaru",
+            solar_system_id=30000142,
+            solar_system_name="Jita",
+            external_structure_id=1_036_001,
+            enable_research=True,
+            research_tax_percent=Decimal("0.500"),
+            visibility_scope=IndustryStructure.VisibilityScope.PUBLIC,
+        )
+        IndustrySystemCostIndex.objects.create(
+            solar_system_id=30000142,
+            solar_system_name="Jita",
+            activity_id=IndustryActivityMixin.ACTIVITY_COPYING,
+            cost_index_percent=Decimal("0.00000"),
+        )
+
+        response = self.client.get(reverse("indy_hub:bp_copy_request_page"))
+
+        self.assertEqual(response.status_code, 200)
+        page_entry = response.context["page_obj"].object_list[0]
+        self.assertNotIn("price_estimate", page_entry["copy_request_preview"])
+        mock_build_copy_estimated_item_values.assert_not_called()
+        self.assertContains(response, "Estimated copy price")
+        self.assertContains(response, "Estimated amount for information only")
+        self.assertContains(response, "calculateCopyRequestPriceEstimate")
+        self.assertContains(response, "hide.bs.modal")
+        self.assertContains(response, reverse("indy_hub:bp_copy_request_estimate"))
+        self.assertNotContains(response, "data-estimated-copy-price-available")
+        self.assertNotContains(response, "data-estimated-copy-price-unit-value")
+        self.assertContains(response, "Calculating estimated amount")
+
+        with patch(
+            "indy_hub.views.industry._build_visible_copy_request_blueprint_entries"
+        ) as mock_build_visible_entries:
+            endpoint_response = self.client.get(
+                reverse("indy_hub:bp_copy_request_estimate"),
+                {
+                    "type_id": 605001,
+                    "material_efficiency": 8,
+                    "time_efficiency": 12,
+                },
+            )
+        mock_build_visible_entries.assert_not_called()
+
+        self.assertEqual(endpoint_response.status_code, 200)
+        payload = endpoint_response.json()
+        self.assertTrue(payload["available"])
+        self.assertEqual(payload["estimate"]["amount"], "1")
+        self.assertEqual(payload["estimate"]["estimated_item_unit_value"], "1")
+        self.assertEqual(payload["estimate"]["job_cost_base_percent"], "2")
+        self.assertEqual(payload["estimate"]["system_cost_index_percent"], "0.00000")
+
     def test_duplicate_submission_is_blocked(self) -> None:
         url = reverse("indy_hub:bp_copy_request_page")
         post_data = {
