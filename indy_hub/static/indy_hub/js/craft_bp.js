@@ -6365,12 +6365,11 @@ function renderCraftStockManagement() {
     }
 
     const rows = getCraftSourceRequirementRows();
-    const rowsWithStock = rows
-        .map((item) => ({
-            item,
-            stockSummary: getCraftStockAllocationSummary(item.typeId, item.quantity),
-        }))
-        .filter(({ stockSummary }) => stockSummary.availableQty > 0);
+    const summarizedRows = rows.map((item) => ({
+        item,
+        stockSummary: getCraftStockAllocationSummary(item.typeId, item.quantity),
+    }));
+    const rowsWithStock = summarizedRows.filter(({ stockSummary }) => stockSummary.availableQty > 0);
     const hiddenZeroStockCount = Math.max(0, rows.length - rowsWithStock.length);
     const api = window.SimulationAPI;
     let totalRequiredQty = 0;
@@ -6378,17 +6377,21 @@ function renderCraftStockManagement() {
     let totalRemainingQty = 0;
     let totalStockValue = 0;
 
+    summarizedRows.forEach(({ item, stockSummary }) => {
+        const unitInfo = api && typeof api.getPrice === 'function' ? api.getPrice(item.typeId, 'buy') : { value: 0 };
+        const unitPrice = unitInfo && typeof unitInfo.value === 'number' ? unitInfo.value : 0;
+        totalRequiredQty += stockSummary.requiredQty;
+        totalAllocatedQty += stockSummary.allocatedQty;
+        totalRemainingQty += stockSummary.remainingQty;
+        totalStockValue += unitPrice * stockSummary.allocatedQty;
+    });
+
     const renderedRows = rowsWithStock.map(({ item, stockSummary }) => {
         const maxAllocatable = Math.min(stockSummary.requiredQty, stockSummary.availableQty);
         const unitInfo = api && typeof api.getPrice === 'function' ? api.getPrice(item.typeId, 'buy') : { value: 0 };
         const unitPrice = unitInfo && typeof unitInfo.value === 'number' ? unitInfo.value : 0;
         const stockValue = unitPrice * stockSummary.allocatedQty;
         const remainingValue = unitPrice * stockSummary.remainingQty;
-
-        totalRequiredQty += stockSummary.requiredQty;
-        totalAllocatedQty += stockSummary.allocatedQty;
-        totalRemainingQty += stockSummary.remainingQty;
-        totalStockValue += stockValue;
 
         const characterMarkup = stockSummary.characters.length > 0
             ? stockSummary.characters.map((entry) => `
