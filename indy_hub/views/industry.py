@@ -105,6 +105,12 @@ from ..services.industry_structures import (
     search_solar_system_options,
 )
 from ..services.market_prices import MarketPriceError, fetch_adjusted_prices
+from ..services.material_exchange_assets import (
+    SELL_ASSETS_REFRESH_PROGRESS_TTL_SECONDS,
+    ensure_sell_assets_refresh_started,
+    get_sell_assets_refresh_progress,
+    material_exchange_sell_assets_progress_key,
+)
 from ..services.production_projects import (
     build_project_workspace_payload,
     create_project_from_single_blueprint,
@@ -123,11 +129,6 @@ from ..tasks.industry import (
     MANUAL_REFRESH_KIND_JOBS,
     STRUCTURE_SCOPE,
     request_manual_refresh,
-)
-from ..tasks.material_exchange import (
-    ESI_DOWN_COOLDOWN_SECONDS,
-    me_sell_assets_esi_cooldown_key,
-    refresh_material_exchange_sell_user_assets,
 )
 from ..utils.analytics import emit_view_analytics_event
 from ..utils.discord_actions import (
@@ -174,111 +175,18 @@ else:  # pragma: no cover - eve_sde not installed
 
 logger = get_extension_logger(__name__)
 CRAFT_PROJECT_STOCK_CACHE_MAX_AGE_MINUTES = 60
-CRAFT_PROJECT_STOCK_REFRESH_PROGRESS_TTL_SECONDS = 10 * 60
-CRAFT_PROJECT_STOCK_REFRESH_STALE_PROGRESS_SECONDS = 180
+CRAFT_PROJECT_STOCK_REFRESH_PROGRESS_TTL_SECONDS = (
+    SELL_ASSETS_REFRESH_PROGRESS_TTL_SECONDS
+)
 
 
 def _craft_project_stock_refresh_progress_key(user_id: int) -> str:
-    return f"indy_hub:material_exchange:sell_assets_refresh:{int(user_id)}"
+    return material_exchange_sell_assets_progress_key(int(user_id))
 
 
 def _ensure_craft_project_stock_refresh_started(user) -> dict:
     """Start an async character asset refresh for Craft stock when needed."""
-
-    progress_key = _craft_project_stock_refresh_progress_key(int(user.id))
-    state = cache.get(progress_key) or {}
-
-    cooldown_until = cache.get(me_sell_assets_esi_cooldown_key(int(user.id)))
-    if cooldown_until:
-        try:
-            retry_seconds = max(
-                0, int(float(cooldown_until) - timezone.now().timestamp())
-            )
-        except (TypeError, ValueError):
-            retry_seconds = int(ESI_DOWN_COOLDOWN_SECONDS)
-        state = {
-            "running": False,
-            "finished": True,
-            "error": "esi_down",
-            "retry_after_minutes": int((retry_seconds + 59) // 60),
-        }
-        cache.set(progress_key, state, CRAFT_PROJECT_STOCK_REFRESH_PROGRESS_TTL_SECONDS)
-        return state
-
-    if state.get("running"):
-        try:
-            started_at = float(state.get("started_at") or 0)
-            last_progress_at = float(state.get("last_progress_at") or started_at or 0)
-            elapsed = timezone.now().timestamp() - last_progress_at
-        except (TypeError, ValueError):
-            elapsed = 0
-        if not state.get("started_at") and not state.get("last_progress_at"):
-            elapsed = 999999
-        if elapsed <= CRAFT_PROJECT_STOCK_REFRESH_STALE_PROGRESS_SECONDS:
-            return state
-        state.update({"running": False, "finished": True, "error": "timeout"})
-        cache.set(progress_key, state, CRAFT_PROJECT_STOCK_REFRESH_PROGRESS_TTL_SECONDS)
-
-    try:
-        total = int(
-            CharacterOwnership.objects.filter(user=user)
-            .values_list("character__character_id", flat=True)
-            .distinct()
-            .count()
-        )
-        has_assets_token = (
-            Token.objects.filter(user=user)
-            .require_scopes(["esi-assets.read_assets.v1"])
-            .require_valid()
-            .exists()
-        )
-    except Exception:
-        total = 0
-        has_assets_token = False
-
-    if total > 0 and not has_assets_token:
-        state = {
-            "running": False,
-            "finished": True,
-            "error": "missing_assets_scope",
-            "total": total,
-            "done": 0,
-            "failed": 0,
-        }
-        cache.set(progress_key, state, CRAFT_PROJECT_STOCK_REFRESH_PROGRESS_TTL_SECONDS)
-        return state
-
-    started_at = timezone.now().timestamp()
-    state = {
-        "running": True,
-        "finished": False,
-        "error": None,
-        "total": total,
-        "done": 0,
-        "failed": 0,
-        "started_at": started_at,
-        "last_progress_at": started_at,
-    }
-    cache.set(progress_key, state, CRAFT_PROJECT_STOCK_REFRESH_PROGRESS_TTL_SECONDS)
-
-    try:
-        task_result = refresh_material_exchange_sell_user_assets.delay(int(user.id))
-        logger.info(
-            "Started Craft stock asset refresh task for user %s (task_id=%s)",
-            user.id,
-            task_result.id,
-        )
-    except Exception as exc:
-        logger.error(
-            "Failed to start Craft stock asset refresh task for user %s: %s",
-            user.id,
-            exc,
-            exc_info=True,
-        )
-        state.update({"running": False, "finished": True, "error": "task_start_failed"})
-        cache.set(progress_key, state, CRAFT_PROJECT_STOCK_REFRESH_PROGRESS_TTL_SECONDS)
-
-    return state
+    return ensure_sell_assets_refresh_started(user, log_context="Craft stock asset")
 
 
 def _get_craft_project_stock_refresh_progress(user) -> dict:
@@ -298,7 +206,8 @@ def _get_craft_project_stock_refresh_progress(user) -> dict:
         stock_is_stale = True
 
     progress_key = _craft_project_stock_refresh_progress_key(int(user.id))
-    progress = cache.get(progress_key) or {}
+    cached_progress = cache.get(progress_key)
+    progress = get_sell_assets_refresh_progress(int(user.id)) if cached_progress else {}
     if stock_is_stale:
         progress = _ensure_craft_project_stock_refresh_started(user)
     return progress
@@ -321,31 +230,7 @@ def craft_project_stock_refresh_status(request):
         view_name="industry.craft_project_stock_refresh_status", request=request
     )
 
-    progress_key = _craft_project_stock_refresh_progress_key(int(request.user.id))
-    state = cache.get(progress_key) or {
-        "running": False,
-        "finished": False,
-        "error": None,
-        "total": 0,
-        "done": 0,
-        "failed": 0,
-    }
-    if state.get("running"):
-        try:
-            started_at = float(state.get("started_at") or 0)
-            last_progress_at = float(state.get("last_progress_at") or started_at or 0)
-            elapsed = timezone.now().timestamp() - last_progress_at
-        except (TypeError, ValueError):
-            elapsed = 0
-        if not state.get("started_at") and not state.get("last_progress_at"):
-            elapsed = 999999
-        if elapsed > CRAFT_PROJECT_STOCK_REFRESH_STALE_PROGRESS_SECONDS:
-            state.update({"running": False, "finished": True, "error": "timeout"})
-            cache.set(
-                progress_key,
-                state,
-                CRAFT_PROJECT_STOCK_REFRESH_PROGRESS_TTL_SECONDS,
-            )
+    state = get_sell_assets_refresh_progress(int(request.user.id))
 
     latest_update = _get_latest_character_asset_sync(request.user)
     response = dict(state)

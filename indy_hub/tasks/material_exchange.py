@@ -57,6 +57,10 @@ from indy_hub.services.esi_client import (
     get_retry_after_seconds,
     shared_client,
 )
+from indy_hub.services.material_exchange_assets import (
+    SELL_ASSETS_REFRESH_PROGRESS_TTL_SECONDS,
+    material_exchange_sell_assets_progress_key,
+)
 from indy_hub.utils.analytics import emit_analytics_event
 from indy_hub.utils.eve import get_type_name
 
@@ -132,7 +136,7 @@ def _set_esi_cooldown(cache_key: str, *, cooldown_seconds: int) -> float:
 
 
 def _me_sell_assets_progress_key(user_id: int) -> str:
-    return f"indy_hub:material_exchange:sell_assets_refresh:{int(user_id)}"
+    return material_exchange_sell_assets_progress_key(int(user_id))
 
 
 @shared_task(
@@ -291,7 +295,7 @@ def refresh_material_exchange_sell_user_assets(user_id: int) -> None:
     logger.info("Starting asset refresh task for user %s", user_id)
 
     progress_key = _me_sell_assets_progress_key(int(user_id))
-    ttl_seconds = 10 * 60
+    ttl_seconds = SELL_ASSETS_REFRESH_PROGRESS_TTL_SECONDS
     cached_state = cache.get(progress_key) or {}
     started_at = cached_state.get("started_at") or timezone.now().timestamp()
 

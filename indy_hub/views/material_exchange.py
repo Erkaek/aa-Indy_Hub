@@ -41,6 +41,11 @@ from ..models import (
     SDEMarketGroup,
 )
 from ..services.asset_cache import get_corp_divisions_cached, get_user_assets_cached
+from ..services.material_exchange_assets import (
+    ensure_sell_assets_refresh_started,
+    get_sell_assets_refresh_progress,
+    material_exchange_sell_assets_progress_key,
+)
 from ..tasks.material_exchange import (
     ESI_DOWN_COOLDOWN_SECONDS,
     ME_STOCK_SYNC_CACHE_VERSION,
@@ -50,7 +55,6 @@ from ..tasks.material_exchange import (
     me_stock_sync_cache_version_key,
     me_user_assets_cache_version_key,
     refresh_material_exchange_buy_stock,
-    refresh_material_exchange_sell_user_assets,
     sync_material_exchange_prices,
     sync_material_exchange_stock,
 )
@@ -614,114 +618,12 @@ def _resolve_user_character_names_map(user) -> dict[int, str]:
 
 
 def _me_sell_assets_progress_key(user_id: int) -> str:
-    return f"indy_hub:material_exchange:sell_assets_refresh:{int(user_id)}"
+    return material_exchange_sell_assets_progress_key(int(user_id))
 
 
 def _ensure_sell_assets_refresh_started(user) -> dict:
     """Start (if needed) an async refresh of user assets and return the current progress state."""
-
-    progress_key = _me_sell_assets_progress_key(user.id)
-    ttl_seconds = 10 * 60
-    state = cache.get(progress_key) or {}
-
-    cooldown_until = cache.get(me_sell_assets_esi_cooldown_key(int(user.id)))
-    if cooldown_until:
-        try:
-            retry_seconds = max(
-                0, int(float(cooldown_until) - timezone.now().timestamp())
-            )
-        except (TypeError, ValueError):
-            retry_seconds = int(ESI_DOWN_COOLDOWN_SECONDS)
-        retry_minutes = int((retry_seconds + 59) // 60)
-        state = {
-            "running": False,
-            "finished": True,
-            "error": "esi_down",
-            "retry_after_minutes": retry_minutes,
-        }
-        cache.set(progress_key, state, ttl_seconds)
-        return state
-    if state.get("running"):
-        try:
-            started_at = float(state.get("started_at") or 0)
-            last_progress_at = float(state.get("last_progress_at") or started_at or 0)
-            elapsed = timezone.now().timestamp() - last_progress_at
-        except (TypeError, ValueError):
-            elapsed = 0
-        if not state.get("started_at") and not state.get("last_progress_at"):
-            elapsed = 999999
-        if elapsed <= 180:
-            return state
-        state.update({"running": False, "finished": True, "error": "timeout"})
-        cache.set(progress_key, state, ttl_seconds)
-
-    # Always refresh on page open unless explicitly suppressed.
-    try:
-        # Alliance Auth
-        from allianceauth.authentication.models import CharacterOwnership
-        from esi.models import Token
-
-        total = int(
-            CharacterOwnership.objects.filter(user=user)
-            .values_list("character__character_id", flat=True)
-            .distinct()
-            .count()
-        )
-
-        has_assets_token = (
-            Token.objects.filter(user=user)
-            .require_scopes(["esi-assets.read_assets.v1"])
-            .require_valid()
-            .exists()
-        )
-    except Exception:
-        total = 0
-        has_assets_token = False
-
-    if total > 0 and not has_assets_token:
-        state = {
-            "running": False,
-            "finished": True,
-            "error": "missing_assets_scope",
-            "total": total,
-            "done": 0,
-            "failed": 0,
-        }
-        cache.set(progress_key, state, ttl_seconds)
-        return state
-
-    started_at = timezone.now().timestamp()
-    state = {
-        "running": True,
-        "finished": False,
-        "error": None,
-        "total": total,
-        "done": 0,
-        "failed": 0,
-        "started_at": started_at,
-        "last_progress_at": started_at,
-    }
-    cache.set(progress_key, state, ttl_seconds)
-
-    try:
-        task_result = refresh_material_exchange_sell_user_assets.delay(int(user.id))
-        logger.info(
-            "Started asset refresh task for user %s (task_id=%s)",
-            user.id,
-            task_result.id,
-        )
-    except Exception as exc:
-        # Fallback: mark as finished; UI will stop polling.
-        logger.error(
-            "Failed to start asset refresh task for user %s: %s",
-            user.id,
-            exc,
-            exc_info=True,
-        )
-        state.update({"running": False, "finished": True, "error": "task_start_failed"})
-        cache.set(progress_key, state, ttl_seconds)
-
-    return state
+    return ensure_sell_assets_refresh_started(user, log_context="asset")
 
 
 @login_required
@@ -735,27 +637,7 @@ def material_exchange_sell_assets_refresh_status(request):
     if not _is_material_exchange_enabled():
         return JsonResponse({"running": False, "finished": True, "error": "disabled"})
 
-    progress_key = _me_sell_assets_progress_key(request.user.id)
-    state = cache.get(progress_key) or {
-        "running": False,
-        "finished": False,
-        "error": None,
-        "total": 0,
-        "done": 0,
-        "failed": 0,
-    }
-    if state.get("running"):
-        try:
-            started_at = float(state.get("started_at") or 0)
-            last_progress_at = float(state.get("last_progress_at") or started_at or 0)
-            elapsed = timezone.now().timestamp() - last_progress_at
-        except (TypeError, ValueError):
-            elapsed = 0
-        if not state.get("started_at") and not state.get("last_progress_at"):
-            elapsed = 999999
-        if elapsed > 180:
-            state.update({"running": False, "finished": True, "error": "timeout"})
-            cache.set(progress_key, state, 10 * 60)
+    state = get_sell_assets_refresh_progress(int(request.user.id))
     response = dict(state)
     try:
         last_update = (

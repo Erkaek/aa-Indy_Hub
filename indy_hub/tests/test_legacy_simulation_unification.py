@@ -706,9 +706,11 @@ class LegacySimulationUnificationTests(TestCase):
         self.assertEqual(progress, {"running": True})
         mock_ensure_refresh_started.assert_called_once_with(self.user)
 
-    @patch("indy_hub.views.industry.refresh_material_exchange_sell_user_assets.delay")
-    @patch("indy_hub.views.industry.Token.objects.filter")
-    @patch("indy_hub.views.industry.CharacterOwnership.objects.filter")
+    @patch(
+        "indy_hub.tasks.material_exchange.refresh_material_exchange_sell_user_assets.delay"
+    )
+    @patch("esi.models.Token.objects.filter")
+    @patch("allianceauth.authentication.models.CharacterOwnership.objects.filter")
     def test_ensure_craft_project_stock_refresh_started_enqueues_celery_task(
         self,
         mock_character_ownership_filter,
