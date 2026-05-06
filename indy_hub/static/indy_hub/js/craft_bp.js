@@ -5552,14 +5552,19 @@ function getFinancialRowEffectiveUnitPrice(row, priceKind) {
 
 function getZeroPricedFinancialRows(revenueMode) {
     return Array.from(document.querySelectorAll('#financialItemsBody tr[data-type-id]'))
-        .filter((row) => {
-            const isFinalOutput = row.getAttribute('data-final-output') === 'true';
-            if (isFinalOutput) {
-                return false;
+        .reduce((groups, row) => {
+            const label = getFinancialRowLabel(row);
+            if (row.getAttribute('data-final-output') === 'true') {
+                if (revenueMode !== REVENUE_MODE_TOTAL && getFinancialRowEffectiveUnitPrice(row, 'sale') <= 0) {
+                    groups.revenue.push(label);
+                }
+                return groups;
             }
-            return getFinancialRowEffectiveUnitPrice(row, 'buy') <= 0;
-        })
-        .map(getFinancialRowLabel);
+            if (getFinancialRowEffectiveUnitPrice(row, 'buy') <= 0) {
+                groups.buy.push(label);
+            }
+            return groups;
+        }, { buy: [], revenue: [] });
 }
 
 function triggerZeroPriceAlertAnimation(alertEl) {
@@ -5583,20 +5588,36 @@ function updateQuickMarginZeroPriceAlert(zeroPricedRows) {
         return;
     }
 
-    const names = Array.isArray(zeroPricedRows) ? zeroPricedRows.filter(Boolean) : [];
-    if (names.length === 0) {
+    const buyNames = Array.isArray(zeroPricedRows)
+        ? zeroPricedRows.filter(Boolean)
+        : (zeroPricedRows?.buy || []).filter(Boolean);
+    const revenueNames = Array.isArray(zeroPricedRows?.revenue)
+        ? zeroPricedRows.revenue.filter(Boolean)
+        : [];
+    const missingCount = buyNames.length + revenueNames.length;
+    if (missingCount === 0) {
         alertEl.textContent = '';
         alertEl.classList.add('d-none');
         alertEl.removeAttribute('title');
         return;
     }
 
-    const nextText = names.length === 1
-        ? __('1 Buy line has no price')
-        : `${formatInteger(names.length)} ${__('Buy lines have no price')}`;
+    const parts = [];
+    if (buyNames.length > 0) {
+        parts.push(buyNames.length === 1
+            ? __('1 Buy line has no price')
+            : `${formatInteger(buyNames.length)} ${__('Buy lines have no price')}`);
+    }
+    if (revenueNames.length > 0) {
+        parts.push(revenueNames.length === 1
+            ? __('1 Revenue target has no sale price')
+            : `${formatInteger(revenueNames.length)} ${__('Revenue targets have no sale price')}`);
+    }
+
+    const nextText = parts.join(' · ');
     const shouldAnimate = alertEl.classList.contains('d-none') || alertEl.textContent !== nextText;
     alertEl.textContent = nextText;
-    alertEl.setAttribute('title', names.slice(0, 8).join(', '));
+    alertEl.setAttribute('title', buyNames.concat(revenueNames).slice(0, 8).join(', '));
     alertEl.classList.remove('d-none');
     if (shouldAnimate) {
         triggerZeroPriceAlertAnimation(alertEl);
@@ -6248,7 +6269,7 @@ function updateMaterialsTabFromState() {
         window.updateCraftQuickStats();
     }
 
-    if (planPaneHydrated && typeof recalcFinancials === 'function') {
+    if (typeof recalcFinancials === 'function') {
         recalcFinancials();
     }
 }
