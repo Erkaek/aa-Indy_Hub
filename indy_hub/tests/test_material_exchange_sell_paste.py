@@ -2,6 +2,7 @@
 
 # Standard Library
 import json
+import re
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -11,6 +12,7 @@ from django.contrib.messages import get_messages
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.http import HttpResponse
+from django.template.loader import render_to_string
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -256,6 +258,19 @@ class MaterialExchangeSellPasteTests(TestCase):
         self.assertEqual(catalog["Tritanium"]["unit_price"], "5.25")
         self.assertEqual(catalog["Unrefined Goo"]["status"], "rejected")
         self.assertEqual(catalog["Unrefined Goo"]["reason"], "not_bought")
+
+        rendered = render_to_string(
+            "indy_hub/material_exchange/includes/sell_page_content.html", context
+        )
+        match = re.search(
+            r'<script id="sellPasteCatalogData" type="application/json">(.*?)</script>',
+            rendered,
+            re.S,
+        )
+        self.assertIsNotNone(match)
+        rendered_catalog = json.loads(match.group(1))
+        self.assertIsInstance(rendered_catalog, list)
+        self.assertEqual(rendered_catalog[0]["type_name"], "Tritanium")
 
     def test_get_marks_known_item_on_other_character_as_unavailable(self) -> None:
         request = self._prepare_request(

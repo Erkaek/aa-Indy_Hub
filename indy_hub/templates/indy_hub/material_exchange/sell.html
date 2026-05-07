@@ -104,7 +104,11 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
 
     if (sellPasteCatalogNode) {
         try {
-            JSON.parse(sellPasteCatalogNode.textContent || '[]').forEach(item => {
+            const parsedCatalog = JSON.parse(sellPasteCatalogNode.textContent || '[]');
+            if (!Array.isArray(parsedCatalog)) {
+                throw new TypeError('sellPasteCatalogData must be a JSON array');
+            }
+            parsedCatalog.forEach(item => {
                 if (item && item.name_key) {
                     sellPasteCatalog.set(item.name_key, item);
                 }
