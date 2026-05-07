@@ -31,6 +31,7 @@ from .views.industry import (
     bp_copy_history,
     bp_copy_my_requests,
     bp_copy_request_create,
+    bp_copy_request_estimate,
     bp_copy_request_page,
     bp_discord_action,
     bp_mark_copy_delivered,
@@ -327,6 +328,11 @@ urlpatterns = [
         name="rename_production_simulation",
     ),
     path("bp-copy/request/", bp_copy_request_page, name="bp_copy_request_page"),
+    path(
+        "bp-copy/request/estimate/",
+        bp_copy_request_estimate,
+        name="bp_copy_request_estimate",
+    ),
     path(
         "bp-copy/request/create/", bp_copy_request_create, name="bp_copy_request_create"
     ),
