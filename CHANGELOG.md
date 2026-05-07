@@ -16,6 +16,7 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 - CharLink hook: added the `esi-location.read_online.v1` scope to the personal authorization set so freshly-linked characters keep online-status access without an extra ESI re-authorization round trip.
 - Forms: Indy Hub now raises Django's `DATA_UPLOAD_MAX_NUMBER_FIELDS` to 50 000 at startup (configurable via `INDY_HUB_MAX_FORM_FIELDS`) so Material Exchange and craft project configuration pages no longer raise `TooManyFieldsSent` when thousands of EVE market groups or type ids are submitted at once.
 - Forms: Indy Hub now also raises Django's `DATA_UPLOAD_MAX_MEMORY_SIZE` to 50 MB at startup (configurable via `INDY_HUB_MAX_REQUEST_BODY_BYTES`) so saving a craft project workspace no longer fails with a generic "Failed to save table" notification when the JSON payload (cached project snapshot, decisions, structures, …) exceeds Django's 2.5 MB default body limit.
+- Blueprint Sharing: added a copy-installation cost breakdown modal to the fulfill queue, including EIV-derived install cost, structure and rig bonuses, SCI, facility/SCC taxes, and Alpha clone tax rows.
 
 ### Changed
 
@@ -23,8 +24,16 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 - Internals: replaced removed Django 5 timezone helpers (`django.utils.timezone.utc`) with `datetime.timezone.utc` across industry tasks, job notifications, and Material Exchange flows so the same code path runs on Django 4.2 and Django 5.2.
 - Migrations: added schema-alignment migrations (`0098`, `0099`) that normalize corporation sharing scope choices and rename a few indexes, eliminating Django `makemigrations` drift on both Django 4.2 and Django 5.2.
 - Crafting Projects: the project *Blueprints* tab now organises blueprint cards into one accordion section per product category (Battlecruiser, Battleship, Combat Drone, Module, Charge, …), sorted alphabetically. Cards whose product has no resolved category land in a single "Other" group rendered last. Mixed projects are much easier to scan than the single flat "Project blueprints" list.
+- Admin: the Blueprint changelist now displays the blueprint type, ownership scope, real owner entity, and corporation id, with matching filters and search fields, so corporation blueprints are no longer easy to confuse with personal character blueprints.
+- Blueprint Sharing: copy-request price estimates are now fetched lazily when the request modal opens and displayed as an indicative amount, avoiding page-load work for estimates the user never views (issue #84).
 
 ### Fixed
+
+- Blueprints: ESI rows with `runs=-1` are now classified as originals even when ESI also reports `quantity=-2`, character and corporation blueprint syncs persist a freshly computed `bp_type`, and a data migration repairs stale rows left behind by older releases where BPOs could remain labelled as copies after upgrade (issue #86).
+
+- Navigation: Indy Hub dropdown labels remain visible in the mobile Alliance Auth menu instead of collapsing to icon-only entries (issue #78).
+
+- Blueprint Sharing: copy-installation estimates on fulfill requests now use manufacturing material EIV, scale totals by the selected copy count, round ISK rows consistently, use two-decimal SCI percentages, and keep the grand-total label aligned with the requested number of copies.
 
 - Material Exchange: clicking a stale Discord link to a sell or buy order that has been completed, cancelled, or deleted now lands on a friendly "order no longer available" page (HTTP 404) with a button back to the Material Exchange index, instead of Django's raw 404 debug message. Honors the `next=` query parameter when present and safe (issue #68).
 

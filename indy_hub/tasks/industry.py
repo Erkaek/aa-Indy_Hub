@@ -1205,6 +1205,8 @@ def update_blueprints_for_user(
                         )
                         if location_key is not None and not location_name:
                             location_name = f"{PLACEHOLDER_PREFIX}{location_key}"
+                        type_id = bp.get("type_id")
+                        type_name = get_type_name(type_id)
                         Blueprint.objects.update_or_create(
                             item_id=item_id,
                             defaults={
@@ -1214,7 +1216,7 @@ def update_blueprints_for_user(
                                 "corporation_name": "",
                                 "character_id": char_id,
                                 "blueprint_id": bp.get("blueprint_id"),
-                                "type_id": bp.get("type_id"),
+                                "type_id": type_id,
                                 "location_id": location_id,
                                 "location_name": location_name,
                                 "location_flag": bp.get("location_flag", ""),
@@ -1223,7 +1225,13 @@ def update_blueprints_for_user(
                                 "material_efficiency": bp.get("material_efficiency", 0),
                                 "runs": bp.get("runs", 0),
                                 "character_name": character_name,
-                                "type_name": get_type_name(bp.get("type_id")),
+                                "type_name": type_name,
+                                "bp_type": Blueprint.classify_bp_type(
+                                    quantity=bp.get("quantity"),
+                                    type_name=type_name,
+                                    type_id=type_id,
+                                    runs=bp.get("runs", 0),
+                                ),
                             },
                         )
 
@@ -1350,6 +1358,8 @@ def update_blueprints_for_user(
                         )
                         if location_key is not None and not location_name:
                             location_name = f"{PLACEHOLDER_PREFIX}{location_key}"
+                        type_id = bp.get("type_id")
+                        type_name = get_type_name(type_id)
                         Blueprint.objects.update_or_create(
                             item_id=item_id,
                             defaults={
@@ -1360,7 +1370,7 @@ def update_blueprints_for_user(
                                 "character_id": None,
                                 "character_name": acting_character_name,
                                 "blueprint_id": bp.get("blueprint_id"),
-                                "type_id": bp.get("type_id"),
+                                "type_id": type_id,
                                 "location_id": location_id,
                                 "location_name": location_name,
                                 "location_flag": bp.get("location_flag", ""),
@@ -1368,7 +1378,13 @@ def update_blueprints_for_user(
                                 "time_efficiency": bp.get("time_efficiency", 0),
                                 "material_efficiency": bp.get("material_efficiency", 0),
                                 "runs": bp.get("runs", 0),
-                                "type_name": get_type_name(bp.get("type_id")),
+                                "type_name": type_name,
+                                "bp_type": Blueprint.classify_bp_type(
+                                    quantity=bp.get("quantity"),
+                                    type_name=type_name,
+                                    type_id=type_id,
+                                    runs=bp.get("runs", 0),
+                                ),
                             },
                         )
 
