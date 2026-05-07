@@ -790,6 +790,24 @@ class BlueprintModelClassificationTests(TestCase):
         blueprint.refresh_from_db()
         self.assertEqual(blueprint.bp_type, Blueprint.BPType.COPY)
 
+    def test_runs_minus_one_infers_original_type(self) -> None:
+        blueprint = Blueprint.objects.create(
+            owner_user=self.user,
+            character_id=9003,
+            item_id=9003001,
+            blueprint_id=9004001,
+            type_id=434343,
+            location_id=PUBLIC_STATION_ID,
+            location_flag="hangar",
+            quantity=-2,
+            time_efficiency=0,
+            material_efficiency=0,
+            runs=-1,
+            character_name="Classifier",
+            type_name="Widget Blueprint",
+        )
+        self.assertEqual(blueprint.bp_type, Blueprint.BPType.ORIGINAL)
+
     def test_update_or_create_persists_reclassified_bp_type(self) -> None:
         blueprint = Blueprint.objects.create(
             owner_user=self.user,
@@ -811,6 +829,32 @@ class BlueprintModelClassificationTests(TestCase):
         Blueprint.objects.update_or_create(
             item_id=blueprint.item_id,
             defaults={"quantity": -1},
+        )
+
+        blueprint.refresh_from_db()
+        self.assertEqual(blueprint.bp_type, Blueprint.BPType.ORIGINAL)
+
+    def test_update_or_create_reclassifies_runs_minus_one_as_original(self) -> None:
+        blueprint = Blueprint.objects.create(
+            owner_user=self.user,
+            character_id=9005,
+            item_id=9005001,
+            blueprint_id=9006001,
+            type_id=464646,
+            location_id=PUBLIC_STATION_ID,
+            location_flag="hangar",
+            quantity=-2,
+            time_efficiency=0,
+            material_efficiency=0,
+            runs=1,
+            character_name="Classifier",
+            type_name="Widget Blueprint",
+        )
+        self.assertEqual(blueprint.bp_type, Blueprint.BPType.COPY)
+
+        Blueprint.objects.update_or_create(
+            item_id=blueprint.item_id,
+            defaults={"quantity": -2, "runs": -1},
         )
 
         blueprint.refresh_from_db()
