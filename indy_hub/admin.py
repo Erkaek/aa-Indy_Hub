@@ -104,17 +104,39 @@ admin.site.register(User, IndyHubUserAdmin)
 class BlueprintAdmin(admin.ModelAdmin):
     list_display = [
         "type_name",
+        "bp_type",
+        "owner_scope",
+        "owner_entity",
         "owner_user",
         "character_id",
+        "corporation_id",
         "quantity",
         "material_efficiency",
         "time_efficiency",
         "runs",
         "last_updated",
     ]
-    list_filter = ["owner_user", "character_id", "quantity", "last_updated"]
-    search_fields = ["type_name", "type_id", "owner_user__username"]
+    list_filter = [
+        "owner_kind",
+        "bp_type",
+        "owner_user",
+        "character_id",
+        "corporation_id",
+        "quantity",
+        "last_updated",
+    ]
+    search_fields = [
+        "type_name",
+        "type_id",
+        "item_id",
+        "owner_user__username",
+        "character_id",
+        "character_name",
+        "corporation_id",
+        "corporation_name",
+    ]
     readonly_fields = ["item_id", "last_updated", "created_at"]
+    list_select_related = ["owner_user"]
 
     fieldsets = (
         (
@@ -122,7 +144,11 @@ class BlueprintAdmin(admin.ModelAdmin):
             {
                 "fields": (
                     "owner_user",
+                    "owner_kind",
                     "character_id",
+                    "character_name",
+                    "corporation_id",
+                    "corporation_name",
                     "item_id",
                     "type_id",
                     "type_name",
@@ -132,13 +158,31 @@ class BlueprintAdmin(admin.ModelAdmin):
         ("Location", {"fields": ("location_id", "location_name", "location_flag")}),
         (
             "Blueprint Details",
-            {"fields": ("quantity", "material_efficiency", "time_efficiency", "runs")},
+            {
+                "fields": (
+                    "bp_type",
+                    "quantity",
+                    "material_efficiency",
+                    "time_efficiency",
+                    "runs",
+                )
+            },
         ),
         (
             "Timestamps",
             {"fields": ("created_at", "last_updated"), "classes": ("collapse",)},
         ),
     )
+
+    @admin.display(description="Scope", ordering="owner_kind")
+    def owner_scope(self, obj):
+        return obj.get_owner_kind_display()
+
+    @admin.display(description="Owner entity")
+    def owner_entity(self, obj):
+        if obj.owner_kind == Blueprint.OwnerKind.CORPORATION:
+            return obj.corporation_name or obj.corporation_id or "-"
+        return obj.character_name or obj.character_id or "-"
 
 
 @admin.register(IndustryJob)
