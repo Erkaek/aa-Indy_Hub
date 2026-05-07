@@ -23,8 +23,11 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 - Internals: replaced removed Django 5 timezone helpers (`django.utils.timezone.utc`) with `datetime.timezone.utc` across industry tasks, job notifications, and Material Exchange flows so the same code path runs on Django 4.2 and Django 5.2.
 - Migrations: added schema-alignment migrations (`0098`, `0099`) that normalize corporation sharing scope choices and rename a few indexes, eliminating Django `makemigrations` drift on both Django 4.2 and Django 5.2.
 - Crafting Projects: the project *Blueprints* tab now organises blueprint cards into one accordion section per product category (Battlecruiser, Battleship, Combat Drone, Module, Charge, …), sorted alphabetically. Cards whose product has no resolved category land in a single "Other" group rendered last. Mixed projects are much easier to scan than the single flat "Project blueprints" list.
+- Admin: the Blueprint changelist now displays the blueprint type, ownership scope, real owner entity, and corporation id, with matching filters and search fields, so corporation blueprints are no longer easy to confuse with personal character blueprints.
 
 ### Fixed
+
+- Blueprints: ESI rows with `runs=-1` are now classified as originals even when ESI also reports `quantity=-2`, character and corporation blueprint syncs persist a freshly computed `bp_type`, and a data migration repairs stale rows left behind by older releases where BPOs could remain labelled as copies after upgrade (issue #86).
 
 - Material Exchange: clicking a stale Discord link to a sell or buy order that has been completed, cancelled, or deleted now lands on a friendly "order no longer available" page (HTTP 404) with a button back to the Material Exchange index, instead of Django's raw 404 debug message. Honors the `next=` query parameter when present and safe (issue #68).
 
