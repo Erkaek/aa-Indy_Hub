@@ -64,7 +64,8 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
         activePollToken: 0,
         pollTimer: null,
         swapTimer: null,
-        swapRequestToken: 0
+        swapRequestToken: 0,
+        refreshCompleted: false
     };
     const sellPageState = window.__indyHubSellPageState;
     const initToken = ++sellPageState.initToken;
@@ -1019,6 +1020,7 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
 
     // Live asset refresh progress (per character)
     {% if assets_refreshing %}
+    if (!sellPageState.refreshCompleted) {
     sellPageState.activePollToken = initToken;
     const statusUrl = '{% url "indy_hub:material_exchange_sell_assets_refresh_status" %}';
     const lastUpdateNode = document.querySelector('.js-local-time[data-utc]');
@@ -1065,6 +1067,7 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
             }
 
             if (data.finished && (!error || error === 'timeout' || error === 'no_assets_fetched')) {
+                sellPageState.refreshCompleted = true;
                 const url = new URL(window.location.href);
                 if (url.searchParams.get('refreshed') !== '1') {
                     const initialTime = initialLastUpdate ? Date.parse(initialLastUpdate) : null;
@@ -1093,6 +1096,7 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
     }
 
     pollAssetsProgress();
+    }
     {% endif %}
 };
 

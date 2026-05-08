@@ -41,6 +41,8 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 - Material Exchange: sell-page paste import now renders its catalog as a JSON array and guards the browser parser against malformed catalog payloads, so valid lines such as `Core Probe Launcher I\t7` are matched instead of being reported as unknown because `sellPasteCatalogData` parsed as a string (issue #82).
 
+- Material Exchange: the sell page no longer keeps reloading its dynamic content after the character asset refresh completes. The browser now marks the refresh as completed before swapping in the refreshed fragment, preventing the original polling block from scheduling another `?refreshed=1` reload loop.
+
 - Crafting Projects: reaction blueprints (e.g. `Carbon Fiber Reaction Formula`) are no longer surfaced as copy candidates in the per-blueprint configuration cards. The copy request UI is hidden for reactions and the server-side `bp_copy_request_create` endpoint now rejects reaction `type_id`s, since reactions cannot be copied in EVE (issue #69).
 
 - Crafting Projects: reaction formulas are kept in the project *Blueprints* tab inside a dedicated *Reactions* section rendered last, so players can still see which formulas the project consumes. The cards show ownership only (*Original owned* / *Copy owned* / *Not available* — never the orange *Available* state) and hide the ME/TE inputs and copy-request controls, since reaction blueprints have fixed ME/TE and cannot be copied (issue #69 follow-up).
