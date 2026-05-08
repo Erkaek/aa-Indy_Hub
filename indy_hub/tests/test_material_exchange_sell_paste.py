@@ -260,7 +260,9 @@ class MaterialExchangeSellPasteTests(TestCase):
         self.assertEqual(catalog["Unrefined Goo"]["reason"], "not_bought")
 
         rendered = render_to_string(
-            "indy_hub/material_exchange/includes/sell_page_content.html", context
+            "indy_hub/material_exchange/includes/sell_page_content.html",
+            context,
+            request=request,
         )
         match = re.search(
             r'<script id="sellPasteCatalogData" type="application/json">(.*?)</script>',
