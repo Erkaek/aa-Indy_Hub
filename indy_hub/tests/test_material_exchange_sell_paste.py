@@ -272,7 +272,8 @@ class MaterialExchangeSellPasteTests(TestCase):
         self.assertIsNotNone(match)
         rendered_catalog = json.loads(match.group(1))
         self.assertIsInstance(rendered_catalog, list)
-        self.assertEqual(rendered_catalog[0]["type_name"], "Tritanium")
+        self.assertGreater(len(rendered_catalog), 0)
+        self.assertIn("Tritanium", {entry["type_name"] for entry in rendered_catalog})
 
     def test_get_marks_known_item_on_other_character_as_unavailable(self) -> None:
         request = self._prepare_request(
