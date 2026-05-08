@@ -42,11 +42,13 @@ from ..services.industry_skills import build_craft_character_advisor
 from ..services.industry_structures import resolve_solar_system_reference
 from ..services.production_projects import (
     PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY,
+    PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_KEY,
     PROJECT_WORKSPACE_SDE_SIGNATURE_KEY,
     build_project_import_preview,
     build_project_workspace_payload,
     cached_project_workspace_payload_matches_state,
     create_project_from_entries,
+    get_project_workspace_scoped_sde_signature,
     get_project_workspace_sde_signature,
     normalize_production_project_ref,
     parse_project_me_te_overrides,
@@ -353,6 +355,9 @@ def save_production_project_workspace(request, project_ref: str):
     workspace_state[PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY] = cached_payload
     workspace_state[PROJECT_WORKSPACE_SDE_SIGNATURE_KEY] = (
         get_project_workspace_sde_signature()
+    )
+    workspace_state[PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_KEY] = (
+        get_project_workspace_scoped_sde_signature(cached_payload)
     )
     project.workspace_state = workspace_state
     project.save(update_fields=["workspace_state", "updated_at"])

@@ -47,6 +47,8 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 - Indy Hub: the unavailable page shown while SDE data is missing now distinguishes an empty base `eve_sde` load from missing Indy Hub compatibility data, and recommends the matching command (`indy_sde --with-esde-load` or `sync_sde_compat`) instead of a generic administrator notice (issue #90).
 
+- Crafting Projects: saved craft project snapshots now track the SDE rows used by that project, so unrelated global SDE refreshes no longer show a stale-data warning. When a relevant blueprint/material/product/activity row changes, the warning now offers a “Refresh from current SDE” action before saving the refreshed snapshot (issue #87).
+
 - Material Exchange: the sell page no longer keeps reloading its dynamic content after the character asset refresh completes. The browser now marks the refresh as completed before swapping in the refreshed fragment, and the server skips restarting a recently finished asset refresh, preventing repeated `?refreshed=1` reload loops when the cached asset timestamp remains stale or empty.
 
 - Crafting Projects: reaction blueprints (e.g. `Carbon Fiber Reaction Formula`) are no longer surfaced as copy candidates in the per-blueprint configuration cards. The copy request UI is hidden for reactions and the server-side `bp_copy_request_create` endpoint now rejects reaction `type_id`s, since reactions cannot be copied in EVE (issue #69).

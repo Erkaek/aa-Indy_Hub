@@ -68,6 +68,8 @@ DRONE_GROUP_KEYWORDS = ("drone", "fighter", "fighter bomber")
 SUBSYSTEM_GROUP_KEYWORDS = ("subsystem", "strategic cruiser")
 PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY = "cachedProjectPayload"
 PROJECT_WORKSPACE_SDE_SIGNATURE_KEY = "cachedProjectSdeSignature"
+PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_KEY = "cachedProjectScopedSdeSignature"
+PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_VERSION = 1
 LEGACY_SINGLE_BLUEPRINT_PROJECT_NOTE = (
     "Migrated from legacy single-blueprint craft flow."
 )
@@ -79,6 +81,7 @@ def strip_project_workspace_cache(
     cleaned_state = dict(workspace_state or {})
     cleaned_state.pop(PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY, None)
     cleaned_state.pop(PROJECT_WORKSPACE_SDE_SIGNATURE_KEY, None)
+    cleaned_state.pop(PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_KEY, None)
     cleaned_state.pop("pendingWorkspaceRefresh", None)
     cleaned_state.pop("pendingWorkspaceSourceTab", None)
     return cleaned_state
@@ -158,7 +161,264 @@ def _collect_payload_blueprint_type_ids(payload: dict[str, object] | None) -> se
             blueprint_type_id = 0
         if blueprint_type_id > 0:
             blueprint_type_ids.add(blueprint_type_id)
+
+    page = payload.get("page")
+    if isinstance(page, dict):
+        blueprint_configs = page.get("blueprint_configs")
+        for config in blueprint_configs if isinstance(blueprint_configs, list) else []:
+            if not isinstance(config, dict):
+                continue
+            try:
+                blueprint_type_id = int(config.get("type_id") or 0)
+            except (TypeError, ValueError):
+                continue
+            if blueprint_type_id > 0:
+                blueprint_type_ids.add(blueprint_type_id)
+
+    final_outputs = payload.get("final_outputs")
+    for output in final_outputs if isinstance(final_outputs, list) else []:
+        if not isinstance(output, dict):
+            continue
+        try:
+            blueprint_type_id = int(output.get("blueprint_type_id") or 0)
+        except (TypeError, ValueError):
+            continue
+        if blueprint_type_id > 0:
+            blueprint_type_ids.add(blueprint_type_id)
     return blueprint_type_ids
+
+
+def _coerce_positive_type_id(value: object) -> int:
+    try:
+        type_id = int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+    return type_id if type_id > 0 else 0
+
+
+def _collect_payload_type_ids(payload: dict[str, object] | None) -> set[int]:
+    type_ids: set[int] = set()
+    if not isinstance(payload, dict):
+        return type_ids
+
+    def add(value: object) -> None:
+        type_id = _coerce_positive_type_id(value)
+        if type_id > 0:
+            type_ids.add(type_id)
+
+    def collect_nodes(nodes: object) -> None:
+        for node in nodes if isinstance(nodes, list) else []:
+            if not isinstance(node, dict):
+                continue
+            add(node.get("type_id"))
+            add(node.get("blueprint_type_id"))
+            collect_nodes(node.get("sub_materials"))
+
+    for key in ("bp_type_id", "type_id", "product_type_id"):
+        add(payload.get(key))
+    collect_nodes(payload.get("materials_tree"))
+
+    for list_key in ("materials", "direct_materials", "final_outputs"):
+        rows = payload.get(list_key)
+        for row in rows if isinstance(rows, list) else []:
+            if not isinstance(row, dict):
+                continue
+            add(row.get("type_id"))
+            add(row.get("blueprint_type_id"))
+            add(row.get("product_type_id"))
+
+    page = payload.get("page")
+    if isinstance(page, dict):
+        blueprint_configs = page.get("blueprint_configs")
+        for config in blueprint_configs if isinstance(blueprint_configs, list) else []:
+            if not isinstance(config, dict):
+                continue
+            add(config.get("type_id"))
+            add(config.get("product_type_id"))
+
+    recipe_map = payload.get("recipe_map")
+    if isinstance(recipe_map, dict):
+        for raw_product_type_id, recipe in recipe_map.items():
+            add(raw_product_type_id)
+            if not isinstance(recipe, dict):
+                continue
+            for input_key in ("inputs_per_cycle", "inputs_per_cycle_me0"):
+                inputs = recipe.get(input_key)
+                for entry in inputs if isinstance(inputs, list) else []:
+                    if isinstance(entry, dict):
+                        add(entry.get("type_id"))
+
+    cycle_summary = payload.get("craft_cycles_summary")
+    if isinstance(cycle_summary, dict):
+        for raw_type_id, entry in cycle_summary.items():
+            add(raw_type_id)
+            if isinstance(entry, dict):
+                add(entry.get("type_id"))
+
+    return type_ids
+
+
+def get_project_workspace_scoped_sde_signature(
+    payload: dict[str, object] | None,
+) -> dict[str, object]:
+    blueprint_type_ids = sorted(_collect_payload_blueprint_type_ids(payload))
+    type_ids = sorted(_collect_payload_type_ids(payload) | set(blueprint_type_ids))
+
+    signature: dict[str, object] = {
+        "version": PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_VERSION,
+        "blueprint_type_ids": blueprint_type_ids,
+        "type_ids": type_ids,
+        "item_types": [],
+        "products": [],
+        "materials": [],
+        "activities": [],
+    }
+
+    if type_ids:
+        placeholders = ", ".join(["%s"] * len(type_ids))
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT id, COALESCE(name_en, name), COALESCE(published, 0), group_id
+                FROM eve_sde_itemtype
+                WHERE id IN ({placeholders})
+                ORDER BY id
+                """,
+                type_ids,
+            )
+            signature["item_types"] = [
+                {
+                    "type_id": int(type_id),
+                    "name": str(type_name or ""),
+                    "published": bool(published),
+                    "group_id": int(group_id) if group_id is not None else None,
+                }
+                for type_id, type_name, published, group_id in cursor.fetchall()
+            ]
+
+    if not blueprint_type_ids:
+        return signature
+
+    placeholders = ", ".join(["%s"] * len(blueprint_type_ids))
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT
+                p.eve_type_id,
+                p.activity_id,
+                p.product_eve_type_id,
+                p.quantity,
+                COALESCE(product_t.name_en, product_t.name),
+                COALESCE(product_t.published, 0),
+                product_t.group_id
+            FROM indy_hub_sdeindustryactivityproduct p
+            JOIN eve_sde_itemtype product_t ON product_t.id = p.product_eve_type_id
+            WHERE p.eve_type_id IN ({placeholders})
+                AND p.activity_id IN (1, 11)
+            ORDER BY p.eve_type_id, p.activity_id, p.product_eve_type_id
+            """,
+            blueprint_type_ids,
+        )
+        signature["products"] = [
+            {
+                "blueprint_type_id": int(blueprint_type_id),
+                "activity_id": int(activity_id),
+                "product_type_id": int(product_type_id),
+                "quantity": int(quantity or 0),
+                "product_name": str(product_name or ""),
+                "product_published": bool(product_published),
+                "product_group_id": (
+                    int(product_group_id) if product_group_id is not None else None
+                ),
+            }
+            for (
+                blueprint_type_id,
+                activity_id,
+                product_type_id,
+                quantity,
+                product_name,
+                product_published,
+                product_group_id,
+            ) in cursor.fetchall()
+        ]
+
+        cursor.execute(
+            f"""
+            SELECT
+                m.eve_type_id,
+                m.activity_id,
+                m.material_eve_type_id,
+                m.quantity,
+                COALESCE(material_t.name_en, material_t.name),
+                COALESCE(material_t.published, 0),
+                material_t.group_id
+            FROM indy_hub_sdeindustryactivitymaterial m
+            JOIN eve_sde_itemtype material_t ON material_t.id = m.material_eve_type_id
+            WHERE m.eve_type_id IN ({placeholders})
+                AND m.activity_id IN (1, 11)
+            ORDER BY m.eve_type_id, m.activity_id, m.material_eve_type_id
+            """,
+            blueprint_type_ids,
+        )
+        signature["materials"] = [
+            {
+                "blueprint_type_id": int(blueprint_type_id),
+                "activity_id": int(activity_id),
+                "material_type_id": int(material_type_id),
+                "quantity": int(quantity or 0),
+                "material_name": str(material_name or ""),
+                "material_published": bool(material_published),
+                "material_group_id": (
+                    int(material_group_id) if material_group_id is not None else None
+                ),
+            }
+            for (
+                blueprint_type_id,
+                activity_id,
+                material_type_id,
+                quantity,
+                material_name,
+                material_published,
+                material_group_id,
+            ) in cursor.fetchall()
+        ]
+
+        cursor.execute(
+            f"""
+            SELECT eve_type_id, activity_id, time
+            FROM indy_hub_sdeblueprintactivity
+            WHERE eve_type_id IN ({placeholders})
+                AND activity_id IN (1, 11)
+            ORDER BY eve_type_id, activity_id
+            """,
+            blueprint_type_ids,
+        )
+        signature["activities"] = [
+            {
+                "blueprint_type_id": int(blueprint_type_id),
+                "activity_id": int(activity_id),
+                "time": int(activity_time or 0),
+            }
+            for blueprint_type_id, activity_id, activity_time in cursor.fetchall()
+        ]
+
+    return signature
+
+
+def _get_cached_project_scoped_sde_signature(
+    workspace_state: dict[str, object],
+) -> dict[str, object] | None:
+    cached_scoped_signature = workspace_state.get(
+        PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_KEY
+    )
+    if not isinstance(cached_scoped_signature, dict):
+        return None
+    if (
+        cached_scoped_signature.get("version")
+        != PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_VERSION
+    ):
+        return None
+    return cached_scoped_signature
 
 
 def _cached_payload_includes_blueprint_configs(
@@ -266,8 +526,15 @@ def get_cached_project_workspace_payload(
             "workspace_state": strip_project_workspace_cache(workspace_state),
         }
     )
-    current_signature = get_project_workspace_sde_signature()
-    sde_has_changed = bool(cached_signature and cached_signature != current_signature)
+    cached_scoped_signature = _get_cached_project_scoped_sde_signature(workspace_state)
+    if cached_scoped_signature is not None:
+        current_scoped_signature = get_project_workspace_scoped_sde_signature(payload)
+        sde_has_changed = cached_scoped_signature != current_scoped_signature
+    else:
+        current_signature = get_project_workspace_sde_signature()
+        sde_has_changed = bool(
+            cached_signature and cached_signature != current_signature
+        )
     return payload, sde_has_changed
 
 

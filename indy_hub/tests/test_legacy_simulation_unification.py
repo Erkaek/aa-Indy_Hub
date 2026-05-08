@@ -5,6 +5,7 @@ from decimal import Decimal
 from unittest.mock import patch
 
 # Django
+from django.apps import apps
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.contrib.messages.storage.fallback import FallbackStorage
@@ -23,12 +24,21 @@ from indy_hub.models import (
     IndustryJob,
     ProductionProject,
     ProductionProjectItem,
+    SDEBlueprintActivity,
+    SDEBlueprintActivityMaterial,
+    SDEBlueprintActivityProduct,
+    SDEIndustryActivity,
 )
 from indy_hub.services.production_projects import (
     LEGACY_SINGLE_BLUEPRINT_PROJECT_NOTE,
+    PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY,
+    PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_KEY,
+    PROJECT_WORKSPACE_SDE_SIGNATURE_KEY,
     _scale_project_selected_items_for_runs,
+    build_project_workspace_payload,
     create_project_from_single_blueprint,
     get_cached_project_workspace_payload,
+    get_project_workspace_scoped_sde_signature,
     strip_project_workspace_cache,
 )
 from indy_hub.services.project_progress import normalize_project_progress
@@ -122,6 +132,76 @@ class LegacySimulationUnificationTests(TestCase):
         request.session.save()
         setattr(request, "_messages", FallbackStorage(request))
         return request
+
+    def _ensure_project_sde_rows(self, *, material_quantity: int = 10) -> None:
+        item_type_model = apps.get_model("eve_sde", "ItemType")
+        for type_id, type_name in (
+            (34, "Tritanium"),
+            (603, "Merlin"),
+            (950, "Merlin Blueprint"),
+        ):
+            item_type_model.objects.update_or_create(
+                id=type_id,
+                defaults={"name": type_name, "published": True},
+            )
+        SDEIndustryActivity.objects.update_or_create(
+            id=1,
+            defaults={"name": "Manufacturing"},
+        )
+        SDEBlueprintActivity.objects.update_or_create(
+            eve_type_id=950,
+            activity_id=1,
+            defaults={"time": 120},
+        )
+        SDEBlueprintActivityProduct.objects.update_or_create(
+            eve_type_id=950,
+            activity_id=1,
+            product_eve_type_id=603,
+            defaults={"quantity": 1},
+        )
+        SDEBlueprintActivityMaterial.objects.update_or_create(
+            eve_type_id=950,
+            activity_id=1,
+            material_eve_type_id=34,
+            defaults={"quantity": material_quantity},
+        )
+
+    def _create_cached_merlin_project(self) -> ProductionProject:
+        self._ensure_project_sde_rows()
+        project = ProductionProject.objects.create(
+            user=self.user,
+            name="Merlin Project",
+            status=ProductionProject.Status.DRAFT,
+            source_kind=ProductionProject.SourceKind.MANUAL,
+            workspace_state={"runs": 1},
+        )
+        ProductionProjectItem.objects.create(
+            project=project,
+            type_id=603,
+            type_name="Merlin",
+            quantity_requested=1,
+            category_key="manual",
+            category_label="Manual list",
+            category_order=90,
+            is_selected=True,
+            is_craftable=True,
+            inclusion_mode=ProductionProjectItem.InclusionMode.PRODUCE,
+            blueprint_type_id=950,
+        )
+        cached_payload = build_project_workspace_payload(
+            project,
+            include_full_structure_options=False,
+        )
+        project.workspace_state = {
+            "runs": 1,
+            PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY: cached_payload,
+            PROJECT_WORKSPACE_SDE_SIGNATURE_KEY: {"global": "older"},
+            PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_KEY: (
+                get_project_workspace_scoped_sde_signature(cached_payload)
+            ),
+        }
+        project.save(update_fields=["workspace_state", "updated_at"])
+        return project
 
     @patch("indy_hub.views.industry.create_project_from_single_blueprint")
     def test_craft_bp_redirects_to_project_workspace(self, mock_create_project):
@@ -255,6 +335,7 @@ class LegacySimulationUnificationTests(TestCase):
         )
         self.assertIn("cachedProjectPayload", project.workspace_state)
         self.assertIn("cachedProjectSdeSignature", project.workspace_state)
+        self.assertIn("cachedProjectScopedSdeSignature", project.workspace_state)
         self.assertEqual(
             project.workspace_state["cachedProjectPayload"]["materials_tree"][0][
                 "project_inclusion_mode"
@@ -452,6 +533,46 @@ class LegacySimulationUnificationTests(TestCase):
 
         self.assertIsNone(payload)
         self.assertFalse(sde_has_changed)
+
+    def test_cached_project_ignores_unrelated_global_sde_signature_change(self):
+        project = self._create_cached_merlin_project()
+
+        payload, sde_has_changed = get_cached_project_workspace_payload(project)
+
+        self.assertIsNotNone(payload)
+        self.assertFalse(sde_has_changed)
+
+        request = self._prepare_request(
+            self.factory.get(
+                reverse("indy_hub:craft_project", args=[project.project_ref])
+            )
+        )
+        response = self._craft_project_view(request, project.project_ref)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "Saved snapshot uses older SDE data")
+        self.assertNotContains(response, "Refresh from current SDE")
+
+    def test_cached_project_warns_for_relevant_material_sde_change(self):
+        project = self._create_cached_merlin_project()
+        self._ensure_project_sde_rows(material_quantity=12)
+
+        payload, sde_has_changed = get_cached_project_workspace_payload(project)
+
+        self.assertIsNotNone(payload)
+        self.assertTrue(sde_has_changed)
+
+        request = self._prepare_request(
+            self.factory.get(
+                reverse("indy_hub:craft_project", args=[project.project_ref])
+            )
+        )
+        response = self._craft_project_view(request, project.project_ref)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Saved snapshot uses older SDE data")
+        self.assertContains(response, "Refresh from current SDE")
+        self.assertContains(response, "refresh_sde=1")
 
     def test_strip_project_workspace_cache_removes_pending_refresh_flags(self):
         self.assertEqual(
@@ -660,6 +781,69 @@ class LegacySimulationUnificationTests(TestCase):
         self.assertContains(response, 'id="runsInput"', html=False)
         self.assertContains(response, 'value="7"', html=False)
         self.assertContains(response, 'id="recalcNowBtn"', html=False)
+
+    @patch("indy_hub.views.industry.build_user_asset_inventory_snapshot")
+    @patch("indy_hub.views.industry._get_craft_project_stock_refresh_progress")
+    @patch("indy_hub.views.industry.build_project_workspace_payload")
+    @patch("indy_hub.views.industry.get_cached_project_workspace_payload")
+    def test_craft_project_refresh_from_sde_bypasses_saved_snapshot(
+        self,
+        mock_get_cached_project_workspace_payload,
+        mock_build_project_workspace_payload,
+        mock_get_stock_refresh_progress,
+        mock_build_user_asset_inventory_snapshot,
+    ):
+        project = ProductionProject.objects.create(
+            user=self.user,
+            name="Refresh Workspace",
+            status=ProductionProject.Status.DRAFT,
+            source_kind=ProductionProject.SourceKind.MANUAL,
+        )
+        mock_build_project_workspace_payload.return_value = {
+            "bp_type_id": 950,
+            "num_runs": 1,
+            "final_product_qty": 1,
+            "product_type_id": 603,
+            "me": 0,
+            "te": 0,
+            "materials": [],
+            "direct_materials": [],
+            "materials_tree": [],
+            "craft_cycles_summary": {},
+            "blueprint_configs_grouped": [],
+            "materials_by_group": {},
+            "market_group_map": {},
+            "recipe_map": {},
+            "debug": {},
+            "fuzzwork_price_url": "",
+            "main_bp_info": {},
+            "copy_request_preview": {},
+            "copy_request_pages": [],
+            "production_time_map": {},
+            "craft_character_advisor": {},
+            "structure_planner": {},
+            "final_outputs": [{"type_id": 603, "quantity": 1}],
+        }
+        mock_build_user_asset_inventory_snapshot.return_value = {
+            "scope_missing": False,
+            "synced_at": "",
+            "totals_by_type": {},
+            "characters": [],
+        }
+        mock_get_stock_refresh_progress.return_value = {"running": False}
+
+        request = self._prepare_request(
+            self.factory.get(
+                reverse("indy_hub:craft_project", args=[project.project_ref]),
+                data={"refresh_sde": "1"},
+            )
+        )
+        response = self._craft_project_view(request, project.project_ref)
+
+        self.assertEqual(response.status_code, 200)
+        mock_get_cached_project_workspace_payload.assert_not_called()
+        mock_build_project_workspace_payload.assert_called_once()
+        self.assertNotContains(response, "Saved snapshot uses older SDE data")
 
     @patch("indy_hub.views.industry._ensure_craft_project_stock_refresh_started")
     def test_craft_project_stock_refresh_progress_skips_recent_asset_cache(
