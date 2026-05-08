@@ -2233,31 +2233,40 @@ def _build_sde_readiness_context() -> dict[str, Any]:
     if not base_sde_loaded:
         context.update(
             {
-                "sde_missing_dependency": _("Base EVE SDE data"),
+                "sde_missing_dependency": _("Base EVE SDE database"),
                 "sde_blocking_message": _(
-                    "Base EVE SDE data is not loaded yet. Load the EVE SDE and Indy Hub compatibility data before using Indy Hub."
+                    "The EVE SDE tables are empty or unavailable, so Indy Hub cannot read item and blueprint names yet."
                 ),
                 "sde_blocking_detail": _(
-                    "Run the full Indy Hub SDE loader so eve_sde is populated before the compact Indy Hub tables are synced."
+                    "Run the full setup command once. It loads eve_sde first, then builds the Indy Hub SDE cache."
                 ),
                 "sde_recommended_commands": [
-                    "python manage.py indy_sde --with-esde-load"
+                    {
+                        "label": _("Full SDE setup"),
+                        "command": "python manage.py indy_sde --with-esde-load",
+                    }
                 ],
             }
         )
     elif not compat_sde_loaded:
         context.update(
             {
-                "sde_missing_dependency": _("Indy Hub compatibility SDE data"),
+                "sde_missing_dependency": _("Indy Hub SDE cache"),
                 "sde_blocking_message": _(
-                    "Indy Hub compatibility SDE data is not loaded yet. The base EVE SDE data is present."
+                    "The base EVE SDE is already loaded, but Indy Hub has not built its own compact SDE cache yet."
                 ),
                 "sde_blocking_detail": _(
-                    "Run only the Indy Hub compatibility sync; the full eve_sde load is not required for this case."
+                    "Run one of the commands below on the Alliance Auth server. Do not roll back eve_sde migrations for this case."
                 ),
                 "sde_recommended_commands": [
-                    "python manage.py sync_sde_compat",
-                    "auth sync_sde_compat",
+                    {
+                        "label": _("Standard Django command"),
+                        "command": "python manage.py sync_sde_compat",
+                    },
+                    {
+                        "label": _("Alliance Auth / Docker command"),
+                        "command": "auth sync_sde_compat",
+                    },
                 ],
             }
         )

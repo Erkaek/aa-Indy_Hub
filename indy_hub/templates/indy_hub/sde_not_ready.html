@@ -11,7 +11,7 @@
                 <div class="card-body p-4 text-center">
                     <h2 class="h4 text-danger mb-3">{% trans "Indy Hub unavailable" %}</h2>
                     {% if sde_missing_dependency %}
-                        <p class="text-uppercase text-muted small fw-semibold mb-2">{% trans "Missing dependency" %}</p>
+                        <p class="text-uppercase text-muted small fw-semibold mb-2">{% trans "What is missing" %}</p>
                         <p class="h5 mb-3">{{ sde_missing_dependency }}</p>
                     {% endif %}
                     <p class="mb-2">{{ sde_blocking_message|default:_("Indy Hub static data is not loaded yet. Please contact your administrator.") }}</p>
@@ -20,10 +20,13 @@
                     {% endif %}
                     {% if sde_recommended_commands %}
                         <div class="text-start mt-4">
-                            <p class="text-uppercase text-muted small fw-semibold mb-2">{% trans "Recommended command" %}</p>
+                            <p class="text-uppercase text-muted small fw-semibold mb-2">{% trans "Run this" %}</p>
                             <div class="list-group list-group-flush border rounded">
-                                {% for command in sde_recommended_commands %}
-                                    <code class="list-group-item bg-light text-body">{{ command }}</code>
+                                {% for command_info in sde_recommended_commands %}
+                                    <div class="list-group-item bg-light">
+                                        <div class="small text-muted mb-1">{{ command_info.label }}</div>
+                                        <code class="text-body">{{ command_info.command }}</code>
+                                    </div>
                                 {% endfor %}
                             </div>
                         </div>

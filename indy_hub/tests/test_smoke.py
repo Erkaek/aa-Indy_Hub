@@ -378,8 +378,9 @@ class IndexSDEGuardTests(TestCase):
         self.assertTemplateUsed(response, "indy_hub/sde_not_ready.html")
         self.assertContains(
             response,
-            "Base EVE SDE data is not loaded yet.",
+            "The EVE SDE tables are empty or unavailable",
         )
+        self.assertContains(response, "Full SDE setup")
         self.assertContains(response, "python manage.py indy_sde --with-esde-load")
         self.assertNotContains(response, "python manage.py sync_sde_compat")
 
@@ -395,9 +396,12 @@ class IndexSDEGuardTests(TestCase):
         self.assertTemplateUsed(response, "indy_hub/sde_not_ready.html")
         self.assertContains(
             response,
-            "Indy Hub compatibility SDE data is not loaded yet.",
+            "Indy Hub has not built its own compact SDE cache yet.",
         )
+        self.assertContains(response, "Do not roll back eve_sde migrations")
+        self.assertContains(response, "Standard Django command")
         self.assertContains(response, "python manage.py sync_sde_compat")
+        self.assertContains(response, "Alliance Auth / Docker command")
         self.assertContains(response, "auth sync_sde_compat")
         self.assertNotContains(response, "python manage.py indy_sde --with-esde-load")
 
@@ -414,7 +418,7 @@ class IndexSDEGuardTests(TestCase):
         self.assertTemplateUsed(response, "indy_hub/overview_intro.html")
         self.assertNotContains(
             response,
-            "Indy Hub compatibility SDE data is not loaded yet.",
+            "Indy Hub has not built its own compact SDE cache yet.",
         )
 
 
