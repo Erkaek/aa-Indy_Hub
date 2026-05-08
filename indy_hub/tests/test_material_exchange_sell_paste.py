@@ -28,7 +28,10 @@ from indy_hub.services.material_exchange_assets import (
     SELL_ASSETS_REFRESH_PROGRESS_TTL_SECONDS,
     material_exchange_sell_assets_progress_key,
 )
-from indy_hub.views.material_exchange import material_exchange_sell
+from indy_hub.views.material_exchange import (
+    _build_sell_paste_catalog,
+    material_exchange_sell,
+)
 
 
 def assign_main_character(user: User, *, character_id: int) -> EveCharacter:
@@ -369,6 +372,38 @@ class MaterialExchangeSellPasteTests(TestCase):
         self.assertEqual(catalog["Large Skill Injector"]["total_available_qty"], 3)
         self.assertEqual(catalog["Unrefined Goo"]["status"], "rejected")
         self.assertEqual(catalog["Unrefined Goo"]["reason"], "not_bought")
+
+    def test_paste_catalog_keeps_accepted_visible_items(self) -> None:
+        with (
+            patch(
+                "indy_hub.views.material_exchange.get_type_name",
+                side_effect=lambda type_id: {34: "Tritanium", 35: "Pyerite"}[type_id],
+            ),
+            patch(
+                "indy_hub.views.material_exchange._get_group_map",
+                return_value={34: "Minerals", 35: "Minerals"},
+            ),
+            patch("indy_hub.views.material_exchange.batch_cache_type_names"),
+        ):
+            catalog = {
+                entry["type_name"]: entry
+                for entry in _build_sell_paste_catalog(
+                    raw_assets_by_type={35: 5},
+                    selected_raw_assets_by_type={34: 10, 35: 5},
+                    accepted_by_type_id={
+                        34: {
+                            "type_id": 34,
+                            "type_name": "Tritanium",
+                            "group_name": "Minerals",
+                            "buy_price_from_member": Decimal("5.25"),
+                        }
+                    },
+                )
+            }
+
+        self.assertEqual(catalog["Tritanium"]["status"], "accepted")
+        self.assertEqual(catalog["Tritanium"]["name_key"], "tritanium")
+        self.assertEqual(catalog["Tritanium"]["available_qty"], 10)
 
     def test_get_ajax_character_switch_returns_fragment_html(self) -> None:
         other_character = assign_main_character(

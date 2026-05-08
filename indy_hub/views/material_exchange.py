@@ -893,15 +893,21 @@ def _build_sell_paste_catalog(
     group_map = _get_group_map(list(raw_assets_by_type.keys()))
 
     catalog: list[dict] = []
-    for type_id, available_qty in raw_assets_by_type.items():
-        if int(available_qty or 0) <= 0:
+    catalog_type_ids = {int(type_id) for type_id in raw_assets_by_type}
+    catalog_type_ids.update(int(type_id) for type_id in accepted_by_type_id)
+    for type_id in catalog_type_ids:
+        selected_available_qty = int(
+            selected_raw_assets_by_type.get(int(type_id), 0) or 0
+        )
+        available_qty = max(
+            int(raw_assets_by_type.get(int(type_id), 0) or 0),
+            selected_available_qty,
+        )
+        if available_qty <= 0:
             continue
 
         type_name = get_type_name(type_id)
         accepted_item = accepted_by_type_id.get(int(type_id))
-        selected_available_qty = int(
-            selected_raw_assets_by_type.get(int(type_id), 0) or 0
-        )
         status = "accepted"
         reason = ""
         unit_price = ""
