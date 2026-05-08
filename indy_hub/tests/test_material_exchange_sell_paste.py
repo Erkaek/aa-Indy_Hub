@@ -573,6 +573,45 @@ class MaterialExchangeSellPasteTests(TestCase):
         missing = payload["items"]["definitely not an eve item"]
         self.assertFalse(missing["found"])
 
+    def test_resolve_paste_items_ignores_invalid_utf8_body(self) -> None:
+        request = self._prepare_request(
+            self.factory.generic(
+                "POST",
+                reverse("indy_hub:material_exchange_sell_resolve_paste_items"),
+                data=b"\xff\xfe\x00",
+                content_type="application/json",
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            )
+        )
+
+        with (
+            patch("indy_hub.views.material_exchange.emit_view_analytics_event"),
+            patch(
+                "indy_hub.views.material_exchange._is_material_exchange_enabled",
+                return_value=True,
+            ),
+            patch(
+                "indy_hub.views.material_exchange._get_material_exchange_config",
+                return_value=self.config,
+            ),
+            patch(
+                "indy_hub.views.material_exchange._resolve_sde_item_types_by_name",
+            ) as resolve_names,
+            patch(
+                "indy_hub.views.material_exchange._fetch_user_assets_for_structure_data",
+                return_value=({}, {}, False),
+            ),
+            patch(
+                "indy_hub.views.material_exchange._get_allowed_type_ids_for_config",
+                return_value={34},
+            ),
+        ):
+            response = material_exchange_sell_resolve_paste_items(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(json.loads(response.content), {"items": {}})
+        resolve_names.assert_called_once_with([])
+
     def test_get_ajax_character_switch_returns_fragment_html(self) -> None:
         other_character = assign_main_character(
             self.user, character_id=self.character.character_id + 1

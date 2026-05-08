@@ -678,7 +678,7 @@ def material_exchange_sell_resolve_paste_items(request):
 
     try:
         payload = json.loads(request.body.decode("utf-8") or "{}")
-    except (TypeError, ValueError, json.JSONDecodeError):
+    except (TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError):
         payload = {}
 
     names_payload = payload.get("names") if isinstance(payload, dict) else []
