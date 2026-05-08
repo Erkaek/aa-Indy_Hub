@@ -13,7 +13,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import Permission
 from django.core.cache import cache
 from django.core.paginator import Paginator
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models import Count, Q, Sum
 from django.db.models.functions import TruncMonth
 from django.http import JsonResponse
@@ -660,6 +660,119 @@ def material_exchange_sell_assets_refresh_status(request):
     return JsonResponse(response)
 
 
+@login_required
+@indy_hub_permission_required("can_access_indy_hub")
+@require_http_methods(["POST"])
+def material_exchange_sell_resolve_paste_items(request):
+    """Resolve pasted sell item names against SDE and current Material Exchange rules."""
+    emit_view_analytics_event(
+        view_name="material_exchange.sell_resolve_paste_items", request=request
+    )
+
+    if not _is_material_exchange_enabled():
+        return JsonResponse({"items": {}, "error": "disabled"}, status=403)
+
+    config = _get_material_exchange_config()
+    if not config:
+        return JsonResponse({"items": {}, "error": "not_configured"}, status=400)
+
+    try:
+        payload = json.loads(request.body.decode("utf-8") or "{}")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        payload = {}
+
+    names_payload = payload.get("names") if isinstance(payload, dict) else []
+    if not isinstance(names_payload, list):
+        names_payload = []
+
+    names: list[str] = []
+    seen_names: set[str] = set()
+    for raw_name in names_payload[:100]:
+        name = " ".join(str(raw_name or "").split()).strip()
+        key = normalize_text(name)
+        if not key or key in seen_names:
+            continue
+        seen_names.add(key)
+        names.append(name)
+
+    resolved_by_key = _resolve_sde_item_types_by_name(names)
+    type_ids = [int(item["type_id"]) for item in resolved_by_key.values()]
+
+    accepted_locations = _get_material_exchange_location_ids(config) or [
+        int(config.structure_id)
+    ]
+    raw_assets_by_type, assets_by_character, _scope_missing = (
+        _fetch_user_assets_for_structure_data(
+            request.user,
+            accepted_locations,
+            allow_refresh=False,
+        )
+    )
+
+    selected_character_id = 0
+    try:
+        selected_character_id = int(payload.get("character_id") or 0)
+    except (TypeError, ValueError, AttributeError):
+        selected_character_id = 0
+    selected_assets_by_type = (
+        assets_by_character.get(selected_character_id, {})
+        if selected_character_id > 0
+        else raw_assets_by_type
+    )
+
+    accepted_by_type_id: dict[int, dict] = {}
+    allowed_type_ids = _get_allowed_type_ids_for_config(config, "sell")
+    candidate_type_ids = [
+        type_id
+        for type_id in type_ids
+        if allowed_type_ids is None or type_id in allowed_type_ids
+    ]
+    price_data = (
+        _fetch_fuzzwork_prices(candidate_type_ids) if candidate_type_ids else {}
+    )
+    for type_id in candidate_type_ids:
+        fuzz_prices = price_data.get(type_id, {})
+        jita_buy = fuzz_prices.get("buy") or Decimal(0)
+        jita_sell = fuzz_prices.get("sell") or Decimal(0)
+        if jita_buy <= 0 and jita_sell <= 0:
+            continue
+
+        buy_price = compute_buy_price_from_member(
+            config=config,
+            jita_buy=jita_buy,
+            jita_sell=jita_sell,
+        )
+        if buy_price <= 0:
+            continue
+
+        accepted_by_type_id[int(type_id)] = {
+            "buy_price_from_member": buy_price,
+        }
+
+    response_items: dict[str, dict] = {}
+    for name in names:
+        key = normalize_text(name)
+        type_info = resolved_by_key.get(key)
+        if not type_info:
+            response_items[key] = {"found": False}
+            continue
+
+        type_id = int(type_info["type_id"])
+        response_items[key] = {
+            "found": True,
+            "item": _build_resolved_sell_paste_item(
+                type_info=type_info,
+                selected_available_qty=int(
+                    selected_assets_by_type.get(type_id, 0) or 0
+                ),
+                total_available_qty=int(raw_assets_by_type.get(type_id, 0) or 0),
+                accepted_item=accepted_by_type_id.get(type_id),
+            ),
+        }
+
+    return JsonResponse({"items": response_items})
+
+
 def _ensure_buy_stock_refresh_started(config) -> dict:
     """Start (if needed) an async refresh of buy stock and return the current progress state."""
 
@@ -943,6 +1056,80 @@ def _build_sell_paste_catalog(
         )
     )
     return catalog
+
+
+def _resolve_sde_item_types_by_name(names: list[str]) -> dict[str, dict[str, object]]:
+    normalized_names = []
+    seen_names = set()
+    for name in names:
+        normalized_name = normalize_text(name)
+        if not normalized_name or normalized_name in seen_names:
+            continue
+        seen_names.add(normalized_name)
+        normalized_names.append(normalized_name)
+
+    if not normalized_names:
+        return {}
+
+    placeholders = ", ".join(["%s"] * len(normalized_names))
+    query = f"""
+        SELECT t.id, t.name, COALESCE(g.name, '')
+        FROM eve_sde_itemtype t
+        LEFT JOIN eve_sde_itemgroup g ON t.group_id = g.id
+        WHERE LOWER(t.name) IN ({placeholders})
+            AND COALESCE(t.published, 0) = 1
+    """
+
+    resolved: dict[str, dict[str, object]] = {}
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(query, normalized_names)
+            for type_id, type_name, group_name in cursor.fetchall():
+                resolved[normalize_text(type_name)] = {
+                    "type_id": int(type_id),
+                    "type_name": str(type_name),
+                    "group_name": str(group_name or ""),
+                }
+    except Exception as exc:
+        logger.warning("Failed to resolve sell paste item names from SDE: %s", exc)
+    return resolved
+
+
+def _build_resolved_sell_paste_item(
+    *,
+    type_info: dict[str, object],
+    selected_available_qty: int,
+    total_available_qty: int,
+    accepted_item: dict | None,
+) -> dict:
+    type_id = int(type_info["type_id"])
+    type_name = str(type_info["type_name"])
+    group_name = str(type_info.get("group_name") or "Other")
+
+    status = "accepted"
+    reason = ""
+    unit_price = ""
+    if accepted_item and selected_available_qty > 0:
+        unit_price = format(Decimal(accepted_item["buy_price_from_member"]), ".2f")
+    elif accepted_item:
+        status = "unavailable"
+        reason = "not_on_character"
+        unit_price = format(Decimal(accepted_item["buy_price_from_member"]), ".2f")
+    else:
+        status = "rejected"
+        reason = "not_bought"
+
+    return {
+        "type_id": type_id,
+        "type_name": type_name,
+        "name_key": normalize_text(type_name),
+        "group_name": group_name,
+        "available_qty": selected_available_qty,
+        "total_available_qty": total_available_qty,
+        "status": status,
+        "reason": reason,
+        "unit_price": unit_price,
+    }
 
 
 @login_required

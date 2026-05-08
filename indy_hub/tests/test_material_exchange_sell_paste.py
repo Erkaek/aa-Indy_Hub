@@ -31,6 +31,7 @@ from indy_hub.services.material_exchange_assets import (
 from indy_hub.views.material_exchange import (
     _build_sell_paste_catalog,
     material_exchange_sell,
+    material_exchange_sell_resolve_paste_items,
 )
 
 
@@ -404,6 +405,173 @@ class MaterialExchangeSellPasteTests(TestCase):
         self.assertEqual(catalog["Tritanium"]["status"], "accepted")
         self.assertEqual(catalog["Tritanium"]["name_key"], "tritanium")
         self.assertEqual(catalog["Tritanium"]["available_qty"], 10)
+
+    def test_resolve_paste_items_finds_accepted_item_from_sde(self) -> None:
+        request = self._prepare_request(
+            self.factory.post(
+                reverse("indy_hub:material_exchange_sell_resolve_paste_items"),
+                data=json.dumps(
+                    {
+                        "names": ["tritanium"],
+                        "character_id": self.character.character_id,
+                    }
+                ),
+                content_type="application/json",
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            )
+        )
+
+        with (
+            patch("indy_hub.views.material_exchange.emit_view_analytics_event"),
+            patch(
+                "indy_hub.views.material_exchange._is_material_exchange_enabled",
+                return_value=True,
+            ),
+            patch(
+                "indy_hub.views.material_exchange._get_material_exchange_config",
+                return_value=self.config,
+            ),
+            patch(
+                "indy_hub.views.material_exchange._get_material_exchange_location_ids",
+                return_value=[self.config.structure_id],
+            ),
+            patch(
+                "indy_hub.views.material_exchange._resolve_sde_item_types_by_name",
+                return_value={
+                    "tritanium": {
+                        "type_id": 34,
+                        "type_name": "Tritanium",
+                        "group_name": "Minerals",
+                    }
+                },
+            ),
+            patch(
+                "indy_hub.views.material_exchange._fetch_user_assets_for_structure_data",
+                return_value=(
+                    {34: 2_500},
+                    {self.character.character_id: {34: 2_500}},
+                    False,
+                ),
+            ),
+            patch(
+                "indy_hub.views.material_exchange._get_allowed_type_ids_for_config",
+                return_value={34},
+            ),
+            patch(
+                "indy_hub.views.material_exchange._fetch_fuzzwork_prices",
+                return_value={34: {"buy": Decimal("5.00"), "sell": Decimal("6.00")}},
+            ),
+        ):
+            response = material_exchange_sell_resolve_paste_items(request)
+
+        self.assertEqual(response.status_code, 200)
+        payload = json.loads(response.content)
+        tritanium = payload["items"]["tritanium"]
+        self.assertTrue(tritanium["found"])
+        self.assertEqual(tritanium["item"]["status"], "accepted")
+        self.assertEqual(tritanium["item"]["type_name"], "Tritanium")
+        self.assertEqual(tritanium["item"]["available_qty"], 2_500)
+        self.assertEqual(tritanium["item"]["unit_price"], "5.25")
+
+    def test_resolve_paste_items_keeps_db_found_item_out_of_unknown(self) -> None:
+        request = self._prepare_request(
+            self.factory.post(
+                reverse("indy_hub:material_exchange_sell_resolve_paste_items"),
+                data=json.dumps({"names": ["Tritanium"]}),
+                content_type="application/json",
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            )
+        )
+
+        with (
+            patch("indy_hub.views.material_exchange.emit_view_analytics_event"),
+            patch(
+                "indy_hub.views.material_exchange._is_material_exchange_enabled",
+                return_value=True,
+            ),
+            patch(
+                "indy_hub.views.material_exchange._get_material_exchange_config",
+                return_value=self.config,
+            ),
+            patch(
+                "indy_hub.views.material_exchange._get_material_exchange_location_ids",
+                return_value=[self.config.structure_id],
+            ),
+            patch(
+                "indy_hub.views.material_exchange._resolve_sde_item_types_by_name",
+                return_value={
+                    "tritanium": {
+                        "type_id": 34,
+                        "type_name": "Tritanium",
+                        "group_name": "Minerals",
+                    }
+                },
+            ),
+            patch(
+                "indy_hub.views.material_exchange._fetch_user_assets_for_structure_data",
+                return_value=({}, {}, False),
+            ),
+            patch(
+                "indy_hub.views.material_exchange._get_allowed_type_ids_for_config",
+                return_value=set(),
+            ),
+            patch(
+                "indy_hub.views.material_exchange._fetch_fuzzwork_prices",
+            ) as fetch_prices,
+        ):
+            response = material_exchange_sell_resolve_paste_items(request)
+
+        self.assertEqual(response.status_code, 200)
+        fetch_prices.assert_not_called()
+        payload = json.loads(response.content)
+        tritanium = payload["items"]["tritanium"]
+        self.assertTrue(tritanium["found"])
+        self.assertEqual(tritanium["item"]["status"], "rejected")
+        self.assertEqual(tritanium["item"]["reason"], "not_bought")
+
+    def test_resolve_paste_items_marks_only_db_misses_unknown(self) -> None:
+        request = self._prepare_request(
+            self.factory.post(
+                reverse("indy_hub:material_exchange_sell_resolve_paste_items"),
+                data=json.dumps({"names": ["Definitely Not An Eve Item"]}),
+                content_type="application/json",
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            )
+        )
+
+        with (
+            patch("indy_hub.views.material_exchange.emit_view_analytics_event"),
+            patch(
+                "indy_hub.views.material_exchange._is_material_exchange_enabled",
+                return_value=True,
+            ),
+            patch(
+                "indy_hub.views.material_exchange._get_material_exchange_config",
+                return_value=self.config,
+            ),
+            patch(
+                "indy_hub.views.material_exchange._get_material_exchange_location_ids",
+                return_value=[self.config.structure_id],
+            ),
+            patch(
+                "indy_hub.views.material_exchange._resolve_sde_item_types_by_name",
+                return_value={},
+            ),
+            patch(
+                "indy_hub.views.material_exchange._fetch_user_assets_for_structure_data",
+                return_value=({}, {}, False),
+            ),
+            patch(
+                "indy_hub.views.material_exchange._get_allowed_type_ids_for_config",
+                return_value={34},
+            ),
+        ):
+            response = material_exchange_sell_resolve_paste_items(request)
+
+        self.assertEqual(response.status_code, 200)
+        payload = json.loads(response.content)
+        missing = payload["items"]["definitely not an eve item"]
+        self.assertFalse(missing["found"])
 
     def test_get_ajax_character_switch_returns_fragment_html(self) -> None:
         other_character = assign_main_character(

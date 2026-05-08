@@ -102,6 +102,12 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
     const sellPasteCatalogNode = query('#sellPasteCatalogData');
     const sellCharacterSelect = query('#sellCharacterSelect');
     const sellPasteCatalog = new Map();
+    const sellPasteResolvedDbItems = new Map();
+    const sellPasteResolveQueue = new Map();
+    const sellPasteResolvePending = new Set();
+    let sellPasteResolveTimer = null;
+    let sellPasteResolveToken = 0;
+    const sellPasteResolveUrl = '{% url "indy_hub:material_exchange_sell_resolve_paste_items" %}';
 
     function registerSellPasteCatalogItem(item) {
         if (!item || !item.type_name) {
@@ -561,6 +567,104 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
         updateInvoice();
     }
 
+    function getSellPasteCsrfToken() {
+        return query('input[name="csrfmiddlewaretoken"]')?.value || '';
+    }
+
+    function getSelectedCharacterId() {
+        const url = new URL(window.location.href);
+        const characterParam = url.searchParams.get('character') || '';
+        if (/^\d+$/.test(characterParam)) {
+            return characterParam;
+        }
+
+        const selectedUrl = sellCharacterSelect?.selectedOptions?.[0]?.value || '';
+        if (selectedUrl) {
+            try {
+                const optionUrl = new URL(selectedUrl, window.location.origin);
+                const optionCharacter = optionUrl.searchParams.get('character') || '';
+                if (/^\d+$/.test(optionCharacter)) {
+                    return optionCharacter;
+                }
+            } catch (error) {
+                return '';
+            }
+        }
+        return '';
+    }
+
+    function scheduleSellPasteDbResolution(entries) {
+        entries.forEach(entry => {
+            if (!entry || !entry.key || sellPasteResolvedDbItems.has(entry.key) || sellPasteResolvePending.has(entry.key)) {
+                return;
+            }
+            sellPasteResolveQueue.set(entry.key, entry.label);
+        });
+
+        if (!sellPasteResolveQueue.size || !sellPasteResolveUrl) {
+            return;
+        }
+
+        if (sellPasteResolveTimer) {
+            window.clearTimeout(sellPasteResolveTimer);
+        }
+        const resolveToken = ++sellPasteResolveToken;
+        sellPasteResolveTimer = window.setTimeout(async () => {
+            sellPasteResolveTimer = null;
+            const pendingEntries = Array.from(sellPasteResolveQueue.entries());
+            sellPasteResolveQueue.clear();
+            pendingEntries.forEach(([key]) => {
+                sellPasteResolvePending.add(key);
+            });
+            const namesToResolve = pendingEntries.map(([, label]) => label);
+            try {
+                const response = await fetch(sellPasteResolveUrl, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRFToken': getSellPasteCsrfToken()
+                    },
+                    body: JSON.stringify({
+                        names: namesToResolve,
+                        character_id: getSelectedCharacterId()
+                    })
+                });
+                if (!response.ok) {
+                    throw new Error('Paste item resolver request failed');
+                }
+
+                const payload = await response.json();
+                const items = payload && typeof payload.items === 'object' ? payload.items : {};
+                Object.entries(items).forEach(([key, result]) => {
+                    sellPasteResolvePending.delete(key);
+                    if (result && result.found && result.item) {
+                        sellPasteResolvedDbItems.set(key, result.item);
+                        registerSellPasteCatalogItem(result.item);
+                    } else {
+                        sellPasteResolvedDbItems.set(key, null);
+                    }
+                });
+                pendingEntries.forEach(([key]) => {
+                    if (sellPasteResolvePending.has(key)) {
+                        sellPasteResolvePending.delete(key);
+                        sellPasteResolvedDbItems.set(key, null);
+                    }
+                });
+            } catch (error) {
+                console.error('Failed to resolve pasted item names:', error);
+                pendingEntries.forEach(([key]) => {
+                    sellPasteResolvePending.delete(key);
+                });
+            } finally {
+                if (resolveToken === sellPasteResolveToken) {
+                    updatePasteImport();
+                }
+            }
+        }, 150);
+    }
+
     function updatePasteImport() {
         if (!sellPasteTextarea) {
             return;
@@ -598,11 +702,28 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
             label: line,
             detail: sellPasteMessages.parseError
         }));
+        const entriesNeedingDbResolution = [];
         const quantitiesByType = {};
         let acceptedTotalCents = 0;
 
         parsed.entries.forEach(entry => {
-            const catalogItem = sellPasteCatalog.get(entry.key);
+            let catalogItem = sellPasteCatalog.get(entry.key);
+            if (!catalogItem) {
+                const resolvedItem = sellPasteResolvedDbItems.get(entry.key);
+                if (resolvedItem) {
+                    catalogItem = resolvedItem;
+                } else if (resolvedItem === null) {
+                    unknownItems.push({
+                        label: `${entry.label} x ${entry.quantity.toLocaleString()}`,
+                        detail: sellPasteMessages.unknown
+                    });
+                    return;
+                } else {
+                    entriesNeedingDbResolution.push(entry);
+                    return;
+                }
+            }
+
             if (!catalogItem) {
                 unknownItems.push({
                     label: `${entry.label} x ${entry.quantity.toLocaleString()}`,
@@ -649,6 +770,8 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
                 subtotalCents
             });
         });
+
+        scheduleSellPasteDbResolution(entriesNeedingDbResolution);
 
         applyPasteQuantities(quantitiesByType);
 
