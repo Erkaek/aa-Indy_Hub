@@ -13,7 +13,9 @@ from .base import *
 try:
     # Third Party
     import bootstrapform  # noqa: F401
-except ModuleNotFoundError:
+except ModuleNotFoundError as exc:
+    if exc.name != "bootstrapform":
+        raise
     INSTALLED_APPS = [app for app in INSTALLED_APPS if app != "bootstrapform"]
 
 PACKAGE = "indy_hub"
