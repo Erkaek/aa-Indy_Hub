@@ -39,7 +39,7 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 - Material Exchange: saving the hub configuration on `/indy_hub/material-exchange/config/` no longer crashes with `TooManyFieldsSent` when many market groups are toggled at once.
 
-- Material Exchange: sell-page paste import now renders its catalog as a JSON array and guards the browser parser against malformed catalog payloads, so valid lines such as `Core Probe Launcher I\t7` are matched instead of being reported as unknown because `sellPasteCatalogData` parsed as a string (issue #82).
+- Material Exchange: sell-page paste import now renders its catalog as a JSON array, guards the browser parser against malformed catalog payloads, and falls back to normalized visible row names when matching pasted lines, so valid lines such as `Core Probe Launcher I\t7` or `tritanium 2500` are matched instead of being reported as unknown (issue #82).
 
 - Material Exchange: the sell page no longer keeps reloading its dynamic content after the character asset refresh completes. The browser now marks the refresh as completed before swapping in the refreshed fragment, preventing the original polling block from scheduling another `?refreshed=1` reload loop.
 

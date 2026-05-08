@@ -103,15 +103,26 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
     const sellCharacterSelect = query('#sellCharacterSelect');
     const sellPasteCatalog = new Map();
 
+    function registerSellPasteCatalogItem(item) {
+        if (!item || !item.type_name) {
+            return;
+        }
+
+        [item.name_key, item.type_name]
+            .map(normalizePasteName)
+            .filter(Boolean)
+            .forEach(key => {
+                if (!sellPasteCatalog.has(key)) {
+                    sellPasteCatalog.set(key, item);
+                }
+            });
+    }
+
     if (sellPasteCatalogNode) {
         try {
             const parsedCatalog = JSON.parse(sellPasteCatalogNode.textContent || '[]');
             if (Array.isArray(parsedCatalog)) {
-                parsedCatalog.forEach(item => {
-                    if (item && item.name_key) {
-                        sellPasteCatalog.set(item.name_key, item);
-                    }
-                });
+                parsedCatalog.forEach(registerSellPasteCatalogItem);
             } else {
                 console.error('Failed to parse sell paste catalog: expected an array');
             }
@@ -119,6 +130,27 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
             console.error('Failed to parse sell paste catalog:', error);
         }
     }
+
+    stockRows.forEach(row => {
+        const typeName = row.dataset.typeName || '';
+        const typeId = Number.parseInt(row.dataset.typeId || '0', 10);
+        const availableQty = Number.parseInt(row.dataset.maxQty || '0', 10) || 0;
+        if (!typeName || !typeId || availableQty <= 0) {
+            return;
+        }
+
+        registerSellPasteCatalogItem({
+            type_id: typeId,
+            type_name: typeName,
+            name_key: normalizePasteName(typeName),
+            group_name: row.dataset.groupName || 'Other',
+            available_qty: availableQty,
+            total_available_qty: availableQty,
+            status: 'accepted',
+            reason: '',
+            unit_price: row.dataset.unitPrice || ''
+        });
+    });
 
     const sellPasteMessages = {
         notBought: '{% trans "Not bought by the hub" %}',
