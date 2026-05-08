@@ -39,6 +39,14 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 - Material Exchange: saving the hub configuration on `/indy_hub/material-exchange/config/` no longer crashes with `TooManyFieldsSent` when many market groups are toggled at once.
 
+- Material Exchange: sell-page paste import now renders its catalog as a JSON array, guards the browser parser against malformed catalog payloads, and falls back to normalized visible row names when matching pasted lines, so valid lines such as `Core Probe Launcher I\t7` or `tritanium 2500` are matched instead of being reported as unknown (issue #82).
+
+- Material Exchange: sell-page paste import now resolves names missing from the local page catalog against the SDE database before classifying them, so an item is only shown as unknown when the name cannot be found in the DB; found items are instead sorted into accepted, not bought, or other-character states as appropriate (issue #82).
+
+- Tests: fresh tox runs against Alliance Auth latest no longer fail during Django setup when the legacy `bootstrapform` package is absent from the AA5 dependency set.
+
+- Material Exchange: the sell page no longer keeps reloading its dynamic content after the character asset refresh completes. The browser now marks the refresh as completed before swapping in the refreshed fragment, and the server skips restarting a recently finished asset refresh, preventing repeated `?refreshed=1` reload loops when the cached asset timestamp remains stale or empty.
+
 - Crafting Projects: reaction blueprints (e.g. `Carbon Fiber Reaction Formula`) are no longer surfaced as copy candidates in the per-blueprint configuration cards. The copy request UI is hidden for reactions and the server-side `bp_copy_request_create` endpoint now rejects reaction `type_id`s, since reactions cannot be copied in EVE (issue #69).
 
 - Crafting Projects: reaction formulas are kept in the project *Blueprints* tab inside a dedicated *Reactions* section rendered last, so players can still see which formulas the project consumes. The cards show ownership only (*Original owned* / *Copy owned* / *Not available* — never the orange *Available* state) and hide the ME/TE inputs and copy-request controls, since reaction blueprints have fixed ME/TE and cannot be copied (issue #69 follow-up).

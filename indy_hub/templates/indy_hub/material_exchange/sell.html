@@ -64,7 +64,8 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
         activePollToken: 0,
         pollTimer: null,
         swapTimer: null,
-        swapRequestToken: 0
+        swapRequestToken: 0,
+        refreshCompleted: false
     };
     const sellPageState = window.__indyHubSellPageState;
     const initToken = ++sellPageState.initToken;
@@ -101,18 +102,61 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
     const sellPasteCatalogNode = query('#sellPasteCatalogData');
     const sellCharacterSelect = query('#sellCharacterSelect');
     const sellPasteCatalog = new Map();
+    const sellPasteResolvedDbItems = new Map();
+    const sellPasteResolveQueue = new Map();
+    const sellPasteResolvePending = new Set();
+    let sellPasteResolveTimer = null;
+    let sellPasteResolveToken = 0;
+    const sellPasteResolveUrl = '{% url "indy_hub:material_exchange_sell_resolve_paste_items" %}';
+
+    function registerSellPasteCatalogItem(item) {
+        if (!item || !item.type_name) {
+            return;
+        }
+
+        [item.name_key, item.type_name]
+            .map(normalizePasteName)
+            .filter(Boolean)
+            .forEach(key => {
+                if (!sellPasteCatalog.has(key)) {
+                    sellPasteCatalog.set(key, item);
+                }
+            });
+    }
 
     if (sellPasteCatalogNode) {
         try {
-            JSON.parse(sellPasteCatalogNode.textContent || '[]').forEach(item => {
-                if (item && item.name_key) {
-                    sellPasteCatalog.set(item.name_key, item);
-                }
-            });
+            const parsedCatalog = JSON.parse(sellPasteCatalogNode.textContent || '[]');
+            if (Array.isArray(parsedCatalog)) {
+                parsedCatalog.forEach(registerSellPasteCatalogItem);
+            } else {
+                console.error('Failed to parse sell paste catalog: expected an array');
+            }
         } catch (error) {
             console.error('Failed to parse sell paste catalog:', error);
         }
     }
+
+    stockRows.forEach(row => {
+        const typeName = row.dataset.typeName || '';
+        const typeId = Number.parseInt(row.dataset.typeId || '0', 10);
+        const availableQty = Number.parseInt(row.dataset.maxQty || '0', 10) || 0;
+        if (!typeName || !typeId || availableQty <= 0) {
+            return;
+        }
+
+        registerSellPasteCatalogItem({
+            type_id: typeId,
+            type_name: typeName,
+            name_key: normalizePasteName(typeName),
+            group_name: row.dataset.groupName || 'Other',
+            available_qty: availableQty,
+            total_available_qty: availableQty,
+            status: 'accepted',
+            reason: '',
+            unit_price: row.dataset.unitPrice || ''
+        });
+    });
 
     const sellPasteMessages = {
         notBought: '{% trans "Not bought by the hub" %}',
@@ -523,6 +567,104 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
         updateInvoice();
     }
 
+    function getSellPasteCsrfToken() {
+        return query('input[name="csrfmiddlewaretoken"]')?.value || '';
+    }
+
+    function getSelectedCharacterId() {
+        const url = new URL(window.location.href);
+        const characterParam = url.searchParams.get('character') || '';
+        if (/^\d+$/.test(characterParam)) {
+            return characterParam;
+        }
+
+        const selectedUrl = sellCharacterSelect?.selectedOptions?.[0]?.value || '';
+        if (selectedUrl) {
+            try {
+                const optionUrl = new URL(selectedUrl, window.location.origin);
+                const optionCharacter = optionUrl.searchParams.get('character') || '';
+                if (/^\d+$/.test(optionCharacter)) {
+                    return optionCharacter;
+                }
+            } catch (error) {
+                return '';
+            }
+        }
+        return '';
+    }
+
+    function scheduleSellPasteDbResolution(entries) {
+        entries.forEach(entry => {
+            if (!entry || !entry.key || sellPasteResolvedDbItems.has(entry.key) || sellPasteResolvePending.has(entry.key)) {
+                return;
+            }
+            sellPasteResolveQueue.set(entry.key, entry.label);
+        });
+
+        if (!sellPasteResolveQueue.size || !sellPasteResolveUrl) {
+            return;
+        }
+
+        if (sellPasteResolveTimer) {
+            window.clearTimeout(sellPasteResolveTimer);
+        }
+        const resolveToken = ++sellPasteResolveToken;
+        sellPasteResolveTimer = window.setTimeout(async () => {
+            sellPasteResolveTimer = null;
+            const pendingEntries = Array.from(sellPasteResolveQueue.entries());
+            sellPasteResolveQueue.clear();
+            pendingEntries.forEach(([key]) => {
+                sellPasteResolvePending.add(key);
+            });
+            const namesToResolve = pendingEntries.map(([, label]) => label);
+            try {
+                const response = await fetch(sellPasteResolveUrl, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRFToken': getSellPasteCsrfToken()
+                    },
+                    body: JSON.stringify({
+                        names: namesToResolve,
+                        character_id: getSelectedCharacterId()
+                    })
+                });
+                if (!response.ok) {
+                    throw new Error('Paste item resolver request failed');
+                }
+
+                const payload = await response.json();
+                const items = payload && typeof payload.items === 'object' ? payload.items : {};
+                Object.entries(items).forEach(([key, result]) => {
+                    sellPasteResolvePending.delete(key);
+                    if (result && result.found && result.item) {
+                        sellPasteResolvedDbItems.set(key, result.item);
+                        registerSellPasteCatalogItem(result.item);
+                    } else {
+                        sellPasteResolvedDbItems.set(key, null);
+                    }
+                });
+                pendingEntries.forEach(([key]) => {
+                    if (sellPasteResolvePending.has(key)) {
+                        sellPasteResolvePending.delete(key);
+                        sellPasteResolvedDbItems.set(key, null);
+                    }
+                });
+            } catch (error) {
+                console.error('Failed to resolve pasted item names:', error);
+                pendingEntries.forEach(([key]) => {
+                    sellPasteResolvePending.delete(key);
+                });
+            } finally {
+                if (resolveToken === sellPasteResolveToken) {
+                    updatePasteImport();
+                }
+            }
+        }, 150);
+    }
+
     function updatePasteImport() {
         if (!sellPasteTextarea) {
             return;
@@ -560,11 +702,28 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
             label: line,
             detail: sellPasteMessages.parseError
         }));
+        const entriesNeedingDbResolution = [];
         const quantitiesByType = {};
         let acceptedTotalCents = 0;
 
         parsed.entries.forEach(entry => {
-            const catalogItem = sellPasteCatalog.get(entry.key);
+            let catalogItem = sellPasteCatalog.get(entry.key);
+            if (!catalogItem) {
+                const resolvedItem = sellPasteResolvedDbItems.get(entry.key);
+                if (resolvedItem) {
+                    catalogItem = resolvedItem;
+                } else if (resolvedItem === null) {
+                    unknownItems.push({
+                        label: `${entry.label} x ${entry.quantity.toLocaleString()}`,
+                        detail: sellPasteMessages.unknown
+                    });
+                    return;
+                } else {
+                    entriesNeedingDbResolution.push(entry);
+                    return;
+                }
+            }
+
             if (!catalogItem) {
                 unknownItems.push({
                     label: `${entry.label} x ${entry.quantity.toLocaleString()}`,
@@ -611,6 +770,8 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
                 subtotalCents
             });
         });
+
+        scheduleSellPasteDbResolution(entriesNeedingDbResolution);
 
         applyPasteQuantities(quantitiesByType);
 
@@ -1014,6 +1175,7 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
 
     // Live asset refresh progress (per character)
     {% if assets_refreshing %}
+    if (!sellPageState.refreshCompleted) {
     sellPageState.activePollToken = initToken;
     const statusUrl = '{% url "indy_hub:material_exchange_sell_assets_refresh_status" %}';
     const lastUpdateNode = document.querySelector('.js-local-time[data-utc]');
@@ -1060,6 +1222,7 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
             }
 
             if (data.finished && (!error || error === 'timeout' || error === 'no_assets_fetched')) {
+                sellPageState.refreshCompleted = true;
                 const url = new URL(window.location.href);
                 if (url.searchParams.get('refreshed') !== '1') {
                     const initialTime = initialLastUpdate ? Date.parse(initialLastUpdate) : null;
@@ -1088,6 +1251,7 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
     }
 
     pollAssetsProgress();
+    }
     {% endif %}
 };
 
