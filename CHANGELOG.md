@@ -41,7 +41,7 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 - Material Exchange: sell-page paste import now renders its catalog as a JSON array, guards the browser parser against malformed catalog payloads, and falls back to normalized visible row names when matching pasted lines, so valid lines such as `Core Probe Launcher I\t7` or `tritanium 2500` are matched instead of being reported as unknown (issue #82).
 
-- Material Exchange: the sell page no longer keeps reloading its dynamic content after the character asset refresh completes. The browser now marks the refresh as completed before swapping in the refreshed fragment, preventing the original polling block from scheduling another `?refreshed=1` reload loop.
+- Material Exchange: the sell page no longer keeps reloading its dynamic content after the character asset refresh completes. The browser now marks the refresh as completed before swapping in the refreshed fragment, and the server skips restarting a recently finished asset refresh, preventing repeated `?refreshed=1` reload loops when the cached asset timestamp remains stale or empty.
 
 - Crafting Projects: reaction blueprints (e.g. `Carbon Fiber Reaction Formula`) are no longer surfaced as copy candidates in the per-blueprint configuration cards. The copy request UI is hidden for reactions and the server-side `bp_copy_request_create` endpoint now rejects reaction `type_id`s, since reactions cannot be copied in EVE (issue #69).
 

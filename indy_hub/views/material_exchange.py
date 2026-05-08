@@ -45,6 +45,7 @@ from ..services.material_exchange_assets import (
     ensure_sell_assets_refresh_started,
     get_sell_assets_refresh_progress,
     material_exchange_sell_assets_progress_key,
+    sell_assets_refresh_finished_recently,
 )
 from ..tasks.material_exchange import (
     ESI_DOWN_COOLDOWN_SECONDS,
@@ -1235,10 +1236,15 @@ def material_exchange_sell(request, tokens):
 
     # Start async refresh of the user's assets on page open (GET only).
     progress_key = _me_sell_assets_progress_key(request.user.id)
-    sell_assets_progress = cache.get(progress_key) or {}
+    sell_assets_progress = get_sell_assets_refresh_progress(int(request.user.id))
+    recent_refresh_finished = sell_assets_refresh_finished_recently(
+        sell_assets_progress
+    )
     if request.method == "GET" and (user_assets_stale or user_assets_version_refresh):
         # The refreshed=1 guard prevents loops, but version migrations should override it.
-        if request.GET.get("refreshed") != "1" or user_assets_version_refresh:
+        if (request.GET.get("refreshed") != "1" or user_assets_version_refresh) and (
+            user_assets_version_refresh or not recent_refresh_finished
+        ):
             sell_assets_progress = _ensure_sell_assets_refresh_started(request.user)
     assets_refreshing = bool(sell_assets_progress.get("running"))
 

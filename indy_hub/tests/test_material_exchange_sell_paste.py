@@ -11,6 +11,7 @@ from django.contrib.auth.models import Permission, User
 from django.contrib.messages import get_messages
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.contrib.sessions.middleware import SessionMiddleware
+from django.core.cache import cache
 from django.http import HttpResponse
 from django.template.loader import render_to_string
 from django.test import RequestFactory, TestCase
@@ -23,6 +24,10 @@ from allianceauth.eveonline.models import EveCharacter
 
 # AA Example App
 from indy_hub.models import MaterialExchangeConfig, MaterialExchangeSellOrder
+from indy_hub.services.material_exchange_assets import (
+    SELL_ASSETS_REFRESH_PROGRESS_TTL_SECONDS,
+    material_exchange_sell_assets_progress_key,
+)
 from indy_hub.views.material_exchange import material_exchange_sell
 
 
@@ -442,3 +447,57 @@ class MaterialExchangeSellPasteTests(TestCase):
         self.assertIn('id="sellCharacterSelect"', payload["html"])
         self.assertIn("Pyerite", payload["html"])
         self.assertNotIn('<div class="page-header mb-4">', payload["html"])
+
+    def test_get_does_not_restart_recent_finished_asset_refresh(self) -> None:
+        request = self._prepare_request(
+            self.factory.get(reverse("indy_hub:material_exchange_sell"))
+        )
+        progress_key = material_exchange_sell_assets_progress_key(self.user.id)
+        now_ts = timezone.now().timestamp()
+        cache.set(
+            progress_key,
+            {
+                "running": False,
+                "finished": True,
+                "error": "no_assets_fetched",
+                "total": 1,
+                "done": 1,
+                "failed": 0,
+                "started_at": now_ts - 30,
+                "last_progress_at": now_ts,
+            },
+            SELL_ASSETS_REFRESH_PROGRESS_TTL_SECONDS,
+        )
+
+        def fake_render(_request, _template_name, context):
+            return HttpResponse("ok")
+
+        try:
+            with (
+                patch("indy_hub.views.material_exchange.emit_view_analytics_event"),
+                patch(
+                    "indy_hub.views.material_exchange._is_material_exchange_enabled",
+                    return_value=True,
+                ),
+                patch(
+                    "indy_hub.views.material_exchange._get_material_exchange_config",
+                    return_value=self.config,
+                ),
+                patch(
+                    "indy_hub.views.material_exchange._ensure_sell_assets_refresh_started"
+                ) as ensure_refresh_started,
+                patch(
+                    "indy_hub.views.material_exchange._fetch_user_assets_for_structure_data",
+                    return_value=({}, {}, False),
+                ),
+                patch(
+                    "indy_hub.views.material_exchange.render",
+                    side_effect=fake_render,
+                ),
+            ):
+                response = self.view(request, tokens=[])
+        finally:
+            cache.delete(progress_key)
+
+        self.assertEqual(response.status_code, 200)
+        ensure_refresh_started.assert_not_called()

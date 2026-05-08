@@ -11,6 +11,7 @@ logger = get_extension_logger(__name__)
 
 SELL_ASSETS_REFRESH_PROGRESS_TTL_SECONDS = 10 * 60
 SELL_ASSETS_REFRESH_STALE_PROGRESS_SECONDS = 180
+SELL_ASSETS_REFRESH_RECENT_FINISH_SECONDS = SELL_ASSETS_REFRESH_PROGRESS_TTL_SECONDS
 
 
 def material_exchange_sell_assets_progress_key(user_id: int) -> str:
@@ -62,6 +63,25 @@ def get_sell_assets_refresh_progress(user_id: int) -> dict:
     progress_key = material_exchange_sell_assets_progress_key(int(user_id))
     state = cache.get(progress_key) or _default_sell_assets_refresh_state()
     return _mark_stale_progress_if_needed(state, progress_key=progress_key)
+
+
+def sell_assets_refresh_finished_recently(state: dict) -> bool:
+    if not state or state.get("running") or not state.get("finished"):
+        return False
+    if state.get("error") == "task_start_failed":
+        return False
+
+    try:
+        last_progress_at = float(
+            state.get("last_progress_at") or state.get("started_at") or 0
+        )
+    except (TypeError, ValueError):
+        return False
+    if last_progress_at <= 0:
+        return False
+
+    elapsed = timezone.now().timestamp() - last_progress_at
+    return 0 <= elapsed <= SELL_ASSETS_REFRESH_RECENT_FINISH_SECONDS
 
 
 def ensure_sell_assets_refresh_started(user, *, log_context: str = "asset") -> dict:
