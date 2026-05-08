@@ -66,6 +66,14 @@ from indy_hub.utils.menu_badge import compute_menu_badge_count, menu_badge_cache
 PUBLIC_STATION_ID = 60003760
 
 
+def ensure_base_eve_sde_loaded() -> None:
+    item_type_model = apps.get_model("eve_sde", "ItemType")
+    item_type_model.objects.update_or_create(
+        id=34,
+        defaults={"name": "Tritanium", "published": True},
+    )
+
+
 def assign_main_character(user: User, *, character_id: int) -> EveCharacter:
     character, _ = EveCharacter.objects.get_or_create(
         character_id=character_id,
@@ -280,6 +288,7 @@ class NavbarBlueprintSharingTests(TestCase):
         self.user = User.objects.create_user("navbaruser", password="secret123")
         assign_main_character(self.user, character_id=7003001)
         grant_indy_permissions(self.user)
+        ensure_base_eve_sde_loaded()
         SDESyncCompatState.objects.update_or_create(
             pk=1,
             defaults={"last_synced_at": timezone.now()},
@@ -356,7 +365,11 @@ class IndexSDEGuardTests(TestCase):
         grant_indy_permissions(self.user)
         self.client.force_login(self.user)
 
-    def test_index_is_blocked_when_sde_sync_never_ran(self) -> None:
+    def test_index_shows_full_load_command_when_base_eve_sde_is_missing(
+        self,
+    ) -> None:
+        item_type_model = apps.get_model("eve_sde", "ItemType")
+        item_type_model.objects.all().delete()
         SDESyncCompatState.objects.all().delete()
 
         response = self.client.get(reverse("indy_hub:index"))
@@ -365,10 +378,31 @@ class IndexSDEGuardTests(TestCase):
         self.assertTemplateUsed(response, "indy_hub/sde_not_ready.html")
         self.assertContains(
             response,
-            "Indy Hub static data is not loaded yet. Please contact your administrator.",
+            "Base EVE SDE data is not loaded yet.",
         )
+        self.assertContains(response, "python manage.py indy_sde --with-esde-load")
+        self.assertNotContains(response, "python manage.py sync_sde_compat")
+
+    def test_index_shows_compat_sync_command_when_only_indy_hub_sde_is_missing(
+        self,
+    ) -> None:
+        ensure_base_eve_sde_loaded()
+        SDESyncCompatState.objects.all().delete()
+
+        response = self.client.get(reverse("indy_hub:index"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "indy_hub/sde_not_ready.html")
+        self.assertContains(
+            response,
+            "Indy Hub compatibility SDE data is not loaded yet.",
+        )
+        self.assertContains(response, "python manage.py sync_sde_compat")
+        self.assertContains(response, "auth sync_sde_compat")
+        self.assertNotContains(response, "python manage.py indy_sde --with-esde-load")
 
     def test_index_loads_normally_when_sde_sync_has_timestamp(self) -> None:
+        ensure_base_eve_sde_loaded()
         SDESyncCompatState.objects.update_or_create(
             pk=1,
             defaults={"last_synced_at": timezone.now()},
@@ -380,7 +414,7 @@ class IndexSDEGuardTests(TestCase):
         self.assertTemplateUsed(response, "indy_hub/overview_intro.html")
         self.assertNotContains(
             response,
-            "Indy Hub static data is not loaded yet. Please contact your administrator.",
+            "Indy Hub compatibility SDE data is not loaded yet.",
         )
 
 
@@ -3790,6 +3824,7 @@ class DashboardNotificationCountsTests(TestCase):
     def test_dashboard_overview_action_center_shows_pending_sharing_and_orders(
         self,
     ) -> None:
+        ensure_base_eve_sde_loaded()
         SDESyncCompatState.objects.update_or_create(
             pk=1,
             defaults={"last_synced_at": timezone.now()},
@@ -3845,6 +3880,7 @@ class DashboardUnusedSlotsSummaryTests(TestCase):
         self.character = assign_main_character(self.user, character_id=101222)
         grant_indy_permissions(self.user, "can_manage_corp_bp_requests")
         self.client.force_login(self.user)
+        ensure_base_eve_sde_loaded()
         SDESyncCompatState.objects.update_or_create(
             pk=1,
             defaults={"last_synced_at": timezone.now()},

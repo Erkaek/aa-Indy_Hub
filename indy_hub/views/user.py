@@ -9,6 +9,7 @@ from typing import Any
 from urllib.parse import quote
 
 # Django
+from django.apps import apps
 from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
@@ -2189,6 +2190,81 @@ def _build_dashboard_context(request):
     return context
 
 
+def _is_base_eve_sde_loaded() -> bool:
+    try:
+        item_type_model = apps.get_model("eve_sde", "ItemType")
+    except LookupError:
+        logger.warning("Unable to resolve eve_sde ItemType model", exc_info=True)
+        return False
+
+    try:
+        return item_type_model.objects.exists()
+    except DatabaseError:
+        logger.warning(
+            "Unable to read eve_sde ItemType while rendering index", exc_info=True
+        )
+        return False
+
+
+def _is_indy_hub_sde_compat_loaded() -> bool:
+    try:
+        sde_state = (
+            SDESyncCompatState.objects.filter(pk=1).only("last_synced_at").first()
+        )
+        return bool(sde_state and sde_state.last_synced_at)
+    except DatabaseError:
+        logger.warning(
+            "Unable to read SDESyncCompatState while rendering index",
+            exc_info=True,
+        )
+        return False
+
+
+def _build_sde_readiness_context() -> dict[str, Any]:
+    base_sde_loaded = _is_base_eve_sde_loaded()
+    compat_sde_loaded = _is_indy_hub_sde_compat_loaded()
+    context: dict[str, Any] = {
+        "base_eve_sde_loaded": base_sde_loaded,
+        "indy_hub_sde_compat_loaded": compat_sde_loaded,
+        "sde_ready": base_sde_loaded and compat_sde_loaded,
+        "sde_recommended_commands": [],
+    }
+
+    if not base_sde_loaded:
+        context.update(
+            {
+                "sde_missing_dependency": _("Base EVE SDE data"),
+                "sde_blocking_message": _(
+                    "Base EVE SDE data is not loaded yet. Load the EVE SDE and Indy Hub compatibility data before using Indy Hub."
+                ),
+                "sde_blocking_detail": _(
+                    "Run the full Indy Hub SDE loader so eve_sde is populated before the compact Indy Hub tables are synced."
+                ),
+                "sde_recommended_commands": [
+                    "python manage.py indy_sde --with-esde-load"
+                ],
+            }
+        )
+    elif not compat_sde_loaded:
+        context.update(
+            {
+                "sde_missing_dependency": _("Indy Hub compatibility SDE data"),
+                "sde_blocking_message": _(
+                    "Indy Hub compatibility SDE data is not loaded yet. The base EVE SDE data is present."
+                ),
+                "sde_blocking_detail": _(
+                    "Run only the Indy Hub compatibility sync; the full eve_sde load is not required for this case."
+                ),
+                "sde_recommended_commands": [
+                    "python manage.py sync_sde_compat",
+                    "auth sync_sde_compat",
+                ],
+            }
+        )
+
+    return context
+
+
 @indy_hub_access_required
 @login_required
 def index(request):
@@ -2203,23 +2279,9 @@ def index(request):
     )
     context["current_dashboard"] = "personal"
 
-    sde_state_ready = False
-    try:
-        sde_state = (
-            SDESyncCompatState.objects.filter(pk=1).only("last_synced_at").first()
-        )
-        sde_state_ready = bool(sde_state and sde_state.last_synced_at)
-    except DatabaseError:
-        logger.warning(
-            "Unable to read SDESyncCompatState while rendering index",
-            exc_info=True,
-        )
-        sde_state_ready = False
-
-    if not sde_state_ready:
-        context["sde_blocking_message"] = _(
-            "Indy Hub static data is not loaded yet. Please contact your administrator."
-        )
+    sde_readiness_context = _build_sde_readiness_context()
+    if not sde_readiness_context["sde_ready"]:
+        context.update(sde_readiness_context)
         return render(request, "indy_hub/sde_not_ready.html", context)
 
     progress, _created = UserOnboardingProgress.objects.get_or_create(user=request.user)

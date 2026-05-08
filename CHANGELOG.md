@@ -45,6 +45,8 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 - Tests: fresh tox runs against Alliance Auth latest no longer fail during Django setup when the legacy `bootstrapform` package is absent from the AA5 dependency set.
 
+- Indy Hub: the unavailable page shown while SDE data is missing now distinguishes an empty base `eve_sde` load from missing Indy Hub compatibility data, and recommends the matching command (`indy_sde --with-esde-load` or `sync_sde_compat`) instead of a generic administrator notice (issue #90).
+
 - Material Exchange: the sell page no longer keeps reloading its dynamic content after the character asset refresh completes. The browser now marks the refresh as completed before swapping in the refreshed fragment, and the server skips restarting a recently finished asset refresh, preventing repeated `?refreshed=1` reload loops when the cached asset timestamp remains stale or empty.
 
 - Crafting Projects: reaction blueprints (e.g. `Carbon Fiber Reaction Formula`) are no longer surfaced as copy candidates in the per-blueprint configuration cards. The copy request UI is hidden for reactions and the server-side `bp_copy_request_create` endpoint now rejects reaction `type_id`s, since reactions cannot be copied in EVE (issue #69).
