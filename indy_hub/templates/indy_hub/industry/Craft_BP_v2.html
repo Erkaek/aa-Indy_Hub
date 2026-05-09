@@ -20,6 +20,18 @@
         Changes pending. Switch tabs to refresh calculations.
     </div>
 
+    {% if sde_snapshot_has_changed %}
+    <div class="alert alert-warning d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3 mb-4" role="alert">
+        <div>
+            <div class="fw-semibold">{% trans "Saved snapshot uses older SDE data" %}</div>
+            <div class="small mb-0">{% trans "One of this project's blueprints, materials, products, or activity times changed since the last save. Refresh the plan from current SDE data, then save it again to update the snapshot." %}</div>
+        </div>
+        <a class="btn btn-warning btn-sm flex-shrink-0" href="{{ sde_refresh_url }}">
+            <i class="fas fa-arrows-rotate me-1"></i>{% trans "Refresh from current SDE" %}
+        </a>
+    </div>
+    {% endif %}
+
     <div id="bpTabs-loading" class="craft-bp-loading-inline" aria-live="polite" aria-busy="true">
         <svg class="craft-bp-loading-spinner" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor">
             <g>

@@ -2602,6 +2602,11 @@ def craft_project(request, project_ref):
             runs_override = 1
     else:
         runs_override = None
+    refresh_from_current_sde = str(request.GET.get("refresh_sde") or "").lower() in {
+        "1",
+        "true",
+        "yes",
+    }
 
     workspace_state = strip_project_workspace_cache(project.workspace_state)
     active_tab = request.GET.get("active_tab") or workspace_state.get(
@@ -2609,7 +2614,7 @@ def craft_project(request, project_ref):
     )
     payload = None
     sde_has_changed = False
-    if runs_override is None:
+    if runs_override is None and not refresh_from_current_sde:
         payload, sde_has_changed = get_cached_project_workspace_payload(project)
     if payload is None:
         payload = build_project_workspace_payload(
@@ -2621,12 +2626,14 @@ def craft_project(request, project_ref):
         )
         sde_has_changed = False
 
+    sde_refresh_url = ""
     if sde_has_changed:
-        messages.warning(
-            request,
-            _(
-                "This craft table was loaded from its saved snapshot. The SDE changed since the last save, so the plan may differ from current data until you save it again."
-            ),
+        refresh_query = request.GET.copy()
+        refresh_query["refresh_sde"] = "1"
+        refresh_query["active_tab"] = active_tab
+        sde_refresh_url = (
+            f"{reverse('indy_hub:craft_project', args=[project.project_ref])}"
+            f"?{refresh_query.urlencode()}"
         )
 
     render_workspace_state = dict(payload.get("workspace_state") or workspace_state)
@@ -2715,6 +2722,8 @@ def craft_project(request, project_ref):
         "final_outputs": final_outputs,
         "is_project_workspace": True,
         "project": project,
+        "sde_snapshot_has_changed": sde_has_changed,
+        "sde_refresh_url": sde_refresh_url,
     }
     context.update(build_nav_context(request.user, active_tab="industry"))
     return render(request, "indy_hub/industry/Craft_BP_v2.html", context)
