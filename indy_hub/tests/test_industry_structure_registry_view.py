@@ -21,6 +21,7 @@ from indy_hub.models import (
     IndustryStructureRig,
     IndustrySystemCostIndex,
 )
+from indy_hub.services.industry_structure_import import resolve_structure_scan_loadout
 from indy_hub.services.industry_structures import NPC_STATION_STRUCTURE_TYPE_ID
 from indy_hub.views.industry import (
     industry_structure_add,
@@ -34,6 +35,7 @@ from indy_hub.views.industry import (
     industry_structure_existing_system_structures,
     industry_structure_registry,
     industry_structure_rig_advisor,
+    industry_structure_scan_import,
     industry_structure_solar_system_cost_indices,
     industry_structure_solar_system_search,
 )
@@ -115,6 +117,10 @@ class IndustryStructureRegistryViewTests(TestCase):
     @property
     def _rig_advisor_view(self):
         return industry_structure_rig_advisor.__wrapped__.__wrapped__
+
+    @property
+    def _scan_import_view(self):
+        return industry_structure_scan_import.__wrapped__.__wrapped__.__wrapped__
 
     @patch("indy_hub.views.industry.sde_item_types_loaded", return_value=True)
     def test_registry_lists_existing_structures(self, _mock_sde_loaded) -> None:
@@ -572,6 +578,8 @@ class IndustryStructureRegistryViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("Register Structure", content)
         self.assertIn("Back to Registry", content)
+        self.assertIn("Import From Structure Scan", content)
+        self.assertIn("Apply Scan", content)
         self.assertIn("Deduce Rigs", content)
         self.assertIn("Select one activity", content)
         self.assertIn("NPC Station", content)
@@ -580,6 +588,182 @@ class IndustryStructureRegistryViewTests(TestCase):
         self.assertIn('name="rigs-1-rig_type_id"', content)
         self.assertIn('name="rigs-2-rig_type_id"', content)
         self.assertNotIn('name="rigs-3-rig_type_id"', content)
+
+    @patch(
+        "indy_hub.services.industry_structure_import.structure_type_supports_rigs",
+        return_value=True,
+    )
+    @patch(
+        "indy_hub.services.industry_structure_import.is_rig_compatible_with_structure_type",
+        return_value=True,
+    )
+    @patch("indy_hub.services.industry_structure_import.get_industry_rig_catalog")
+    def test_structure_scan_resolver_extracts_services_and_rigs_from_fit_scan(
+        self,
+        mock_get_industry_rig_catalog,
+        _mock_is_rig_compatible,
+        _mock_structure_type_supports_rigs,
+    ) -> None:
+        mock_get_industry_rig_catalog.return_value = [
+            {
+                "type_id": 37170,
+                "name": "Standup L-Set Advanced Large Ship Manufacturing Efficiency I",
+                "family": "Manufacturing",
+            },
+            {
+                "type_id": 37182,
+                "name": "Standup L-Set Laboratory Optimization I",
+                "family": "Science",
+            },
+            {
+                "type_id": 37183,
+                "name": "Standup L-Set Research Cost Optimization I",
+                "family": "Science",
+            },
+        ]
+        scan_text = """High Power Slots
+Standup Heavy Energy Neutralizer I x4
+
+Medium Power Slots
+Standup Multirole Missile Launcher I x5
+
+Rig Slots
+Standup L-Set Advanced Large Ship Manufacturing Efficiency I
+Standup L-Set Laboratory Optimization I
+Standup L-Set Research Cost Optimization I
+
+Service Slots
+Standup Hyasyoda Research Lab
+Standup Cloning Center I
+"""
+
+        payload = resolve_structure_scan_loadout(scan_text, structure_type_id=35826)
+
+        self.assertTrue(payload["activity_flags"]["enable_research"])
+        self.assertTrue(payload["activity_flags"]["enable_invention"])
+        self.assertFalse(payload["activity_flags"]["enable_manufacturing"])
+        self.assertEqual(
+            [rig["type_id"] for rig in payload["rigs"]],
+            [37170, 37182, 37183],
+        )
+        warnings = " ".join(payload["warnings"])
+        self.assertIn("Standup Cloning Center I", warnings)
+        self.assertNotIn("Standup Heavy Energy Neutralizer", warnings)
+
+    @patch(
+        "indy_hub.services.industry_structure_import.structure_type_supports_rigs",
+        return_value=True,
+    )
+    @patch(
+        "indy_hub.services.industry_structure_import.is_rig_compatible_with_structure_type",
+        return_value=True,
+    )
+    @patch("indy_hub.services.industry_structure_import.get_industry_rig_catalog")
+    def test_structure_scan_resolver_supports_plain_issue_example_sections(
+        self,
+        mock_get_industry_rig_catalog,
+        _mock_is_rig_compatible,
+        _mock_structure_type_supports_rigs,
+    ) -> None:
+        mock_get_industry_rig_catalog.return_value = [
+            {
+                "type_id": 46494,
+                "name": "Standup L-Set Reactor Efficiency I",
+                "family": "Reactions",
+            },
+        ]
+
+        payload = resolve_structure_scan_loadout(
+            """Rig Slots
+Standup L-Set Reactor Efficiency I
+
+Service Slots
+Standup Biochemical Reactor I
+Standup Composite Reactor I
+""",
+            structure_type_id=35835,
+        )
+
+        self.assertTrue(payload["activity_flags"]["enable_biochemical_reactions"])
+        self.assertTrue(payload["activity_flags"]["enable_composite_reactions"])
+        self.assertFalse(payload["activity_flags"]["enable_hybrid_reactions"])
+        self.assertEqual(payload["rigs"][0]["type_id"], 46494)
+
+    @patch("indy_hub.views.industry.resolve_structure_scan_loadout")
+    def test_structure_scan_import_endpoint_returns_resolved_payload(
+        self, mock_resolve_structure_scan_loadout
+    ) -> None:
+        mock_resolve_structure_scan_loadout.return_value = {
+            "activity_flags": {"enable_research": True},
+            "services": [
+                {"name": "Standup Research Lab I", "fields": ["enable_research"]}
+            ],
+            "rigs": [
+                {"type_id": 37183, "name": "Standup L-Set Research Cost Optimization I"}
+            ],
+            "warnings": [],
+        }
+        request = self._prepare_request(
+            self.factory.post(
+                reverse("indy_hub:industry_structure_scan_import"),
+                data=json.dumps(
+                    {
+                        "raw_text": "Service Slots\nStandup Research Lab I",
+                        "structure_type_id": "35826",
+                    }
+                ),
+                content_type="application/json",
+            )
+        )
+
+        response = self._scan_import_view(request)
+
+        self.assertEqual(response.status_code, 200)
+        payload = json.loads(response.content.decode())
+        self.assertEqual(payload["rigs"][0]["type_id"], 37183)
+        mock_resolve_structure_scan_loadout.assert_called_once_with(
+            "Service Slots\nStandup Research Lab I",
+            structure_type_id=35826,
+        )
+
+    @patch("indy_hub.views.industry.resolve_structure_scan_loadout")
+    def test_structure_scan_import_endpoint_rejects_non_object_json_payload(
+        self, mock_resolve_structure_scan_loadout
+    ) -> None:
+        request = self._prepare_request(
+            self.factory.post(
+                reverse("indy_hub:industry_structure_scan_import"),
+                data=json.dumps([]),
+                content_type="application/json",
+            )
+        )
+
+        response = self._scan_import_view(request)
+
+        self.assertEqual(response.status_code, 400)
+        payload = json.loads(response.content.decode())
+        self.assertEqual(payload["error"], "invalid_payload")
+        mock_resolve_structure_scan_loadout.assert_not_called()
+
+    @patch("indy_hub.views.industry.resolve_structure_scan_loadout")
+    def test_structure_scan_import_endpoint_rejects_invalid_utf8_body(
+        self, mock_resolve_structure_scan_loadout
+    ) -> None:
+        request = self._prepare_request(
+            self.factory.generic(
+                "POST",
+                reverse("indy_hub:industry_structure_scan_import"),
+                data=b"\xff",
+                content_type="application/json",
+            )
+        )
+
+        response = self._scan_import_view(request)
+
+        self.assertEqual(response.status_code, 400)
+        payload = json.loads(response.content.decode())
+        self.assertEqual(payload["error"], "invalid_payload")
+        mock_resolve_structure_scan_loadout.assert_not_called()
 
     @patch(
         "indy_hub.forms.industry_structures.sde_item_types_loaded", return_value=True

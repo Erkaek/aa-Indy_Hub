@@ -90,7 +90,10 @@ from ..services.industry_skills import (
     build_user_character_skill_contexts,
     skill_snapshot_stale,
 )
-from ..services.industry_structure_import import import_indy_structure_paste
+from ..services.industry_structure_import import (
+    import_indy_structure_paste,
+    resolve_structure_scan_loadout,
+)
 from ..services.industry_structure_sync import get_available_structure_sync_targets
 from ..services.industry_structures import (
     COPYING_JOB_COST_BASE_PERCENT,
@@ -8050,3 +8053,33 @@ def industry_structure_rig_advisor(request):
 
     activities.sort(key=lambda entry: entry["activity_id"])
     return JsonResponse({"activities": activities})
+
+
+@indy_hub_access_required
+@login_required
+@require_http_methods(["POST"])
+def industry_structure_scan_import(request):
+    try:
+        payload = json.loads(request.body.decode("utf-8") or "{}")
+    except (TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError):
+        return JsonResponse({"error": "invalid_payload"}, status=400)
+    if not isinstance(payload, dict):
+        return JsonResponse({"error": "invalid_payload"}, status=400)
+
+    raw_text = str(payload.get("raw_text") or "")
+    raw_structure_type_id = payload.get("structure_type_id")
+    try:
+        structure_type_id = (
+            int(raw_structure_type_id)
+            if raw_structure_type_id not in {None, ""}
+            else None
+        )
+    except (TypeError, ValueError):
+        structure_type_id = None
+
+    return JsonResponse(
+        resolve_structure_scan_loadout(
+            raw_text,
+            structure_type_id=structure_type_id,
+        )
+    )
