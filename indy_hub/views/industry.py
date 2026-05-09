@@ -8061,7 +8061,9 @@ def industry_structure_rig_advisor(request):
 def industry_structure_scan_import(request):
     try:
         payload = json.loads(request.body.decode("utf-8") or "{}")
-    except (TypeError, ValueError, json.JSONDecodeError):
+    except (TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError):
+        return JsonResponse({"error": "invalid_payload"}, status=400)
+    if not isinstance(payload, dict):
         return JsonResponse({"error": "invalid_payload"}, status=400)
 
     raw_text = str(payload.get("raw_text") or "")

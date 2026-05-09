@@ -726,6 +726,45 @@ Standup Composite Reactor I
             structure_type_id=35826,
         )
 
+    @patch("indy_hub.views.industry.resolve_structure_scan_loadout")
+    def test_structure_scan_import_endpoint_rejects_non_object_json_payload(
+        self, mock_resolve_structure_scan_loadout
+    ) -> None:
+        request = self._prepare_request(
+            self.factory.post(
+                reverse("indy_hub:industry_structure_scan_import"),
+                data=json.dumps([]),
+                content_type="application/json",
+            )
+        )
+
+        response = self._scan_import_view(request)
+
+        self.assertEqual(response.status_code, 400)
+        payload = json.loads(response.content.decode())
+        self.assertEqual(payload["error"], "invalid_payload")
+        mock_resolve_structure_scan_loadout.assert_not_called()
+
+    @patch("indy_hub.views.industry.resolve_structure_scan_loadout")
+    def test_structure_scan_import_endpoint_rejects_invalid_utf8_body(
+        self, mock_resolve_structure_scan_loadout
+    ) -> None:
+        request = self._prepare_request(
+            self.factory.generic(
+                "POST",
+                reverse("indy_hub:industry_structure_scan_import"),
+                data=b"\xff",
+                content_type="application/json",
+            )
+        )
+
+        response = self._scan_import_view(request)
+
+        self.assertEqual(response.status_code, 400)
+        payload = json.loads(response.content.decode())
+        self.assertEqual(payload["error"], "invalid_payload")
+        mock_resolve_structure_scan_loadout.assert_not_called()
+
     @patch(
         "indy_hub.forms.industry_structures.sde_item_types_loaded", return_value=True
     )
