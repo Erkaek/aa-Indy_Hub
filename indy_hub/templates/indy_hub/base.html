@@ -7,6 +7,7 @@
 <style>
     :root {
         --indy-hub-header-height: 58px;
+        --aa-nav-gap: var(--indy-hub-header-height);
     }
 
     .nav-padding {
@@ -106,6 +107,7 @@
             var headerHeight = Math.ceil(navbar.getBoundingClientRect().height);
             var headerOffset = headerHeight + 'px';
             document.documentElement.style.setProperty('--indy-hub-header-height', headerOffset);
+            document.documentElement.style.setProperty('--aa-nav-gap', headerOffset);
             document.querySelectorAll('.nav-padding').forEach(function (element) {
                 element.style.setProperty('margin-top', headerOffset, 'important');
                 element.style.setProperty('max-height', 'calc(100vh - ' + headerOffset + ')', 'important');

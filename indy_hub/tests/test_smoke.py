@@ -475,6 +475,7 @@ class NavbarMaterialExchangeMyOrdersTests(TestCase):
         response = self.client.get(reverse("indy_hub:my_orders"))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "--indy-hub-header-height")
+        self.assertContains(response, "--aa-nav-gap")
         self.assertContains(response, "updateIndyHubHeaderOffset")
         self.assertContains(response, "element.style.setProperty('margin-top'")
         self.assertContains(response, "indy-hub-navbar-brand")
