@@ -32,6 +32,7 @@ from indy_hub.models import (
 from indy_hub.services.production_projects import (
     LEGACY_SINGLE_BLUEPRINT_PROJECT_NOTE,
     PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY,
+    PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_ID_LIMIT,
     PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_KEY,
     PROJECT_WORKSPACE_SDE_SIGNATURE_KEY,
     _scale_project_selected_items_for_runs,
@@ -377,6 +378,83 @@ class LegacySimulationUnificationTests(TestCase):
         project.refresh_from_db()
         self.assertEqual(project.workspace_state["blueprint_type_id"], 950)
         self.assertEqual(project.workspace_state["blueprint_name"], "Merlin Blueprint")
+
+    @patch("indy_hub.views.api.build_project_workspace_payload")
+    def test_save_workspace_scoped_signature_ignores_client_cached_payload_ids(
+        self,
+        mock_build_project_workspace_payload,
+    ):
+        project = ProductionProject.objects.create(
+            user=self.user,
+            name="Trusted Signature",
+            status=ProductionProject.Status.DRAFT,
+            source_kind=ProductionProject.SourceKind.MANUAL,
+        )
+        mock_build_project_workspace_payload.return_value = {
+            "materials_tree": [
+                {
+                    "type_id": 34,
+                    "type_name": "Tritanium",
+                    "quantity": 1,
+                    "sub_materials": [],
+                }
+            ],
+        }
+
+        request = self._prepare_request(
+            self.factory.post(
+                reverse(
+                    "indy_hub:save_production_project_workspace",
+                    args=[project.project_ref],
+                ),
+                data=json.dumps(
+                    {
+                        "runs": 1,
+                        "cachedPayload": {
+                            "materials_tree": [
+                                {
+                                    "type_id": 999999999,
+                                    "type_name": "Client supplied row",
+                                    "quantity": 1,
+                                    "sub_materials": [],
+                                }
+                            ],
+                        },
+                    }
+                ),
+                content_type="application/json",
+            )
+        )
+        response = self._save_workspace_view(request, project.project_ref)
+
+        self.assertEqual(response.status_code, 200)
+        mock_build_project_workspace_payload.assert_called_once()
+        project.refresh_from_db()
+        scoped_signature = project.workspace_state[
+            PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_KEY
+        ]
+        self.assertIn(34, scoped_signature["type_ids"])
+        self.assertNotIn(999999999, scoped_signature["type_ids"])
+
+    def test_scoped_sde_signature_falls_back_for_oversized_payload_scope(self):
+        oversized_payload = {
+            "materials_tree": [
+                {"type_id": type_id, "sub_materials": []}
+                for type_id in range(
+                    1,
+                    PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_ID_LIMIT + 2,
+                )
+            ]
+        }
+
+        scoped_signature = get_project_workspace_scoped_sde_signature(oversized_payload)
+
+        self.assertEqual(scoped_signature["scope"], "global-fallback")
+        self.assertEqual(
+            scoped_signature["type_id_count"],
+            PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_ID_LIMIT + 1,
+        )
+        self.assertIn("global_signature", scoped_signature)
 
     def test_save_production_project_workspace_normalizes_revenue_mode(self):
         """`revenueMode` defaults to per_unit; 'total' is accepted; bad

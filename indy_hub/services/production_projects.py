@@ -70,6 +70,8 @@ PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY = "cachedProjectPayload"
 PROJECT_WORKSPACE_SDE_SIGNATURE_KEY = "cachedProjectSdeSignature"
 PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_KEY = "cachedProjectScopedSdeSignature"
 PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_VERSION = 1
+PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_ID_LIMIT = 5000
+PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_QUERY_CHUNK_SIZE = 500
 LEGACY_SINGLE_BLUEPRINT_PROJECT_NOTE = (
     "Migrated from legacy single-blueprint craft flow."
 )
@@ -106,6 +108,12 @@ def get_project_workspace_sde_signature() -> dict[str, object]:
     }
 
 
+def _chunked_ids(values: Sequence[int], size: int) -> Iterable[list[int]]:
+    chunk_size = max(1, int(size or 1))
+    for index in range(0, len(values), chunk_size):
+        yield list(values[index : index + chunk_size])
+
+
 def _payload_uses_unpublished_blueprints(payload: dict[str, object] | None) -> bool:
     if not isinstance(payload, dict):
         return False
@@ -125,18 +133,25 @@ def _payload_uses_unpublished_blueprints(payload: dict[str, object] | None) -> b
     if not blueprint_type_ids:
         return False
 
-    placeholders = ", ".join(["%s"] * len(blueprint_type_ids))
+    sorted_blueprint_type_ids = sorted(blueprint_type_ids)
     with connection.cursor() as cursor:
-        cursor.execute(
-            f"""
-            SELECT id
-            FROM eve_sde_itemtype
-            WHERE id IN ({placeholders}) AND COALESCE(published, 0) = 0
-            LIMIT 1
-            """,
-            list(sorted(blueprint_type_ids)),
-        )
-        return cursor.fetchone() is not None
+        for chunk in _chunked_ids(
+            sorted_blueprint_type_ids,
+            PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_QUERY_CHUNK_SIZE,
+        ):
+            placeholders = ", ".join(["%s"] * len(chunk))
+            cursor.execute(
+                f"""
+                SELECT id
+                FROM eve_sde_itemtype
+                WHERE id IN ({placeholders}) AND COALESCE(published, 0) = 0
+                LIMIT 1
+                """,
+                chunk,
+            )
+            if cursor.fetchone() is not None:
+                return True
+    return False
 
 
 def _collect_payload_blueprint_type_ids(payload: dict[str, object] | None) -> set[int]:
@@ -264,6 +279,18 @@ def get_project_workspace_scoped_sde_signature(
     blueprint_type_ids = sorted(_collect_payload_blueprint_type_ids(payload))
     type_ids = sorted(_collect_payload_type_ids(payload) | set(blueprint_type_ids))
 
+    if (
+        len(type_ids) > PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_ID_LIMIT
+        or len(blueprint_type_ids) > PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_ID_LIMIT
+    ):
+        return {
+            "version": PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_VERSION,
+            "scope": "global-fallback",
+            "type_id_count": len(type_ids),
+            "blueprint_type_id_count": len(blueprint_type_ids),
+            "global_signature": get_project_workspace_sde_signature(),
+        }
+
     signature: dict[str, object] = {
         "version": PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_VERSION,
         "blueprint_type_ids": blueprint_type_ids,
@@ -275,132 +302,161 @@ def get_project_workspace_scoped_sde_signature(
     }
 
     if type_ids:
-        placeholders = ", ".join(["%s"] * len(type_ids))
+        item_type_rows = []
         with connection.cursor() as cursor:
-            cursor.execute(
-                f"""
-                SELECT id, COALESCE(name_en, name), COALESCE(published, 0), group_id
-                FROM eve_sde_itemtype
-                WHERE id IN ({placeholders})
-                ORDER BY id
-                """,
+            for chunk in _chunked_ids(
                 type_ids,
+                PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_QUERY_CHUNK_SIZE,
+            ):
+                placeholders = ", ".join(["%s"] * len(chunk))
+                cursor.execute(
+                    f"""
+                    SELECT id, COALESCE(name_en, name), COALESCE(published, 0), group_id
+                    FROM eve_sde_itemtype
+                    WHERE id IN ({placeholders})
+                    ORDER BY id
+                    """,
+                    chunk,
+                )
+                item_type_rows.extend(cursor.fetchall())
+        signature["item_types"] = [
+            {
+                "type_id": int(type_id),
+                "name": str(type_name or ""),
+                "published": bool(published),
+                "group_id": int(group_id) if group_id is not None else None,
+            }
+            for type_id, type_name, published, group_id in sorted(
+                item_type_rows,
+                key=lambda row: int(row[0]),
             )
-            signature["item_types"] = [
-                {
-                    "type_id": int(type_id),
-                    "name": str(type_name or ""),
-                    "published": bool(published),
-                    "group_id": int(group_id) if group_id is not None else None,
-                }
-                for type_id, type_name, published, group_id in cursor.fetchall()
-            ]
+        ]
 
     if not blueprint_type_ids:
         return signature
 
-    placeholders = ", ".join(["%s"] * len(blueprint_type_ids))
+    product_rows = []
+    material_rows = []
+    activity_rows = []
     with connection.cursor() as cursor:
-        cursor.execute(
-            f"""
-            SELECT
-                p.eve_type_id,
-                p.activity_id,
-                p.product_eve_type_id,
-                p.quantity,
-                COALESCE(product_t.name_en, product_t.name),
-                COALESCE(product_t.published, 0),
-                product_t.group_id
-            FROM indy_hub_sdeindustryactivityproduct p
-            JOIN eve_sde_itemtype product_t ON product_t.id = p.product_eve_type_id
-            WHERE p.eve_type_id IN ({placeholders})
-                AND p.activity_id IN (1, 11)
-            ORDER BY p.eve_type_id, p.activity_id, p.product_eve_type_id
-            """,
+        for chunk in _chunked_ids(
             blueprint_type_ids,
-        )
-        signature["products"] = [
-            {
-                "blueprint_type_id": int(blueprint_type_id),
-                "activity_id": int(activity_id),
-                "product_type_id": int(product_type_id),
-                "quantity": int(quantity or 0),
-                "product_name": str(product_name or ""),
-                "product_published": bool(product_published),
-                "product_group_id": (
-                    int(product_group_id) if product_group_id is not None else None
-                ),
-            }
-            for (
-                blueprint_type_id,
-                activity_id,
-                product_type_id,
-                quantity,
-                product_name,
-                product_published,
-                product_group_id,
-            ) in cursor.fetchall()
-        ]
+            PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_QUERY_CHUNK_SIZE,
+        ):
+            placeholders = ", ".join(["%s"] * len(chunk))
+            cursor.execute(
+                f"""
+                SELECT
+                    p.eve_type_id,
+                    p.activity_id,
+                    p.product_eve_type_id,
+                    p.quantity,
+                    COALESCE(product_t.name_en, product_t.name),
+                    COALESCE(product_t.published, 0),
+                    product_t.group_id
+                FROM indy_hub_sdeindustryactivityproduct p
+                JOIN eve_sde_itemtype product_t ON product_t.id = p.product_eve_type_id
+                WHERE p.eve_type_id IN ({placeholders})
+                    AND p.activity_id IN (1, 11)
+                ORDER BY p.eve_type_id, p.activity_id, p.product_eve_type_id
+                """,
+                chunk,
+            )
+            product_rows.extend(cursor.fetchall())
 
-        cursor.execute(
-            f"""
-            SELECT
-                m.eve_type_id,
-                m.activity_id,
-                m.material_eve_type_id,
-                m.quantity,
-                COALESCE(material_t.name_en, material_t.name),
-                COALESCE(material_t.published, 0),
-                material_t.group_id
-            FROM indy_hub_sdeindustryactivitymaterial m
-            JOIN eve_sde_itemtype material_t ON material_t.id = m.material_eve_type_id
-            WHERE m.eve_type_id IN ({placeholders})
-                AND m.activity_id IN (1, 11)
-            ORDER BY m.eve_type_id, m.activity_id, m.material_eve_type_id
-            """,
-            blueprint_type_ids,
-        )
-        signature["materials"] = [
-            {
-                "blueprint_type_id": int(blueprint_type_id),
-                "activity_id": int(activity_id),
-                "material_type_id": int(material_type_id),
-                "quantity": int(quantity or 0),
-                "material_name": str(material_name or ""),
-                "material_published": bool(material_published),
-                "material_group_id": (
-                    int(material_group_id) if material_group_id is not None else None
-                ),
-            }
-            for (
-                blueprint_type_id,
-                activity_id,
-                material_type_id,
-                quantity,
-                material_name,
-                material_published,
-                material_group_id,
-            ) in cursor.fetchall()
-        ]
+            cursor.execute(
+                f"""
+                SELECT
+                    m.eve_type_id,
+                    m.activity_id,
+                    m.material_eve_type_id,
+                    m.quantity,
+                    COALESCE(material_t.name_en, material_t.name),
+                    COALESCE(material_t.published, 0),
+                    material_t.group_id
+                FROM indy_hub_sdeindustryactivitymaterial m
+                JOIN eve_sde_itemtype material_t ON material_t.id = m.material_eve_type_id
+                WHERE m.eve_type_id IN ({placeholders})
+                    AND m.activity_id IN (1, 11)
+                ORDER BY m.eve_type_id, m.activity_id, m.material_eve_type_id
+                """,
+                chunk,
+            )
+            material_rows.extend(cursor.fetchall())
 
-        cursor.execute(
-            f"""
-            SELECT eve_type_id, activity_id, time
-            FROM indy_hub_sdeblueprintactivity
-            WHERE eve_type_id IN ({placeholders})
-                AND activity_id IN (1, 11)
-            ORDER BY eve_type_id, activity_id
-            """,
-            blueprint_type_ids,
+            cursor.execute(
+                f"""
+                SELECT eve_type_id, activity_id, time
+                FROM indy_hub_sdeblueprintactivity
+                WHERE eve_type_id IN ({placeholders})
+                    AND activity_id IN (1, 11)
+                ORDER BY eve_type_id, activity_id
+                """,
+                chunk,
+            )
+            activity_rows.extend(cursor.fetchall())
+
+    signature["products"] = [
+        {
+            "blueprint_type_id": int(blueprint_type_id),
+            "activity_id": int(activity_id),
+            "product_type_id": int(product_type_id),
+            "quantity": int(quantity or 0),
+            "product_name": str(product_name or ""),
+            "product_published": bool(product_published),
+            "product_group_id": (
+                int(product_group_id) if product_group_id is not None else None
+            ),
+        }
+        for (
+            blueprint_type_id,
+            activity_id,
+            product_type_id,
+            quantity,
+            product_name,
+            product_published,
+            product_group_id,
+        ) in sorted(
+            product_rows,
+            key=lambda row: (int(row[0]), int(row[1]), int(row[2])),
         )
-        signature["activities"] = [
-            {
-                "blueprint_type_id": int(blueprint_type_id),
-                "activity_id": int(activity_id),
-                "time": int(activity_time or 0),
-            }
-            for blueprint_type_id, activity_id, activity_time in cursor.fetchall()
-        ]
+    ]
+    signature["materials"] = [
+        {
+            "blueprint_type_id": int(blueprint_type_id),
+            "activity_id": int(activity_id),
+            "material_type_id": int(material_type_id),
+            "quantity": int(quantity or 0),
+            "material_name": str(material_name or ""),
+            "material_published": bool(material_published),
+            "material_group_id": (
+                int(material_group_id) if material_group_id is not None else None
+            ),
+        }
+        for (
+            blueprint_type_id,
+            activity_id,
+            material_type_id,
+            quantity,
+            material_name,
+            material_published,
+            material_group_id,
+        ) in sorted(
+            material_rows,
+            key=lambda row: (int(row[0]), int(row[1]), int(row[2])),
+        )
+    ]
+    signature["activities"] = [
+        {
+            "blueprint_type_id": int(blueprint_type_id),
+            "activity_id": int(activity_id),
+            "time": int(activity_time or 0),
+        }
+        for blueprint_type_id, activity_id, activity_time in sorted(
+            activity_rows,
+            key=lambda row: (int(row[0]), int(row[1])),
+        )
+    ]
 
     return signature
 
