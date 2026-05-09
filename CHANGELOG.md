@@ -30,6 +30,8 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 ### Fixed
 
+- Navigation: Indy Hub pages now measure the rendered Alliance Auth top bar and offset content by its actual height, preventing Bootstrap 5 themes such as Slate/Darkly from letting wrapped module navigation overlap the page header (issue #67).
+
 - Blueprints: ESI rows with `runs=-1` are now classified as originals even when ESI also reports `quantity=-2`, character and corporation blueprint syncs persist a freshly computed `bp_type`, and a data migration repairs stale rows left behind by older releases where BPOs could remain labelled as copies after upgrade (issue #86).
 
 - Navigation: Indy Hub dropdown labels remain visible in the mobile Alliance Auth menu instead of collapsing to icon-only entries (issue #78).

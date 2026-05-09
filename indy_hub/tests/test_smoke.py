@@ -470,6 +470,19 @@ class NavbarMaterialExchangeMyOrdersTests(TestCase):
         # This URL is part of the Indy Hub navbar, not the page body.
         self.assertContains(response, reverse("indy_hub:all_bp_list"))
 
+    def test_indy_hub_navbar_offsets_content_by_rendered_height(self) -> None:
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("indy_hub:my_orders"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "--indy-hub-header-height")
+        self.assertContains(response, "updateIndyHubHeaderOffset")
+        self.assertContains(response, "element.style.setProperty('margin-top'")
+        self.assertContains(response, "indy-hub-navbar-brand")
+        self.assertNotContains(
+            response,
+            '<a href="/indy_hub/" class="nav-link flex-fill align-self-center me-auto active">',
+        )
+
     def test_my_orders_page_shows_material_hub_nav_badge_for_open_orders(self) -> None:
         settings_obj = MaterialExchangeSettings.get_solo()
         settings_obj.is_enabled = True
