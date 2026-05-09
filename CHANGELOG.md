@@ -17,6 +17,7 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 - Forms: Indy Hub now raises Django's `DATA_UPLOAD_MAX_NUMBER_FIELDS` to 50 000 at startup (configurable via `INDY_HUB_MAX_FORM_FIELDS`) so Material Exchange and craft project configuration pages no longer raise `TooManyFieldsSent` when thousands of EVE market groups or type ids are submitted at once.
 - Forms: Indy Hub now also raises Django's `DATA_UPLOAD_MAX_MEMORY_SIZE` to 50 MB at startup (configurable via `INDY_HUB_MAX_REQUEST_BODY_BYTES`) so saving a craft project workspace no longer fails with a generic "Failed to save table" notification when the JSON payload (cached project snapshot, decisions, structures, …) exceeds Django's 2.5 MB default body limit.
 - Blueprint Sharing: added a copy-installation cost breakdown modal to the fulfill queue, including EIV-derived install cost, structure and rig bonuses, SCI, facility/SCC taxes, and Alpha clone tax rows.
+- Industry Structures: added a structure scan importer to the Add / Edit Structure form. Pasting an EVE structure scan now applies supported Service Slots to the activity toggles and fills matching Rig Slots while ignoring combat fitting sections (issue #77).
 
 ### Changed
 

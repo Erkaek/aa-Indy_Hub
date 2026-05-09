@@ -59,6 +59,7 @@ from .views.industry import (
     industry_structure_existing_system_structures,
     industry_structure_registry,
     industry_structure_rig_advisor,
+    industry_structure_scan_import,
     industry_structure_solar_system_cost_indices,
     industry_structure_solar_system_search,
     personnal_bp_list,
@@ -215,6 +216,11 @@ urlpatterns = [
         "industry/structures/rig-advisor/",
         industry_structure_rig_advisor,
         name="industry_structure_rig_advisor",
+    ),
+    path(
+        "industry/structures/scan-import/",
+        industry_structure_scan_import,
+        name="industry_structure_scan_import",
     ),
     path(
         "corporation-jobs/",

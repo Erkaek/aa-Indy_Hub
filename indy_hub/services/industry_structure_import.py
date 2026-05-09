@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # Standard Library
+import re
 from dataclasses import dataclass
 
 # Django
@@ -14,10 +15,13 @@ from allianceauth.services.hooks import get_extension_logger
 # AA Example App
 from indy_hub.models import IndustryStructure, IndustryStructureRig
 from indy_hub.services.industry_structures import (
+    get_industry_rig_catalog,
     get_structure_type_options,
+    is_rig_compatible_with_structure_type,
     resolve_item_type_reference,
     resolve_solar_system_location_reference,
     resolve_solar_system_reference,
+    structure_type_supports_rigs,
 )
 
 logger = get_extension_logger(__name__)
@@ -51,6 +55,36 @@ DEFAULT_DISABLED_ACTIVITY_FLAGS = {
     "enable_composite_reactions": False,
 }
 
+STRUCTURE_SCAN_MAX_LENGTH = 20000
+
+STRUCTURE_SCAN_SECTION_ALIASES = {
+    "rig slot": "rigs",
+    "rig slots": "rigs",
+    "rigs": "rigs",
+    "service slot": "services",
+    "service slots": "services",
+    "services": "services",
+    "high power slots": "ignored",
+    "medium power slots": "ignored",
+    "low power slots": "ignored",
+    "subsystem slots": "ignored",
+    "drone bay": "ignored",
+    "fighters": "ignored",
+    "cargo": "ignored",
+}
+
+STRUCTURE_SCAN_SERVICE_ACTIVITY_MAP = (
+    ("standup manufacturing plant", ("enable_manufacturing",)),
+    ("standup capital shipyard", ("enable_manufacturing_capitals",)),
+    ("standup supercapital shipyard", ("enable_manufacturing_super_capitals",)),
+    ("standup research lab", ("enable_research", "enable_invention")),
+    ("standup hyasyoda research lab", ("enable_research", "enable_invention")),
+    ("standup invention lab", ("enable_invention",)),
+    ("standup biochemical reactor", ("enable_biochemical_reactions",)),
+    ("standup hybrid reactor", ("enable_hybrid_reactions",)),
+    ("standup composite reactor", ("enable_composite_reactions",)),
+)
+
 
 @dataclass(frozen=True)
 class ParsedIndyPasteStructure:
@@ -59,6 +93,208 @@ class ParsedIndyPasteStructure:
     service_text: str
     rig_names: tuple[str, ...]
     solar_system_name: str
+
+
+@dataclass(frozen=True)
+class ParsedStructureScanLoadout:
+    service_names: tuple[str, ...]
+    rig_names: tuple[str, ...]
+    has_service_section: bool = False
+    has_rig_section: bool = False
+
+
+def _normalize_scan_value(value: str | None) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip())
+
+
+def _normalize_scan_key(value: str | None) -> str:
+    return _normalize_scan_value(value).casefold()
+
+
+def _normalize_scan_section_header(value: str | None) -> str:
+    normalized = _normalize_scan_key(value)
+    normalized = normalized.strip("[]")
+    normalized = normalized.rstrip(":")
+    return _normalize_scan_value(normalized)
+
+
+def _scan_line_item_name(line: str) -> str:
+    item_name = _normalize_scan_value(str(line or "").split("\t", 1)[0])
+    item_name = re.sub(r"\s+x\d+$", "", item_name, flags=re.IGNORECASE)
+    return item_name
+
+
+def _is_empty_scan_slot(item_name: str) -> bool:
+    normalized = _normalize_scan_key(item_name).strip("[]")
+    return not normalized or normalized.startswith("empty ") or normalized == "offline"
+
+
+def parse_structure_scan_loadout(raw_text: str) -> ParsedStructureScanLoadout:
+    services: list[str] = []
+    rigs: list[str] = []
+    active_section: str | None = None
+    has_service_section = False
+    has_rig_section = False
+
+    for raw_line in str(raw_text or "").splitlines():
+        line = _normalize_scan_value(raw_line)
+        if not line:
+            continue
+
+        section_name = _normalize_scan_section_header(line)
+        if section_name in STRUCTURE_SCAN_SECTION_ALIASES:
+            active_section = STRUCTURE_SCAN_SECTION_ALIASES[section_name]
+            if active_section == "services":
+                has_service_section = True
+            elif active_section == "rigs":
+                has_rig_section = True
+            continue
+
+        item_name = _scan_line_item_name(line)
+        if _is_empty_scan_slot(item_name):
+            continue
+
+        if active_section == "services":
+            services.append(item_name)
+        elif active_section == "rigs":
+            rigs.append(item_name)
+
+    return ParsedStructureScanLoadout(
+        service_names=tuple(services),
+        rig_names=tuple(rigs),
+        has_service_section=has_service_section,
+        has_rig_section=has_rig_section,
+    )
+
+
+def _activity_flags_from_scan_service(service_name: str) -> tuple[str, ...]:
+    normalized_service = _normalize_scan_key(service_name)
+    for service_prefix, field_names in STRUCTURE_SCAN_SERVICE_ACTIVITY_MAP:
+        if normalized_service.startswith(service_prefix):
+            return field_names
+    return ()
+
+
+def resolve_structure_scan_loadout(
+    raw_text: str,
+    *,
+    structure_type_id: int | None = None,
+) -> dict[str, object]:
+    scan_text = str(raw_text or "").strip()
+    if not scan_text:
+        return {
+            "activity_flags": dict(DEFAULT_DISABLED_ACTIVITY_FLAGS),
+            "has_service_section": False,
+            "has_rig_section": False,
+            "services": [],
+            "rigs": [],
+            "warnings": ["Paste a structure scan before importing."],
+        }
+    if len(scan_text) > STRUCTURE_SCAN_MAX_LENGTH:
+        return {
+            "activity_flags": dict(DEFAULT_DISABLED_ACTIVITY_FLAGS),
+            "has_service_section": False,
+            "has_rig_section": False,
+            "services": [],
+            "rigs": [],
+            "warnings": ["Structure scan is too large to import from this screen."],
+        }
+
+    parsed_scan = parse_structure_scan_loadout(scan_text)
+    activity_flags = dict(DEFAULT_DISABLED_ACTIVITY_FLAGS)
+    matched_services: list[dict[str, object]] = []
+    warnings: list[str] = []
+
+    for service_name in parsed_scan.service_names:
+        field_names = _activity_flags_from_scan_service(service_name)
+        if not field_names:
+            warnings.append(f"Ignored unsupported service module: {service_name}.")
+            continue
+        for field_name in field_names:
+            activity_flags[field_name] = True
+        matched_services.append(
+            {
+                "name": service_name,
+                "fields": list(field_names),
+            }
+        )
+
+    if parsed_scan.has_service_section:
+        if parsed_scan.service_names and not matched_services:
+            warnings.append(
+                "No supported industry service was found in the Service Slots section."
+            )
+        elif not parsed_scan.service_names:
+            warnings.append("No service module was found in the Service Slots section.")
+    else:
+        warnings.append("No Service Slots section was found in the pasted scan.")
+
+    resolved_structure_type_id = None
+    try:
+        resolved_structure_type_id = (
+            int(structure_type_id) if structure_type_id not in {None, ""} else None
+        )
+    except (TypeError, ValueError):
+        resolved_structure_type_id = None
+
+    supports_rigs = (
+        True
+        if resolved_structure_type_id is None
+        else structure_type_supports_rigs(resolved_structure_type_id)
+    )
+    rig_catalog_by_name = {
+        _normalize_scan_key(entry.get("name")): entry
+        for entry in get_industry_rig_catalog()
+    }
+    matched_rigs: list[dict[str, object]] = []
+
+    for rig_name in parsed_scan.rig_names[:3]:
+        if not supports_rigs:
+            warnings.append(
+                f"Ignored rig '{rig_name}': the selected structure has no rig slots."
+            )
+            continue
+
+        rig_entry = rig_catalog_by_name.get(_normalize_scan_key(rig_name))
+        if rig_entry is None:
+            warnings.append(f"Ignored unknown industrial rig: {rig_name}.")
+            continue
+
+        rig_type_id = int(rig_entry["type_id"])
+        if (
+            resolved_structure_type_id is not None
+            and not is_rig_compatible_with_structure_type(
+                rig_type_id=rig_type_id,
+                structure_type_id=resolved_structure_type_id,
+            )
+        ):
+            warnings.append(
+                f"Ignored incompatible rig '{rig_entry['name']}' for the selected structure type."
+            )
+            continue
+
+        matched_rigs.append(
+            {
+                "type_id": rig_type_id,
+                "name": str(rig_entry["name"]),
+            }
+        )
+
+    if len(parsed_scan.rig_names) > 3:
+        warnings.append("Only the first three Rig Slots entries were imported.")
+    if parsed_scan.has_rig_section and not parsed_scan.rig_names:
+        warnings.append("No rig entry was found in the Rig Slots section.")
+    elif not parsed_scan.has_rig_section:
+        warnings.append("No Rig Slots section was found in the pasted scan.")
+
+    return {
+        "activity_flags": activity_flags,
+        "has_service_section": parsed_scan.has_service_section,
+        "has_rig_section": parsed_scan.has_rig_section,
+        "services": matched_services,
+        "rigs": matched_rigs,
+        "warnings": warnings,
+    }
 
 
 def _split_tab_columns(line: str) -> list[str]:

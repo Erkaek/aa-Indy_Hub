@@ -144,6 +144,26 @@
                                     </div>
                                 </div>
                                 <div class="card-body px-4 py-4">
+                                    {% if not is_synced_structure_locked %}
+                                        <div class="structure-scan-import rounded-3 border p-3 mb-4" id="structure-scan-import-panel">
+                                            <div class="structure-scan-import__header">
+                                                <div>
+                                                    <div class="structure-scan-import__eyebrow">{% trans "Scan import" %}</div>
+                                                    <label class="form-label mb-1" for="structure-scan-import-input">{% trans "Import From Structure Scan" %}</label>
+                                                </div>
+                                                <div class="structure-scan-import__actions">
+                                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="structure-scan-import-clear">
+                                                        <i class="fas fa-eraser me-1"></i>{% trans "Clear" %}
+                                                    </button>
+                                                    <button type="button" class="btn btn-sm btn-primary" id="structure-scan-import-apply">
+                                                        <i class="fas fa-file-import me-1"></i>{% trans "Apply Scan" %}
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <textarea id="structure-scan-import-input" class="form-control structure-scan-import__textarea" rows="7" spellcheck="false" placeholder="{% trans 'Paste Rig Slots and Service Slots from the structure scan...' %}"></textarea>
+                                            <div id="structure-scan-import-status" class="structure-scan-import__status d-none" aria-live="polite"></div>
+                                        </div>
+                                    {% endif %}
                                     <div class="structure-services-layout">
                                         <div class="structure-services-layout__lead">
                                             <div class="structure-services-layout__eyebrow">{% trans "Service matrix" %}</div>
@@ -456,6 +476,7 @@
         const costIndexBody = document.getElementById('solar-system-cost-index-body');
         const bonusPreviewUrl = '{% url "indy_hub:industry_structure_bonus_preview" %}';
         const rigAdvisorUrl = '{% url "indy_hub:industry_structure_rig_advisor" %}';
+        const scanImportUrl = '{% url "indy_hub:industry_structure_scan_import" %}';
         const bonusPreview = document.getElementById('structure-bonus-preview');
         const bonusPreviewBody = document.getElementById('structure-bonus-preview-body');
         const rigBonusDetailModalElement = document.getElementById('rig-bonus-detail-modal');
@@ -492,6 +513,11 @@
         const rigAdvisorContextStructure = document.getElementById('rig-advisor-context-structure');
         const rigAdvisorContextSystem = document.getElementById('rig-advisor-context-system');
         const rigAdvisorContextActivities = document.getElementById('rig-advisor-context-activities');
+        const scanImportInput = document.getElementById('structure-scan-import-input');
+        const scanImportApplyButton = document.getElementById('structure-scan-import-apply');
+        const scanImportClearButton = document.getElementById('structure-scan-import-clear');
+        const scanImportStatus = document.getElementById('structure-scan-import-status');
+        const csrfTokenInput = document.querySelector('input[name="csrfmiddlewaretoken"]');
         const currentStructureId = Number('{{ structure.id|default:"" }}') || null;
         const rigSelects = Array.from(document.querySelectorAll('select[name$="-rig_type_id"]'));
         const activityToggleInputs = {
@@ -566,6 +592,144 @@
             if (commandRigsInline) {
                 commandRigsInline.textContent = installedRigs + '/3';
             }
+        }
+
+        function clearScanImportStatus() {
+            if (!scanImportStatus) {
+                return;
+            }
+            scanImportStatus.className = 'structure-scan-import__status d-none';
+            scanImportStatus.innerHTML = '';
+        }
+
+        function appendScanStatusLine(container, text, className) {
+            const line = document.createElement('div');
+            line.className = className || 'small';
+            line.textContent = text;
+            container.appendChild(line);
+        }
+
+        function renderScanImportStatus(payload, isError) {
+            if (!scanImportStatus) {
+                return;
+            }
+            scanImportStatus.innerHTML = '';
+            scanImportStatus.className = 'structure-scan-import__status rounded-3 border p-2 mt-2';
+            scanImportStatus.classList.toggle('structure-scan-import__status--error', Boolean(isError));
+
+            if (isError) {
+                appendScanStatusLine(scanImportStatus, payload && payload.message ? payload.message : 'Structure scan import failed.', 'small fw-semibold');
+                return;
+            }
+
+            const services = (payload && payload.services) || [];
+            const rigs = (payload && payload.rigs) || [];
+            const warnings = (payload && payload.warnings) || [];
+            if (services.length || rigs.length) {
+                appendScanStatusLine(scanImportStatus, 'Applied ' + services.length + ' service module(s) and ' + rigs.length + ' rig(s).', 'small fw-semibold');
+            } else {
+                appendScanStatusLine(scanImportStatus, 'No supported service module or rig was applied.', 'small fw-semibold');
+            }
+            warnings.forEach(function (warning) {
+                appendScanStatusLine(scanImportStatus, warning, 'small text-muted');
+            });
+        }
+
+        function setScanImportLoading(isLoading) {
+            if (!scanImportApplyButton) {
+                return;
+            }
+            scanImportApplyButton.disabled = Boolean(isLoading);
+            scanImportApplyButton.classList.toggle('disabled', Boolean(isLoading));
+        }
+
+        function applyScanActivityFlags(activityFlags) {
+            Object.keys(activityToggleInputs).forEach(function (fieldName) {
+                const input = activityToggleInputs[fieldName];
+                if (!input || !activityFlags || !Object.prototype.hasOwnProperty.call(activityFlags, fieldName)) {
+                    return;
+                }
+                input.checked = Boolean(activityFlags[fieldName]);
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+            });
+        }
+
+        function applyScanRigs(rigs) {
+            renderRigOptions();
+            rigSelects.forEach(function (select) {
+                select.value = '';
+            });
+            (rigs || []).slice(0, rigSelects.length).forEach(function (rig, index) {
+                const select = rigSelects[index];
+                if (!select) {
+                    return;
+                }
+                const rigTypeId = String(rig.type_id || '');
+                if (!Array.from(select.options).some(function (option) { return option.value === rigTypeId; })) {
+                    return;
+                }
+                select.value = rigTypeId;
+                select.classList.add('structure-rig-slot-applied');
+                window.setTimeout(function () {
+                    select.classList.remove('structure-rig-slot-applied');
+                }, 1200);
+            });
+            rigSelects.forEach(function (select) {
+                select.dispatchEvent(new Event('change', { bubbles: true }));
+            });
+        }
+
+        function applyStructureScanPayload(payload) {
+            if (payload.has_service_section) {
+                applyScanActivityFlags(payload.activity_flags || {});
+            }
+            if (payload.has_rig_section) {
+                applyScanRigs(payload.rigs || []);
+            }
+            syncVisibleTaxFields();
+            syncRigSectionVisibility();
+            invalidateRigAdvisorCache();
+            updateRigAdvisorAvailability();
+            loadBonusPreview();
+            renderCommandDeck();
+            renderScanImportStatus(payload, false);
+        }
+
+        function importStructureScan() {
+            if (!scanImportInput) {
+                return;
+            }
+            const rawText = scanImportInput.value.trim();
+            if (!rawText) {
+                renderScanImportStatus({ message: 'Paste a structure scan before importing.' }, true);
+                return;
+            }
+            setScanImportLoading(true);
+            fetch(scanImportUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRFToken': csrfTokenInput ? csrfTokenInput.value : ''
+                },
+                body: JSON.stringify({
+                    raw_text: rawText,
+                    structure_type_id: structureTypeInput ? structureTypeInput.value : ''
+                })
+            })
+                .then(function (response) {
+                    if (!response.ok) {
+                        throw new Error('Structure scan import failed.');
+                    }
+                    return response.json();
+                })
+                .then(applyStructureScanPayload)
+                .catch(function (error) {
+                    renderScanImportStatus({ message: error.message }, true);
+                })
+                .finally(function () {
+                    setScanImportLoading(false);
+                });
         }
 
         function syncIdentityAsideState() {
@@ -1937,6 +2101,16 @@
                 })
                 .then(renderCostIndexPreview)
                 .catch(clearCostIndexPreview);
+        }
+
+        if (scanImportApplyButton) {
+            scanImportApplyButton.addEventListener('click', importStructureScan);
+        }
+        if (scanImportClearButton && scanImportInput) {
+            scanImportClearButton.addEventListener('click', function () {
+                scanImportInput.value = '';
+                clearScanImportStatus();
+            });
         }
 
         if (!solarInput || !suggestionList) {
