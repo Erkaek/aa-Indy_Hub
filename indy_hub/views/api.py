@@ -46,7 +46,6 @@ from ..services.production_projects import (
     PROJECT_WORKSPACE_SDE_SIGNATURE_KEY,
     build_project_import_preview,
     build_project_workspace_payload,
-    cached_project_workspace_payload_matches_state,
     create_project_from_entries,
     get_project_workspace_scoped_sde_signature,
     get_project_workspace_sde_signature,
@@ -321,19 +320,6 @@ def save_production_project_workspace(request, project_ref: str):
         "total_prod_items": int(data.get("total_prod_items") or 0),
     }
 
-    cache_validation_state = dict(workspace_state)
-    cache_validation_state["pendingWorkspaceRefresh"] = bool(
-        data.get("pendingWorkspaceRefresh")
-    )
-    cache_validation_state["pendingWorkspaceSourceTab"] = str(
-        data.get("pendingWorkspaceSourceTab") or ""
-    )
-
-    provided_cached_payload = data.get("cachedPayload")
-    reuse_cached_payload = cached_project_workspace_payload_matches_state(
-        provided_cached_payload, cache_validation_state
-    )
-
     new_name = workspace_state["simulation_name"]
     update_fields = ["workspace_state", "updated_at"]
     project.workspace_state = workspace_state
@@ -342,28 +328,19 @@ def save_production_project_workspace(request, project_ref: str):
         update_fields.append("name")
     project.save(update_fields=update_fields)
 
-    server_scoped_signature_payload = None
-    if reuse_cached_payload:
-        cached_payload = _to_serializable(provided_cached_payload)
-    else:
-        server_scoped_signature_payload = build_project_workspace_payload(
-            project,
-            skill_cache_ttl=SKILL_CACHE_TTL,
-            include_full_structure_options=False,
-        )
-        cached_payload = _to_serializable(server_scoped_signature_payload)
-    if server_scoped_signature_payload is None:
-        server_scoped_signature_payload = build_project_workspace_payload(
-            project,
-            skill_cache_ttl=SKILL_CACHE_TTL,
-            include_full_structure_options=False,
-        )
-    workspace_state[PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY] = cached_payload
+    server_cached_payload = build_project_workspace_payload(
+        project,
+        skill_cache_ttl=SKILL_CACHE_TTL,
+        include_full_structure_options=False,
+    )
+    workspace_state[PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY] = _to_serializable(
+        server_cached_payload
+    )
     workspace_state[PROJECT_WORKSPACE_SDE_SIGNATURE_KEY] = (
         get_project_workspace_sde_signature()
     )
     workspace_state[PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_KEY] = (
-        get_project_workspace_scoped_sde_signature(server_scoped_signature_payload)
+        get_project_workspace_scoped_sde_signature(server_cached_payload)
     )
     project.workspace_state = workspace_state
     project.save(update_fields=["workspace_state", "updated_at"])

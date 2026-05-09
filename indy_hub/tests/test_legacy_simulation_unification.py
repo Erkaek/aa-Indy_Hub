@@ -28,6 +28,7 @@ from indy_hub.models import (
     SDEBlueprintActivityMaterial,
     SDEBlueprintActivityProduct,
     SDEIndustryActivity,
+    SDESyncCompatState,
 )
 from indy_hub.services.production_projects import (
     LEGACY_SINGLE_BLUEPRINT_PROJECT_NOTE,
@@ -165,6 +166,13 @@ class LegacySimulationUnificationTests(TestCase):
             activity_id=1,
             material_eve_type_id=34,
             defaults={"quantity": material_quantity},
+        )
+        SDESyncCompatState.objects.update_or_create(
+            pk=1,
+            defaults={
+                "last_source_build_number": material_quantity,
+                "last_synced_at": timezone.now(),
+            },
         )
 
     def _create_cached_merlin_project(self) -> ProductionProject:
@@ -337,12 +345,7 @@ class LegacySimulationUnificationTests(TestCase):
         self.assertIn("cachedProjectPayload", project.workspace_state)
         self.assertIn("cachedProjectSdeSignature", project.workspace_state)
         self.assertIn("cachedProjectScopedSdeSignature", project.workspace_state)
-        self.assertEqual(
-            project.workspace_state["cachedProjectPayload"]["materials_tree"][0][
-                "project_inclusion_mode"
-            ],
-            "buy",
-        )
+        self.assertIsInstance(project.workspace_state["cachedProjectPayload"], dict)
 
     def test_save_production_project_workspace_preserves_blueprint_context(self):
         project = ProductionProject.objects.create(
@@ -433,8 +436,33 @@ class LegacySimulationUnificationTests(TestCase):
         scoped_signature = project.workspace_state[
             PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_KEY
         ]
+        cached_payload = project.workspace_state[PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY]
+        self.assertEqual(cached_payload["materials_tree"][0]["type_id"], 34)
+        self.assertNotEqual(cached_payload["materials_tree"][0]["type_id"], 999999999)
         self.assertIn(34, scoped_signature["type_ids"])
         self.assertNotIn(999999999, scoped_signature["type_ids"])
+
+    def test_scoped_sde_signature_uses_cache_for_repeated_payload(self):
+        self._ensure_project_sde_rows()
+        cache.clear()
+        payload = {
+            "materials_tree": [
+                {
+                    "type_id": 603,
+                    "blueprint_type_id": 950,
+                    "sub_materials": [
+                        {"type_id": 34, "sub_materials": []},
+                    ],
+                }
+            ],
+        }
+
+        first_signature = get_project_workspace_scoped_sde_signature(payload)
+        with patch("indy_hub.services.production_projects._chunked_ids") as chunked_ids:
+            second_signature = get_project_workspace_scoped_sde_signature(payload)
+
+        chunked_ids.assert_not_called()
+        self.assertEqual(second_signature, first_signature)
 
     def test_scoped_sde_signature_falls_back_for_oversized_payload_scope(self):
         oversized_payload = {

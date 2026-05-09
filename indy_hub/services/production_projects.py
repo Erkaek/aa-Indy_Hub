@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 # Standard Library
+import hashlib
+import json
 import re
 from collections import OrderedDict
 from collections.abc import Iterable, Sequence
@@ -12,6 +14,7 @@ from math import ceil
 from time import perf_counter
 
 # Django
+from django.core.cache import cache
 from django.db import connection
 
 # Alliance Auth
@@ -72,6 +75,7 @@ PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_KEY = "cachedProjectScopedSdeSignature"
 PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_VERSION = 1
 PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_ID_LIMIT = 5000
 PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_QUERY_CHUNK_SIZE = 500
+PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_CACHE_TIMEOUT_SECONDS = 60 * 60 * 6
 LEGACY_SINGLE_BLUEPRINT_PROJECT_NOTE = (
     "Migrated from legacy single-blueprint craft flow."
 )
@@ -112,6 +116,26 @@ def _chunked_ids(values: Sequence[int], size: int) -> Iterable[list[int]]:
     chunk_size = max(1, int(size or 1))
     for index in range(0, len(values), chunk_size):
         yield list(values[index : index + chunk_size])
+
+
+def _project_workspace_scoped_sde_signature_cache_key(
+    *,
+    type_ids: Sequence[int],
+    blueprint_type_ids: Sequence[int],
+    global_signature: dict[str, object],
+) -> str:
+    cache_payload = json.dumps(
+        {
+            "version": PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_VERSION,
+            "type_ids": list(type_ids),
+            "blueprint_type_ids": list(blueprint_type_ids),
+            "global_signature": global_signature,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    digest = hashlib.sha256(cache_payload.encode("utf-8")).hexdigest()
+    return f"indy_hub:craft-project:scoped-sde-signature:{digest}"
 
 
 def _payload_uses_unpublished_blueprints(payload: dict[str, object] | None) -> bool:
@@ -278,6 +302,7 @@ def get_project_workspace_scoped_sde_signature(
 ) -> dict[str, object]:
     blueprint_type_ids = sorted(_collect_payload_blueprint_type_ids(payload))
     type_ids = sorted(_collect_payload_type_ids(payload) | set(blueprint_type_ids))
+    global_signature = get_project_workspace_sde_signature()
 
     if (
         len(type_ids) > PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_ID_LIMIT
@@ -288,8 +313,17 @@ def get_project_workspace_scoped_sde_signature(
             "scope": "global-fallback",
             "type_id_count": len(type_ids),
             "blueprint_type_id_count": len(blueprint_type_ids),
-            "global_signature": get_project_workspace_sde_signature(),
+            "global_signature": global_signature,
         }
+
+    cache_key = _project_workspace_scoped_sde_signature_cache_key(
+        type_ids=type_ids,
+        blueprint_type_ids=blueprint_type_ids,
+        global_signature=global_signature,
+    )
+    cached_signature = cache.get(cache_key)
+    if isinstance(cached_signature, dict):
+        return cached_signature
 
     signature: dict[str, object] = {
         "version": PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_VERSION,
@@ -333,6 +367,11 @@ def get_project_workspace_scoped_sde_signature(
         ]
 
     if not blueprint_type_ids:
+        cache.set(
+            cache_key,
+            signature,
+            PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_CACHE_TIMEOUT_SECONDS,
+        )
         return signature
 
     product_rows = []
@@ -458,6 +497,11 @@ def get_project_workspace_scoped_sde_signature(
         )
     ]
 
+    cache.set(
+        cache_key,
+        signature,
+        PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_CACHE_TIMEOUT_SECONDS,
+    )
     return signature
 
 
