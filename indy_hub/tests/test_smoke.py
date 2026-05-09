@@ -478,6 +478,7 @@ class NavbarMaterialExchangeMyOrdersTests(TestCase):
         self.assertContains(response, "updateIndyHubHeaderOffset")
         self.assertContains(response, "element.style.setProperty('margin-top'")
         self.assertContains(response, "indy-hub-navbar-brand")
+        self.assertNotContains(response, "text-white text-decoration-none fw-semibold")
         self.assertNotContains(
             response,
             '<a href="/indy_hub/" class="nav-link flex-fill align-self-center me-auto active">',
