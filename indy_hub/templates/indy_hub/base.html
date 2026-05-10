@@ -5,12 +5,29 @@
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'indy_hub/css/dark-mode-adaptive.css' %}">
 <style>
-    /* Active state for Indy Hub nav brand */
-    .nav-link.me-auto.active {
-        color: var(--bs-primary) !important;
-        font-weight: 600;
-        border-bottom: 3px solid var(--bs-primary);
-        padding-bottom: calc(0.375rem - 3px) !important;
+    :root {
+        --indy-hub-header-height: 58px;
+        --aa-nav-gap: var(--indy-hub-header-height);
+    }
+
+    .nav-padding {
+        margin-top: var(--indy-hub-header-height) !important;
+        max-height: calc(100vh - var(--indy-hub-header-height)) !important;
+    }
+
+    .indy-hub-navbar-brand {
+        color: var(--bs-navbar-brand-color, rgba(255, 255, 255, 0.9));
+        display: inline-flex;
+        align-items: center;
+        min-width: max-content;
+        text-decoration: none;
+        white-space: nowrap;
+    }
+
+    .indy-hub-navbar-brand:hover,
+    .indy-hub-navbar-brand:focus {
+        color: var(--bs-navbar-brand-hover-color, #fff);
+        text-decoration: none;
     }
 
     .indy-hub-nav-badge {
@@ -70,10 +87,47 @@
     </script>
 {% endblock extra_javascript %}
 
+{% block extra_script %}
+    {{ block.super }}
+    (function () {
+        function updateIndyHubHeaderOffset() {
+            var navbar = document.querySelector('body > nav.navbar.fixed-top');
+            if (!navbar) {
+                return;
+            }
+
+            var headerHeight = Math.ceil(navbar.getBoundingClientRect().height);
+            var headerOffset = headerHeight + 'px';
+            document.documentElement.style.setProperty('--indy-hub-header-height', headerOffset);
+            document.documentElement.style.setProperty('--aa-nav-gap', headerOffset);
+            document.querySelectorAll('.nav-padding').forEach(function (element) {
+                element.style.setProperty('margin-top', headerOffset, 'important');
+                element.style.setProperty('max-height', 'calc(100vh - ' + headerOffset + ')', 'important');
+            });
+        }
+
+        window.updateIndyHubHeaderOffset = updateIndyHubHeaderOffset;
+        document.addEventListener('DOMContentLoaded', updateIndyHubHeaderOffset);
+        window.addEventListener('resize', updateIndyHubHeaderOffset);
+
+        document.addEventListener('shown.bs.collapse', updateIndyHubHeaderOffset);
+        document.addEventListener('hidden.bs.collapse', updateIndyHubHeaderOffset);
+
+        if ('ResizeObserver' in window) {
+            document.addEventListener('DOMContentLoaded', function () {
+                var navbar = document.querySelector('body > nav.navbar.fixed-top');
+                if (navbar) {
+                    new ResizeObserver(updateIndyHubHeaderOffset).observe(navbar);
+                }
+            });
+        }
+    }());
+{% endblock extra_script %}
+
 {% block header_nav_brand %}
     {% block indy_hub_nav_brand %}
-        <a href="{% url 'indy_hub:index' %}" class="nav-link flex-fill align-self-center me-auto active">
-            <span class="fw-semibold">{% trans "Indy Hub" %}</span>
+        <a href="{% url 'indy_hub:index' %}" class="indy-hub-navbar-brand d-inline-flex align-items-center text-nowrap text-decoration-none fw-semibold">
+            {% trans "Indy Hub" %}
         </a>
     {% endblock %}
 {% endblock header_nav_brand %}
