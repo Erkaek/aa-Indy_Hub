@@ -42,11 +42,11 @@ ______________________________________________________________________
 
 ## Requirements
 
-- **Alliance Auth v4+**
-- **Python 3.10+**
-- **Django** (as required by AA)
+- **Alliance Auth v4.x** or **v5.x**
+- **Python 3.10+** for AA4; **Python 3.12+** recommended for AA5
+- **Django 4.2 or 5.2** (as required by your Alliance Auth version)
 - **Alliance Auth AppUtils**
-- **django-esi** (OpenAPI client, >=8)
+- **django-esi 8.x or 9.x** (as required by your Alliance Auth version)
 - **django-eveonline-sde** (base SDE data)
 - **Celery** (for background sync and notifications)
 - *(Optional)* Director characters for corporate dashboards
@@ -127,7 +127,7 @@ If omitted, Indy Hub automatically reuses the default folder used by `eve_sde`.
 Add to your `conf/requirements.txt` (Always use current versions)
 
 ```text
-django-eveonline-sde==0.0.1b3
+django-eveonline-sde>=0.0.1b9
 indy-hub==1.17.0
 ```
 
