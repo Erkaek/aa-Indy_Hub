@@ -3,6 +3,7 @@
 # Standard Library
 from datetime import timedelta
 from decimal import Decimal
+from html.parser import HTMLParser
 from unittest import skip
 from unittest.mock import patch
 
@@ -64,6 +65,31 @@ from indy_hub.utils.eve import get_type_name, reset_forbidden_structure_lookup_c
 from indy_hub.utils.menu_badge import compute_menu_badge_count, menu_badge_cache_key
 
 PUBLIC_STATION_ID = 60003760
+
+
+class AnchorCollector(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.anchors: list[tuple[dict[str, str], str]] = []
+        self._active_attrs: dict[str, str] | None = None
+        self._active_text: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "a" and self._active_attrs is None:
+            self._active_attrs = {key: value or "" for key, value in attrs}
+            self._active_text = []
+
+    def handle_data(self, data: str) -> None:
+        if self._active_attrs is not None:
+            self._active_text.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "a" and self._active_attrs is not None:
+            self.anchors.append(
+                (self._active_attrs, "".join(self._active_text).strip())
+            )
+            self._active_attrs = None
+            self._active_text = []
 
 
 def ensure_base_eve_sde_loaded() -> None:
@@ -478,8 +504,19 @@ class NavbarMaterialExchangeMyOrdersTests(TestCase):
         self.assertContains(response, "--aa-nav-gap")
         self.assertContains(response, "updateIndyHubHeaderOffset")
         self.assertContains(response, "element.style.setProperty('margin-top'")
-        self.assertContains(response, "indy-hub-navbar-brand")
-        self.assertNotContains(response, "text-white text-decoration-none fw-semibold")
+
+        parser = AnchorCollector()
+        parser.feed(response.content.decode(response.charset or "utf-8"))
+        brand_classes = [
+            attrs.get("class", "")
+            for attrs, text in parser.anchors
+            if attrs.get("href") == reverse("indy_hub:index")
+            and text == "Indy Hub"
+            and "indy-hub-navbar-brand" in attrs.get("class", "").split()
+        ]
+        self.assertEqual(len(brand_classes), 1)
+        self.assertIn("indy-hub-navbar-brand", brand_classes[0].split())
+        self.assertNotIn("text-white", brand_classes[0].split())
         self.assertNotContains(
             response,
             '<a href="/indy_hub/" class="nav-link flex-fill align-self-center me-auto active">',
