@@ -45,9 +45,8 @@ ______________________________________________________________________
 - **Alliance Auth v4.x** or **v5.x**
 - **Python 3.10+** for AA4; **Python 3.12+** recommended for AA5
 - **Django 4.2 or 5.2** (as required by your Alliance Auth version)
-- **Alliance Auth AppUtils**
 - **django-esi 8.x or 9.x** (as required by your Alliance Auth version)
-- **django-eveonline-sde** (base SDE data)
+- **django-eveonline-sde 0.0.1b9+** (base SDE data)
 - **Celery** (for background sync and notifications)
 - *(Optional)* Director characters for corporate dashboards
 - *(Optional)* [`aa-charlink`](https://apps.allianceauth.org/apps/detail/aa-charlink) to let users authorize Indy Hub scopes through CharLink
@@ -61,6 +60,17 @@ ______________________________________________________________________
 
 ```text
 pip install django-eveonline-sde indy-hub
+```
+
+On an existing Alliance Auth instance, keep Alliance Auth, Django, django-esi,
+and django-eveonline-sde controlled by your Auth stack requirements. Indy Hub's
+package metadata intentionally does not install or upgrade those packages.
+
+When installing Indy Hub directly from Git on an existing production instance,
+use `--no-deps` so pip cannot recalculate the Alliance Auth dependency tree:
+
+```text
+pip install --no-deps --force-reinstall "git+https://github.com/Erkaek/aa-Indy_Hub@main#egg=indy_hub"
 ```
 
 Add to your `local.py`:
@@ -107,6 +117,19 @@ pip install django-eveonline-sde indy-hub
 exit
 ```
 
+On an existing Alliance Auth container, keep Alliance Auth, Django, django-esi,
+and django-eveonline-sde controlled by your Auth stack requirements. Indy Hub's
+package metadata intentionally does not install or upgrade those packages.
+
+When installing Indy Hub directly from Git on an existing production container,
+use `--no-deps` so Alliance Auth stays on its current major version:
+
+```text
+docker compose exec allianceauth_gunicorn bash
+pip install --no-deps --force-reinstall "git+https://github.com/Erkaek/aa-Indy_Hub@main#egg=indy_hub"
+exit
+```
+
 Add to your `conf/local.py`:
 
 ```python
@@ -127,7 +150,6 @@ If omitted, Indy Hub automatically reuses the default folder used by `eve_sde`.
 Add to your `conf/requirements.txt` (Always use current versions)
 
 ```text
-django-eveonline-sde>=0.0.1b9
 indy-hub==1.17.0
 ```
 

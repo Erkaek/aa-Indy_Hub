@@ -16,10 +16,6 @@ from django.utils.translation import gettext_lazy as _
 from allianceauth.notifications.models import Notification
 from allianceauth.services.hooks import get_extension_logger
 
-# Alliance Auth (External Libs)
-# AppUtils
-from app_utils.urls import site_absolute_url
-
 # AA Example App
 # Indy Hub
 from indy_hub.app_settings import DISCORD_DM_ENABLED as DM_ENABLED
@@ -59,8 +55,6 @@ def build_site_url(path: str | None) -> str | None:
         return path
 
     base_url = SITE_URL or getattr(settings, "SITE_URL", "")
-    if not base_url:
-        base_url = site_absolute_url()
     if not base_url:
         origins = list(getattr(settings, "CSRF_TRUSTED_ORIGINS", []) or [])
         base_url = next(

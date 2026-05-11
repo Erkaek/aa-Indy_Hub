@@ -21,7 +21,7 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 ### Changed
 
-- Packaging: widened supported version ranges to `allianceauth>=4.6,<6` and `django-esi>=8,<10`, and added the `Framework :: Django :: 5.2` classifier so the package advertises its Alliance Auth 5 compatibility.
+- Packaging: removed Alliance Auth, AppUtils, django-esi, and django-eveonline-sde from Indy Hub's default dependency resolver so installing or reinstalling Indy Hub cannot upgrade an existing Alliance Auth v4 instance to v5 through transitive dependency resolution. AA4/AA5 stack requirements remain documented, and optional `aa4` / `aa5` extras are available only when an operator explicitly wants pip to resolve a full stack.
 - Internals: replaced removed Django 5 timezone helpers (`django.utils.timezone.utc`) with `datetime.timezone.utc` across industry tasks, job notifications, and Material Exchange flows so the same code path runs on Django 4.2 and Django 5.2.
 - Migrations: added schema-alignment migrations (`0098`, `0099`) that normalize corporation sharing scope choices and rename a few indexes, eliminating Django `makemigrations` drift on both Django 4.2 and Django 5.2.
 - Crafting Projects: the project *Blueprints* tab now organises blueprint cards into one accordion section per product category (Battlecruiser, Battleship, Combat Drone, Module, Charge, …), sorted alphabetically. Cards whose product has no resolved category land in a single "Other" group rendered last. Mixed projects are much easier to scan than the single flat "Project blueprints" list.

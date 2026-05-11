@@ -1,12 +1,31 @@
-"""App settings for indy_hub using AppUtils clean_setting."""
+"""App settings for indy_hub."""
 
 from __future__ import annotations
 
-# Alliance Auth (External Libs)
-from app_utils.app_settings import clean_setting
+# Django
+from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 
 # AA Example App
 from indy_hub import __esi_compatibility_date__
+
+
+def clean_setting(
+    name: str,
+    default,
+    *,
+    required_type: type | tuple[type, ...] | None = None,
+    min_value=None,
+):
+    value = getattr(settings, name, default)
+    if required_type is not None and not isinstance(value, required_type):
+        raise ImproperlyConfigured(
+            f"{name} must be of type {getattr(required_type, '__name__', required_type)}"
+        )
+    if min_value is not None and value < min_value:
+        raise ImproperlyConfigured(f"{name} must be at least {min_value}")
+    return value
+
 
 DISCORD_DM_ENABLED = clean_setting(
     "INDY_HUB_DISCORD_DM_ENABLED",

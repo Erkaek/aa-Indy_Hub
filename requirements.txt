@@ -1,7 +1,3 @@
-allianceauth>=4.6,<6
-allianceauth-app-utils>=1.0
-django-esi>=8,<10
-django-eveonline-sde>=0.0.1b3
 requests>=2.31
 
 # Optional Discord DM providers (aadiscordbot preferred):
