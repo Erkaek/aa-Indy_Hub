@@ -14,7 +14,9 @@ insert_final_newline = true
 indent_size = 2
 
 [*.md]
-indent_size = 2
+# mdformat controls indentation; allow any (ordered lists use 3-space continuation)
+indent_size = unset
+indent_style = unset
 
 # Makefiles always use tabs for indentation
 [Makefile]
