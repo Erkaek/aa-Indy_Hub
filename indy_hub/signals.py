@@ -273,6 +273,21 @@ def invalidate_blueprint_copy_menu_badges(sender, instance, **kwargs):
     _invalidate_blueprint_copy_badges(instance)
 
 
+# --- Invalidate menu badge whenever an ESI token is added/removed/refreshed ---
+
+if Token is not None:
+
+    @receiver(post_save, sender=Token)
+    @receiver(post_delete, sender=Token)
+    def _invalidate_menu_badge_on_token_change(sender, instance, **kwargs):
+        """Refresh the Indy Hub navbar badge as soon as a user (re)links a character.
+
+        Without this, the AA-side badge would keep its 45s cached value even
+        after the user re-authorizes the missing scopes, which is misleading.
+        """
+        invalidate_menu_badge_cache(getattr(instance, "user_id", None))
+
+
 # --- Auto stock/price sync when MaterialExchangeConfig changes ---
 
 

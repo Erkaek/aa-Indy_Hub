@@ -224,7 +224,24 @@
         {% endif %}
         {% if esi_nav_url %}
             {% translate "ESI" as esi_tab_title %}
-            {% include "framework/header/nav-collapse-button.html" with btn_class=esi_nav_class url=esi_nav_url title=esi_tab_title fa_icon="fa-solid fa-key" icon_on_mobile=True icon_on_desktop=True %}
+            <li class="nav-item">
+                <a href="{{ esi_nav_url }}" class="nav-link py-lg-0 {{ esi_nav_class }}">
+                    <span class="btn btn-primary d-none d-lg-inline-block">
+                        <i class="fa-solid fa-key me-2"></i>
+                        {{ esi_tab_title }}
+                        {% if esi_nav_badge_count %}
+                            <span class="badge rounded-pill indy-hub-nav-badge bg-danger-subtle text-danger ms-1" data-nav-badge="esi-missing-scopes">{{ esi_nav_badge_count }}</span>
+                        {% endif %}
+                    </span>
+                    <span class="d-inline-block d-lg-none">
+                        <i class="fa-solid fa-key fa-fw me-2"></i>
+                        {{ esi_tab_title }}
+                        {% if esi_nav_badge_count %}
+                            <span class="badge rounded-pill indy-hub-nav-badge bg-danger-subtle text-danger ms-1" data-nav-badge="esi-missing-scopes-mobile">{{ esi_nav_badge_count }}</span>
+                        {% endif %}
+                    </span>
+                </a>
+            </li>
         {% endif %}
         {% if settings_nav_url %}
             {% translate "Settings" as settings_tab_title %}

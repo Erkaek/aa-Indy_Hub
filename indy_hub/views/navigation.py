@@ -214,6 +214,15 @@ def build_nav_context(
         if material_hub_nav_url:
             context.update(_build_material_hub_badges())
 
+        try:
+            from ..utils.menu_badge import count_characters_missing_scopes
+
+            esi_missing = int(count_characters_missing_scopes(int(user.id)))
+        except Exception:
+            esi_missing = 0
+        context["esi_nav_badge_count"] = esi_missing
+        context["esi_nav_badge_class"] = "bg-warning-subtle text-warning"
+
     if active_tab:
         context["active_tab"] = active_tab
 
