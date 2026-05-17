@@ -87,6 +87,7 @@ FORCED_INCLUDED_ITEMGROUP_IDS: set[int] = {
     448,
     14,
     12,
+    711,
     4168,
     4079,
     649,
