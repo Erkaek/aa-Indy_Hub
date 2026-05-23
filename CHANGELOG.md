@@ -9,6 +9,8 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 ## [Unreleased]
 
+## [1.17.0] - 2026-05-23
+
 ### Added
 
 - Compatibility: official support for Alliance Auth 5 (Django 5.2 / django-esi 9) alongside Alliance Auth 4 (Django 4.2 / django-esi 8). The same Indy Hub release now installs and runs unchanged on both stacks.
@@ -19,6 +21,7 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 - Blueprint Sharing: added a copy-installation cost breakdown modal to the fulfill queue, including EIV-derived install cost, structure and rig bonuses, SCI, facility/SCC taxes, and Alpha clone tax rows.
 - Industry Structures: added a structure scan importer to the Add / Edit Structure form. Pasting an EVE structure scan now applies supported Service Slots to the activity toggles and fills matching Rig Slots while ignoring combat fitting sections (issue #77).
 - Navigation: the Indy Hub menu badge now also surfaces characters that are linked to Indy Hub but missing at least one required personal ESI scope (blueprints, jobs, structures, skills, assets, online). The badge increments by one per affected character, so a pilot with 4 linked characters and 3 incomplete scope sets sees `3` next to *Indy Hub* in the Alliance Auth navbar — pointing the user to Token Management to re-link the affected characters (e.g. for the new `esi-location.read_online.v1` scope introduced in this release). The same count is mirrored as a warning-coloured badge on the *ESI* tab inside Indy Hub for users already inside the module.
+- Material Exchange: included the *Harvestable Cloud* market group (711) in the allowed item groups so gas clouds can be traded through Material Exchange (PR #98, thanks @frewsxcv).
 
 ### Changed
 
