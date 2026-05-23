@@ -13,8 +13,7 @@ Docker equivalent: prefix commands with `docker compose exec allianceauth_gunico
 (or `bash -c "…"` when chaining with `pip`).
 
 > Indy Hub 1.17 supports **both Alliance Auth 4 and 5** from the same package.
-> `pip install --upgrade indy-hub` does **not** declare `allianceauth`, `django-esi` or `django-eveonline-sde` as runtime dependencies anymore, so an AA4 install stays on AA4 and an AA5 install stays on AA5.
-> The `[aa4]` / `[aa5]` extras only exist for **fresh installs** where pip needs to resolve a full stack — never use them on an existing deployment.
+> `pip install --upgrade indy-hub` does **not** declare `allianceauth`, `django-esi` or `django-eveonline-sde` as runtime dependencies, so an AA4 install stays on AA4 and an AA5 install stays on AA5 — install / upgrade Alliance Auth itself with its own command.
 
 ______________________________________________________________________
 

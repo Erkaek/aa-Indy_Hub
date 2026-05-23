@@ -46,17 +46,6 @@ dependencies = [
     "requests>=2.31",
 ]
 
-optional-dependencies.aa4 = [
-    "allianceauth>=4.6,<5",
-    "django-esi>=8,<9",
-    "django-eveonline-sde>=0.0.1b9",
-]
-optional-dependencies.aa5 = [
-    "allianceauth>=5,<6",
-    "django-esi>=9,<10",
-    "django-eveonline-sde>=0.0.1b9",
-]
-
 optional-dependencies.aadiscordbot = [
     "aadiscordbot",
 ]
