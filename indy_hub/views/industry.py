@@ -6298,9 +6298,7 @@ def production_simulations_list(request):
         project.progress_json_id = f"project-progress-{project.project_ref}"
         # Determine the hero icon for the project card.
         selected_items = [
-            item
-            for item in project.items.all()
-            if item.is_selected and item.type_id
+            item for item in project.items.all() if item.is_selected and item.type_id
         ]
         produce_items = [
             item
@@ -6343,9 +6341,7 @@ def production_simulations_list(request):
         if isinstance(ws_state, dict):
             plan_prod = int(ws_state.get("total_prod_items") or 0)
             plan_buy = int(ws_state.get("total_buy_items") or 0)
-            plan_total = int(ws_state.get("total_items") or 0) or (
-                plan_prod + plan_buy
-            )
+            plan_total = int(ws_state.get("total_items") or 0) or (plan_prod + plan_buy)
         else:
             plan_prod = plan_buy = plan_total = 0
         project.plan_prod_lines = plan_prod

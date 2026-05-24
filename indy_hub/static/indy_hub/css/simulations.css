@@ -1209,8 +1209,8 @@ html[data-theme="darkly"] [class*="subtle"] {
 
 
 /* ==========================================================================
-   Production registry (engineering ledger)
-   ========================================================================== */
+    Production registry (engineering ledger)
+    ========================================================================== */
 
 .projects-registry {
     --reg-border: rgb(148 163 184 / 22%);

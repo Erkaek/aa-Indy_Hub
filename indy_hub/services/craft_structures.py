@@ -861,9 +861,7 @@ def build_craft_structure_planner(
                         structure_material_bonus_percent
                     ),
                     "structure_time_bonus_percent": float(structure_time_bonus_percent),
-                    "bonus_breakdowns": _serialize_bonus_breakdown(
-                        applicable_bonuses
-                    ),
+                    "bonus_breakdowns": _serialize_bonus_breakdown(applicable_bonuses),
                     "tax_percent": float(tax_percent),
                     "system_cost_index_percent": float(system_cost_index_percent),
                     "adjusted_job_cost_percent": float(

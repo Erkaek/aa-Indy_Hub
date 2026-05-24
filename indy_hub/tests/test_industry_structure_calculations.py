@@ -239,6 +239,7 @@ class IndustryStructureCalculationTests(TestCase):
         # rigadvmedship* dogma effects, which must resolve to ships_medium so that
         # T2/T3 cruisers (Strategic Cruiser, Heavy Assault Cruiser, …) benefit from
         # the rig's material and time bonuses.
+        # AA Example App
         from indy_hub.services.industry_structures import (
             _supported_type_family_from_effect_name,
         )
@@ -262,6 +263,7 @@ class IndustryStructureCalculationTests(TestCase):
         self.assertIn("Strategic Cruiser", supported_types)
 
     def test_advanced_small_and_large_ship_rig_effects_resolve_correctly(self) -> None:
+        # AA Example App
         from indy_hub.services.industry_structures import (
             _supported_type_family_from_effect_name,
         )

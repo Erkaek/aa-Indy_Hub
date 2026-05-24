@@ -1054,9 +1054,7 @@ def _extract_workspace_structure_assignments(
             continue
         try:
             type_id = int(
-                raw_assignment.get("typeId")
-                or raw_assignment.get("type_id")
-                or 0
+                raw_assignment.get("typeId") or raw_assignment.get("type_id") or 0
             )
             structure_id = int(
                 raw_assignment.get("structureId")
@@ -1845,13 +1843,9 @@ def build_project_workspace_payload(
         ):
             numeric_type_id = product_type_id_from_row
             market_group = get_market_group_info(numeric_type_id)
-            sde_type_name = str(
-                type_name_cache.get(numeric_type_id or 0) or ""
-            ).strip()
+            sde_type_name = str(type_name_cache.get(numeric_type_id or 0) or "").strip()
             display_type_name = sde_type_name or str(type_name or "").strip()
-        resolved_product_type_id = int(
-            numeric_type_id or product_type_id_from_row or 0
-        )
+        resolved_product_type_id = int(numeric_type_id or product_type_id_from_row or 0)
         resolved_product_type_name = str(
             product_row.get("product_type_name")
             or type_name_cache.get(resolved_product_type_id)
