@@ -10,9 +10,11 @@ from .views.api import (
     menu_badge_count,
     production_project_import_preview,
     production_project_payload,
+    rename_production_project,
     save_production_config,
     save_production_project_progress,
     save_production_project_workspace,
+    set_production_project_status,
 )
 from .views.hubs import (
     settings_hub,
@@ -291,6 +293,16 @@ urlpatterns = [
         r"^api/production-projects/(?P<project_ref>[0-9A-Za-z]{10})/save-workspace/$",
         save_production_project_workspace,
         name="save_production_project_workspace",
+    ),
+    re_path(
+        r"^api/production-projects/(?P<project_ref>[0-9A-Za-z]{10})/rename/$",
+        rename_production_project,
+        name="rename_production_project",
+    ),
+    re_path(
+        r"^api/production-projects/(?P<project_ref>[0-9A-Za-z]{10})/status/$",
+        set_production_project_status,
+        name="set_production_project_status",
     ),
     re_path(
         r"^api/production-projects/(?P<project_ref>[0-9A-Za-z]{10})/save-progress/$",

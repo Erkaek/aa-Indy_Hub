@@ -2,10 +2,13 @@
 <div class="page-header mb-4">
     <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
         <div>
-            <h2 class="h3 mb-1">
-                {% if icon_class %}<i class="{{ icon_class }} me-2"></i>{% endif %}
-                {{ title|default:_("Untitled") }}
-            </h2>
+            <div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
+                <h2 class="h3 mb-0">
+                    {% if icon_class %}<i class="{{ icon_class }} me-2"></i>{% endif %}
+                    <span class="page-header-title-text">{{ title|default:_("Untitled") }}</span>
+                </h2>
+                {% if title_action_template %}{% include title_action_template %}{% endif %}
+            </div>
             {% if subtitle %}
                 <p class="description">{{ subtitle }}</p>
             {% endif %}

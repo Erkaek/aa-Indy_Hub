@@ -728,6 +728,12 @@ html[data-theme="darkly"] #financial-tab.blueprint-tab.active .tab-icon {
     min-width: 280px;
 }
 
+.craft-structure-metric {
+    cursor: help;
+    text-decoration: underline dotted;
+    text-underline-offset: 0.16em;
+}
+
 .craft-structure-financial-summary {
     border: 1px solid rgba(15, 118, 110, 0.12);
     border-radius: 1rem;
@@ -2345,39 +2351,173 @@ html[data-theme="darkly"] .craft-header-icon {
 
 /* ========== FINANCIAL HERO ========== */
 .craft-financial-hero {
-    background: var(--bs-body-bg);
-    border: 1px solid var(--bs-border-color);
-    border-radius: 0.75rem;
-    padding: 1.25rem;
-    color: var(--bs-body-color);
-}
-
-.craft-financial-hero .craft-kpi-row {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 0.75rem;
-}
-
-.craft-financial-hero .craft-kpi {
     background: var(--bs-secondary-bg);
     border: 1px solid var(--bs-border-color);
     border-radius: 0.5rem;
-    padding: 1rem;
-    text-align: center;
+    padding: 0.9rem 1rem;
+    color: var(--bs-body-color);
 }
 
-.craft-financial-hero .craft-kpi-label {
-    color: var(--bs-secondary);
-    font-size: 0.75rem;
+.craft-buy-summary {
+    display: grid;
+    gap: 0.85rem;
+    min-width: 0;
+}
+
+.craft-financial-label {
+    color: var(--bs-secondary-color);
+    font-size: 0.68rem;
     font-weight: 700;
     text-transform: uppercase;
-    margin-bottom: 0.5rem;
+    letter-spacing: 0.04em;
 }
 
-.craft-financial-hero .craft-kpi-value {
-    color: var(--bs-body-color);
-    font-size: 1.5rem;
+.craft-buy-equation {
+    display: grid;
+    grid-template-columns: minmax(190px, 1fr) auto minmax(190px, 1fr) auto minmax(190px, 1fr) minmax(110px, 0.55fr);
+    gap: 0.55rem;
+    align-items: stretch;
+    min-width: 0;
+}
+
+.craft-buy-equation-item {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.25rem;
+    min-width: 0;
+    padding: 0.15rem 0.65rem 0.15rem 0;
+}
+
+.craft-buy-equation-item--margin {
+    padding-right: 0;
+}
+
+.craft-buy-equation-symbol {
+    align-self: center;
+    color: var(--bs-tertiary-color, var(--bs-secondary-color));
+    font-size: 1.05rem;
     font-weight: 700;
+}
+
+.craft-buy-equation-value {
+    color: var(--bs-body-color);
+    font-size: 1.45rem;
+    font-weight: 700;
+    line-height: 1.15;
+    overflow-wrap: anywhere;
+}
+
+.craft-buy-cost-details {
+    padding-top: 0.72rem;
+    border-top: 1px solid var(--bs-border-color);
+}
+
+.craft-buy-cost-details-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 0.3rem;
+    color: var(--bs-secondary-color);
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.craft-buy-cost-grid {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.55rem;
+    min-width: 0;
+}
+
+.craft-buy-cost-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.18rem;
+    min-width: 0;
+    padding: 0.45rem 0.55rem;
+    border-radius: 0.4rem;
+    background: var(--bs-body-bg);
+    border: 1px solid var(--bs-border-color);
+}
+
+.craft-buy-cost-row span {
+    color: var(--bs-secondary-color);
+    font-size: 0.7rem;
+    white-space: nowrap;
+}
+
+.craft-buy-cost-row strong {
+    color: var(--bs-body-color);
+    font-size: 0.82rem;
+    font-weight: 700;
+    line-height: 1.15;
+    overflow-wrap: anywhere;
+}
+
+.craft-buy-cost-row--total span,
+.craft-buy-cost-row--total strong {
+    color: var(--bs-body-color);
+}
+
+.craft-buy-surplus {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.45rem;
+    margin-top: 0.15rem;
+    color: var(--bs-secondary-color);
+    font-size: 0.72rem;
+}
+
+.craft-buy-surplus strong {
+    font-size: 0.78rem;
+    overflow-wrap: anywhere;
+}
+
+.craft-financial-details-action {
+    align-self: flex-start;
+    margin-top: 0.05rem;
+    color: var(--bs-primary);
+    font-weight: 600;
+    padding-block: 0.25rem;
+    padding-inline: 0;
+    text-decoration: none;
+}
+
+.craft-financial-details-action:hover,
+.craft-financial-details-action:focus {
+    color: var(--bs-link-hover-color, var(--bs-primary));
+    text-decoration: underline;
+}
+
+.craft-financial-margin-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 1.55rem;
+    padding: 0.1rem 0.45rem;
+    border-radius: 999px;
+    font-size: 1.2rem;
+    font-weight: 700;
+    line-height: 1.15;
+}
+
+@media (max-width: 1199.98px) {
+    .craft-buy-equation {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .craft-buy-equation-symbol {
+        display: none;
+    }
+
+    .craft-buy-cost-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
 }
 
 /* ========== BULK ACTIONS ========== */
@@ -2574,16 +2714,27 @@ html[data-theme="darkly"] .craft-header-icon {
     }
 
     .craft-financial-hero {
-        padding: 1.5rem;
+        padding: 0.75rem;
     }
 
-    .craft-financial-hero .craft-kpi-row {
-        grid-template-columns: repeat(2, 1fr);
-        gap: 1rem;
+    .craft-buy-summary {
+        gap: 0.75rem;
     }
 
-    .craft-financial-hero .craft-kpi {
-        padding: 1rem;
+    .craft-buy-equation {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .craft-buy-equation-value {
+        font-size: 1.3rem;
+    }
+
+    .craft-financial-margin-badge {
+        font-size: 1.05rem;
+    }
+
+    .craft-buy-cost-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
     .craft-decision-controls {
@@ -2601,10 +2752,6 @@ html[data-theme="darkly"] .craft-header-icon {
 
     .craft-stock-kpis {
         grid-template-columns: repeat(2, 1fr);
-    }
-
-    .craft-financial-hero .craft-kpi-value {
-        font-size: 1.25rem;
     }
 
     .craft-financial-toolbar {
@@ -2631,8 +2778,13 @@ html[data-theme="darkly"] .craft-header-icon {
         grid-template-columns: 1fr;
     }
 
-    .craft-financial-hero .craft-kpi-row {
+    .craft-buy-equation,
+    .craft-buy-cost-grid {
         grid-template-columns: 1fr;
+    }
+
+    .craft-buy-equation-item {
+        padding-right: 0;
     }
 }
 

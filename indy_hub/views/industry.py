@@ -25,7 +25,7 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
-from django.utils.html import mark_safe
+from django.utils.html import escape, mark_safe
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.translation import gettext_lazy as _
 from django.views.decorators.http import require_http_methods
@@ -62,6 +62,7 @@ from ..models import (
     NotificationWebhook,
     NotificationWebhookMessage,
     ProductionProject,
+    ProductionProjectItem,
     SDEBlueprintActivity,
     SDEBlueprintActivityMaterial,
     SDEBlueprintActivityProduct,
@@ -144,6 +145,7 @@ from ..utils.discord_actions import (
 )
 from ..utils.eve import (
     PLACEHOLDER_PREFIX,
+    get_blueprint_product_type_id,
     get_character_name,
     get_corporation_name,
     get_corporation_ticker,
@@ -2681,18 +2683,53 @@ def craft_project(request, project_ref):
     total_requested_quantity = sum(
         max(0, int(output.get("quantity") or 0)) for output in final_outputs
     )
+    status_url = reverse(
+        "indy_hub:set_production_project_status", args=[project.project_ref]
+    )
+    status_icon_map = {
+        ProductionProject.Status.DRAFT: "fas fa-clock",
+        ProductionProject.Status.SAVED: "fas fa-bookmark",
+        ProductionProject.Status.ARCHIVED: "fas fa-box-archive",
+    }
+    current_status = project.status
+    current_status_icon = status_icon_map.get(current_status, "fas fa-circle")
+    current_status_label = escape(project.get_status_display())
+    status_options_html = "".join(
+        [
+            (
+                '<li><button type="button" class="dropdown-item project-status-option'
+                f'{ " active" if value == current_status else "" }"'
+                f' data-status="{escape(value)}">'
+                f'<i class="{status_icon_map.get(value, "fas fa-circle")} me-2"></i>'
+                f"{escape(str(label))}"
+                "</button></li>"
+            )
+            for value, label in ProductionProject.Status.choices
+        ]
+    )
     craft_header_controls = mark_safe(
         "".join(
             [
                 '<button id="saveSimulationBtn" class="btn btn-light btn-sm" type="button">',
                 '<i class="fas fa-save me-1"></i>',
-                str(_("Save table")),
+                escape(str(_("Save table"))),
                 "</button>",
-                '<span class="badge bg-primary-subtle text-primary">',
-                f"{project.get_status_display()}",
-                "</span>",
+                '<div class="dropdown d-inline-block project-status-dropdown"'
+                f' data-status-url="{escape(status_url)}"'
+                f' data-current-status="{escape(current_status)}">',
+                '<button type="button"'
+                ' class="btn btn-sm btn-outline-light dropdown-toggle project-status-toggle"'
+                ' data-bs-toggle="dropdown" aria-expanded="false"'
+                f' title="{escape(str(_("Change project status")))}">',
+                f'<i class="{current_status_icon} me-1 project-status-icon"></i>',
+                f'<span class="project-status-label">{current_status_label}</span>',
+                "</button>",
+                '<ul class="dropdown-menu dropdown-menu-end">',
+                status_options_html,
+                "</ul>",
+                "</div>",
                 '<span class="badge bg-light text-dark border">',
-                f"{project.get_source_kind_display()}",
+                f"{escape(project.get_source_kind_display())}",
                 "</span>",
             ]
         )
@@ -6259,6 +6296,62 @@ def production_simulations_list(request):
             project, (project.summary or {}).get("item_progress")
         )
         project.progress_json_id = f"project-progress-{project.project_ref}"
+        # Determine the hero icon for the project card.
+        selected_items = [
+            item
+            for item in project.items.all()
+            if item.is_selected and item.type_id
+        ]
+        produce_items = [
+            item
+            for item in selected_items
+            if item.inclusion_mode == ProductionProjectItem.InclusionMode.PRODUCE
+        ]
+        hero_pool = produce_items or selected_items
+        hero_item = None
+        if len(hero_pool) == 1:
+            hero_item = hero_pool[0]
+        else:
+            hero_item = next(
+                (item for item in hero_pool if item.category_key == "hull"),
+                None,
+            )
+        if hero_item is not None:
+            hero_type_id = int(hero_item.type_id)
+            hero_name = hero_item.type_name or ""
+            # Resolve blueprints to their manufactured product so the icon
+            # shows the actual item being produced, not the blueprint itself.
+            product_type_id = get_blueprint_product_type_id(hero_type_id)
+            if product_type_id and int(product_type_id) != hero_type_id:
+                hero_type_id = int(product_type_id)
+                product_name = get_type_name(hero_type_id)
+                if product_name:
+                    hero_name = product_name
+            project.display_icon_type_id = hero_type_id
+            project.display_icon_alt = hero_name
+            project.display_icon_is_multi = False
+        else:
+            project.display_icon_type_id = None
+            project.display_icon_alt = ""
+            project.display_icon_is_multi = bool(hero_pool)
+
+        # Plan-level scope counters (from the workspace BoM rather than the
+        # top-level project items). These reflect the *real* number of
+        # produce/buy lines the user planned in the workspace, including
+        # intermediate components.
+        ws_state = project.workspace_state or {}
+        if isinstance(ws_state, dict):
+            plan_prod = int(ws_state.get("total_prod_items") or 0)
+            plan_buy = int(ws_state.get("total_buy_items") or 0)
+            plan_total = int(ws_state.get("total_items") or 0) or (
+                plan_prod + plan_buy
+            )
+        else:
+            plan_prod = plan_buy = plan_total = 0
+        project.plan_prod_lines = plan_prod
+        project.plan_buy_lines = plan_buy
+        project.plan_total_lines = plan_total
+        project.has_plan_scope = bool(plan_prod or plan_buy)
 
     # Return JSON when the API payload is requested
     if request.GET.get("api") == "1":
@@ -6313,6 +6406,19 @@ def production_simulations_list(request):
         if project.status == ProductionProject.Status.ARCHIVED
     ]
 
+    active_projects = draft_projects + saved_projects
+    in_prod_jobs = 0
+    tracked_projects = 0
+    craftable_lines = 0
+    buy_lines = 0
+    for project in active_projects:
+        craftable_lines += int(getattr(project, "plan_prod_lines", 0) or 0)
+        buy_lines += int(getattr(project, "plan_buy_lines", 0) or 0)
+        progress = project.activity_progress or {}
+        if int(progress.get("in_progress_count") or 0) > 0:
+            tracked_projects += 1
+            in_prod_jobs += int(progress.get("in_progress_count") or 0)
+
     project_stats = {
         "total_projects": len(production_projects),
         "draft_projects": len(draft_projects),
@@ -6326,6 +6432,11 @@ def production_simulations_list(request):
             int((project.summary or {}).get("selected_quantity") or 0)
             for project in production_projects
         ),
+        "active_projects": len(active_projects),
+        "tracked_projects": tracked_projects,
+        "in_prod_jobs": in_prod_jobs,
+        "craftable_lines": craftable_lines,
+        "buy_lines": buy_lines,
     }
 
     context = {

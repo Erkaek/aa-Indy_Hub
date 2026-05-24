@@ -303,9 +303,15 @@ class CraftBlueprintPayloadApiTests(TestCase):
         self.assertEqual(materials_tree[0]["type_id"], 3001)
         self.assertEqual(materials_tree[0]["quantity"], 3375)
         self.assertTrue(materials_tree[0]["material_bonus_applicable"])
+        self.assertEqual(materials_tree[0]["base_quantity_per_run"], 75)
+        self.assertEqual(materials_tree[0]["job_runs"], 50)
+        self.assertEqual(materials_tree[0]["blueprint_material_efficiency"], 10)
         self.assertEqual(materials_tree[1]["type_id"], 3002)
         self.assertEqual(materials_tree[1]["quantity"], 50)
         self.assertFalse(materials_tree[1]["material_bonus_applicable"])
+        self.assertEqual(materials_tree[1]["base_quantity_per_run"], 1)
+        self.assertEqual(materials_tree[1]["job_runs"], 50)
+        self.assertEqual(materials_tree[1]["blueprint_material_efficiency"], 10)
         self.assertEqual(
             payload["production_time_map"],
             {"3002": mock_build_craft_time_map.return_value[3002]},

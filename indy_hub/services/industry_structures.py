@@ -258,6 +258,7 @@ SUPPORTED_TYPE_FALLBACKS = {
     "drones": ("Drone", "Fighter"),
     "advanced_components": (
         "Advanced Component",
+        "Construction Component",
         "Hybrid Tech Component",
         "Tool",
         "Data Interface",
@@ -303,14 +304,22 @@ SUPPORTED_TYPE_FALLBACKS = {
 RIG_EFFECT_SUPPORTED_TYPE_FAMILIES = {
     "rigallshipmanufacturematerialbonus": "ships_all",
     "rigallshipmanufacturetimebonus": "ships_all",
+    "rigadvallshipmanufacturematerialbonus": "ships_all",
+    "rigadvallshipmanufacturetimebonus": "ships_all",
     "rigcapshipmanufacturematerialbonus": "ships_capital",
     "rigcapshipmanufacturetimebonus": "ships_capital",
     "rigsmallshipmanufacturematerialbonus": "ships_small",
     "rigsmallshipmanufacturetimebonus": "ships_small",
+    "rigadvsmallshipmanufacturematerialbonus": "ships_small",
+    "rigadvsmallshipmanufacturetimebonus": "ships_small",
     "rigmedshipmanufacturematerialbonus": "ships_medium",
     "rigmedshipmanufacturetimebonus": "ships_medium",
+    "rigadvmedshipmanufacturematerialbonus": "ships_medium",
+    "rigadvmedshipmanufacturetimebonus": "ships_medium",
     "riglargeshipmanufacturematerialbonus": "ships_large",
     "riglargeshipmanufacturetimebonus": "ships_large",
+    "rigadvlargeshipmanufacturematerialbonus": "ships_large",
+    "rigadvlargeshipmanufacturetimebonus": "ships_large",
     "rigequipmentmanufacturematerialbonus": "equipment",
     "rigequipmentmanufacturetimebonus": "equipment",
     "rigammomanufacturematerialbonus": "ammo",
@@ -1118,6 +1127,7 @@ def _live_output_row_matches_family(
             normalized_group
             in {
                 "advanced component",
+                "construction component",
                 "hybrid tech component",
                 "tool",
                 "data interface",

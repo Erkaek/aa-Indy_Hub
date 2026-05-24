@@ -1,0 +1,25 @@
+{% load i18n %}
+<div class="project-name-edit d-inline-flex align-items-center gap-2"
+     data-project-ref="{{ project.project_ref }}"
+     data-rename-url="{{ rename_url }}">
+    <button type="button"
+            class="btn btn-sm btn-link p-0 project-name-edit-btn text-decoration-none"
+            title="{% trans 'Rename project' %}"
+            aria-label="{% trans 'Rename project' %}">
+        <i class="fas fa-pencil-alt"></i>
+    </button>
+    <div class="project-name-edit-form d-none align-items-center gap-2">
+        <input type="text"
+               class="form-control form-control-sm project-name-edit-input"
+               maxlength="255"
+               value="{{ project.name }}"
+               aria-label="{% trans 'Project name' %}">
+        <button type="button" class="btn btn-sm btn-primary project-name-edit-save">
+            {% trans "OK" %}
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-secondary project-name-edit-cancel">
+            {% trans "Cancel" %}
+        </button>
+        <span class="project-name-edit-status small text-danger d-none" role="alert"></span>
+    </div>
+</div>

@@ -70,6 +70,7 @@ EFT_CATEGORY_SPEC_BY_KEY = {
 DRONE_GROUP_KEYWORDS = ("drone", "fighter", "fighter bomber")
 SUBSYSTEM_GROUP_KEYWORDS = ("subsystem", "strategic cruiser")
 PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY = "cachedProjectPayload"
+PROJECT_WORKSPACE_PAYLOAD_CACHE_VERSION = 5
 PROJECT_WORKSPACE_SDE_SIGNATURE_KEY = "cachedProjectSdeSignature"
 PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_KEY = "cachedProjectScopedSdeSignature"
 PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_VERSION = 1
@@ -79,6 +80,32 @@ PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_CACHE_TIMEOUT_SECONDS = 60 * 60 * 6
 LEGACY_SINGLE_BLUEPRINT_PROJECT_NOTE = (
     "Migrated from legacy single-blueprint craft flow."
 )
+
+
+def _get_table_column_names(table_name: str) -> set[str]:
+    try:
+        with connection.cursor() as cursor:
+            return {
+                column.name
+                for column in connection.introspection.get_table_description(
+                    cursor,
+                    table_name,
+                )
+            }
+    except Exception:
+        return set()
+
+
+def _sde_name_expression(table_name: str, *, alias: str | None = None) -> str:
+    columns = _get_table_column_names(table_name)
+    prefix = f"{alias}." if alias else ""
+    if "name_en" in columns and "name" in columns:
+        return f"COALESCE({prefix}name_en, {prefix}name)"
+    if "name_en" in columns:
+        return f"{prefix}name_en"
+    if "name" in columns:
+        return f"{prefix}name"
+    return f"{prefix}name"
 
 
 def strip_project_workspace_cache(
@@ -337,6 +364,7 @@ def get_project_workspace_scoped_sde_signature(
 
     if type_ids:
         item_type_rows = []
+        item_type_name_expr = _sde_name_expression("eve_sde_itemtype")
         with connection.cursor() as cursor:
             for chunk in _chunked_ids(
                 type_ids,
@@ -345,7 +373,7 @@ def get_project_workspace_scoped_sde_signature(
                 placeholders = ", ".join(["%s"] * len(chunk))
                 cursor.execute(
                     f"""
-                    SELECT id, COALESCE(name_en, name), COALESCE(published, 0), group_id
+                    SELECT id, {item_type_name_expr}, COALESCE(published, 0), group_id
                     FROM eve_sde_itemtype
                     WHERE id IN ({placeholders})
                     ORDER BY id
@@ -377,6 +405,14 @@ def get_project_workspace_scoped_sde_signature(
     product_rows = []
     material_rows = []
     activity_rows = []
+    product_type_name_expr = _sde_name_expression(
+        "eve_sde_itemtype",
+        alias="product_t",
+    )
+    material_type_name_expr = _sde_name_expression(
+        "eve_sde_itemtype",
+        alias="material_t",
+    )
     with connection.cursor() as cursor:
         for chunk in _chunked_ids(
             blueprint_type_ids,
@@ -390,7 +426,7 @@ def get_project_workspace_scoped_sde_signature(
                     p.activity_id,
                     p.product_eve_type_id,
                     p.quantity,
-                    COALESCE(product_t.name_en, product_t.name),
+                    {product_type_name_expr},
                     COALESCE(product_t.published, 0),
                     product_t.group_id
                 FROM indy_hub_sdeindustryactivityproduct p
@@ -410,7 +446,7 @@ def get_project_workspace_scoped_sde_signature(
                     m.activity_id,
                     m.material_eve_type_id,
                     m.quantity,
-                    COALESCE(material_t.name_en, material_t.name),
+                    {material_type_name_expr},
                     COALESCE(material_t.published, 0),
                     material_t.group_id
                 FROM indy_hub_sdeindustryactivitymaterial m
@@ -563,6 +599,9 @@ def cached_project_workspace_payload_matches_state(
     workspace_state: dict[str, object] | None,
 ) -> bool:
     if not isinstance(cached_payload, dict):
+        return False
+
+    if cached_payload.get("cache_version") != PROJECT_WORKSPACE_PAYLOAD_CACHE_VERSION:
         return False
 
     normalized_workspace_state = strip_project_workspace_cache(workspace_state)
@@ -999,6 +1038,38 @@ def _extract_workspace_me_te_overrides(
     return overrides
 
 
+def _extract_workspace_structure_assignments(
+    workspace_state: dict[str, object] | None,
+) -> dict[int, int]:
+    """Extract saved per-item structure choices from project workspace state."""
+
+    state = workspace_state if isinstance(workspace_state, dict) else {}
+    structure_state = state.get("structure")
+    if not isinstance(structure_state, dict):
+        return {}
+
+    assignments: dict[int, int] = {}
+    for raw_assignment in structure_state.get("assignments") or []:
+        if not isinstance(raw_assignment, dict):
+            continue
+        try:
+            type_id = int(
+                raw_assignment.get("typeId")
+                or raw_assignment.get("type_id")
+                or 0
+            )
+            structure_id = int(
+                raw_assignment.get("structureId")
+                or raw_assignment.get("structure_id")
+                or 0
+            )
+        except (TypeError, ValueError):
+            continue
+        if type_id > 0 and structure_id > 0:
+            assignments[type_id] = structure_id
+    return assignments
+
+
 def _merge_me_te_overrides(
     *sources: dict[int, dict[str, int]] | None,
 ) -> dict[int, dict[str, int]]:
@@ -1364,6 +1435,7 @@ def build_project_workspace_payload(
             "project_status": project.status,
             "source_kind": project.source_kind,
             "workspace_state": workspace_state,
+            "cache_version": PROJECT_WORKSPACE_PAYLOAD_CACHE_VERSION,
             "product_type_id": None,
             "final_product_qty": 0,
             "materials_tree": [],
@@ -1474,12 +1546,13 @@ def build_project_workspace_payload(
         if numeric_blueprint_type_id in blueprint_product_cache:
             return blueprint_product_cache[numeric_blueprint_type_id]
 
+        item_type_name_expr = _sde_name_expression("eve_sde_itemtype", alias="t")
         with connection.cursor() as cursor:
             cursor.execute(
-                """
+                f"""
                 SELECT
                     p.product_eve_type_id,
-                    COALESCE(t.name_en, t.name),
+                    {item_type_name_expr},
                     p.quantity,
                     p.activity_id,
                     COALESCE(g.name, ''),
@@ -1600,10 +1673,11 @@ def build_project_workspace_payload(
         if numeric_blueprint_type_id in blueprint_material_rows_cache:
             return blueprint_material_rows_cache[numeric_blueprint_type_id]
 
+        item_type_name_expr = _sde_name_expression("eve_sde_itemtype", alias="t")
         with connection.cursor() as cursor:
             cursor.execute(
-                """
-                SELECT m.material_eve_type_id, COALESCE(t.name_en, t.name), m.quantity
+                f"""
+                SELECT m.material_eve_type_id, {item_type_name_expr}, m.quantity
                 FROM indy_hub_sdeindustryactivitymaterial m
                 JOIN eve_sde_itemtype t ON t.id = m.material_eve_type_id
                                 WHERE m.eve_type_id = %s
@@ -1709,6 +1783,8 @@ def build_project_workspace_payload(
         numeric_blueprint_type_id = (
             int(blueprint_type_id or 0) if blueprint_type_id else 0
         )
+        sde_type_name = str(type_name_cache.get(numeric_type_id or 0) or "").strip()
+        display_type_name = sde_type_name or str(type_name or "").strip()
         if numeric_blueprint_type_id > 0 and not get_blueprint_product_row(
             numeric_blueprint_type_id
         ):
@@ -1722,7 +1798,7 @@ def build_project_workspace_payload(
         if not numeric_blueprint_type_id:
             return {
                 "type_id": numeric_type_id,
-                "type_name": type_name,
+                "type_name": display_type_name,
                 "quantity": numeric_quantity,
                 "cycles": None,
                 "produced_per_cycle": None,
@@ -1741,7 +1817,7 @@ def build_project_workspace_payload(
             )
             return {
                 "type_id": numeric_type_id,
-                "type_name": type_name,
+                "type_name": display_type_name,
                 "quantity": numeric_quantity,
                 "cycles": 0,
                 "produced_per_cycle": 0,
@@ -1755,11 +1831,32 @@ def build_project_workspace_payload(
 
         current_seen.add(numeric_blueprint_type_id)
         product_row = get_blueprint_product_row(numeric_blueprint_type_id) or {}
+        product_type_id_from_row = int(product_row.get("product_type_id") or 0)
+        # Legacy and manual-list projects can store the *blueprint* type_id as
+        # the project item's type_id (e.g. when only the BPO matched the
+        # manual name). When the caller passes a type_id that is actually the
+        # blueprint itself, fall back to the product row's product_type_id so
+        # downstream pricing, recipe and market-group lookups target the
+        # manufactured item instead of the BPO (which has no market data).
+        if (
+            product_type_id_from_row
+            and numeric_type_id
+            and numeric_type_id == numeric_blueprint_type_id
+        ):
+            numeric_type_id = product_type_id_from_row
+            market_group = get_market_group_info(numeric_type_id)
+            sde_type_name = str(
+                type_name_cache.get(numeric_type_id or 0) or ""
+            ).strip()
+            display_type_name = sde_type_name or str(type_name or "").strip()
         resolved_product_type_id = int(
-            numeric_type_id or product_row.get("product_type_id") or 0
+            numeric_type_id or product_type_id_from_row or 0
         )
         resolved_product_type_name = str(
-            product_row.get("product_type_name") or type_name or ""
+            product_row.get("product_type_name")
+            or type_name_cache.get(resolved_product_type_id)
+            or display_type_name
+            or ""
         )
         _remember_project_blueprint_for_product(
             product_blueprint_cache,
@@ -1809,13 +1906,14 @@ def build_project_workspace_payload(
                 seen=current_seen,
             )
             child_node["material_bonus_applicable"] = apply_material_efficiency
+            child_node["base_quantity_per_run"] = int(base_quantity or 0)
+            child_node["job_runs"] = cycles
+            child_node["blueprint_material_efficiency"] = blueprint_me
             children.append(child_node)
 
         return {
             "type_id": resolved_product_type_id,
-            "type_name": (
-                resolved_product_type_name if not numeric_type_id else type_name
-            ),
+            "type_name": resolved_product_type_name,
             "quantity": numeric_quantity,
             "cycles": cycles,
             "produced_per_cycle": produced_per_cycle,
@@ -1951,6 +2049,9 @@ def build_project_workspace_payload(
         product_output_per_cycle=0,
         craft_cycles_summary=cycle_summary,
         include_all_options=include_full_structure_options,
+        selected_structure_assignments=_extract_workspace_structure_assignments(
+            workspace_state
+        ),
     )
     record_timing_step(
         "structure-planner", "Build structure planner", structure_planner_started_at
@@ -2104,6 +2205,7 @@ def build_project_workspace_payload(
         "project_status": project.status,
         "source_kind": project.source_kind,
         "workspace_state": workspace_state,
+        "cache_version": PROJECT_WORKSPACE_PAYLOAD_CACHE_VERSION,
         "product_type_id": root_product_type_id or None,
         "output_qty_per_run": root_product_output_per_cycle,
         "product_output_per_cycle": root_product_output_per_cycle,
@@ -2442,10 +2544,11 @@ def _resolve_type_names(type_ids: Iterable[int | None]) -> dict[int, str]:
         return {}
 
     placeholders = ", ".join(["%s"] * len(numeric_ids))
+    item_type_name_expr = _sde_name_expression("eve_sde_itemtype")
     with connection.cursor() as cursor:
         cursor.execute(
             f"""
-            SELECT id, COALESCE(name_en, name)
+            SELECT id, {item_type_name_expr}
             FROM eve_sde_itemtype
                         WHERE id IN ({placeholders})
                             AND COALESCE(published, 0) = 1

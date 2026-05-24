@@ -595,6 +595,9 @@ function updateFinancialTabFromState() {
         if (row.parentElement !== tableBody) {
             tableBody.appendChild(row);
         }
+        if (typeof syncFinalOutputRowPriceState === 'function') {
+            syncFinalOutputRowPriceState(row);
+        }
     });
 
     if (newRows.length > 0) {

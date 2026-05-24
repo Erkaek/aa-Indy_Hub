@@ -9,6 +9,31 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 ## [Unreleased]
 
+## [1.17.1] - 2026-05-24
+
+### Changed
+
+- Crafting Projects dashboard: replaced the old production ratio display on project cards with explicit plan counters (`Plan: X prod · Y buy`) and matching registry summary chips, so sourcing intent is visible at a glance before opening a project.
+- Crafting Projects / Decisions: selected `Prod` rows now appear before selected `Buy` rows in the decision analysis table, matching the production-first review flow.
+- Crafting Projects / Workspace: unsaved edits now auto-save when switching between workspace tabs, so tab changes no longer leave the workspace stuck on the manual `Save table` warning.
+- Crafting Projects / Buy: the financial summary now highlights `Cash needed / Revenue = Profit / Margin` first, with cost details grouped below for faster scanning.
+- Crafting Projects / Structure planner: structure assignment dropdowns are now ordered alphabetically by structure name for easier manual selection.
+
+### Fixed
+
+- Crafting Projects / Decisions: fixed missing intermediate rows in some project trees (notably fuel blocks and related reaction inputs) by evaluating parent buy/useless visibility across all ancestor paths and building the displayed demand from the current decision state instead of the optimizer-pruned recommendation tree.
+- Crafting Projects / Structure planner: advanced component rig matching now also recognizes the `Construction Component(s)` commodity aliases used by live SDE labels, so selected structures with Advanced Component rigs correctly apply their material/time bonuses on affected items.
+- Crafting Projects / Structure planner: "Advanced" ship manufacturing rigs (`Standup L-Set Advanced Small/Medium/Large Ship Manufacturing Efficiency`) now correctly apply their material and time bonuses to T2 and T3 ships (Assault Frigates, HACs, Strategic Cruisers such as Tengu, Marauders, …). The corresponding dogma effects (`rigadv*shipmanufacture*bonus`) were absent from the effect-family mapping and silently produced zero bonus for every item.
+- Crafting Projects / Structure planner: material quantities now combine blueprint ME and selected structure/rig material bonuses before the final EVE rounding step. This removes the remaining over-counts on T2/T3 jobs such as Tengu builds where the UI previously rounded blueprint ME first and then rounded the structure bonus again.
+- Crafting Projects / Structure planner: ME, TE, and Job values in the assignment table now expose hover details. ME details show BP ME first, then installed rig bonuses, then the structure role bonus; Job details mirror the Installation Cost Details modal and include facility tax and SCC surcharge instead of showing tax as a separate column.
+- Crafting Projects / Structure planner: changing per-item structure assignments no longer silently reverts back to `Recommended` after tab changes or project reloads when the workspace reloads a compact planner payload; manually selected assignments are now preserved in both client state and saved project payloads.
+- Crafting Projects / Build tab: final product cycle rows now use the saved project target quantity as the source of truth, preventing transient SimulationAPI or DOM quantities from displaying one fewer final run than requested after reloads or structure recalculations.
+- Crafting Projects / Buy: clarified the cost summary labels so facility tax is shown as part of the installation total instead of reading like an extra cost added on top.
+- Crafting Projects / Buy: margin now shows `-100%` instead of `0%` when a workspace has costs but zero configured revenue, matching the fully unprofitable state.
+- Crafting Projects / Workspace persistence: saved buy/produce decisions and final product prices now restore from the workspace state even when tabs are hidden or lazily hydrated. Reloading a project no longer lets default zero DOM inputs or partial price refresh responses wipe the user's saved decisions, sale prices, or final output price lookups.
+- Crafting Projects / Build + Outputs: project renaming no longer leaks into final product item labels in production-cycle and output rows. The craft workspace now canonicalizes final product names from SDE type data, invalidates older cached project payloads, and never falls back to the project title for item names, preventing wrong labels and downstream price lookup issues when the project name differs from the actual produced item.
+- SDE compatibility sync: when the temporary SDE archive extraction fails with a transient `EOFError` (truncated ZIP stream), the Celery sync task now retries the download+extract step before failing, reducing one-off sync crashes.
+
 ## [1.17.0] - 2026-05-23
 
 ### Added

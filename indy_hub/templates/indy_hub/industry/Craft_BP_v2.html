@@ -8,12 +8,17 @@
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
 <link rel="stylesheet" href="{% static 'indy_hub/css/blueprints.css' %}">
-<link rel="stylesheet" href="{% static 'indy_hub/css/craft_bp.css' %}?v=20260505-zero-price-alert">
+<link rel="stylesheet" href="{% static 'indy_hub/css/craft_bp.css' %}?v=20260524-buy-equation-summary">
 {% endblock extra_css %}
 
 {% block content %}
 <div class="container-fluid py-4">
-    {% include "indy_hub/partials/page_header.html" with icon_class="fas fa-tools" title=bp_name subtitle=_("Production workspace") back_url=back_url back_label=_("Back") header_controls=craft_header_controls %}
+    {% if is_project_workspace and project %}
+        {% url 'indy_hub:rename_production_project' project.project_ref as rename_url %}
+        {% include "indy_hub/partials/page_header.html" with icon_class="fas fa-tools" title=bp_name subtitle=_("Production workspace") back_url=back_url back_label=_("Back") header_controls=craft_header_controls title_action_template="indy_hub/partials/project_name_edit.html" %}
+    {% else %}
+        {% include "indy_hub/partials/page_header.html" with icon_class="fas fa-tools" title=bp_name subtitle=_("Production workspace") back_url=back_url back_label=_("Back") header_controls=craft_header_controls %}
+    {% endif %}
 
     <div id="craftPendingRefreshNotice" class="small text-danger fw-semibold mb-3 d-none" role="status" aria-live="polite">
         <i class="fas fa-circle-exclamation me-1"></i>
@@ -292,21 +297,37 @@
                 </div>
 
                 <div class="craft-financial-hero mb-4">
-                    <div class="craft-kpi-row">
-                        <div class="craft-kpi craft-kpi-lg">
-                            <span class="craft-kpi-label">{% trans "Total Cost" %}</span>
-                            <span class="craft-kpi-value text-danger" id="financialSummaryCost">0 ISK</span>
-                            <div class="small mt-2 text-muted d-grid gap-1">
-                                <div>{% trans "Materials" %}: <span class="fw-semibold" id="financialSummaryMaterialCost">0 ISK</span></div>
-                                <div>{% trans "From stock" %}: <span class="fw-semibold" id="financialSummaryStockValue">0 ISK</span></div>
-                                <div>{% trans "Cash needed" %}: <span class="fw-semibold" id="financialSummaryInvestmentNeeded">0 ISK</span></div>
-                                <div>{% trans "Installation" %}: <span class="fw-semibold" id="financialSummaryInstallationCost">0 ISK</span></div>
-                                <div>{% trans "Facility Tax" %}: <span class="fw-semibold" id="financialSummaryFacilityTaxInline">0 ISK</span></div>
+                    <div class="craft-buy-summary">
+                        <div class="craft-buy-equation">
+                            <div class="craft-buy-equation-item">
+                                <span class="craft-financial-label">{% trans "Cash needed" %}</span>
+                                <strong class="craft-buy-equation-value text-danger" id="financialSummaryInvestmentNeeded">0 ISK</strong>
                             </div>
-                            <div class="mt-2">
+                            <span class="craft-buy-equation-symbol"></span>
+                            <div class="craft-buy-equation-item">
+                                <span class="craft-financial-label">{% trans "Revenue" %}</span>
+                                <strong class="craft-buy-equation-value text-success" id="financialSummaryRevenue">0 ISK</strong>
+                            </div>
+                            <span class="craft-buy-equation-symbol"></span>
+                            <div class="craft-buy-equation-item">
+                                <span class="craft-financial-label">{% trans "Profit" %}</span>
+                                <strong class="craft-buy-equation-value" id="financialSummaryProfit">0 ISK</strong>
+                                <div id="financialSurplusWrapper" class="craft-buy-surplus d-none">
+                                    <span>{% trans "Surplus" %}</span>
+                                    <strong id="financialSummarySurplus">0 ISK</strong>
+                                </div>
+                            </div>
+                            <div class="craft-buy-equation-item craft-buy-equation-item--margin">
+                                <span class="craft-financial-label">{% trans "Margin" %}</span>
+                                <strong class="craft-financial-margin-badge" id="financialSummaryMargin">0%</strong>
+                            </div>
+                        </div>
+                        <div class="craft-buy-cost-details">
+                            <div class="craft-buy-cost-details-header">
+                                <span>{% trans "Cost details" %}</span>
                                 <button
                                     type="button"
-                                    class="btn btn-outline-primary btn-sm"
+                                    class="btn btn-link btn-sm craft-financial-details-action"
                                     id="structureSummaryDetailsBtn"
                                     data-bs-toggle="modal"
                                     data-bs-target="#structureInstallationDetailsModal"
@@ -314,23 +335,28 @@
                                     <i class="fas fa-list-ul me-1"></i>{% trans "Installation details" %}
                                 </button>
                             </div>
-                        </div>
-                        <div class="craft-kpi craft-kpi-lg">
-                            <span class="craft-kpi-label">{% trans "Total Revenue" %}</span>
-                            <span class="craft-kpi-value text-success" id="financialSummaryRevenue">0 ISK</span>
-                        </div>
-                        <div class="craft-kpi craft-kpi-lg">
-                            <span class="craft-kpi-label">{% trans "Net Profit" %}</span>
-                            <span class="craft-kpi-value" id="financialSummaryProfit">0 ISK</span>
-
-                            <div id="financialSurplusWrapper" class="mt-2 d-none">
-                                <div class="craft-kpi-label mb-1">{% trans "Surplus Value" %}</div>
-                                <div class="fw-semibold" id="financialSummarySurplus">0 ISK</div>
+                            <div class="craft-buy-cost-grid">
+                                <div class="craft-buy-cost-row craft-buy-cost-row--total">
+                                    <span>{% trans "Total cost" %}</span>
+                                    <strong id="financialSummaryCost">0 ISK</strong>
+                                </div>
+                                <div class="craft-buy-cost-row">
+                                    <span>{% trans "Materials" %}</span>
+                                    <strong id="financialSummaryMaterialCost">0 ISK</strong>
+                                </div>
+                                <div class="craft-buy-cost-row">
+                                    <span>{% trans "From stock" %}</span>
+                                    <strong id="financialSummaryStockValue">0 ISK</strong>
+                                </div>
+                                <div class="craft-buy-cost-row">
+                                    <span>{% trans "Installation total" %}</span>
+                                    <strong id="financialSummaryInstallationCost">0 ISK</strong>
+                                </div>
+                                <div class="craft-buy-cost-row">
+                                    <span>{% trans "Incl. facility tax" %}</span>
+                                    <strong id="financialSummaryFacilityTaxInline">0 ISK</strong>
+                                </div>
                             </div>
-                        </div>
-                        <div class="craft-kpi craft-kpi-lg">
-                            <span class="craft-kpi-label">{% trans "Margin" %}</span>
-                            <span class="craft-kpi-value" id="financialSummaryMargin">0%</span>
                         </div>
                     </div>
                     <div id="structureSummaryEmpty" class="alert alert-info mb-0 mt-3 d-none">
@@ -829,7 +855,6 @@
                                     <th class="text-end">ME</th>
                                     <th class="text-end">TE</th>
                                     <th class="text-end">{% trans "Job" %}</th>
-                                    <th class="text-end">{% trans "Tax" %}</th>
                                     <th>{% trans "Distance" %}</th>
                                 </tr>
                             </thead>
@@ -1147,10 +1172,11 @@
 {{ blueprint_payload|json_script:"blueprint-payload" }}
 <script src="{% static 'indy_hub/js/craft_bp_page.js' %}?v=20260426-pending-refresh-fix"></script>
 {% if not deferred_shell %}
-<script src="{% static 'indy_hub/js/craft_bp_simulation_api.js' %}?v=20260427-inclusion-mode-restore"></script>
+<script src="{% static 'indy_hub/js/craft_bp_simulation_api.js' %}?v=20260524-build-final-targets"></script>
 <script src="{% static 'indy_hub/js/craft_bp_active_tab.js' %}?v=20260505-deferred-tab-init"></script>
 <script src="{% static 'indy_hub/js/craft_bp_financial_planner.js' %}?v=20260428-no-output-override"></script>
-<script src="{% static 'indy_hub/js/craft_bp.js' %}?v=20260505-stock-refresh-notice"></script>
-<script src="{% static 'indy_hub/js/craft_bp_inline.js' %}?v=20260505-owned-bp-mete-defaults"></script>
+<script src="{% static 'indy_hub/js/craft_bp.js' %}?v=20260524-zero-revenue-margin"></script>
+<script src="{% static 'indy_hub/js/craft_bp_inline.js' %}?v=20260524-tab-change-autosave"></script>
+<script src="{% static 'indy_hub/js/craft_bp_project_rename.js' %}?v=20260523-project-rename-status"></script>
 {% endif %}
 {% endblock extra_javascript %}

@@ -1,0 +1,116 @@
+{% load i18n %}
+{% load humanize %}
+{% with status=project.status progress=project.activity_progress|default_if_none:None summary=project.summary|default_if_none:None %}
+<tr class="registry-row registry-row--{{ status }}" data-project-id="{{ project.id }}">
+    <td class="col-status">
+        <span class="status-pill status-pill--{{ status }}">
+            {% if status == 'draft' %}<i class="fas fa-pencil-ruler"></i>{% elif status == 'saved' %}<i class="fas fa-bookmark"></i>{% else %}<i class="fas fa-box-archive"></i>{% endif %}
+            <span>{{ project.get_status_display }}</span>
+        </span>
+        <div class="source-tag">
+            {% if project.source_kind == 'eft' %}<i class="fas fa-rocket"></i>{% elif project.source_kind == 'mixed' %}<i class="fas fa-shuffle"></i>{% else %}<i class="fas fa-list-ul"></i>{% endif %}
+            {{ project.get_source_kind_display }}
+        </div>
+    </td>
+    <td class="col-name">
+        <div class="project-id">
+            <div class="project-id__icon">
+                {% if project.display_icon_type_id %}
+                <img src="https://images.evetech.net/types/{{ project.display_icon_type_id }}/icon?size=64" alt="{{ project.display_icon_alt|escape }}" loading="lazy" decoding="async" onerror="this.style.display='none'; if(this.nextElementSibling){this.nextElementSibling.style.display='flex';}">
+                <span class="fallback" style="display:none;"><i class="fas fa-project-diagram"></i></span>
+                {% elif project.display_icon_is_multi %}
+                <span class="fallback"><i class="fas fa-layer-group"></i></span>
+                {% else %}
+                <span class="fallback"><i class="fas fa-project-diagram"></i></span>
+                {% endif %}
+            </div>
+            <div class="project-id__text">
+                <a href="{{ project.workspace_url }}" class="project-id__name">{{ project.name }}</a>
+                <div class="project-id__sub">
+                    {% if project.source_name %}{{ project.source_name }}{% elif project.display_icon_alt %}{{ project.display_icon_alt }}{% else %}{% trans "Multi-item table" %}{% endif %}
+                </div>
+            </div>
+        </div>
+    </td>
+    <td class="col-scope">
+        <div class="scope-cell">
+            <div class="scope-cell__main">
+                <strong>{{ summary.selected_items|default:0|intcomma }}</strong> {% trans "items" %}
+                <span class="scope-cell__sep">·</span>
+                <strong>{{ summary.selected_quantity|default:0|intcomma }}</strong> {% trans "units" %}
+            </div>
+            <div class="scope-cell__split">
+                <span class="scope-tag scope-tag--craft" title="{% trans 'Craftable lines' %}">
+                    <i class="fas fa-hammer"></i>{{ summary.craftable_items|default:0|intcomma }}
+                </span>
+                <span class="scope-tag scope-tag--buy" title="{% trans 'Buy lines' %}">
+                    <i class="fas fa-shopping-cart"></i>{{ summary.buy_items|default:0|intcomma }}
+                </span>
+            </div>
+        </div>
+    </td>
+    <td class="col-progress">
+        {% if project.has_plan_scope %}
+        <div class="prog-cell prog-cell--plan">
+            <div class="prog-cell__plan">
+                <span class="plan-tag plan-tag--prod" title="{% trans 'Lines to produce (BoM)' %}">
+                    <i class="fas fa-hammer"></i>
+                    <strong>{{ project.plan_prod_lines|intcomma }}</strong>
+                    <span class="plan-tag__label">{% trans "prod" %}</span>
+                </span>
+                <span class="plan-tag plan-tag--buy" title="{% trans 'Lines to buy (BoM)' %}">
+                    <i class="fas fa-shopping-cart"></i>
+                    <strong>{{ project.plan_buy_lines|intcomma }}</strong>
+                    <span class="plan-tag__label">{% trans "buy" %}</span>
+                </span>
+                {% if progress.in_progress_count %}
+                <span class="plan-tag plan-tag--running" title="{% trans 'Industry jobs currently running' %}">
+                    <i class="fas fa-fire"></i>
+                    <strong>{{ progress.in_progress_count }}</strong>
+                    <span class="plan-tag__label">{% trans "running" %}</span>
+                </span>
+                {% endif %}
+            </div>
+            {% if progress.total_count %}
+            <button
+                type="button"
+                class="prog-cell__btn"
+                data-project-progress-button
+                data-project-name="{{ project.name|escape }}"
+                data-project-ref="{{ project.project_ref }}"
+                data-project-progress-save-url="{% url 'indy_hub:save_production_project_progress' project.project_ref %}"
+                data-project-progress-json-id="{{ project.progress_json_id }}"
+                title="{% trans 'Production tracking' %}"
+            >
+                <i class="fas fa-list-check"></i>
+                <span class="prog-cell__btn-label">{% trans "Tracking" %}</span>
+            </button>
+            {% endif %}
+        </div>
+        {% else %}
+        <div class="prog-cell prog-cell--idle">
+            <span class="prog-cell__idle">
+                <i class="far fa-circle-pause"></i>
+                {% trans "No plan yet" %}
+            </span>
+        </div>
+        {% endif %}
+    </td>
+    <td class="col-updated">
+        <span class="updated-cell" title="{{ project.updated_at|date:'Y-m-d H:i' }}">
+            <i class="fas fa-clock"></i>{{ project.updated_at|timesince }}
+        </span>
+    </td>
+    <td class="col-actions">
+        <div class="row-actions">
+            <a href="{{ project.workspace_url }}" class="btn btn-primary btn-sm" title="{% trans 'Open table' %}">
+                <i class="fas fa-arrow-right"></i><span class="d-none d-lg-inline ms-1">{% trans "Open" %}</span>
+            </a>
+            <a href="{% url 'indy_hub:delete_production_project' project.project_ref %}" class="btn btn-outline-danger btn-sm" title="{% trans 'Delete table' %}">
+                <i class="fas fa-trash"></i>
+            </a>
+        </div>
+    </td>
+</tr>
+{% if progress.total_count %}{{ progress|json_script:project.progress_json_id }}{% endif %}
+{% endwith %}

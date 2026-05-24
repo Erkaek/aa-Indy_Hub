@@ -231,7 +231,72 @@ class IndustryStructureCalculationTests(TestCase):
         )
 
         self.assertIn("Advanced Component", supported_types)
+        self.assertIn("Construction Component", supported_types)
         self.assertIn("Hybrid Tech Component", supported_types)
+
+    def test_advanced_medium_ship_rigs_resolve_to_ships_medium_family(self) -> None:
+        # "Standup L-Set Advanced Medium Ship Manufacturing Efficiency" rigs carry
+        # rigadvmedship* dogma effects, which must resolve to ships_medium so that
+        # T2/T3 cruisers (Strategic Cruiser, Heavy Assault Cruiser, …) benefit from
+        # the rig's material and time bonuses.
+        from indy_hub.services.industry_structures import (
+            _supported_type_family_from_effect_name,
+        )
+
+        self.assertEqual(
+            _supported_type_family_from_effect_name(
+                "rigadvmedshipmanufacturematerialbonus"
+            ),
+            "ships_medium",
+        )
+        self.assertEqual(
+            _supported_type_family_from_effect_name(
+                "rigadvmedshipmanufacturetimebonus"
+            ),
+            "ships_medium",
+        )
+        # Supported-type list must include Strategic Cruiser (Tengu, Legion, …).
+        supported_types = _supported_type_names_for_effect(
+            "rigadvmedshipmanufacturematerialbonus"
+        )
+        self.assertIn("Strategic Cruiser", supported_types)
+
+    def test_advanced_small_and_large_ship_rig_effects_resolve_correctly(self) -> None:
+        from indy_hub.services.industry_structures import (
+            _supported_type_family_from_effect_name,
+        )
+
+        self.assertEqual(
+            _supported_type_family_from_effect_name(
+                "rigadvsmallshipmanufacturematerialbonus"
+            ),
+            "ships_small",
+        )
+        self.assertEqual(
+            _supported_type_family_from_effect_name(
+                "rigadvlargeshipmanufacturematerialbonus"
+            ),
+            "ships_large",
+        )
+
+    @patch("indy_hub.services.industry_structures._get_blueprint_output_name_rows")
+    def test_advanced_component_rigs_prefer_live_sde_group_labels(
+        self, mock_output_rows
+    ) -> None:
+        mock_output_rows.return_value = (
+            ("Construction Components", "Commodity"),
+            ("Advanced Components", "Commodity"),
+            ("Hybrid Tech Components", "Commodity"),
+        )
+
+        supported_types = _supported_type_names_for_effect(
+            "rigadvcomponentmanufacturematerialbonus"
+        )
+
+        self.assertIn("Construction Components", supported_types)
+        self.assertIn("Advanced Components", supported_types)
+        self.assertIn("Hybrid Tech Components", supported_types)
+        self.assertNotIn("Construction Component", supported_types)
 
     def test_advanced_capital_component_rigs_cover_live_component_aliases(self) -> None:
         supported_types = _supported_type_names_for_effect(

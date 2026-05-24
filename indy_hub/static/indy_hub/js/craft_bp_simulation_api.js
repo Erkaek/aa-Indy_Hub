@@ -80,6 +80,31 @@
         return Array.isArray(items) ? items : [];
     }
 
+    function resolveRootProductTypeName() {
+        if (!(rootProductTypeId > 0)) {
+            return '';
+        }
+
+        const finalOutputs = Array.isArray(payload.final_outputs) ? payload.final_outputs : [];
+        const outputEntry = finalOutputs.find((entry) => {
+            const typeId = Number(readValue(entry, 'type_id', 'typeId'));
+            return typeId === rootProductTypeId;
+        });
+        const outputName = readValue(outputEntry, 'type_name', 'typeName');
+        if (typeof outputName === 'string' && outputName.trim()) {
+            return outputName.trim();
+        }
+
+        const summary = payload.craft_cycles_summary || {};
+        const summaryEntry = summary[String(rootProductTypeId)] || summary[rootProductTypeId] || null;
+        const summaryName = readValue(summaryEntry, 'type_name', 'typeName');
+        if (typeof summaryName === 'string' && summaryName.trim()) {
+            return summaryName.trim();
+        }
+
+        return '';
+    }
+
     function readValue(source, primaryKey, secondaryKey) {
         if (!source || typeof source !== 'object') {
             return undefined;
@@ -118,6 +143,34 @@
             return 0;
         }
         return Math.ceil(num);
+    }
+
+    function getFinalOutputQuantitiesByTypeId() {
+        const quantities = new Map();
+        const finalOutputs = Array.isArray(payload.final_outputs)
+            ? payload.final_outputs
+            : (Array.isArray(payload.finalOutputs) ? payload.finalOutputs : []);
+
+        finalOutputs.forEach((entry) => {
+            const typeId = Number(readValue(entry, 'type_id', 'typeId')) || 0;
+            if (!(typeId > 0)) {
+                return;
+            }
+            const quantity = normalizeQuantity(readValue(entry, 'quantity', 'qty'));
+            if (!(quantity > 0)) {
+                return;
+            }
+            quantities.set(typeId, (quantities.get(typeId) || 0) + quantity);
+        });
+
+        if (quantities.size === 0 && rootProductTypeId > 0) {
+            const quantity = normalizeQuantity(payload.final_product_qty || payload.finalProductQty || 0);
+            if (quantity > 0) {
+                quantities.set(rootProductTypeId, quantity);
+            }
+        }
+
+        return quantities;
     }
 
     function cloneNodeWithQuantity(node, quantity) {
@@ -292,7 +345,11 @@
         });
     }
 
-    function ingestStructurePlannerPayload(nextStructurePlannerPayload, preservedAssignments = new Map()) {
+    function ingestStructurePlannerPayload(
+        nextStructurePlannerPayload,
+        preservedAssignments = new Map(),
+        preservedOptionsByType = new Map()
+    ) {
         structurePlannerPayload = (nextStructurePlannerPayload && typeof nextStructurePlannerPayload === 'object')
             ? nextStructurePlannerPayload
             : {};
@@ -317,19 +374,34 @@
             const normalizedItem = Object.assign({}, item, {
                 typeId,
                 typeName: readValue(item, 'type_name', 'typeName') || '',
+                selectedStructureId: Number(readValue(item, 'selected_structure_id', 'selectedStructureId')) || null,
                 recommendedStructureId: Number(readValue(item, 'recommended_structure_id', 'recommendedStructureId')) || null,
                 optionsMap
             });
             structureItemsMap.set(typeId, normalizedItem);
 
-            let selectedStructureId = normalizedItem.recommendedStructureId;
+            let selectedStructureId = normalizedItem.selectedStructureId || normalizedItem.recommendedStructureId;
             if (!selectedStructureId && options.length > 0) {
                 selectedStructureId = Number(readValue(options[0], 'structure_id', 'structureId')) || null;
             }
 
             const preservedStructureId = preservedAssignments.get(typeId);
-            if (preservedStructureId && optionsMap.has(preservedStructureId)) {
-                selectedStructureId = preservedStructureId;
+            if (preservedStructureId) {
+                if (optionsMap.has(preservedStructureId)) {
+                    selectedStructureId = preservedStructureId;
+                } else {
+                    const preservedOption = preservedOptionsByType.get(typeId);
+                    if (preservedOption) {
+                        optionsMap.set(
+                            preservedStructureId,
+                            Object.assign({}, preservedOption, {
+                                structureId: preservedStructureId,
+                                structure_id: preservedStructureId,
+                            })
+                        );
+                        selectedStructureId = preservedStructureId;
+                    }
+                }
             }
 
             if (selectedStructureId && optionsMap.has(selectedStructureId)) {
@@ -348,6 +420,7 @@
 
         const preservedPrices = new Map();
         const preservedAssignments = new Map();
+        const preservedStructureOptions = new Map();
         const preservedSwitches = new Map();
 
         if (config.preservePrices) {
@@ -357,7 +430,17 @@
         }
         if (config.preserveStructures) {
             structureAssignmentsMap.forEach((value, typeId) => {
-                preservedAssignments.set(Number(typeId), Number(value) || null);
+                const numericTypeId = Number(typeId);
+                const numericStructureId = Number(value) || null;
+                preservedAssignments.set(numericTypeId, numericStructureId);
+
+                const structureItem = structureItemsMap.get(numericTypeId);
+                const preservedOption = numericStructureId && structureItem && structureItem.optionsMap
+                    ? structureItem.optionsMap.get(numericStructureId)
+                    : null;
+                if (preservedOption) {
+                    preservedStructureOptions.set(numericTypeId, Object.assign({}, preservedOption));
+                }
             });
         }
         if (config.preserveSwitches) {
@@ -383,10 +466,14 @@
         ingestFlatMaterials(Array.isArray(payload.materials) ? payload.materials : []);
         ingestFlatMaterials(Array.isArray(payload.direct_materials) ? payload.direct_materials : []);
         ingestMaterialsByGroup(payload.materials_by_group || payload.materialsByGroup);
-        ingestStructurePlannerPayload(nextStructurePlannerPayload, preservedAssignments);
+        ingestStructurePlannerPayload(
+            nextStructurePlannerPayload,
+            preservedAssignments,
+            preservedStructureOptions
+        );
 
         if (rootProductTypeId) {
-            const rootProductName = payload.name || '';
+            const rootProductName = resolveRootProductTypeName();
             if (!materialsMap.has(rootProductTypeId)) {
                 materialsMap.set(rootProductTypeId, {
                     typeId: rootProductTypeId,
@@ -592,7 +679,16 @@
             }
 
             const value = parseFloat(input.value);
-            setPrice(typeId, priceType, Number.isFinite(value) ? value : 0);
+            const numericValue = Number.isFinite(value) ? value : 0;
+            if (priceType === 'fuzzwork') {
+                setPrice(typeId, priceType, numericValue);
+                return;
+            }
+
+            const isManualOverride = input.dataset.userModified === 'true';
+            if (isManualOverride || numericValue > 0) {
+                setPrice(typeId, priceType, numericValue);
+            }
         });
     }
 
@@ -659,19 +755,47 @@
         return bonus > 0 ? bonus : 0;
     }
 
+    function computeStructureAdjustedMaterialQuantity(child, fallbackQuantity, materialBonusPercent) {
+        const quantity = normalizeQuantity(fallbackQuantity);
+        const materialBonusApplicable = readValue(child, 'material_bonus_applicable', 'materialBonusApplicable');
+        if (!(materialBonusPercent > 0) || materialBonusApplicable === false) {
+            return quantity;
+        }
+
+        const baseQuantity = Number(readValue(child, 'base_quantity_per_run', 'baseQuantityPerRun')) || 0;
+        const jobRuns = Number(readValue(child, 'job_runs', 'jobRuns')) || 0;
+        if (baseQuantity > 0 && jobRuns > 0) {
+            const blueprintME = Math.max(
+                0,
+                Math.min(
+                    100,
+                    Number(readValue(child, 'blueprint_material_efficiency', 'blueprintMaterialEfficiency')) || 0
+                )
+            );
+            const blueprintMultiplier = 1 - (blueprintME / 100);
+            const structureMultiplier = Math.max(0, 1 - (materialBonusPercent / 100));
+            return normalizeQuantity(baseQuantity * jobRuns * blueprintMultiplier * structureMultiplier);
+        }
+
+        const fallbackMultiplier = Math.max(0, 1 - (materialBonusPercent / 100));
+        return normalizeQuantity(quantity * fallbackMultiplier);
+    }
+
     function adjustChildrenForStructure(children, typeId) {
         const materialBonusPercent = getStructureMaterialBonus(typeId);
         if (!(materialBonusPercent > 0) || !Array.isArray(children) || children.length === 0) {
             return Array.isArray(children) ? children : [];
         }
-        const multiplier = Math.max(0, 1 - (materialBonusPercent / 100));
         return children.map((child) => {
             const quantity = normalizeQuantity(readValue(child, 'quantity', 'qty'));
-            const materialBonusApplicable = readValue(child, 'material_bonus_applicable', 'materialBonusApplicable');
-            if (materialBonusApplicable === false) {
-                return cloneNodeWithQuantity(child, quantity);
-            }
-            return cloneNodeWithQuantity(child, Math.ceil(quantity * multiplier));
+            return cloneNodeWithQuantity(
+                child,
+                computeStructureAdjustedMaterialQuantity(
+                    child,
+                    quantity,
+                    materialBonusPercent
+                )
+            );
         });
     }
 
@@ -685,7 +809,9 @@
             && rootNodes.some((node) => Number(readValue(node, 'type_id', 'typeId')) === rootProductTypeId)
         );
 
-        const walk = (nodes, blockedByBuyAncestor = false) => {
+        const finalOutputQuantities = getFinalOutputQuantitiesByTypeId();
+
+        const walk = (nodes, blockedByBuyAncestor = false, rootLevel = false) => {
             if (!Array.isArray(nodes) || nodes.length === 0) {
                 return;
             }
@@ -699,7 +825,10 @@
                     return;
                 }
 
-                const qty = normalizeQuantity(readValue(node, 'quantity', 'qty'));
+                let qty = normalizeQuantity(readValue(node, 'quantity', 'qty'));
+                if (rootLevel && finalOutputQuantities.has(typeId)) {
+                    qty = finalOutputQuantities.get(typeId) || qty;
+                }
                 const children = readChildren(node);
                 const craftable = children.length > 0;
 
@@ -716,7 +845,7 @@
                     }
                     // Produced craftable: we need its inputs.
                     addToCounter(prodCraftables, typeId, qty);
-                    walk(adjustChildrenForStructure(children, typeId), false);
+                    walk(adjustChildrenForStructure(children, typeId), false, false);
                     return;
                 }
 
@@ -727,11 +856,17 @@
 
         if (rootProductTypeId && rootNodes.length > 0) {
             if (!treeAlreadyIncludesRoot) {
-                addToCounter(prodCraftables, rootProductTypeId, normalizeQuantity(payload.final_product_qty || payload.finalProductQty || 0));
+                addToCounter(
+                    prodCraftables,
+                    rootProductTypeId,
+                    finalOutputQuantities.get(rootProductTypeId) || normalizeQuantity(payload.final_product_qty || payload.finalProductQty || 0)
+                );
+                walk(adjustChildrenForStructure(rootNodes, rootProductTypeId), false, false);
+            } else {
+                walk(rootNodes, false, true);
             }
-            walk(adjustChildrenForStructure(rootNodes, rootProductTypeId), false);
         } else {
-            walk(rootNodes, false);
+            walk(rootNodes, false, true);
         }
         return { leafNeeds, buyCraftables, prodCraftables };
     }
@@ -832,7 +967,9 @@
 
             const treeEntry = treeMap.get(Number(typeId));
             const materialEntry = materialsMap.get(Number(typeId));
-            const typeName = (materialEntry && materialEntry.typeName) || (treeEntry && treeEntry.typeName) || (typeId === rootProductTypeId ? (payload.name || '') : '');
+            const typeName = (materialEntry && materialEntry.typeName)
+                || (treeEntry && treeEntry.typeName)
+                || (typeId === rootProductTypeId ? resolveRootProductTypeName() : '');
             const marketGroupInfo = readMarketGroup(typeId);
             const marketGroup = marketGroupInfo && marketGroupInfo.groupName ? marketGroupInfo.groupName : null;
 
@@ -964,12 +1101,27 @@
         replaceStructurePlanner: (nextStructurePlannerPayload, options) => {
             const config = Object.assign({ preserveAssignments: true }, options || {});
             const preservedAssignments = new Map();
+            const preservedStructureOptions = new Map();
             if (config.preserveAssignments) {
                 structureAssignmentsMap.forEach((value, typeId) => {
-                    preservedAssignments.set(Number(typeId), Number(value) || null);
+                    const numericTypeId = Number(typeId);
+                    const numericStructureId = Number(value) || null;
+                    preservedAssignments.set(numericTypeId, numericStructureId);
+
+                    const structureItem = structureItemsMap.get(numericTypeId);
+                    const preservedOption = numericStructureId && structureItem && structureItem.optionsMap
+                        ? structureItem.optionsMap.get(numericStructureId)
+                        : null;
+                    if (preservedOption) {
+                        preservedStructureOptions.set(numericTypeId, Object.assign({}, preservedOption));
+                    }
                 });
             }
-            ingestStructurePlannerPayload(nextStructurePlannerPayload, preservedAssignments);
+            ingestStructurePlannerPayload(
+                nextStructurePlannerPayload,
+                preservedAssignments,
+                preservedStructureOptions
+            );
             markTabsDirty(['financial', 'cycles']);
             return structurePlannerPayload;
         },
@@ -1003,12 +1155,13 @@
             const numericStructureId = Number(structureId);
             const item = getStructureItem(numericTypeId);
             if (!item || !item.optionsMap || !item.optionsMap.has(numericStructureId)) {
-                return;
+                return false;
             }
             structureAssignmentsMap.set(numericTypeId, numericStructureId);
             metaState.changeCount += 1;
             metaState.lastUpdate = new Date().toISOString();
             markTabsDirty(['materials', 'financial', 'needed', 'cycles']);
+            return true;
         },
         markTabsDirty,
         markTabDirty: (tabName) => markTabsDirty([tabName]),

@@ -27,6 +27,30 @@ _SDE_VERSION_URL = (
 )
 
 
+def _download_extract_sde_with_retry(max_attempts: int = 2) -> None:
+    # Alliance Auth (External Libs)
+    from eve_sde.sde_tasks import download_extract_sde
+
+    last_error: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            download_extract_sde()
+            return
+        except EOFError as exc:
+            last_error = exc
+            logger.warning(
+                "SDE archive extraction failed with EOFError on attempt %s/%s; retrying",
+                attempt,
+                max_attempts,
+                exc_info=True,
+            )
+        except Exception:
+            raise
+
+    if last_error is not None:
+        raise last_error
+
+
 def _fetch_latest_sde_source_metadata() -> tuple[int | None, datetime | None]:
     try:
         payload = httpx.get(_SDE_VERSION_URL, timeout=15).json()
@@ -83,13 +107,13 @@ def sync_sde_compatibility_data(self):
     if not os.path.isdir(sde_folder):
         try:
             # Alliance Auth (External Libs)
-            from eve_sde.sde_tasks import SDE_FOLDER, download_extract_sde
+            from eve_sde.sde_tasks import SDE_FOLDER
 
             logger.info(
                 "SDE folder %s missing, downloading latest SDE archive for compatibility sync",
                 sde_folder,
             )
-            download_extract_sde()
+            _download_extract_sde_with_retry(max_attempts=2)
             sde_folder = SDE_FOLDER
             downloaded_folder = True
         except Exception as exc:

@@ -186,7 +186,7 @@ def build_craft_time_map(
             f"""
             SELECT
                 product.product_eve_type_id AS type_id,
-                COALESCE(item.name_en, item.name) AS type_name,
+                item.name AS type_name,
                 product.eve_type_id AS blueprint_type_id,
                 product.activity_id AS activity_id,
                 product.quantity AS produced_per_cycle,
@@ -208,7 +208,7 @@ def build_craft_time_map(
                     WHEN 11 THEN 2
                     ELSE 99
                 END,
-                COALESCE(item.name_en, item.name)
+                item.name
             """,
             craftable_type_ids,
         )

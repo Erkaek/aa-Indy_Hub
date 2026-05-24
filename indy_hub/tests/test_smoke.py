@@ -65,6 +65,32 @@ from indy_hub.utils.eve import get_type_name, reset_forbidden_structure_lookup_c
 from indy_hub.utils.menu_badge import compute_menu_badge_count, menu_badge_cache_key
 
 PUBLIC_STATION_ID = 60003760
+TEST_EVE_TYPE_NAMES = {
+    34: "Tritanium",
+    555: "Another Blueprint",
+    605001: "Duplicated Widget Blueprint",
+    660001: "Shared Corp Blueprint",
+    700001: "Sample Blueprint",
+    705001: "Duplicated Widget",
+    705002: "Alliance Widget Blueprint",
+    777001: "Dual Blueprint",
+    778001: "Fallback Blueprint",
+    781001: "Corp Access Blueprint",
+    781099: "Personal Hidden Blueprint",
+    805001: "Directorate Blueprint",
+    888001: "Manager Corp Blueprint",
+    987001: "Busy Blueprint",
+    987002: "Manufacturing Blueprint",
+    987003: "Zero Blueprint",
+    987654: "Test Blueprint",
+    9871001: "Navbar Request Blueprint",
+    9871002: "Navbar Delivered Blueprint",
+    999001: "Polymer Reaction",
+    999002: "Shared Blueprint",
+    1234501: "Navbar Blueprint",
+    555001: "Ambiguous Blueprint",
+    565001: "Late Delivery Blueprint",
+}
 
 
 class AnchorCollector(HTMLParser):
@@ -94,10 +120,11 @@ class AnchorCollector(HTMLParser):
 
 def ensure_base_eve_sde_loaded() -> None:
     item_type_model = apps.get_model("eve_sde", "ItemType")
-    item_type_model.objects.update_or_create(
-        id=34,
-        defaults={"name": "Tritanium", "published": True},
-    )
+    for type_id, type_name in TEST_EVE_TYPE_NAMES.items():
+        item_type_model.objects.update_or_create(
+            id=type_id,
+            defaults={"name": type_name, "published": True},
+        )
 
 
 def assign_main_character(user: User, *, character_id: int) -> EveCharacter:
@@ -1409,6 +1436,7 @@ class BlueprintCopyFulfillViewTests(TestCase):
     def setUp(self) -> None:
         self.user = User.objects.create_user("capsuleer", password="test12345")
         assign_main_character(self.user, character_id=101001)
+        ensure_base_eve_sde_loaded()
         CharacterSettings.objects.create(
             user=self.user,
             character_id=0,
@@ -2655,6 +2683,7 @@ class BlueprintCopyRequestPageTests(TestCase):
     def setUp(self) -> None:
         self.user = User.objects.create_user("requester", password="secret123")
         assign_main_character(self.user, character_id=103001)
+        ensure_base_eve_sde_loaded()
         grant_indy_permissions(self.user, "can_manage_corp_bp_requests")
         self.client.force_login(self.user)
 
@@ -3237,6 +3266,7 @@ class BlueprintCopyMyRequestsTests(TestCase):
     def setUp(self) -> None:
         self.user = User.objects.create_user("buyer", password="secret123")
         assign_main_character(self.user, character_id=104001)
+        ensure_base_eve_sde_loaded()
         grant_indy_permissions(self.user, "can_manage_corp_bp_requests")
         self.client.force_login(self.user)
 
@@ -4062,6 +4092,7 @@ class PersonnalBlueprintViewTests(TestCase):
     def setUp(self) -> None:
         self.user = User.objects.create_user("industrialist", password="secret123")
         assign_main_character(self.user, character_id=102001)
+        ensure_base_eve_sde_loaded()
         grant_indy_permissions(self.user)
         self.client.force_login(self.user)
 

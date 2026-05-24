@@ -371,6 +371,69 @@ function getFinalOutputRows() {
     return Array.from(document.querySelectorAll('#financialItemsBody tr[data-final-output="true"]'));
 }
 
+function getSimulationPriceRecord(typeId) {
+    const prices = getSimulationPricesMap();
+    const numericTypeId = Number(typeId) || 0;
+    return prices.get(numericTypeId) || prices.get(String(numericTypeId)) || {};
+}
+
+function getFuzzworkPriceFromResponse(prices, typeId) {
+    const numericTypeId = Number(typeId) || 0;
+    if (!prices || typeof prices !== 'object' || !(numericTypeId > 0)) {
+        return { found: false, price: 0 };
+    }
+    const raw = prices[numericTypeId] ?? prices[String(numericTypeId)];
+    if (raw === undefined || raw === null) {
+        return { found: false, price: 0 };
+    }
+    const price = parseFloat(raw) || 0;
+    return { found: true, price };
+}
+
+function applyFuzzworkPriceInputState(input, price) {
+    if (!input) {
+        return;
+    }
+    const numericPrice = Number(price) || 0;
+    input.value = numericPrice.toFixed(2);
+    if (numericPrice <= 0) {
+        input.classList.add('bg-warning', 'border-warning');
+        input.setAttribute('title', __('Price not available (Fuzzwork)'));
+    } else {
+        input.classList.remove('bg-warning', 'border-warning');
+        input.removeAttribute('title');
+    }
+}
+
+function syncFinalOutputRowPriceState(row) {
+    if (!row || row.getAttribute('data-final-output') !== 'true') {
+        return;
+    }
+    const typeId = Number(row.getAttribute('data-type-id') || 0) || 0;
+    if (!(typeId > 0)) {
+        return;
+    }
+    const priceRecord = getSimulationPriceRecord(typeId);
+    const fuzzworkInput = row.querySelector('.fuzzwork-price');
+    const saleInput = row.querySelector('.sale-price-unit');
+    applyFuzzworkPriceInputState(fuzzworkInput, Number(priceRecord.fuzzwork || 0));
+    if (!saleInput) {
+        return;
+    }
+    const salePrice = Number(priceRecord.sale || 0);
+    if (salePrice > 0) {
+        saleInput.value = salePrice.toFixed(2);
+        updatePriceInputManualState(saleInput, true);
+        return;
+    }
+    if (saleInput.dataset.userModified !== 'true') {
+        saleInput.value = '0.00';
+        updatePriceInputManualState(saleInput, false);
+    }
+}
+
+window.syncFinalOutputRowPriceState = syncFinalOutputRowPriceState;
+
 function buildFinalOutputRowMarkup(output, isFirstRow) {
     const typeId = Number(output?.type_id || output?.typeId || 0) || 0;
     const typeName = output?.type_name || output?.typeName || __('Final product');
@@ -848,6 +911,86 @@ function updateTreeModeBadges() {
     });
 }
 
+function readCraftNodeValue(source, primaryKey, secondaryKey) {
+    if (!source || typeof source !== 'object') {
+        return undefined;
+    }
+    if (Object.prototype.hasOwnProperty.call(source, primaryKey)) {
+        return source[primaryKey];
+    }
+    if (secondaryKey && Object.prototype.hasOwnProperty.call(source, secondaryKey)) {
+        return source[secondaryKey];
+    }
+    return undefined;
+}
+
+function computeStructureAdjustedNodeQuantity(node, fallbackQuantity, materialBonusPercent) {
+    const quantity = Math.max(0, Math.ceil(Number(fallbackQuantity) || 0)) || 0;
+    const materialBonusApplicable = readCraftNodeValue(node, 'material_bonus_applicable', 'materialBonusApplicable');
+    if (!(materialBonusPercent > 0) || materialBonusApplicable === false) {
+        return quantity;
+    }
+
+    const baseQuantity = Number(readCraftNodeValue(node, 'base_quantity_per_run', 'baseQuantityPerRun')) || 0;
+    const jobRuns = Number(readCraftNodeValue(node, 'job_runs', 'jobRuns')) || 0;
+    if (baseQuantity > 0 && jobRuns > 0) {
+        const blueprintME = Math.max(
+            0,
+            Math.min(
+                100,
+                Number(readCraftNodeValue(node, 'blueprint_material_efficiency', 'blueprintMaterialEfficiency')) || 0
+            )
+        );
+        const blueprintMultiplier = 1 - (blueprintME / 100);
+        const structureMultiplier = Math.max(0, 1 - (materialBonusPercent / 100));
+        return Math.max(
+            0,
+            Math.ceil(baseQuantity * jobRuns * blueprintMultiplier * structureMultiplier)
+        ) || 0;
+    }
+
+    const fallbackMultiplier = Math.max(0, 1 - (materialBonusPercent / 100));
+    return Math.max(0, Math.ceil(quantity * fallbackMultiplier)) || 0;
+}
+
+function getStructureMaterialBonusPercentForType(typeId) {
+    if (!window.SimulationAPI || typeof window.SimulationAPI.getStructureOption !== 'function') {
+        return 0;
+    }
+    const option = window.SimulationAPI.getStructureOption(typeId);
+    if (!option) {
+        return 0;
+    }
+    const bonus = Number(
+        option.material_bonus_percent
+        ?? option.materialBonusPercent
+        ?? option.rig_material_bonus_percent
+        ?? option.rigMaterialBonusPercent
+        ?? 0
+    );
+    return Number.isFinite(bonus) && bonus > 0 ? bonus : 0;
+}
+
+function adjustCraftTreeChildrenForStructure(children, parentTypeId) {
+    if (!Array.isArray(children) || children.length === 0) {
+        return [];
+    }
+    const materialBonusPercent = getStructureMaterialBonusPercentForType(parentTypeId);
+    if (!(materialBonusPercent > 0)) {
+        return children;
+    }
+    return children.map((child) => {
+        const quantity = Math.max(0, Math.ceil(Number(child?.quantity ?? child?.qty ?? 0))) || 0;
+        return Object.assign({}, child, {
+            quantity: computeStructureAdjustedNodeQuantity(
+                child,
+                quantity,
+                materialBonusPercent
+            ),
+        });
+    });
+}
+
 function buildMaterialsTreeMarkup(nodes, level = 0) {
     if (!Array.isArray(nodes) || nodes.length === 0) {
         return '';
@@ -858,7 +1001,10 @@ function buildMaterialsTreeMarkup(nodes, level = 0) {
         const typeId = Number(node?.type_id || node?.typeId || 0) || 0;
         const typeName = String(node?.type_name || node?.typeName || typeId || '');
         const quantity = Math.max(0, Math.ceil(Number(node?.quantity ?? node?.qty ?? 0))) || 0;
-        const children = readMaterialsTreeChildren(node);
+        const children = adjustCraftTreeChildrenForStructure(
+            readMaterialsTreeChildren(node),
+            typeId
+        );
         const hasChildren = children.length > 0;
         const fallbackSwitchState = String(node?.project_inclusion_mode || node?.projectInclusionMode || 'prod').trim() || 'prod';
         const switchState = typeof window.SimulationAPI?.getSwitchState === 'function'
@@ -901,7 +1047,15 @@ function renderPlanTreeFromPayload() {
         return false;
     }
 
-    const tree = Array.isArray(window.BLUEPRINT_DATA?.materials_tree) ? window.BLUEPRINT_DATA.materials_tree : [];
+    const rawTree = Array.isArray(window.BLUEPRINT_DATA?.materials_tree) ? window.BLUEPRINT_DATA.materials_tree : [];
+    const rootProductTypeId = Number(window.BLUEPRINT_DATA?.product_type_id || window.BLUEPRINT_DATA?.productTypeId || 0) || 0;
+    const treeAlreadyIncludesRoot = Boolean(
+        rootProductTypeId
+        && rawTree.some((node) => (Number(node?.type_id || node?.typeId || 0) || 0) === rootProductTypeId)
+    );
+    const tree = rootProductTypeId && rawTree.length > 0 && !treeAlreadyIncludesRoot
+        ? adjustCraftTreeChildrenForStructure(rawTree, rootProductTypeId)
+        : rawTree;
     if (tree.length === 0) {
         treeTab.innerHTML = `<div class="alert alert-info mb-0">${escapeHtml(__('No sub-productions detected for this blueprint.'))}</div>`;
     } else {
@@ -911,6 +1065,14 @@ function renderPlanTreeFromPayload() {
     delete treeTab.dataset.switchesInitialized;
     delete treeTab.dataset.summaryIconsInitialized;
     return true;
+}
+
+function refreshPlanTreeAfterStructureAssignment() {
+    if (renderPlanTreeFromPayload()) {
+        initializeBuyCraftSwitches();
+        refreshTreeSummaryIcons();
+        updateTreeModeBadges();
+    }
 }
 
 function hydratePlanPane() {
@@ -1001,7 +1163,10 @@ function updateFinalProductRowFromPayload(payload) {
     getFinalOutputRows().forEach((row) => {
         const typeId = Number(row.getAttribute('data-type-id') || 0) || 0;
         const saleInput = row.querySelector('.sale-price-unit');
-        preservedSaleValues.set(typeId, saleInput ? saleInput.value : '0');
+        preservedSaleValues.set(typeId, {
+            value: saleInput ? saleInput.value : '0',
+            isManual: saleInput?.dataset.userModified === 'true',
+        });
         row.remove();
     });
 
@@ -1014,11 +1179,29 @@ function updateFinalProductRowFromPayload(payload) {
         }
         tableBody.appendChild(row);
         const typeId = Number(output?.type_id || output?.typeId || 0) || 0;
+        const priceRecord = getSimulationPriceRecord(typeId);
+        const fuzzworkInput = row.querySelector('.fuzzwork-price');
         const saleInput = row.querySelector('.sale-price-unit');
-        if (saleInput && preservedSaleValues.has(typeId)) {
-            saleInput.value = preservedSaleValues.get(typeId) || '0';
+        applyFuzzworkPriceInputState(fuzzworkInput, Number(priceRecord.fuzzwork || 0));
+        if (saleInput) {
+            const salePrice = Number(priceRecord.sale || 0);
+            const preserved = preservedSaleValues.get(typeId);
+            const preservedValue = Number.parseFloat(preserved?.value) || 0;
+            if (salePrice > 0) {
+                saleInput.value = salePrice.toFixed(2);
+                updatePriceInputManualState(saleInput, true);
+            } else if (preserved?.isManual && preservedValue > 0) {
+                saleInput.value = preservedValue.toFixed(2);
+                updatePriceInputManualState(saleInput, true);
+                if (window.SimulationAPI && typeof window.SimulationAPI.setPrice === 'function') {
+                    window.SimulationAPI.setPrice(typeId, 'sale', preservedValue);
+                }
+            } else {
+                saleInput.value = '0.00';
+                updatePriceInputManualState(saleInput, false);
+            }
         }
-        attachPriceInputListener(row.querySelector('.fuzzwork-price'));
+        attachPriceInputListener(fuzzworkInput);
         attachPriceInputListener(saleInput);
     });
 }
@@ -1692,14 +1875,35 @@ function applyCraftPageRunsValue(value) {
 }
 
 function collectManualPriceOverrides() {
-    return Array.from(document.querySelectorAll('.real-price[data-type-id], .sale-price-unit[data-type-id]'))
+    const overrides = new Map();
+    const addOverride = (entry) => {
+        const typeId = Number(entry?.typeId || entry?.type_id || 0) || 0;
+        const priceType = String(entry?.priceType || entry?.price_type || '').trim();
+        const value = Number.parseFloat(entry?.value) || 0;
+        if (!(typeId > 0) || (priceType !== 'real' && priceType !== 'sale') || !(value > 0)) {
+            return;
+        }
+        overrides.set(`${typeId}:${priceType}`, { typeId, priceType, value });
+    };
+
+    getSimulationPricesMap().forEach((record, key) => {
+        const typeId = Number(key) || 0;
+        if (!(typeId > 0) || !record || typeof record !== 'object') {
+            return;
+        }
+        addOverride({ typeId, priceType: 'real', value: record.real });
+        addOverride({ typeId, priceType: 'sale', value: record.sale });
+    });
+
+    Array.from(document.querySelectorAll('.real-price[data-type-id], .sale-price-unit[data-type-id]'))
         .filter((input) => input.dataset.userModified === 'true')
-        .map((input) => ({
+        .forEach((input) => addOverride({
             typeId: Number(input.getAttribute('data-type-id')) || 0,
             priceType: input.classList.contains('sale-price-unit') ? 'sale' : 'real',
             value: Number.parseFloat(input.value) || 0,
-        }))
-        .filter((entry) => entry.typeId > 0);
+        }));
+
+    return Array.from(overrides.values());
 }
 
 function normalizeCraftStockAllocations(rawAllocations) {
@@ -2163,6 +2367,14 @@ function applyManualPriceOverrides(overrides) {
             return;
         }
 
+        const value = Number.parseFloat(entry?.value) || 0;
+        if (!(value > 0)) {
+            return;
+        }
+        if (window.SimulationAPI && typeof window.SimulationAPI.setPrice === 'function') {
+            window.SimulationAPI.setPrice(typeId, priceType, value);
+        }
+
         const selector = priceType === 'sale'
             ? `.sale-price-unit[data-type-id="${typeId}"]`
             : `.real-price[data-type-id="${typeId}"]`;
@@ -2171,12 +2383,8 @@ function applyManualPriceOverrides(overrides) {
             return;
         }
 
-        const value = Number.parseFloat(entry?.value) || 0;
         input.value = value.toFixed(2);
         updatePriceInputManualState(input, true);
-        if (window.SimulationAPI && typeof window.SimulationAPI.setPrice === 'function') {
-            window.SimulationAPI.setPrice(typeId, priceType, value);
-        }
     });
 }
 
@@ -2199,13 +2407,17 @@ function applyStructureAssignments(assignments) {
         return;
     }
 
+    let changed = false;
     (Array.isArray(assignments) ? assignments : []).forEach((entry) => {
         const typeId = Number(entry?.typeId || entry?.type_id || 0) || 0;
         const structureId = Number(entry?.structureId || entry?.structure_id || 0) || 0;
         if (typeId > 0 && structureId > 0) {
-            window.SimulationAPI.setStructureAssignment(typeId, structureId);
+            changed = window.SimulationAPI.setStructureAssignment(typeId, structureId) || changed;
         }
     });
+    if (changed) {
+        refreshPlanTreeAfterStructureAssignment();
+    }
 }
 
 function isConfigurePaneHydrated() {
@@ -2497,6 +2709,35 @@ function applyBuyCraftStateFromBuyDecisions(buyDecisions, options = {}) {
             .map((typeId) => String(typeId || '').trim())
             .filter((typeId) => typeId)
     );
+
+    if (window.SimulationAPI && typeof window.SimulationAPI.setSwitchState === 'function') {
+        const seenTypeIds = new Set();
+        const simulationState = typeof window.SimulationAPI.getState === 'function'
+            ? window.SimulationAPI.getState()
+            : null;
+        const switchStateMap = simulationState?.switches;
+        if (switchStateMap && typeof switchStateMap.forEach === 'function') {
+            switchStateMap.forEach((entry, typeId) => {
+                const numericTypeId = Number(typeId) || 0;
+                if (!(numericTypeId > 0)) {
+                    return;
+                }
+                const currentState = entry && typeof entry === 'object' ? entry.state : entry;
+                if (currentState === 'useless') {
+                    seenTypeIds.add(String(numericTypeId));
+                    return;
+                }
+                const nextState = normalizedBuyDecisions.has(String(numericTypeId)) ? 'buy' : 'prod';
+                window.SimulationAPI.setSwitchState(numericTypeId, nextState);
+                seenTypeIds.add(String(numericTypeId));
+            });
+        }
+        normalizedBuyDecisions.forEach((typeId) => {
+            if (!seenTypeIds.has(String(typeId))) {
+                window.SimulationAPI.setSwitchState(typeId, 'buy');
+            }
+        });
+    }
 
     document.querySelectorAll('.mat-switch').forEach(function (switchEl) {
         if (switchEl.dataset.fixedMode === 'useless') {
@@ -3117,7 +3358,7 @@ async function computeCraftDecisionAnalysis(options = {}) {
     const occurrencesByType = new Map();
     const nameByType = new Map();
     const depthByType = new Map();
-    const ancestorIdsByType = new Map();
+    const ancestorPathsByType = new Map();
 
     function readTypeId(node) {
         return Number(node?.type_id || node?.typeId) || 0;
@@ -3138,21 +3379,7 @@ async function computeCraftDecisionAnalysis(options = {}) {
     }
 
     function getDecisionStructureMaterialBonusPercent(typeId) {
-        if (!window.SimulationAPI || typeof window.SimulationAPI.getStructureOption !== 'function') {
-            return 0;
-        }
-        const option = window.SimulationAPI.getStructureOption(typeId);
-        if (!option) {
-            return 0;
-        }
-        const bonus = Number(
-            option.material_bonus_percent
-            ?? option.materialBonusPercent
-            ?? option.rig_material_bonus_percent
-            ?? option.rigMaterialBonusPercent
-            ?? 0
-        );
-        return Number.isFinite(bonus) && bonus > 0 ? bonus : 0;
+        return getStructureMaterialBonusPercentForType(typeId);
     }
 
     function adjustDecisionChildrenForStructure(children, parentTypeId) {
@@ -3163,14 +3390,16 @@ async function computeCraftDecisionAnalysis(options = {}) {
         if (!(materialBonusPercent > 0)) {
             return children;
         }
-        const multiplier = Math.max(0, 1 - (materialBonusPercent / 100));
         return children.map((child) => {
             const quantity = readQty(child);
-            const materialBonusApplicable = child?.material_bonus_applicable ?? child?.materialBonusApplicable;
-            if (materialBonusApplicable === false) {
-                return cloneDecisionNodeWithQuantity(child, quantity);
-            }
-            return cloneDecisionNodeWithQuantity(child, Math.ceil(quantity * multiplier));
+            return cloneDecisionNodeWithQuantity(
+                child,
+                computeStructureAdjustedNodeQuantity(
+                    child,
+                    quantity,
+                    materialBonusPercent
+                )
+            );
         });
     }
 
@@ -3181,7 +3410,11 @@ async function computeCraftDecisionAnalysis(options = {}) {
         );
     }
 
-    const analysisTree = productTypeId > 0
+    const treeAlreadyIncludesProductRoot = Boolean(
+        productTypeId > 0
+        && tree.some((node) => readTypeId(node) === productTypeId)
+    );
+    const analysisTree = productTypeId > 0 && !treeAlreadyIncludesProductRoot
         ? adjustDecisionChildrenForStructure(tree, productTypeId)
         : tree;
 
@@ -3200,8 +3433,11 @@ async function computeCraftDecisionAnalysis(options = {}) {
                     occurrencesByType.set(typeId, []);
                 }
                 occurrencesByType.get(typeId).push(node);
-                if (!ancestorIdsByType.has(typeId)) {
-                    ancestorIdsByType.set(typeId, ancestorIds.slice());
+                if (!ancestorPathsByType.has(typeId)) {
+                    ancestorPathsByType.set(typeId, []);
+                }
+                ancestorPathsByType.get(typeId).push(ancestorIds.slice());
+                if (!depthByType.has(typeId) || ancestorIds.length < depthByType.get(typeId)) {
                     depthByType.set(typeId, ancestorIds.length);
                 }
             }
@@ -3281,11 +3517,13 @@ async function computeCraftDecisionAnalysis(options = {}) {
             return hiddenByParentBuyCache.get(numericTypeId);
         }
 
-        const ancestorIds = ancestorIdsByType.get(numericTypeId) || [];
-        const hidden = ancestorIds.some((ancestorId) => {
-            const ancestorMode = currentDecisions.get(ancestorId) || 'prod';
-            return ancestorMode === 'buy' || ancestorMode === 'useless' || isHiddenByParentBuy(ancestorId);
-        });
+        const ancestorPaths = ancestorPathsByType.get(numericTypeId) || [];
+        const hidden = ancestorPaths.length > 0 && ancestorPaths.every((ancestorIds) => (
+            (Array.isArray(ancestorIds) ? ancestorIds : []).some((ancestorId) => {
+                const ancestorMode = currentDecisions.get(ancestorId) || 'prod';
+                return ancestorMode === 'buy' || ancestorMode === 'useless' || isHiddenByParentBuy(ancestorId);
+            })
+        ));
 
         hiddenByParentBuyCache.set(numericTypeId, hidden);
         return hidden;
@@ -3559,9 +3797,9 @@ async function computeCraftDecisionAnalysis(options = {}) {
     }
 
     const recommendedDecisions = decisions;
-    const finalDemand = computeDemand(recommendedDecisions);
-    const { breakdown } = computeCostsBreakdown(finalDemand, recommendedDecisions);
-    const rows = Array.from(finalDemand.keys())
+    const displayDemand = computeDemand(currentDecisions);
+    const { breakdown } = computeCostsBreakdown(displayDemand, recommendedDecisions);
+    const rows = Array.from(displayDemand.keys())
         .map((typeId) => {
             const row = breakdown.get(typeId);
             if (!row) {
@@ -3610,7 +3848,7 @@ async function computeCraftDecisionAnalysis(options = {}) {
                 withinTolerance,
                 potentialSavings,
                 note: surplusNote ? `${baseNote} ${surplusNote}` : baseNote,
-                ancestorIds: ancestorIdsByType.get(typeId) || [],
+                ancestorIds: (ancestorPathsByType.get(typeId)?.[0] || []),
                 depth: depthByType.get(typeId) || 0,
                 hiddenByParentBuy: isHiddenByParentBuy(typeId),
                 marketGroup: getDecisionMarketGroup(typeId),
@@ -3619,7 +3857,7 @@ async function computeCraftDecisionAnalysis(options = {}) {
         .filter(Boolean)
         .filter((row) => !row.hiddenByParentBuy)
         .sort((left, right) => {
-            const modeRank = { buy: 0, prod: 1 };
+            const modeRank = { prod: 0, buy: 1 };
             const leftModeRank = Object.prototype.hasOwnProperty.call(modeRank, left.currentMode) ? modeRank[left.currentMode] : 99;
             const rightModeRank = Object.prototype.hasOwnProperty.call(modeRank, right.currentMode) ? modeRank[right.currentMode] : 99;
             if (leftModeRank !== rightModeRank) {
@@ -4185,15 +4423,14 @@ function initializeFinancialCalculations() {
     }
     typeIds = [...new Set([...typeIds, ...treeTypeIds])];
 
-    function stashExtraFuzzworkPrices(prices) {
+    function stashFuzzworkPrices(prices, idsToStash = typeIds) {
         if (!window.SimulationAPI || typeof window.SimulationAPI.setPrice !== 'function') {
             return;
         }
-        treeTypeIds.forEach(tid => {
-            const raw = prices[tid] ?? prices[String(parseInt(tid, 10))];
-            const price = raw != null ? (parseFloat(raw) || 0) : 0;
-            if (price > 0) {
-                window.SimulationAPI.setPrice(tid, 'fuzzwork', price);
+        (Array.isArray(idsToStash) ? idsToStash : []).forEach(tid => {
+            const resolved = getFuzzworkPriceFromResponse(prices, tid);
+            if (resolved.found && resolved.price > 0) {
+                window.SimulationAPI.setPrice(tid, 'fuzzwork', resolved.price);
             }
         });
     }
@@ -4206,8 +4443,8 @@ function initializeFinancialCalculations() {
     );
 
     function applyResolvedPriceState(prices) {
+        stashFuzzworkPrices(prices, typeIds);
         populatePrices(fetchInputs, prices);
-        stashExtraFuzzworkPrices(prices);
         applyManualPriceOverrides(window.craftBPFlags?.restoredSessionState?.manualPrices);
         if (typeof updateFinancialTabFromState === 'function') {
             return Promise.resolve(updateFinancialTabFromState()).then(() => {
@@ -4812,6 +5049,51 @@ function getRankedStructureOptions(item) {
         .map((entry) => entry.option);
 }
 
+function getStructureOptionDisplaySortText(option, typeId) {
+    const structureId = Number(option?.structureId || option?.structure_id || 0) || 0;
+    const decoratedOption = structureId > 0
+        ? (getStructurePlannerOption(typeId, structureId) || option)
+        : option;
+    return {
+        name: String(decoratedOption?.name || ''),
+        systemName: String(decoratedOption?.system_name || decoratedOption?.systemName || ''),
+        label: String(buildStructureOptionLabel(decoratedOption || {})),
+        structureId,
+    };
+}
+
+function getAlphabetizedStructureOptions(item, typeId) {
+    return (Array.isArray(item?.options) ? item.options : [])
+        .map((option, index) => ({
+            option,
+            index,
+            sortText: getStructureOptionDisplaySortText(option, typeId),
+        }))
+        .sort((left, right) => {
+            const nameCmp = left.sortText.name.localeCompare(right.sortText.name, undefined, { sensitivity: 'base', numeric: true });
+            if (nameCmp !== 0) {
+                return nameCmp;
+            }
+
+            const systemCmp = left.sortText.systemName.localeCompare(right.sortText.systemName, undefined, { sensitivity: 'base', numeric: true });
+            if (systemCmp !== 0) {
+                return systemCmp;
+            }
+
+            const labelCmp = left.sortText.label.localeCompare(right.sortText.label, undefined, { sensitivity: 'base', numeric: true });
+            if (labelCmp !== 0) {
+                return labelCmp;
+            }
+
+            if (left.sortText.structureId !== right.sortText.structureId) {
+                return left.sortText.structureId - right.sortText.structureId;
+            }
+
+            return left.index - right.index;
+        })
+        .map((entry) => entry.option);
+}
+
 function chooseNearestStructureOption(item) {
     const rankedOptions = getRankedStructureOptions(item);
     return rankedOptions.length > 0 ? rankedOptions[0] : null;
@@ -4891,6 +5173,7 @@ async function applyStructureMotherSystemDistances() {
                     window.SimulationAPI.setStructureAssignment(typeId, structureId);
                 }
             });
+            refreshPlanTreeAfterStructureAssignment();
         }
 
         renderStructurePlanner();
@@ -5244,9 +5527,180 @@ function buildStructureOptionLabel(option) {
     const distanceLabel = option.distance_label || option.distanceLabel || '';
     const materialBonus = formatPercent(option.material_bonus_percent || option.materialBonusPercent || option.rig_material_bonus_percent || option.rigMaterialBonusPercent || 0, 2);
     const timeBonus = formatPercent(option.time_bonus_percent || option.timeBonusPercent || option.rig_time_bonus_percent || option.rigTimeBonusPercent || 0, 2);
-    const jobBonus = formatPercent(option.job_cost_bonus_percent || option.jobCostBonusPercent || 0, 2);
-    const taxPercent = formatPercent(option.tax_percent || option.taxPercent || 0, 2);
-    return `${option.name} · ${systemName} · ${distanceLabel || __('Standalone')} · ME ${materialBonus} · TE ${timeBonus} · Job ${jobBonus} · Tax ${taxPercent}`;
+    const jobCost = formatPercent(option.total_installation_cost_percent || option.totalInstallationCostPercent || 0, 2);
+    return `${option.name} · ${systemName} · ${distanceLabel || __('Standalone')} · ME ${materialBonus} · TE ${timeBonus} · Job ${jobCost}`;
+}
+
+function readStructureOptionNumber(option, snakeName, camelName, fallback = 0) {
+    if (!option) {
+        return fallback;
+    }
+    const value = option[snakeName] ?? option[camelName] ?? fallback;
+    const numericValue = Number(value);
+    return Number.isFinite(numericValue) ? numericValue : fallback;
+}
+
+function getStructureBonusBreakdowns(option) {
+    const rows = option?.bonus_breakdowns || option?.bonusBreakdowns || [];
+    return (Array.isArray(rows) ? rows : []).map((row) => ({
+        source: String(row?.source || ''),
+        label: String(row?.label || row?.source || ''),
+        materialEfficiencyPercent: readStructureOptionNumber(row, 'material_efficiency_percent', 'materialEfficiencyPercent', 0),
+        timeEfficiencyPercent: readStructureOptionNumber(row, 'time_efficiency_percent', 'timeEfficiencyPercent', 0),
+        jobCostPercent: readStructureOptionNumber(row, 'job_cost_percent', 'jobCostPercent', 0),
+    }));
+}
+
+function getStructureItemBlueprintTypeId(item) {
+    const directBlueprintTypeId = Number(item?.blueprint_type_id || item?.blueprintTypeId || 0) || 0;
+    if (directBlueprintTypeId > 0) {
+        return directBlueprintTypeId;
+    }
+
+    const typeId = Number(item?.type_id || item?.typeId || 0) || 0;
+    if (!(typeId > 0)) {
+        return 0;
+    }
+
+    const timeMap = getCraftProductionTimeMap();
+    const timeEntry = timeMap[String(typeId)] || timeMap[typeId] || null;
+    return Number(timeEntry?.blueprint_type_id || timeEntry?.blueprintTypeId || 0) || 0;
+}
+
+function getStructureItemBlueprintME(item) {
+    const blueprintTypeId = getStructureItemBlueprintTypeId(item);
+    if (blueprintTypeId > 0) {
+        return getCurrentBlueprintMEByTypeId(blueprintTypeId);
+    }
+    const directME = Number(item?.blueprint_material_efficiency || item?.blueprintMaterialEfficiency);
+    return Number.isFinite(directME) ? Math.max(0, Math.min(directME, 10)) : 0;
+}
+
+function formatStructureBonusDetailLine(label, row, detailKey) {
+    const value = formatPercent(row[detailKey], 2);
+    const detailLabel = String(row.label || '').trim();
+    return detailLabel && detailLabel !== label
+        ? `${label}: ${value} (${detailLabel})`
+        : `${label}: ${value}`;
+}
+
+function buildStructureEfficiencyTooltip(option, metric, item = null) {
+    const specs = {
+        material: {
+            title: 'ME',
+            totalSnake: 'material_bonus_percent',
+            totalCamel: 'materialBonusPercent',
+            detailKey: 'materialEfficiencyPercent',
+            structureSnake: 'structure_material_bonus_percent',
+            structureCamel: 'structureMaterialBonusPercent',
+            rigSnake: 'rig_material_bonus_percent',
+            rigCamel: 'rigMaterialBonusPercent',
+        },
+        time: {
+            title: 'TE',
+            totalSnake: 'time_bonus_percent',
+            totalCamel: 'timeBonusPercent',
+            detailKey: 'timeEfficiencyPercent',
+            structureSnake: 'structure_time_bonus_percent',
+            structureCamel: 'structureTimeBonusPercent',
+            rigSnake: 'rig_time_bonus_percent',
+            rigCamel: 'rigTimeBonusPercent',
+        },
+    };
+    const spec = specs[metric];
+    if (!spec) {
+        return '';
+    }
+
+    const total = readStructureOptionNumber(option, spec.totalSnake, spec.totalCamel, 0);
+    const lines = [spec.title];
+    const details = getStructureBonusBreakdowns(option).filter((row) => row[spec.detailKey] > 0);
+    if (metric === 'material') {
+        lines.push(`${__('BP ME')}: ${formatPercent(getStructureItemBlueprintME(item), 2)}`);
+    }
+
+    const rigDetails = details.filter((row) => row.source.trim().toLowerCase() === 'rig');
+    const structureDetails = details.filter((row) => row.source.trim().toLowerCase() !== 'rig');
+    if (details.length > 0) {
+        rigDetails.forEach((row) => {
+            lines.push(formatStructureBonusDetailLine(__('Installed rig'), row, spec.detailKey));
+        });
+        structureDetails.forEach((row) => {
+            lines.push(formatStructureBonusDetailLine(__('Structure role bonus'), row, spec.detailKey));
+        });
+    } else {
+        const structureBonus = readStructureOptionNumber(option, spec.structureSnake, spec.structureCamel, 0);
+        const rigBonus = readStructureOptionNumber(option, spec.rigSnake, spec.rigCamel, 0);
+        if (rigBonus > 0) {
+            lines.push(`${__('Installed rig')}: ${formatPercent(rigBonus, 2)}`);
+        }
+        if (structureBonus > 0) {
+            lines.push(`${__('Structure role bonus')}: ${formatPercent(structureBonus, 2)}`);
+        }
+    }
+    lines.push(`${__('Structure bonus total')}: ${formatPercent(total, 2)}`);
+    return lines.join('\n');
+}
+
+function buildStructureJobTooltip(option, installationRow = null) {
+    if (installationRow) {
+        const lines = [__('Installation Cost Details')];
+        lines.push(`${__('EIV')}: ${formatPrice(Number(installationRow.estimatedItemValue) || 0)} / ${__('cycle')}`);
+        lines.push(`${__('Job')}: ${formatPrice(Number(installationRow.adjustedJobCost) || 0)} · ${__('Tax')}: ${formatPrice(Number(installationRow.facilityTax) || 0)} · ${__('SCC')}: ${formatPrice(Number(installationRow.sccSurcharge) || 0)}`);
+        lines.push(`${__('Source')}: ${installationRow.estimatedItemValueSource || ''}${Number(installationRow.adjustedComponentCount || 0) > 0 ? ` · ${__('Adjusted inputs')} ${formatInteger(Number(installationRow.pricedAdjustedComponentCount) || 0)}/${formatInteger(Number(installationRow.adjustedComponentCount) || 0)}` : ''}`);
+        lines.push(`SCI ${formatPercent(Number(installationRow.systemCostIndexPercent) || 0, 2)} · ${__('Job bonus')} ${formatPercent(Number(installationRow.jobCostBonusPercent) || 0, 2)} · ${__('Tax')} ${formatPercent(Number(installationRow.taxPercent) || 0, 2)}`);
+        lines.push(`${__('Total')}: ${formatPrice(Number(installationRow.totalInstallation) || 0)}`);
+        lines.push(`${formatPrice(Number(installationRow.installationPerCycle) || 0)} / ${__('cycle')}`);
+        return lines.join('\n');
+    }
+
+    const systemCostIndex = readStructureOptionNumber(option, 'system_cost_index_percent', 'systemCostIndexPercent', 0);
+    const jobBonus = readStructureOptionNumber(option, 'job_cost_bonus_percent', 'jobCostBonusPercent', 0);
+    const adjustedJobCost = readStructureOptionNumber(option, 'adjusted_job_cost_percent', 'adjustedJobCostPercent', 0);
+    const facilityTax = readStructureOptionNumber(option, 'facility_tax_percent', 'facilityTaxPercent', readStructureOptionNumber(option, 'tax_percent', 'taxPercent', 0));
+    const sccSurcharge = readStructureOptionNumber(option, 'scc_surcharge_percent', 'sccSurchargePercent', 0);
+    const totalInstallation = readStructureOptionNumber(option, 'total_installation_cost_percent', 'totalInstallationCostPercent', 0);
+    const lines = [__('Job cost')];
+    lines.push(`SCI: ${formatPercent(systemCostIndex, 2)}`);
+    getStructureBonusBreakdowns(option)
+        .filter((row) => row.jobCostPercent > 0)
+        .forEach((row) => {
+            lines.push(`${row.label || __('Job bonus')}: ${formatPercent(row.jobCostPercent, 2)}`);
+        });
+    if (jobBonus > 0) {
+        lines.push(`${__('Total job bonus')}: ${formatPercent(jobBonus, 2)}`);
+    }
+    lines.push(`${__('Adjusted job')}: ${formatPercent(adjustedJobCost, 2)}`);
+    lines.push(`${__('Facility tax')}: ${formatPercent(facilityTax, 2)}`);
+    lines.push(`${__('SCC surcharge')}: ${formatPercent(sccSurcharge, 2)}`);
+    lines.push(`${__('Total')}: ${formatPercent(totalInstallation, 2)}`);
+    return lines.join('\n');
+}
+
+function renderStructureMetricCell(option, metric, context = {}) {
+    if (!option) {
+        return '0.00%';
+    }
+    const metricSpecs = {
+        material: {
+            value: readStructureOptionNumber(option, 'material_bonus_percent', 'materialBonusPercent', 0),
+            title: buildStructureEfficiencyTooltip(option, 'material', context.item || null),
+        },
+        time: {
+            value: readStructureOptionNumber(option, 'time_bonus_percent', 'timeBonusPercent', 0),
+            title: buildStructureEfficiencyTooltip(option, 'time', context.item || null),
+        },
+        job: {
+            value: readStructureOptionNumber(option, 'total_installation_cost_percent', 'totalInstallationCostPercent', 0),
+            title: buildStructureJobTooltip(option, context.installationRow || null),
+        },
+    };
+    const spec = metricSpecs[metric];
+    if (!spec) {
+        return '0.00%';
+    }
+    const title = escapeHtml(spec.title || '');
+    return `<span class="craft-structure-metric" tabindex="0" title="${title}" aria-label="${title}">${formatPercent(spec.value, 2)}</span>`;
 }
 
 function renderStructurePlanner() {
@@ -5300,6 +5754,11 @@ function renderStructurePlanner() {
     });
 
     const summary = computeStructureInstallationSummary();
+    const installationRowsByTypeId = new Map(
+        (Array.isArray(summary.rows) ? summary.rows : [])
+            .map((row) => [Number(row.typeId || row.type_id || 0) || 0, row])
+            .filter(([typeId]) => typeId > 0)
+    );
     const averageMaterialBonus = weightedItemCount > 0 ? (weightedMaterialBonus / weightedItemCount) : 0;
 
     summaryContainer.innerHTML = `
@@ -5330,11 +5789,12 @@ function renderStructurePlanner() {
             ? String(nearestOption.name || item.recommendedStructureName || item.recommended_structure_name || __('No recommendation'))
             : (item.recommendedStructureName || item.recommended_structure_name || __('No recommendation'));
         const distanceLabel = selectedOption ? (selectedOption.distance_label || selectedOption.distanceLabel || '') : '';
+        const installationRow = installationRowsByTypeId.get(typeId) || null;
         const recommendedDistanceLabel = nearestOption
             ? formatJumpDistance(getExactJumpCountForOption(nearestOption))
             : (item.recommendedDistanceLabel || item.recommended_distance_label || '');
         const itemGroupLabel = item.groupName || item.group_name || item.categoryName || item.category_name || item.activityLabel || item.activity_label || '';
-        const options = getRankedStructureOptions(item);
+        const options = getAlphabetizedStructureOptions(item, typeId);
         const optionMarkup = options.map((option) => {
             const structureId = Number(option.structureId || option.structure_id || 0) || 0;
             const decoratedOption = getStructurePlannerOption(typeId, structureId) || option;
@@ -5356,10 +5816,9 @@ function renderStructurePlanner() {
                         ${optionMarkup}
                     </select>
                 </td>
-                <td class="text-end fw-semibold">${selectedOption ? formatPercent(selectedOption.material_bonus_percent || selectedOption.materialBonusPercent || selectedOption.rig_material_bonus_percent || selectedOption.rigMaterialBonusPercent || 0, 2) : '0.00%'}</td>
-                <td class="text-end fw-semibold">${selectedOption ? formatPercent(selectedOption.time_bonus_percent || selectedOption.timeBonusPercent || selectedOption.rig_time_bonus_percent || selectedOption.rigTimeBonusPercent || 0, 2) : '0.00%'}</td>
-                <td class="text-end fw-semibold">${selectedOption ? formatPercent(selectedOption.job_cost_bonus_percent || selectedOption.jobCostBonusPercent || 0, 2) : '0.00%'}</td>
-                <td class="text-end fw-semibold">${selectedOption ? formatPercent(selectedOption.tax_percent || selectedOption.taxPercent || 0, 2) : '0.00%'}</td>
+                <td class="text-end fw-semibold">${renderStructureMetricCell(selectedOption, 'material', { item })}</td>
+                <td class="text-end fw-semibold">${renderStructureMetricCell(selectedOption, 'time', { item })}</td>
+                <td class="text-end fw-semibold">${renderStructureMetricCell(selectedOption, 'job', { installationRow })}</td>
                 <td><span class="badge bg-secondary-subtle text-secondary-emphasis">${escapeHtml(distanceLabel || __('Standalone'))}</span></td>
             </tr>
         `;
@@ -5376,6 +5835,7 @@ function renderStructurePlanner() {
                 return;
             }
             window.SimulationAPI.setStructureAssignment(typeId, structureId);
+            refreshPlanTreeAfterStructureAssignment();
             renderStructurePlanner();
             markPendingWorkspaceRefresh({ sourceTabName: 'structure' });
             persistCraftPageSessionState();
@@ -5840,7 +6300,15 @@ function recalcFinancials() {
 
     const profit = revTotal - costTotal;
     // Margin = profit / revenue (not markup on cost).
-    const marginValue = revTotal > 0 ? (profit / revTotal) * 100 : 0;
+    // When revenue is zero, keep the display meaningful instead of forcing 0%.
+    let marginValue = 0;
+    if (revTotal > 0) {
+        marginValue = (profit / revTotal) * 100;
+    } else if (profit < 0) {
+        marginValue = -100;
+    } else if (profit > 0) {
+        marginValue = 100;
+    }
     const marginText = marginValue.toFixed(1);
 
     const grandTotalMaterialCostEl = document.querySelector('.grand-total-material-cost');
@@ -6140,31 +6608,18 @@ function populatePrices(allInputs, prices) {
     // remain correct without polluting the user's data.
     allInputs.forEach(inp => {
         const tid = inp.getAttribute('data-type-id');
-        const raw = prices[tid] ?? prices[String(parseInt(tid, 10))];
-        let price = raw != null ? parseFloat(raw) : NaN;
-        if (isNaN(price)) price = 0;
+        const resolved = getFuzzworkPriceFromResponse(prices, tid);
+        let price = resolved.found ? resolved.price : Number(getSimulationPriceRecord(tid).fuzzwork || 0);
+        if (!Number.isFinite(price)) price = 0;
 
         const isFuzzworkInput = inp.classList.contains('fuzzwork-price');
 
         if (isFuzzworkInput) {
-            inp.value = price.toFixed(2);
+            applyFuzzworkPriceInputState(inp, price);
         }
 
-        if (window.SimulationAPI && typeof window.SimulationAPI.setPrice === 'function') {
+        if (resolved.found && window.SimulationAPI && typeof window.SimulationAPI.setPrice === 'function') {
             window.SimulationAPI.setPrice(tid, 'fuzzwork', price);
-        }
-
-        // Only flag the visible Reference cell when its price is missing.
-        // Override cells must remain neutral so the absence of a manual
-        // entry is not styled as a warning.
-        if (isFuzzworkInput) {
-            if (price <= 0) {
-                inp.classList.add('bg-warning', 'border-warning');
-                inp.setAttribute('title', __('Price not available (Fuzzwork)'));
-            } else {
-                inp.classList.remove('bg-warning', 'border-warning');
-                inp.removeAttribute('title');
-            }
         }
     });
 }
@@ -6644,6 +7099,24 @@ function getCraftProductionCyclesSummary() {
     return summary;
 }
 
+function getBuildFinalOutputQuantity(output, finalRow) {
+    const payloadQuantity = Math.max(0, Math.ceil(Number(output?.quantity || output?.qty || 0))) || 0;
+    if (payloadQuantity > 0) {
+        return payloadQuantity;
+    }
+
+    const finalQtyEl = finalRow ? finalRow.querySelector('[data-qty]') : null;
+    return Math.max(
+        0,
+        Math.ceil(
+            Number(
+                (finalQtyEl && (finalQtyEl.getAttribute('data-qty') || finalQtyEl.dataset?.qty))
+                || 0
+            )
+        )
+    ) || 0;
+}
+
 function getCurrentBuildFinalProductRows(cyclesSummary) {
     const runs = Math.max(0, Math.ceil(Number(document.getElementById('runsInput')?.value || window.BLUEPRINT_DATA?.num_runs || 0))) || 0;
 
@@ -6656,33 +7129,20 @@ function getCurrentBuildFinalProductRows(cyclesSummary) {
 
             const summaryEntry = cyclesSummary[String(typeId)] || cyclesSummary[typeId] || null;
             const finalRow = getFinalOutputRows().find((row) => (Number(row.getAttribute('data-type-id') || 0) || 0) === typeId) || null;
-            const finalQtyEl = finalRow ? finalRow.querySelector('[data-qty]') : null;
-            const finalQty = Math.max(
-                0,
-                Math.ceil(
-                    Number(
-                        (finalQtyEl && (finalQtyEl.getAttribute('data-qty') || finalQtyEl.dataset?.qty))
-                        || output?.quantity
-                        || output?.qty
-                        || 0
-                    )
-                )
-            ) || 0;
+            const finalQty = getBuildFinalOutputQuantity(output, finalRow);
             const producedPerCycle = summaryEntry
                 ? (Math.max(0, Math.ceil(Number(summaryEntry.produced_per_cycle || summaryEntry.producedPerCycle || 0))) || 0)
                 : (Math.max(0, Math.ceil(Number(output?.produced_per_cycle || output?.producedPerCycle || 0))) || 0);
-            const totalNeeded = summaryEntry
-                ? (Math.max(0, Math.ceil(Number(summaryEntry.total_needed || summaryEntry.totalNeeded || 0))) || 0)
-                : finalQty;
-            const cycles = summaryEntry
-                ? (Math.max(0, Math.ceil(Number(summaryEntry.cycles || 0))) || 0)
-                : runs;
-            const totalProduced = summaryEntry
-                ? (Math.max(0, Math.ceil(Number(summaryEntry.total_produced || summaryEntry.totalProduced || 0))) || 0)
-                : (totalNeeded || (producedPerCycle * cycles));
-            const surplus = summaryEntry
-                ? (Math.max(0, Math.ceil(Number(summaryEntry.surplus || 0))) || 0)
-                : Math.max(totalProduced - totalNeeded, 0);
+            const totalNeeded = finalQty > 0
+                ? finalQty
+                : (summaryEntry ? (Math.max(0, Math.ceil(Number(summaryEntry.total_needed || summaryEntry.totalNeeded || 0))) || 0) : 0);
+            const cycles = producedPerCycle > 0
+                ? Math.ceil(totalNeeded / producedPerCycle)
+                : (summaryEntry ? (Math.max(0, Math.ceil(Number(summaryEntry.cycles || 0))) || 0) : runs);
+            const totalProduced = producedPerCycle > 0
+                ? producedPerCycle * cycles
+                : (summaryEntry ? (Math.max(0, Math.ceil(Number(summaryEntry.total_produced || summaryEntry.totalProduced || 0))) || 0) : totalNeeded);
+            const surplus = Math.max(totalProduced - totalNeeded, 0);
 
             if (!(totalNeeded > 0) && !(cycles > 0) && !(producedPerCycle > 0) && !(totalProduced > 0)) {
                 return null;
@@ -6690,7 +7150,7 @@ function getCurrentBuildFinalProductRows(cyclesSummary) {
 
             return {
                 type_id: typeId,
-                type_name: output?.type_name || output?.typeName || window.BLUEPRINT_DATA?.name || '',
+                type_name: output?.type_name || output?.typeName || '',
                 total_needed: totalNeeded,
                 produced_per_cycle: producedPerCycle || totalNeeded,
                 cycles,
@@ -6821,7 +7281,7 @@ function updateBuildTabFromState() {
         <section class="craft-section">
             <h3 class="craft-section-title">
                 <i class="fas fa-sync text-info"></i> ${escapeHtml(__('Cycles'))}
-                <span class="small text-body-secondary fw-semibold ms-2">${formatInteger(finalProductRows.length + cycleEntries.length)}</span>
+                <span class="small text-body-secondary fw-semibold ms-2">${formatInteger(finalProductRows.length + cycleEntries.length)} ${escapeHtml(__('lines'))}</span>
             </h3>
             <div class="table-responsive craft-cycles-table craft-table-text-120">
                 <table class="table table-sm align-middle mb-0">
@@ -6908,6 +7368,26 @@ function renderCraftCapabilitySummary(summary) {
             </div>
         </section>
     `;
+}
+
+function getCurrentBlueprintMEByTypeId(blueprintTypeId) {
+    const numericBlueprintTypeId = Number(blueprintTypeId || 0) || 0;
+    if (!(numericBlueprintTypeId > 0)) {
+        return 0;
+    }
+
+    const meteConfig = getCurrentMETEConfig();
+    const configEntry = meteConfig.blueprintConfigs[String(numericBlueprintTypeId)] || meteConfig.blueprintConfigs[numericBlueprintTypeId] || null;
+    if (configEntry && configEntry.me !== undefined) {
+        return Math.max(0, Math.min(Number(configEntry.me) || 0, 10));
+    }
+
+    const currentBlueprintTypeId = Number(getCurrentBlueprintTypeId() || 0) || 0;
+    if (numericBlueprintTypeId === currentBlueprintTypeId) {
+        return Math.max(0, Math.min(Number(meteConfig.mainME || 0) || 0, 10));
+    }
+
+    return 0;
 }
 
 function getCurrentBlueprintTEByTypeId(blueprintTypeId) {

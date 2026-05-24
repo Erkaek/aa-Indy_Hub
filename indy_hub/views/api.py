@@ -359,6 +359,107 @@ def save_production_project_workspace(request, project_ref: str):
 @indy_hub_permission_required("can_access_indy_hub")
 @login_required
 @require_http_methods(["POST"])
+def rename_production_project(request, project_ref: str):
+    """Rename a production project from the workspace header pencil control."""
+    emit_view_analytics_event(
+        view_name="api.rename_production_project", request=request
+    )
+
+    try:
+        normalized_project_ref = normalize_production_project_ref(project_ref)
+    except ValueError:
+        return JsonResponse(
+            {"error": "Invalid production project reference"}, status=400
+        )
+
+    project = get_object_or_404(
+        ProductionProject,
+        project_ref=normalized_project_ref,
+        user=request.user,
+    )
+
+    try:
+        data = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON data"}, status=400)
+
+    new_name = str(data.get("name") or "").strip()
+    if not new_name:
+        return JsonResponse({"error": "Name must not be empty"}, status=400)
+    new_name = new_name[:255]
+
+    project.name = new_name
+    update_fields = ["name", "updated_at"]
+
+    workspace_state = project.workspace_state
+    if isinstance(workspace_state, dict):
+        workspace_state = dict(workspace_state)
+        workspace_state["simulation_name"] = new_name
+        workspace_state["simulationName"] = new_name
+        project.workspace_state = workspace_state
+        update_fields.append("workspace_state")
+
+    project.save(update_fields=update_fields)
+
+    return JsonResponse(
+        {
+            "success": True,
+            "project_ref": project.project_ref,
+            "name": project.name,
+        }
+    )
+
+
+@indy_hub_access_required
+@indy_hub_permission_required("can_access_indy_hub")
+@login_required
+@require_http_methods(["POST"])
+def set_production_project_status(request, project_ref: str):
+    """Update the status of a production project (draft / saved / archived)."""
+    emit_view_analytics_event(
+        view_name="api.set_production_project_status", request=request
+    )
+
+    try:
+        normalized_project_ref = normalize_production_project_ref(project_ref)
+    except ValueError:
+        return JsonResponse(
+            {"error": "Invalid production project reference"}, status=400
+        )
+
+    project = get_object_or_404(
+        ProductionProject,
+        project_ref=normalized_project_ref,
+        user=request.user,
+    )
+
+    try:
+        data = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON data"}, status=400)
+
+    new_status = str(data.get("status") or "").strip().lower()
+    if new_status not in ProductionProject.Status.values:
+        return JsonResponse({"error": "Invalid status"}, status=400)
+
+    if project.status != new_status:
+        project.status = new_status
+        project.save(update_fields=["status", "updated_at"])
+
+    return JsonResponse(
+        {
+            "success": True,
+            "project_ref": project.project_ref,
+            "status": project.status,
+            "status_label": project.get_status_display(),
+        }
+    )
+
+
+@indy_hub_access_required
+@indy_hub_permission_required("can_access_indy_hub")
+@login_required
+@require_http_methods(["POST"])
 def save_production_project_progress(request, project_ref: str):
     emit_view_analytics_event(
         view_name="api.save_production_project_progress", request=request
@@ -755,6 +856,9 @@ def craft_bp_payload(request, type_id: int):
                     "type_name": row[1],
                     "quantity": qty,
                     "material_bonus_applicable": apply_material_efficiency,
+                    "base_quantity_per_run": int(row[2] or 0),
+                    "job_runs": runs,
+                    "blueprint_material_efficiency": blueprint_me,
                     "cycles": None,
                     "produced_per_cycle": None,
                     "total_produced": None,

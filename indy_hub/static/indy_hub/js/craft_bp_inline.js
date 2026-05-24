@@ -13,6 +13,7 @@
     let isFetchingSimulations = false;
     let projectWorkspaceDirty = false;
     let projectWorkspaceStateInitialized = !isProjectWorkspace;
+    let projectWorkspaceAutoSavePromise = null;
 
     function buildWorkspaceSignature(state) {
         const source = state && typeof state === 'object' ? { ...state } : {};
@@ -63,16 +64,17 @@
             typeId: Number(entry?.item_type_id || entry?.itemTypeId || 0) || 0,
             priceType: Boolean(entry?.is_sale_price || entry?.isSalePrice) ? 'sale' : 'real',
             value: Number(entry?.unit_price || entry?.unitPrice || 0) || 0,
-        })).filter((entry) => entry.typeId > 0);
+        })).filter((entry) => entry.typeId > 0 && entry.value > 0);
     }
 
     function normalizeWorkspaceStateForSession(rawState) {
         const state = rawState && typeof rawState === 'object' ? rawState : {};
-        const buyTypeIds = Array.isArray(state.buyTypeIds)
+        const buyTypeIdsFromItems = Array.isArray(state.items)
+            ? state.items.filter((item) => String(item?.mode || '') === 'buy').map((item) => Number(item?.type_id || item?.typeId || 0)).filter((typeId) => typeId > 0)
+            : [];
+        const buyTypeIds = Array.isArray(state.buyTypeIds) && state.buyTypeIds.length > 0
             ? state.buyTypeIds
-            : (Array.isArray(state.items)
-                ? state.items.filter((item) => String(item?.mode || '') === 'buy').map((item) => Number(item?.type_id || item?.typeId || 0)).filter((typeId) => typeId > 0)
-                : []);
+            : buyTypeIdsFromItems;
         const rawFuzzworkPrices = state.fuzzworkPrices || state.fuzzwork_prices;
         const fuzzworkPrices = rawFuzzworkPrices && typeof rawFuzzworkPrices === 'object' && !Array.isArray(rawFuzzworkPrices)
             ? Object.fromEntries(
@@ -93,7 +95,7 @@
                 : {},
             runs: Math.max(1, parseInt(state.runs, 10) || 1),
             activeBlueprintTab: String(state.activeBlueprintTab || state.active_tab || 'materials'),
-            manualPrices: Array.isArray(state.manualPrices)
+            manualPrices: Array.isArray(state.manualPrices) && state.manualPrices.length > 0
                 ? state.manualPrices
                 : buildManualPricesFromLegacyPrices(state.custom_prices),
             simulationName: String(state.simulationName || state.simulation_name || state.project_name || ''),
@@ -415,7 +417,32 @@
     }
 
     function gatherCustomPrices() {
-        const prices = [];
+        const pricesByKey = new Map();
+
+        const addPrice = (typeId, value, isSale) => {
+            const numericTypeId = Number(typeId) || 0;
+            const numericValue = Number(value) || 0;
+            if (!(numericTypeId > 0) || !(numericValue > 0)) {
+                return;
+            }
+            pricesByKey.set(`${numericTypeId}:${isSale ? 'sale' : 'real'}`, {
+                item_type_id: numericTypeId,
+                unit_price: numericValue,
+                is_sale_price: !!isSale,
+            });
+        };
+
+        if (window.SimulationAPI && typeof window.SimulationAPI.getState === 'function') {
+            const state = window.SimulationAPI.getState() || {};
+            const priceMap = mapLikeToMap(state.prices);
+            priceMap.forEach((record, typeId) => {
+                if (!record || typeof record !== 'object') {
+                    return;
+                }
+                addPrice(typeId, record.real, false);
+                addPrice(typeId, record.sale, true);
+            });
+        }
 
         const handleInput = (input, isSale) => {
             const typeId = Number(input.getAttribute('data-type-id'));
@@ -430,17 +457,13 @@
             if (!Number.isFinite(value) || value <= 0) {
                 return;
             }
-            prices.push({
-                item_type_id: typeId,
-                unit_price: value,
-                is_sale_price: !!isSale,
-            });
+            addPrice(typeId, value, isSale);
         };
 
         document.querySelectorAll('input.real-price[data-type-id]').forEach((input) => handleInput(input, false));
         document.querySelectorAll('input.sale-price-unit[data-type-id]').forEach((input) => handleInput(input, true));
 
-        return prices;
+        return Array.from(pricesByKey.values());
     }
 
     function refreshSaveSummary() {
@@ -572,6 +595,33 @@
                 saveButton.disabled = false;
             }
         }
+    }
+
+    function autoSaveProjectWorkspaceFromTabChange() {
+        if (!isProjectWorkspace || !projectWorkspaceDirty) {
+            return Promise.resolve(true);
+        }
+        if (projectWorkspaceAutoSavePromise) {
+            return projectWorkspaceAutoSavePromise;
+        }
+
+        projectWorkspaceAutoSavePromise = persistProjectWorkspace({
+            showSuccessStatus: false,
+            showErrorStatus: false,
+        }).then((saved) => {
+            if (!saved && projectWorkspaceDirty) {
+                showSimulationStatus(__('Failed to auto-save table changes. Click Save table to retry.'), 'danger', { persistent: true });
+            }
+            return saved;
+        }).catch((error) => {
+            console.error('[CraftBP] Failed to auto-save project workspace after tab change', error);
+            showSimulationStatus(__('Failed to auto-save table changes. Click Save table to retry.'), 'danger', { persistent: true });
+            return false;
+        }).finally(() => {
+            projectWorkspaceAutoSavePromise = null;
+        });
+
+        return projectWorkspaceAutoSavePromise;
     }
 
     async function fetchSimulationsList() {
@@ -835,6 +885,20 @@
             saveButton.addEventListener('click', saveSimulation);
         }
 
+        const tabRoots = [
+            document.getElementById('craftMainTabs'),
+            document.getElementById('bpTabs'),
+        ].filter(Boolean);
+        tabRoots.forEach((tabRoot) => {
+            if (tabRoot.dataset.workspaceAutoSaveBound === 'true') {
+                return;
+            }
+            tabRoot.addEventListener('shown.bs.tab', () => {
+                autoSaveProjectWorkspaceFromTabChange();
+            });
+            tabRoot.dataset.workspaceAutoSaveBound = 'true';
+        });
+
         const loadModal = document.getElementById('loadSimulationModal');
         if (loadModal && !isProjectWorkspace) {
             loadModal.addEventListener('show.bs.modal', async () => {
@@ -878,6 +942,23 @@
         attachEventHandlers();
         if (isProjectWorkspace && blueprintData.workspace_state) {
             const normalizedState = normalizeWorkspaceStateForSession(blueprintData.workspace_state);
+            // On a fresh project open (link navigation), always land on the
+            // Plan tab regardless of the persisted active tab. Reloads and
+            // back/forward traversals keep the saved tab so an in-progress
+            // review is not interrupted.
+            try {
+                const navEntry = (typeof performance !== 'undefined'
+                    && typeof performance.getEntriesByType === 'function')
+                    ? performance.getEntriesByType('navigation')[0]
+                    : null;
+                const navType = navEntry ? String(navEntry.type || '') : '';
+                if (navType !== 'reload' && navType !== 'back_forward') {
+                    normalizedState.activeBlueprintTab = 'plan';
+                }
+            } catch (_e) {
+                // Best-effort: leave the persisted tab untouched if the
+                // navigation timing API is unavailable.
+            }
             blueprintData.workspace_state = normalizedState;
             if (window.CraftBP && typeof window.CraftBP.applySessionState === 'function') {
                 window.CraftBP.applySessionState(normalizedState);

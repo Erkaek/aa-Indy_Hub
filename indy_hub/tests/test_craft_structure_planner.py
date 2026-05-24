@@ -202,6 +202,7 @@ class CraftStructurePlannerTests(TestCase):
             [
                 (
                     500,
+                    1500,
                     "Ferrofluid",
                     200,
                     123456.78,
@@ -215,6 +216,7 @@ class CraftStructurePlannerTests(TestCase):
         rows = _fetch_craftable_item_rows([500])
 
         self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["blueprint_type_id"], 1500)
         self.assertEqual(rows[0]["base_price"], 123456.78)
         self.assertEqual(rows[0]["activity_id"], 9)
         self.assertEqual(rows[0]["activity_label"], "Reactions")
@@ -274,6 +276,34 @@ class CraftStructurePlannerTests(TestCase):
         self.assertEqual(
             planner["summary"]["selected_structure_count"],
             1,
+        )
+        component_option = items_by_type_id[200]["options"][0]
+        self.assertAlmostEqual(
+            component_option["adjusted_job_cost_percent"],
+            2.94,
+            places=3,
+        )
+        self.assertAlmostEqual(
+            component_option["facility_tax_percent"],
+            0.4,
+            places=3,
+        )
+        self.assertAlmostEqual(
+            component_option["total_installation_cost_percent"],
+            7.34,
+            places=3,
+        )
+        self.assertEqual(
+            [row["label"] for row in component_option["bonus_breakdowns"]],
+            ["Structure role bonus", "Advanced Component Rig"],
+        )
+        self.assertEqual(
+            component_option["bonus_breakdowns"][0]["job_cost_percent"],
+            2.0,
+        )
+        self.assertEqual(
+            component_option["bonus_breakdowns"][1]["material_efficiency_percent"],
+            2.4,
         )
 
     @patch("indy_hub.services.craft_structures._fetch_craftable_item_rows")
@@ -342,6 +372,56 @@ class CraftStructurePlannerTests(TestCase):
             items_by_type_id[200]["recommended_structure_id"],
             self.nearby_structure.id,
         )
+
+    @patch("indy_hub.services.craft_structures._fetch_craftable_item_rows")
+    @patch("indy_hub.models.IndustryStructure.get_resolved_bonuses")
+    def test_compact_planner_keeps_saved_manual_structure_assignment(
+        self,
+        mock_get_resolved_bonuses,
+        mock_fetch_craftable_item_rows,
+    ) -> None:
+        shared_bonus = IndustryStructureResolvedBonus(
+            source="structure",
+            label="Structure role bonus",
+            activity_id=1,
+            material_efficiency_percent=Decimal("1.0"),
+            job_cost_percent=Decimal("2.0"),
+            time_efficiency_percent=Decimal("15.0"),
+        )
+
+        def equal_bonuses(structure: IndustryStructure):
+            if structure.id in {self.nearby_structure.id, self.remote_structure.id}:
+                return [shared_bonus]
+            return []
+
+        mock_get_resolved_bonuses.side_effect = equal_bonuses
+        mock_fetch_craftable_item_rows.return_value = [
+            {
+                "type_id": 100,
+                "type_name": "Thanatos",
+                "produced_per_cycle": 1,
+                "activity_id": 1,
+                "activity_label": "Manufacturing",
+                "group_name": "Carrier",
+                "category_name": "Ship",
+            },
+        ]
+
+        planner = build_craft_structure_planner(
+            product_type_id=100,
+            product_type_name="Thanatos",
+            product_output_per_cycle=1,
+            craft_cycles_summary={},
+            include_all_options=False,
+            selected_structure_assignments={100: self.remote_structure.id},
+        )
+
+        item = planner["items"][0]
+        option_ids = {option["structure_id"] for option in item["options"]}
+        self.assertEqual(item["recommended_structure_id"], self.nearby_structure.id)
+        self.assertEqual(item["selected_structure_id"], self.remote_structure.id)
+        self.assertIn(self.nearby_structure.id, option_ids)
+        self.assertIn(self.remote_structure.id, option_ids)
         self.assertEqual(
             planner["summary"]["selected_structure_count"],
             1,
@@ -602,9 +682,57 @@ class CraftStructurePlannerTests(TestCase):
         self.assertEqual(option["rig_time_bonus_percent"], 20.0)
         self.assertEqual(option["structure_material_bonus_percent"], 1.0)
         self.assertEqual(option["structure_time_bonus_percent"], 15.0)
-        self.assertGreater(
-            option["material_bonus_percent"], option["rig_material_bonus_percent"]
+        self.assertAlmostEqual(option["material_bonus_percent"], 3.376, places=3)
+        self.assertAlmostEqual(option["time_bonus_percent"], 32.0, places=3)
+
+    @patch("indy_hub.services.craft_structures._fetch_craftable_item_rows")
+    @patch("indy_hub.models.IndustryStructure.get_resolved_bonuses")
+    def test_planner_matches_supported_type_singular_plural_aliases(
+        self,
+        mock_get_resolved_bonuses,
+        mock_fetch_craftable_item_rows,
+    ) -> None:
+        mock_fetch_craftable_item_rows.return_value = [
+            {
+                "type_id": 910001,
+                "type_name": "Construction Components Test",
+                "produced_per_cycle": 1,
+                "base_price": 1000000,
+                "activity_id": 1,
+                "activity_label": "Manufacturing",
+                "group_name": "Construction Components",
+                "category_name": "Commodity",
+            }
+        ]
+
+        def plural_sensitive_bonuses(structure: IndustryStructure):
+            if structure.id != self.remote_structure.id:
+                return []
+            return [
+                IndustryStructureResolvedBonus(
+                    source="rig",
+                    label="Advanced Component Rig",
+                    activity_id=1,
+                    supported_types_label="Types supported",
+                    # Intentional singular form: group is plural in item rows.
+                    supported_type_names=("Construction Component",),
+                    material_efficiency_percent=Decimal("5.0"),
+                    time_efficiency_percent=Decimal("10.0"),
+                ),
+            ]
+
+        mock_get_resolved_bonuses.side_effect = plural_sensitive_bonuses
+
+        planner = build_craft_structure_planner(
+            product_type_id=910001,
+            product_type_name="Construction Components Test",
+            product_output_per_cycle=1,
+            craft_cycles_summary={},
         )
-        self.assertGreater(
-            option["time_bonus_percent"], option["rig_time_bonus_percent"]
-        )
+
+        self.assertEqual(len(planner["items"]), 1)
+        item = planner["items"][0]
+        self.assertEqual(item["recommended_structure_id"], self.remote_structure.id)
+        option = item["options"][0]
+        self.assertAlmostEqual(option["material_bonus_percent"], 5.0, places=3)
+        self.assertAlmostEqual(option["time_bonus_percent"], 10.0, places=3)

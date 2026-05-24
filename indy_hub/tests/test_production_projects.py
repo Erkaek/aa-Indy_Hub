@@ -120,9 +120,6 @@ class _WorkspacePayloadCursorStub:
             row = self.product_rows.get(blueprint_type_id)
             self._result = [row] if row else []
             return
-        if "SELECT m.material_eve_type_id, COALESCE" in query:
-            self._result = self.material_rows.get(blueprint_type_id, [])
-            return
         if "SELECT m.material_eve_type_id, m.quantity" in query:
             self._result = [
                 (type_id, quantity)
@@ -130,6 +127,9 @@ class _WorkspacePayloadCursorStub:
                     blueprint_type_id, []
                 )
             ]
+            return
+        if "SELECT m.material_eve_type_id" in query and "m.quantity" in query:
+            self._result = self.material_rows.get(blueprint_type_id, [])
             return
         if "SELECT t.meta_group_id_raw, g.category_id" in query:
             self._result = [(None, None)]
@@ -303,7 +303,13 @@ class ProductionProjectImportTests(TestCase):
             name="Root Project",
             status="draft",
             source_kind="manual",
-            workspace_state={},
+            workspace_state={
+                "structure": {
+                    "assignments": [
+                        {"typeId": 3000, "structureId": 99},
+                    ],
+                },
+            },
             notes="",
             user=object(),
             items=_ProjectItemsQueryStub([project_item]),
@@ -359,7 +365,7 @@ class ProductionProjectImportTests(TestCase):
             patch(
                 "indy_hub.services.production_projects.build_craft_structure_planner",
                 return_value={},
-            ),
+            ) as mock_structure_planner,
             patch(
                 "indy_hub.services.production_projects._resolve_user_blueprint_inventory",
                 return_value=inventory_map,
@@ -377,13 +383,21 @@ class ProductionProjectImportTests(TestCase):
             {1000, 3001},
         )
         self.assertEqual(payload["me"], 10)
+        child_node = payload["materials_tree"][0]["sub_materials"][0]
         self.assertEqual(
-            payload["materials_tree"][0]["sub_materials"][0]["blueprint_type_id"],
+            child_node["blueprint_type_id"],
             3001,
         )
+        self.assertEqual(child_node["base_quantity_per_run"], 10)
+        self.assertEqual(child_node["job_runs"], 1)
+        self.assertEqual(child_node["blueprint_material_efficiency"], 10)
         self.assertIs(
             mock_blueprint_configs.call_args.kwargs["user_bp_map"],
             inventory_map,
+        )
+        self.assertEqual(
+            mock_structure_planner.call_args.kwargs["selected_structure_assignments"],
+            {3000: 99},
         )
 
     @patch("indy_hub.services.production_projects._resolve_user_blueprint_inventory")

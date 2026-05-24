@@ -32,6 +32,32 @@ CAPITAL_GROUP_NAMES = {
 }
 
 
+def _get_table_column_names(table_name: str) -> set[str]:
+    try:
+        with connection.cursor() as cursor:
+            return {
+                column.name
+                for column in connection.introspection.get_table_description(
+                    cursor,
+                    table_name,
+                )
+            }
+    except Exception:
+        return set()
+
+
+def _sde_name_expression(table_name: str, *, alias: str | None = None) -> str:
+    columns = _get_table_column_names(table_name)
+    prefix = f"{alias}." if alias else ""
+    if "name_en" in columns and "name" in columns:
+        return f"COALESCE({prefix}name_en, {prefix}name)"
+    if "name_en" in columns:
+        return f"{prefix}name_en"
+    if "name" in columns:
+        return f"{prefix}name"
+    return f"{prefix}name"
+
+
 def _normalize_decimal(value: Decimal | int | float | str | None) -> Decimal:
     if value is None:
         return Decimal("0")
@@ -51,6 +77,37 @@ def _combine_bonus_percentages(
             continue
         multiplier *= Decimal("1") - (percent / PERCENT_FACTOR)
     return (Decimal("1") - multiplier) * PERCENT_FACTOR
+
+
+def _serialize_bonus_breakdown(
+    bonuses: list[IndustryStructureResolvedBonus],
+) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for bonus in bonuses:
+        material_bonus = _normalize_decimal(
+            getattr(bonus, "material_efficiency_percent", Decimal("0")),
+        )
+        time_bonus = _normalize_decimal(
+            getattr(bonus, "time_efficiency_percent", Decimal("0")),
+        )
+        job_bonus = _normalize_decimal(
+            getattr(bonus, "job_cost_percent", Decimal("0")),
+        )
+        if material_bonus <= 0 and time_bonus <= 0 and job_bonus <= 0:
+            continue
+        rows.append(
+            {
+                "source": str(getattr(bonus, "source", "") or ""),
+                "label": str(getattr(bonus, "label", "") or ""),
+                "supported_types_label": str(
+                    getattr(bonus, "supported_types_label", "") or ""
+                ),
+                "material_efficiency_percent": float(material_bonus),
+                "time_efficiency_percent": float(time_bonus),
+                "job_cost_percent": float(job_bonus),
+            }
+        )
+    return rows
 
 
 def _item_supported_by_bonus(
@@ -542,18 +599,25 @@ def _fetch_craftable_item_rows(type_ids: list[int]) -> list[dict[str, object]]:
         return []
 
     placeholders = ", ".join(["%s"] * len(type_ids))
+    item_name_expr = _sde_name_expression("eve_sde_itemtype", alias="item")
+    group_name_expr = _sde_name_expression("eve_sde_itemgroup", alias="grp")
+    category_name_expr = _sde_name_expression(
+        "eve_sde_itemcategory",
+        alias="category",
+    )
     rows: list[dict[str, object]] = []
     with connection.cursor() as cursor:
         cursor.execute(
             f"""
             SELECT
                 product.product_eve_type_id AS type_id,
-                COALESCE(item.name_en, item.name) AS type_name,
+                product.eve_type_id AS blueprint_type_id,
+                {item_name_expr} AS type_name,
                 product.quantity AS produced_per_cycle,
                 item.base_price AS base_price,
                 product.activity_id AS activity_id,
-                COALESCE(grp.name_en, grp.name) AS group_name,
-                COALESCE(category.name_en, category.name) AS category_name
+                {group_name_expr} AS group_name,
+                {category_name_expr} AS category_name
             FROM indy_hub_sdeindustryactivityproduct product
             JOIN eve_sde_itemtype item ON item.id = product.product_eve_type_id
             JOIN eve_sde_itemtype blueprint_item ON blueprint_item.id = product.eve_type_id
@@ -563,13 +627,14 @@ def _fetch_craftable_item_rows(type_ids: list[int]) -> list[dict[str, object]]:
                         AND product.activity_id IN (1, 9, 11)
                         AND COALESCE(item.published, 0) = 1
                         AND COALESCE(blueprint_item.published, 0) = 1
-            ORDER BY COALESCE(item.name_en, item.name)
+            ORDER BY {item_name_expr}
             """,
             type_ids,
         )
 
         for (
             type_id,
+            blueprint_type_id,
             type_name,
             produced_per_cycle,
             base_price,
@@ -585,6 +650,7 @@ def _fetch_craftable_item_rows(type_ids: list[int]) -> list[dict[str, object]]:
             rows.append(
                 {
                     "type_id": int(type_id),
+                    "blueprint_type_id": int(blueprint_type_id or 0),
                     "type_name": str(type_name or type_id),
                     "produced_per_cycle": int(produced_per_cycle or 1),
                     "base_price": float(base_price or 0),
@@ -604,7 +670,17 @@ def build_craft_structure_planner(
     product_output_per_cycle: int,
     craft_cycles_summary: dict[int, dict[str, object]],
     include_all_options: bool = True,
+    selected_structure_assignments: dict[int, int] | None = None,
 ) -> dict[str, object]:
+    selected_assignments: dict[int, int] = {}
+    for type_id, structure_id in (selected_structure_assignments or {}).items():
+        try:
+            numeric_type_id = int(type_id or 0)
+            numeric_structure_id = int(structure_id or 0)
+        except (TypeError, ValueError):
+            continue
+        if numeric_type_id > 0 and numeric_structure_id > 0:
+            selected_assignments[numeric_type_id] = numeric_structure_id
     craftable_type_ids: list[int] = []
     if product_type_id:
         craftable_type_ids.append(int(product_type_id))
@@ -785,6 +861,9 @@ def build_craft_structure_planner(
                         structure_material_bonus_percent
                     ),
                     "structure_time_bonus_percent": float(structure_time_bonus_percent),
+                    "bonus_breakdowns": _serialize_bonus_breakdown(
+                        applicable_bonuses
+                    ),
                     "tax_percent": float(tax_percent),
                     "system_cost_index_percent": float(system_cost_index_percent),
                     "adjusted_job_cost_percent": float(
@@ -810,6 +889,7 @@ def build_craft_structure_planner(
         planner_items.append(
             {
                 "type_id": int(item_row["type_id"]),
+                "blueprint_type_id": int(item_row.get("blueprint_type_id") or 0),
                 "type_name": str(item_row["type_name"]),
                 "activity_id": activity_id,
                 "activity_label": str(item_row["activity_label"]),
@@ -863,6 +943,7 @@ def build_craft_structure_planner(
             if selected_option is not None
             else None
         )
+        user_selected_structure_id = selected_assignments.get(int(item["type_id"]))
 
         for option in item["options"]:
             distance_penalty, distance_band = _structure_distance_penalty(
@@ -895,12 +976,33 @@ def build_craft_structure_planner(
             compact_options = [
                 option
                 for option in adjusted_options
-                if selected_structure_id
-                and int(option["structure_id"]) == selected_structure_id
+                if (
+                    selected_structure_id
+                    and int(option["structure_id"]) == selected_structure_id
+                )
+                or (
+                    user_selected_structure_id
+                    and int(option["structure_id"]) == user_selected_structure_id
+                )
             ]
             item["options"] = compact_options or [adjusted_options[0]]
         else:
             item["options"] = []
+        user_selected_option = next(
+            (
+                option
+                for option in adjusted_options
+                if user_selected_structure_id
+                and int(option["structure_id"]) == user_selected_structure_id
+            ),
+            None,
+        )
+        if user_selected_option is not None:
+            item["selected_structure_id"] = int(user_selected_option["structure_id"])
+            item["selected_structure_name"] = str(user_selected_option["name"])
+        else:
+            item["selected_structure_id"] = None
+            item["selected_structure_name"] = ""
         if selected_option is not None:
             item["recommended_structure_id"] = int(selected_option["structure_id"])
             item["recommended_structure_name"] = str(selected_option["name"])
