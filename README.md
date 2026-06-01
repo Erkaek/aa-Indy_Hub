@@ -150,7 +150,7 @@ If omitted, Indy Hub automatically reuses the default folder used by `eve_sde`.
 Add to your `conf/requirements.txt` (Always use current versions)
 
 ```text
-indy-hub==1.17.1
+indy-hub==1.17.2
 ```
 
 Run migrations and collect static files:
@@ -279,7 +279,7 @@ systemctl restart allianceauth
 Update Versions in `conf/requirements.txt` (Always use current versions)
 
 ```text
-indy-hub==1.17.1
+indy-hub==1.17.2
 
 
 ```
