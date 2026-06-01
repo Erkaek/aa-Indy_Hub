@@ -3424,6 +3424,14 @@ html[data-theme="darkly"] #blueprintSearchInput {
         --craft-col-label: var(--craft-col-8);
     }
 
+    .craft-stackable-table tbody td:nth-child(9) {
+        --craft-col-label: var(--craft-col-9);
+    }
+
+    .craft-stackable-table tbody td:nth-child(10) {
+        --craft-col-label: var(--craft-col-10);
+    }
+
     .craft-stackable-table tbody tr.craft-financial-section-row td,
     .craft-stackable-table tbody tr.craft-financial-group-row td,
     .craft-stackable-table tbody tr.craft-stock-section-row td,

@@ -7283,8 +7283,9 @@ function updateBuildTabFromState() {
                 <i class="fas fa-sync text-info"></i> ${escapeHtml(__('Cycles'))}
                 <span class="small text-body-secondary fw-semibold ms-2">${formatInteger(finalProductRows.length + cycleEntries.length)} ${escapeHtml(__('lines'))}</span>
             </h3>
-            <div class="table-responsive craft-cycles-table craft-table-text-120">
-                <table class="table table-sm align-middle mb-0">
+            <div class="table-responsive craft-cycles-table craft-stack-container craft-table-text-120">
+                <table class="table table-sm align-middle mb-0 craft-stackable-table"
+                    style="--craft-col-1: '${escapeHtml(__('Item'))}'; --craft-col-2: '${escapeHtml(__('Needed'))}'; --craft-col-3: '${escapeHtml(__('Per cycle'))}'; --craft-col-4: '${escapeHtml(__('Cycles'))}'; --craft-col-5: '${escapeHtml(__('Produced'))}'; --craft-col-6: '${escapeHtml(__('Surplus'))}';">
                     <thead class="table-light">
                         <tr>
                             <th>${escapeHtml(__('Item'))}</th>
@@ -7706,8 +7707,9 @@ function updateCraftTimingTabFromState() {
             <h3 class="craft-section-title">
                 <i class="fas fa-clock text-primary"></i> ${escapeHtml(__('Production Times'))}
             </h3>
-            <div class="table-responsive craft-cycles-table craft-table-text-120">
-                <table class="table table-sm align-middle mb-0">
+            <div class="table-responsive craft-cycles-table craft-stack-container craft-table-text-120">
+                <table class="table table-sm align-middle mb-0 craft-stackable-table"
+                    style="--craft-col-1: '${escapeHtml(__('Item'))}'; --craft-col-2: 'TE'; --craft-col-3: '${escapeHtml(__('Structure bonus'))}'; --craft-col-4: '${escapeHtml(__('Skill bonus'))}'; --craft-col-5: '${escapeHtml(__('Time / cycle'))}'; --craft-col-6: '${escapeHtml(__('Cycles'))}'; --craft-col-7: '${escapeHtml(__('Jobs'))}'; --craft-col-8: '${escapeHtml(__('Elapsed'))}'; --craft-col-9: '${escapeHtml(__('Character'))}'; --craft-col-10: '${escapeHtml(__('Structure'))}';">
                     <thead class="table-light">
                         <tr>
                             <th>${escapeHtml(__('Item'))}</th>
