@@ -725,7 +725,9 @@ html[data-theme="darkly"] #financial-tab.blueprint-tab.active .tab-icon {
 }
 
 .craft-structure-table select.form-select {
-    min-width: 280px;
+    width: min(100%, 280px);
+    min-width: 0;
+    max-width: 100%;
 }
 
 .craft-structure-metric {
@@ -743,7 +745,8 @@ html[data-theme="darkly"] #financial-tab.blueprint-tab.active .tab-icon {
 
 @media (max-width: 767.98px) {
     .craft-structure-table select.form-select {
-        min-width: 220px;
+        width: min(100%, 220px);
+        min-width: 0;
     }
 }
 
@@ -2630,11 +2633,13 @@ html[data-theme="darkly"] .craft-header-icon {
 }
 
 .tree-mode-label {
-    white-space: nowrap;
+    white-space: normal;
+    overflow-wrap: anywhere;
 }
 
 .financial-stock-state {
-    white-space: nowrap;
+    white-space: normal;
+    overflow-wrap: anywhere;
 }
 
 .craft-financial-row-stock-covered {
@@ -3179,7 +3184,7 @@ html[data-theme="darkly"] #blueprintSearchInput {
     max-width: min(100%, 2200px);
     margin-inline: auto;
     min-width: 0;
-    overflow-x: clip;
+    overflow-x: hidden;
 }
 
 .craft-tab-content,
@@ -3189,7 +3194,7 @@ html[data-theme="darkly"] #blueprintSearchInput {
 }
 
 .craft-tab-content > .tab-pane.active {
-    overflow-x: clip;
+    overflow-x: hidden;
 }
 
 .craft-nav-tabs {
@@ -3328,7 +3333,7 @@ html[data-theme="darkly"] #blueprintSearchInput {
     container-name: craft-stack;
     max-width: 100%;
     min-width: 0;
-    overflow-x: clip;
+    overflow-x: hidden;
     overflow-y: visible;
 }
 
@@ -3375,22 +3380,30 @@ html[data-theme="darkly"] #blueprintSearchInput {
         display: flex;
         justify-content: space-between;
         align-items: center;
+        flex-wrap: wrap;
         gap: 0.75rem;
         padding: 0.4rem 0;
         border: 0;
         text-align: right;
+        min-width: 0;
     }
 
     .craft-stackable-table tbody td::before {
         content: var(--craft-col-label, "");
         flex: 0 0 auto;
-        max-width: 55%;
+        max-width: 100%;
         font-size: 0.7rem;
         font-weight: 700;
         letter-spacing: 0.04em;
         text-transform: uppercase;
         color: var(--bs-secondary-color);
         text-align: left;
+    }
+
+    .craft-stackable-table tbody td > * {
+        min-width: 0;
+        max-width: 100%;
+        overflow-wrap: anywhere;
     }
 
     .craft-stackable-table tbody td:nth-child(1) {
