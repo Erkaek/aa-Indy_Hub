@@ -9,6 +9,10 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 ## [Unreleased]
 
+### Fixed
+
+- Blueprint sharing: the "Request a copy" page no longer issues per-card eligibility and SDE-limit queries while building each card preview. Eligibility lookups for the entire page and the native `max_production_limit` are now resolved with a constant number of queries, eliminating the N+1 pattern that could push the page beyond proxy/gateway timeouts on Alliance Auth v5 instances with thousands of shared blueprints. (GH-101)
+
 ## [1.17.2] - 2026-06-01
 
 ### Fixed

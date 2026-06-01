@@ -2735,6 +2735,55 @@ class BlueprintCopyRequestPageTests(TestCase):
         self.assertIn("max_runs_per_copy", page_entry["copy_request_preview"])
         self.assertContains(response, "bpCopyRequestModal")
 
+    def test_request_page_preview_queries_do_not_scale_with_page_size(self) -> None:
+        """GH-101: the per-entry preview must not issue N+1 eligibility queries."""
+
+        # Django
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        for index in range(1, 25):
+            Blueprint.objects.create(
+                owner_user=self.owner,
+                character_id=501,
+                item_id=9050100 + index,
+                blueprint_id=9050200 + index,
+                type_id=605001 + index,
+                location_id=PUBLIC_STATION_ID,
+                location_flag="hangar",
+                quantity=-1,
+                time_efficiency=10,
+                material_efficiency=5,
+                runs=0,
+                character_name="Supplier",
+                type_name=f"Extra Blueprint {index}",
+            )
+
+        url = reverse("indy_hub:bp_copy_request_page")
+        with CaptureQueriesContext(connection) as small_page:
+            small_response = self.client.get(url, {"per_page": 12})
+        with CaptureQueriesContext(connection) as large_page:
+            large_response = self.client.get(url, {"per_page": 96})
+
+        self.assertEqual(small_response.status_code, 200)
+        self.assertEqual(large_response.status_code, 200)
+
+        # Rendering ~8x more entries must not multiply the query count: the
+        # eligibility lookups are batched, so the delta is at most a few extra
+        # queries (template/pagination overhead).
+        self.assertLessEqual(
+            len(large_page.captured_queries) - len(small_page.captured_queries),
+            5,
+            msg=(
+                "Copy request page issued N+1 eligibility queries: "
+                f"small={len(small_page.captured_queries)}, "
+                f"large={len(large_page.captured_queries)}"
+            ),
+        )
+
+        for entry in large_response.context["page_obj"].object_list:
+            self.assertEqual(entry["copy_request_preview"]["alerted_owner_count"], 1)
+
     @patch("indy_hub.views.industry._build_copy_estimated_item_values")
     def test_request_modal_loads_estimated_copy_price_on_demand(
         self,
