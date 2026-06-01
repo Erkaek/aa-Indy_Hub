@@ -3178,10 +3178,18 @@ html[data-theme="darkly"] #blueprintSearchInput {
 .craft-bp-workspace {
     max-width: min(100%, 2200px);
     margin-inline: auto;
+    min-width: 0;
+    overflow-x: clip;
 }
 
-.craft-tab-content {
+.craft-tab-content,
+.craft-tab-content > .tab-pane {
     min-width: 0;
+    max-width: 100%;
+}
+
+.craft-tab-content > .tab-pane.active {
+    overflow-x: clip;
 }
 
 .craft-nav-tabs {
@@ -3318,6 +3326,10 @@ html[data-theme="darkly"] #blueprintSearchInput {
 .craft-stack-container {
     container-type: inline-size;
     container-name: craft-stack;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: clip;
+    overflow-y: visible;
 }
 
 @container craft-stack (max-width: 820px) {
