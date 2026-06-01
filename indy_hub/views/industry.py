@@ -4,6 +4,7 @@
 import json
 import re
 from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
@@ -81,6 +82,7 @@ from ..services.corporation_blueprint_visibility import (
 )
 from ..services.craft_times import (
     compute_effective_cycle_seconds,
+    compute_max_runs_before_launch_window,
     get_max_copy_runs_per_request,
 )
 from ..services.esi_client import ESIUnmodifiedError, shared_client
@@ -664,6 +666,13 @@ def _eligible_owner_details_for_request(
     )
 
 
+class _MissingMaxProductionLimit:
+    pass
+
+
+_SENTINEL = _MissingMaxProductionLimit()
+
+
 def _fetch_blueprint_activity_times(
     blueprint_type_ids: list[int] | set[int] | tuple[int, ...],
 ) -> dict[int, dict[int, int]]:
@@ -694,6 +703,60 @@ def _fetch_blueprint_activity_times(
     return activity_times
 
 
+def _fetch_blueprint_max_production_limits(
+    blueprint_type_ids: list[int] | set[int] | tuple[int, ...],
+) -> dict[int, int]:
+    """Batched lookup of native ``max_production_limit`` per blueprint type."""
+
+    numeric_blueprint_type_ids = sorted(
+        {
+            int(blueprint_type_id)
+            for blueprint_type_id in blueprint_type_ids
+            if blueprint_type_id
+        }
+    )
+    if not numeric_blueprint_type_ids:
+        return {}
+
+    table_names = set(connection.introspection.table_names())
+    if "eve_sde_blueprintactivity" in table_names:
+        table_name = "eve_sde_blueprintactivity"
+    elif "indy_hub_sdeblueprintactivity" in table_names:
+        table_name = "indy_hub_sdeblueprintactivity"
+    else:
+        return {}
+
+    with connection.cursor() as cursor:
+        table_description = connection.introspection.get_table_description(
+            cursor,
+            table_name,
+        )
+    available_columns = {column.name for column in table_description}
+    if "max_production_limit" not in available_columns:
+        return {}
+    if "blueprint_item_type_id" in available_columns:
+        blueprint_key_column = "blueprint_item_type_id"
+    elif "eve_type_id" in available_columns:
+        blueprint_key_column = "eve_type_id"
+    else:
+        return {}
+
+    placeholders = ", ".join(["%s"] * len(numeric_blueprint_type_ids))
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT {blueprint_key_column}, MIN(max_production_limit)
+            FROM {table_name}
+            WHERE {blueprint_key_column} IN ({placeholders})
+            AND max_production_limit IS NOT NULL
+            AND max_production_limit > 0
+            GROUP BY {blueprint_key_column}
+            """,
+            numeric_blueprint_type_ids,
+        )
+        return {int(type_id): int(limit) for type_id, limit in cursor.fetchall()}
+
+
 def _build_copy_request_preview(
     *,
     requester: User,
@@ -702,26 +765,53 @@ def _build_copy_request_preview(
     time_efficiency: int,
     type_name: str,
     activity_times: dict[int, dict[int, int]],
+    eligible_owner_ids: set[int] | None = None,
+    max_production_limit: int | None | _MissingMaxProductionLimit = _SENTINEL,
 ) -> dict[str, object]:
-    request_probe = BlueprintCopyRequest(
-        requested_by=requester,
-        requested_by_id=requester.id,
-        type_id=type_id,
-        material_efficiency=material_efficiency,
-        time_efficiency=time_efficiency,
-        runs_requested=1,
-        copies_requested=1,
-    )
-    eligible_details = _eligible_owner_details_for_request(request_probe)
+    if eligible_owner_ids is None:
+        request_probe = BlueprintCopyRequest(
+            requested_by=requester,
+            requested_by_id=requester.id,
+            type_id=type_id,
+            material_efficiency=material_efficiency,
+            time_efficiency=time_efficiency,
+            runs_requested=1,
+            copies_requested=1,
+        )
+        eligible_owner_ids = _eligible_owner_details_for_request(
+            request_probe
+        ).owner_ids
 
     copy_base_time_seconds = (
         activity_times.get(int(type_id), {}).get(IndustryActivityMixin.ACTIVITY_COPYING)
         or 0
     )
-    max_runs_per_copy = get_max_copy_runs_per_request(
-        blueprint_type_id=type_id,
-        time_efficiency=time_efficiency,
-    )
+    if max_production_limit is _SENTINEL:
+        max_runs_per_copy = get_max_copy_runs_per_request(
+            blueprint_type_id=type_id,
+            time_efficiency=time_efficiency,
+        )
+    else:
+        manufacturing_base_time = (
+            activity_times.get(int(type_id), {}).get(
+                IndustryActivityMixin.ACTIVITY_MANUFACTURING
+            )
+            or 0
+        )
+        candidate_limits: list[int] = []
+        if max_production_limit is not None and int(max_production_limit) > 0:
+            candidate_limits.append(int(max_production_limit))
+        if manufacturing_base_time > 0:
+            effective_cycle_seconds = compute_effective_cycle_seconds(
+                base_time_seconds=manufacturing_base_time,
+                time_efficiency=time_efficiency,
+            )
+            launch_window_limit = compute_max_runs_before_launch_window(
+                effective_cycle_seconds
+            )
+            if launch_window_limit > 0:
+                candidate_limits.append(int(launch_window_limit))
+        max_runs_per_copy = min(candidate_limits) if candidate_limits else None
 
     return {
         "type_id": int(type_id),
@@ -731,11 +821,166 @@ def _build_copy_request_preview(
         "copy_base_time_seconds": int(copy_base_time_seconds or 0),
         "per_run_copy_seconds": int(copy_base_time_seconds or 0),
         "max_runs_per_copy": int(max_runs_per_copy or 0) if max_runs_per_copy else None,
-        "alerted_owner_count": int(len(eligible_details.owner_ids)),
-        "alerted_owner_ids": sorted(
-            int(owner_id) for owner_id in eligible_details.owner_ids
-        ),
+        "alerted_owner_count": int(len(eligible_owner_ids)),
+        "alerted_owner_ids": sorted(int(owner_id) for owner_id in eligible_owner_ids),
     }
+
+
+def _build_eligible_owner_ids_map(
+    requester: User,
+    blueprint_keys: Iterable[tuple[int, int, int]],
+) -> dict[tuple[int, int, int], set[int]]:
+    """Batched equivalent of `_eligible_owner_details_for_request` for many keys.
+
+    Returns a mapping ``(type_id, ME, TE) -> set of eligible provider user ids``
+    using a constant number of DB queries regardless of the page size.
+    """
+
+    keys: set[tuple[int, int, int]] = {
+        (int(type_id), int(me), int(te)) for type_id, me, te in blueprint_keys
+    }
+    if not keys:
+        return {}
+
+    type_ids = {key[0] for key in keys}
+
+    blueprint_rows = Blueprint.objects.filter(
+        bp_type__in=[Blueprint.BPType.ORIGINAL, Blueprint.BPType.REACTION],
+        type_id__in=type_ids,
+    ).values(
+        "type_id",
+        "material_efficiency",
+        "time_efficiency",
+        "owner_kind",
+        "owner_user_id",
+        "character_id",
+        "corporation_id",
+    )
+
+    char_bps_by_key: dict[tuple[int, int, int], list[dict[str, Any]]] = defaultdict(
+        list
+    )
+    corp_ids_by_key: dict[tuple[int, int, int], set[int]] = defaultdict(set)
+    all_char_owner_user_ids: set[int] = set()
+    all_corp_ids: set[int] = set()
+
+    for row in blueprint_rows:
+        key = (
+            int(row["type_id"]),
+            int(row["material_efficiency"]),
+            int(row["time_efficiency"]),
+        )
+        if key not in keys:
+            continue
+        if row["owner_kind"] == Blueprint.OwnerKind.CHARACTER:
+            char_bps_by_key[key].append(row)
+            if row["owner_user_id"]:
+                all_char_owner_user_ids.add(row["owner_user_id"])
+        elif (
+            row["owner_kind"] == Blueprint.OwnerKind.CORPORATION
+            and row["corporation_id"]
+        ):
+            corp_ids_by_key[key].add(int(row["corporation_id"]))
+            all_corp_ids.add(int(row["corporation_id"]))
+
+    allowed_char_map: dict[int, set[int]] = defaultdict(set)
+    if all_char_owner_user_ids:
+        for setting in CharacterSettings.objects.filter(
+            user_id__in=all_char_owner_user_ids,
+            allow_copy_requests=True,
+        ).values("user_id", "character_id"):
+            allowed_char_map[setting["user_id"]].add(setting["character_id"])
+
+    corp_settings_by_corp: dict[int, list[CorporationSharingSetting]] = defaultdict(
+        list
+    )
+    if all_corp_ids:
+        for setting in CorporationSharingSetting.objects.filter(
+            corporation_id__in=all_corp_ids,
+            allow_copy_requests=True,
+            share_scope__in=[
+                CharacterSettings.SCOPE_CORPORATION,
+                CharacterSettings.SCOPE_ALLIANCE,
+                CharacterSettings.SCOPE_EVERYONE,
+            ],
+        ):
+            if setting.corporation_id:
+                corp_settings_by_corp[int(setting.corporation_id)].append(setting)
+
+    explicit_corp_manager_ids: set[int] = set()
+    corp_user_chars: dict[int, dict[int, set[int]]] = defaultdict(
+        lambda: defaultdict(set)
+    )
+    if corp_settings_by_corp:
+        explicit_corp_manager_ids = _get_explicit_corp_bp_manager_ids()
+        if explicit_corp_manager_ids:
+            for membership in CharacterOwnership.objects.filter(
+                character__corporation_id__in=set(corp_settings_by_corp.keys()),
+            ).values("user_id", "character__corporation_id", "character__character_id"):
+                corp_id = membership.get("character__corporation_id")
+                user_id = membership.get("user_id")
+                char_id = membership.get("character__character_id")
+                if corp_id and user_id:
+                    corp_user_chars[int(corp_id)][int(user_id)].add(char_id)
+
+    requester_id = requester.id
+    result: dict[tuple[int, int, int], set[int]] = {}
+    for key in keys:
+        owner_ids: set[int] = set()
+
+        for bp in char_bps_by_key.get(key, []):
+            user_id = bp.get("owner_user_id")
+            if not user_id:
+                continue
+            char_id = bp.get("character_id")
+            allowed_chars = allowed_char_map.get(user_id)
+            if not allowed_chars:
+                continue
+            if 0 in allowed_chars or char_id is None or char_id in allowed_chars:
+                owner_ids.add(int(user_id))
+
+        key_corp_ids = corp_ids_by_key.get(key, set())
+        key_corp_settings: list[CorporationSharingSetting] = []
+        corporate_owner_ids: set[int] = set()
+        for corp_id in key_corp_ids:
+            for setting in corp_settings_by_corp.get(corp_id, []):
+                owner_ids.add(int(setting.user_id))
+                corporate_owner_ids.add(int(setting.user_id))
+                key_corp_settings.append(setting)
+
+        if key_corp_settings and explicit_corp_manager_ids:
+            settings_by_corp_local: dict[int, list[CorporationSharingSetting]] = (
+                defaultdict(list)
+            )
+            for setting in key_corp_settings:
+                settings_by_corp_local[int(setting.corporation_id)].append(setting)
+            for corp_id, users in corp_user_chars.items():
+                if corp_id not in key_corp_ids:
+                    continue
+                local_settings = settings_by_corp_local.get(corp_id)
+                if not local_settings:
+                    continue
+                for user_id, char_ids in users.items():
+                    if user_id not in explicit_corp_manager_ids:
+                        continue
+                    if user_id in corporate_owner_ids:
+                        continue
+                    if user_id == requester_id:
+                        continue
+                    if any(
+                        not setting_obj.restricts_characters
+                        or any(
+                            setting_obj.is_character_authorized(char_id)
+                            for char_id in char_ids
+                        )
+                        for setting_obj in local_settings
+                    ):
+                        owner_ids.add(int(user_id))
+
+        owner_ids.discard(requester_id)
+        result[key] = owner_ids
+
+    return result
 
 
 def _build_blueprint_copy_request_notification_content(
@@ -3079,7 +3324,24 @@ def bp_copy_request_page(request):
     page_obj = paginator.get_page(page)
     page_blueprint_type_ids = [entry["type_id"] for entry in page_obj.object_list]
     activity_times = _fetch_blueprint_activity_times(page_blueprint_type_ids)
+    max_production_limits = _fetch_blueprint_max_production_limits(
+        page_blueprint_type_ids
+    )
+    page_keys = [
+        (
+            int(entry["type_id"]),
+            int(entry["material_efficiency"]),
+            int(entry["time_efficiency"]),
+        )
+        for entry in page_obj.object_list
+    ]
+    eligible_owner_ids_map = _build_eligible_owner_ids_map(request.user, page_keys)
     for entry in page_obj.object_list:
+        key = (
+            int(entry["type_id"]),
+            int(entry["material_efficiency"]),
+            int(entry["time_efficiency"]),
+        )
         entry["copy_request_preview"] = _build_copy_request_preview(
             requester=request.user,
             type_id=int(entry["type_id"]),
@@ -3087,6 +3349,8 @@ def bp_copy_request_page(request):
             time_efficiency=int(entry["time_efficiency"]),
             type_name=str(entry["type_name"]),
             activity_times=activity_times,
+            eligible_owner_ids=eligible_owner_ids_map.get(key, set()),
+            max_production_limit=max_production_limits.get(int(entry["type_id"])),
         )
     page_range = paginator.get_elided_page_range(
         number=page_obj.number, on_each_side=5, on_ends=1
