@@ -3186,21 +3186,19 @@ html[data-theme="darkly"] #blueprintSearchInput {
 
 .craft-nav-tabs {
     display: flex;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    overflow-y: hidden;
+    flex-wrap: wrap;
+    overflow: visible;
     gap: 0.6rem;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: thin;
 }
 
 .craft-nav-tabs .nav-item {
-    flex: 0 0 auto;
+    flex: 1 1 160px;
 }
 
 .craft-nav-tabs .nav-link {
     min-height: 50px;
-    white-space: nowrap;
+    white-space: normal;
+    width: 100%;
 }
 
 .craft-quick-stats {
@@ -3224,17 +3222,28 @@ html[data-theme="darkly"] #blueprintSearchInput {
 }
 
 .craft-financial-table {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
+    overflow: visible;
 }
 
 .craft-financial-table table {
-    min-width: 960px;
+    min-width: 0;
+    table-layout: auto;
 }
 
 .craft-stock-table,
 .craft-decision-table {
-    min-width: 980px;
+    min-width: 0;
+    table-layout: auto;
+}
+
+.craft-financial-table th,
+.craft-financial-table td,
+.craft-stock-table th,
+.craft-stock-table td,
+.craft-decision-table th,
+.craft-decision-table td {
+    white-space: normal;
+    overflow-wrap: anywhere;
 }
 
 .craft-section-title,
@@ -3285,6 +3294,14 @@ html[data-theme="darkly"] #blueprintSearchInput {
     .craft-nav-tabs .nav-link {
         padding-inline: 0.85rem;
     }
+
+    .craft-financial-table .col-qty,
+    .craft-financial-table .col-fuzzwork,
+    .craft-financial-table .col-real,
+    .craft-financial-table .col-total,
+    .craft-financial-table .col-margin {
+        width: auto;
+    }
 }
 
 @media (max-width: 992px) {
@@ -3292,14 +3309,28 @@ html[data-theme="darkly"] #blueprintSearchInput {
         max-width: 100%;
     }
 
-    .craft-financial-table table,
-    .craft-stock-table,
-    .craft-decision-table {
-        min-width: 860px;
-    }
-
     .craft-quick-stats {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .craft-nav-tabs .nav-item {
+        flex: 1 1 calc(50% - 0.6rem);
+    }
+
+    .craft-financial-table,
+    .craft-stock-table-wrap,
+    .craft-decision-table-wrap {
+        overflow-x: clip;
+    }
+
+    .craft-financial-table th,
+    .craft-financial-table td,
+    .craft-stock-table th,
+    .craft-stock-table td,
+    .craft-decision-table th,
+    .craft-decision-table td {
+        padding: 0.4rem 0.28rem;
+        font-size: 0.76rem;
     }
 }
 
@@ -3323,10 +3354,23 @@ html[data-theme="darkly"] #blueprintSearchInput {
         font-size: 0.8rem;
     }
 
-    .craft-financial-table table,
-    .craft-stock-table,
-    .craft-decision-table {
-        min-width: 760px;
+    .craft-nav-tabs .nav-item {
+        flex: 1 1 100%;
+    }
+
+    .craft-financial-table th,
+    .craft-financial-table td,
+    .craft-stock-table th,
+    .craft-stock-table td,
+    .craft-decision-table th,
+    .craft-decision-table td {
+        font-size: 0.72rem;
+    }
+
+    .craft-stock-table .craft-stock-allocation-input,
+    .craft-financial-table input[type="number"] {
+        width: 100%;
+        min-width: 0;
     }
 }
 
@@ -3340,10 +3384,6 @@ html[data-theme="darkly"] #blueprintSearchInput {
         width: 100%;
     }
 
-    .craft-nav-tabs {
-        padding-bottom: 0.2rem;
-    }
-
     .craft-nav-tabs .nav-link {
         min-height: 44px;
         padding: 0.62rem 0.8rem;
@@ -3355,9 +3395,13 @@ html[data-theme="darkly"] #blueprintSearchInput {
         text-overflow: ellipsis;
     }
 
-    .craft-financial-table table,
-    .craft-stock-table,
-    .craft-decision-table {
-        min-width: 700px;
+    .craft-financial-table th,
+    .craft-financial-table td,
+    .craft-stock-table th,
+    .craft-stock-table td,
+    .craft-decision-table th,
+    .craft-decision-table td {
+        padding: 0.34rem 0.2rem;
+        font-size: 0.68rem;
     }
 }
