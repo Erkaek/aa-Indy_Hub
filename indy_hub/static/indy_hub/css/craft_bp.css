@@ -3253,6 +3253,59 @@ html[data-theme="darkly"] #blueprintSearchInput {
     overflow-wrap: anywhere;
 }
 
+/* Buy tab hardening: keep numeric columns visible under high zoom. */
+#buy-pane .craft-financial-table table {
+    table-layout: fixed;
+}
+
+#buy-pane .craft-financial-table .col-item {
+    width: 34%;
+}
+
+#buy-pane .craft-financial-table .col-qty {
+    width: 10%;
+}
+
+#buy-pane .craft-financial-table .col-fuzzwork,
+#buy-pane .craft-financial-table .col-real {
+    width: 14%;
+}
+
+#buy-pane .craft-financial-table .col-total {
+    width: 16%;
+}
+
+#buy-pane .craft-financial-table .col-margin {
+    width: 12%;
+}
+
+#buy-pane .craft-financial-table th,
+#buy-pane .craft-financial-table td,
+#buy-pane .craft-financial-table th.text-end,
+#buy-pane .craft-financial-table td.text-end {
+    overflow: visible;
+    white-space: normal;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
+}
+
+#buy-pane .craft-financial-table input.fuzzwork-price,
+#buy-pane .craft-financial-table input.real-price,
+#buy-pane .craft-financial-table input.sale-price-unit {
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+}
+
+#buy-pane .craft-financial-table .craft-financial-item-shell {
+    gap: 0.4rem;
+}
+
+#buy-pane .craft-financial-table .craft-planner-item-name {
+    white-space: normal;
+    line-height: 1.15;
+}
+
 @media (min-width: 1800px) {
     .craft-bp-workspace {
         max-width: 2400px;
@@ -3295,6 +3348,21 @@ html[data-theme="darkly"] #blueprintSearchInput {
         padding-inline: 0.85rem;
     }
 
+    #buy-pane .craft-financial-table .col-item {
+        width: 30%;
+    }
+
+    #buy-pane .craft-financial-table .col-qty {
+        width: 9%;
+    }
+
+    #buy-pane .craft-financial-table .col-fuzzwork,
+    #buy-pane .craft-financial-table .col-real,
+    #buy-pane .craft-financial-table .col-total,
+    #buy-pane .craft-financial-table .col-margin {
+        width: 15.25%;
+    }
+
     .craft-financial-table .col-qty,
     .craft-financial-table .col-fuzzwork,
     .craft-financial-table .col-real,
@@ -3321,6 +3389,26 @@ html[data-theme="darkly"] #blueprintSearchInput {
     .craft-stock-table-wrap,
     .craft-decision-table-wrap {
         overflow-x: clip;
+    }
+
+    #buy-pane .craft-financial-table .craft-financial-item-shell > img,
+    #buy-pane .craft-financial-table .financial-row-reset {
+        display: none !important;
+    }
+
+    #buy-pane .craft-financial-table .col-item {
+        width: 26%;
+    }
+
+    #buy-pane .craft-financial-table .col-qty {
+        width: 8%;
+    }
+
+    #buy-pane .craft-financial-table .col-fuzzwork,
+    #buy-pane .craft-financial-table .col-real,
+    #buy-pane .craft-financial-table .col-total,
+    #buy-pane .craft-financial-table .col-margin {
+        width: 16.5%;
     }
 
     .craft-financial-table th,
@@ -3365,6 +3453,19 @@ html[data-theme="darkly"] #blueprintSearchInput {
     .craft-decision-table th,
     .craft-decision-table td {
         font-size: 0.72rem;
+    }
+
+    #buy-pane .craft-financial-table table {
+        table-layout: auto;
+    }
+
+    #buy-pane .craft-financial-table .col-item,
+    #buy-pane .craft-financial-table .col-qty,
+    #buy-pane .craft-financial-table .col-fuzzwork,
+    #buy-pane .craft-financial-table .col-real,
+    #buy-pane .craft-financial-table .col-total,
+    #buy-pane .craft-financial-table .col-margin {
+        width: auto;
     }
 
     .craft-stock-table .craft-stock-allocation-input,
