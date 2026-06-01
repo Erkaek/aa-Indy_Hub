@@ -3253,7 +3253,13 @@ html[data-theme="darkly"] #blueprintSearchInput {
     overflow-wrap: anywhere;
 }
 
-/* Buy tab hardening: keep numeric columns visible under high zoom. */
+/* Buy tab: container-aware layout that reflows the planner into stacked
+ * cards when the pane itself becomes narrow (zoom, mobile, split-screen). */
+#buy-pane .craft-financial-table {
+    container-type: inline-size;
+    container-name: buy-planner;
+}
+
 #buy-pane .craft-financial-table table {
     table-layout: fixed;
 }
@@ -3306,6 +3312,156 @@ html[data-theme="darkly"] #blueprintSearchInput {
     line-height: 1.15;
 }
 
+/* Stacked-card mode: triggered by the pane's own width so it works for
+ * every cause of narrowness (browser zoom, small windows, mobile, ...). */
+@container buy-planner (max-width: 820px) {
+    #buy-pane .craft-financial-table table,
+    #buy-pane .craft-financial-table thead,
+    #buy-pane .craft-financial-table tbody,
+    #buy-pane .craft-financial-table tfoot,
+    #buy-pane .craft-financial-table tr,
+    #buy-pane .craft-financial-table th,
+    #buy-pane .craft-financial-table td {
+        display: block;
+        width: 100% !important;
+    }
+
+    #buy-pane .craft-financial-table thead {
+        position: absolute;
+        clip: rect(0 0 0 0);
+        clip-path: inset(100%);
+        height: 1px;
+        width: 1px;
+        overflow: hidden;
+        white-space: nowrap;
+    }
+
+    #buy-pane .craft-financial-table tbody tr {
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.6rem;
+        background: var(--bs-body-bg);
+        padding: 0.65rem 0.85rem;
+        margin-bottom: 0.65rem;
+        box-shadow: 0 4px 14px rgb(15 23 42 / 4%);
+    }
+
+    #buy-pane .craft-financial-table tbody tr.craft-financial-section-row,
+    #buy-pane .craft-financial-table tbody tr.craft-financial-group-row {
+        background: var(--bs-secondary-bg);
+        box-shadow: none;
+    }
+
+    #buy-pane .craft-financial-table tbody td {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.4rem 0;
+        border: 0;
+        text-align: right;
+    }
+
+    #buy-pane .craft-financial-table tbody td::before {
+        content: var(--craft-col-label, "");
+        flex: 0 0 auto;
+        max-width: 55%;
+        font-size: 0.7rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--bs-secondary-color);
+        text-align: left;
+    }
+
+    #buy-pane .craft-financial-table tbody td:nth-child(1) {
+        --craft-col-label: var(--craft-col-1);
+
+        flex-direction: column;
+        align-items: stretch;
+        text-align: left;
+        border-bottom: 1px solid var(--bs-border-color);
+        padding-bottom: 0.55rem;
+        margin-bottom: 0.35rem;
+    }
+
+    #buy-pane .craft-financial-table tbody td:nth-child(1)::before {
+        display: none;
+    }
+
+    #buy-pane .craft-financial-table tbody td:nth-child(2) {
+        --craft-col-label: var(--craft-col-2);
+    }
+
+    #buy-pane .craft-financial-table tbody td:nth-child(3) {
+        --craft-col-label: var(--craft-col-3);
+    }
+
+    #buy-pane .craft-financial-table tbody td:nth-child(4) {
+        --craft-col-label: var(--craft-col-4);
+    }
+
+    #buy-pane .craft-financial-table tbody td:nth-child(5) {
+        --craft-col-label: var(--craft-col-5);
+    }
+
+    #buy-pane .craft-financial-table tbody td:nth-child(6) {
+        --craft-col-label: var(--craft-col-6);
+    }
+
+    #buy-pane .craft-financial-table tbody tr.craft-financial-section-row td,
+    #buy-pane .craft-financial-table tbody tr.craft-financial-group-row td {
+        display: block;
+        text-align: left;
+    }
+
+    #buy-pane .craft-financial-table tbody tr.craft-financial-section-row td::before,
+    #buy-pane .craft-financial-table tbody tr.craft-financial-group-row td::before {
+        display: none;
+    }
+
+    #buy-pane .craft-financial-table tbody td input[type="number"] {
+        width: min(60%, 12rem);
+        max-width: 60%;
+        text-align: right;
+    }
+
+    #buy-pane .craft-financial-table tbody td .badge {
+        white-space: normal;
+    }
+
+    #buy-pane .craft-financial-table tfoot {
+        display: block;
+    }
+
+    #buy-pane .craft-financial-table tfoot tr {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        gap: 0.5rem;
+        border-top: 1px dashed var(--bs-border-color);
+        padding: 0.45rem 0.2rem;
+    }
+
+    #buy-pane .craft-financial-table tfoot tr.craft-revenue-mode-row {
+        display: block;
+    }
+
+    #buy-pane .craft-financial-table tfoot tr.craft-revenue-mode-row td {
+        text-align: left;
+    }
+
+    #buy-pane .craft-financial-table tfoot th {
+        display: block;
+        width: auto !important;
+        text-align: left;
+        padding: 0.2rem 0.2rem;
+    }
+
+    #buy-pane .craft-financial-table tfoot th.text-end {
+        text-align: right;
+    }
+}
+
 @media (min-width: 1800px) {
     .craft-bp-workspace {
         max-width: 2400px;
@@ -3348,21 +3504,6 @@ html[data-theme="darkly"] #blueprintSearchInput {
         padding-inline: 0.85rem;
     }
 
-    #buy-pane .craft-financial-table .col-item {
-        width: 30%;
-    }
-
-    #buy-pane .craft-financial-table .col-qty {
-        width: 9%;
-    }
-
-    #buy-pane .craft-financial-table .col-fuzzwork,
-    #buy-pane .craft-financial-table .col-real,
-    #buy-pane .craft-financial-table .col-total,
-    #buy-pane .craft-financial-table .col-margin {
-        width: 15.25%;
-    }
-
     .craft-financial-table .col-qty,
     .craft-financial-table .col-fuzzwork,
     .craft-financial-table .col-real,
@@ -3389,26 +3530,6 @@ html[data-theme="darkly"] #blueprintSearchInput {
     .craft-stock-table-wrap,
     .craft-decision-table-wrap {
         overflow-x: clip;
-    }
-
-    #buy-pane .craft-financial-table .craft-financial-item-shell > img,
-    #buy-pane .craft-financial-table .financial-row-reset {
-        display: none !important;
-    }
-
-    #buy-pane .craft-financial-table .col-item {
-        width: 26%;
-    }
-
-    #buy-pane .craft-financial-table .col-qty {
-        width: 8%;
-    }
-
-    #buy-pane .craft-financial-table .col-fuzzwork,
-    #buy-pane .craft-financial-table .col-real,
-    #buy-pane .craft-financial-table .col-total,
-    #buy-pane .craft-financial-table .col-margin {
-        width: 16.5%;
     }
 
     .craft-financial-table th,
@@ -3453,19 +3574,6 @@ html[data-theme="darkly"] #blueprintSearchInput {
     .craft-decision-table th,
     .craft-decision-table td {
         font-size: 0.72rem;
-    }
-
-    #buy-pane .craft-financial-table table {
-        table-layout: auto;
-    }
-
-    #buy-pane .craft-financial-table .col-item,
-    #buy-pane .craft-financial-table .col-qty,
-    #buy-pane .craft-financial-table .col-fuzzwork,
-    #buy-pane .craft-financial-table .col-real,
-    #buy-pane .craft-financial-table .col-total,
-    #buy-pane .craft-financial-table .col-margin {
-        width: auto;
     }
 
     .craft-stock-table .craft-stock-allocation-input,

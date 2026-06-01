@@ -8,7 +8,7 @@
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
 <link rel="stylesheet" href="{% static 'indy_hub/css/blueprints.css' %}">
-<link rel="stylesheet" href="{% static 'indy_hub/css/craft_bp.css' %}?v=20260601-buy-zoom-columns-fix">
+<link rel="stylesheet" href="{% static 'indy_hub/css/craft_bp.css' %}?v=20260601-buy-container-cards">
 {% endblock extra_css %}
 
 {% block content %}
@@ -412,7 +412,8 @@
                     </div>
 
                     <div class="table-responsive craft-financial-table craft-table-text-120 mt-2">
-                        <table class="table table-sm align-middle mb-0">
+                        <table class="table table-sm align-middle mb-0 craft-financial-stackable"
+                            style="--craft-col-1: '{% trans "Item" %}'; --craft-col-2: '{% trans "Qty" %}'; --craft-col-3: '{% trans "Reference" %}'; --craft-col-4: '{% trans "Override" %}'; --craft-col-5: '{% trans "Line Total" %}'; --craft-col-6: '{% trans "Source" %}';">
                             <thead class="table-light">
                                 <tr>
                                     <th class="col-item">{% trans "Item" %}</th>
