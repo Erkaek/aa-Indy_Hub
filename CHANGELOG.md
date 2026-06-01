@@ -9,6 +9,10 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 ## [Unreleased]
 
+### Fixed
+
+- ESI client: a 403 response on a single endpoint (typically a per-structure lookup) no longer deletes the underlying Alliance Auth `Token`. The token is shared with the rest of AA, so this regression caused other modules to lose character ownership until users re-authenticated. Per-endpoint forbidden responses are now only logged; token invalidation is left to Alliance Auth's own refresh flow, and the existing per-structure forbidden cooldown still prevents retry storms. (GH-107)
+
 ## [1.17.1] - 2026-05-24
 
 ### Changed

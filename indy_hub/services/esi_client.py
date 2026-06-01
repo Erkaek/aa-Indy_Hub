@@ -958,6 +958,10 @@ class ESIClient:
     def _handle_forbidden_token(
         self, token: Token, *, scope: str, endpoint: str
     ) -> None:
+        # A 403 on a single endpoint (typically a per-structure lookup) is not a
+        # token invalidation: the token is shared with the rest of Alliance Auth
+        # and other modules continue to rely on it. Only AA's own refresh flow
+        # should ever delete the Token row. See GH-107.
         character_id = getattr(token, "character_id", None)
         user_repr = None
         try:
@@ -966,20 +970,13 @@ class ESIClient:
             user_repr = getattr(token, "user_id", None)
 
         logger.warning(
-            "ESI returned 403 for %s (%s) through character %s (user %s). Token will be deleted.",
+            "ESI returned 403 for %s (%s) through character %s (user %s); "
+            "token is kept (per-endpoint forbidden, not an invalid token).",
             endpoint,
             scope,
             character_id,
             user_repr,
         )
-        try:
-            token.delete()
-        except Exception:  # pragma: no cover - defensive guard
-            logger.exception(
-                "Impossible de supprimer le jeton ESI %s pour le personnage %s",
-                token.id,
-                character_id,
-            )
 
 
 # Module level singleton to avoid re-creating sessions

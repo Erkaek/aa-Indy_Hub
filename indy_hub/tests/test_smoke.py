@@ -5249,3 +5249,29 @@ class OnboardingViewsTests(TestCase):
         self.assertRedirects(response, reverse("indy_hub:index"))
         progress.refresh_from_db()
         self.assertFalse(progress.dismissed)
+
+
+class EsiClientForbiddenTokenTests(TestCase):
+    """Regression coverage for GH-107: a 403 must never delete the AA token."""
+
+    def test_handle_forbidden_token_does_not_delete_token(self) -> None:
+        # Local
+        # Standard Library
+        from unittest.mock import MagicMock
+
+        # AA Example App
+        # AA Indy Hub
+        from indy_hub.services.esi_client import shared_client
+
+        token = MagicMock()
+        token.character_id = 91000001
+        token.user.username = "tester"
+        token.id = 4242
+
+        shared_client._handle_forbidden_token(
+            token,
+            scope="esi-universe.read_structures.v1",
+            endpoint="get_universe_structures_structure_id",
+        )
+
+        token.delete.assert_not_called()
