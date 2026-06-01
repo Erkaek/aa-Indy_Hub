@@ -666,7 +666,11 @@ def _eligible_owner_details_for_request(
     )
 
 
-_SENTINEL: Any = object()
+class _MissingMaxProductionLimit:
+    pass
+
+
+_SENTINEL = _MissingMaxProductionLimit()
 
 
 def _fetch_blueprint_activity_times(
@@ -762,7 +766,7 @@ def _build_copy_request_preview(
     type_name: str,
     activity_times: dict[int, dict[int, int]],
     eligible_owner_ids: set[int] | None = None,
-    max_production_limit: Any = _SENTINEL,
+    max_production_limit: int | None | _MissingMaxProductionLimit = _SENTINEL,
 ) -> dict[str, object]:
     if eligible_owner_ids is None:
         request_probe = BlueprintCopyRequest(

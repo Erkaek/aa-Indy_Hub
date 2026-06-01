@@ -2768,9 +2768,9 @@ class BlueprintCopyRequestPageTests(TestCase):
         self.assertEqual(small_response.status_code, 200)
         self.assertEqual(large_response.status_code, 200)
 
-        # Rendering ~8x more entries must not multiply the query count: the
-        # eligibility lookups are batched, so the delta is at most a few extra
-        # queries (template/pagination overhead).
+        # Rendering a larger page (12 -> up to 25 seeded entries here) must not
+        # multiply the query count: eligibility lookups are batched, so the
+        # delta is at most a few extra queries (template/pagination overhead).
         self.assertLessEqual(
             len(large_page.captured_queries) - len(small_page.captured_queries),
             5,
