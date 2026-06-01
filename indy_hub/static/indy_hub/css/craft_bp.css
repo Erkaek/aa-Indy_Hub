@@ -2609,10 +2609,13 @@ html[data-theme="darkly"] .craft-header-icon {
 .craft-decision-table-wrap {
     width: 100%;
     overflow-x: auto;
+    max-width: 100%;
+    min-width: 0;
 }
 
 .craft-decision-table {
-    min-width: 880px;
+    min-width: 0;
+    width: 100%;
 }
 
 .craft-decision-table td,
@@ -2677,10 +2680,13 @@ html[data-theme="darkly"] .craft-header-icon {
 .craft-stock-table-wrap {
     width: 100%;
     overflow-x: auto;
+    max-width: 100%;
+    min-width: 0;
 }
 
 .craft-stock-table {
-    min-width: 960px;
+    min-width: 0;
+    width: 100%;
 }
 
 .craft-stock-table td,
@@ -3195,6 +3201,32 @@ html[data-theme="darkly"] #blueprintSearchInput {
 
 .craft-tab-content > .tab-pane.active {
     overflow-x: hidden;
+}
+
+/* Strict containment for tabs reported to leak overflow into AA layout. */
+#stock-pane,
+#build-pane,
+#timing-pane,
+#structure-pane,
+#run-optimized-pane {
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: hidden;
+    overflow-y: visible;
+}
+
+#stock-pane .craft-section,
+#build-pane .craft-section,
+#timing-pane .craft-section,
+#structure-pane .craft-section,
+#run-optimized-pane .craft-section,
+#stock-pane .table-responsive,
+#build-pane .table-responsive,
+#timing-pane .table-responsive,
+#structure-pane .table-responsive,
+#run-optimized-pane .table-responsive {
+    min-width: 0;
+    max-width: 100%;
 }
 
 .craft-nav-tabs {
