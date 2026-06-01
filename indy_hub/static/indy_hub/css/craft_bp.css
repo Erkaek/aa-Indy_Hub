@@ -3231,7 +3231,7 @@ html[data-theme="darkly"] #blueprintSearchInput {
 
 .craft-nav-tabs {
     display: flex;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
     align-items: stretch;
     gap: 0.5rem;
     margin-bottom: 1rem;
@@ -3239,14 +3239,12 @@ html[data-theme="darkly"] #blueprintSearchInput {
     border: 1px solid color-mix(in srgb, var(--bs-border-color) 75%, transparent);
     border-radius: 0.9rem;
     background: color-mix(in srgb, var(--bs-secondary-bg) 72%, var(--bs-body-bg));
-    overflow-x: auto;
-    overflow-y: hidden;
-    scrollbar-width: thin;
-    -webkit-overflow-scrolling: touch;
+    overflow: visible !important;
 }
 
 .craft-nav-tabs .nav-item {
-    flex: 0 0 auto;
+    flex: 1 1 120px;
+    min-width: 0;
 }
 
 .craft-nav-tabs .nav-link {
@@ -3664,6 +3662,7 @@ html[data-theme="darkly"] #blueprintSearchInput {
     .craft-nav-tabs {
         gap: 0.42rem;
         padding: 0.32rem;
+        overflow: visible !important;
     }
 
     .craft-nav-tabs .nav-link {
