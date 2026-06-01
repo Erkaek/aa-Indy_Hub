@@ -2317,11 +2317,14 @@ def index(request):
             request.user,
             skill_cache_ttl=timedelta(hours=1),
         )
-        character_ids = [
-            int(row.get("character_id") or 0)
-            for row in character_contexts
-            if int(row.get("character_id") or 0) > 0
-        ]
+        character_ids: list[int] = []
+        character_context_by_id: dict[int, dict[str, object]] = {}
+        for row in character_contexts:
+            char_id = int(row.get("character_id") or 0)
+            if char_id <= 0:
+                continue
+            character_ids.append(char_id)
+            character_context_by_id[char_id] = row
         now = timezone.now()
 
         active_job_rows = (
@@ -2372,14 +2375,7 @@ def index(request):
         }
 
         for char_id in character_ids:
-            row = next(
-                (
-                    character_context
-                    for character_context in character_contexts
-                    if int(character_context.get("character_id") or 0) == char_id
-                ),
-                None,
-            )
+            row = character_context_by_id.get(char_id)
             if not row:
                 continue
 

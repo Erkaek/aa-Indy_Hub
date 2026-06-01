@@ -312,7 +312,8 @@ def build_user_character_skill_contexts(
         rows.append(
             {
                 "character_id": character_id,
-                "name": get_character_name(character_id),
+                "name": (char.character_name or "").strip()
+                or get_character_name(character_id),
                 "skills_missing": skills_missing,
                 "snapshot": snapshot,
                 "skill_levels": (

@@ -48,6 +48,7 @@ from indy_hub.models import (
 )
 from indy_hub.notifications import notify_user
 from indy_hub.services.esi_client import ESIForbiddenError
+from indy_hub.services.industry_skills import build_user_character_skill_contexts
 from indy_hub.services.location_population import (
     LocationTarget,
     _resolve_location_name_for_target,
@@ -4135,6 +4136,71 @@ class DashboardUnusedSlotsSummaryTests(TestCase):
         summary = response.context["unused_slots_summary"]
         self.assertEqual(summary["manufacturing"]["total"], 10)
         self.assertEqual(summary["manufacturing"]["available"], 10)
+
+
+class CharacterSkillContextQueryScalingTests(TestCase):
+    def _create_user_with_characters(
+        self, username: str, count: int, *, start_character_id: int
+    ) -> User:
+        user = User.objects.create_user(username, password="secret123")
+        UserProfile.objects.get_or_create(user=user)
+        for index in range(1, count + 1):
+            character_id = start_character_id + index
+            character = EveCharacter.objects.create(
+                character_id=character_id,
+                character_name=f"Pilot {character_id}",
+                corporation_id=2_000_000,
+                corporation_name="Test Corp",
+                corporation_ticker="TEST",
+            )
+            CharacterOwnership.objects.create(
+                user=user,
+                character=character,
+                owner_hash=f"hash-{user.id}-{character_id}",
+            )
+        return user
+
+    def test_skill_context_queries_do_not_scale_with_character_count(self) -> None:
+        # Django
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        small_user = self._create_user_with_characters(
+            "skills_small", 5, start_character_id=77000000
+        )
+        large_user = self._create_user_with_characters(
+            "skills_large", 40, start_character_id=88000000
+        )
+
+        eve_utils._CHAR_NAME_CACHE.clear()
+        with CaptureQueriesContext(connection) as small_queries:
+            small_rows = build_user_character_skill_contexts(
+                small_user,
+                skill_cache_ttl=timedelta(hours=1),
+            )
+
+        eve_utils._CHAR_NAME_CACHE.clear()
+        with CaptureQueriesContext(connection) as large_queries:
+            large_rows = build_user_character_skill_contexts(
+                large_user,
+                skill_cache_ttl=timedelta(hours=1),
+            )
+
+        self.assertEqual(len(small_rows), 5)
+        self.assertEqual(len(large_rows), 40)
+        self.assertTrue(all(row["name"].startswith("Pilot ") for row in large_rows))
+
+        # Query count should stay near-constant as character count increases:
+        # ownerships, snapshots, tokens, and active jobs are fetched in batches.
+        self.assertLessEqual(
+            len(large_queries.captured_queries) - len(small_queries.captured_queries),
+            3,
+            msg=(
+                "Skill context query count scaled with linked characters: "
+                f"small={len(small_queries.captured_queries)}, "
+                f"large={len(large_queries.captured_queries)}"
+            ),
+        )
 
 
 class PersonnalBlueprintViewTests(TestCase):
