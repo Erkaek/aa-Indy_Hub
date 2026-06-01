@@ -3231,19 +3231,61 @@ html[data-theme="darkly"] #blueprintSearchInput {
 
 .craft-nav-tabs {
     display: flex;
-    flex-wrap: wrap;
-    overflow: visible;
-    gap: 0.6rem;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    padding: 0.4rem;
+    border: 1px solid color-mix(in srgb, var(--bs-border-color) 75%, transparent);
+    border-radius: 0.9rem;
+    background: color-mix(in srgb, var(--bs-secondary-bg) 72%, var(--bs-body-bg));
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
 }
 
 .craft-nav-tabs .nav-item {
-    flex: 1 1 160px;
+    flex: 0 0 auto;
 }
 
 .craft-nav-tabs .nav-link {
-    min-height: 50px;
-    white-space: normal;
-    width: 100%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    min-height: 42px;
+    padding: 0.58rem 0.9rem;
+    border: 1px solid transparent;
+    border-radius: 0.72rem;
+    white-space: nowrap;
+    line-height: 1.1;
+    width: auto;
+    color: var(--bs-body-color);
+    background: transparent;
+    transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease, transform 0.16s ease;
+}
+
+.craft-nav-tabs .nav-link:hover {
+    background: color-mix(in srgb, var(--bs-primary-bg-subtle) 70%, transparent);
+    border-color: color-mix(in srgb, var(--bs-primary) 35%, var(--bs-border-color));
+    color: var(--bs-primary);
+}
+
+.craft-nav-tabs .nav-link.active {
+    background: color-mix(in srgb, var(--bs-primary-bg-subtle) 65%, var(--bs-body-bg));
+    border-color: color-mix(in srgb, var(--bs-primary) 55%, var(--bs-border-color));
+    color: var(--bs-primary);
+    font-weight: 700;
+}
+
+.craft-nav-tabs .nav-link:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--bs-primary) 55%, transparent);
+    outline-offset: 1px;
+}
+
+.craft-nav-tabs .nav-link i {
+    font-size: 0.9rem;
 }
 
 .craft-quick-stats {
@@ -3598,7 +3640,7 @@ html[data-theme="darkly"] #blueprintSearchInput {
     }
 
     .craft-nav-tabs .nav-link {
-        padding-inline: 0.85rem;
+        padding-inline: 0.78rem;
     }
 
     .craft-financial-table .col-qty,
@@ -3619,8 +3661,15 @@ html[data-theme="darkly"] #blueprintSearchInput {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
-    .craft-nav-tabs .nav-item {
-        flex: 1 1 calc(50% - 0.6rem);
+    .craft-nav-tabs {
+        gap: 0.42rem;
+        padding: 0.32rem;
+    }
+
+    .craft-nav-tabs .nav-link {
+        min-height: 40px;
+        padding: 0.52rem 0.72rem;
+        font-size: 0.84rem;
     }
 
     .craft-financial-table,
@@ -3642,14 +3691,14 @@ html[data-theme="darkly"] #blueprintSearchInput {
 
 @media (max-width: 768px) {
     .craft-nav-tabs .nav-link {
-        min-height: 46px;
-        padding: 0.7rem 0.95rem;
-        font-size: 0.84rem;
-        border-radius: 0.85rem;
+        min-height: 38px;
+        padding: 0.5rem 0.66rem;
+        font-size: 0.8rem;
+        border-radius: 0.64rem;
     }
 
     .craft-nav-tabs .nav-link i {
-        margin-right: 0.35rem;
+        margin-right: 0.12rem;
     }
 
     .craft-section {
@@ -3660,8 +3709,18 @@ html[data-theme="darkly"] #blueprintSearchInput {
         font-size: 0.8rem;
     }
 
+    .craft-nav-tabs {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        overflow: visible;
+    }
+
     .craft-nav-tabs .nav-item {
-        flex: 1 1 100%;
+        min-width: 0;
+    }
+
+    .craft-nav-tabs .nav-link {
+        width: 100%;
     }
 
     .craft-financial-table th,
@@ -3691,14 +3750,18 @@ html[data-theme="darkly"] #blueprintSearchInput {
     }
 
     .craft-nav-tabs .nav-link {
-        min-height: 44px;
-        padding: 0.62rem 0.8rem;
+        min-height: 36px;
+        padding: 0.46rem 0.54rem;
     }
 
     .craft-nav-tabs .nav-link span {
-        max-width: 17ch;
+        max-width: 100%;
         overflow: hidden;
         text-overflow: ellipsis;
+    }
+
+    .craft-nav-tabs .nav-link i {
+        display: none;
     }
 
     .craft-financial-table th,
