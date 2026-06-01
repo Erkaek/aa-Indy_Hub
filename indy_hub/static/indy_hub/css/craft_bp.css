@@ -1841,6 +1841,19 @@ div[id="bpTabs"] {
     height: 1.875rem;
 }
 
+/* Keep large industrial quantities readable without changing behavior. */
+.craft-bp-workspace #runsInput,
+.craft-bp-workspace #decisionBuyToleranceInput,
+.craft-bp-workspace #financialRevenueTotalOverride,
+.craft-bp-workspace .craft-stock-allocation-input,
+.craft-bp-workspace .craft-financial-table input.real-price,
+.craft-bp-workspace .craft-financial-table input.sale-price-unit {
+    min-width: 10ch;
+    width: min(16ch, 100%);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
 .craft-financial-table input.readonly {
     background-color: var(--bs-secondary-bg) !important;
     border-color: var(--bs-border-color) !important;
@@ -2586,7 +2599,7 @@ html[data-theme="darkly"] .craft-header-icon {
 }
 
 .craft-decision-tolerance {
-    width: min(220px, 100%);
+    width: min(320px, 100%);
 }
 
 .craft-decision-table-wrap {
@@ -2744,6 +2757,16 @@ html[data-theme="darkly"] .craft-header-icon {
 
     .craft-decision-tolerance {
         width: 100%;
+    }
+
+    .craft-bp-workspace #runsInput,
+    .craft-bp-workspace #decisionBuyToleranceInput,
+    .craft-bp-workspace #financialRevenueTotalOverride,
+    .craft-bp-workspace .craft-stock-allocation-input,
+    .craft-bp-workspace .craft-financial-table input.real-price,
+    .craft-bp-workspace .craft-financial-table input.sale-price-unit {
+        min-width: 9ch;
+        width: min(14ch, 100%);
     }
 
     .craft-decision-metrics {
