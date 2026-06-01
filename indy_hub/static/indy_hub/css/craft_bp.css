@@ -3170,3 +3170,194 @@ html[data-theme="darkly"] #blueprintSearchInput {
     background: var(--bs-body-bg);
     border-color: var(--bs-border-color);
 }
+
+/* ==========================================================================
+ * Craft workspace responsive hardening (ultrawide, mobile, high zoom)
+ * ========================================================================== */
+
+.craft-bp-workspace {
+    max-width: min(100%, 2200px);
+    margin-inline: auto;
+}
+
+.craft-tab-content {
+    min-width: 0;
+}
+
+.craft-nav-tabs {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    gap: 0.6rem;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+}
+
+.craft-nav-tabs .nav-item {
+    flex: 0 0 auto;
+}
+
+.craft-nav-tabs .nav-link {
+    min-height: 50px;
+    white-space: nowrap;
+}
+
+.craft-quick-stats {
+    grid-template-columns: repeat(auto-fit, minmax(clamp(170px, 20vw, 240px), 1fr));
+}
+
+.craft-section,
+.craft-section .table-responsive,
+.craft-financial-table,
+.craft-stock-table-wrap,
+.craft-decision-table-wrap {
+    min-width: 0;
+}
+
+.craft-section-controls,
+.craft-decision-controls,
+.craft-financial-toolbar,
+.craft-financial-filters,
+.craft-bulk-actions {
+    gap: 0.6rem;
+}
+
+.craft-financial-table {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.craft-financial-table table {
+    min-width: 960px;
+}
+
+.craft-stock-table,
+.craft-decision-table {
+    min-width: 980px;
+}
+
+.craft-section-title,
+.craft-pane-title,
+.craft-stat-label,
+.craft-kpi-label {
+    overflow-wrap: anywhere;
+}
+
+@media (min-width: 1800px) {
+    .craft-bp-workspace {
+        max-width: 2400px;
+    }
+
+    .craft-tab-content {
+        padding-inline: 0.5rem;
+    }
+
+    .craft-quick-stats {
+        grid-template-columns: repeat(4, minmax(220px, 1fr));
+    }
+
+    .craft-nav-tabs .nav-link {
+        padding-inline: 1.15rem;
+    }
+}
+
+@media (max-width: 1200px) {
+    .craft-section-header-with-actions {
+        align-items: flex-start;
+    }
+
+    .craft-section-controls,
+    .craft-decision-controls,
+    .craft-financial-filters,
+    .craft-bulk-actions {
+        width: 100%;
+        flex-wrap: wrap;
+    }
+
+    .craft-financial-filters .input-group,
+    .craft-financial-filters .form-select,
+    .craft-section-controls .btn,
+    .craft-decision-controls .btn {
+        min-width: 0;
+    }
+
+    .craft-nav-tabs .nav-link {
+        padding-inline: 0.85rem;
+    }
+}
+
+@media (max-width: 992px) {
+    .craft-bp-workspace {
+        max-width: 100%;
+    }
+
+    .craft-financial-table table,
+    .craft-stock-table,
+    .craft-decision-table {
+        min-width: 860px;
+    }
+
+    .craft-quick-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 768px) {
+    .craft-nav-tabs .nav-link {
+        min-height: 46px;
+        padding: 0.7rem 0.95rem;
+        font-size: 0.84rem;
+        border-radius: 0.85rem;
+    }
+
+    .craft-nav-tabs .nav-link i {
+        margin-right: 0.35rem;
+    }
+
+    .craft-section {
+        padding: 0.8rem;
+    }
+
+    .craft-section-title {
+        font-size: 0.8rem;
+    }
+
+    .craft-financial-table table,
+    .craft-stock-table,
+    .craft-decision-table {
+        min-width: 760px;
+    }
+}
+
+@media (max-width: 576px) {
+    .craft-quick-stats {
+        grid-template-columns: 1fr;
+    }
+
+    .craft-section-controls .btn,
+    .craft-decision-controls .btn {
+        width: 100%;
+    }
+
+    .craft-nav-tabs {
+        padding-bottom: 0.2rem;
+    }
+
+    .craft-nav-tabs .nav-link {
+        min-height: 44px;
+        padding: 0.62rem 0.8rem;
+    }
+
+    .craft-nav-tabs .nav-link span {
+        max-width: 17ch;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .craft-financial-table table,
+    .craft-stock-table,
+    .craft-decision-table {
+        min-width: 700px;
+    }
+}
