@@ -3255,11 +3255,6 @@ html[data-theme="darkly"] #blueprintSearchInput {
 
 /* Buy tab: container-aware layout that reflows the planner into stacked
  * cards when the pane itself becomes narrow (zoom, mobile, split-screen). */
-#buy-pane .craft-financial-table {
-    container-type: inline-size;
-    container-name: buy-planner;
-}
-
 #buy-pane .craft-financial-table table {
     table-layout: fixed;
 }
@@ -3312,21 +3307,32 @@ html[data-theme="darkly"] #blueprintSearchInput {
     line-height: 1.15;
 }
 
-/* Stacked-card mode: triggered by the pane's own width so it works for
- * every cause of narrowness (browser zoom, small windows, mobile, ...). */
-@container buy-planner (max-width: 820px) {
-    #buy-pane .craft-financial-table table,
-    #buy-pane .craft-financial-table thead,
-    #buy-pane .craft-financial-table tbody,
-    #buy-pane .craft-financial-table tfoot,
-    #buy-pane .craft-financial-table tr,
-    #buy-pane .craft-financial-table th,
-    #buy-pane .craft-financial-table td {
+/* ==========================================================================
+ * Generic stacked-card responsive pattern for Craft data tables.
+ * Any `.table-responsive.craft-stack-container > table.craft-stackable-table`
+ * automatically reflows into per-row cards when the container becomes narrow,
+ * regardless of cause (browser zoom, small viewport, split panes, ...).
+ * Column labels are supplied as `--craft-col-1..N` custom properties set on
+ * the table element (translated server-side).
+ * ========================================================================== */
+.craft-stack-container {
+    container-type: inline-size;
+    container-name: craft-stack;
+}
+
+@container craft-stack (max-width: 820px) {
+    .craft-stackable-table,
+    .craft-stackable-table thead,
+    .craft-stackable-table tbody,
+    .craft-stackable-table tfoot,
+    .craft-stackable-table tr,
+    .craft-stackable-table th,
+    .craft-stackable-table td {
         display: block;
         width: 100% !important;
     }
 
-    #buy-pane .craft-financial-table thead {
+    .craft-stackable-table thead {
         position: absolute;
         clip: rect(0 0 0 0);
         clip-path: inset(100%);
@@ -3336,7 +3342,7 @@ html[data-theme="darkly"] #blueprintSearchInput {
         white-space: nowrap;
     }
 
-    #buy-pane .craft-financial-table tbody tr {
+    .craft-stackable-table tbody tr {
         border: 1px solid var(--bs-border-color);
         border-radius: 0.6rem;
         background: var(--bs-body-bg);
@@ -3345,13 +3351,15 @@ html[data-theme="darkly"] #blueprintSearchInput {
         box-shadow: 0 4px 14px rgb(15 23 42 / 4%);
     }
 
-    #buy-pane .craft-financial-table tbody tr.craft-financial-section-row,
-    #buy-pane .craft-financial-table tbody tr.craft-financial-group-row {
+    .craft-stackable-table tbody tr.craft-financial-section-row,
+    .craft-stackable-table tbody tr.craft-financial-group-row,
+    .craft-stackable-table tbody tr.craft-stock-section-row,
+    .craft-stackable-table tbody tr.craft-decision-section-row {
         background: var(--bs-secondary-bg);
         box-shadow: none;
     }
 
-    #buy-pane .craft-financial-table tbody td {
+    .craft-stackable-table tbody td {
         display: flex;
         justify-content: space-between;
         align-items: center;
@@ -3361,7 +3369,7 @@ html[data-theme="darkly"] #blueprintSearchInput {
         text-align: right;
     }
 
-    #buy-pane .craft-financial-table tbody td::before {
+    .craft-stackable-table tbody td::before {
         content: var(--craft-col-label, "");
         flex: 0 0 auto;
         max-width: 55%;
@@ -3373,7 +3381,7 @@ html[data-theme="darkly"] #blueprintSearchInput {
         text-align: left;
     }
 
-    #buy-pane .craft-financial-table tbody td:nth-child(1) {
+    .craft-stackable-table tbody td:nth-child(1) {
         --craft-col-label: var(--craft-col-1);
 
         flex-direction: column;
@@ -3384,56 +3392,70 @@ html[data-theme="darkly"] #blueprintSearchInput {
         margin-bottom: 0.35rem;
     }
 
-    #buy-pane .craft-financial-table tbody td:nth-child(1)::before {
+    .craft-stackable-table tbody td:nth-child(1)::before {
         display: none;
     }
 
-    #buy-pane .craft-financial-table tbody td:nth-child(2) {
+    .craft-stackable-table tbody td:nth-child(2) {
         --craft-col-label: var(--craft-col-2);
     }
 
-    #buy-pane .craft-financial-table tbody td:nth-child(3) {
+    .craft-stackable-table tbody td:nth-child(3) {
         --craft-col-label: var(--craft-col-3);
     }
 
-    #buy-pane .craft-financial-table tbody td:nth-child(4) {
+    .craft-stackable-table tbody td:nth-child(4) {
         --craft-col-label: var(--craft-col-4);
     }
 
-    #buy-pane .craft-financial-table tbody td:nth-child(5) {
+    .craft-stackable-table tbody td:nth-child(5) {
         --craft-col-label: var(--craft-col-5);
     }
 
-    #buy-pane .craft-financial-table tbody td:nth-child(6) {
+    .craft-stackable-table tbody td:nth-child(6) {
         --craft-col-label: var(--craft-col-6);
     }
 
-    #buy-pane .craft-financial-table tbody tr.craft-financial-section-row td,
-    #buy-pane .craft-financial-table tbody tr.craft-financial-group-row td {
+    .craft-stackable-table tbody td:nth-child(7) {
+        --craft-col-label: var(--craft-col-7);
+    }
+
+    .craft-stackable-table tbody td:nth-child(8) {
+        --craft-col-label: var(--craft-col-8);
+    }
+
+    .craft-stackable-table tbody tr.craft-financial-section-row td,
+    .craft-stackable-table tbody tr.craft-financial-group-row td,
+    .craft-stackable-table tbody tr.craft-stock-section-row td,
+    .craft-stackable-table tbody tr.craft-decision-section-row td {
         display: block;
         text-align: left;
     }
 
-    #buy-pane .craft-financial-table tbody tr.craft-financial-section-row td::before,
-    #buy-pane .craft-financial-table tbody tr.craft-financial-group-row td::before {
+    .craft-stackable-table tbody tr.craft-financial-section-row td::before,
+    .craft-stackable-table tbody tr.craft-financial-group-row td::before,
+    .craft-stackable-table tbody tr.craft-stock-section-row td::before,
+    .craft-stackable-table tbody tr.craft-decision-section-row td::before {
         display: none;
     }
 
-    #buy-pane .craft-financial-table tbody td input[type="number"] {
+    .craft-stackable-table tbody td input[type="number"],
+    .craft-stackable-table tbody td input[type="text"],
+    .craft-stackable-table tbody td select {
         width: min(60%, 12rem);
         max-width: 60%;
         text-align: right;
     }
 
-    #buy-pane .craft-financial-table tbody td .badge {
+    .craft-stackable-table tbody td .badge {
         white-space: normal;
     }
 
-    #buy-pane .craft-financial-table tfoot {
+    .craft-stackable-table tfoot {
         display: block;
     }
 
-    #buy-pane .craft-financial-table tfoot tr {
+    .craft-stackable-table tfoot tr {
         display: flex;
         flex-wrap: wrap;
         justify-content: space-between;
@@ -3442,23 +3464,33 @@ html[data-theme="darkly"] #blueprintSearchInput {
         padding: 0.45rem 0.2rem;
     }
 
-    #buy-pane .craft-financial-table tfoot tr.craft-revenue-mode-row {
+    .craft-stackable-table tfoot tr.craft-revenue-mode-row {
         display: block;
     }
 
-    #buy-pane .craft-financial-table tfoot tr.craft-revenue-mode-row td {
+    .craft-stackable-table tfoot tr.craft-revenue-mode-row td {
         text-align: left;
     }
 
-    #buy-pane .craft-financial-table tfoot th {
+    .craft-stackable-table tfoot th {
         display: block;
         width: auto !important;
         text-align: left;
         padding: 0.2rem 0.2rem;
     }
 
-    #buy-pane .craft-financial-table tfoot th.text-end {
+    .craft-stackable-table tfoot th.text-end {
         text-align: right;
+    }
+
+    /* Centered "empty state" cells (colspan placeholders) keep their layout. */
+    .craft-stackable-table tbody td.text-center {
+        display: block;
+        text-align: center;
+    }
+
+    .craft-stackable-table tbody td.text-center::before {
+        display: none;
     }
 }
 
