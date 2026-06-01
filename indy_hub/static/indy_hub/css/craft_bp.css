@@ -1849,7 +1849,8 @@ div[id="bpTabs"] {
 .craft-bp-workspace .craft-financial-table input.real-price,
 .craft-bp-workspace .craft-financial-table input.sale-price-unit {
     min-width: 10ch;
-    width: min(16ch, 100%);
+    width: 14ch;
+    max-width: 100%;
     text-align: right;
     font-variant-numeric: tabular-nums;
 }
@@ -2766,7 +2767,8 @@ html[data-theme="darkly"] .craft-header-icon {
     .craft-bp-workspace .craft-financial-table input.real-price,
     .craft-bp-workspace .craft-financial-table input.sale-price-unit {
         min-width: 9ch;
-        width: min(14ch, 100%);
+        width: 12ch;
+        max-width: 100%;
     }
 
     .craft-decision-metrics {
