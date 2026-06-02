@@ -4,6 +4,9 @@ import os
 # Django
 from django.core.management import BaseCommand, call_command
 
+# AA Example App
+from indy_hub.services.sde_sync import download_extract_sde_with_retry
+
 
 class Command(BaseCommand):
     help = "Populate Indy Hub SDE compatibility data without reloading full eve_sde by default."
@@ -48,7 +51,7 @@ class Command(BaseCommand):
 
         if not sde_folder:
             # Alliance Auth (External Libs)
-            from eve_sde.sde_tasks import SDE_FOLDER, download_extract_sde
+            from eve_sde.sde_tasks import SDE_FOLDER
 
             if os.path.isdir(SDE_FOLDER):
                 sde_folder = SDE_FOLDER
@@ -61,7 +64,7 @@ class Command(BaseCommand):
                 self.stdout.write(
                     self.style.NOTICE("[2/3] Downloading latest SDE JSONL files...")
                 )
-                download_extract_sde()
+                download_extract_sde_with_retry(max_attempts=2)
                 sde_folder = SDE_FOLDER
                 downloaded_sde = True
         else:

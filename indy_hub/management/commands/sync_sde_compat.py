@@ -10,7 +10,10 @@ from allianceauth.services.hooks import get_extension_logger
 
 # AA Example App
 from indy_hub.models import SDESyncCompatState
-from indy_hub.services.sde_sync import sync_sde_compat_tables
+from indy_hub.services.sde_sync import (
+    download_extract_sde_with_retry,
+    sync_sde_compat_tables,
+)
 
 logger = get_extension_logger(__name__)
 
@@ -52,9 +55,9 @@ class Command(BaseCommand):
             )
             try:
                 # Alliance Auth (External Libs)
-                from eve_sde.sde_tasks import SDE_FOLDER, download_extract_sde
+                from eve_sde.sde_tasks import SDE_FOLDER
 
-                download_extract_sde()
+                download_extract_sde_with_retry(max_attempts=2)
                 sde_folder = SDE_FOLDER
                 downloaded_temp_sde = True
             except Exception as ex:
