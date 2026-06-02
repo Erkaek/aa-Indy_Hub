@@ -8,7 +8,7 @@
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
 <link rel="stylesheet" href="{% static 'indy_hub/css/blueprints.css' %}">
-<link rel="stylesheet" href="{% static 'indy_hub/css/craft_bp.css' %}?v=20260524-buy-equation-summary">
+<link rel="stylesheet" href="{% static 'indy_hub/css/craft_bp.css' %}?v=20260602-review-fixes-v8">
 {% endblock extra_css %}
 
 {% block content %}
@@ -411,8 +411,9 @@
                         {% trans "Grouped by the dashboard material order. Filter the planner to focus manual overrides, missing prices, buy inputs, or revenue targets." %}
                     </div>
 
-                    <div class="table-responsive craft-financial-table craft-table-text-120 mt-2">
-                        <table class="table table-sm align-middle mb-0">
+                    <div class="table-responsive craft-financial-table craft-stack-container craft-table-text-120 mt-2">
+                        <table class="table table-sm align-middle mb-0 craft-financial-stackable craft-stackable-table"
+                            style="--craft-col-1: &quot;{% trans "Item" %}&quot;; --craft-col-2: &quot;{% trans "Qty" %}&quot;; --craft-col-3: &quot;{% trans "Reference" %}&quot;; --craft-col-4: &quot;{% trans "Override" %}&quot;; --craft-col-5: &quot;{% trans "Line Total" %}&quot;; --craft-col-6: &quot;{% trans "Source" %}&quot;;">
                             <thead class="table-light">
                                 <tr>
                                     <th class="col-item">{% trans "Item" %}</th>
@@ -616,8 +617,9 @@
                         </div>
                     </div>
 
-                    <div class="table-responsive craft-needed-table mt-2">
-                        <table class="table table-sm align-middle mb-0" id="needed-table">
+                    <div class="table-responsive craft-needed-table craft-stack-container mt-2">
+                        <table class="table table-sm align-middle mb-0 craft-stackable-table" id="needed-table"
+                            style="--craft-col-1: &quot;{% trans "Item" %}&quot;; --craft-col-2: &quot;{% trans "Qty" %}&quot;; --craft-col-3: &quot;{% trans "Unit Price" %}&quot;; --craft-col-4: &quot;{% trans "Total" %}&quot;;">
                             <thead class="table-light">
                                 <tr>
                                     <th>{% trans "Item" %}</th>
@@ -692,8 +694,9 @@
                         {% trans "Only required items with cached stock available are shown." %}
                     </div>
 
-                    <div class="table-responsive craft-stock-table-wrap">
-                        <table class="table table-sm align-middle mb-0 craft-stock-table">
+                    <div class="table-responsive craft-stock-table-wrap craft-stack-container">
+                        <table class="table table-sm align-middle mb-0 craft-stock-table craft-stackable-table"
+                            style="--craft-col-1: &quot;{% trans "Item" %}&quot;; --craft-col-2: &quot;{% trans "Required" %}&quot;; --craft-col-3: &quot;{% trans "In stock" %}&quot;; --craft-col-4: &quot;{% trans "Use" %}&quot;; --craft-col-5: &quot;{% trans "Still to buy" %}&quot;; --craft-col-6: &quot;{% trans "Value used" %}&quot;; --craft-col-7: &quot;{% trans "By character" %}&quot;;">
                             <thead class="table-light">
                                 <tr>
                                     <th>{% trans "Item" %}</th>
@@ -769,8 +772,9 @@
 
                     <div class="small text-muted mb-3" id="decisionStrategySummary">{% trans "Open this tab to review buy / produce recommendations." %}</div>
 
-                    <div class="table-responsive craft-decision-table-wrap">
-                        <table class="table table-sm align-middle craft-decision-table mb-0">
+                    <div class="table-responsive craft-decision-table-wrap craft-stack-container">
+                        <table class="table table-sm align-middle craft-decision-table craft-stackable-table mb-0"
+                            style="--craft-col-1: &quot;{% trans "Item" %}&quot;; --craft-col-2: &quot;{% trans "Qty" %}&quot;; --craft-col-3: &quot;{% trans "Buy" %}&quot;; --craft-col-4: &quot;{% trans "Produce" %}&quot;; --craft-col-5: &quot;{% trans "Delta" %}&quot;; --craft-col-6: &quot;{% trans "Ratio" %}&quot;; --craft-col-7: &quot;{% trans "Recommended" %}&quot;; --craft-col-8: &quot;{% trans "Selected" %}&quot;;">
                             <thead class="table-light">
                                 <tr>
                                     <th>{% trans "Item" %}</th>
@@ -845,8 +849,9 @@
                     <div id="structurePlannerEmpty" class="alert alert-info d-none mb-0">
                         <i class="fas fa-info-circle me-2"></i>{% trans "No compatible structures are currently available for this craft plan." %}
                     </div>
-                    <div class="table-responsive">
-                        <table class="table table-sm align-middle mb-0 craft-structure-table">
+                    <div class="table-responsive craft-stack-container">
+                        <table class="table table-sm align-middle mb-0 craft-structure-table craft-stackable-table"
+                            style="--craft-col-1: &quot;{% trans "Item" %}&quot;; --craft-col-2: &quot;{% trans "Recommended" %}&quot;; --craft-col-3: &quot;{% trans "Selected Structure" %}&quot;; --craft-col-4: &quot;ME&quot;; --craft-col-5: &quot;TE&quot;; --craft-col-6: &quot;{% trans "Job" %}&quot;; --craft-col-7: &quot;{% trans "Distance" %}&quot;;">
                             <thead class="table-light">
                                 <tr>
                                     <th>{% trans "Item" %}</th>
@@ -1175,7 +1180,7 @@
 <script src="{% static 'indy_hub/js/craft_bp_simulation_api.js' %}?v=20260524-build-final-targets"></script>
 <script src="{% static 'indy_hub/js/craft_bp_active_tab.js' %}?v=20260505-deferred-tab-init"></script>
 <script src="{% static 'indy_hub/js/craft_bp_financial_planner.js' %}?v=20260428-no-output-override"></script>
-<script src="{% static 'indy_hub/js/craft_bp.js' %}?v=20260524-zero-revenue-margin"></script>
+<script src="{% static 'indy_hub/js/craft_bp.js' %}?v=20260601-review-fixes-v7"></script>
 <script src="{% static 'indy_hub/js/craft_bp_inline.js' %}?v=20260524-tab-change-autosave"></script>
 <script src="{% static 'indy_hub/js/craft_bp_project_rename.js' %}?v=20260523-project-rename-status"></script>
 {% endif %}

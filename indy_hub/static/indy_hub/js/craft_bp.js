@@ -80,6 +80,12 @@ function escapeHtml(value) {
         .replace(/'/g, '&#39;');
 }
 
+function cssCustomPropertyString(value) {
+    // JSON.stringify escapes quotes/backslashes for CSS strings.
+    // escapeHtml then keeps it safe inside a double-quoted HTML attribute.
+    return escapeHtml(JSON.stringify(String(value ?? '')));
+}
+
 function formatInteger(value) {
     const num = Number(value) || 0;
     return num.toLocaleString();
@@ -7283,8 +7289,9 @@ function updateBuildTabFromState() {
                 <i class="fas fa-sync text-info"></i> ${escapeHtml(__('Cycles'))}
                 <span class="small text-body-secondary fw-semibold ms-2">${formatInteger(finalProductRows.length + cycleEntries.length)} ${escapeHtml(__('lines'))}</span>
             </h3>
-            <div class="table-responsive craft-cycles-table craft-table-text-120">
-                <table class="table table-sm align-middle mb-0">
+            <div class="table-responsive craft-cycles-table craft-stack-container craft-table-text-120">
+                <table class="table table-sm align-middle mb-0 craft-stackable-table"
+                    style="--craft-col-1: ${cssCustomPropertyString(__('Item'))}; --craft-col-2: ${cssCustomPropertyString(__('Needed'))}; --craft-col-3: ${cssCustomPropertyString(__('Per cycle'))}; --craft-col-4: ${cssCustomPropertyString(__('Cycles'))}; --craft-col-5: ${cssCustomPropertyString(__('Produced'))}; --craft-col-6: ${cssCustomPropertyString(__('Surplus'))};">
                     <thead class="table-light">
                         <tr>
                             <th>${escapeHtml(__('Item'))}</th>
@@ -7706,8 +7713,9 @@ function updateCraftTimingTabFromState() {
             <h3 class="craft-section-title">
                 <i class="fas fa-clock text-primary"></i> ${escapeHtml(__('Production Times'))}
             </h3>
-            <div class="table-responsive craft-cycles-table craft-table-text-120">
-                <table class="table table-sm align-middle mb-0">
+            <div class="table-responsive craft-cycles-table craft-stack-container craft-table-text-120">
+                <table class="table table-sm align-middle mb-0 craft-stackable-table"
+                    style="--craft-col-1: ${cssCustomPropertyString(__('Item'))}; --craft-col-2: ${cssCustomPropertyString('TE')}; --craft-col-3: ${cssCustomPropertyString(__('Structure bonus'))}; --craft-col-4: ${cssCustomPropertyString(__('Skill bonus'))}; --craft-col-5: ${cssCustomPropertyString(__('Time / cycle'))}; --craft-col-6: ${cssCustomPropertyString(__('Cycles'))}; --craft-col-7: ${cssCustomPropertyString(__('Jobs'))}; --craft-col-8: ${cssCustomPropertyString(__('Elapsed'))}; --craft-col-9: ${cssCustomPropertyString(__('Character'))}; --craft-col-10: ${cssCustomPropertyString(__('Structure'))};">
                     <thead class="table-light">
                         <tr>
                             <th>${escapeHtml(__('Item'))}</th>
