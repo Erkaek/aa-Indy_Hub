@@ -2614,8 +2614,8 @@ html[data-theme="darkly"] .craft-header-icon {
 }
 
 .craft-decision-table {
-    min-width: 0;
-    width: 100%;
+    min-width: 880px;
+    width: auto;
 }
 
 .craft-decision-table td,
@@ -2685,8 +2685,8 @@ html[data-theme="darkly"] .craft-header-icon {
 }
 
 .craft-stock-table {
-    min-width: 0;
-    width: 100%;
+    min-width: 960px;
+    width: auto;
 }
 
 .craft-stock-table td,
@@ -3320,8 +3320,17 @@ html[data-theme="darkly"] #blueprintSearchInput {
 
 .craft-stock-table,
 .craft-decision-table {
-    min-width: 0;
     table-layout: auto;
+}
+
+/* Only remove table min-width fallback when container queries are supported,
+ * because stacked-card mode depends on that feature. */
+@supports (container-type: inline-size) {
+    .craft-stock-table,
+    .craft-decision-table {
+        min-width: 0;
+        width: 100%;
+    }
 }
 
 .craft-financial-table th,
@@ -3677,7 +3686,7 @@ html[data-theme="darkly"] #blueprintSearchInput {
     .craft-financial-table,
     .craft-stock-table-wrap,
     .craft-decision-table-wrap {
-        overflow-x: clip;
+        overflow-x: auto;
     }
 
     .craft-financial-table th,
