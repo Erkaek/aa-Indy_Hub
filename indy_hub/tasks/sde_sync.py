@@ -18,37 +18,16 @@ from allianceauth.services.tasks import QueueOnce
 
 # AA Example App
 from indy_hub.models import SDESyncCompatState
-from indy_hub.services.sde_sync import sync_sde_compat_tables
+from indy_hub.services.sde_sync import (
+    download_extract_sde_with_retry,
+    sync_sde_compat_tables,
+)
 
 logger = get_extension_logger(__name__)
 
 _SDE_VERSION_URL = (
     "https://developers.eveonline.com/static-data/tranquility/latest.jsonl"
 )
-
-
-def _download_extract_sde_with_retry(max_attempts: int = 2) -> None:
-    # Alliance Auth (External Libs)
-    from eve_sde.sde_tasks import download_extract_sde
-
-    last_error: Exception | None = None
-    for attempt in range(1, max_attempts + 1):
-        try:
-            download_extract_sde()
-            return
-        except EOFError as exc:
-            last_error = exc
-            logger.warning(
-                "SDE archive extraction failed with EOFError on attempt %s/%s; retrying",
-                attempt,
-                max_attempts,
-                exc_info=True,
-            )
-        except Exception:
-            raise
-
-    if last_error is not None:
-        raise last_error
 
 
 def _fetch_latest_sde_source_metadata() -> tuple[int | None, datetime | None]:
@@ -113,7 +92,7 @@ def sync_sde_compatibility_data(self):
                 "SDE folder %s missing, downloading latest SDE archive for compatibility sync",
                 sde_folder,
             )
-            _download_extract_sde_with_retry(max_attempts=2)
+            download_extract_sde_with_retry(max_attempts=2)
             sde_folder = SDE_FOLDER
             downloaded_folder = True
         except Exception as exc:

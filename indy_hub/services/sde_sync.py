@@ -26,6 +26,31 @@ from indy_hub.models import (
 
 logger = get_extension_logger(__name__)
 
+
+def download_extract_sde_with_retry(*, max_attempts: int = 2) -> None:
+    # Alliance Auth (External Libs)
+    from eve_sde.sde_tasks import download_extract_sde
+
+    last_error: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            download_extract_sde()
+            return
+        except EOFError as exc:
+            last_error = exc
+            logger.warning(
+                "SDE archive extraction failed with EOFError on attempt %s/%s; retrying",
+                attempt,
+                max_attempts,
+                exc_info=True,
+            )
+        except Exception:
+            raise
+
+    if last_error is not None:
+        raise last_error
+
+
 _ACTIVITY_NAME_BY_ID = {
     1: "Manufacturing",
     3: "TE Research",
