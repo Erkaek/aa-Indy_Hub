@@ -551,9 +551,9 @@ def _collect_corporation_scope_status(
         if not token_ids:
             return 0
 
-        token_queryset.filter(pk__in=token_ids).delete()
+        # Keep tokens untouched: Indy Hub should never delete Alliance Auth tokens.
         logger.info(
-            "Revoked %s corporate tokens for character %s (%s) and corporation %s (%s)",
+            "Would revoke %s corporate tokens for character %s (%s) and corporation %s (%s), but keeping tokens untouched.",
             len(token_ids),
             character_id,
             character_name,
@@ -686,7 +686,7 @@ def _collect_corporation_scope_status(
                             "character_name": character_name,
                             "corporation_id": corp_id,
                             "corporation_name": corp_name,
-                            "tokens_revoked": bool(revoked_count),
+                            "tokens_revoked": False,
                             "revoked_token_count": revoked_count,
                             "revoked_token_scopes": sorted(set(scopes_to_revoke)),
                         }
@@ -743,7 +743,7 @@ def _collect_corporation_scope_status(
                         "character_name": character_name,
                         "corporation_id": corp_id,
                         "corporation_name": corp_name,
-                        "tokens_revoked": bool(revoked_count),
+                        "tokens_revoked": False,
                         "revoked_token_count": revoked_count,
                         "revoked_token_scopes": sorted(set(scopes_to_revoke)),
                     }
@@ -785,7 +785,7 @@ def _collect_corporation_scope_status(
                         "corporation_name": corp_name,
                         "character_roles": sorted(roles),
                         "required_roles": sorted(REQUIRED_CORPORATION_ROLES),
-                        "tokens_revoked": bool(revoked_count),
+                        "tokens_revoked": False,
                         "revoked_token_count": revoked_count,
                         "revoked_token_scopes": sorted(set(scopes_to_revoke)),
                     }

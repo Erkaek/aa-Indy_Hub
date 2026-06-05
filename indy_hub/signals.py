@@ -424,25 +424,24 @@ if Token:
             roles = get_character_corporation_roles(instance.character_id)
         except ESITokenError:
             logger.info(
-                "Removing corporation token %s for character %s: missing roles scope",
+                "Ignoring corporation token %s for character %s: missing roles scope",
                 instance.pk,
                 instance.character_id,
                 extra={"scopes": sorted(scope_names)},
             )
-            instance.delete()
             return
 
         if roles.intersection(REQUIRED_CORPORATION_ROLES):
             return
 
         logger.info(
-            "Removing corporation token %s for character %s: lacks required roles %s",
+            "Ignoring corporation token %s for character %s: lacks required roles %s",
             instance.pk,
             instance.character_id,
             ", ".join(sorted(REQUIRED_CORPORATION_ROLES)),
             extra={"scopes": sorted(scope_names)},
         )
-        instance.delete()
+        return
 
     @receiver(post_save, sender=Token)
     def trigger_sync_on_token_save(sender, instance, created, **kwargs):
@@ -528,16 +527,26 @@ if Token:
 
 @receiver(post_save, sender=Token)
 def remove_duplicate_tokens(sender, instance, created, **kwargs):
-    # After saving a new token, delete any older duplicates for the same character and scopes
+    # Keep duplicate tokens: Indy Hub must never delete Alliance Auth tokens.
+    # We only log duplicates so operational teams can clean them manually if desired.
     tokens = Token.objects.filter(
         user=instance.user,
         character_id=instance.character_id,
     ).exclude(pk=instance.pk)
     # Compare exact scope sets to identify duplicates
     instance_scope_ids = set(instance.scopes.values_list("id", flat=True))
+    duplicate_count = 0
     for token in tokens:
         if set(token.scopes.values_list("id", flat=True)) == instance_scope_ids:
-            token.delete()
+            duplicate_count += 1
+
+    if duplicate_count:
+        logger.info(
+            "Detected %s duplicate token(s) for user %s character %s; kept untouched.",
+            duplicate_count,
+            getattr(instance, "user_id", None),
+            getattr(instance, "character_id", None),
+        )
 
 
 @receiver(post_save, sender=MaterialExchangeBuyOrder)

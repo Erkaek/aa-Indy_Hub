@@ -16,6 +16,7 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 - Crafting Projects / Workspace: quantity-oriented numeric inputs (runs, buy-tolerance override, stock allocation, and financial buy/sell override fields) now reserve enough width to display large industrial values without inner clipping, while keeping right-aligned numeric readability on desktop and mobile. (GH-105)
 - SDE refresh commands: manual SDE refresh paths (`sync_sde_compat` and `indy_sde`) now reuse the same retry-on-`EOFError` download/extract behavior as the Celery compatibility sync task, reducing transient ZIP truncation failures during operator-triggered refreshes. (GH-109)
 - Material Exchange / Buy validation: a finished contract that was already linked to a previous buy order is no longer eligible to auto-validate a new identical buy order, preventing false "wrong contract reference" anomaly overrides when users repeat the same request pattern. (GH-119)
+- Token lifecycle safety: Indy Hub no longer deletes Alliance Auth ESI tokens in any of its role/scope reconciliation paths (including corporation-role checks and duplicate-token handling). Tokens are now kept and treated as non-eligible when missing required scopes/roles, matching the non-destructive selection model used by CorpTools and avoiding cross-module ownership loss. (GH-107 follow-up)
 
 ## [1.17.2] - 2026-06-01
 

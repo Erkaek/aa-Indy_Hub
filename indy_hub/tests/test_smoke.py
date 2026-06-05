@@ -5390,3 +5390,88 @@ class EsiClientForbiddenTokenTests(TestCase):
         )
 
         token.delete.assert_not_called()
+
+
+class TokenDeletionPolicyTests(TestCase):
+    """Regression coverage: Indy Hub must never delete Alliance Auth tokens."""
+
+    def test_enforce_corporation_role_tokens_keeps_token_when_roles_scope_missing(
+        self,
+    ) -> None:
+        # Local
+        # Standard Library
+        from unittest.mock import MagicMock, patch
+
+        # AA Example App
+        # AA Indy Hub
+        from indy_hub.services.esi_client import ESITokenError
+        from indy_hub.signals import enforce_corporation_role_tokens
+
+        instance = MagicMock()
+        instance.pk = 99
+        instance.character_id = 91000001
+        instance.scopes.values_list.return_value = ["esi-characters.read_blueprints.v1"]
+
+        with patch(
+            "indy_hub.signals.get_character_corporation_roles",
+            side_effect=ESITokenError("missing roles scope"),
+        ):
+            enforce_corporation_role_tokens(
+                sender=None, instance=instance, created=True
+            )
+
+        instance.delete.assert_not_called()
+
+    def test_enforce_corporation_role_tokens_keeps_token_when_roles_not_sufficient(
+        self,
+    ) -> None:
+        # Local
+        # Standard Library
+        from unittest.mock import MagicMock, patch
+
+        # AA Example App
+        # AA Indy Hub
+        from indy_hub.signals import enforce_corporation_role_tokens
+
+        instance = MagicMock()
+        instance.pk = 100
+        instance.character_id = 91000002
+        instance.scopes.values_list.return_value = ["esi-characters.read_blueprints.v1"]
+
+        with patch(
+            "indy_hub.signals.get_character_corporation_roles",
+            return_value=set(),
+        ):
+            enforce_corporation_role_tokens(
+                sender=None, instance=instance, created=True
+            )
+
+        instance.delete.assert_not_called()
+
+    def test_remove_duplicate_tokens_keeps_older_token(self) -> None:
+        # Local
+        # Standard Library
+        from unittest.mock import MagicMock, patch
+
+        # AA Example App
+        # AA Indy Hub
+        from indy_hub.signals import remove_duplicate_tokens
+
+        instance = MagicMock()
+        instance.pk = 101
+        instance.user = object()
+        instance.user_id = 4242
+        instance.character_id = 91000003
+        instance.scopes.values_list.return_value = [1, 2, 3]
+
+        existing = MagicMock()
+        existing.scopes.values_list.return_value = [1, 2, 3]
+
+        filter_qs = MagicMock()
+        filter_qs.exclude.return_value = [existing]
+
+        with patch("indy_hub.signals.Token") as token_model:
+            token_model.objects.filter.return_value = filter_qs
+            remove_duplicate_tokens(sender=None, instance=instance, created=True)
+
+        existing.delete.assert_not_called()
