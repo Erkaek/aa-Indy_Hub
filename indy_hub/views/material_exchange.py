@@ -1459,6 +1459,7 @@ def material_exchange_sell(request, tokens):
             )
 
     if request.method == "POST":
+        is_paste_mode = request.POST.get("sell_input_mode") == "paste"
         accepted_location_ids = _get_material_exchange_location_ids(config)
         accepted_location_summary = _get_material_exchange_location_summary(
             config
@@ -1529,23 +1530,24 @@ def material_exchange_sell(request, tokens):
 
         for type_id, qty in submitted_quantities.items():
             user_qty = user_assets.get(type_id)
-            if user_qty is None:
-                type_name = get_type_name(type_id)
-                errors.append(
-                    _(
-                        f"{type_name} is no longer available at {accepted_location_summary}. Please refresh the page and try again."
+            if not is_paste_mode:
+                if user_qty is None:
+                    type_name = get_type_name(type_id)
+                    errors.append(
+                        _(
+                            f"{type_name} is no longer available at {accepted_location_summary}. Please refresh the page and try again."
+                        )
                     )
-                )
-                continue
+                    continue
 
-            if qty > user_qty:
-                type_name = get_type_name(type_id)
-                errors.append(
-                    _(
-                        f"Insufficient {type_name} in {accepted_location_summary}. You have: {user_qty:,}, requested: {qty:,}"
+                if qty > user_qty:
+                    type_name = get_type_name(type_id)
+                    errors.append(
+                        _(
+                            f"Insufficient {type_name} in {accepted_location_summary}. You have: {user_qty:,}, requested: {qty:,}"
+                        )
                     )
-                )
-                continue
+                    continue
 
             fuzz_prices = price_data.get(type_id, {})
             jita_buy = fuzz_prices.get("buy") or Decimal(0)

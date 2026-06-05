@@ -15,6 +15,7 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 - Character skill context loading no longer performs one `EveCharacter` lookup per linked character when building dashboard/industry skill rows. Character names are now read from the already joined ownership records (with fallback only when missing), keeping query counts bounded for users with large linked-character sets. (GH-110)
 - Crafting Projects / Workspace: quantity-oriented numeric inputs (runs, buy-tolerance override, stock allocation, and financial buy/sell override fields) now reserve enough width to display large industrial values without inner clipping, while keeping right-aligned numeric readability on desktop and mobile. (GH-105)
 - SDE refresh commands: manual SDE refresh paths (`sync_sde_compat` and `indy_sde`) now reuse the same retry-on-`EOFError` download/extract behavior as the Celery compatibility sync task, reducing transient ZIP truncation failures during operator-triggered refreshes. (GH-109)
+- Material Exchange / Buy validation: a finished contract that was already linked to a previous buy order is no longer eligible to auto-validate a new identical buy order, preventing false "wrong contract reference" anomaly overrides when users repeat the same request pattern. (GH-119)
 
 ## [1.17.2] - 2026-06-01
 

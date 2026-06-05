@@ -732,18 +732,7 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
                 return;
             }
 
-            if (catalogItem.status !== 'accepted') {
-                if (catalogItem.status === 'unavailable') {
-                    const totalOwned = Number.parseInt(catalogItem.total_available_qty || '0', 10) || 0;
-                    unavailableItems.push({
-                        label: `${catalogItem.type_name} x ${entry.quantity.toLocaleString()}`,
-                        detail: totalOwned > 0
-                            ? `${sellPasteMessages.notOnCharacter} (${totalOwned.toLocaleString()})`
-                            : sellPasteMessages.notOnCharacter
-                    });
-                    return;
-                }
-
+            if (catalogItem.status === 'rejected') {
                 rejectedItems.push({
                     label: `${catalogItem.type_name} x ${entry.quantity.toLocaleString()}`,
                     detail: sellPasteMessages.notBought
@@ -751,7 +740,18 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
                 return;
             }
 
-            if (entry.quantity > Number.parseInt(catalogItem.available_qty, 10)) {
+            const isUnavailable = catalogItem.status === 'unavailable';
+            if (isUnavailable) {
+                const totalOwned = Number.parseInt(catalogItem.total_available_qty || '0', 10) || 0;
+                unavailableItems.push({
+                    label: `${catalogItem.type_name} x ${entry.quantity.toLocaleString()}`,
+                    detail: totalOwned > 0
+                        ? `${sellPasteMessages.notOnCharacter} (${totalOwned.toLocaleString()})`
+                        : sellPasteMessages.notOnCharacter
+                });
+            }
+
+            if (!isUnavailable && entry.quantity > Number.parseInt(catalogItem.available_qty, 10)) {
                 rejectedItems.push({
                     label: `${catalogItem.type_name} x ${entry.quantity.toLocaleString()}`,
                     detail: `${sellPasteMessages.insufficient} (${catalogItem.available_qty.toLocaleString()})`
@@ -767,7 +767,8 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
                 label: catalogItem.type_name,
                 quantity: entry.quantity,
                 unitPrice: Number.parseFloat(catalogItem.unit_price || '0'),
-                subtotalCents
+                subtotalCents,
+                warning: isUnavailable ? sellPasteMessages.notOnCharacter : ''
             });
         });
 
@@ -834,6 +835,7 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
                 <div>
                     <div class="me-paste-line-title">${item.label}</div>
                     <div class="me-paste-line-meta">${item.quantity.toLocaleString()} × ${formatNumber(item.unitPrice)} ISK</div>
+                    ${item.warning ? `<div class="me-paste-line-meta text-info">${item.warning}</div>` : ''}
                 </div>
                 <div class="me-paste-line-value text-success">${formatNumber(item.subtotalCents / 100)} ISK</div>
             </article>

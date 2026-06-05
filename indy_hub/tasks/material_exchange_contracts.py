@@ -1606,6 +1606,15 @@ def _validate_buy_order_from_db(config, order, contracts):
         )
 
     for contract in contracts:
+        if (
+            MaterialExchangeBuyOrder.objects.filter(
+                esi_contract_id=contract.contract_id
+            )
+            .exclude(id=order.id)
+            .exists()
+        ):
+            continue
+
         title = contract.title or ""
         has_correct_ref = order_ref in title
 
