@@ -41,7 +41,7 @@ DISCORD_EMBED_COLORS = {
 }
 
 DEFAULT_LINK_LABEL = _("View details")
-SHORT_LINK_LABEL = _("clic here")
+SHORT_LINK_LABEL = _("click here")
 
 
 def build_site_url(path: str | None) -> str | None:
