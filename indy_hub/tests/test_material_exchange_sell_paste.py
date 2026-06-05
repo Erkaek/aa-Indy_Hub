@@ -154,6 +154,67 @@ class MaterialExchangeSellPasteTests(TestCase):
             reverse("indy_hub:sell_order_detail", args=[order.id]),
         )
 
+    def test_post_creates_sell_order_from_paste_even_when_item_is_not_on_selected_character(
+        self,
+    ) -> None:
+        request = self._prepare_request(
+            self.factory.post(
+                reverse("indy_hub:material_exchange_sell"),
+                {
+                    "sell_input_mode": "paste",
+                    "paste_quantities_json": json.dumps({"36": 7}),
+                    "order_reference": "INDY-PASTE-0002",
+                },
+            )
+        )
+
+        with (
+            patch("indy_hub.views.material_exchange.emit_view_analytics_event"),
+            patch(
+                "indy_hub.views.material_exchange._is_material_exchange_enabled",
+                return_value=True,
+            ),
+            patch(
+                "indy_hub.views.material_exchange._get_material_exchange_config",
+                return_value=self.config,
+            ),
+            patch(
+                "indy_hub.views.material_exchange._fetch_user_assets_for_structure",
+                return_value=({34: 10}, False),
+            ),
+            patch(
+                "indy_hub.views.material_exchange._get_allowed_type_ids_for_config",
+                return_value={34, 36},
+            ),
+            patch(
+                "indy_hub.views.material_exchange._fetch_fuzzwork_prices",
+                return_value={36: {"buy": Decimal("7.00"), "sell": Decimal("8.00")}},
+            ),
+            patch(
+                "indy_hub.views.material_exchange.get_type_name",
+                return_value="Large Skill Injector",
+            ),
+        ):
+            response = self.view(request, tokens=[])
+
+        self.assertEqual(response.status_code, 302)
+
+        order = MaterialExchangeSellOrder.objects.get(order_reference="INDY-PASTE-0002")
+        self.assertEqual(order.status, MaterialExchangeSellOrder.Status.DRAFT)
+        self.assertEqual(order.rounded_total_price, Decimal("52"))
+        self.assertEqual(order.items.count(), 1)
+
+        order_item = order.items.get()
+        self.assertEqual(order_item.type_id, 36)
+        self.assertEqual(order_item.type_name, "Large Skill Injector")
+        self.assertEqual(order_item.quantity, 7)
+        self.assertEqual(order_item.unit_price, Decimal("7.35"))
+        self.assertEqual(order_item.total_price, Decimal("51.45"))
+        self.assertEqual(
+            response.headers["Location"],
+            reverse("indy_hub:sell_order_detail", args=[order.id]),
+        )
+
     def test_post_shows_specific_error_when_paste_mode_has_no_accepted_items(
         self,
     ) -> None:

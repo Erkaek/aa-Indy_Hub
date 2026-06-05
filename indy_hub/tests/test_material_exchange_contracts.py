@@ -858,6 +858,85 @@ class BuyOrderValidationTaskTest(TestCase):
 
     @patch("indy_hub.tasks.material_exchange_contracts.notify_user")
     @patch("indy_hub.tasks.material_exchange_contracts.notify_multi")
+    def test_validate_buy_order_does_not_reuse_finished_contract_from_previous_order(
+        self, mock_multi, mock_user
+    ):
+        """A finished contract already linked to a previous buy order must not validate a new identical order."""
+        # Standard Library
+        from datetime import timedelta
+
+        # Django
+        from django.utils import timezone
+
+        # AA Example App
+        from indy_hub.models import (
+            ESIContract,
+            ESIContractItem,
+            MaterialExchangeBuyOrder,
+        )
+
+        buyer_char_id = 999999999
+
+        previous_order = MaterialExchangeBuyOrder.objects.create(
+            config=self.config,
+            buyer=self.buyer,
+            status=MaterialExchangeBuyOrder.Status.COMPLETED,
+            order_reference="INDY-OLD-0001",
+            rounded_total_price=self.buy_order.total_price,
+        )
+        MaterialExchangeBuyOrderItem.objects.create(
+            order=previous_order,
+            type_id=self.buy_item.type_id,
+            type_name=self.buy_item.type_name,
+            quantity=self.buy_item.quantity,
+            unit_price=self.buy_item.unit_price,
+            total_price=self.buy_item.total_price,
+            stock_available_at_creation=1000,
+        )
+
+        contract = ESIContract.objects.create(
+            contract_id=227079146,
+            corporation_id=self.config.corporation_id,
+            contract_type="item_exchange",
+            issuer_id=0,
+            issuer_corporation_id=self.config.corporation_id,
+            assignee_id=buyer_char_id,
+            start_location_id=self.config.structure_id,
+            end_location_id=self.config.structure_id,
+            status="finished",
+            title=previous_order.order_reference,
+            price=self.buy_order.total_price,
+            date_issued=timezone.now(),
+            date_expired=timezone.now() + timedelta(days=30),
+        )
+        ESIContractItem.objects.create(
+            contract=contract,
+            record_id=3001,
+            type_id=self.buy_item.type_id,
+            quantity=self.buy_item.quantity,
+            is_included=True,
+        )
+
+        previous_order.esi_contract_id = contract.contract_id
+        previous_order.save(update_fields=["esi_contract_id", "updated_at"])
+
+        with patch(
+            "indy_hub.tasks.material_exchange_contracts._get_user_character_ids",
+            return_value=[buyer_char_id],
+        ):
+            validate_material_exchange_buy_orders()
+
+        self.buy_order.refresh_from_db()
+        self.assertEqual(self.buy_order.status, MaterialExchangeBuyOrder.Status.DRAFT)
+        self.assertIsNone(self.buy_order.esi_contract_id)
+        self.assertIn("Pending contract", self.buy_order.notes)
+
+        # No validation notifications should fire for the new order.
+        mock_user.assert_not_called()
+        mock_multi.assert_not_called()
+
+    @patch("indy_hub.tasks.material_exchange_contracts.notify_user")
+    @patch("indy_hub.tasks.material_exchange_contracts.notify_multi")
     def test_validate_buy_order_finished_criteria_mismatch_force_validates(
         self, mock_multi, mock_user
     ):
