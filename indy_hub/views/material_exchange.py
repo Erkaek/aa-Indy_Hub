@@ -379,6 +379,9 @@ def _get_buy_reserved_quantities(
     type_ids: set[int] | None = None,
     exclude_order_id: int | None = None,
 ) -> dict[int, int]:
+    if type_ids is not None and not type_ids:
+        return {}
+
     reserved_items = MaterialExchangeBuyOrderItem.objects.filter(
         order__config=config,
         order__status__in=_BUY_ORDER_RESERVING_STATUSES,

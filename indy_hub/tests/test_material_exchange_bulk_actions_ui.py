@@ -239,24 +239,15 @@ class MaterialExchangeBulkActionsUiTests(TestCase):
     def test_get_buy_reserved_quantities_returns_empty_for_explicit_empty_type_ids(
         self,
     ) -> None:
-        reserved_order = MaterialExchangeBuyOrder.objects.create(
-            config=self.config,
-            buyer=self.user,
-            status=MaterialExchangeBuyOrder.Status.DRAFT,
-        )
-        MaterialExchangeBuyOrderItem.objects.create(
-            order=reserved_order,
-            type_id=34,
-            type_name="Tritanium",
-            quantity=80,
-            unit_price=Decimal("5.00"),
-            total_price=Decimal("400.00"),
-        )
+        with patch(
+            "indy_hub.views.material_exchange.MaterialExchangeBuyOrderItem.objects.filter"
+        ) as mock_filter:
+            self.assertEqual(
+                _get_buy_reserved_quantities(self.config, type_ids=set()),
+                {},
+            )
 
-        self.assertEqual(
-            _get_buy_reserved_quantities(self.config, type_ids=set()),
-            {},
-        )
+        mock_filter.assert_not_called()
 
     def test_buy_page_uses_effective_available_stock_after_reservations(self) -> None:
         MaterialExchangeStock.objects.create(
