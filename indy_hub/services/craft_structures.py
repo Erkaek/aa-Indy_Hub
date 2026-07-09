@@ -70,6 +70,14 @@ _CAPITAL_KEYWORDS = (
 )
 
 
+def _is_super_carrier_variant(normalized_group: str) -> bool:
+    compact = normalized_group.replace(" ", "")
+    if "supercarrier" in compact:
+        return True
+    tokens = set(normalized_group.split())
+    return "super" in tokens and "carrier" in tokens
+
+
 def _get_table_column_names(table_name: str) -> set[str]:
     try:
         with connection.cursor() as cursor:
@@ -243,6 +251,7 @@ def _get_super_capital_ship_group_names() -> set[str]:
         group_name
         for group_name in _get_manufacturing_ship_group_names()
         if any(keyword in group_name for keyword in _SUPER_CAPITAL_KEYWORDS)
+        or _is_super_carrier_variant(group_name)
     }
 
 
@@ -267,6 +276,8 @@ def _service_category_for_item(activity_id: int, group_name: str) -> str | None:
         return None
 
     normalized_group = _normalize_label(group_name)
+    if _is_super_carrier_variant(normalized_group):
+        return "manufacturing_super_capitals"
     if normalized_group in _get_super_capital_ship_group_names():
         return "manufacturing_super_capitals"
     if normalized_group in _get_capital_ship_group_names():

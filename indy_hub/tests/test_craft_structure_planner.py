@@ -583,7 +583,7 @@ class CraftStructurePlannerTests(TestCase):
             "hybrid_reactions",
         )
 
-    def test_manufacturing_service_category_supports_command_carrier_groups(self):
+    def test_manufacturing_service_category_supports_command_carrier_groups(self) -> None:
         _get_manufacturing_ship_group_names.cache_clear()
         _get_capital_ship_group_names.cache_clear()
         _get_super_capital_ship_group_names.cache_clear()
@@ -597,6 +597,10 @@ class CraftStructurePlannerTests(TestCase):
         )
         self.assertEqual(
             _service_category_for_item(1, "Supercarrier"),
+            "manufacturing_super_capitals",
+        )
+        self.assertEqual(
+            _service_category_for_item(1, "Super Carriers"),
             "manufacturing_super_capitals",
         )
 
