@@ -576,6 +576,20 @@ class CraftStructurePlannerTests(TestCase):
             "hybrid_reactions",
         )
 
+    def test_manufacturing_service_category_supports_command_carrier_groups(self):
+        self.assertEqual(
+            _service_category_for_item(1, "Command Carrier"),
+            "manufacturing_capitals",
+        )
+        self.assertEqual(
+            _service_category_for_item(1, "Command Carriers"),
+            "manufacturing_capitals",
+        )
+        self.assertEqual(
+            _service_category_for_item(1, "Supercarrier"),
+            "manufacturing_super_capitals",
+        )
+
     @patch("indy_hub.services.craft_structures._fetch_craftable_item_rows")
     @patch("indy_hub.models.IndustryStructure.get_resolved_bonuses")
     def test_composite_reaction_rig_bonus_beats_unrigged_lower_tax_structure(

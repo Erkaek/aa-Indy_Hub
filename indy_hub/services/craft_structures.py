@@ -51,6 +51,7 @@ SUPER_CAPITAL_GROUP_NAMES = {"Supercarrier", "Titan"}
 CAPITAL_GROUP_NAMES = {
     "Capital Industrial Ship",
     "Carrier",
+    "Command Carrier",
     "Dreadnought",
     "Force Auxiliary",
     "Freighter",
@@ -188,9 +189,24 @@ def _service_category_for_item(activity_id: int, group_name: str) -> str | None:
         return _reaction_service_category_for_item(group_name)
     if activity_id != IndustryActivityMixin.ACTIVITY_MANUFACTURING:
         return None
-    if group_name in SUPER_CAPITAL_GROUP_NAMES:
+
+    normalized_group = _normalize_label(group_name)
+    super_capital_groups = {
+        _normalize_label(name) for name in SUPER_CAPITAL_GROUP_NAMES
+    }
+    capital_groups = {_normalize_label(name) for name in CAPITAL_GROUP_NAMES}
+
+    if normalized_group in super_capital_groups:
         return "manufacturing_super_capitals"
-    if group_name in CAPITAL_GROUP_NAMES:
+
+    # Keep this permissive to absorb new SDE carrier capital variants
+    # (e.g. Command Carrier) without requiring a code release for each rename.
+    if normalized_group in capital_groups:
+        return "manufacturing_capitals"
+    if (
+        "carrier" in normalized_group
+        and "supercarrier" not in normalized_group
+    ):
         return "manufacturing_capitals"
     return "manufacturing"
 
