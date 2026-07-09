@@ -210,9 +210,7 @@ def _get_manufacturing_ship_group_names() -> set[str]:
     category_name_expr = _sde_name_expression("eve_sde_itemcategory", alias="category")
 
     fallback_names = set(SUPER_CAPITAL_GROUP_NAMES) | set(CAPITAL_GROUP_NAMES)
-    fallback_normalized = {
-        _normalize_label(name) for name in fallback_names if name
-    }
+    fallback_normalized = {_normalize_label(name) for name in fallback_names if name}
 
     try:
         with connection.cursor() as cursor:

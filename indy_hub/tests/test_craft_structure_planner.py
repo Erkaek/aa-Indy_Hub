@@ -10,10 +10,10 @@ from django.test import TestCase
 # AA Example App
 from indy_hub.models import IndustryStructure, IndustrySystemCostIndex
 from indy_hub.services.craft_structures import (
+    _fetch_craftable_item_rows,
     _get_capital_ship_group_names,
     _get_manufacturing_ship_group_names,
     _get_super_capital_ship_group_names,
-    _fetch_craftable_item_rows,
     _service_category_for_item,
     build_craft_structure_planner,
 )
@@ -583,7 +583,9 @@ class CraftStructurePlannerTests(TestCase):
             "hybrid_reactions",
         )
 
-    def test_manufacturing_service_category_supports_command_carrier_groups(self) -> None:
+    def test_manufacturing_service_category_supports_command_carrier_groups(
+        self,
+    ) -> None:
         _get_manufacturing_ship_group_names.cache_clear()
         _get_capital_ship_group_names.cache_clear()
         _get_super_capital_ship_group_names.cache_clear()
