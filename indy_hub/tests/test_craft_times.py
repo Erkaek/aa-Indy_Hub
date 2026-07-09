@@ -147,6 +147,19 @@ class BuildCraftTimeMapTests(TestCase):
 
         self.assertEqual(result[2000]["base_time_seconds"], 0)
 
+    def test_build_craft_time_map_returns_empty_without_craftable_items(self) -> None:
+        with patch("indy_hub.services.craft_times.connection.cursor") as mock_cursor:
+            result = build_craft_time_map(
+                recipe_map={},
+                product_type_id=None,
+                product_type_name="",
+                product_output_per_cycle=0,
+                root_blueprint_type_id=None,
+            )
+
+        self.assertEqual(result, {})
+        mock_cursor.assert_not_called()
+
     def test_get_max_copy_runs_per_request_prefers_smallest_known_limit(self) -> None:
         with (
             patch(

@@ -43,6 +43,23 @@ class _FakeToken:
     objects = _FakeTokenManager()
 
 
+class _MissingTokenQuerySet(_FakeTokenQuerySet):
+    def first(self):
+        return None
+
+    def exists(self):
+        return False
+
+
+class _MissingTokenManager:
+    def filter(self, *args, **kwargs):
+        return _MissingTokenQuerySet()
+
+
+class _MissingToken:
+    objects = _MissingTokenManager()
+
+
 class IndustryJobsPayloadTests(TestCase):
     def setUp(self) -> None:
         self.user = User.objects.create_user("jobs-user", password="secret123")
@@ -92,6 +109,32 @@ class IndustryJobsPayloadTests(TestCase):
                 for call in warning_logger.call_args_list
             ),
             "Expected warning about unexpected payload type",
+        )
+
+    def test_skips_character_without_valid_job_token(self) -> None:
+        with (
+            patch("indy_hub.tasks.industry.Token", _MissingToken),
+            patch(
+                "indy_hub.tasks.industry._refresh_online_status_for_user",
+            ),
+            patch(
+                "indy_hub.tasks.industry._is_user_active",
+                return_value=True,
+            ),
+            patch(
+                "indy_hub.tasks.industry.shared_client.fetch_character_industry_jobs",
+            ) as fetch_jobs,
+            patch("indy_hub.tasks.industry.logger.debug") as debug_logger,
+        ):
+            update_industry_jobs_for_user(self.user.id)
+
+        fetch_jobs.assert_not_called()
+        self.assertTrue(
+            any(
+                "missing token for scopes" in (call.args[0] if call.args else "")
+                for call in debug_logger.call_args_list
+            ),
+            "Expected debug log about missing job token scopes",
         )
 
     def test_skips_non_dict_job_items(self) -> None:

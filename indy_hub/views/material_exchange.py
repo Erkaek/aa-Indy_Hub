@@ -385,7 +385,7 @@ def _get_buy_reserved_quantities(
     )
     if exclude_order_id is not None:
         reserved_items = reserved_items.exclude(order_id=exclude_order_id)
-    if type_ids:
+    if type_ids is not None:
         reserved_items = reserved_items.filter(type_id__in=type_ids)
 
     rows = reserved_items.values("type_id").annotate(

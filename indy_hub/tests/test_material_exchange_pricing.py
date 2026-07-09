@@ -106,6 +106,16 @@ class MaterialExchangePricingTests(TestCase):
         actual = self.stock.sell_price_to_member
         self.assertAlmostEqual(float(actual), float(expected), places=2)
 
+    def test_negative_markup_reduces_member_sell_price(self):
+        """Negative markup should discount the configured base price."""
+        self.config.buy_markup_percent = Decimal("-10.00")
+        self.config.buy_markup_base = "buy"
+        self.config.save()
+
+        expected = Decimal("4.50")
+        actual = self.stock.sell_price_to_member
+        self.assertAlmostEqual(float(actual), float(expected), places=2)
+
     def test_default_values_are_buy(self):
         """Test that default markup base is 'buy' for both settings."""
         new_config = MaterialExchangeConfig.objects.create(

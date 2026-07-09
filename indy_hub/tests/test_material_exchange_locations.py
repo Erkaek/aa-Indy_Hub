@@ -145,20 +145,20 @@ class TestMaterialExchangeLocations(TestCase):
                 structure_id=int(structure_id_in),
             )
 
-        original = asset_cache.shared_client.fetch_structure_name
-        try:
-            asset_cache.shared_client.fetch_structure_name = _ok
+        with patch.object(asset_cache.shared_client, "fetch_structure_name", _ok):
             names = resolve_structure_names([structure_id], character_id=1)
             assert names[structure_id] == "C-N4OD - Fountain of Life"
 
-            asset_cache.shared_client.fetch_structure_name = _forbidden
+        with patch.object(
+            asset_cache.shared_client,
+            "fetch_structure_name",
+            _forbidden,
+        ):
             names2 = resolve_structure_names([structure_id], character_id=1)
             assert names2[structure_id] == "C-N4OD - Fountain of Life"
 
-            cached = CachedStructureName.objects.get(structure_id=structure_id)
-            assert cached.name == "C-N4OD - Fountain of Life"
-        finally:
-            asset_cache.shared_client.fetch_structure_name = original
+        cached = CachedStructureName.objects.get(structure_id=structure_id)
+        assert cached.name == "C-N4OD - Fountain of Life"
 
     def test_int32_location_uses_public_names_without_authed_lookup(self):
         station_id = 60003760

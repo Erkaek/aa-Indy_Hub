@@ -69,6 +69,6 @@ class CraftStructureJumpDistanceTests(TestCase):
         mock_cursor,
     ) -> None:
         _load_stargate_adjacency.cache_clear()
-        mock_cursor.return_value = _CursorStub([])
 
         self.assertEqual(compute_solar_system_jump_distances(30000142, []), {})
+        mock_cursor.assert_not_called()
