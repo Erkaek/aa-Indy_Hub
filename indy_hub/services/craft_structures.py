@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # Standard Library
+import logging
 import re
 from collections import deque
 from decimal import Decimal
@@ -20,6 +21,8 @@ _SDE_ACTIVITY_ID_BY_NAME = {
     "manufacturing": IndustryActivityMixin.ACTIVITY_MANUFACTURING,
     "reaction": IndustryActivityMixin.ACTIVITY_REACTIONS,
 }
+
+logger = logging.getLogger(__name__)
 
 
 def _activity_id_from_sde_value(value: object) -> int:
@@ -51,12 +54,31 @@ SUPER_CAPITAL_GROUP_NAMES = {"Supercarrier", "Titan"}
 CAPITAL_GROUP_NAMES = {
     "Capital Industrial Ship",
     "Carrier",
+    "Command Carrier",
     "Dreadnought",
     "Force Auxiliary",
     "Freighter",
     "Jump Freighter",
     "Lancer Dreadnought",
 }
+
+_SUPER_CAPITAL_KEYWORDS = ("supercarrier", "titan")
+_CAPITAL_KEYWORDS = (
+    "capital",
+    "carrier",
+    "dreadnought",
+    "auxiliary",
+    "freighter",
+    "lancer",
+)
+
+
+def _is_super_carrier_variant(normalized_group: str) -> bool:
+    compact = normalized_group.replace(" ", "")
+    if "supercarrier" in compact:
+        return True
+    tokens = set(normalized_group.split())
+    return "super" in tokens and "carrier" in tokens
 
 
 def _get_table_column_names(table_name: str) -> set[str]:
@@ -180,6 +202,74 @@ def _reaction_service_category_for_item(group_name: str) -> str | None:
     return None
 
 
+@lru_cache(maxsize=1)
+def _get_manufacturing_ship_group_names() -> set[str]:
+    """Return normalized manufacturing ship group names from live SDE data.
+
+    Fallback to static constants if live SDE lookup is unavailable.
+    """
+
+    group_name_expr = _sde_name_expression("eve_sde_itemgroup", alias="grp")
+    category_name_expr = _sde_name_expression("eve_sde_itemcategory", alias="category")
+
+    fallback_names = set(SUPER_CAPITAL_GROUP_NAMES) | set(CAPITAL_GROUP_NAMES)
+    fallback_normalized = {_normalize_label(name) for name in fallback_names if name}
+
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT DISTINCT {group_name_expr}
+                FROM eve_sde_blueprintactivityproduct product
+                JOIN eve_sde_blueprintactivity activity ON activity.id = product.blueprint_activity_id
+                JOIN eve_sde_itemtype item ON item.id = product.item_type_id
+                JOIN eve_sde_itemgroup grp ON grp.id = item.group_id
+                JOIN eve_sde_itemcategory category ON category.id = grp.category_id
+                WHERE activity.activity = 'manufacturing'
+                                AND COALESCE(item.published, 0) = 1
+                                AND {category_name_expr} = 'Ship'
+                """
+            )
+            rows = cursor.fetchall()
+        names = {
+            _normalize_label(str(group_name or ""))
+            for (group_name,) in rows
+            if str(group_name or "").strip()
+        }
+        if names:
+            # Keep static baseline names to avoid regressions when an SDE snapshot
+            # is partial or uses unexpected naming variants.
+            return names | fallback_normalized
+    except Exception:
+        logger.exception(
+            "Failed to load manufacturing ship group names from SDE; "
+            "falling back to static ship group mapping."
+        )
+
+    return fallback_normalized
+
+
+@lru_cache(maxsize=1)
+def _get_super_capital_ship_group_names() -> set[str]:
+    return {
+        group_name
+        for group_name in _get_manufacturing_ship_group_names()
+        if any(keyword in group_name for keyword in _SUPER_CAPITAL_KEYWORDS)
+        or _is_super_carrier_variant(group_name)
+    }
+
+
+@lru_cache(maxsize=1)
+def _get_capital_ship_group_names() -> set[str]:
+    super_capital_names = _get_super_capital_ship_group_names()
+    return {
+        group_name
+        for group_name in _get_manufacturing_ship_group_names()
+        if group_name not in super_capital_names
+        and any(keyword in group_name for keyword in _CAPITAL_KEYWORDS)
+    }
+
+
 def _service_category_for_item(activity_id: int, group_name: str) -> str | None:
     if activity_id in {
         IndustryActivityMixin.ACTIVITY_REACTIONS,
@@ -188,9 +278,13 @@ def _service_category_for_item(activity_id: int, group_name: str) -> str | None:
         return _reaction_service_category_for_item(group_name)
     if activity_id != IndustryActivityMixin.ACTIVITY_MANUFACTURING:
         return None
-    if group_name in SUPER_CAPITAL_GROUP_NAMES:
+
+    normalized_group = _normalize_label(group_name)
+    if _is_super_carrier_variant(normalized_group):
         return "manufacturing_super_capitals"
-    if group_name in CAPITAL_GROUP_NAMES:
+    if normalized_group in _get_super_capital_ship_group_names():
+        return "manufacturing_super_capitals"
+    if normalized_group in _get_capital_ship_group_names():
         return "manufacturing_capitals"
     return "manufacturing"
 
