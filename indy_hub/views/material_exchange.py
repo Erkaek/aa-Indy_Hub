@@ -1952,7 +1952,7 @@ def material_exchange_sell(request, tokens):
                     "buy_price_from_member": accepted_item["buy_price_from_member"],
                     "user_quantity": user_qty,
                     "total_quantity": total_qty or user_qty,
-                    "reserved_quantity": reserved_qty,
+                    "other_character_quantity": reserved_qty,
                 }
             )
 

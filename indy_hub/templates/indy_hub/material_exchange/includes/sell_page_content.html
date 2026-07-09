@@ -333,8 +333,8 @@
                                             <td class="text-end">
                                                 <div class="d-flex flex-column align-items-end gap-1">
                                                     <span class="badge bg-success">{{ item.user_quantity|intcomma }}</span>
-                                                    {% if item.reserved_quantity|default:0 > 0 %}
-                                                    <small class="text-danger text-end d-block">{% trans "Reserved" %} {{ item.reserved_quantity|default:0|intcomma }}</small>
+                                                    {% if item.other_character_quantity|default:0 > 0 %}
+                                                    <small class="text-danger text-end d-block">{% trans "Other Character" %} {{ item.other_character_quantity|default:0|intcomma }}</small>
                                                     {% endif %}
                                                     <small class="text-muted text-end d-block">{% trans "Total" %} {{ item.total_quantity|default:item.user_quantity|intcomma }}</small>
                                                 </div>

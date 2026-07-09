@@ -163,7 +163,7 @@ class MaterialExchangeBulkActionsUiTests(TestCase):
         self.assertContains(response, 'id="sellBulkMaxVisible"')
         self.assertContains(response, 'data-action="clear-visible"')
         self.assertContains(response, 'data-action="max-visible"')
-        self.assertContains(response, "Reserved")
+        self.assertContains(response, "Other Character")
         self.assertContains(response, "Total")
 
     def test_buy_page_renders_visible_bulk_buttons(self) -> None:
