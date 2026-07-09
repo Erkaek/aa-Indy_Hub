@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # Standard Library
+import logging
 import re
 from collections import deque
 from decimal import Decimal
@@ -20,6 +21,8 @@ _SDE_ACTIVITY_ID_BY_NAME = {
     "manufacturing": IndustryActivityMixin.ACTIVITY_MANUFACTURING,
     "reaction": IndustryActivityMixin.ACTIVITY_REACTIONS,
 }
+
+logger = logging.getLogger(__name__)
 
 
 def _activity_id_from_sde_value(value: object) -> int:
@@ -238,7 +241,10 @@ def _get_manufacturing_ship_group_names() -> set[str]:
             # is partial or uses unexpected naming variants.
             return names | fallback_normalized
     except Exception:
-        pass
+        logger.exception(
+            "Failed to load manufacturing ship group names from SDE; "
+            "falling back to static ship group mapping."
+        )
 
     return fallback_normalized
 
