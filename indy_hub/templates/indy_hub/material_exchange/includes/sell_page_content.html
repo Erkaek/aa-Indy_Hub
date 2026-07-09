@@ -331,7 +331,13 @@
                                                 <div class="small text-body-secondary">{{ item.group_name|default:_('Other') }}</div>
                                             </td>
                                             <td class="text-end">
-                                                <span class="badge bg-success">{{ item.user_quantity|intcomma }}</span>
+                                                <div class="d-flex flex-column align-items-end gap-1">
+                                                    <span class="badge bg-success">{{ item.user_quantity|intcomma }}</span>
+                                                    {% if item.reserved_quantity|default:0 > 0 %}
+                                                    <small class="text-danger text-end d-block">{% trans "Reserved" %} {{ item.reserved_quantity|default:0|intcomma }}</small>
+                                                    {% endif %}
+                                                    <small class="text-muted text-end d-block">{% trans "Total" %} {{ item.total_quantity|default:item.user_quantity|intcomma }}</small>
+                                                </div>
                                             </td>
                                             <td class="text-end text-success fw-semibold">
                                                 {{ item.buy_price_from_member|floatformat:2|intcomma }} ISK
