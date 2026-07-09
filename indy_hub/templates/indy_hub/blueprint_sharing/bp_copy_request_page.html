@@ -383,12 +383,14 @@ function clearCopyRequestPriceEstimate(modal) {
     modal.dataset.estimatedCopyPriceJobCostBonusPercent = '0';
     modal.dataset.estimatedCopyPriceFacilityTaxPercent = '0';
     modal.dataset.estimatedCopyPriceSccSurchargePercent = '0';
+    modal.dataset.estimatedCopyPriceReason = '';
 }
 
 function applyCopyRequestPriceEstimate(modal, payload) {
     const estimate = payload && payload.available ? payload.estimate || {} : null;
     if (!estimate) {
         clearCopyRequestPriceEstimate(modal);
+        modal.dataset.estimatedCopyPriceReason = payload && payload.reason ? payload.reason : '';
         modal.dataset.estimatedCopyPriceLoading = '0';
         updateCopyRequestModalEstimates();
         return;
@@ -401,6 +403,7 @@ function applyCopyRequestPriceEstimate(modal, payload) {
     modal.dataset.estimatedCopyPriceJobCostBonusPercent = estimate.job_cost_bonus_percent || '0';
     modal.dataset.estimatedCopyPriceFacilityTaxPercent = estimate.facility_tax_percent || '0';
     modal.dataset.estimatedCopyPriceSccSurchargePercent = estimate.scc_surcharge_percent || '0';
+    modal.dataset.estimatedCopyPriceReason = '';
     modal.dataset.estimatedCopyPriceLoading = '0';
     updateCopyRequestModalEstimates();
 }
@@ -472,8 +475,11 @@ function updateCopyRequestModalEstimates() {
         if (estimatedPrice !== null && estimatedPrice > 0) {
             priceValue.textContent = formatIsk(estimatedPrice);
             priceHint.textContent = '{% trans "Estimated amount for information only. It can only be confirmed by the producer." %}';
+        } else if (modal.dataset.estimatedCopyPriceReason === 'no_visible_copy_structure') {
+            priceValue.textContent = '{% trans "N/A" %}';
+            priceHint.textContent = '{% trans "No visible copy structure is available to you yet. Ask a producer with copy access to publish one or broaden your access." %}';
         } else {
-            priceValue.textContent = '-';
+            priceValue.textContent = '{% trans "N/A" %}';
             priceHint.textContent = '{% trans "No reliable copy price estimate is available yet. Send a normal request instead." %}';
         }
     }

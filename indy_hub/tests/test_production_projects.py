@@ -48,10 +48,13 @@ class _PreviewCursorStub:
                 (1003, "Warp Disruptor II", "Warp Disruptor"),
             ]
             return
-        if "SELECT p.product_eve_type_id, p.eve_type_id, p.activity_id" in query:
+        if (
+            "SELECT p.item_type_id, activity.blueprint_item_type_id, activity.activity"
+            in query
+        ):
             self._result = [
-                (1001, 5001, 1),
-                (1002, 5002, 1),
+                (1001, 5001, "manufacturing"),
+                (1002, 5002, "manufacturing"),
             ]
             return
         self._result = []
@@ -116,11 +119,11 @@ class _WorkspacePayloadCursorStub:
     def execute(self, sql, params=None):
         query = " ".join(str(sql).split())
         blueprint_type_id = int((params or [0])[0] or 0)
-        if "SELECT p.product_eve_type_id" in query:
+        if "SELECT p.item_type_id" in query:
             row = self.product_rows.get(blueprint_type_id)
             self._result = [row] if row else []
             return
-        if "SELECT m.material_eve_type_id, m.quantity" in query:
+        if "SELECT m.item_type_id, m.quantity" in query:
             self._result = [
                 (type_id, quantity)
                 for type_id, _name, quantity in self.material_rows.get(
@@ -128,7 +131,7 @@ class _WorkspacePayloadCursorStub:
                 )
             ]
             return
-        if "SELECT m.material_eve_type_id" in query and "m.quantity" in query:
+        if "SELECT m.item_type_id" in query and "m.quantity" in query:
             self._result = self.material_rows.get(blueprint_type_id, [])
             return
         if "SELECT t.meta_group_id_raw, g.category_id" in query:
@@ -447,7 +450,8 @@ class ProductionProjectImportTests(TestCase):
         self.assertEqual(resolved, 46207)
         self.assertEqual(cursor.last_params, [16672])
         self.assertIn(
-            "JOIN eve_sde_itemtype t ON t.id = p.eve_type_id", cursor.last_query
+            "JOIN eve_sde_itemtype t ON t.id = activity.blueprint_item_type_id",
+            cursor.last_query,
         )
         self.assertIn("COALESCE(t.published, 0) = 1", cursor.last_query)
         self.assertIn("COALESCE(product_t.published, 0) = 1", cursor.last_query)

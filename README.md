@@ -62,17 +62,6 @@ ______________________________________________________________________
 pip install django-eveonline-sde indy-hub
 ```
 
-On an existing Alliance Auth instance, keep Alliance Auth, Django, django-esi,
-and django-eveonline-sde controlled by your Auth stack requirements. Indy Hub's
-package metadata intentionally does not install or upgrade those packages.
-
-When installing Indy Hub directly from Git on an existing production instance,
-use `--no-deps` so pip cannot recalculate the Alliance Auth dependency tree:
-
-```text
-pip install --no-deps --force-reinstall "git+https://github.com/Erkaek/aa-Indy_Hub@main#egg=indy_hub"
-```
-
 Add to your `local.py`:
 
 ```python
@@ -82,25 +71,14 @@ INSTALLED_APPS = [
 ]
 ```
 
-Optional override (only if your extracted SDE folder is not the eve_sde default):
-
-```python
-INDY_HUB_SDE_FOLDER = "/path/to/your/sde-folder"
-```
-
-If omitted, Indy Hub automatically reuses the default folder used by `eve_sde`.
+Ensure the base `eve_sde` data is already loaded by following the official
+`django-eveonline-sde` setup process before using Indy Hub.
 
 Run migrations and collect static files:
 
 ```text
 python manage.py migrate
 python manage.py collectstatic --noinput
-```
-
-Load Indy Hub compatibility data (after completing `eve_sde` data loading as documented in the `django-eveonline-sde` module):
-
-```text
-python manage.py sync_sde_compat
 ```
 
 Restart services:
@@ -117,19 +95,6 @@ pip install django-eveonline-sde indy-hub
 exit
 ```
 
-On an existing Alliance Auth container, keep Alliance Auth, Django, django-esi,
-and django-eveonline-sde controlled by your Auth stack requirements. Indy Hub's
-package metadata intentionally does not install or upgrade those packages.
-
-When installing Indy Hub directly from Git on an existing production container,
-use `--no-deps` so Alliance Auth stays on its current major version:
-
-```text
-docker compose exec allianceauth_gunicorn bash
-pip install --no-deps --force-reinstall "git+https://github.com/Erkaek/aa-Indy_Hub@main#egg=indy_hub"
-exit
-```
-
 Add to your `conf/local.py`:
 
 ```python
@@ -139,19 +104,14 @@ INSTALLED_APPS = [
 ]
 ```
 
-Optional override (only if your extracted SDE folder is not the eve_sde default):
-
-```python
-INDY_HUB_SDE_FOLDER = "/path/to/your/sde-folder"
-```
-
-If omitted, Indy Hub automatically reuses the default folder used by `eve_sde`.
-
 Add to your `conf/requirements.txt` (Always use current versions)
 
 ```text
-indy-hub==1.17.2
+indy-hub==1.18.0
 ```
+
+Ensure the base `eve_sde` data is already loaded in your stack by following
+the official `django-eveonline-sde` setup process before using Indy Hub.
 
 Run migrations and collect static files:
 
@@ -168,14 +128,6 @@ Restart Auth:
 docker compose build
 docker compose down
 docker compose up -d
-```
-
-Load Indy Hub compatibility data (after completing `eve_sde` data loading as documented in the `django-eveonline-sde` module):
-
-```text
-docker compose exec allianceauth_gunicorn bash
-auth sync_sde_compat
-exit
 ```
 
 ### Common
@@ -279,7 +231,7 @@ systemctl restart allianceauth
 Update Versions in `conf/requirements.txt` (Always use current versions)
 
 ```text
-indy-hub==1.17.2
+indy-hub==1.18.0
 
 
 ```

@@ -78,6 +78,7 @@ class CraftStructurePlannerTests(TestCase):
             region_id=10000043,
             region_name="Domain",
             enable_manufacturing=True,
+            enable_manufacturing_capitals=False,
             enable_manufacturing_super_capitals=True,
             manufacturing_tax_percent=Decimal("0.300"),
             manufacturing_super_capitals_tax_percent=Decimal("0.300"),
@@ -457,8 +458,62 @@ class CraftStructurePlannerTests(TestCase):
         self.assertEqual(len(planner["items"]), 1)
         item = planner["items"][0]
         self.assertEqual(item["service_category"], "manufacturing_super_capitals")
-        self.assertEqual(len(item["options"]), 1)
-        self.assertEqual(item["options"][0]["structure_id"], self.supercap_structure.id)
+        option_ids = {int(option["structure_id"]) for option in item["options"]}
+        self.assertIn(self.supercap_structure.id, option_ids)
+        self.assertFalse(
+            IndustryStructure.objects.filter(
+                id__in=option_ids,
+                enable_manufacturing_super_capitals=False,
+            ).exists()
+        )
+
+    @patch("indy_hub.services.craft_structures._fetch_craftable_item_rows")
+    @patch("indy_hub.models.IndustryStructure.get_resolved_bonuses")
+    def test_supercapital_service_does_not_require_supercapital_tax_field(
+        self,
+        mock_get_resolved_bonuses,
+        mock_fetch_craftable_item_rows,
+    ) -> None:
+        self.supercap_structure.manufacturing_super_capitals_tax_percent = Decimal("0")
+        self.supercap_structure.manufacturing_capitals_tax_percent = Decimal("0.500")
+        self.supercap_structure.save(
+            update_fields=[
+                "manufacturing_super_capitals_tax_percent",
+                "manufacturing_capitals_tax_percent",
+            ]
+        )
+
+        mock_fetch_craftable_item_rows.return_value = [
+            {
+                "type_id": 300,
+                "type_name": "Avatar",
+                "produced_per_cycle": 1,
+                "activity_id": 1,
+                "activity_label": "Manufacturing",
+                "group_name": "Titan",
+                "category_name": "Ship",
+            }
+        ]
+        mock_get_resolved_bonuses.side_effect = self._resolved_bonuses
+
+        planner = build_craft_structure_planner(
+            product_type_id=300,
+            product_type_name="Avatar",
+            product_output_per_cycle=1,
+            craft_cycles_summary={},
+        )
+
+        self.assertEqual(len(planner["items"]), 1)
+        item = planner["items"][0]
+        self.assertEqual(item["service_category"], "manufacturing_super_capitals")
+        option_ids = {int(option["structure_id"]) for option in item["options"]}
+        self.assertIn(self.supercap_structure.id, option_ids)
+        self.assertFalse(
+            IndustryStructure.objects.filter(
+                id__in=option_ids,
+                enable_manufacturing_super_capitals=False,
+            ).exists()
+        )
 
     @patch("indy_hub.services.craft_structures._fetch_craftable_item_rows")
     @patch("indy_hub.models.IndustryStructure.get_resolved_bonuses")

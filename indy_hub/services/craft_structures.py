@@ -16,6 +16,33 @@ from django.db import connection
 from indy_hub.models import IndustryActivityMixin, IndustryStructure
 from indy_hub.services.industry_structures import IndustryStructureResolvedBonus
 
+_SDE_ACTIVITY_ID_BY_NAME = {
+    "manufacturing": IndustryActivityMixin.ACTIVITY_MANUFACTURING,
+    "reaction": IndustryActivityMixin.ACTIVITY_REACTIONS,
+}
+
+
+def _activity_id_from_sde_value(value: object) -> int:
+    if isinstance(value, int):
+        if value == IndustryActivityMixin.ACTIVITY_REACTIONS_LEGACY:
+            return IndustryActivityMixin.ACTIVITY_REACTIONS
+        return value
+
+    text = str(value or "").strip().casefold()
+    if not text:
+        return IndustryActivityMixin.ACTIVITY_MANUFACTURING
+    if text.isdigit():
+        numeric_value = int(text)
+        if numeric_value == IndustryActivityMixin.ACTIVITY_REACTIONS_LEGACY:
+            return IndustryActivityMixin.ACTIVITY_REACTIONS
+        return numeric_value
+    if text in {"reaction", "reactions", "reactions legacy"}:
+        return IndustryActivityMixin.ACTIVITY_REACTIONS
+    return _SDE_ACTIVITY_ID_BY_NAME.get(
+        text, IndustryActivityMixin.ACTIVITY_MANUFACTURING
+    )
+
+
 PERCENT_FACTOR = Decimal("100")
 SCC_SURCHARGE_RATE = Decimal("0.04")
 COPYING_JOB_COST_BASE_RATE = Decimal("0.02")
@@ -175,26 +202,8 @@ def _structure_supports_item(
 ) -> bool:
     if activity_id == IndustryActivityMixin.ACTIVITY_MANUFACTURING:
         if service_category == "manufacturing_super_capitals":
-            if not bool(structure.enable_manufacturing_super_capitals):
-                return False
-            if (
-                not _normalize_decimal(
-                    structure.manufacturing_super_capitals_tax_percent
-                )
-                and _normalize_decimal(structure.manufacturing_capitals_tax_percent) > 0
-            ):
-                return False
             return bool(structure.enable_manufacturing_super_capitals)
         if service_category == "manufacturing_capitals":
-            if (
-                structure.enable_manufacturing_super_capitals
-                and not _normalize_decimal(structure.manufacturing_capitals_tax_percent)
-                and _normalize_decimal(
-                    structure.manufacturing_super_capitals_tax_percent
-                )
-                > 0
-            ):
-                return False
             return bool(structure.enable_manufacturing_capitals)
         return bool(structure.enable_manufacturing)
 
@@ -610,21 +619,22 @@ def _fetch_craftable_item_rows(type_ids: list[int]) -> list[dict[str, object]]:
         cursor.execute(
             f"""
             SELECT
-                product.product_eve_type_id AS type_id,
-                product.eve_type_id AS blueprint_type_id,
+                product.item_type_id AS type_id,
+                activity.blueprint_item_type_id AS blueprint_type_id,
                 {item_name_expr} AS type_name,
                 product.quantity AS produced_per_cycle,
                 item.base_price AS base_price,
-                product.activity_id AS activity_id,
+                activity.activity AS activity_name,
                 {group_name_expr} AS group_name,
                 {category_name_expr} AS category_name
-            FROM indy_hub_sdeindustryactivityproduct product
-            JOIN eve_sde_itemtype item ON item.id = product.product_eve_type_id
-            JOIN eve_sde_itemtype blueprint_item ON blueprint_item.id = product.eve_type_id
+            FROM eve_sde_blueprintactivityproduct product
+            JOIN eve_sde_blueprintactivity activity ON activity.id = product.blueprint_activity_id
+            JOIN eve_sde_itemtype item ON item.id = product.item_type_id
+            JOIN eve_sde_itemtype blueprint_item ON blueprint_item.id = activity.blueprint_item_type_id
             JOIN eve_sde_itemgroup grp ON grp.id = item.group_id
             JOIN eve_sde_itemcategory category ON category.id = grp.category_id
-            WHERE product.product_eve_type_id IN ({placeholders})
-                        AND product.activity_id IN (1, 9, 11)
+            WHERE product.item_type_id IN ({placeholders})
+                        AND activity.activity IN ('manufacturing', 'reaction')
                         AND COALESCE(item.published, 0) = 1
                         AND COALESCE(blueprint_item.published, 0) = 1
             ORDER BY {item_name_expr}
@@ -638,15 +648,11 @@ def _fetch_craftable_item_rows(type_ids: list[int]) -> list[dict[str, object]]:
             type_name,
             produced_per_cycle,
             base_price,
-            activity_id,
+            activity_name,
             group_name,
             category_name,
         ) in cursor.fetchall():
-            activity_id = int(
-                activity_id or IndustryActivityMixin.ACTIVITY_MANUFACTURING
-            )
-            if activity_id == IndustryActivityMixin.ACTIVITY_REACTIONS_LEGACY:
-                activity_id = IndustryActivityMixin.ACTIVITY_REACTIONS
+            activity_id = _activity_id_from_sde_value(activity_name)
             rows.append(
                 {
                     "type_id": int(type_id),

@@ -147,7 +147,7 @@ class IndustryStructureRegistryForm(forms.ModelForm):
         cleaned_data = super().clean()
         if not sde_item_types_loaded():
             raise forms.ValidationError(
-                "eve_sde ItemType is empty. Run esde_load_sde before using the structure registry."
+                "eve_sde ItemType is empty. Complete the standard eve_sde setup before using the structure registry."
             )
 
         cleaned_data["name"] = str(cleaned_data.get("name") or "").strip()

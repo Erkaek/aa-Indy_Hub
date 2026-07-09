@@ -389,7 +389,7 @@
                         </div>{# /fwp-section--actions #}
 
                         {# Estimates & Setup #}
-                        {% if req.copy_structure_options or req.copy_producer_options or req.copy_duration or req.copy_cost %}
+                        {% if req.copy_structure_options or req.copy_producer_options or req.copy_duration or req.copy_base_time_seconds or req.copy_cost %}
                         <div class="fwp-section fwp-section--estimates">
                             <div class="fwp-section__head">
                                 <div>
@@ -447,13 +447,13 @@
                                 {% endif %}
                             </div>
                             <div class="fwp-estimate-row">
-                                {% if req.copy_duration %}
+                                {% if req.copy_duration or req.copy_base_time_seconds %}
                                 <div class="fwp-estimate-card fwp-estimate-card--time">
                                     <span class="fwp-estimate-card__icon"><i class="fas fa-clock"></i></span>
                                     <div>
                                         <p class="fwp-section__eyebrow">{% trans "Time estimate" %}</p>
-                                        <strong class="fwp-estimate-card__value" data-copy-duration-total>{{ req.copy_duration.total_duration_display }}</strong>
-                                        <p class="fwp-section__hint-sm" data-copy-duration-meta>{{ req.copy_duration.meta_label }}</p>
+                                        <strong class="fwp-estimate-card__value" data-copy-duration-total>{% if req.copy_duration %}{{ req.copy_duration.total_duration_display }}{% else %}-{% endif %}</strong>
+                                        <p class="fwp-section__hint-sm" data-copy-duration-meta>{% if req.copy_duration %}{{ req.copy_duration.meta_label }}{% else %}{% trans "Copy-time estimate is loading or unavailable yet." %}{% endif %}</p>
                                     </div>
                                 </div>
                                 {% endif %}

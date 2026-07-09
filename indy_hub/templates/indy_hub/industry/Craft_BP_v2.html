@@ -356,6 +356,14 @@
                                     <span>{% trans "Incl. facility tax" %}</span>
                                     <strong id="financialSummaryFacilityTaxInline">0 ISK</strong>
                                 </div>
+                                <div class="craft-buy-cost-row">
+                                    <span>{% trans "Fixed expenses" %}</span>
+                                    <strong id="financialSummaryExtraExpenses">0 ISK</strong>
+                                </div>
+                                <div class="craft-buy-cost-row">
+                                    <span>{% trans "Fixed revenues" %}</span>
+                                    <strong id="financialSummaryExtraRevenue">0 ISK</strong>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -534,6 +542,39 @@
                                     <td class="text-end text-xs item-margin"><span class="badge bg-secondary-subtle text-secondary-emphasis financial-source-badge">{% trans "Missing" %}</span></td>
                                 </tr>
                                 {% endif %}
+                                <tr class="craft-financial-section-row" id="financialExtraCostsSectionRow" data-export-skip="true">
+                                    <td colspan="6">
+                                        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+                                            <span>
+                                                <span class="badge bg-warning-subtle text-warning-emphasis me-2">{% trans "Fixed Costs & Revenues" %}</span>
+                                                {% trans "Add custom fixed lines like blueprint copy purchase, logistics, taxes, or external revenues." %}
+                                            </span>
+                                            <button type="button" class="btn btn-outline-primary btn-sm" id="addFinancialExtraCostRowBtn">
+                                                <i class="fas fa-plus me-1"></i>{% trans "Add line" %}
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                                <tr data-export-skip="true" id="financialExtraCostsTableRow">
+                                    <td colspan="6" class="p-0">
+                                        <div class="table-responsive craft-stack-container">
+                                            <table class="table table-sm align-middle mb-0 craft-stackable-table"
+                                                style="--craft-col-1: &quot;{% trans "Name" %}&quot;; --craft-col-2: &quot;{% trans "Type" %}&quot;; --craft-col-3: &quot;{% trans "Qty" %}&quot;; --craft-col-4: &quot;{% trans "Unit Price" %}&quot;; --craft-col-5: &quot;{% trans "Line Total" %}&quot;; --craft-col-6: &quot;{% trans "Actions" %}&quot;;">
+                                                <thead class="table-light">
+                                                    <tr>
+                                                        <th>{% trans "Name" %}</th>
+                                                        <th class="text-center">{% trans "Type" %}</th>
+                                                        <th class="text-end">{% trans "Qty" %}</th>
+                                                        <th class="text-end">{% trans "Unit Price" %}</th>
+                                                        <th class="text-end">{% trans "Line Total" %}</th>
+                                                        <th class="text-end">{% trans "Actions" %}</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody id="financialExtraCostsBody"></tbody>
+                                            </table>
+                                        </div>
+                                    </td>
+                                </tr>
                             </tbody>
                             <tfoot class="table-light">
                                 <tr>
@@ -555,6 +596,14 @@
                                 <tr>
                                     <th colspan="4" class="text-end text-xs text-muted">{% trans "Facility Tax (included in installation)" %}</th>
                                     <th class="text-end text-xs grand-total-facility-tax text-muted" colspan="2">0</th>
+                                </tr>
+                                <tr>
+                                    <th colspan="4" class="text-end text-xs">{% trans "Fixed Expenses" %}</th>
+                                    <th class="text-end text-xs grand-total-extra-expenses fw-semibold" colspan="2">0</th>
+                                </tr>
+                                <tr>
+                                    <th colspan="4" class="text-end text-xs text-success">{% trans "Fixed Revenues" %}</th>
+                                    <th class="text-end text-xs grand-total-extra-revenue text-success" colspan="2">0</th>
                                 </tr>
                                 <tr>
                                     <th colspan="4" class="text-end text-xs">{% trans "Cash Investment Needed" %}</th>
@@ -603,13 +652,21 @@
                 </section>
 
                 <section class="craft-section">
-                    <div class="craft-section-header-with-actions">
+                    <div class="craft-section-header-with-actions position-relative">
                         <h3 class="craft-section-title">
                             <i class="fas fa-shopping-cart text-warning"></i> {% trans "Shopping List" %}
                         </h3>
+                        <span
+                            id="shoppingCopiedToast"
+                            class="position-absolute top-50 start-50 translate-middle badge rounded-pill text-bg-success px-3 py-2 fs-6 fw-semibold shadow d-none"
+                            style="z-index: 2;"
+                            aria-live="polite">{% trans "Copied" %}</span>
                         <div>
                             <button id="exportShoppingCSV" class="btn btn-outline-success btn-sm me-2">
                                 <i class="fas fa-file-csv me-1"></i>{% trans "Export" %}
+                            </button>
+                            <button id="copyShoppingEve" type="button" class="btn btn-outline-primary btn-sm me-2">
+                                <i class="fas fa-copy me-1"></i>{% trans "Copy EVE format" %}
                             </button>
                             <button id="compute-needed" class="btn btn-outline-warning btn-sm">
                                 <i class="fas fa-calculator me-1"></i>{% trans "Compute" %}
@@ -637,6 +694,7 @@
                             </tfoot>
                         </table>
                     </div>
+
                 </section>
             </div>
 
@@ -695,17 +753,17 @@
                     </div>
 
                     <div class="table-responsive craft-stock-table-wrap craft-stack-container">
-                        <table class="table table-sm align-middle mb-0 craft-stock-table craft-stackable-table"
+                        <table class="table table-sm table-hover align-middle mb-0 craft-stock-table craft-stackable-table"
                             style="--craft-col-1: &quot;{% trans "Item" %}&quot;; --craft-col-2: &quot;{% trans "Required" %}&quot;; --craft-col-3: &quot;{% trans "In stock" %}&quot;; --craft-col-4: &quot;{% trans "Use" %}&quot;; --craft-col-5: &quot;{% trans "Still to buy" %}&quot;; --craft-col-6: &quot;{% trans "Value used" %}&quot;; --craft-col-7: &quot;{% trans "By character" %}&quot;;">
                             <thead class="table-light">
                                 <tr>
                                     <th>{% trans "Item" %}</th>
-                                    <th class="text-end">{% trans "Required" %}</th>
-                                    <th class="text-end">{% trans "In stock" %}</th>
-                                    <th class="text-end">{% trans "Use" %}</th>
-                                    <th class="text-end">{% trans "Still to buy" %}</th>
-                                    <th class="text-end">{% trans "Value used" %}</th>
-                                    <th>{% trans "By character" %}</th>
+                                    <th class="text-center">{% trans "Required" %}</th>
+                                    <th class="text-center">{% trans "In stock" %}</th>
+                                    <th class="text-center">{% trans "Use" %}</th>
+                                    <th class="text-center">{% trans "Still to buy" %}</th>
+                                    <th class="text-center">{% trans "Value used" %}</th>
+                                    <th class="text-center">{% trans "By character" %}</th>
                                 </tr>
                             </thead>
                             <tbody id="stockManagementRows">

@@ -64,9 +64,6 @@ from ..models import (
     NotificationWebhookMessage,
     ProductionProject,
     ProductionProjectItem,
-    SDEBlueprintActivity,
-    SDEBlueprintActivityMaterial,
-    SDEBlueprintActivityProduct,
 )
 from ..notifications import (
     build_site_url,
@@ -686,16 +683,29 @@ def _fetch_blueprint_activity_times(
     if not numeric_blueprint_type_ids:
         return {}
 
-    rows = SDEBlueprintActivity.objects.filter(
-        eve_type_id__in=numeric_blueprint_type_ids,
-        activity_id__in=[
-            IndustryActivityMixin.ACTIVITY_MANUFACTURING,
-            IndustryActivityMixin.ACTIVITY_COPYING,
-        ],
-    ).values_list("eve_type_id", "activity_id", "time")
+    placeholders = ", ".join(["%s"] * len(numeric_blueprint_type_ids))
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT ba.blueprint_item_type_id, ba.activity, ba.time
+            FROM eve_sde_blueprintactivity ba
+            WHERE ba.blueprint_item_type_id IN ({placeholders})
+                AND ba.activity IN ('manufacturing', 'copying')
+            """,
+            numeric_blueprint_type_ids,
+        )
+        rows = cursor.fetchall()
+
+    activity_name_to_id = {
+        "manufacturing": IndustryActivityMixin.ACTIVITY_MANUFACTURING,
+        "copying": IndustryActivityMixin.ACTIVITY_COPYING,
+    }
 
     activity_times: dict[int, dict[int, int]] = defaultdict(dict)
-    for blueprint_type_id, activity_id, time_seconds in rows:
+    for blueprint_type_id, activity_name, time_seconds in rows:
+        activity_id = activity_name_to_id.get(str(activity_name or ""))
+        if not activity_id:
+            continue
         activity_times[int(blueprint_type_id)][int(activity_id)] = max(
             0,
             int(time_seconds or 0),
@@ -718,12 +728,9 @@ def _fetch_blueprint_max_production_limits(
     if not numeric_blueprint_type_ids:
         return {}
 
+    table_name = "eve_sde_blueprintactivity"
     table_names = set(connection.introspection.table_names())
-    if "eve_sde_blueprintactivity" in table_names:
-        table_name = "eve_sde_blueprintactivity"
-    elif "indy_hub_sdeblueprintactivity" in table_names:
-        table_name = "indy_hub_sdeblueprintactivity"
-    else:
+    if table_name not in table_names:
         return {}
 
     with connection.cursor() as cursor:
@@ -1835,23 +1842,25 @@ def personnal_bp_list(request, scope="character"):
     per_page = int(request.GET.get("per_page", 25))
 
     if activity_id == "1":
-        filter_ids = [1]
+        filter_names = ["manufacturing"]
     elif activity_id == "9,11":
-        filter_ids = [9, 11]
+        filter_names = ["reaction"]
     else:
-        filter_ids = [1, 9, 11]
+        filter_names = ["manufacturing", "reaction"]
 
     try:
-        id_list = ",".join(str(i) for i in filter_ids)
+        activity_placeholders = ",".join(["%s"] * len(filter_names))
         with connection.cursor() as cursor:
             cursor.execute(
                 f"""
-                SELECT DISTINCT eve_type_id
-                FROM indy_hub_sdeindustryactivityproduct p
-                JOIN eve_sde_itemtype t ON t.id = p.eve_type_id
-                WHERE p.activity_id IN ({id_list})
+                SELECT DISTINCT activity.blueprint_item_type_id
+                FROM eve_sde_blueprintactivityproduct p
+                JOIN eve_sde_blueprintactivity activity ON activity.id = p.blueprint_activity_id
+                JOIN eve_sde_itemtype t ON t.id = activity.blueprint_item_type_id
+                WHERE activity.activity IN ({activity_placeholders})
                                 AND COALESCE(t.published, 0) = 1
-                """
+                """,
+                filter_names,
             )
             allowed_type_ids = [row[0] for row in cursor.fetchall()]
 
@@ -2146,16 +2155,16 @@ def all_bp_list(request):
     sql = (
         "SELECT t.id, t.name "
         "FROM eve_sde_itemtype t "
-        "JOIN indy_hub_sdeindustryactivityproduct a ON t.id = a.eve_type_id "
+        "JOIN eve_sde_blueprintactivity a ON t.id = a.blueprint_item_type_id "
         "WHERE t.published = 1"
     )
     # Append activity filter
     if activity_id == "1":
-        sql += " AND a.activity_id = 1"
+        sql += " AND a.activity = 'manufacturing'"
     elif activity_id == "reactions":
-        sql += " AND a.activity_id IN (9, 11)"
+        sql += " AND a.activity = 'reaction'"
     else:
-        sql += " AND a.activity_id IN (1, 9, 11)"
+        sql += " AND a.activity IN ('manufacturing', 'reaction')"
     # Params for search and market_group filters
     params = []
     if search:
@@ -2170,12 +2179,12 @@ def all_bp_list(request):
     # Initial empty pagination before fetching data
     paginator = Paginator([], per_page)
     blueprints_page = paginator.get_page(page)
-    # Fetch raw activity options for activity dropdown
-    with connection.cursor() as cursor:
-        cursor.execute(
-            "SELECT id, name FROM indy_hub_sdeindustryactivity WHERE id IN (1,9,11) ORDER BY id"
-        )
-        raw_activity_options = cursor.fetchall()
+    # Fixed activity options for the dropdown.
+    raw_activity_options = [
+        (IndustryActivityMixin.ACTIVITY_MANUFACTURING, "Manufacturing"),
+        (IndustryActivityMixin.ACTIVITY_REACTIONS, "Reactions"),
+        (IndustryActivityMixin.ACTIVITY_REACTIONS_LEGACY, "Reactions"),
+    ]
     # Apply consistent activity labels
     activity_labels = {
         1: "Manufacturing",
@@ -3441,6 +3450,19 @@ def bp_copy_request_estimate(request):
     )
     estimate = estimates.get(estimate_key)
     if not estimate:
+        visible_copying_structures = [
+            structure
+            for structure in _get_visible_industry_structures_queryset(request.user)
+            if IndustryActivityMixin.ACTIVITY_COPYING
+            in structure.get_enabled_activity_ids()
+        ]
+        if not visible_copying_structures:
+            return JsonResponse(
+                {
+                    "available": False,
+                    "reason": "no_visible_copy_structure",
+                }
+            )
         return JsonResponse({"available": False})
 
     return JsonResponse(
@@ -3481,27 +3503,55 @@ def _build_copy_estimated_item_values(
     # blueprint's manufacturing materials, NOT from the product's price:
     #   per-run EIV = sum(material_qty * material_adjusted_price)
     # Then JCB = per-run EIV * runs * 2% (the copying activity multiplier).
-    product_type_by_blueprint = {
-        int(row.eve_type_id): int(row.product_eve_type_id)
-        for row in SDEBlueprintActivityProduct.objects.filter(
-            eve_type_id__in=blueprint_type_ids,
-            activity_id=IndustryActivityMixin.ACTIVITY_MANUFACTURING,
-        ).order_by("eve_type_id", "product_eve_type_id")
-    }
+    placeholders = ", ".join(["%s"] * len(blueprint_type_ids))
+
+    product_type_by_blueprint: dict[int, int] = {}
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT ba.blueprint_item_type_id, p.item_type_id
+            FROM eve_sde_blueprintactivityproduct p
+            JOIN eve_sde_blueprintactivity ba ON ba.id = p.blueprint_activity_id
+            JOIN eve_sde_itemtype blueprint_t ON blueprint_t.id = ba.blueprint_item_type_id
+            JOIN eve_sde_itemtype product_t ON product_t.id = p.item_type_id
+            WHERE ba.blueprint_item_type_id IN ({placeholders})
+                AND ba.activity = 'manufacturing'
+                AND COALESCE(blueprint_t.published, 0) = 1
+                AND COALESCE(product_t.published, 0) = 1
+            ORDER BY ba.blueprint_item_type_id ASC, p.item_type_id ASC
+            """,
+            blueprint_type_ids,
+        )
+        for blueprint_type_id, product_type_id in cursor.fetchall():
+            product_type_by_blueprint.setdefault(
+                int(blueprint_type_id),
+                int(product_type_id),
+            )
 
     materials_by_blueprint: dict[int, list[tuple[int, int]]] = {}
-    for row in SDEBlueprintActivityMaterial.objects.filter(
-        eve_type_id__in=blueprint_type_ids,
-        activity_id=IndustryActivityMixin.ACTIVITY_MANUFACTURING,
-    ).values("eve_type_id", "material_eve_type_id", "quantity"):
-        bp_type_id = int(row["eve_type_id"])
-        material_type_id = int(row["material_eve_type_id"])
-        quantity = int(row["quantity"] or 0)
-        if material_type_id <= 0 or quantity <= 0:
-            continue
-        materials_by_blueprint.setdefault(bp_type_id, []).append(
-            (material_type_id, quantity)
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT ba.blueprint_item_type_id, m.item_type_id, m.quantity
+            FROM eve_sde_blueprintactivitymaterial m
+            JOIN eve_sde_blueprintactivity ba ON ba.id = m.blueprint_activity_id
+            JOIN eve_sde_itemtype blueprint_t ON blueprint_t.id = ba.blueprint_item_type_id
+            JOIN eve_sde_itemtype material_t ON material_t.id = m.item_type_id
+            WHERE ba.blueprint_item_type_id IN ({placeholders})
+                AND ba.activity = 'manufacturing'
+                AND COALESCE(blueprint_t.published, 0) = 1
+                AND COALESCE(material_t.published, 0) = 1
+            """,
+            blueprint_type_ids,
         )
+        for bp_type_id, material_type_id, quantity in cursor.fetchall():
+            material_type_id = int(material_type_id or 0)
+            quantity = int(quantity or 0)
+            if material_type_id <= 0 or quantity <= 0:
+                continue
+            materials_by_blueprint.setdefault(int(bp_type_id), []).append(
+                (material_type_id, quantity)
+            )
 
     material_type_ids = sorted(
         {

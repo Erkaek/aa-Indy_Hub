@@ -43,6 +43,9 @@ from esi.exceptions import HTTPNotModified
 from esi.models import CallbackRedirect, Token
 from esi.views import sso_redirect
 
+# Alliance Auth (External Libs)
+from eve_sde.models import EveSDE
+
 # AA Example App
 from indy_hub.models import CharacterSettings, CorporationSharingSetting
 from indy_hub.services._esi_compat import HTTPError
@@ -57,7 +60,6 @@ from ..models import (
     CharacterRoles,
     IndustryJob,
     JobNotificationDigestEntry,
-    SDESyncCompatState,
     UserOnboardingProgress,
 )
 from ..notifications import build_site_url, notify_user
@@ -2206,27 +2208,11 @@ def _is_base_eve_sde_loaded() -> bool:
         return False
 
 
-def _is_indy_hub_sde_compat_loaded() -> bool:
-    try:
-        sde_state = (
-            SDESyncCompatState.objects.filter(pk=1).only("last_synced_at").first()
-        )
-        return bool(sde_state and sde_state.last_synced_at)
-    except DatabaseError:
-        logger.warning(
-            "Unable to read SDESyncCompatState while rendering index",
-            exc_info=True,
-        )
-        return False
-
-
 def _build_sde_readiness_context() -> dict[str, Any]:
     base_sde_loaded = _is_base_eve_sde_loaded()
-    compat_sde_loaded = _is_indy_hub_sde_compat_loaded()
     context: dict[str, Any] = {
         "base_eve_sde_loaded": base_sde_loaded,
-        "indy_hub_sde_compat_loaded": compat_sde_loaded,
-        "sde_ready": base_sde_loaded and compat_sde_loaded,
+        "sde_ready": base_sde_loaded,
         "sde_recommended_commands": [],
     }
 
@@ -2238,36 +2224,9 @@ def _build_sde_readiness_context() -> dict[str, Any]:
                     "The EVE SDE tables are empty or unavailable, so Indy Hub cannot read item and blueprint names yet."
                 ),
                 "sde_blocking_detail": _(
-                    "Run the full setup command once. It loads eve_sde first, then builds the Indy Hub SDE cache."
+                    "Complete the standard eve_sde setup and initial data load, then try again."
                 ),
-                "sde_recommended_commands": [
-                    {
-                        "label": _("Full SDE setup"),
-                        "command": "python manage.py indy_sde --with-esde-load",
-                    }
-                ],
-            }
-        )
-    elif not compat_sde_loaded:
-        context.update(
-            {
-                "sde_missing_dependency": _("Indy Hub SDE cache"),
-                "sde_blocking_message": _(
-                    "The base EVE SDE is already loaded, but Indy Hub has not built its own compact SDE cache yet."
-                ),
-                "sde_blocking_detail": _(
-                    "Run one of the commands below on the Alliance Auth server. Do not roll back eve_sde migrations for this case."
-                ),
-                "sde_recommended_commands": [
-                    {
-                        "label": _("Standard Django command"),
-                        "command": "python manage.py sync_sde_compat",
-                    },
-                    {
-                        "label": _("Alliance Auth / Docker command"),
-                        "command": "auth sync_sde_compat",
-                    },
-                ],
+                "sde_recommended_commands": [],
             }
         )
 
@@ -2686,7 +2645,7 @@ def token_management(request):
         enhanced_corp_scope_status.append(corp_entry)
 
     corp_scope_status = enhanced_corp_scope_status
-    sde_sync_state = SDESyncCompatState.objects.filter(pk=1).first()
+    sde_sync_state = EveSDE.get_solo()
     context = {
         "has_blueprint_tokens": bool(blueprint_char_ids),
         "has_jobs_tokens": bool(jobs_char_ids),
@@ -2727,10 +2686,10 @@ def token_management(request):
             "indy_hub:token_management_live_refresh"
         ),
         "indy_hub_last_sde_sync_at": (
-            sde_sync_state.last_synced_at if sde_sync_state else None
+            sde_sync_state.last_check_date if sde_sync_state else None
         ),
         "indy_hub_last_sde_source_build": (
-            sde_sync_state.last_source_build_number if sde_sync_state else None
+            sde_sync_state.build_number if sde_sync_state else None
         ),
     }
     context.update(

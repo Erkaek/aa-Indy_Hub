@@ -20,13 +20,15 @@ from django.db import connection
 # Alliance Auth
 from allianceauth.services.hooks import get_extension_logger
 
+# Alliance Auth (External Libs)
+from eve_sde.models import EveSDE
+
 from ..models import (
     PROJECT_REF_BASE36_ALPHABET,
     PROJECT_REF_LENGTH,
     Blueprint,
     ProductionProject,
     ProductionProjectItem,
-    SDESyncCompatState,
 )
 from ..utils.eve import (
     get_blueprint_product_type_id,
@@ -81,6 +83,24 @@ LEGACY_SINGLE_BLUEPRINT_PROJECT_NOTE = (
     "Migrated from legacy single-blueprint craft flow."
 )
 
+_SDE_ACTIVITY_NAME_BY_ID = {
+    1: "manufacturing",
+    9: "reaction",
+    11: "reaction",
+}
+_SDE_ACTIVITY_ID_BY_NAME = {
+    "manufacturing": 1,
+    "reaction": 9,
+}
+
+
+def _sde_activity_name(activity_id: int | str | None) -> str:
+    return _SDE_ACTIVITY_NAME_BY_ID.get(int(activity_id or 0), "manufacturing")
+
+
+def _sde_activity_id(activity_name: str | None) -> int:
+    return _SDE_ACTIVITY_ID_BY_NAME.get(str(activity_name or ""), 1)
+
 
 def _get_table_column_names(table_name: str) -> set[str]:
     try:
@@ -121,21 +141,19 @@ def strip_project_workspace_cache(
 
 
 def get_project_workspace_sde_signature() -> dict[str, object]:
-    state = SDESyncCompatState.objects.filter(pk=1).first()
-    if not state:
+    state = EveSDE.get_solo()
+    if not state or not (
+        state.build_number or state.release_date or state.last_check_date
+    ):
         return {}
 
     return {
-        "build_number": state.last_source_build_number,
-        "release_date": (
-            state.last_source_release_date.isoformat()
-            if state.last_source_release_date
-            else ""
+        "build_number": state.build_number,
+        "release_date": (state.release_date.isoformat() if state.release_date else ""),
+        "last_synced_at": "",
+        "updated_at": (
+            state.last_check_date.isoformat() if state.last_check_date else ""
         ),
-        "last_synced_at": (
-            state.last_synced_at.isoformat() if state.last_synced_at else ""
-        ),
-        "updated_at": state.updated_at.isoformat() if state.updated_at else "",
     }
 
 
@@ -422,18 +440,19 @@ def get_project_workspace_scoped_sde_signature(
             cursor.execute(
                 f"""
                 SELECT
-                    p.eve_type_id,
-                    p.activity_id,
-                    p.product_eve_type_id,
+                    activity.blueprint_item_type_id,
+                    activity.activity,
+                    p.item_type_id,
                     p.quantity,
                     {product_type_name_expr},
                     COALESCE(product_t.published, 0),
                     product_t.group_id
-                FROM indy_hub_sdeindustryactivityproduct p
-                JOIN eve_sde_itemtype product_t ON product_t.id = p.product_eve_type_id
-                WHERE p.eve_type_id IN ({placeholders})
-                    AND p.activity_id IN (1, 11)
-                ORDER BY p.eve_type_id, p.activity_id, p.product_eve_type_id
+                FROM eve_sde_blueprintactivityproduct p
+                JOIN eve_sde_blueprintactivity activity ON activity.id = p.blueprint_activity_id
+                JOIN eve_sde_itemtype product_t ON product_t.id = p.item_type_id
+                WHERE activity.blueprint_item_type_id IN ({placeholders})
+                    AND activity.activity IN ('manufacturing', 'reaction')
+                ORDER BY activity.blueprint_item_type_id, activity.activity, p.item_type_id
                 """,
                 chunk,
             )
@@ -442,18 +461,19 @@ def get_project_workspace_scoped_sde_signature(
             cursor.execute(
                 f"""
                 SELECT
-                    m.eve_type_id,
-                    m.activity_id,
-                    m.material_eve_type_id,
+                    activity.blueprint_item_type_id,
+                    activity.activity,
+                    m.item_type_id,
                     m.quantity,
                     {material_type_name_expr},
                     COALESCE(material_t.published, 0),
                     material_t.group_id
-                FROM indy_hub_sdeindustryactivitymaterial m
-                JOIN eve_sde_itemtype material_t ON material_t.id = m.material_eve_type_id
-                WHERE m.eve_type_id IN ({placeholders})
-                    AND m.activity_id IN (1, 11)
-                ORDER BY m.eve_type_id, m.activity_id, m.material_eve_type_id
+                FROM eve_sde_blueprintactivitymaterial m
+                JOIN eve_sde_blueprintactivity activity ON activity.id = m.blueprint_activity_id
+                JOIN eve_sde_itemtype material_t ON material_t.id = m.item_type_id
+                WHERE activity.blueprint_item_type_id IN ({placeholders})
+                    AND activity.activity IN ('manufacturing', 'reaction')
+                ORDER BY activity.blueprint_item_type_id, activity.activity, m.item_type_id
                 """,
                 chunk,
             )
@@ -461,11 +481,11 @@ def get_project_workspace_scoped_sde_signature(
 
             cursor.execute(
                 f"""
-                SELECT eve_type_id, activity_id, time
-                FROM indy_hub_sdeblueprintactivity
-                WHERE eve_type_id IN ({placeholders})
-                    AND activity_id IN (1, 11)
-                ORDER BY eve_type_id, activity_id
+                SELECT blueprint_item_type_id, activity, time
+                FROM eve_sde_blueprintactivity
+                WHERE blueprint_item_type_id IN ({placeholders})
+                    AND activity IN ('manufacturing', 'reaction')
+                ORDER BY blueprint_item_type_id, activity
                 """,
                 chunk,
             )
@@ -474,7 +494,7 @@ def get_project_workspace_scoped_sde_signature(
     signature["products"] = [
         {
             "blueprint_type_id": int(blueprint_type_id),
-            "activity_id": int(activity_id),
+            "activity_id": _sde_activity_id(activity_id),
             "product_type_id": int(product_type_id),
             "quantity": int(quantity or 0),
             "product_name": str(product_name or ""),
@@ -493,13 +513,13 @@ def get_project_workspace_scoped_sde_signature(
             product_group_id,
         ) in sorted(
             product_rows,
-            key=lambda row: (int(row[0]), int(row[1]), int(row[2])),
+            key=lambda row: (int(row[0]), str(row[1]), int(row[2])),
         )
     ]
     signature["materials"] = [
         {
             "blueprint_type_id": int(blueprint_type_id),
-            "activity_id": int(activity_id),
+            "activity_id": _sde_activity_id(activity_id),
             "material_type_id": int(material_type_id),
             "quantity": int(quantity or 0),
             "material_name": str(material_name or ""),
@@ -518,18 +538,18 @@ def get_project_workspace_scoped_sde_signature(
             material_group_id,
         ) in sorted(
             material_rows,
-            key=lambda row: (int(row[0]), int(row[1]), int(row[2])),
+            key=lambda row: (int(row[0]), str(row[1]), int(row[2])),
         )
     ]
     signature["activities"] = [
         {
             "blueprint_type_id": int(blueprint_type_id),
-            "activity_id": int(activity_id),
+            "activity_id": _sde_activity_id(activity_id),
             "time": int(activity_time or 0),
         }
         for blueprint_type_id, activity_id, activity_time in sorted(
             activity_rows,
-            key=lambda row: (int(row[0]), int(row[1])),
+            key=lambda row: (int(row[0]), str(row[1])),
         )
     ]
 
@@ -685,16 +705,17 @@ def _resolve_preferred_blueprint_for_product(product_type_id: int) -> int | None
     with connection.cursor() as cursor:
         cursor.execute(
             """
-            SELECT p.eve_type_id
-            FROM indy_hub_sdeindustryactivityproduct p
-                        JOIN eve_sde_itemtype t ON t.id = p.eve_type_id
-                        JOIN eve_sde_itemtype product_t ON product_t.id = p.product_eve_type_id
-                        WHERE p.product_eve_type_id = %s
-                            AND p.activity_id IN (1, 11)
+            SELECT activity.blueprint_item_type_id
+            FROM eve_sde_blueprintactivityproduct p
+            JOIN eve_sde_blueprintactivity activity ON activity.id = p.blueprint_activity_id
+                        JOIN eve_sde_itemtype t ON t.id = activity.blueprint_item_type_id
+                        JOIN eve_sde_itemtype product_t ON product_t.id = p.item_type_id
+                        WHERE p.item_type_id = %s
+                            AND activity.activity IN ('manufacturing', 'reaction')
                             AND COALESCE(t.published, 0) = 1
                             AND COALESCE(product_t.published, 0) = 1
-                        ORDER BY CASE p.activity_id WHEN 1 THEN 0 WHEN 11 THEN 1 ELSE 99 END,
-                        p.eve_type_id ASC
+                        ORDER BY CASE activity.activity WHEN 'manufacturing' THEN 0 WHEN 'reaction' THEN 1 ELSE 99 END,
+                        activity.blueprint_item_type_id ASC
             LIMIT 1
             """,
             [numeric_product_type_id],
@@ -1169,14 +1190,15 @@ def _get_blueprint_output_quantity(blueprint_type_id: int) -> int:
         cursor.execute(
             """
             SELECT p.quantity
-            FROM indy_hub_sdeindustryactivityproduct p
-            JOIN eve_sde_itemtype blueprint_t ON blueprint_t.id = p.eve_type_id
-            JOIN eve_sde_itemtype product_t ON product_t.id = p.product_eve_type_id
-            WHERE p.eve_type_id = %s
-                        AND p.activity_id IN (1, 11)
+            FROM eve_sde_blueprintactivityproduct p
+            JOIN eve_sde_blueprintactivity activity ON activity.id = p.blueprint_activity_id
+            JOIN eve_sde_itemtype blueprint_t ON blueprint_t.id = activity.blueprint_item_type_id
+            JOIN eve_sde_itemtype product_t ON product_t.id = p.item_type_id
+            WHERE activity.blueprint_item_type_id = %s
+                        AND activity.activity IN ('manufacturing', 'reaction')
                         AND COALESCE(blueprint_t.published, 0) = 1
                         AND COALESCE(product_t.published, 0) = 1
-            ORDER BY CASE activity_id WHEN 1 THEN 0 WHEN 11 THEN 1 ELSE 99 END
+            ORDER BY CASE activity.activity WHEN 'manufacturing' THEN 0 WHEN 'reaction' THEN 1 ELSE 99 END
             LIMIT 1
             """,
             [int(blueprint_type_id)],
@@ -1549,21 +1571,22 @@ def build_project_workspace_payload(
             cursor.execute(
                 f"""
                 SELECT
-                    p.product_eve_type_id,
+                    p.item_type_id,
                     {item_type_name_expr},
                     p.quantity,
-                    p.activity_id,
+                    activity.activity,
                     COALESCE(g.name, ''),
                     g.id
-                FROM indy_hub_sdeindustryactivityproduct p
-                                JOIN eve_sde_itemtype t ON t.id = p.product_eve_type_id
-                                JOIN eve_sde_itemtype blueprint_t ON blueprint_t.id = p.eve_type_id
+                FROM eve_sde_blueprintactivityproduct p
+                JOIN eve_sde_blueprintactivity activity ON activity.id = p.blueprint_activity_id
+                                JOIN eve_sde_itemtype t ON t.id = p.item_type_id
+                                JOIN eve_sde_itemtype blueprint_t ON blueprint_t.id = activity.blueprint_item_type_id
                 LEFT JOIN eve_sde_itemgroup g ON t.group_id = g.id
-                                WHERE p.eve_type_id = %s
-                                    AND p.activity_id IN (1, 11)
+                                WHERE activity.blueprint_item_type_id = %s
+                                    AND activity.activity IN ('manufacturing', 'reaction')
                                     AND COALESCE(t.published, 0) = 1
                                     AND COALESCE(blueprint_t.published, 0) = 1
-                ORDER BY CASE p.activity_id WHEN 1 THEN 0 WHEN 11 THEN 1 ELSE 99 END
+                ORDER BY CASE activity.activity WHEN 'manufacturing' THEN 0 WHEN 'reaction' THEN 1 ELSE 99 END
                 LIMIT 1
                 """,
                 [numeric_blueprint_type_id],
@@ -1575,7 +1598,7 @@ def build_project_workspace_payload(
                 "product_type_id": int(row[0]),
                 "product_type_name": str(row[1] or ""),
                 "produced_per_cycle": int(row[2] or 1),
-                "activity_id": int(row[3] or 1),
+                "activity_id": _sde_activity_id(row[3]),
                 "group_name": str(row[4] or ""),
                 "group_id": int(row[5]) if row[5] is not None else None,
             }
@@ -1630,11 +1653,12 @@ def build_project_workspace_payload(
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT m.material_eve_type_id, m.quantity
-                FROM indy_hub_sdeindustryactivitymaterial m
-                JOIN eve_sde_itemtype t ON t.id = m.material_eve_type_id
-                WHERE m.eve_type_id = %s
-                                AND m.activity_id IN (1, 11)
+                SELECT m.item_type_id, m.quantity
+                FROM eve_sde_blueprintactivitymaterial m
+                JOIN eve_sde_blueprintactivity activity ON activity.id = m.blueprint_activity_id
+                JOIN eve_sde_itemtype t ON t.id = m.item_type_id
+                WHERE activity.blueprint_item_type_id = %s
+                                AND activity.activity IN ('manufacturing', 'reaction')
                                 AND COALESCE(t.published, 0) = 1
                 """,
                 [int(blueprint_type_id)],
@@ -1675,11 +1699,12 @@ def build_project_workspace_payload(
         with connection.cursor() as cursor:
             cursor.execute(
                 f"""
-                SELECT m.material_eve_type_id, {item_type_name_expr}, m.quantity
-                FROM indy_hub_sdeindustryactivitymaterial m
-                JOIN eve_sde_itemtype t ON t.id = m.material_eve_type_id
-                                WHERE m.eve_type_id = %s
-                                    AND m.activity_id IN (1, 11)
+                SELECT m.item_type_id, {item_type_name_expr}, m.quantity
+                FROM eve_sde_blueprintactivitymaterial m
+                JOIN eve_sde_blueprintactivity activity ON activity.id = m.blueprint_activity_id
+                JOIN eve_sde_itemtype t ON t.id = m.item_type_id
+                                WHERE activity.blueprint_item_type_id = %s
+                                    AND activity.activity IN ('manufacturing', 'reaction')
                                     AND COALESCE(t.published, 0) = 1
                 """,
                 [numeric_blueprint_type_id],
@@ -2390,24 +2415,25 @@ def _resolve_blueprints_for_products(type_ids: Iterable[int]) -> dict[int, int]:
 
     placeholders = ", ".join(["%s"] * len(type_id_list))
     query = f"""
-        SELECT p.product_eve_type_id, p.eve_type_id, p.activity_id
-        FROM indy_hub_sdeindustryactivityproduct p
-        JOIN eve_sde_itemtype blueprint_t ON blueprint_t.id = p.eve_type_id
-        JOIN eve_sde_itemtype product_t ON product_t.id = p.product_eve_type_id
-        WHERE p.activity_id IN (1, 11)
-                AND p.product_eve_type_id IN ({placeholders})
+        SELECT p.item_type_id, activity.blueprint_item_type_id, activity.activity
+        FROM eve_sde_blueprintactivityproduct p
+        JOIN eve_sde_blueprintactivity activity ON activity.id = p.blueprint_activity_id
+        JOIN eve_sde_itemtype blueprint_t ON blueprint_t.id = activity.blueprint_item_type_id
+        JOIN eve_sde_itemtype product_t ON product_t.id = p.item_type_id
+        WHERE activity.activity IN ('manufacturing', 'reaction')
+                AND p.item_type_id IN ({placeholders})
                 AND COALESCE(blueprint_t.published, 0) = 1
                 AND COALESCE(product_t.published, 0) = 1
         ORDER BY
-            p.product_eve_type_id,
-            CASE p.activity_id WHEN 1 THEN 0 WHEN 11 THEN 1 ELSE 99 END,
-            p.eve_type_id
+            p.item_type_id,
+            CASE activity.activity WHEN 'manufacturing' THEN 0 WHEN 'reaction' THEN 1 ELSE 99 END,
+            activity.blueprint_item_type_id
     """
 
     blueprint_map: dict[int, int] = {}
     with connection.cursor() as cursor:
         cursor.execute(query, type_id_list)
-        for product_type_id, blueprint_type_id, _activity_id in cursor.fetchall():
+        for product_type_id, blueprint_type_id, _activity_name in cursor.fetchall():
             if product_type_id is None or blueprint_type_id is None:
                 continue
             numeric_product_type_id = int(product_type_id)

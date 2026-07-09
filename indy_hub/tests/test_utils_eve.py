@@ -33,42 +33,39 @@ class EvePublishedDataTests(TestCase):
         )
         self.assertEqual(result, {34: "Tritanium", 35: "35"})
 
-    @patch("indy_hub.utils.eve._resolve_industry_activity_product_model")
+    @patch("indy_hub.utils.eve.connection.cursor")
     def test_get_blueprint_product_type_id_requires_published_blueprint_and_product(
-        self, mock_resolve
+        self, mock_cursor
     ) -> None:
-        mock_activity_product = MagicMock()
-        mock_resolve.return_value = mock_activity_product
-        product_row = SimpleNamespace(product_eve_type_id=16672)
-        queryset = MagicMock()
-        queryset.exists.return_value = True
-        queryset.filter.return_value.first.return_value = product_row
-        queryset.first.return_value = product_row
-        mock_activity_product.objects.filter.return_value = queryset
+        cursor = MagicMock()
+        cursor.__enter__.return_value = cursor
+        cursor.fetchone.return_value = (16672,)
+        mock_cursor.return_value = cursor
 
         resolved = eve.get_blueprint_product_type_id(46207)
 
-        mock_activity_product.objects.filter.assert_called_once_with(
-            eve_type_id=46207,
-            eve_type__published=True,
-            product_eve_type__published=True,
-        )
+        sql, params = cursor.execute.call_args[0]
+        self.assertIn("eve_sde_blueprintactivityproduct", sql)
+        self.assertIn("COALESCE(blueprint_t.published, 0) = 1", sql)
+        self.assertIn("COALESCE(product_t.published, 0) = 1", sql)
+        self.assertEqual(params, [46207])
         self.assertEqual(resolved, 16672)
 
-    @patch("indy_hub.utils.eve._resolve_industry_activity_product_model")
+    @patch("indy_hub.utils.eve.connection.cursor")
     def test_is_reaction_blueprint_requires_published_blueprint_and_product(
-        self, mock_resolve
+        self, mock_cursor
     ) -> None:
-        mock_activity_product = MagicMock()
-        mock_resolve.return_value = mock_activity_product
-        mock_activity_product.objects.filter.return_value.exists.return_value = True
+        cursor = MagicMock()
+        cursor.__enter__.return_value = cursor
+        cursor.fetchone.return_value = (1,)
+        mock_cursor.return_value = cursor
 
         value = eve.is_reaction_blueprint(46207)
 
-        mock_activity_product.objects.filter.assert_called_once_with(
-            eve_type_id=46207,
-            activity_id__in=[9, 11],
-            eve_type__published=True,
-            product_eve_type__published=True,
-        )
+        sql, params = cursor.execute.call_args[0]
+        self.assertIn("eve_sde_blueprintactivityproduct", sql)
+        self.assertIn("ba.activity = 'reaction'", sql)
+        self.assertIn("COALESCE(blueprint_t.published, 0) = 1", sql)
+        self.assertIn("COALESCE(product_t.published, 0) = 1", sql)
+        self.assertEqual(params, [46207])
         self.assertTrue(value)

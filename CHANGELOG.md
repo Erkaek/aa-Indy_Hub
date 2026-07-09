@@ -9,12 +9,28 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 ## [Unreleased]
 
+## [1.18.0] - 2026-06-06
+
+### Changed
+
+- Crafting Projects / Buy: added custom fixed adjustment lines directly in the financial planner table (between Outputs and Totals). Users can add/remove any number of rows with `Name`, `Type` (Expense/Revenue), `Qty`, and `Unit Price`, with live line totals and immediate impact on project totals.
+- Crafting Projects / Buy: fixed-adjustment rows are now persisted in the workspace session state and restored on reload, matching other Buy-tab manual overrides.
+- Crafting Projects / Shopping list: improved in-client export/copy workflows for EVE-style shopping output, including clearer compute-before-copy behavior and stronger copy feedback in the Shopping header.
+
 ### Fixed
 
+- Crafting Projects / Structure planner: fixed false `No compatible structures are currently available for this craft plan` states caused by filtering planner rows with blueprint type ids instead of produced item type ids. Planner lookup now uses produced item ids so valid structures (including Sotiyo/supercapital-capable setups) are correctly surfaced.
+
+- Crafting Projects / Structure planner: supercapital structure compatibility no longer depends on supercapital tax fields being populated; support checks now rely on explicit structure capability flags.
+
 - Blueprint sharing: the "Request a copy" page no longer issues per-card eligibility and SDE-limit queries while building each card preview. Eligibility lookups for the entire page and the native `max_production_limit` are now resolved with a constant number of queries, eliminating the N+1 pattern that could push the page beyond proxy/gateway timeouts on Alliance Auth v5 instances with thousands of shared blueprints. (GH-101)
+
 - Character skill context loading no longer performs one `EveCharacter` lookup per linked character when building dashboard/industry skill rows. Character names are now read from the already joined ownership records (with fallback only when missing), keeping query counts bounded for users with large linked-character sets. (GH-110)
+
 - Crafting Projects / Workspace: quantity-oriented numeric inputs (runs, buy-tolerance override, stock allocation, and financial buy/sell override fields) now reserve enough width to display large industrial values without inner clipping, while keeping right-aligned numeric readability on desktop and mobile. (GH-105)
-- SDE refresh commands: manual SDE refresh paths (`sync_sde_compat` and `indy_sde`) now reuse the same retry-on-`EOFError` download/extract behavior as the Celery compatibility sync task, reducing transient ZIP truncation failures during operator-triggered refreshes. (GH-109)
+
+- SDE loading now uses the base `eve_sde` data directly. Indy Hub no longer maintains a parallel compatibility cache or `sync_sde_compat`/`indy_sde_compat` refresh flow, and operator guidance now relies on the standard `eve_sde` setup process. (GH-109)
+
 - Material Exchange / Buy validation: a finished contract that was already linked to a previous buy order is no longer eligible to auto-validate a new identical buy order, preventing false "wrong contract reference" anomaly overrides when users repeat the same request pattern. (GH-119)
 
 ## [1.17.2] - 2026-06-01
@@ -91,7 +107,7 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 - Tests: fresh tox runs against Alliance Auth latest no longer fail during Django setup when the legacy `bootstrapform` package is absent from the AA5 dependency set.
 
-- Indy Hub: the unavailable page shown while SDE data is missing now distinguishes an empty base `eve_sde` load from missing Indy Hub compatibility data, and recommends the matching command (`indy_sde --with-esde-load` or `sync_sde_compat`) instead of a generic administrator notice (issue #90).
+- Indy Hub: the unavailable page shown while SDE data is missing now distinguishes an empty base `eve_sde` load from missing Indy Hub compatibility data, and recommends the matching operator action instead of a generic administrator notice (issue #90).
 
 - Crafting Projects: saved craft project snapshots now track the SDE rows used by that project, so unrelated global SDE refreshes no longer show a stale-data warning. When a relevant blueprint/material/product/activity row changes, the warning now offers a “Refresh from current SDE” action before saving the refreshed snapshot (issue #87).
 
