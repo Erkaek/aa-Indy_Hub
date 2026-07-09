@@ -93,6 +93,7 @@ class ContractValidationTestCase(TestCase):
         self.assertIsNone(_extract_contract_id(""))
         self.assertIsNone(_extract_contract_id(None))
 
+
 class ContractValidationTaskTest(TestCase):
     """Tests for Celery task execution"""
 

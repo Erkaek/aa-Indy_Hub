@@ -236,7 +236,9 @@ class MaterialExchangeBulkActionsUiTests(TestCase):
         self.assertContains(response, 'data-action="clear-visible"')
         self.assertContains(response, 'data-action="max-visible"')
 
-    def test_get_buy_reserved_quantities_returns_empty_for_explicit_empty_type_ids(self) -> None:
+    def test_get_buy_reserved_quantities_returns_empty_for_explicit_empty_type_ids(
+        self,
+    ) -> None:
         reserved_order = MaterialExchangeBuyOrder.objects.create(
             config=self.config,
             buyer=self.user,
