@@ -9,6 +9,22 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 ## [Unreleased]
 
+### Changed
+
+- Crafting Projects / Structure planner: improved capital ship classification and structure matching so command carriers and super-carriers are detected reliably from SDE ship outputs, with the planner falling back more gracefully when lookups fail.
+
+- Crafting Projects / Craft payload API: blueprint product lookup now resolves against the correct product type for workspace payloads, preventing mismatches when the project blueprint context is rebuilt.
+
+- Material Exchange: stock tables now show available quantity as the primary value, keep total visible, and only surface the secondary quantity when non-zero. The sell view now labels the secondary quantity as `Other Character` when it reflects stock on a different character, while buy flows continue to use reservation-aware availability.
+
+- Material Exchange: buy-order validation now treats explicit empty type-id filters as an empty result immediately, avoiding unnecessary database work when no stock items remain after filtering.
+
+- SDE integration: Indy Hub now relies on the base `eve_sde` data path only, removing the legacy compatibility sync flow and related maintenance commands.
+
+- SDE / bootstrap: the SDE compatibility and startup paths were simplified to reduce duplicate state and align the app with the standard Alliance Auth installation flow.
+
+- Tests and maintenance: cleaned up brittle or redundant regression coverage, removed a dead placeholder test, and tightened the Material Exchange, craft timing, industry jobs, and structure lookup tests around the actual runtime behavior.
+
 ## [1.18.0] - 2026-06-06
 
 ### Changed

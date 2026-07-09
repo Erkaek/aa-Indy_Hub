@@ -75,6 +75,13 @@ _BUY_ORDER_RESERVING_STATUSES = (
     MaterialExchangeBuyOrder.Status.AWAITING_VALIDATION,
     MaterialExchangeBuyOrder.Status.VALIDATED,
 )
+_SELL_ORDER_RESERVING_STATUSES = (
+    MaterialExchangeSellOrder.Status.DRAFT,
+    MaterialExchangeSellOrder.Status.AWAITING_VALIDATION,
+    MaterialExchangeSellOrder.Status.ANOMALY,
+    MaterialExchangeSellOrder.Status.ANOMALY_REJECTED,
+    MaterialExchangeSellOrder.Status.VALIDATED,
+)
 
 
 def _resolve_main_character_name(user) -> str:
@@ -385,6 +392,34 @@ def _get_buy_reserved_quantities(
     reserved_items = MaterialExchangeBuyOrderItem.objects.filter(
         order__config=config,
         order__status__in=_BUY_ORDER_RESERVING_STATUSES,
+    )
+    if exclude_order_id is not None:
+        reserved_items = reserved_items.exclude(order_id=exclude_order_id)
+    if type_ids is not None:
+        reserved_items = reserved_items.filter(type_id__in=type_ids)
+
+    rows = reserved_items.values("type_id").annotate(
+        reserved_quantity=Coalesce(Sum("quantity"), 0)
+    )
+    return {int(row["type_id"]): int(row["reserved_quantity"] or 0) for row in rows}
+
+
+def _get_sell_reserved_quantities(
+    config: MaterialExchangeConfig,
+    *,
+    character_id: int | None,
+    type_ids: set[int] | None = None,
+    exclude_order_id: int | None = None,
+) -> dict[int, int]:
+    if character_id is None:
+        return {}
+    if type_ids is not None and not type_ids:
+        return {}
+
+    reserved_items = MaterialExchangeSellOrderItem.objects.filter(
+        order__config=config,
+        order__character_id=character_id,
+        order__status__in=_SELL_ORDER_RESERVING_STATUSES,
     )
     if exclude_order_id is not None:
         reserved_items = reserved_items.exclude(order_id=exclude_order_id)
@@ -1665,10 +1700,16 @@ def material_exchange_sell(request, tokens):
         if items_to_create:
             # Get order reference from client (generated in JavaScript)
             client_order_ref = request.POST.get("order_reference", "").strip()
+            character_id_raw = request.POST.get("character_id", "").strip()
+            try:
+                order_character_id = int(character_id_raw) if character_id_raw else None
+            except (TypeError, ValueError):
+                order_character_id = None
 
             order = MaterialExchangeSellOrder.objects.create(
                 config=config,
                 seller=request.user,
+                character_id=order_character_id,
                 status=MaterialExchangeSellOrder.Status.DRAFT,
                 order_reference=client_order_ref if client_order_ref else None,
             )
@@ -1933,12 +1974,19 @@ def material_exchange_sell(request, tokens):
             None,
         )
 
+        reserved_quantities = _get_sell_reserved_quantities(
+            config,
+            character_id=selected_character_id,
+            type_ids={int(type_id) for type_id in assets_for_display.keys()},
+        )
+
         for type_id, user_qty in assets_for_display.items():
             accepted_item = accepted_catalog_by_type.get(int(type_id))
             if not accepted_item:
                 continue
             total_qty = int(raw_user_assets_aggregated.get(int(type_id), 0) or 0)
-            reserved_qty = max(total_qty - int(user_qty or 0), 0)
+            reserved_qty = int(reserved_quantities.get(int(type_id), 0) or 0)
+            available_qty = max(int(user_qty or 0) - reserved_qty, 0)
             materials_with_qty.append(
                 {
                     "type_id": int(type_id),
@@ -1952,7 +2000,8 @@ def material_exchange_sell(request, tokens):
                     "buy_price_from_member": accepted_item["buy_price_from_member"],
                     "user_quantity": user_qty,
                     "total_quantity": total_qty or user_qty,
-                    "other_character_quantity": reserved_qty,
+                    "reserved_quantity": reserved_qty,
+                    "available_quantity": available_qty,
                 }
             )
 

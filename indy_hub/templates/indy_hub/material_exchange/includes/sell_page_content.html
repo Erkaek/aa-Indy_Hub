@@ -154,6 +154,7 @@
                     <form method="post" id="sellForm">
                         {% csrf_token %}
                         <input type="hidden" name="sell_input_mode" id="sellInputModeField" value="manual">
+                        <input type="hidden" name="character_id" value="{{ active_character_tab|default:'' }}">
                         <input type="hidden" name="paste_quantities_json" id="sellPasteQuantitiesJson" value="">
 
                         <div class="me-sell-mode-switch mb-4" role="radiogroup" aria-label="{% trans 'Sell order input mode' %}">
@@ -332,9 +333,9 @@
                                             </td>
                                             <td class="text-end">
                                                 <div class="d-flex flex-column align-items-end gap-1">
-                                                    <span class="badge bg-success">{{ item.user_quantity|intcomma }}</span>
-                                                    {% if item.other_character_quantity|default:0 > 0 %}
-                                                    <small class="text-danger text-end d-block">{% trans "Other Character" %} {{ item.other_character_quantity|default:0|intcomma }}</small>
+                                                    <span class="badge bg-success">{{ item.available_quantity|default:item.user_quantity|intcomma }}</span>
+                                                    {% if item.reserved_quantity|default:0 > 0 %}
+                                                    <small class="text-danger text-end d-block">{% trans "Reserved" %} {{ item.reserved_quantity|default:0|intcomma }}</small>
                                                     {% endif %}
                                                     <small class="text-muted text-end d-block">{% trans "Total" %} {{ item.total_quantity|default:item.user_quantity|intcomma }}</small>
                                                 </div>
@@ -351,10 +352,10 @@
                                                             id="qty-{{ item.type_id }}"
                                                             class="form-control qty-input"
                                                             min="0"
-                                                            max="{{ item.user_quantity }}"
+                                                            max="{{ item.available_quantity|default:item.user_quantity }}"
                                                             value="0"
                                                             data-type-id="{{ item.type_id }}"
-                                                            data-max="{{ item.user_quantity }}">
+                                                                data-max="{{ item.available_quantity|default:item.user_quantity }}">
                                                         <div class="qty-btns" role="group" aria-label="{% trans 'Quantity shortcuts' %}">
                                                             <button type="button" class="btn btn-secondary btn-sm qty-btn" data-action="zero" title="{% trans 'Zero' %}" aria-label="{% trans 'Zero' %}">
                                                                 <i class="fas fa-ban" aria-hidden="true"></i>

@@ -22,6 +22,8 @@ from indy_hub.models import (
     MaterialExchangeBuyOrder,
     MaterialExchangeBuyOrderItem,
     MaterialExchangeConfig,
+    MaterialExchangeSellOrder,
+    MaterialExchangeSellOrderItem,
     MaterialExchangeStock,
 )
 from indy_hub.views.material_exchange import (
@@ -120,7 +122,7 @@ class MaterialExchangeBulkActionsUiTests(TestCase):
             ),
             patch(
                 "indy_hub.views.material_exchange._fetch_user_assets_for_structure_data",
-                return_value=({34: 15}, {self.character.character_id: {34: 10}}, False),
+                return_value=({34: 5}, {self.character.character_id: {34: 5}}, False),
             ),
             patch(
                 "indy_hub.views.material_exchange._get_allowed_type_ids_for_config",
@@ -163,8 +165,99 @@ class MaterialExchangeBulkActionsUiTests(TestCase):
         self.assertContains(response, 'id="sellBulkMaxVisible"')
         self.assertContains(response, 'data-action="clear-visible"')
         self.assertContains(response, 'data-action="max-visible"')
-        self.assertContains(response, "Other Character")
         self.assertContains(response, "Total")
+
+    def test_sell_page_shows_reserved_quantity_for_active_character(self) -> None:
+        MaterialExchangeStock.objects.create(
+            config=self.config,
+            type_id=34,
+            type_name="Tritanium",
+            quantity=15,
+            jita_buy_price=Decimal("5.00"),
+            jita_sell_price=Decimal("6.00"),
+            last_stock_sync=timezone.now(),
+            last_price_update=timezone.now(),
+        )
+        MaterialExchangeSellOrder.objects.create(
+            config=self.config,
+            seller=self.user,
+            character_id=self.character.character_id,
+            status=MaterialExchangeSellOrder.Status.DRAFT,
+            order_reference="INDY-RESERVE-0001",
+        )
+        sell_order = MaterialExchangeSellOrder.objects.get(
+            order_reference="INDY-RESERVE-0001"
+        )
+        MaterialExchangeSellOrderItem.objects.create(
+            order=sell_order,
+            type_id=34,
+            type_name="Tritanium",
+            quantity=5,
+            unit_price=Decimal("5.25"),
+            total_price=Decimal("26.25"),
+        )
+
+        request = self._prepare_request(
+            self.factory.get(reverse("indy_hub:material_exchange_sell"))
+        )
+
+        with (
+            patch("indy_hub.views.material_exchange.emit_view_analytics_event"),
+            patch(
+                "indy_hub.views.material_exchange._is_material_exchange_enabled",
+                return_value=True,
+            ),
+            patch(
+                "indy_hub.views.material_exchange._get_material_exchange_config",
+                return_value=self.config,
+            ),
+            patch(
+                "indy_hub.views.material_exchange._ensure_sell_assets_refresh_started",
+                return_value={"running": False, "finished": True, "error": None},
+            ),
+            patch(
+                "indy_hub.views.material_exchange._fetch_user_assets_for_structure_data",
+                return_value=({34: 5}, {self.character.character_id: {34: 5}}, False),
+            ),
+            patch(
+                "indy_hub.views.material_exchange._get_allowed_type_ids_for_config",
+                return_value={34},
+            ),
+            patch(
+                "indy_hub.views.material_exchange._fetch_fuzzwork_prices",
+                return_value={34: {"buy": Decimal("5.00"), "sell": Decimal("6.00")}},
+            ),
+            patch(
+                "indy_hub.views.material_exchange.get_type_name",
+                return_value="Tritanium",
+            ),
+            patch(
+                "indy_hub.views.material_exchange._get_group_map",
+                return_value={34: "Minerals"},
+            ),
+            patch(
+                "indy_hub.views.material_exchange._resolve_user_character_names_map",
+                return_value={
+                    self.character.character_id: self.character.character_name
+                },
+            ),
+            patch("indy_hub.views.material_exchange.batch_cache_type_names"),
+            patch(
+                "indy_hub.views.material_exchange._get_corp_name_for_hub",
+                return_value="Test Corp",
+            ),
+            patch(
+                "indy_hub.views.material_exchange._build_nav_context", return_value={}
+            ),
+            patch(
+                "indy_hub.views.material_exchange.build_nav_context", return_value={}
+            ),
+        ):
+            response = self.sell_view(request, tokens=[])
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Reserved 5")
+        self.assertContains(response, 'max="5"')
 
     def test_buy_page_renders_visible_bulk_buttons(self) -> None:
         MaterialExchangeStock.objects.create(
