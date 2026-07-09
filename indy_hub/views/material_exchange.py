@@ -38,7 +38,6 @@ from ..models import (
     MaterialExchangeSellOrderItem,
     MaterialExchangeSettings,
     MaterialExchangeStock,
-    SDEMarketGroup,
 )
 from ..services.asset_cache import get_corp_divisions_cached, get_user_assets_cached
 from ..services.material_exchange_assets import (
@@ -416,11 +415,44 @@ def _get_market_group_children_map() -> dict[int | None, set[int]]:
             pass
 
     try:
+        table_name = "eve_sde_marketgroup"
+        table_names = set(connection.introspection.table_names())
+        if table_name not in table_names:
+            return {}
+
+        with connection.cursor() as cursor:
+            table_description = connection.introspection.get_table_description(
+                cursor,
+                table_name,
+            )
+        available_columns = {column.name for column in table_description}
+        parent_column = next(
+            (
+                column_name
+                for column_name in (
+                    "parent_group_id",
+                    "parent_market_group_id",
+                    "parent_group_id_raw",
+                    "parent_market_group_id_raw",
+                )
+                if column_name in available_columns
+            ),
+            None,
+        )
+        if parent_column is None or "id" not in available_columns:
+            return {}
+
+        with connection.cursor() as cursor:
+            cursor.execute(f"SELECT id, {parent_column} FROM {table_name}")
+            rows = cursor.fetchall()
+
         children_map: dict[int | None, set[int]] = {}
-        for group_id, parent_id in SDEMarketGroup.objects.values_list(
-            "id", "parent_market_group_id"
-        ):
-            children_map.setdefault(parent_id, set()).add(group_id)
+        for group_id, parent_id in rows:
+            normalized_group_id = int(group_id)
+            normalized_parent_id = int(parent_id) if parent_id is not None else None
+            children_map.setdefault(normalized_parent_id, set()).add(
+                normalized_group_id
+            )
     except Exception as exc:
         logger.warning("Failed to load market group tree: %s", exc)
         return {}

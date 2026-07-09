@@ -18,17 +18,15 @@ from django.test import RequestFactory, TestCase, TransactionTestCase
 from django.urls import reverse
 from django.utils import timezone
 
+# Alliance Auth (External Libs)
+from eve_sde.models import EveSDE
+
 # AA Example App
 from indy_hub.models import (
     CachedCharacterAsset,
     IndustryJob,
     ProductionProject,
     ProductionProjectItem,
-    SDEBlueprintActivity,
-    SDEBlueprintActivityMaterial,
-    SDEBlueprintActivityProduct,
-    SDEIndustryActivity,
-    SDESyncCompatState,
 )
 from indy_hub.services.production_projects import (
     LEGACY_SINGLE_BLUEPRINT_PROJECT_NOTE,
@@ -146,33 +144,90 @@ class LegacySimulationUnificationTests(TestCase):
                 id=type_id,
                 defaults={"name": type_name, "published": True},
             )
-        SDEIndustryActivity.objects.update_or_create(
-            id=1,
-            defaults={"name": "Manufacturing"},
-        )
-        SDEBlueprintActivity.objects.update_or_create(
-            eve_type_id=950,
-            activity_id=1,
-            defaults={"time": 120},
-        )
-        SDEBlueprintActivityProduct.objects.update_or_create(
-            eve_type_id=950,
-            activity_id=1,
-            product_eve_type_id=603,
-            defaults={"quantity": 1},
-        )
-        SDEBlueprintActivityMaterial.objects.update_or_create(
-            eve_type_id=950,
-            activity_id=1,
-            material_eve_type_id=34,
-            defaults={"quantity": material_quantity},
-        )
-        SDESyncCompatState.objects.update_or_create(
-            pk=1,
-            defaults={
-                "last_source_build_number": material_quantity,
-                "last_synced_at": timezone.now(),
-            },
+        blueprint_activity_id = "950:manufacturing"
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT id
+                FROM eve_sde_blueprintactivity
+                WHERE blueprint_item_type_id = %s
+                AND activity = %s
+                LIMIT 1
+                """,
+                [950, "manufacturing"],
+            )
+            row = cursor.fetchone()
+            if row:
+                cursor.execute(
+                    """
+                    UPDATE eve_sde_blueprintactivity
+                    SET time = %s
+                    WHERE id = %s
+                    """,
+                    [120, blueprint_activity_id],
+                )
+            else:
+                cursor.execute(
+                    """
+                    INSERT INTO eve_sde_blueprintactivity
+                    (id, blueprint_item_type_id, activity, time)
+                    VALUES (%s, %s, %s, %s)
+                    """,
+                    [blueprint_activity_id, 950, "manufacturing", 120],
+                )
+                cursor.execute(
+                    """
+                    SELECT id
+                    FROM eve_sde_blueprintactivity
+                    WHERE blueprint_item_type_id = %s
+                    AND activity = %s
+                    LIMIT 1
+                    """,
+                    [950, "manufacturing"],
+                )
+                created_row = cursor.fetchone()
+                blueprint_activity_id = (
+                    str(created_row[0]) if created_row else blueprint_activity_id
+                )
+
+            cursor.execute(
+                """
+                DELETE FROM eve_sde_blueprintactivityproduct
+                WHERE blueprint_activity_id = %s
+                AND item_type_id = %s
+                """,
+                [blueprint_activity_id, 603],
+            )
+            cursor.execute(
+                """
+                INSERT INTO eve_sde_blueprintactivityproduct
+                (blueprint_activity_id, item_type_id, quantity)
+                VALUES (%s, %s, %s)
+                """,
+                [blueprint_activity_id, 603, 1],
+            )
+            cursor.execute(
+                """
+                DELETE FROM eve_sde_blueprintactivitymaterial
+                WHERE blueprint_activity_id = %s
+                AND item_type_id = %s
+                """,
+                [blueprint_activity_id, 34],
+            )
+            cursor.execute(
+                """
+                INSERT INTO eve_sde_blueprintactivitymaterial
+                (blueprint_activity_id, item_type_id, quantity)
+                VALUES (%s, %s, %s)
+                """,
+                [blueprint_activity_id, 34, material_quantity],
+            )
+
+        sde_state = EveSDE.get_solo()
+        sde_state.build_number = int(material_quantity)
+        sde_state.release_date = timezone.now()
+        sde_state.save(
+            update_fields=["build_number", "release_date", "last_check_date"]
         )
 
     def _create_cached_merlin_project(self) -> ProductionProject:

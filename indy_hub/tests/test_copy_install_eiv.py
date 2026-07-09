@@ -12,7 +12,7 @@ charges).
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest import TestCase
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 # AA Example App
 from indy_hub.views.industry import _build_copy_estimated_item_values
@@ -22,23 +22,29 @@ def _make_request(type_id: int, runs_requested: int = 1):
     return SimpleNamespace(type_id=type_id, runs_requested=runs_requested)
 
 
-class _FilterStub:
-    """Mimic enough of QuerySet.filter().values() / .order_by() for tests."""
+class _CursorStub:
+    def __init__(self, product_rows, material_rows):
+        self._product_rows = list(product_rows)
+        self._material_rows = list(material_rows)
+        self._rows = []
 
-    def __init__(self, rows):
-        self._rows = list(rows)
-
-    def filter(self, **_kwargs):
+    def __enter__(self):
         return self
 
-    def values(self, *_fields):
-        return list(self._rows)
+    def __exit__(self, exc_type, exc, tb):
+        return False
 
-    def order_by(self, *_fields):
-        return list(self._rows)
+    def execute(self, sql, _params=None):
+        normalized = " ".join(str(sql).split()).lower()
+        if "from eve_sde_blueprintactivityproduct" in normalized:
+            self._rows = list(self._product_rows)
+        elif "from eve_sde_blueprintactivitymaterial" in normalized:
+            self._rows = list(self._material_rows)
+        else:
+            self._rows = []
 
-    def __iter__(self):
-        return iter(self._rows)
+    def fetchall(self):
+        return list(self._rows)
 
 
 class CopyEstimatedItemValueFromMaterialsTests(TestCase):
@@ -50,23 +56,10 @@ class CopyEstimatedItemValueFromMaterialsTests(TestCase):
         self.product_type_id = 222
         # Two materials at adjusted_price; Σ qty * price = 14_507 / run.
         self.materials = [
-            {
-                "eve_type_id": self.blueprint_type_id,
-                "material_eve_type_id": 34,  # Tritanium
-                "quantity": 1000,
-            },
-            {
-                "eve_type_id": self.blueprint_type_id,
-                "material_eve_type_id": 36,  # Pyerite
-                "quantity": 200,
-            },
+            (self.blueprint_type_id, 34, 1000),  # Tritanium
+            (self.blueprint_type_id, 36, 200),  # Pyerite
         ]
-        self.products = [
-            SimpleNamespace(
-                eve_type_id=self.blueprint_type_id,
-                product_eve_type_id=self.product_type_id,
-            )
-        ]
+        self.products = [(self.blueprint_type_id, self.product_type_id)]
         self.adjusted_prices = {
             34: {"adjusted_price": Decimal("10"), "average_price": Decimal("11")},
             36: {"adjusted_price": Decimal("22.535"), "average_price": Decimal("22")},
@@ -76,14 +69,11 @@ class CopyEstimatedItemValueFromMaterialsTests(TestCase):
         ) * Decimal("22.535")
 
     def _patches(self):
+        cursor_stub = _CursorStub(self.products, self.materials)
         return (
             patch(
-                "indy_hub.views.industry.SDEBlueprintActivityMaterial.objects",
-                MagicMock(filter=lambda **_kw: _FilterStub(self.materials)),
-            ),
-            patch(
-                "indy_hub.views.industry.SDEBlueprintActivityProduct.objects",
-                MagicMock(filter=lambda **_kw: _FilterStub(self.products)),
+                "indy_hub.views.industry.connection.cursor",
+                return_value=cursor_stub,
             ),
             patch(
                 "indy_hub.views.industry._fetch_item_base_prices",

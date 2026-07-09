@@ -940,12 +940,106 @@
             link.click();
         }
 
+        function csvEscape(value) {
+            const text = String(value == null ? '' : value).replace(/"/g, '""');
+            return `"${text}"`;
+        }
+
+        function parseQuantity(rawText) {
+            const normalized = String(rawText || '').replace(/[^0-9.-]/g, '');
+            const numeric = Number.parseFloat(normalized);
+            if (!Number.isFinite(numeric)) {
+                return 0;
+            }
+            return Math.max(0, Math.ceil(numeric));
+        }
+
+        function parsePriceNumber(rawText) {
+            const normalized = String(rawText || '').replace(/[^0-9.,-]/g, '').replace(/,/g, '');
+            const numeric = Number.parseFloat(normalized);
+            if (!Number.isFinite(numeric)) {
+                return 0;
+            }
+            return numeric;
+        }
+
+        function formatPriceForCsv(value) {
+            const number = Number.isFinite(Number(value)) ? Number(value) : 0;
+            return number.toFixed(2);
+        }
+
+        function getProjectNameForExport() {
+            const payloadName =
+                String(window.BLUEPRINT_DATA?.project_name || window.BLUEPRINT_DATA?.name || '').trim();
+            const headerName = String(document.querySelector('.page-header-title-text')?.textContent || '').trim();
+            return payloadName || headerName || 'project';
+        }
+
+        function sanitizeFilenamePart(value) {
+            return String(value || '')
+                .trim()
+                .replace(/[\\/:*?"<>|]+/g, '_')
+                .replace(/\s+/g, '_')
+                .replace(/_+/g, '_')
+                .replace(/^_+|_+$/g, '')
+                .slice(0, 80) || 'project';
+        }
+
+        function exportShoppingListCSV() {
+            const rows = Array.from(document.querySelectorAll('#needed-table tbody tr')).filter(function (row) {
+                return !row.hidden;
+            });
+
+            const csvRows = [
+                ['Item', 'Quantity', 'UnitPrice', 'Total']
+                    .map(csvEscape)
+                    .join(','),
+            ];
+
+            rows.forEach(function (row) {
+                const cells = row.querySelectorAll('td');
+                if (!cells || cells.length < 4) {
+                    return;
+                }
+
+                const item = String(cells[0].textContent || '').trim();
+                if (!item) {
+                    return;
+                }
+
+                // Qty cell may contain helper text (stock summary). Keep only the first line value.
+                const qtyPrimaryText = String(cells[1].querySelector('div')?.textContent || cells[1].textContent || '').trim();
+                const quantity = parseQuantity(qtyPrimaryText);
+                if (!(quantity > 0)) {
+                    return;
+                }
+
+                const unitPrice = formatPriceForCsv(parsePriceNumber(cells[2].textContent));
+                const totalPrice = formatPriceForCsv(parsePriceNumber(cells[3].textContent));
+
+                csvRows.push([
+                    item,
+                    String(quantity),
+                    unitPrice,
+                    totalPrice,
+                ].map(csvEscape).join(','));
+            });
+
+            const filename = `shopping_list_${sanitizeFilenamePart(getProjectNameForExport())}.csv`;
+            const csv = csvRows.join('\n');
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = filename;
+            link.click();
+        }
+
         document.getElementById('exportPurchaseCSV')?.addEventListener('click', function () {
             exportTableToCSV('#financialItemsBody', 'purchase_planner.csv');
         });
 
         document.getElementById('exportShoppingCSV')?.addEventListener('click', function () {
-            exportTableToCSV('#needed-table', 'shopping_list.csv');
+            exportShoppingListCSV();
         });
 
         document.getElementById('loadFuzzworkFromAlert')?.addEventListener('click', function () {

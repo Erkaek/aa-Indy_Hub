@@ -59,12 +59,6 @@ INDY_HUB_BEAT_SCHEDULE = {
         "options": {"priority": 7},
         "apply_offset": True,
     },
-    "indy-hub-sync-sde-compatibility": {
-        "task": "indy_hub.tasks.sde_sync.sync_sde_compatibility_data",
-        "schedule": crontab(minute=30, hour=12),  # Daily at 12:30 UTC
-        "options": {"priority": 8},
-        "apply_offset": False,
-    },
     # Material Exchange combined cycle: sync -> validate -> check completed
     "indy-hub-material-exchange-cycle": {
         "task": "indy_hub.tasks.material_exchange_contracts.run_material_exchange_cycle",
@@ -72,5 +66,5 @@ INDY_HUB_BEAT_SCHEDULE = {
         "options": {"priority": 4},
         "apply_offset": True,
     },
-    # Removed: indy-hub-refresh-production-items - now using Indy Hub SDE compatibility materials
+    # Removed: legacy `indy-hub-refresh-production-items` task (no longer needed with base eve_sde flow)
 }

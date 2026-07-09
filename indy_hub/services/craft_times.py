@@ -10,7 +10,7 @@ from typing import Any
 from django.db import connection
 
 # AA Example App
-from indy_hub.models import IndustryActivityMixin, SDEBlueprintActivity
+from indy_hub.models import IndustryActivityMixin
 
 EVE_JOB_LAUNCH_WINDOW_SECONDS = 30 * 24 * 60 * 60
 
@@ -24,6 +24,39 @@ _ACTIVITY_LABELS = {
     IndustryActivityMixin.ACTIVITY_REACTIONS: "Reactions",
     IndustryActivityMixin.ACTIVITY_REACTIONS_LEGACY: "Reactions",
 }
+
+_ACTIVITY_ID_BY_NAME = {
+    "manufacturing": IndustryActivityMixin.ACTIVITY_MANUFACTURING,
+    "reaction": IndustryActivityMixin.ACTIVITY_REACTIONS,
+}
+
+
+def _activity_id_from_sde_value(value: object) -> int:
+    if isinstance(value, int):
+        if value == IndustryActivityMixin.ACTIVITY_REACTIONS_LEGACY:
+            return IndustryActivityMixin.ACTIVITY_REACTIONS
+        return value
+
+    text = str(value or "").strip().casefold()
+    if not text:
+        return IndustryActivityMixin.ACTIVITY_MANUFACTURING
+    if text.isdigit():
+        numeric_value = int(text)
+        if numeric_value == IndustryActivityMixin.ACTIVITY_REACTIONS_LEGACY:
+            return IndustryActivityMixin.ACTIVITY_REACTIONS
+        return numeric_value
+    if text in {"reaction", "reactions", "reactions legacy"}:
+        return IndustryActivityMixin.ACTIVITY_REACTIONS
+    return _ACTIVITY_ID_BY_NAME.get(text, IndustryActivityMixin.ACTIVITY_MANUFACTURING)
+
+
+def _blueprint_activity_schema_columns(table_name: str) -> set[str]:
+    with connection.cursor() as cursor:
+        table_description = connection.introspection.get_table_description(
+            cursor,
+            table_name,
+        )
+    return {column.name for column in table_description}
 
 
 def _activity_label(activity_id: int) -> str:
@@ -61,12 +94,9 @@ def get_blueprint_max_production_limit(*, blueprint_type_id: int) -> int | None:
     if numeric_blueprint_type_id <= 0:
         return None
 
+    table_name = "eve_sde_blueprintactivity"
     table_names = set(connection.introspection.table_names())
-    if "eve_sde_blueprintactivity" in table_names:
-        table_name = "eve_sde_blueprintactivity"
-    elif "indy_hub_sdeblueprintactivity" in table_names:
-        table_name = "indy_hub_sdeblueprintactivity"
-    else:
+    if table_name not in table_names:
         return None
 
     with connection.cursor() as cursor:
@@ -113,14 +143,41 @@ def get_max_manufacturing_runs_before_launch_window(
     if numeric_blueprint_type_id <= 0:
         return None
 
-    base_time_seconds = (
-        SDEBlueprintActivity.objects.filter(
-            eve_type_id=numeric_blueprint_type_id,
-            activity_id=IndustryActivityMixin.ACTIVITY_MANUFACTURING,
+    available_columns = _blueprint_activity_schema_columns("eve_sde_blueprintactivity")
+    if "blueprint_item_type_id" in available_columns:
+        blueprint_key_column = "blueprint_item_type_id"
+    elif "eve_type_id" in available_columns:
+        blueprint_key_column = "eve_type_id"
+    else:
+        return None
+    if "activity_id" in available_columns:
+        activity_key_column = "activity_id"
+        activity_value: int | str = IndustryActivityMixin.ACTIVITY_MANUFACTURING
+    elif "activity" in available_columns:
+        activity_key_column = "activity"
+        activity_value = "manufacturing"
+    else:
+        return None
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT time
+            FROM eve_sde_blueprintactivity
+            WHERE {blueprint_key_column} = %s
+            AND {activity_key_column} = %s
+            LIMIT 1
+            """.format(
+                blueprint_key_column=blueprint_key_column,
+                activity_key_column=activity_key_column,
+            ),
+            [
+                numeric_blueprint_type_id,
+                activity_value,
+            ],
         )
-        .values_list("time", flat=True)
-        .first()
-    )
+        row = cursor.fetchone()
+    base_time_seconds = row[0] if row else None
     if base_time_seconds is None:
         return None
 
@@ -185,27 +242,24 @@ def build_craft_time_map(
         cursor.execute(
             f"""
             SELECT
-                product.product_eve_type_id AS type_id,
+                product.item_type_id AS type_id,
                 item.name AS type_name,
-                product.eve_type_id AS blueprint_type_id,
-                product.activity_id AS activity_id,
+                activity.blueprint_item_type_id AS blueprint_type_id,
+                activity.activity AS activity_name,
                 product.quantity AS produced_per_cycle,
-                COALESCE(activity_time.time, 0) AS base_time_seconds
-            FROM indy_hub_sdeindustryactivityproduct product
-            JOIN eve_sde_itemtype item ON item.id = product.product_eve_type_id
-            JOIN eve_sde_itemtype blueprint_item ON blueprint_item.id = product.eve_type_id
-            LEFT JOIN indy_hub_sdeblueprintactivity activity_time
-                ON activity_time.eve_type_id = product.eve_type_id
-                                AND activity_time.activity_id = product.activity_id
-            WHERE product.product_eve_type_id IN ({placeholders})
-                        AND product.activity_id IN (1, 9, 11)
+                COALESCE(activity.time, 0) AS base_time_seconds
+            FROM eve_sde_blueprintactivityproduct product
+            JOIN eve_sde_blueprintactivity activity ON activity.id = product.blueprint_activity_id
+            JOIN eve_sde_itemtype item ON item.id = product.item_type_id
+            JOIN eve_sde_itemtype blueprint_item ON blueprint_item.id = activity.blueprint_item_type_id
+            WHERE product.item_type_id IN ({placeholders})
+                        AND activity.activity IN ('manufacturing', 'reaction')
                         AND COALESCE(item.published, 0) = 1
                         AND COALESCE(blueprint_item.published, 0) = 1
             ORDER BY
-                CASE product.activity_id
-                    WHEN 1 THEN 0
-                    WHEN 9 THEN 1
-                    WHEN 11 THEN 2
+                CASE activity.activity
+                    WHEN 'manufacturing' THEN 0
+                    WHEN 'reaction' THEN 1
                     ELSE 99
                 END,
                 item.name
@@ -219,16 +273,14 @@ def build_craft_time_map(
         type_id,
         type_name,
         blueprint_type_id,
-        activity_id,
+        activity_name,
         produced_per_cycle,
         base_time_seconds,
     ) in rows:
         numeric_type_id = int(type_id or 0)
         if numeric_type_id <= 0 or numeric_type_id in time_map:
             continue
-        numeric_activity_id = int(
-            activity_id or IndustryActivityMixin.ACTIVITY_MANUFACTURING
-        )
+        numeric_activity_id = _activity_id_from_sde_value(activity_name)
         time_map[numeric_type_id] = {
             "type_id": numeric_type_id,
             "type_name": str(type_name or numeric_type_id),
@@ -248,25 +300,22 @@ def build_craft_time_map(
             cursor.execute(
                 """
                 SELECT
-                    product.activity_id,
+                    activity.activity,
                     product.quantity,
-                    COALESCE(activity_time.time, 0) AS base_time_seconds
-                FROM indy_hub_sdeindustryactivityproduct product
-                JOIN eve_sde_itemtype item ON item.id = product.product_eve_type_id
-                JOIN eve_sde_itemtype blueprint_item ON blueprint_item.id = product.eve_type_id
-                LEFT JOIN indy_hub_sdeblueprintactivity activity_time
-                    ON activity_time.eve_type_id = product.eve_type_id
-                                        AND activity_time.activity_id = product.activity_id
-                WHERE product.eve_type_id = %s
-                                AND product.product_eve_type_id = %s
-                                AND product.activity_id IN (1, 9, 11)
+                    COALESCE(activity.time, 0) AS base_time_seconds
+                FROM eve_sde_blueprintactivityproduct product
+                JOIN eve_sde_blueprintactivity activity ON activity.id = product.blueprint_activity_id
+            JOIN eve_sde_itemtype item ON item.id = product.item_type_id
+            JOIN eve_sde_itemtype blueprint_item ON blueprint_item.id = activity.blueprint_item_type_id
+                WHERE activity.blueprint_item_type_id = %s
+                                AND product.item_type_id = %s
+                                AND activity.activity IN ('manufacturing', 'reaction')
                                 AND COALESCE(item.published, 0) = 1
                                 AND COALESCE(blueprint_item.published, 0) = 1
                 ORDER BY
-                    CASE product.activity_id
-                        WHEN 1 THEN 0
-                        WHEN 9 THEN 1
-                        WHEN 11 THEN 2
+                    CASE activity.activity
+                        WHEN 'manufacturing' THEN 0
+                        WHEN 'reaction' THEN 1
                         ELSE 99
                     END
                 LIMIT 1
@@ -276,10 +325,8 @@ def build_craft_time_map(
             row = cursor.fetchone()
 
         if row:
-            activity_id, produced_per_cycle, base_time_seconds = row
-            numeric_activity_id = int(
-                activity_id or IndustryActivityMixin.ACTIVITY_MANUFACTURING
-            )
+            activity_name, produced_per_cycle, base_time_seconds = row
+            numeric_activity_id = _activity_id_from_sde_value(activity_name)
             time_map[int(product_type_id)] = {
                 "type_id": int(product_type_id),
                 "type_name": str(product_type_name or product_type_id),

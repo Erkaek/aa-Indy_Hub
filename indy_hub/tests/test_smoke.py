@@ -19,6 +19,9 @@ from django.utils import timezone
 from allianceauth.authentication.models import CharacterOwnership, UserProfile
 from allianceauth.eveonline.models import EveCharacter
 
+# Alliance Auth (External Libs)
+from eve_sde.models import EveSDE
+
 # AA Example App
 from indy_hub.auth_hooks import IndyHubMenu, register_charlink_hook
 from indy_hub.models import (
@@ -43,7 +46,6 @@ from indy_hub.models import (
     MaterialExchangeSellOrder,
     MaterialExchangeSellOrderItem,
     MaterialExchangeSettings,
-    SDESyncCompatState,
     UserOnboardingProgress,
 )
 from indy_hub.notifications import notify_user
@@ -126,6 +128,13 @@ def ensure_base_eve_sde_loaded() -> None:
             id=type_id,
             defaults={"name": type_name, "published": True},
         )
+
+
+def ensure_eve_sde_metadata_loaded() -> None:
+    state = EveSDE.get_solo()
+    state.build_number = state.build_number or 1
+    state.release_date = state.release_date or timezone.now()
+    state.save(update_fields=["build_number", "release_date", "last_check_date"])
 
 
 def assign_main_character(user: User, *, character_id: int) -> EveCharacter:
@@ -343,10 +352,7 @@ class NavbarBlueprintSharingTests(TestCase):
         assign_main_character(self.user, character_id=7003001)
         grant_indy_permissions(self.user)
         ensure_base_eve_sde_loaded()
-        SDESyncCompatState.objects.update_or_create(
-            pk=1,
-            defaults={"last_synced_at": timezone.now()},
-        )
+        ensure_eve_sde_metadata_loaded()
 
     def test_base_access_user_sees_fulfill_requests_nav_link(self) -> None:
         self.client.force_login(self.user)
@@ -424,7 +430,6 @@ class IndexSDEGuardTests(TestCase):
     ) -> None:
         item_type_model = apps.get_model("eve_sde", "ItemType")
         item_type_model.objects.all().delete()
-        SDESyncCompatState.objects.all().delete()
 
         response = self.client.get(reverse("indy_hub:index"))
 
@@ -434,46 +439,29 @@ class IndexSDEGuardTests(TestCase):
             response,
             "The EVE SDE tables are empty or unavailable",
         )
-        self.assertContains(response, "Full SDE setup")
-        self.assertContains(response, "python manage.py indy_sde --with-esde-load")
+        self.assertContains(response, "Complete the standard eve_sde setup")
+        self.assertNotContains(response, "python manage.py esde_load_sde")
         self.assertNotContains(response, "python manage.py sync_sde_compat")
 
-    def test_index_shows_compat_sync_command_when_only_indy_hub_sde_is_missing(
+    def test_index_loads_normally_when_base_eve_sde_is_loaded(
         self,
     ) -> None:
         ensure_base_eve_sde_loaded()
-        SDESyncCompatState.objects.all().delete()
-
-        response = self.client.get(reverse("indy_hub:index"))
-
-        self.assertEqual(response.status_code, 200)
-        self.assertTemplateUsed(response, "indy_hub/sde_not_ready.html")
-        self.assertContains(
-            response,
-            "Indy Hub has not built its own compact SDE cache yet.",
-        )
-        self.assertContains(response, "Do not roll back eve_sde migrations")
-        self.assertContains(response, "Standard Django command")
-        self.assertContains(response, "python manage.py sync_sde_compat")
-        self.assertContains(response, "Alliance Auth / Docker command")
-        self.assertContains(response, "auth sync_sde_compat")
-        self.assertNotContains(response, "python manage.py indy_sde --with-esde-load")
-
-    def test_index_loads_normally_when_sde_sync_has_timestamp(self) -> None:
-        ensure_base_eve_sde_loaded()
-        SDESyncCompatState.objects.update_or_create(
-            pk=1,
-            defaults={"last_synced_at": timezone.now()},
-        )
+        ensure_eve_sde_metadata_loaded()
 
         response = self.client.get(reverse("indy_hub:index"))
 
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, "indy_hub/overview_intro.html")
-        self.assertNotContains(
-            response,
-            "Indy Hub has not built its own compact SDE cache yet.",
-        )
+
+    def test_index_loads_normally_when_sde_sync_has_timestamp(self) -> None:
+        ensure_base_eve_sde_loaded()
+        ensure_eve_sde_metadata_loaded()
+
+        response = self.client.get(reverse("indy_hub:index"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "indy_hub/overview_intro.html")
 
 
 class BlueprintCopyHistoryAccessTests(TestCase):
@@ -1608,6 +1596,101 @@ class BlueprintCopyFulfillViewTests(TestCase):
         self.assertContains(response, "3h 24m")
         self.assertContains(response, "Copy structure")
         self.assertContains(response, "Test Raitaru · Jita")
+
+    @patch("indy_hub.views.industry._build_copy_duration_payload")
+    @patch("indy_hub.views.industry._build_copy_estimated_item_values")
+    @patch("indy_hub.views.industry._fetch_blueprint_activity_times")
+    @patch("indy_hub.views.industry.build_craft_character_advisor")
+    def test_request_shows_time_estimate_fallback_when_duration_payload_is_missing(
+        self,
+        mock_build_craft_character_advisor,
+        mock_fetch_blueprint_activity_times,
+        mock_build_copy_estimated_item_values,
+        mock_build_copy_duration_payload,
+    ) -> None:
+        mock_build_craft_character_advisor.return_value = {
+            "items": {
+                "987654": {
+                    "eligible_characters": [
+                        {
+                            "character_id": 42,
+                            "name": "Capsuleer",
+                            "time_bonus_percent": 15.0,
+                            "available_slots": 4,
+                            "total_slots": 5,
+                            "used_slots": 1,
+                        }
+                    ],
+                    "blocked_characters": [],
+                    "best_character": {
+                        "character_id": 42,
+                        "name": "Capsuleer",
+                        "time_bonus_percent": 15.0,
+                        "available_slots": 4,
+                        "total_slots": 5,
+                        "used_slots": 1,
+                    },
+                }
+            }
+        }
+        mock_fetch_blueprint_activity_times.return_value = {
+            987654: {IndustryActivityMixin.ACTIVITY_COPYING: 3600}
+        }
+        mock_build_copy_duration_payload.return_value = None
+        mock_build_copy_estimated_item_values.return_value = {}
+
+        blueprint = Blueprint.objects.create(
+            owner_user=self.user,
+            character_id=501,
+            item_id=9050003,
+            blueprint_id=9050004,
+            type_id=987654,
+            location_id=1_036_001,
+            location_name="Test Raitaru",
+            location_flag="hangar",
+            quantity=-1,
+            time_efficiency=12,
+            material_efficiency=8,
+            runs=0,
+            character_name="Supplier",
+            type_name="Duplicated Widget Blueprint",
+        )
+        IndustryStructure.objects.create(
+            name="Test Raitaru",
+            structure_type_id=35825,
+            structure_type_name="Raitaru",
+            solar_system_id=30000142,
+            solar_system_name="Jita",
+            external_structure_id=1_036_001,
+            enable_research=True,
+            research_tax_percent=Decimal("0.500"),
+            visibility_scope=IndustryStructure.VisibilityScope.PUBLIC,
+        )
+        IndustrySystemCostIndex.objects.create(
+            solar_system_id=30000142,
+            solar_system_name="Jita",
+            activity_id=IndustryActivityMixin.ACTIVITY_COPYING,
+            cost_index_percent=Decimal("0.00000"),
+        )
+
+        buyer = User.objects.create_user("requester_time", password="test12345")
+        BlueprintCopyRequest.objects.create(
+            type_id=blueprint.type_id,
+            material_efficiency=blueprint.material_efficiency,
+            time_efficiency=blueprint.time_efficiency,
+            requested_by=buyer,
+            runs_requested=2,
+            copies_requested=2,
+        )
+
+        response = self.client.get(reverse("indy_hub:bp_copy_fulfill_requests"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Time estimate")
+        self.assertContains(
+            response, "Copy-time estimate is loading or unavailable yet."
+        )
+        self.assertContains(response, 'data-copy-base-time-seconds="3600"')
 
     def test_self_request_hidden_without_corporate_source(self) -> None:
         blueprint = Blueprint.objects.create(
@@ -2785,6 +2868,23 @@ class BlueprintCopyRequestPageTests(TestCase):
         for entry in large_response.context["page_obj"].object_list:
             self.assertEqual(entry["copy_request_preview"]["alerted_owner_count"], 1)
 
+    def test_request_modal_shows_explicit_hint_when_no_copying_structure_is_visible(
+        self,
+    ) -> None:
+        response = self.client.get(
+            reverse("indy_hub:bp_copy_request_estimate"),
+            {
+                "type_id": 605001,
+                "material_efficiency": 8,
+                "time_efficiency": 12,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertFalse(payload["available"])
+        self.assertEqual(payload["reason"], "no_visible_copy_structure")
+
     @patch("indy_hub.views.industry._build_copy_estimated_item_values")
     def test_request_modal_loads_estimated_copy_price_on_demand(
         self,
@@ -3819,7 +3919,7 @@ class NotificationRoutingTests(TestCase):
         link_label = "Open queue"
         expected_cta = f"{link_label}: {link}"
         expected_message = f"Message body\n\n{expected_cta}"
-        expected_dm_message = f"Message body\n\n[clic here]({link})"
+        expected_dm_message = f"Message body\n\n[click here]({link})"
 
         notify_user(
             self.user,
@@ -3961,10 +4061,7 @@ class DashboardNotificationCountsTests(TestCase):
         self,
     ) -> None:
         ensure_base_eve_sde_loaded()
-        SDESyncCompatState.objects.update_or_create(
-            pk=1,
-            defaults={"last_synced_at": timezone.now()},
-        )
+        ensure_eve_sde_metadata_loaded()
         UserOnboardingProgress.objects.update_or_create(
             user=self.user,
             defaults={"manual_steps": {"overview_intro_seen": True}},
@@ -4017,10 +4114,7 @@ class DashboardUnusedSlotsSummaryTests(TestCase):
         grant_indy_permissions(self.user, "can_manage_corp_bp_requests")
         self.client.force_login(self.user)
         ensure_base_eve_sde_loaded()
-        SDESyncCompatState.objects.update_or_create(
-            pk=1,
-            defaults={"last_synced_at": timezone.now()},
-        )
+        ensure_eve_sde_metadata_loaded()
         UserOnboardingProgress.objects.update_or_create(
             user=self.user,
             defaults={"manual_steps": {"overview_intro_seen": True}},

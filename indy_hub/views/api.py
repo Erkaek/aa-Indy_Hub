@@ -610,12 +610,13 @@ def craft_bp_payload(request, type_id: int):
     with connection.cursor() as cursor:
         cursor.execute(
             """
-                        SELECT p.product_eve_type_id, p.quantity
-                        FROM indy_hub_sdeindustryactivityproduct p
-                        JOIN eve_sde_itemtype blueprint_t ON blueprint_t.id = p.eve_type_id
-                        JOIN eve_sde_itemtype product_t ON product_t.id = p.product_eve_type_id
-                        WHERE p.eve_type_id = %s
-                            AND p.activity_id IN (1, 11)
+                        SELECT p.item_type_id, p.quantity
+                        FROM eve_sde_blueprintactivityproduct p
+                        JOIN eve_sde_blueprintactivity ba ON ba.id = p.blueprint_activity_id
+                        JOIN eve_sde_itemtype blueprint_t ON blueprint_t.id = ba.blueprint_item_type_id
+                        JOIN eve_sde_itemtype product_t ON product_t.id = p.item_type_id
+                        WHERE ba.blueprint_item_type_id = %s
+                            AND ba.activity IN ('manufacturing', 'reaction')
                             AND COALESCE(blueprint_t.published, 0) = 1
                             AND COALESCE(product_t.published, 0) = 1
             LIMIT 1
@@ -635,10 +636,11 @@ def craft_bp_payload(request, type_id: int):
                 cursor.execute(
                     """
                                         SELECT COUNT(*)
-                                        FROM indy_hub_sdeindustryactivitymaterial m
-                                        JOIN eve_sde_itemtype t ON t.id = m.material_eve_type_id
-                                        WHERE m.eve_type_id = %s
-                                            AND m.activity_id IN (1, 11)
+                                        FROM eve_sde_blueprintactivitymaterial m
+                                        JOIN eve_sde_blueprintactivity ba ON ba.id = m.blueprint_activity_id
+                                        JOIN eve_sde_itemtype t ON t.id = m.item_type_id
+                                        WHERE ba.blueprint_item_type_id = %s
+                                            AND ba.activity IN ('manufacturing', 'reaction')
                                             AND COALESCE(t.published, 0) = 1
                     """,
                     [type_id],
@@ -682,12 +684,13 @@ def craft_bp_payload(request, type_id: int):
         with connection.cursor() as lookup_cursor:
             lookup_cursor.execute(
                 """
-                SELECT product_eve_type_id
-                                FROM indy_hub_sdeindustryactivityproduct p
-                                JOIN eve_sde_itemtype blueprint_t ON blueprint_t.id = p.eve_type_id
-                                JOIN eve_sde_itemtype product_t ON product_t.id = p.product_eve_type_id
-                                WHERE p.eve_type_id = %s
-                                    AND p.activity_id IN (1, 11)
+                SELECT p.item_type_id
+                                FROM eve_sde_blueprintactivityproduct p
+                                JOIN eve_sde_blueprintactivity ba ON ba.id = p.blueprint_activity_id
+                                JOIN eve_sde_itemtype blueprint_t ON blueprint_t.id = ba.blueprint_item_type_id
+                                JOIN eve_sde_itemtype product_t ON product_t.id = p.item_type_id
+                                WHERE ba.blueprint_item_type_id = %s
+                                    AND ba.activity IN ('manufacturing', 'reaction')
                                     AND COALESCE(blueprint_t.published, 0) = 1
                                     AND COALESCE(product_t.published, 0) = 1
                 LIMIT 1
@@ -754,11 +757,12 @@ def craft_bp_payload(request, type_id: int):
             recipe_cursor.execute(
                 """
                                 SELECT p.quantity
-                                FROM indy_hub_sdeindustryactivityproduct p
-                                JOIN eve_sde_itemtype blueprint_t ON blueprint_t.id = p.eve_type_id
-                                JOIN eve_sde_itemtype product_t ON product_t.id = p.product_eve_type_id
-                                WHERE p.eve_type_id = %s
-                                    AND p.activity_id IN (1, 11)
+                                FROM eve_sde_blueprintactivityproduct p
+                                JOIN eve_sde_blueprintactivity ba ON ba.id = p.blueprint_activity_id
+                                JOIN eve_sde_itemtype blueprint_t ON blueprint_t.id = ba.blueprint_item_type_id
+                                JOIN eve_sde_itemtype product_t ON product_t.id = p.item_type_id
+                                WHERE ba.blueprint_item_type_id = %s
+                                    AND ba.activity IN ('manufacturing', 'reaction')
                                     AND COALESCE(blueprint_t.published, 0) = 1
                                     AND COALESCE(product_t.published, 0) = 1
                 LIMIT 1
@@ -770,11 +774,12 @@ def craft_bp_payload(request, type_id: int):
 
             recipe_cursor.execute(
                 """
-                                SELECT m.material_eve_type_id, m.quantity
-                                FROM indy_hub_sdeindustryactivitymaterial m
-                                JOIN eve_sde_itemtype t ON t.id = m.material_eve_type_id
-                                WHERE m.eve_type_id = %s
-                                    AND m.activity_id IN (1, 11)
+                                SELECT m.item_type_id, m.quantity
+                                FROM eve_sde_blueprintactivitymaterial m
+                                JOIN eve_sde_blueprintactivity ba ON ba.id = m.blueprint_activity_id
+                                JOIN eve_sde_itemtype t ON t.id = m.item_type_id
+                                WHERE ba.blueprint_item_type_id = %s
+                                    AND ba.activity IN ('manufacturing', 'reaction')
                                     AND COALESCE(t.published, 0) = 1
                 """,
                 [blueprint_type_id],
@@ -829,11 +834,12 @@ def craft_bp_payload(request, type_id: int):
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT m.material_eve_type_id, t.name, m.quantity
-                FROM indy_hub_sdeindustryactivitymaterial m
-                JOIN eve_sde_itemtype t ON m.material_eve_type_id = t.id
-                                WHERE m.eve_type_id = %s
-                                    AND m.activity_id IN (1, 11)
+                SELECT m.item_type_id, t.name, m.quantity
+                FROM eve_sde_blueprintactivitymaterial m
+                JOIN eve_sde_blueprintactivity ba ON ba.id = m.blueprint_activity_id
+                JOIN eve_sde_itemtype t ON m.item_type_id = t.id
+                                WHERE ba.blueprint_item_type_id = %s
+                                    AND ba.activity IN ('manufacturing', 'reaction')
                                     AND COALESCE(t.published, 0) = 1
                 """,
                 [bp_id],
@@ -869,12 +875,13 @@ def craft_bp_payload(request, type_id: int):
                 with connection.cursor() as sub_cursor:
                     sub_cursor.execute(
                         """
-                                                SELECT p.eve_type_id
-                                                FROM indy_hub_sdeindustryactivityproduct p
-                                                JOIN eve_sde_itemtype blueprint_t ON blueprint_t.id = p.eve_type_id
-                                                JOIN eve_sde_itemtype product_t ON product_t.id = p.product_eve_type_id
-                                                WHERE p.product_eve_type_id = %s
-                                                    AND p.activity_id IN (1, 11)
+                                                SELECT ba.blueprint_item_type_id
+                                                FROM eve_sde_blueprintactivityproduct p
+                                                JOIN eve_sde_blueprintactivity ba ON ba.id = p.blueprint_activity_id
+                                                JOIN eve_sde_itemtype blueprint_t ON blueprint_t.id = ba.blueprint_item_type_id
+                                                JOIN eve_sde_itemtype product_t ON product_t.id = p.item_type_id
+                                                WHERE p.item_type_id = %s
+                                                    AND ba.activity IN ('manufacturing', 'reaction')
                                                     AND COALESCE(blueprint_t.published, 0) = 1
                                                     AND COALESCE(product_t.published, 0) = 1
                         LIMIT 1
@@ -888,11 +895,12 @@ def craft_bp_payload(request, type_id: int):
                         sub_cursor.execute(
                             """
                                                         SELECT p.quantity
-                                                        FROM indy_hub_sdeindustryactivityproduct p
-                                                        JOIN eve_sde_itemtype blueprint_t ON blueprint_t.id = p.eve_type_id
-                                                        JOIN eve_sde_itemtype product_t ON product_t.id = p.product_eve_type_id
-                                                        WHERE p.eve_type_id = %s
-                                                            AND p.activity_id IN (1, 11)
+                                                        FROM eve_sde_blueprintactivityproduct p
+                                                        JOIN eve_sde_blueprintactivity ba ON ba.id = p.blueprint_activity_id
+                                                        JOIN eve_sde_itemtype blueprint_t ON blueprint_t.id = ba.blueprint_item_type_id
+                                                        JOIN eve_sde_itemtype product_t ON product_t.id = p.item_type_id
+                                                        WHERE ba.blueprint_item_type_id = %s
+                                                            AND ba.activity IN ('manufacturing', 'reaction')
                                                             AND COALESCE(blueprint_t.published, 0) = 1
                                                             AND COALESCE(product_t.published, 0) = 1
                             LIMIT 1

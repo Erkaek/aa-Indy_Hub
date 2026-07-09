@@ -7,8 +7,6 @@ from django.contrib import messages
 from django.shortcuts import redirect
 
 # Alliance Auth
-from esi.decorators import single_use_token as esi_single_use_token
-from esi.decorators import token_required as esi_token_required
 from esi.decorators import tokens_required as esi_tokens_required
 
 
@@ -20,42 +18,9 @@ def _normalize_scopes(scopes):
     return list(scopes)
 
 
-def token_required(scopes=None, new=False):
-    """Compatibility wrapper around django-esi's `token_required`."""
-    return esi_token_required(scopes=_normalize_scopes(scopes), new=new)
-
-
 def tokens_required(scopes=None, new=False):
     """Compatibility wrapper around django-esi's `tokens_required`."""
     return esi_tokens_required(scopes=_normalize_scopes(scopes), new=new)
-
-
-def single_use_token(scopes=None, new=False):
-    """Compatibility wrapper around django-esi's `single_use_token`."""
-    return esi_single_use_token(scopes=_normalize_scopes(scopes), new=new)
-
-
-STRUCTURE_SCOPE = "esi-universe.read_structures.v1"
-
-
-def blueprints_token_required(view_func):
-    """Decorator specifically for blueprint views."""
-    return token_required(
-        [
-            "esi-characters.read_blueprints.v1",
-            STRUCTURE_SCOPE,
-        ]
-    )(view_func)
-
-
-def industry_jobs_token_required(view_func):
-    """Decorator specifically for industry jobs views."""
-    return token_required(
-        [
-            "esi-industry.read_character_jobs.v1",
-            STRUCTURE_SCOPE,
-        ]
-    )(view_func)
 
 
 def indy_hub_access_required(view_func):

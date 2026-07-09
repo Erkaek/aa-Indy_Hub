@@ -38,7 +38,6 @@ from .tasks.notifications import (  # noqa: F401
     dispatch_job_notification_digests,
     notify_recently_completed_jobs,
 )
-from .tasks.sde_sync import sync_sde_compatibility_data  # noqa: F401
 from .tasks.system_cost_indices import sync_industry_system_cost_indices  # noqa: F401
 from .tasks.user import (  # noqa: F401
     update_character_roles_for_character,

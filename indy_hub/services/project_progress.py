@@ -6,13 +6,13 @@ from __future__ import annotations
 from collections import defaultdict
 
 # Django
+from django.db import connection
 from django.utils.translation import gettext as _
 
 from ..models import (
     IndustryActivityMixin,
     IndustryJob,
     ProductionProjectItem,
-    SDEBlueprintActivityProduct,
 )
 from ..utils.eve import get_blueprint_product_type_id
 
@@ -54,19 +54,53 @@ def _get_output_quantity_per_run_by_blueprint(
         return {}
 
     try:
-        rows = SDEBlueprintActivityProduct.objects.filter(
-            eve_type_id__in=blueprint_type_ids,
-            activity_id__in=TRACKABLE_JOB_ACTIVITY_IDS,
-        ).values_list("eve_type_id", "activity_id", "quantity")
+        normalized_blueprint_type_ids = sorted(
+            {int(x) for x in blueprint_type_ids if x}
+        )
+        placeholders = ", ".join(["%s"] * len(normalized_blueprint_type_ids))
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT ba.blueprint_item_type_id, ba.activity, p.quantity
+                FROM eve_sde_blueprintactivityproduct p
+                JOIN eve_sde_blueprintactivity ba ON ba.id = p.blueprint_activity_id
+                JOIN eve_sde_itemtype blueprint_t ON blueprint_t.id = ba.blueprint_item_type_id
+                JOIN eve_sde_itemtype product_t ON product_t.id = p.item_type_id
+                WHERE ba.blueprint_item_type_id IN ({placeholders})
+                    AND ba.activity IN ('manufacturing', 'reaction')
+                    AND COALESCE(blueprint_t.published, 0) = 1
+                    AND COALESCE(product_t.published, 0) = 1
+                """,
+                normalized_blueprint_type_ids,
+            )
+            rows = cursor.fetchall()
     except Exception:
         return {}
 
     output_quantities: dict[tuple[int, int], int] = {}
-    for blueprint_type_id, activity_id, quantity in rows:
-        output_quantities[(int(blueprint_type_id), int(activity_id))] = max(
-            1,
-            int(quantity or 1),
-        )
+    for blueprint_type_id, activity_name, quantity in rows:
+        normalized_quantity = max(1, int(quantity or 1))
+        normalized_blueprint_type_id = int(blueprint_type_id)
+        if activity_name == "manufacturing":
+            output_quantities[
+                (
+                    normalized_blueprint_type_id,
+                    IndustryActivityMixin.ACTIVITY_MANUFACTURING,
+                )
+            ] = normalized_quantity
+        elif activity_name == "reaction":
+            output_quantities[
+                (
+                    normalized_blueprint_type_id,
+                    IndustryActivityMixin.ACTIVITY_REACTIONS,
+                )
+            ] = normalized_quantity
+            output_quantities[
+                (
+                    normalized_blueprint_type_id,
+                    IndustryActivityMixin.ACTIVITY_REACTIONS_LEGACY,
+                )
+            ] = normalized_quantity
     return output_quantities
 
 

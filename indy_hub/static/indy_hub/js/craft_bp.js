@@ -2598,6 +2598,7 @@ function collectCraftPageSessionState() {
         fuzzworkPrices: collectFuzzworkPriceSnapshot(),
         simulationName: String(document.getElementById('simulationName')?.value || ''),
         decisionBuyTolerance: String(document.getElementById('decisionBuyToleranceInput')?.value || ''),
+        extraCostRows: collectFinancialExtraCostRows(),
         revenueMode: getRevenueMode(),
         revenueTotalOverride: getRevenueTotalOverride(),
         meTeConfig: getCurrentMETEConfig(),
@@ -2660,6 +2661,8 @@ function applyCraftPageSessionState(parsedState) {
     if (decisionToleranceInput && parsedState?.decisionBuyTolerance != null) {
         decisionToleranceInput.value = String(parsedState.decisionBuyTolerance);
     }
+
+    applyFinancialExtraCostRows(parsedState?.extraCostRows);
 
     applyBlueprintCopyRequestState(parsedState?.copyRequests);
 
@@ -4380,6 +4383,7 @@ function initializeDecisionStrategyTab() {
  */
 function initializeFinancialCalculations() {
     initializeDelegatedFinancialPriceInputs();
+    initializeFinancialExtraCostsEditor();
 
     const recalcNowBtn = document.getElementById('recalcNowBtn');
     if (recalcNowBtn) {
@@ -4506,6 +4510,11 @@ function initializeFinancialCalculations() {
     const computeButton = document.getElementById('compute-needed');
     if (computeButton) {
         computeButton.addEventListener('click', computeNeededPurchases);
+    }
+
+    const copyShoppingEveButton = document.getElementById('copyShoppingEve');
+    if (copyShoppingEveButton) {
+        copyShoppingEveButton.addEventListener('click', copyShoppingEveFormat);
     }
 
     // Initialize revenue mode controls (per-unit vs. total project revenue)
@@ -5259,11 +5268,26 @@ function getStructurePlannerItems() {
             .filter((typeId) => typeId > 0)
     );
 
-    if (activeTypeIds.size === 0) {
-        return [];
+    // Keep planner rows available for the final output even when cycle payloads
+    // are temporarily empty or not yet synchronized with the active workspace.
+    getFinalOutputTypeIds(window.BLUEPRINT_DATA).forEach((typeId) => {
+        const numericTypeId = Number(typeId || 0) || 0;
+        if (numericTypeId > 0) {
+            activeTypeIds.add(numericTypeId);
+        }
+    });
+
+    const rootProductTypeId = Number(window.BLUEPRINT_DATA?.product_type_id || window.BLUEPRINT_DATA?.productTypeId || 0) || 0;
+    if (rootProductTypeId > 0) {
+        activeTypeIds.add(rootProductTypeId);
     }
 
-    return items.filter((item) => activeTypeIds.has(Number(item.typeId || item.type_id || 0) || 0));
+    if (activeTypeIds.size === 0) {
+        return items;
+    }
+
+    const filteredItems = items.filter((item) => activeTypeIds.has(Number(item.typeId || item.type_id || 0) || 0));
+    return filteredItems.length > 0 ? filteredItems : items;
 }
 
 function getStructurePlannerOption(typeId, structureId) {
@@ -6044,6 +6068,195 @@ function getZeroPricedFinancialRows(revenueMode) {
         }, { buy: [], revenue: [] });
 }
 
+function normalizeFinancialExtraCostType(value) {
+    const normalized = String(value || '').trim().toLowerCase();
+    return normalized === 'revenue' ? 'revenue' : 'expense';
+}
+
+function createFinancialExtraCostRowElement(entry = {}) {
+    const row = document.createElement('tr');
+    row.dataset.extraCostRow = 'true';
+
+    const name = String(entry?.name || '').trim();
+    const type = normalizeFinancialExtraCostType(entry?.type);
+    const quantity = Math.max(0, Number(entry?.quantity || 0));
+    const unitPrice = Math.max(0, Number(entry?.unitPrice ?? entry?.price ?? 0));
+
+    row.innerHTML = `
+        <td>
+            <input type="text" class="form-control form-control-sm financial-extra-name" placeholder="${escapeHtml(__('e.g. Blueprint copies'))}" value="${escapeHtml(name)}">
+        </td>
+        <td class="text-center">
+            <select class="form-select form-select-sm financial-extra-type">
+                <option value="expense">${escapeHtml(__('Expense'))}</option>
+                <option value="revenue">${escapeHtml(__('Revenue'))}</option>
+            </select>
+        </td>
+        <td class="text-end">
+            <input type="number" min="0" step="1" class="form-control form-control-sm text-end financial-extra-qty" value="${Number.isFinite(quantity) ? quantity : 0}">
+        </td>
+        <td class="text-end">
+            <input type="number" min="0" step="0.01" class="form-control form-control-sm text-end financial-extra-price" value="${Number.isFinite(unitPrice) ? unitPrice : 0}">
+        </td>
+        <td class="text-end fw-semibold financial-extra-line-total">0 ISK</td>
+        <td class="text-end">
+            <button type="button" class="btn btn-outline-danger btn-sm financial-extra-remove" title="${escapeHtml(__('Remove line'))}">
+                <i class="fas fa-trash"></i>
+            </button>
+        </td>
+    `;
+
+    const typeSelect = row.querySelector('.financial-extra-type');
+    if (typeSelect) {
+        typeSelect.value = type;
+    }
+
+    return row;
+}
+
+function collectFinancialExtraCostRows() {
+    const rows = Array.from(document.querySelectorAll('#financialExtraCostsBody tr[data-extra-cost-row="true"]'));
+    return rows
+        .map((row) => {
+            const name = String(row.querySelector('.financial-extra-name')?.value || '').trim();
+            const type = normalizeFinancialExtraCostType(row.querySelector('.financial-extra-type')?.value);
+            const quantity = Math.max(0, Number.parseFloat(row.querySelector('.financial-extra-qty')?.value) || 0);
+            const unitPrice = Math.max(0, Number.parseFloat(row.querySelector('.financial-extra-price')?.value) || 0);
+            if (!name && quantity <= 0 && unitPrice <= 0) {
+                return null;
+            }
+            return {
+                name,
+                type,
+                quantity,
+                unitPrice,
+            };
+        })
+        .filter(Boolean);
+}
+
+function applyFinancialExtraCostRows(entries) {
+    const body = document.getElementById('financialExtraCostsBody');
+    if (!body) {
+        return;
+    }
+    body.innerHTML = '';
+
+    (Array.isArray(entries) ? entries : []).forEach((entry) => {
+        body.appendChild(createFinancialExtraCostRowElement(entry));
+    });
+}
+
+function computeFinancialExtraCostTotals() {
+    let expenseTotal = 0;
+    let revenueTotal = 0;
+
+    document.querySelectorAll('#financialExtraCostsBody tr[data-extra-cost-row="true"]').forEach((row) => {
+        const type = normalizeFinancialExtraCostType(row.querySelector('.financial-extra-type')?.value);
+        const quantity = Math.max(0, Number.parseFloat(row.querySelector('.financial-extra-qty')?.value) || 0);
+        const unitPrice = Math.max(0, Number.parseFloat(row.querySelector('.financial-extra-price')?.value) || 0);
+        const amount = quantity * unitPrice;
+        const signedAmount = type === 'revenue' ? amount : -amount;
+
+        const lineTotalEl = row.querySelector('.financial-extra-line-total');
+        if (lineTotalEl) {
+            lineTotalEl.textContent = formatPrice(signedAmount);
+            lineTotalEl.classList.remove('text-danger', 'text-success', 'text-muted');
+            if (amount <= 0) {
+                lineTotalEl.classList.add('text-muted');
+            } else if (type === 'revenue') {
+                lineTotalEl.classList.add('text-success');
+            } else {
+                lineTotalEl.classList.add('text-danger');
+            }
+        }
+
+        if (type === 'revenue') {
+            revenueTotal += amount;
+        } else {
+            expenseTotal += amount;
+        }
+    });
+
+    return {
+        expenseTotal,
+        revenueTotal,
+    };
+}
+
+function initializeFinancialExtraCostsEditor() {
+    const body = document.getElementById('financialExtraCostsBody');
+    const addButton = document.getElementById('addFinancialExtraCostRowBtn');
+    if (!body) {
+        return;
+    }
+
+    if (addButton && addButton.dataset.boundExtraCosts !== 'true') {
+        addButton.addEventListener('click', () => {
+            body.appendChild(createFinancialExtraCostRowElement());
+            if (typeof recalcFinancials === 'function') {
+                recalcFinancials();
+            }
+            persistCraftPageSessionState();
+        });
+        addButton.dataset.boundExtraCosts = 'true';
+    }
+
+    if (body.dataset.boundExtraCosts !== 'true') {
+        body.addEventListener('click', (event) => {
+            const removeButton = event.target.closest('.financial-extra-remove');
+            if (!removeButton) {
+                return;
+            }
+            const row = removeButton.closest('tr[data-extra-cost-row="true"]');
+            if (row) {
+                row.remove();
+            }
+            if (typeof recalcFinancials === 'function') {
+                recalcFinancials();
+            }
+            persistCraftPageSessionState();
+        });
+
+        body.addEventListener('input', (event) => {
+            const target = event.target;
+            if (!target || !target.classList) {
+                return;
+            }
+            if (
+                target.classList.contains('financial-extra-name')
+                || target.classList.contains('financial-extra-type')
+                || target.classList.contains('financial-extra-qty')
+                || target.classList.contains('financial-extra-price')
+            ) {
+                if (typeof recalcFinancials === 'function') {
+                    recalcFinancials();
+                }
+                persistCraftPageSessionState();
+            }
+        });
+
+        body.addEventListener('change', (event) => {
+            const target = event.target;
+            if (!target || !target.classList) {
+                return;
+            }
+            if (
+                target.classList.contains('financial-extra-type')
+                || target.classList.contains('financial-extra-qty')
+                || target.classList.contains('financial-extra-price')
+            ) {
+                if (typeof recalcFinancials === 'function') {
+                    recalcFinancials();
+                }
+                persistCraftPageSessionState();
+            }
+        });
+
+        body.dataset.boundExtraCosts = 'true';
+    }
+}
+
 function triggerZeroPriceAlertAnimation(alertEl) {
     if (!alertEl || (typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches)) {
         return;
@@ -6300,9 +6513,14 @@ function recalcFinancials() {
     }
 
     const structureSummary = renderStructureFinancialSummary();
+    const extraTotals = computeFinancialExtraCostTotals();
+    const fixedExpenseTotal = Number(extraTotals.expenseTotal || 0);
+    const fixedRevenueTotal = Number(extraTotals.revenueTotal || 0);
+
+    revTotal += fixedRevenueTotal;
     const installationCostTotal = structureSummary.totalInstallation;
-    const costTotal = materialCostTotal + installationCostTotal;
-    const investmentNeededTotal = materialInvestmentTotal + installationCostTotal;
+    const costTotal = materialCostTotal + installationCostTotal + fixedExpenseTotal;
+    const investmentNeededTotal = materialInvestmentTotal + installationCostTotal + fixedExpenseTotal;
 
     const profit = revTotal - costTotal;
     // Margin = profit / revenue (not markup on cost).
@@ -6321,6 +6539,8 @@ function recalcFinancials() {
     const grandTotalMaterialInvestmentEl = document.querySelector('.grand-total-material-investment');
     const grandTotalInstallationEl = document.querySelector('.grand-total-installation');
     const grandTotalFacilityTaxEl = document.querySelector('.grand-total-facility-tax');
+    const grandTotalExtraExpensesEl = document.querySelector('.grand-total-extra-expenses');
+    const grandTotalExtraRevenueEl = document.querySelector('.grand-total-extra-revenue');
     const grandTotalStockValueEl = document.querySelector('.grand-total-stock-value');
     const grandTotalInvestmentNeededEl = document.querySelector('.grand-total-investment-needed');
     const grandTotalCostEl = document.querySelector('.grand-total-cost');
@@ -6342,6 +6562,14 @@ function recalcFinancials() {
 
     if (grandTotalFacilityTaxEl) {
         grandTotalFacilityTaxEl.textContent = formatPrice(structureSummary.facilityTax);
+    }
+
+    if (grandTotalExtraExpensesEl) {
+        grandTotalExtraExpensesEl.textContent = formatPrice(fixedExpenseTotal);
+    }
+
+    if (grandTotalExtraRevenueEl) {
+        grandTotalExtraRevenueEl.textContent = formatPrice(fixedRevenueTotal);
     }
 
     if (grandTotalStockValueEl) {
@@ -6395,6 +6623,16 @@ function recalcFinancials() {
     const summaryFacilityTaxEl = document.getElementById('financialSummaryFacilityTaxInline');
     if (summaryFacilityTaxEl) {
         summaryFacilityTaxEl.textContent = formatPrice(structureSummary.facilityTax);
+    }
+
+    const summaryExtraExpensesEl = document.getElementById('financialSummaryExtraExpenses');
+    if (summaryExtraExpensesEl) {
+        summaryExtraExpensesEl.textContent = formatPrice(fixedExpenseTotal);
+    }
+
+    const summaryExtraRevenueEl = document.getElementById('financialSummaryExtraRevenue');
+    if (summaryExtraRevenueEl) {
+        summaryExtraRevenueEl.textContent = formatPrice(fixedRevenueTotal);
     }
 
     const summaryRevenueEl = document.getElementById('financialSummaryRevenue');
@@ -6965,9 +7203,13 @@ function renderCraftStockManagement() {
 /**
  * Compute needed purchase list based on user selections
  */
+let lastComputedShoppingEveText = '';
+let shoppingCopiedToastTimer = null;
+
 function computeNeededPurchases() {
     const tbody = document.querySelector('#needed-table tbody');
     const totalEl = document.querySelector('.purchase-total');
+    const eveFormatEl = document.getElementById('shoppingEveFormat');
     if (!tbody) {
         return;
     }
@@ -6975,6 +7217,10 @@ function computeNeededPurchases() {
     tbody.innerHTML = '';
     if (totalEl) {
         totalEl.textContent = formatPrice(0);
+    }
+    lastComputedShoppingEveText = '';
+    if (eveFormatEl) {
+        eveFormatEl.value = '';
     }
 
     const api = window.SimulationAPI;
@@ -7016,18 +7262,24 @@ function computeNeededPurchases() {
 
     ensurePrices(typeIds).finally(() => {
         let totalCost = 0;
+        const eveLines = [];
         rows.forEach((item) => {
             const stockSummary = getCraftStockAllocationSummary(item.typeId, item.qty);
             const unitInfo = (api && typeof api.getPrice === 'function') ? api.getPrice(item.typeId, 'buy') : { value: 0 };
             const unit = unitInfo && typeof unitInfo.value === 'number' ? unitInfo.value : 0;
-            const line = (unit > 0 ? unit : 0) * stockSummary.remainingQty;
+            const remainingQty = Math.max(0, Math.ceil(Number(stockSummary.remainingQty || 0))) || 0;
+            const line = (unit > 0 ? unit : 0) * remainingQty;
             totalCost += line;
+
+            if (remainingQty > 0) {
+                eveLines.push(`${item.name || String(item.typeId)}\t${remainingQty}`);
+            }
 
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td>${escapeHtml(item.name || String(item.typeId))}</td>
                 <td class="text-end">
-                    <div>${formatNumber(stockSummary.remainingQty)}</div>
+                    <div>${formatInteger(remainingQty)}</div>
                     ${stockSummary.allocatedQty > 0 ? `<div class="small text-muted">${escapeHtml(__('Stock'))}: ${formatNumber(stockSummary.allocatedQty)} / ${formatNumber(stockSummary.requiredQty)}</div>` : ''}
                 </td>
                 <td class="text-end">${formatPrice(unit)}</td>
@@ -7039,7 +7291,109 @@ function computeNeededPurchases() {
         if (totalEl) {
             totalEl.textContent = formatPrice(totalCost);
         }
+        lastComputedShoppingEveText = eveLines.join('\n');
+        if (eveFormatEl) {
+            eveFormatEl.value = lastComputedShoppingEveText;
+        }
+        copyShoppingEveFormat({
+            preferredText: lastComputedShoppingEveText,
+            successMessage: __('Copied'),
+            showCopiedToast: true,
+        });
     });
+}
+
+function showShoppingCopiedToast(message, tone = 'success') {
+    const toast = document.getElementById('shoppingCopiedToast');
+    if (!toast) {
+        return;
+    }
+
+    toast.textContent = message || __('Copied');
+    toast.classList.remove('text-bg-success', 'text-bg-warning');
+    toast.classList.add(tone === 'warning' ? 'text-bg-warning' : 'text-bg-success');
+    toast.classList.remove('d-none');
+
+    if (shoppingCopiedToastTimer) {
+        window.clearTimeout(shoppingCopiedToastTimer);
+    }
+
+    shoppingCopiedToastTimer = window.setTimeout(() => {
+        toast.classList.add('d-none');
+    }, 1700);
+}
+
+function copyShoppingEveFormat(options = {}) {
+    const preferredText = typeof options.preferredText === 'string' ? options.preferredText : '';
+    const successMessage = options.successMessage || __('EVE shopping list copied.');
+    const showCopiedToast = options.showCopiedToast !== false;
+    const eveFormatEl = document.getElementById('shoppingEveFormat');
+
+    const text = (preferredText || lastComputedShoppingEveText || eveFormatEl?.value || '').trim();
+    if (!text) {
+        showShoppingCopiedToast(__('Compute before copy'), 'warning');
+        if (window.CraftBP && typeof window.CraftBP.pushStatus === 'function') {
+            window.CraftBP.pushStatus(__('No shopping lines to copy. Click Compute first.'), 'warning');
+        }
+        return;
+    }
+
+    const onSuccess = () => {
+        if (showCopiedToast) {
+            showShoppingCopiedToast(__('Copied'));
+        }
+        if (window.CraftBP && typeof window.CraftBP.pushStatus === 'function') {
+            window.CraftBP.pushStatus(successMessage, 'success');
+        }
+    };
+
+    const onFailure = () => {
+        if (eveFormatEl) {
+            eveFormatEl.focus();
+            eveFormatEl.select();
+        }
+        if (window.CraftBP && typeof window.CraftBP.pushStatus === 'function') {
+            window.CraftBP.pushStatus(__('Clipboard unavailable. Press Ctrl+C after selection.'), 'info');
+        }
+    };
+
+    const legacyCopy = () => {
+        try {
+            const temp = document.createElement('textarea');
+            temp.value = text;
+            temp.setAttribute('readonly', 'readonly');
+            temp.style.position = 'fixed';
+            temp.style.left = '-9999px';
+            document.body.appendChild(temp);
+            temp.focus();
+            temp.select();
+            const copied = document.execCommand('copy');
+            document.body.removeChild(temp);
+            return copied;
+        } catch (error) {
+            return false;
+        }
+    };
+
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        navigator.clipboard.writeText(text)
+            .then(onSuccess)
+            .catch(() => {
+                if (legacyCopy()) {
+                    onSuccess();
+                    return;
+                }
+                onFailure();
+            });
+        return;
+    }
+
+    if (legacyCopy()) {
+        onSuccess();
+        return;
+    }
+
+    onFailure();
 }
 
 /**
@@ -7187,9 +7541,14 @@ function renderBuildCycleRow(entry, options = {}) {
     const surplusHtml = surplus > 0
         ? `<span class="badge bg-success-subtle text-success fw-semibold">+${formatInteger(surplus)}</span>`
         : `<span class="badge bg-secondary-subtle text-secondary">0</span>`;
+    const outputPerCycleHtml = `<span class="fw-semibold text-primary">${formatInteger(producedPerCycle)}</span>`;
+    const cyclesNeededHtml = `<span class="fw-semibold text-info">${formatInteger(cycles)}</span>`;
+
+    const outputCycleCellClass = 'text-end text-xs border-start border-end-0 border-secondary-subtle';
+    const cyclesNeededCellClass = `text-end text-xs border-start-0 border-end border-secondary-subtle${isFinalProduct ? ' fw-bold' : ''}`;
 
     return `
-        <tr${isFinalProduct ? ' class="table-primary"' : ''} data-type-id="${typeId}">
+        <tr data-type-id="${typeId}">
             <td>
                 <div class="d-flex align-items-center gap-2">
                     <img src="https://images.evetech.net/types/${typeId}/icon?size=32" alt="${iconAlt}" loading="lazy" decoding="async" fetchpriority="low" class="rounded eve-type-icon eve-type-icon--30" onerror="this.style.display='none';">
@@ -7199,8 +7558,8 @@ function renderBuildCycleRow(entry, options = {}) {
                 </div>
             </td>
             <td class="text-end text-xs${isFinalProduct ? ' fw-bold' : ''}">${formatInteger(totalNeeded)}</td>
-            <td class="text-end text-xs">${formatInteger(producedPerCycle)}</td>
-            <td class="text-end text-xs${isFinalProduct ? ' fw-bold' : ''}">${formatInteger(cycles)}</td>
+            <td class="${outputCycleCellClass}">${outputPerCycleHtml}</td>
+            <td class="${cyclesNeededCellClass}">${cyclesNeededHtml}</td>
             <td class="text-end text-success text-xs${isFinalProduct ? ' fw-bold' : ' fw-semibold'}">${formatInteger(totalProduced)}</td>
             <td class="text-end text-xs">${surplusHtml}</td>
         </tr>
@@ -7282,6 +7641,14 @@ function updateBuildTabFromState() {
         finalProductRows.map((entry) => renderBuildCycleRow(entry, { finalProduct: true })).join(''),
         cycleEntries.map((entry) => renderBuildCycleRow(entry)).join('')
     ].join('');
+    const allEntries = [...finalProductRows, ...cycleEntries];
+    const kpis = allEntries.reduce((acc, entry) => {
+        acc.needed += Math.max(0, Math.ceil(Number(entry?.total_needed || entry?.totalNeeded || 0))) || 0;
+        acc.cycles += Math.max(0, Math.ceil(Number(entry?.cycles || 0))) || 0;
+        acc.produced += Math.max(0, Math.ceil(Number(entry?.total_produced || entry?.totalProduced || 0))) || 0;
+        acc.surplus += Math.max(0, Math.ceil(Number(entry?.surplus || 0))) || 0;
+        return acc;
+    }, { needed: 0, cycles: 0, produced: 0, surplus: 0 });
 
     buildPane.innerHTML = `
         <section class="craft-section">
@@ -7289,17 +7656,54 @@ function updateBuildTabFromState() {
                 <i class="fas fa-sync text-info"></i> ${escapeHtml(__('Cycles'))}
                 <span class="small text-body-secondary fw-semibold ms-2">${formatInteger(finalProductRows.length + cycleEntries.length)} ${escapeHtml(__('lines'))}</span>
             </h3>
+            <div class="small text-muted mb-3">${escapeHtml(__('Output/cycle'))} × ${escapeHtml(__('Cycles needed'))} = ${escapeHtml(__('Qty produced'))}</div>
+
+            <div class="row g-2 mb-3">
+                <div class="col-6 col-xl-3">
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-body py-2">
+                            <div class="small text-muted text-uppercase fw-semibold">${escapeHtml(__('Qty needed'))}</div>
+                            <div class="h5 mb-0 fw-bold">${formatInteger(kpis.needed)}</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-6 col-xl-3">
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-body py-2">
+                            <div class="small text-muted text-uppercase fw-semibold">${escapeHtml(__('Cycles needed'))}</div>
+                            <div class="h5 mb-0 fw-bold">${formatInteger(kpis.cycles)}</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-6 col-xl-3">
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-body py-2">
+                            <div class="small text-muted text-uppercase fw-semibold">${escapeHtml(__('Qty produced'))}</div>
+                            <div class="h5 mb-0 fw-bold text-success-emphasis">${formatInteger(kpis.produced)}</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-6 col-xl-3">
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-body py-2">
+                            <div class="small text-muted text-uppercase fw-semibold">${escapeHtml(__('Qty surplus'))}</div>
+                            <div class="h5 mb-0 fw-bold ${kpis.surplus > 0 ? 'text-success-emphasis' : 'text-body-secondary'}">${formatInteger(kpis.surplus)}</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <div class="table-responsive craft-cycles-table craft-stack-container craft-table-text-120">
-                <table class="table table-sm align-middle mb-0 craft-stackable-table"
-                    style="--craft-col-1: ${cssCustomPropertyString(__('Item'))}; --craft-col-2: ${cssCustomPropertyString(__('Needed'))}; --craft-col-3: ${cssCustomPropertyString(__('Per cycle'))}; --craft-col-4: ${cssCustomPropertyString(__('Cycles'))}; --craft-col-5: ${cssCustomPropertyString(__('Produced'))}; --craft-col-6: ${cssCustomPropertyString(__('Surplus'))};">
+                <table class="table table-sm table-hover align-middle mb-0 craft-stackable-table"
+                    style="--craft-col-1: ${cssCustomPropertyString(__('Item'))}; --craft-col-2: ${cssCustomPropertyString(__('Qty needed'))}; --craft-col-3: ${cssCustomPropertyString(__('Output/cycle'))}; --craft-col-4: ${cssCustomPropertyString(__('Cycles needed'))}; --craft-col-5: ${cssCustomPropertyString(__('Qty produced'))}; --craft-col-6: ${cssCustomPropertyString(__('Qty surplus'))};">
                     <thead class="table-light">
                         <tr>
                             <th>${escapeHtml(__('Item'))}</th>
-                            <th class="text-end">${escapeHtml(__('Needed'))}</th>
-                            <th class="text-end">${escapeHtml(__('Per cycle'))}</th>
-                            <th class="text-end">${escapeHtml(__('Cycles'))}</th>
-                            <th class="text-end">${escapeHtml(__('Produced'))}</th>
-                            <th class="text-end">${escapeHtml(__('Surplus'))}</th>
+                            <th class="text-center">${escapeHtml(__('Qty needed'))}</th>
+                            <th class="text-center border-top border-bottom border-start border-end-0 border-secondary-subtle">${escapeHtml(__('Output/cycle'))}</th>
+                            <th class="text-center border-top border-bottom border-start-0 border-end border-secondary-subtle">${escapeHtml(__('Cycles needed'))}</th>
+                            <th class="text-center">${escapeHtml(__('Qty produced'))}</th>
+                            <th class="text-center">${escapeHtml(__('Qty surplus'))}</th>
                         </tr>
                     </thead>
                     <tbody>${rowsHtml}</tbody>
@@ -7634,7 +8038,7 @@ function renderCraftTimingTableRow(row) {
         : `<span class="badge bg-warning-subtle text-warning-emphasis">${escapeHtml(__('Blocked'))}</span>`;
 
     return `
-        <tr${row.isFinalProduct ? ' class="table-primary"' : ''} data-type-id="${row.typeId}">
+        <tr data-type-id="${row.typeId}">
             <td>
                 <div class="d-flex align-items-center gap-2">
                     <img src="https://images.evetech.net/types/${row.typeId}/icon?size=32" alt="${escapeHtml(row.typeName)}" loading="lazy" decoding="async" fetchpriority="low" class="rounded eve-type-icon eve-type-icon--30" onerror="this.style.display='none';">
@@ -7711,23 +8115,23 @@ function updateCraftTimingTabFromState() {
         ${missingRows.length > 0 ? `<div class="alert alert-warning">${escapeHtml(__('Some items are missing base activity times, so their durations are shown as unavailable.'))}</div>` : ''}
         <section class="craft-section">
             <h3 class="craft-section-title">
-                <i class="fas fa-clock text-primary"></i> ${escapeHtml(__('Production Times'))}
+                <i class="fas fa-clock text-body-secondary"></i> ${escapeHtml(__('Production Times'))}
             </h3>
             <div class="table-responsive craft-cycles-table craft-stack-container craft-table-text-120">
-                <table class="table table-sm align-middle mb-0 craft-stackable-table"
+                <table class="table table-sm table-hover align-middle mb-0 craft-stackable-table"
                     style="--craft-col-1: ${cssCustomPropertyString(__('Item'))}; --craft-col-2: ${cssCustomPropertyString('TE')}; --craft-col-3: ${cssCustomPropertyString(__('Structure bonus'))}; --craft-col-4: ${cssCustomPropertyString(__('Skill bonus'))}; --craft-col-5: ${cssCustomPropertyString(__('Time / cycle'))}; --craft-col-6: ${cssCustomPropertyString(__('Cycles'))}; --craft-col-7: ${cssCustomPropertyString(__('Jobs'))}; --craft-col-8: ${cssCustomPropertyString(__('Elapsed'))}; --craft-col-9: ${cssCustomPropertyString(__('Character'))}; --craft-col-10: ${cssCustomPropertyString(__('Structure'))};">
                     <thead class="table-light">
                         <tr>
                             <th>${escapeHtml(__('Item'))}</th>
-                            <th class="text-end">TE</th>
-                            <th class="text-end">${escapeHtml(__('Structure bonus'))}</th>
-                            <th class="text-end">${escapeHtml(__('Skill bonus'))}</th>
-                            <th class="text-end">${escapeHtml(__('Time / cycle'))}</th>
-                            <th class="text-end">${escapeHtml(__('Cycles'))}</th>
-                            <th class="text-end">${escapeHtml(__('Jobs'))}</th>
-                            <th class="text-end">${escapeHtml(__('Elapsed'))}</th>
-                            <th class="text-end">${escapeHtml(__('Character'))}</th>
-                            <th class="text-end">${escapeHtml(__('Structure'))}</th>
+                            <th class="text-center">TE</th>
+                            <th class="text-center">${escapeHtml(__('Structure bonus'))}</th>
+                            <th class="text-center">${escapeHtml(__('Skill bonus'))}</th>
+                            <th class="text-center">${escapeHtml(__('Time / cycle'))}</th>
+                            <th class="text-center">${escapeHtml(__('Cycles'))}</th>
+                            <th class="text-center">${escapeHtml(__('Jobs'))}</th>
+                            <th class="text-center">${escapeHtml(__('Elapsed'))}</th>
+                            <th class="text-center">${escapeHtml(__('Character'))}</th>
+                            <th class="text-center">${escapeHtml(__('Structure'))}</th>
                         </tr>
                     </thead>
                     <tbody>${rows.map(renderCraftTimingTableRow).join('')}</tbody>
