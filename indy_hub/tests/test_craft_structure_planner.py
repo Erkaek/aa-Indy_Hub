@@ -10,6 +10,9 @@ from django.test import TestCase
 # AA Example App
 from indy_hub.models import IndustryStructure, IndustrySystemCostIndex
 from indy_hub.services.craft_structures import (
+    _get_capital_ship_group_names,
+    _get_manufacturing_ship_group_names,
+    _get_super_capital_ship_group_names,
     _fetch_craftable_item_rows,
     _service_category_for_item,
     build_craft_structure_planner,
@@ -37,6 +40,10 @@ class _CursorStub:
 
 class CraftStructurePlannerTests(TestCase):
     def setUp(self) -> None:
+        _get_manufacturing_ship_group_names.cache_clear()
+        _get_capital_ship_group_names.cache_clear()
+        _get_super_capital_ship_group_names.cache_clear()
+
         self.nearby_structure = IndustryStructure.objects.create(
             name="Jita Capital Hub",
             structure_type_id=35826,
@@ -577,6 +584,9 @@ class CraftStructurePlannerTests(TestCase):
         )
 
     def test_manufacturing_service_category_supports_command_carrier_groups(self):
+        _get_manufacturing_ship_group_names.cache_clear()
+        _get_capital_ship_group_names.cache_clear()
+        _get_super_capital_ship_group_names.cache_clear()
         self.assertEqual(
             _service_category_for_item(1, "Command Carrier"),
             "manufacturing_capitals",
@@ -587,6 +597,25 @@ class CraftStructurePlannerTests(TestCase):
         )
         self.assertEqual(
             _service_category_for_item(1, "Supercarrier"),
+            "manufacturing_super_capitals",
+        )
+
+    @patch(
+        "indy_hub.services.craft_structures._get_manufacturing_ship_group_names",
+        return_value={"command carrier", "supercarrier", "titan"},
+    )
+    def test_manufacturing_service_category_uses_dynamic_ship_group_catalog(
+        self,
+        _mock_ship_groups,
+    ):
+        _get_capital_ship_group_names.cache_clear()
+        _get_super_capital_ship_group_names.cache_clear()
+        self.assertEqual(
+            _service_category_for_item(1, "Command Carrier"),
+            "manufacturing_capitals",
+        )
+        self.assertEqual(
+            _service_category_for_item(1, "Titan"),
             "manufacturing_super_capitals",
         )
 
