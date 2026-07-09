@@ -685,7 +685,7 @@ def craft_bp_payload(request, type_id: int):
             lookup_cursor.execute(
                 """
                 SELECT p.item_type_id
-                                FROM eve_sde_blueprintactivitymaterial p
+                                FROM eve_sde_blueprintactivityproduct p
                                 JOIN eve_sde_blueprintactivity ba ON ba.id = p.blueprint_activity_id
                                 JOIN eve_sde_itemtype blueprint_t ON blueprint_t.id = ba.blueprint_item_type_id
                                 JOIN eve_sde_itemtype product_t ON product_t.id = p.item_type_id
