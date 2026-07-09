@@ -15,7 +15,7 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 - Crafting Projects / Craft payload API: blueprint product lookup now resolves against the correct product type for workspace payloads, preventing mismatches when the project blueprint context is rebuilt.
 
-- Material Exchange: stock tables now show available quantity as the primary value, keep total visible, and only surface the secondary quantity when non-zero. The sell view now labels the secondary quantity as `Other Character` when it reflects stock on a different character, while buy flows continue to use reservation-aware availability.
+- Material Exchange: stock tables now show available quantity as the primary value, keep total visible, and only surface the secondary quantity when non-zero. Buy flows remain reservation-aware, and sell flows now compute reservations from active sell orders scoped to the selected character (with `character_id` persisted on sell orders) so `Reserved` and max-quantity inputs stay coherent.
 
 - Material Exchange: buy-order validation now treats explicit empty type-id filters as an empty result immediately, avoiding unnecessary database work when no stock items remain after filtering.
 
