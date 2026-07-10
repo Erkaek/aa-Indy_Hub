@@ -165,8 +165,8 @@ class MaterialExchangeBulkActionsUiTests(TestCase):
         self.assertContains(response, 'id="sellBulkMaxVisible"')
         self.assertContains(response, 'data-action="clear-visible"')
         self.assertContains(response, 'data-action="max-visible"')
-        self.assertContains(response, 'data-max-qty="4"')
-        self.assertContains(response, "Max: 4")
+        self.assertContains(response, 'data-max-qty="5"')
+        self.assertContains(response, "Max: 5")
         self.assertContains(response, "Total")
 
     def test_sell_page_shows_reserved_quantity_for_active_character(self) -> None:
@@ -194,9 +194,9 @@ class MaterialExchangeBulkActionsUiTests(TestCase):
             order=sell_order,
             type_id=34,
             type_name="Tritanium",
-            quantity=5,
+            quantity=1,
             unit_price=Decimal("5.25"),
-            total_price=Decimal("26.25"),
+            total_price=Decimal("5.25"),
         )
 
         request = self._prepare_request(
@@ -258,8 +258,9 @@ class MaterialExchangeBulkActionsUiTests(TestCase):
             response = self.sell_view(request, tokens=[])
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Reserved 5")
-        self.assertContains(response, 'max="5"')
+        self.assertContains(response, "Reserved 1")
+        self.assertContains(response, 'data-max-qty="4"')
+        self.assertContains(response, "Max: 4")
 
     def test_buy_page_renders_visible_bulk_buttons(self) -> None:
         MaterialExchangeStock.objects.create(
