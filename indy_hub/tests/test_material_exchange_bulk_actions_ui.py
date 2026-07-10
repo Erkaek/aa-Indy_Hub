@@ -165,6 +165,8 @@ class MaterialExchangeBulkActionsUiTests(TestCase):
         self.assertContains(response, 'id="sellBulkMaxVisible"')
         self.assertContains(response, 'data-action="clear-visible"')
         self.assertContains(response, 'data-action="max-visible"')
+        self.assertContains(response, 'data-max-qty="4"')
+        self.assertContains(response, "Max: 4")
         self.assertContains(response, "Total")
 
     def test_sell_page_shows_reserved_quantity_for_active_character(self) -> None:

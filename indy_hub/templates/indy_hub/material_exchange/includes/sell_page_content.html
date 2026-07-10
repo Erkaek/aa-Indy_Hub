@@ -315,7 +315,7 @@
                                             data-type-name="{{ item.type_name }}"
                                             data-group-name="{{ item.group_name|default:'' }}"
                                             data-unit-price="{{ item.buy_price_from_member|floatformat:2 }}"
-                                            data-max-qty="{{ item.user_quantity }}">
+                                            data-max-qty="{{ item.available_quantity|default:item.user_quantity }}">
                                             <td>
                                                 <img
                                                     src="{{ item.image_url }}"
@@ -364,7 +364,7 @@
                                                         </div>
                                                     </div>
                                                     <div class="qty-error" id="error-{{ item.type_id }}">
-                                                        {% trans "Max:" %} {{ item.user_quantity|intcomma }}
+                                                        {% trans "Max:" %} {{ item.available_quantity|default:item.user_quantity|intcomma }}
                                                     </div>
                                                 </div>
                                             </td>
