@@ -200,7 +200,7 @@
                                         data-type-name="{{ item.type_name }}"
                                         data-group-name="{{ item.group_name|default:'' }}"
                                         data-unit-price="{{ item.sell_price_to_member|floatformat:2 }}"
-                                        data-max-qty="{{ item.quantity }}">
+                                        data-max-qty="{{ item.available_quantity|default:item.quantity }}">
                                         <td>
                                             <img
                                                 src="{{ item.image_url }}"
@@ -212,7 +212,13 @@
                                             <div class="small text-body-secondary">{{ item.group_name|default:_('Other') }}</div>
                                         </td>
                                         <td class="text-end">
-                                            <span class="badge bg-primary">{{ item.quantity|intcomma }}</span>
+                                            <div class="d-flex flex-column align-items-end gap-1">
+                                                <span class="badge bg-primary">{{ item.available_quantity|default:item.quantity|intcomma }}</span>
+                                                {% if item.reserved_quantity|default:0 > 0 %}
+                                                <small class="text-danger text-end d-block">{% trans "Reserved" %} {{ item.reserved_quantity|default:0|intcomma }}</small>
+                                                {% endif %}
+                                                <small class="text-muted text-end d-block">{% trans "Total" %} {{ item.quantity|intcomma }}</small>
+                                            </div>
                                         </td>
                                         <td class="text-end text-primary fw-semibold">
                                             {{ item.sell_price_to_member|floatformat:2|intcomma }} ISK
@@ -226,10 +232,10 @@
                                                         id="qty-{{ item.type_id }}"
                                                         class="form-control qty-input"
                                                         min="0"
-                                                        max="{{ item.quantity }}"
+                                                            max="{{ item.available_quantity|default:item.quantity }}"
                                                         value="0"
                                                         data-type-id="{{ item.type_id }}"
-                                                        data-max="{{ item.quantity }}">
+                                                            data-max="{{ item.available_quantity|default:item.quantity }}">
                                                     <div class="qty-btns" role="group" aria-label="{% trans 'Quantity shortcuts' %}">
                                                         <button type="button" class="btn btn-secondary btn-sm qty-btn" data-action="zero" title="{% trans 'Zero' %}" aria-label="{% trans 'Zero' %}">
                                                             <i class="fas fa-ban" aria-hidden="true"></i>
@@ -238,7 +244,7 @@
                                                     </div>
                                                 </div>
                                                 <div class="qty-error" id="error-{{ item.type_id }}">
-                                                    {% trans "Max:" %} {{ item.quantity|intcomma }}
+                                                    {% trans "Max:" %} {{ item.available_quantity|default:item.quantity|intcomma }}
                                                 </div>
                                             </div>
                                         </td>

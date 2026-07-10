@@ -102,6 +102,7 @@ class MaterialExchangeSellPasteTests(TestCase):
                 {
                     "sell_input_mode": "paste",
                     "paste_quantities_json": json.dumps({"34": 4}),
+                    "character_id": str(self.character.character_id),
                     "order_reference": "INDY-PASTE-0001",
                 },
             )
@@ -140,6 +141,7 @@ class MaterialExchangeSellPasteTests(TestCase):
 
         order = MaterialExchangeSellOrder.objects.get(order_reference="INDY-PASTE-0001")
         self.assertEqual(order.status, MaterialExchangeSellOrder.Status.DRAFT)
+        self.assertEqual(order.character_id, self.character.character_id)
         self.assertEqual(order.rounded_total_price, Decimal("21"))
         self.assertEqual(order.items.count(), 1)
 

@@ -4,6 +4,7 @@ from django.test import TestCase
 
 # AA Example App
 from indy_hub.models import (
+    CachedStructureName,
     MaterialExchangeAcceptedLocation,
     MaterialExchangeConfig,
     MaterialExchangeSellOrder,
@@ -15,6 +16,14 @@ from indy_hub.views.material_exchange_orders import _build_contract_check_payloa
 class MaterialExchangeOrderContractCheckTests(TestCase):
     def setUp(self):
         self.seller = User.objects.create_user(username="contract-check-seller")
+        CachedStructureName.objects.create(
+            structure_id=60003760,
+            name="Primary Structure",
+        )
+        CachedStructureName.objects.create(
+            structure_id=60003761,
+            name="Secondary Structure",
+        )
         self.config = MaterialExchangeConfig.objects.create(
             corporation_id=123456789,
             structure_id=60003760,
@@ -95,3 +104,25 @@ class MaterialExchangeOrderContractCheckTests(TestCase):
             check for check in payload["checks"] if check["key"] == "location"
         )
         self.assertFalse(location_check["passed"])
+
+    def test_contract_check_accepts_location_with_additional_suffix_text(self):
+        payload = _build_contract_check_payload(
+            order=self.order,
+            order_type="sell",
+            raw_text=(
+                "Contract Type\tItem Exchange\n"
+                "Description\tINDY-TEST-REF\n"
+                "Availability\tTest Corporation\n"
+                "Location\tPrimary Structure - Office Folder\n"
+                "I will receive\t500 ISK\n"
+                "Items For Sale\tTritanium x 100\n"
+            ),
+            recipient_name="Test Corporation",
+            location_name="Primary Structure, Secondary Structure",
+            accepted_location_names=["Primary Structure", "Secondary Structure"],
+        )
+
+        location_check = next(
+            check for check in payload["checks"] if check["key"] == "location"
+        )
+        self.assertTrue(location_check["passed"])

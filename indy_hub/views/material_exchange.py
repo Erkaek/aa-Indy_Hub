@@ -15,7 +15,7 @@ from django.core.cache import cache
 from django.core.paginator import Paginator
 from django.db import connection, transaction
 from django.db.models import Count, Q, Sum
-from django.db.models.functions import TruncMonth
+from django.db.models.functions import Coalesce, TruncMonth
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
@@ -70,6 +70,18 @@ User = get_user_model()
 
 _PRODUCTION_IDS_CACHE: set[int] | None = None
 _INDUSTRY_MARKET_GROUP_IDS_CACHE: set[int] | None = None
+_BUY_ORDER_RESERVING_STATUSES = (
+    MaterialExchangeBuyOrder.Status.DRAFT,
+    MaterialExchangeBuyOrder.Status.AWAITING_VALIDATION,
+    MaterialExchangeBuyOrder.Status.VALIDATED,
+)
+_SELL_ORDER_RESERVING_STATUSES = (
+    MaterialExchangeSellOrder.Status.DRAFT,
+    MaterialExchangeSellOrder.Status.AWAITING_VALIDATION,
+    MaterialExchangeSellOrder.Status.ANOMALY,
+    MaterialExchangeSellOrder.Status.ANOMALY_REJECTED,
+    MaterialExchangeSellOrder.Status.VALIDATED,
+)
 
 
 def _resolve_main_character_name(user) -> str:
@@ -366,6 +378,72 @@ def _normalize_stock_type_names(stock_items: list[MaterialExchangeStock]) -> Non
         )
     except Exception as exc:
         logger.warning("Failed to persist normalized stock type names: %s", exc)
+
+
+def _get_buy_reserved_quantities(
+    config: MaterialExchangeConfig,
+    *,
+    type_ids: set[int] | None = None,
+    exclude_order_id: int | None = None,
+) -> dict[int, int]:
+    if type_ids is not None and not type_ids:
+        return {}
+
+    reserved_items = MaterialExchangeBuyOrderItem.objects.filter(
+        order__config=config,
+        order__status__in=_BUY_ORDER_RESERVING_STATUSES,
+    )
+    if exclude_order_id is not None:
+        reserved_items = reserved_items.exclude(order_id=exclude_order_id)
+    if type_ids is not None:
+        reserved_items = reserved_items.filter(type_id__in=type_ids)
+
+    rows = reserved_items.values("type_id").annotate(
+        reserved_quantity=Coalesce(Sum("quantity"), 0)
+    )
+    return {int(row["type_id"]): int(row["reserved_quantity"] or 0) for row in rows}
+
+
+def _get_sell_reserved_quantities(
+    config: MaterialExchangeConfig,
+    *,
+    character_id: int | None,
+    type_ids: set[int] | None = None,
+    exclude_order_id: int | None = None,
+) -> dict[int, int]:
+    if character_id is None:
+        return {}
+    if type_ids is not None and not type_ids:
+        return {}
+
+    reserved_items = MaterialExchangeSellOrderItem.objects.filter(
+        order__config=config,
+        order__character_id=character_id,
+        order__status__in=_SELL_ORDER_RESERVING_STATUSES,
+    )
+    if exclude_order_id is not None:
+        reserved_items = reserved_items.exclude(order_id=exclude_order_id)
+    if type_ids is not None:
+        reserved_items = reserved_items.filter(type_id__in=type_ids)
+
+    rows = reserved_items.values("type_id").annotate(
+        reserved_quantity=Coalesce(Sum("quantity"), 0)
+    )
+    return {int(row["type_id"]): int(row["reserved_quantity"] or 0) for row in rows}
+
+
+def _apply_buy_stock_availability(
+    stock_items: list[MaterialExchangeStock],
+    reserved_quantities: dict[int, int],
+) -> list[MaterialExchangeStock]:
+    available_items: list[MaterialExchangeStock] = []
+    for item in stock_items:
+        reserved_quantity = int(reserved_quantities.get(item.type_id, 0) or 0)
+        available_quantity = max(int(item.quantity or 0) - reserved_quantity, 0)
+        item.reserved_quantity = reserved_quantity
+        item.available_quantity = available_quantity
+        available_items.append(item)
+    return available_items
 
 
 def _get_industry_market_group_ids() -> set[int]:
@@ -1622,10 +1700,16 @@ def material_exchange_sell(request, tokens):
         if items_to_create:
             # Get order reference from client (generated in JavaScript)
             client_order_ref = request.POST.get("order_reference", "").strip()
+            character_id_raw = request.POST.get("character_id", "").strip()
+            try:
+                order_character_id = int(character_id_raw) if character_id_raw else None
+            except (TypeError, ValueError):
+                order_character_id = None
 
             order = MaterialExchangeSellOrder.objects.create(
                 config=config,
                 seller=request.user,
+                character_id=order_character_id,
                 status=MaterialExchangeSellOrder.Status.DRAFT,
                 order_reference=client_order_ref if client_order_ref else None,
             )
@@ -1890,10 +1974,19 @@ def material_exchange_sell(request, tokens):
             None,
         )
 
+        reserved_quantities = _get_sell_reserved_quantities(
+            config,
+            character_id=selected_character_id,
+            type_ids={int(type_id) for type_id in assets_for_display.keys()},
+        )
+
         for type_id, user_qty in assets_for_display.items():
             accepted_item = accepted_catalog_by_type.get(int(type_id))
             if not accepted_item:
                 continue
+            total_qty = int(raw_user_assets_aggregated.get(int(type_id), 0) or 0)
+            reserved_qty = int(reserved_quantities.get(int(type_id), 0) or 0)
+            available_qty = max(int(user_qty or 0) - reserved_qty, 0)
             materials_with_qty.append(
                 {
                     "type_id": int(type_id),
@@ -1906,6 +1999,9 @@ def material_exchange_sell(request, tokens):
                     ),
                     "buy_price_from_member": accepted_item["buy_price_from_member"],
                     "user_quantity": user_qty,
+                    "total_quantity": total_qty or user_qty,
+                    "reserved_quantity": reserved_qty,
+                    "available_quantity": available_qty,
                 }
             )
 
@@ -2023,157 +2119,172 @@ def material_exchange_buy(request, tokens):
         corp_assets_scope_missing = False
 
     if request.method == "POST":
-        # Get available stock
-        stock_items = list(
-            config.stock_items.filter(quantity__gt=0, jita_buy_price__gt=0)
-        )
-        _normalize_stock_type_names(stock_items)
-
-        pre_filter_stock_count = len(stock_items)
-
-        # Apply market group filter strictly (empty config means no allowed items)
-        try:
-            allowed_type_ids = _get_allowed_type_ids_for_config(config, "buy")
-            if allowed_type_ids is not None:
-                stock_items = [
-                    item for item in stock_items if item.type_id in allowed_type_ids
-                ]
-        except Exception as exc:
-            logger.warning("Failed to apply market group filter: %s", exc)
-
-        group_map = _get_group_map([item.type_id for item in stock_items])
-        stock_items.sort(
-            key=lambda i: (
-                group_map.get(i.type_id, "Other").lower(),
-                (i.type_name or "").lower(),
+        with transaction.atomic():
+            # Get available stock and lock the rows so concurrent submissions see
+            # a consistent reservation snapshot.
+            stock_items = list(
+                config.stock_items.select_for_update().filter(
+                    quantity__gt=0, jita_buy_price__gt=0
+                )
             )
-        )
-        if not stock_items:
-            if pre_filter_stock_count > 0:
+            _normalize_stock_type_names(stock_items)
+
+            pre_filter_stock_count = len(stock_items)
+
+            # Apply market group filter strictly (empty config means no allowed items)
+            try:
+                allowed_type_ids = _get_allowed_type_ids_for_config(config, "buy")
+                if allowed_type_ids is not None:
+                    stock_items = [
+                        item for item in stock_items if item.type_id in allowed_type_ids
+                    ]
+            except Exception as exc:
+                logger.warning("Failed to apply market group filter: %s", exc)
+
+            reserved_quantities = _get_buy_reserved_quantities(
+                config,
+                type_ids={item.type_id for item in stock_items},
+            )
+            stock_items = _apply_buy_stock_availability(
+                stock_items, reserved_quantities
+            )
+            stock_items = [item for item in stock_items if item.available_quantity > 0]
+
+            group_map = _get_group_map([item.type_id for item in stock_items])
+            stock_items.sort(
+                key=lambda i: (
+                    group_map.get(i.type_id, "Other").lower(),
+                    (i.type_name or "").lower(),
+                )
+            )
+            if not stock_items:
+                if pre_filter_stock_count > 0:
+                    messages.error(
+                        request,
+                        _(
+                            "No stock available after reserving quantities for outstanding orders in the current configuration."
+                        ),
+                    )
+                else:
+                    messages.error(request, _("No stock available."))
+                return redirect("indy_hub:material_exchange_buy")
+
+            # Parse submitted quantities from the form. Do not iterate over `stock_items` here:
+            # doing so can silently drop items if stock changed (quantity=0) or an item is no
+            # longer visible due to filters.
+            submitted_quantities: dict[int, int] = {}
+            for key, value in request.POST.items():
+                if not key.startswith("qty_"):
+                    continue
+                type_id_str = key[4:]
+                if not type_id_str.isdigit():
+                    continue
+                qty_raw = (value or "").strip()
+                if not qty_raw:
+                    continue
+                try:
+                    qty = int(qty_raw)
+                except Exception:
+                    continue
+                if qty <= 0:
+                    continue
+                submitted_quantities[int(type_id_str)] = qty
+
+            if not submitted_quantities:
                 messages.error(
                     request,
+                    _("Please enter a quantity greater than 0 for at least one item."),
+                )
+                return redirect("indy_hub:material_exchange_buy")
+
+            stock_by_type_id = {item.type_id: item for item in stock_items}
+
+            items_to_create = []
+            errors = []
+            total_cost = Decimal("0")
+
+            for type_id, qty in submitted_quantities.items():
+                stock_item = stock_by_type_id.get(type_id)
+                if stock_item is None:
+                    type_name = get_type_name(type_id)
+                    errors.append(
+                        _(
+                            f"{type_name} is no longer available in stock. Please refresh the page and try again."
+                        )
+                    )
+                    continue
+
+                if stock_item.available_quantity < qty:
+                    errors.append(
+                        _(
+                            f"Insufficient stock for {stock_item.type_name}. Available: {stock_item.available_quantity:,}, requested: {qty:,}"
+                        )
+                    )
+                    continue
+
+                unit_price = stock_item.sell_price_to_member
+                total_price = unit_price * qty
+                total_cost += total_price
+
+                items_to_create.append(
+                    {
+                        "type_id": type_id,
+                        "type_name": stock_item.type_name,
+                        "quantity": qty,
+                        "unit_price": unit_price,
+                        "total_price": total_price,
+                        "stock_available_at_creation": stock_item.available_quantity,
+                    }
+                )
+
+            if not items_to_create and not errors:
+                messages.error(
+                    request,
+                    _("Please enter a quantity greater than 0 for at least one item."),
+                )
+                return redirect("indy_hub:material_exchange_buy")
+            if errors:
+                for err in errors:
+                    messages.error(request, err)
+
+                # Prevent creating a partial order with an unexpected (lower) total.
+                return redirect("indy_hub:material_exchange_buy")
+
+            if items_to_create:
+                # Get order reference from client (generated in JavaScript)
+                client_order_ref = request.POST.get("order_reference", "").strip()
+
+                # Create ONE order with ALL items
+                order = MaterialExchangeBuyOrder.objects.create(
+                    config=config,
+                    buyer=request.user,
+                    status="draft",
+                    order_reference=client_order_ref if client_order_ref else None,
+                )
+
+                # Create items for this order
+                for item_data in items_to_create:
+                    MaterialExchangeBuyOrderItem.objects.create(
+                        order=order, **item_data
+                    )
+
+                rounded_total_cost = total_cost.quantize(
+                    Decimal("1"), rounding=ROUND_CEILING
+                )
+                order.rounded_total_price = rounded_total_cost
+                order.save(update_fields=["rounded_total_price", "updated_at"])
+
+                # Admin notifications are handled by the post_save signal + async task
+
+                messages.success(
+                    request,
                     _(
-                        "No stock available in the allowed Market Groups based on the current configuration."
+                        f"Created buy order #{order.id} with {len(items_to_create)} item(s). Total cost: {rounded_total_cost:,.0f} ISK. Awaiting admin approval."
                     ),
                 )
-            else:
-                messages.error(request, _("No stock available."))
+                return redirect("indy_hub:material_exchange_index")
+
             return redirect("indy_hub:material_exchange_buy")
-
-        # Parse submitted quantities from the form. Do not iterate over `stock_items` here:
-        # doing so can silently drop items if stock changed (quantity=0) or an item is no
-        # longer visible due to filters.
-        submitted_quantities: dict[int, int] = {}
-        for key, value in request.POST.items():
-            if not key.startswith("qty_"):
-                continue
-            type_id_str = key[4:]
-            if not type_id_str.isdigit():
-                continue
-            qty_raw = (value or "").strip()
-            if not qty_raw:
-                continue
-            try:
-                qty = int(qty_raw)
-            except Exception:
-                continue
-            if qty <= 0:
-                continue
-            submitted_quantities[int(type_id_str)] = qty
-
-        if not submitted_quantities:
-            messages.error(
-                request,
-                _("Please enter a quantity greater than 0 for at least one item."),
-            )
-            return redirect("indy_hub:material_exchange_buy")
-
-        stock_by_type_id = {item.type_id: item for item in stock_items}
-
-        items_to_create = []
-        errors = []
-        total_cost = Decimal("0")
-
-        for type_id, qty in submitted_quantities.items():
-            stock_item = stock_by_type_id.get(type_id)
-            if stock_item is None:
-                type_name = get_type_name(type_id)
-                errors.append(
-                    _(
-                        f"{type_name} is no longer available in stock. Please refresh the page and try again."
-                    )
-                )
-                continue
-
-            if stock_item.quantity < qty:
-                errors.append(
-                    _(
-                        f"Insufficient stock for {stock_item.type_name}. Available: {stock_item.quantity:,}, requested: {qty:,}"
-                    )
-                )
-                continue
-
-            unit_price = stock_item.sell_price_to_member
-            total_price = unit_price * qty
-            total_cost += total_price
-
-            items_to_create.append(
-                {
-                    "type_id": type_id,
-                    "type_name": stock_item.type_name,
-                    "quantity": qty,
-                    "unit_price": unit_price,
-                    "total_price": total_price,
-                    "stock_available_at_creation": stock_item.quantity,
-                }
-            )
-
-        if not items_to_create and not errors:
-            messages.error(
-                request,
-                _("Please enter a quantity greater than 0 for at least one item."),
-            )
-            return redirect("indy_hub:material_exchange_buy")
-        if errors:
-            for err in errors:
-                messages.error(request, err)
-
-            # Prevent creating a partial order with an unexpected (lower) total.
-            return redirect("indy_hub:material_exchange_buy")
-
-        if items_to_create:
-            # Get order reference from client (generated in JavaScript)
-            client_order_ref = request.POST.get("order_reference", "").strip()
-
-            # Create ONE order with ALL items
-            order = MaterialExchangeBuyOrder.objects.create(
-                config=config,
-                buyer=request.user,
-                status="draft",
-                order_reference=client_order_ref if client_order_ref else None,
-            )
-
-            # Create items for this order
-            for item_data in items_to_create:
-                MaterialExchangeBuyOrderItem.objects.create(order=order, **item_data)
-
-            rounded_total_cost = total_cost.quantize(
-                Decimal("1"), rounding=ROUND_CEILING
-            )
-            order.rounded_total_price = rounded_total_cost
-            order.save(update_fields=["rounded_total_price", "updated_at"])
-
-            # Admin notifications are handled by the post_save signal + async task
-
-            messages.success(
-                request,
-                _(
-                    f"Created buy order #{order.id} with {len(items_to_create)} item(s). Total cost: {rounded_total_cost:,.0f} ISK. Awaiting admin approval."
-                ),
-            )
-            return redirect("indy_hub:material_exchange_index")
-
-        return redirect("indy_hub:material_exchange_buy")
 
     # Auto-refresh stock only if stale (> 1h) or never synced; otherwise keep cache.
     # Post-deploy self-heal: if we changed stock derivation logic, trigger a one-time refresh.
@@ -2255,6 +2366,13 @@ def material_exchange_buy(request, tokens):
     except Exception as exc:
         logger.warning("Failed to apply market group filter: %s", exc)
 
+    reserved_quantities = _get_buy_reserved_quantities(
+        config,
+        type_ids={item.type_id for item in stock_items},
+    )
+    stock_items = _apply_buy_stock_availability(stock_items, reserved_quantities)
+    stock_items = [item for item in stock_items if item.available_quantity > 0]
+
     group_map = _get_group_map([item.type_id for item in stock_items])
     stock_items.sort(
         key=lambda i: (
@@ -2274,7 +2392,7 @@ def material_exchange_buy(request, tokens):
         messages.info(
             request,
             _(
-                "Stock exists, but none of it matches the allowed Market Groups based on the current configuration."
+                "Stock exists, but none of it is currently available after reserving outstanding orders and applying the current configuration."
             ),
         )
 
@@ -2559,28 +2677,47 @@ def material_exchange_approve_buy(request, order_id):
 
     order = get_object_or_404(MaterialExchangeBuyOrder, id=order_id, status="draft")
 
-    # Re-check stock for all items
-    errors = []
-    for item in order.items.all():
-        try:
-            stock_item = order.config.stock_items.get(type_id=item.type_id)
-            if stock_item.quantity < item.quantity:
+    with transaction.atomic():
+        item_type_ids = {item.type_id for item in order.items.all()}
+        stock_by_type_id = {
+            stock_item.type_id: stock_item
+            for stock_item in order.config.stock_items.select_for_update().filter(
+                type_id__in=item_type_ids
+            )
+        }
+        reserved_quantities = _get_buy_reserved_quantities(
+            order.config,
+            type_ids=item_type_ids,
+            exclude_order_id=order.id,
+        )
+
+        errors = []
+        for item in order.items.all():
+            stock_item = stock_by_type_id.get(item.type_id)
+            if stock_item is None:
+                errors.append(_(f"{item.type_name}: not in stock."))
+                continue
+
+            available_quantity = max(
+                int(stock_item.quantity or 0)
+                - int(reserved_quantities.get(item.type_id, 0) or 0),
+                0,
+            )
+            if available_quantity < item.quantity:
                 errors.append(
                     _(
-                        f"{item.type_name}: insufficient stock. Available: {stock_item.quantity}, required: {item.quantity}"
+                        f"{item.type_name}: insufficient stock. Available: {available_quantity}, required: {item.quantity}"
                     )
                 )
-        except MaterialExchangeStock.DoesNotExist:
-            errors.append(_(f"{item.type_name}: not in stock."))
 
-    if errors:
-        messages.error(request, _("Cannot approve: ") + "; ".join(errors))
-        return redirect("indy_hub:material_exchange_index")
+        if errors:
+            messages.error(request, _("Cannot approve: ") + "; ".join(errors))
+            return redirect("indy_hub:material_exchange_index")
 
-    order.status = "awaiting_validation"
-    order.approved_by = request.user
-    order.approved_at = timezone.now()
-    order.save()
+        order.status = "awaiting_validation"
+        order.approved_by = request.user
+        order.approved_at = timezone.now()
+        order.save()
 
     messages.success(
         request,

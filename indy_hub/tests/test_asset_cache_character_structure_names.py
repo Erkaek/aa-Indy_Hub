@@ -10,7 +10,7 @@ from django.test import TestCase
 from django.utils import timezone
 
 # AA Example App
-from indy_hub.models import CachedCharacterAsset, CachedStructureName
+from indy_hub.models import CachedCharacterAsset
 from indy_hub.services import asset_cache
 
 
@@ -118,15 +118,6 @@ class CharacterAssetRefreshStructureNameTests(TestCase):
             }
         ]
 
-        def resolve_side_effect(structure_ids, character_id=None, user=None, **kwargs):
-            now = timezone.now()
-            for sid in structure_ids:
-                CachedStructureName.objects.update_or_create(
-                    structure_id=int(sid),
-                    defaults={"name": f"Structure {sid}", "last_resolved": now},
-                )
-            return {int(sid): f"Structure {sid}" for sid in structure_ids}
-
         with (
             patch.object(asset_cache.Token.objects, "filter", return_value=fake_tokens),
             patch.object(
@@ -137,7 +128,7 @@ class CharacterAssetRefreshStructureNameTests(TestCase):
             patch.object(
                 asset_cache,
                 "resolve_structure_names",
-                side_effect=resolve_side_effect,
+                return_value={structure_id: f"Structure {structure_id}"},
             ) as mocked_resolve,
         ):
             refreshed_assets, scope_missing = asset_cache._refresh_character_assets(
@@ -153,8 +144,9 @@ class CharacterAssetRefreshStructureNameTests(TestCase):
         self.assertEqual(row.raw_location_id, structure_id)
         self.assertEqual(row.location_id, structure_id)
 
-        # Ensure we attempted to resolve/cache the structure name.
-        self.assertTrue(mocked_resolve.called)
-        self.assertTrue(
-            CachedStructureName.objects.filter(structure_id=structure_id).exists()
+        mocked_resolve.assert_called_once_with(
+            [structure_id],
+            character_id=character_id,
+            user=user,
+            schedule_async=True,
         )

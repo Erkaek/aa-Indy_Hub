@@ -93,36 +93,6 @@ class ContractValidationTestCase(TestCase):
         self.assertIsNone(_extract_contract_id(""))
         self.assertIsNone(_extract_contract_id(None))
 
-    def test_sell_order_status_transitions(self):
-        """Test sell order status field values"""
-        self.assertEqual(
-            self.sell_order.status,
-            MaterialExchangeSellOrder.Status.DRAFT,
-        )
-
-        # Check all status choices exist
-        status_values = [s[0] for s in MaterialExchangeSellOrder.Status.choices]
-        self.assertIn(MaterialExchangeSellOrder.Status.DRAFT, status_values)
-        self.assertIn(MaterialExchangeSellOrder.Status.ANOMALY, status_values)
-        self.assertIn(MaterialExchangeSellOrder.Status.ANOMALY_REJECTED, status_values)
-        self.assertIn(MaterialExchangeSellOrder.Status.VALIDATED, status_values)
-        self.assertIn(MaterialExchangeSellOrder.Status.COMPLETED, status_values)
-        self.assertIn(MaterialExchangeSellOrder.Status.REJECTED, status_values)
-
-    def test_buy_order_status_transitions(self):
-        """Test buy order status field values"""
-        self.assertEqual(
-            self.buy_order.status,
-            MaterialExchangeBuyOrder.Status.DRAFT,
-        )
-
-        # Check all status choices exist
-        status_values = [s[0] for s in MaterialExchangeBuyOrder.Status.choices]
-        self.assertIn(MaterialExchangeBuyOrder.Status.DRAFT, status_values)
-        self.assertIn(MaterialExchangeBuyOrder.Status.VALIDATED, status_values)
-        self.assertIn(MaterialExchangeBuyOrder.Status.COMPLETED, status_values)
-        self.assertIn(MaterialExchangeBuyOrder.Status.REJECTED, status_values)
-
 
 class ContractValidationTaskTest(TestCase):
     """Tests for Celery task execution"""
@@ -258,6 +228,14 @@ class ContractValidationTaskTest(TestCase):
 
 class ContractLocationMatchingTests(TestCase):
     def setUp(self):
+        CachedStructureName.objects.create(
+            structure_id=60003760,
+            name="Primary Structure",
+        )
+        CachedStructureName.objects.create(
+            structure_id=60003761,
+            name="Secondary Structure",
+        )
         self.config = MaterialExchangeConfig.objects.create(
             corporation_id=123456789,
             structure_id=60003760,

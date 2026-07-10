@@ -88,13 +88,8 @@ class CopyEstimatedItemValueFromMaterialsTests(TestCase):
     def test_eiv_uses_manufacturing_materials_not_product_price(self) -> None:
         req = _make_request(self.blueprint_type_id, runs_requested=20)
         patches = self._patches()
-        for p in patches:
-            p.start()
-        try:
+        with patches[0], patches[1], patches[2]:
             result = _build_copy_estimated_item_values([req])
-        finally:
-            for p in patches:
-                p.stop()
 
         self.assertIn(self.blueprint_type_id, result)
         entry = result[self.blueprint_type_id]
@@ -112,13 +107,8 @@ class CopyEstimatedItemValueFromMaterialsTests(TestCase):
             "average_price": Decimal("12"),
         }
         patches = self._patches()
-        for p in patches:
-            p.start()
-        try:
+        with patches[0], patches[1], patches[2]:
             result = _build_copy_estimated_item_values([req])
-        finally:
-            for p in patches:
-                p.stop()
 
         entry = result[self.blueprint_type_id]
         expected = Decimal("1000") * Decimal("12") + Decimal("200") * Decimal("22.535")
@@ -130,12 +120,7 @@ class CopyEstimatedItemValueFromMaterialsTests(TestCase):
         req = _make_request(self.blueprint_type_id, runs_requested=1)
         self.materials = []
         patches = self._patches()
-        for p in patches:
-            p.start()
-        try:
+        with patches[0], patches[1], patches[2]:
             result = _build_copy_estimated_item_values([req])
-        finally:
-            for p in patches:
-                p.stop()
 
         self.assertEqual(result, {})

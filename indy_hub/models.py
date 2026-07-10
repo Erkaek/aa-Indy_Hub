@@ -2180,6 +2180,12 @@ class MaterialExchangeSellOrder(models.Model):
     seller = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name="material_sell_orders"
     )
+    character_id = models.BigIntegerField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text=_("EVE character ID used to create this sell order"),
+    )
 
     status = models.CharField(
         max_length=30, choices=Status.choices, default=Status.DRAFT

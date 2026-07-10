@@ -6,14 +6,13 @@ from unittest.mock import patch
 # Django
 from django.contrib.auth.models import User
 from django.test import TestCase
-from django.utils import timezone
 
 # Alliance Auth
 from allianceauth.authentication.models import CharacterOwnership
 from allianceauth.eveonline.models import EveCharacter
 
 # AA Example App
-from indy_hub.models import CachedCharacterAsset, CachedStructureName
+from indy_hub.models import CachedCharacterAsset
 from indy_hub.tasks import material_exchange
 
 
@@ -63,15 +62,6 @@ class MaterialExchangeSellAssetsStructureCacheTests(TestCase):
             }
         ]
 
-        def resolve_side_effect(structure_ids, character_id=None, user=None, **kwargs):
-            now = timezone.now()
-            for sid in structure_ids:
-                CachedStructureName.objects.update_or_create(
-                    structure_id=int(sid),
-                    defaults={"name": f"Structure {sid}", "last_resolved": now},
-                )
-            return {int(sid): f"Structure {sid}" for sid in structure_ids}
-
         fake_tokens = _FakeTokenQuerySet([object()])
 
         with (
@@ -88,7 +78,7 @@ class MaterialExchangeSellAssetsStructureCacheTests(TestCase):
             patch.object(
                 material_exchange,
                 "resolve_structure_names",
-                side_effect=resolve_side_effect,
+                return_value={structure_id: f"Structure {structure_id}"},
             ) as mocked_resolve,
         ):
             material_exchange.refresh_material_exchange_sell_user_assets(int(user.id))
@@ -99,8 +89,9 @@ class MaterialExchangeSellAssetsStructureCacheTests(TestCase):
         self.assertEqual(row.raw_location_id, structure_id)
         self.assertEqual(row.location_id, structure_id)
 
-        # Ensure we attempted to resolve/cache the structure name.
-        self.assertTrue(mocked_resolve.called)
-        self.assertTrue(
-            CachedStructureName.objects.filter(structure_id=structure_id).exists()
+        mocked_resolve.assert_called_once_with(
+            [structure_id],
+            character_id=character_id,
+            user=user,
+            schedule_async=True,
         )
