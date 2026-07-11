@@ -38,6 +38,20 @@ def invalidate_menu_badge_cache(*user_ids: int | None) -> None:
         cache.delete(menu_badge_refresh_lock_key(user_id))
 
 
+def count_material_exchange_open_orders(user_id: int) -> int:
+    """Return the number of open Material Exchange orders for a user."""
+    from ..models import MaterialExchangeBuyOrder, MaterialExchangeSellOrder
+
+    closed_statuses = ["completed", "rejected", "cancelled"]
+    sell_count = MaterialExchangeSellOrder.objects.filter(seller_id=user_id).exclude(
+        status__in=closed_statuses
+    ).count()
+    buy_count = MaterialExchangeBuyOrder.objects.filter(buyer_id=user_id).exclude(
+        status__in=closed_statuses
+    ).count()
+    return int(sell_count) + int(buy_count)
+
+
 def compute_menu_badge_count(user_id: int) -> int:
     """Compute pending Indy Hub menu badge count for a user."""
     from ..models import Blueprint, BlueprintCopyChat, BlueprintCopyRequest
@@ -101,7 +115,11 @@ def compute_menu_badge_count(user_id: int) -> int:
     )
 
     pending_request_ids.update(unread_chat_qs.values_list("request_id", flat=True))
-    return len(pending_request_ids) + count_characters_missing_scopes(user_id)
+    return (
+        len(pending_request_ids)
+        + count_material_exchange_open_orders(user_id)
+        + count_characters_missing_scopes(user_id)
+    )
 
 
 def count_characters_missing_scopes(user_id: int) -> int:

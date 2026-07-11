@@ -14,6 +14,7 @@ from .models import (
     IndustryJob,
     MaterialExchangeBuyOrder,
     MaterialExchangeConfig,
+    MaterialExchangeSellOrder,
 )
 from .tasks.material_exchange import (
     sync_material_exchange_prices,
@@ -570,3 +571,17 @@ def notify_admins_on_buy_order_created(sender, instance, created, **kwargs):
             exc,
             exc_info=True,
         )
+
+
+def _invalidate_material_exchange_menu_badge(instance) -> None:
+    invalidate_menu_badge_cache(
+        getattr(instance, "buyer_id", None), getattr(instance, "seller_id", None)
+    )
+
+
+@receiver(post_save, sender=MaterialExchangeBuyOrder)
+@receiver(post_delete, sender=MaterialExchangeBuyOrder)
+@receiver(post_save, sender=MaterialExchangeSellOrder)
+@receiver(post_delete, sender=MaterialExchangeSellOrder)
+def invalidate_material_exchange_menu_badge(sender, instance, **kwargs):
+    _invalidate_material_exchange_menu_badge(instance)

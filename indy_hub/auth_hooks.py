@@ -6,7 +6,11 @@ from allianceauth import hooks
 from allianceauth.services.hooks import MenuItemHook, UrlHook
 
 from . import urls
-from .utils.menu_badge import MENU_BADGE_CACHE_TTL_SECONDS, compute_menu_badge_count
+from .utils.menu_badge import (
+    MENU_BADGE_CACHE_TTL_SECONDS,
+    compute_menu_badge_count,
+    count_material_exchange_open_orders,
+)
 
 
 class IndyHubMenu(MenuItemHook):
@@ -44,6 +48,7 @@ class IndyHubMenu(MenuItemHook):
 
         try:
             computed_count = compute_menu_badge_count(int(request.user.id))
+            computed_count += count_material_exchange_open_orders(int(request.user.id))
             cache.set(cache_key, computed_count, MENU_BADGE_CACHE_TTL_SECONDS)
             self.count = computed_count if computed_count > 0 else None
         except Exception:

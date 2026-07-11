@@ -1,0 +1,28 @@
+{% comment %}Reusable nav link for Indy Hub headers{% endcomment %}
+{% with extra_class=link_class|default:btn_class %}
+<li class="nav-item{% if item_class %} {{ item_class }}{% endif %}">
+    <a class="nav-link d-flex align-items-center gap-2{% if extra_class %} {{ extra_class }}{% endif %}" href="{{ url }}">
+        {% if fa_icon %}
+            {% if icon_on_mobile %}
+                <span class="d-inline-flex d-lg-none">
+                    <i class="{{ fa_icon }}"></i>
+                </span>
+            {% endif %}
+            {% if icon_on_desktop %}
+                <span class="{% if icon_on_mobile %}d-none d-lg-inline-flex{% else %}d-inline-flex{% endif %}">
+                    <i class="{{ fa_icon }}"></i>
+                </span>
+            {% endif %}
+            {% if not icon_on_mobile and not icon_on_desktop %}
+                <span class="d-inline-flex">
+                    <i class="{{ fa_icon }}"></i>
+                </span>
+            {% endif %}
+        {% endif %}
+        <span class="nav-link-label">{{ title }}</span>
+        {% if badge_count %}
+            <span class="badge rounded-pill indy-hub-nav-badge {% if badge_class %}{{ badge_class }}{% else %}bg-secondary-subtle text-secondary{% endif %} ms-1"{% if badge_key %} data-nav-badge="{{ badge_key }}"{% endif %}>{{ badge_count }}</span>
+        {% endif %}
+    </a>
+</li>
+{% endwith %}
