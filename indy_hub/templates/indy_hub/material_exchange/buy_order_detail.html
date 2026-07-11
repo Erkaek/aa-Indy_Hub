@@ -234,7 +234,21 @@
                                             <td>
                                                 <strong>{{ item.type_name }}</strong>
                                             </td>
-                                            <td class="text-end">{{ item.quantity|intcomma }}</td>
+                                            <td class="text-end">
+                                                <span class="d-inline-flex align-items-center justify-content-end gap-2">
+                                                    <span>{{ item.quantity|intcomma }}</span>
+                                                    <button
+                                                        type="button"
+                                                        class="btn btn-link p-0 copy-button"
+                                                        onclick="copyQuantity(this)"
+                                                        title="{% trans 'Copy' %}"
+                                                        aria-label="{% trans 'Copy quantity' %}"
+                                                        data-copy-value="{{ item.quantity }}"
+                                                    >
+                                                        <i class="fas fa-copy" aria-hidden="true"></i>
+                                                    </button>
+                                                </span>
+                                            </td>
                                             <td class="text-end">{{ item.unit_price|floatformat:2|intcomma }} ISK</td>
                                             <td class="text-end fw-bold text-info">
                                                 {{ item.total_price|floatformat:2|intcomma }} ISK
@@ -394,6 +408,16 @@ function copyOrderReference(btn) {
             btn.innerHTML = originalHTML;
             btn.className = originalClass;
         }, 1600);
+    }).catch(err => {
+        console.error('Failed to copy:', err);
+        alert('Failed to copy to clipboard');
+    });
+}
+
+function copyQuantity(btn) {
+    const value = btn.dataset.copyValue || '';
+    navigator.clipboard.writeText(value).then(() => {
+        flashCopied(btn);
     }).catch(err => {
         console.error('Failed to copy:', err);
         alert('Failed to copy to clipboard');

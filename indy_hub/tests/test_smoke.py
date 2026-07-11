@@ -861,6 +861,14 @@ class MaterialExchangeContractCheckTests(TestCase):
             status=MaterialExchangeBuyOrder.Status.DRAFT,
             order_reference="INDY-BUY-DETAIL-CHECK",
         )
+        MaterialExchangeBuyOrderItem.objects.create(
+            order=order,
+            type_id=705001,
+            type_name="Duplicated Widget",
+            quantity=12345,
+            unit_price="1200.00",
+            total_price="14814000.00",
+        )
 
         response = self.client.get(
             reverse("indy_hub:buy_order_detail", args=[order.id])
@@ -869,6 +877,8 @@ class MaterialExchangeContractCheckTests(TestCase):
         self.assertContains(
             response, reverse("indy_hub:buy_order_check_contract", args=[order.id])
         )
+        self.assertContains(response, 'data-copy-value="12345"')
+        self.assertContains(response, 'onclick="copyQuantity(this)"')
 
     def test_sell_order_detail_missing_renders_friendly_404(self) -> None:
         material_exchange_index = reverse("indy_hub:material_exchange_index")
