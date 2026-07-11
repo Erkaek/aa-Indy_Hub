@@ -42,16 +42,21 @@ def count_material_exchange_open_orders(user_id: int) -> int:
     """Return the number of open Material Exchange orders for a user."""
     from ..models import MaterialExchangeBuyOrder, MaterialExchangeSellOrder
 
-    closed_statuses = [
+    sell_closed_statuses = [
         MaterialExchangeSellOrder.Status.COMPLETED,
         MaterialExchangeSellOrder.Status.REJECTED,
         MaterialExchangeSellOrder.Status.CANCELLED,
     ]
+    buy_closed_statuses = [
+        MaterialExchangeBuyOrder.Status.COMPLETED,
+        MaterialExchangeBuyOrder.Status.REJECTED,
+        MaterialExchangeBuyOrder.Status.CANCELLED,
+    ]
     sell_count = MaterialExchangeSellOrder.objects.filter(seller_id=user_id).exclude(
-        status__in=closed_statuses
+        status__in=sell_closed_statuses
     ).count()
     buy_count = MaterialExchangeBuyOrder.objects.filter(buyer_id=user_id).exclude(
-        status__in=closed_statuses
+        status__in=buy_closed_statuses
     ).count()
     return int(sell_count) + int(buy_count)
 
