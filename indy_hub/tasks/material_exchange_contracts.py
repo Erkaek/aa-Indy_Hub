@@ -424,8 +424,8 @@ def _sync_contracts_for_corporation(corporation_id: int):
     synced_contract_ids = []
     indy_contracts_count = 0
 
-    with transaction.atomic():
-        for contract_data in contracts:
+    for contract_data in contracts:
+        with transaction.atomic():
             contract_payload = _normalize_esi_mapping(
                 contract_data,
                 context=f"contract ({corporation_id})",
@@ -549,8 +549,9 @@ def _sync_contracts_for_corporation(corporation_id: int):
                         exc,
                     )
 
-        # Remove contracts that are no longer in ESI response
-        # Keep contracts from the last 30 days to maintain history
+    # Remove contracts that are no longer in ESI response
+    # Keep contracts from the last 30 days to maintain history
+    with transaction.atomic():
         cutoff_date = timezone.now() - timezone.timedelta(days=30)
         deleted_count, _ = (
             ESIContract.objects.filter(
@@ -562,12 +563,12 @@ def _sync_contracts_for_corporation(corporation_id: int):
             .delete()
         )
 
-        if deleted_count > 0:
-            logger.info(
-                "Removed %s stale contracts for corporation %s",
-                deleted_count,
-                corporation_id,
-            )
+    if deleted_count > 0:
+        logger.info(
+            "Removed %s stale contracts for corporation %s",
+            deleted_count,
+            corporation_id,
+        )
 
     logger.info(
         "Successfully synced %s INDY contracts (filtered from %s total) for corporation %s",

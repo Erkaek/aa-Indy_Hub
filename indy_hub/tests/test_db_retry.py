@@ -70,6 +70,16 @@ class MySQLRetryHelperTests(SimpleTestCase):
     def test_duplicate_key_refreshes_existing_row_in_transaction(self) -> None:
         existing = SimpleNamespace(save=Mock())
 
+        class AutoNowField:
+            def __init__(self, attname: str) -> None:
+                self.attname = attname
+                self.auto_now = True
+
+        class PlainField:
+            def __init__(self, attname: str) -> None:
+                self.attname = attname
+                self.auto_now = False
+
         class DummyManager:
             def __init__(self) -> None:
                 self.update_or_create = Mock(
@@ -90,6 +100,13 @@ class MySQLRetryHelperTests(SimpleTestCase):
             {
                 "__name__": "DummyModel",
                 "DoesNotExist": type("DoesNotExist", (Exception,), {}),
+                "_meta": SimpleNamespace(
+                    concrete_fields=[
+                        PlainField("owner_user"),
+                        PlainField("level"),
+                        AutoNowField("last_updated"),
+                    ]
+                ),
                 "objects": DummyManager(),
             },
         )
@@ -108,7 +125,9 @@ class MySQLRetryHelperTests(SimpleTestCase):
         self.assertFalse(result[1])
         self.assertEqual(existing.owner_user, "user")
         self.assertEqual(existing.level, 5)
-        existing.save.assert_called_once_with(update_fields=["owner_user", "level"])
+        existing.save.assert_called_once_with(
+            update_fields=["owner_user", "level", "last_updated"]
+        )
 
     def test_duplicate_key_retries_when_row_is_not_visible_yet(self) -> None:
         manager = Mock()

@@ -28,6 +28,14 @@ def _is_mysql_duplicate_key_error(exc: Exception) -> bool:
     return "Duplicate entry" in str(exc)
 
 
+def _model_auto_now_field_names(model) -> list[str]:
+    return [
+        field.attname
+        for field in model._meta.concrete_fields
+        if getattr(field, "auto_now", False)
+    ]
+
+
 def update_or_create_with_mysql_retry(
     model,
     *,
@@ -70,7 +78,11 @@ def update_or_create_with_mysql_retry(
                     for field_name, value in defaults.items():
                         setattr(instance, field_name, value)
                     if defaults:
-                        instance.save(update_fields=list(defaults.keys()))
+                        update_fields = list(defaults.keys())
+                        for field_name in _model_auto_now_field_names(model):
+                            if field_name not in update_fields:
+                                update_fields.append(field_name)
+                        instance.save(update_fields=update_fields)
                     _log(
                         "Duplicate key while writing %s; refreshed existing row (%s/%s)",
                         model.__name__,
