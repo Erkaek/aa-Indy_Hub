@@ -17,6 +17,8 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 - Material Exchange: stock tables now show available quantity as the primary value, keep total visible, and only surface the secondary quantity when non-zero. Buy flows remain reservation-aware, and sell flows now compute reservations from active sell orders scoped to the selected character (with `character_id` persisted on sell orders) so `Reserved` and max-quantity inputs stay coherent.
 
+- Navigation: added a Material Hub badge in both the Alliance Auth menu and the Indy Hub navbar so open Material Exchange orders are surfaced consistently.
+
 - Material Exchange: buy-order validation now treats explicit empty type-id filters as an empty result immediately, avoiding unnecessary database work when no stock items remain after filtering.
 
 - SDE integration: Indy Hub now relies on the base `eve_sde` data path only, removing the legacy compatibility sync flow and related maintenance commands.
