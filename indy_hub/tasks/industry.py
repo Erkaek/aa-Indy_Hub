@@ -301,7 +301,7 @@ def _user_recent_job_sync(user: User, *, now: datetime | None = None) -> bool:
     ).exists()
 
 
-def _update_or_create_with_deadlock_retry(
+def _update_or_create_with_mysql_retry(
     model,
     *,
     lookup: dict[str, object],
@@ -1695,7 +1695,7 @@ def update_industry_jobs_for_user(
                             )
                             end_date = start_date
 
-                        _update_or_create_with_deadlock_retry(
+                        _update_or_create_with_mysql_retry(
                             IndustryJob,
                             lookup={"job_id": job_id},
                             defaults={
@@ -1917,7 +1917,7 @@ def update_industry_jobs_for_user(
                                 )
                                 end_date = start_date
 
-                            _update_or_create_with_deadlock_retry(
+                            _update_or_create_with_mysql_retry(
                                 IndustryJob,
                                 lookup={"job_id": job_id},
                                 defaults={
@@ -2400,11 +2400,11 @@ def update_character_skill_snapshot_for_character(
 
     update_or_create_with_mysql_retry(
         IndustrySkillSnapshot,
-        lookup={
+        lookup={"character_id": int(character_id)},
+        defaults={
             "owner_user": ownership.user,
-            "character_id": int(character_id),
+            **build_skill_snapshot_defaults(levels),
         },
-        defaults=build_skill_snapshot_defaults(levels),
         logger=logger,
     )
     emit_analytics_event(

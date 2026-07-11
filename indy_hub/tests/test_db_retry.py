@@ -5,11 +5,13 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 # Django
+from django.contrib.auth import get_user_model
 from django.db import IntegrityError
 from django.db.utils import OperationalError
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TransactionTestCase
 
 # AA Example App
+from indy_hub.models import IndustrySkillSnapshot
 from indy_hub.tasks.industry import (
     update_character_skill_snapshot_for_character,
     update_user_skill_snapshots,
@@ -151,3 +153,103 @@ class MySQLRetryHelperTests(SimpleTestCase):
         self.assertEqual(DummyModel.objects.update_or_create.call_count, 2)
         self.assertEqual(DummyModel.objects._get_calls, 1)
         mock_sleep.assert_called_once()
+
+    def test_duplicate_key_retries_when_recovery_hits_deadlock(self) -> None:
+        manager = Mock()
+        manager.update_or_create.side_effect = [
+            IntegrityError(1062, "Duplicate entry '1' for key 'character_id'"),
+            ("row", False),
+        ]
+
+        class DummyManager:
+            def __init__(self) -> None:
+                self.update_or_create = manager.update_or_create
+                self._get_calls = 0
+
+            def select_for_update(self):
+                return self
+
+            def get(self, **kwargs):
+                self._get_calls += 1
+                raise OperationalError(1213, "Deadlock found when trying to get lock")
+
+        DummyModel = type(
+            "DummyModel",
+            (),
+            {
+                "__name__": "DummyModel",
+                "DoesNotExist": type("DoesNotExist", (Exception,), {}),
+                "objects": DummyManager(),
+            },
+        )
+
+        with (
+            patch("indy_hub.utils.db_retry.random.random", return_value=0.0),
+            patch("indy_hub.utils.db_retry.time.sleep") as mock_sleep,
+        ):
+            result = update_or_create_with_mysql_retry(
+                DummyModel,
+                lookup={"character_id": 1},
+                defaults={"owner_user": "user"},
+            )
+
+        self.assertEqual(result, ("row", False))
+        self.assertEqual(DummyModel.objects.update_or_create.call_count, 2)
+        self.assertEqual(DummyModel.objects._get_calls, 1)
+        mock_sleep.assert_called_once()
+
+
+class MySQLRetryHelperIntegrationTests(TransactionTestCase):
+    def test_duplicate_key_recovery_updates_existing_db_row(self) -> None:
+        user_model = get_user_model()
+        original_owner = user_model.objects.create_user(
+            username="retry-original",
+            password="x",
+        )
+        new_owner = user_model.objects.create_user(
+            username="retry-new",
+            password="x",
+        )
+        existing = IndustrySkillSnapshot.objects.create(
+            owner_user=original_owner,
+            character_id=9001,
+            skill_levels={"1": {"trained": 1, "active": 1}},
+            mass_production_level=1,
+        )
+
+        original_update_or_create = IndustrySkillSnapshot.objects.update_or_create
+
+        def simulated_race(*args, **kwargs):
+            if not hasattr(simulated_race, "called"):
+                simulated_race.called = True
+                raise IntegrityError(
+                    1062,
+                    "Duplicate entry '9001' for key 'character_id'",
+                )
+            return original_update_or_create(*args, **kwargs)
+
+        with patch.object(
+            IndustrySkillSnapshot.objects,
+            "update_or_create",
+            side_effect=simulated_race,
+        ):
+            instance, created = update_or_create_with_mysql_retry(
+                IndustrySkillSnapshot,
+                lookup={"character_id": 9001},
+                defaults={
+                    "owner_user": new_owner,
+                    "skill_levels": {"2": {"trained": 5, "active": 5}},
+                    "mass_production_level": 5,
+                },
+            )
+
+        self.assertFalse(created)
+        self.assertEqual(instance.pk, existing.pk)
+        existing.refresh_from_db()
+        self.assertEqual(existing.owner_user_id, new_owner.pk)
+        self.assertEqual(existing.skill_levels, {"2": {"trained": 5, "active": 5}})
+        self.assertEqual(existing.mass_production_level, 5)
+        self.assertEqual(
+            IndustrySkillSnapshot.objects.filter(character_id=9001).count(),
+            1,
+        )

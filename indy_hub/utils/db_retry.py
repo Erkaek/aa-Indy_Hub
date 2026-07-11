@@ -78,6 +78,22 @@ def update_or_create_with_mysql_retry(
                         max_attempts,
                     )
                     return instance, False
+            except OperationalError as recovery_exc:
+                if (
+                    not _is_mysql_deadlock_error(recovery_exc)
+                    or attempt >= max_attempts
+                ):
+                    raise
+                delay = _retry_delay(attempt)
+                _log(
+                    "Deadlock while recovering duplicate key for %s; retrying (%s/%s) in %.2fs",
+                    model.__name__,
+                    attempt,
+                    max_attempts,
+                    delay,
+                )
+                time.sleep(delay)
+                continue
             except model.DoesNotExist:
                 if attempt >= max_attempts:
                     raise
