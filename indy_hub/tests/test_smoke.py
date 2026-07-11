@@ -277,7 +277,7 @@ class NavigationMenuBadgeTests(TestCase):
         self.assertEqual(count_material_exchange_open_orders(self.builder.id), 1)
 
         menu = self._render_menu(self.builder)
-        self.assertEqual(menu.count, 3)
+        self.assertEqual(menu.count, 2)
 
     def test_menu_count_includes_my_open_requests(self) -> None:
         BlueprintCopyRequest.objects.create(

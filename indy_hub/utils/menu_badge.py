@@ -42,7 +42,11 @@ def count_material_exchange_open_orders(user_id: int) -> int:
     """Return the number of open Material Exchange orders for a user."""
     from ..models import MaterialExchangeBuyOrder, MaterialExchangeSellOrder
 
-    closed_statuses = ["completed", "rejected", "cancelled"]
+    closed_statuses = [
+        MaterialExchangeSellOrder.Status.COMPLETED,
+        MaterialExchangeSellOrder.Status.REJECTED,
+        MaterialExchangeSellOrder.Status.CANCELLED,
+    ]
     sell_count = MaterialExchangeSellOrder.objects.filter(seller_id=user_id).exclude(
         status__in=closed_statuses
     ).count()
