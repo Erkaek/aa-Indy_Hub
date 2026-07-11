@@ -136,7 +136,7 @@
     {% block indy_hub_nav_tabs %}
         {% if overview_nav_url %}
             {% translate "Overview" as overview_tab_title %}
-            {% include "framework/header/nav-collapse-button.html" with btn_class=overview_nav_class url=overview_nav_url title=overview_tab_title fa_icon="fa-solid fa-chart-simple" icon_on_mobile=True icon_on_desktop=True %}
+            {% include "indy_hub/framework/header/nav-collapse-button.html" with btn_class=overview_nav_class url=overview_nav_url title=overview_tab_title fa_icon="fa-solid fa-chart-simple" icon_on_mobile=True icon_on_desktop=True %}
         {% endif %}
         {% if blueprints_nav_url %}
             {% translate "Blueprints" as blueprints_tab_title %}
@@ -194,7 +194,7 @@
         {% endif %}
         {% if material_hub_nav_url %}
             {% translate "Material Hub" as material_hub_tab_title %}
-            {% include "framework/header/nav-collapse-button.html" with btn_class=material_hub_nav_class url=material_hub_nav_url title=material_hub_tab_title fa_icon="fa-solid fa-boxes-stacked" icon_on_mobile=True icon_on_desktop=True badge_count=material_hub_nav_badge_count badge_class="bg-info-subtle text-info" badge_key="material-hub" %}
+            {% include "indy_hub/framework/header/nav-collapse-button.html" with btn_class=material_hub_nav_class url=material_hub_nav_url title=material_hub_tab_title fa_icon="fa-solid fa-boxes-stacked" icon_on_mobile=True icon_on_desktop=True badge_count=material_hub_nav_badge_count badge_class="bg-warning-subtle text-warning" badge_key="material-hub" %}
         {% endif %}
         {% if industry_nav_url %}
             {% translate "Industry" as industry_tab_title %}
@@ -245,7 +245,7 @@
         {% endif %}
         {% if settings_nav_url %}
             {% translate "Settings" as settings_tab_title %}
-            {% include "framework/header/nav-collapse-button.html" with btn_class=settings_nav_class url=settings_nav_url title=settings_tab_title fa_icon="fa-solid fa-gear" icon_on_mobile=True icon_on_desktop=True %}
+            {% include "indy_hub/framework/header/nav-collapse-button.html" with btn_class=settings_nav_class url=settings_nav_url title=settings_tab_title fa_icon="fa-solid fa-gear" icon_on_mobile=True icon_on_desktop=True %}
         {% endif %}
     {% endblock %}
 {% endblock header_nav_collapse_left %}

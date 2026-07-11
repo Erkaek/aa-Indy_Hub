@@ -65,7 +65,11 @@ from indy_hub.tasks.industry import (
 from indy_hub.utils import eve as eve_utils
 from indy_hub.utils import job_notifications as job_notifications_utils
 from indy_hub.utils.eve import get_type_name, reset_forbidden_structure_lookup_cache
-from indy_hub.utils.menu_badge import compute_menu_badge_count, menu_badge_cache_key
+from indy_hub.utils.menu_badge import (
+    compute_menu_badge_count,
+    count_material_exchange_open_orders,
+    menu_badge_cache_key,
+)
 
 PUBLIC_STATION_ID = 60003760
 TEST_EVE_TYPE_NAMES = {
@@ -254,7 +258,26 @@ class NavigationMenuBadgeTests(TestCase):
             seller_last_seen_at=None,
         )
 
-        self.assertEqual(compute_menu_badge_count(self.builder.id), 1)
+        material_config = MaterialExchangeConfig.objects.create(
+            corporation_id=123456,
+            structure_id=PUBLIC_STATION_ID,
+            is_active=True,
+        )
+        MaterialExchangeSellOrder.objects.create(
+            config=material_config,
+            seller=self.builder,
+            status=MaterialExchangeSellOrder.Status.DRAFT,
+            order_reference="INDY-NAV-MATERIAL",
+        )
+
+        self.assertEqual(
+            MaterialExchangeSellOrder.objects.filter(seller_id=self.builder.id).count(),
+            1,
+        )
+        self.assertEqual(count_material_exchange_open_orders(self.builder.id), 1)
+
+        menu = self._render_menu(self.builder)
+        self.assertEqual(menu.count, 2)
 
     def test_menu_count_includes_my_open_requests(self) -> None:
         BlueprintCopyRequest.objects.create(
@@ -315,6 +338,25 @@ class NavigationMenuBadgeTests(TestCase):
             requested_by=self.builder,
             runs_requested=1,
             copies_requested=1,
+        )
+
+        self.assertIsNone(cache.get(menu_badge_cache_key(self.builder.id)))
+
+    def test_material_exchange_order_creation_invalidates_stale_menu_badge_cache(
+        self,
+    ) -> None:
+        cache.set(menu_badge_cache_key(self.builder.id), 0, 300)
+
+        material_config = MaterialExchangeConfig.objects.create(
+            corporation_id=123456,
+            structure_id=PUBLIC_STATION_ID,
+            is_active=True,
+        )
+        MaterialExchangeSellOrder.objects.create(
+            config=material_config,
+            seller=self.builder,
+            status=MaterialExchangeSellOrder.Status.DRAFT,
+            order_reference="INDY-NAV-INVALIDATE",
         )
 
         self.assertIsNone(cache.get(menu_badge_cache_key(self.builder.id)))
@@ -563,7 +605,10 @@ class NavbarMaterialExchangeMyOrdersTests(TestCase):
         self.client.force_login(self.user)
         response = self.client.get(reverse("indy_hub:my_orders"))
         self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context["material_hub_enabled"])
+        self.assertTrue(response.context["material_hub_nav_url"])
         self.assertEqual(response.context["material_hub_nav_badge_count"], 1)
+        self.assertContains(response, 'data-nav-badge="material-hub"')
 
 
 class NavbarIndustryJobsTests(TestCase):
