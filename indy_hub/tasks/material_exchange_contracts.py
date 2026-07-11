@@ -78,6 +78,7 @@ from indy_hub.services.esi_client import (
     shared_client,
 )
 from indy_hub.utils.analytics import emit_analytics_event
+from indy_hub.utils.db_retry import update_or_create_with_mysql_retry
 from indy_hub.utils.eve import PLACEHOLDER_PREFIX, get_type_name, resolve_location_name
 from indy_hub.utils.material_exchange_transactions import (
     upsert_material_exchange_transaction,
@@ -445,8 +446,9 @@ def _sync_contracts_for_corporation(corporation_id: int):
             synced_contract_ids.append(contract_id)
 
             # Create or update contract
-            contract, created = ESIContract.objects.update_or_create(
-                contract_id=contract_id,
+            contract, created = update_or_create_with_mysql_retry(
+                ESIContract,
+                lookup={"contract_id": contract_id},
                 defaults={
                     "issuer_id": contract_payload.get("issuer_id", 0),
                     "issuer_corporation_id": contract_payload.get(
@@ -468,6 +470,7 @@ def _sync_contracts_for_corporation(corporation_id: int):
                     "date_completed": contract_payload.get("date_completed"),
                     "corporation_id": corporation_id,
                 },
+                logger=logger,
             )
 
             # Fetch and store contract items for item_exchange contracts

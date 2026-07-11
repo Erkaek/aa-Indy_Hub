@@ -19,6 +19,10 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 - Material Exchange: buy-order validation now treats explicit empty type-id filters as an empty result immediately, avoiding unnecessary database work when no stock items remain after filtering.
 
+### Fixed
+
+- Industry and related sync tasks now retry MySQL duplicate-key races in addition to deadlocks when performing unique-row upserts, preventing concurrent Celery workers from crashing on `IntegrityError 1062` for rows such as skill snapshots, roles, cached structure names, contracts, and blueprint sync records.
+
 - SDE integration: Indy Hub now relies on the base `eve_sde` data path only, removing the legacy compatibility sync flow and related maintenance commands.
 
 - SDE / bootstrap: the SDE compatibility and startup paths were simplified to reduce duplicate state and align the app with the standard Alliance Auth installation flow.
