@@ -3,6 +3,11 @@
 # Django
 from django.db import migrations
 
+# 0101 already dropped the legacy SDE compatibility tables at the SQL layer.
+# This follow-up migration only reconciles Django's historical model state with
+# that schema reality, so instances where the tables are already absent do not
+# fail while applying redundant ALTER/DROP operations.
+
 
 class Migration(migrations.Migration):
 

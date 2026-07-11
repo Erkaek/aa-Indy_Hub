@@ -108,7 +108,7 @@ def update_or_create_with_mysql_retry(
                 continue
             except model.DoesNotExist:
                 if attempt >= max_attempts:
-                    raise
+                    raise exc
                 delay = _retry_delay(attempt)
                 _log(
                     "Duplicate key while writing %s but row was not visible yet; retrying (%s/%s) in %.2fs",

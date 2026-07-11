@@ -217,6 +217,55 @@ class MySQLRetryHelperTests(SimpleTestCase):
         self.assertEqual(DummyModel.objects._get_calls, 1)
         mock_sleep.assert_called_once()
 
+    def test_duplicate_key_raises_original_integrity_error_after_last_retry(
+        self,
+    ) -> None:
+        duplicate_error = IntegrityError(
+            1062,
+            "Duplicate entry '1' for key 'character_id'",
+        )
+        manager = Mock()
+        manager.update_or_create.side_effect = [duplicate_error, duplicate_error]
+
+        class DummyManager:
+            def __init__(self) -> None:
+                self.update_or_create = manager.update_or_create
+                self._get_calls = 0
+
+            def select_for_update(self):
+                return self
+
+            def get(self, **kwargs):
+                self._get_calls += 1
+                raise DummyModel.DoesNotExist()
+
+        DummyModel = type(
+            "DummyModel",
+            (),
+            {
+                "__name__": "DummyModel",
+                "DoesNotExist": type("DoesNotExist", (Exception,), {}),
+                "objects": DummyManager(),
+            },
+        )
+
+        with (
+            patch("indy_hub.utils.db_retry.random.random", return_value=0.0),
+            patch("indy_hub.utils.db_retry.time.sleep") as mock_sleep,
+        ):
+            with self.assertRaises(IntegrityError) as caught:
+                update_or_create_with_mysql_retry(
+                    DummyModel,
+                    lookup={"character_id": 1},
+                    defaults={"owner_user": "user"},
+                    max_attempts=2,
+                )
+
+        self.assertIs(caught.exception, duplicate_error)
+        self.assertEqual(DummyModel.objects.update_or_create.call_count, 2)
+        self.assertEqual(DummyModel.objects._get_calls, 2)
+        mock_sleep.assert_called_once()
+
 
 class MySQLRetryHelperIntegrationTests(TransactionTestCase):
     def test_duplicate_key_recovery_updates_existing_db_row(self) -> None:
