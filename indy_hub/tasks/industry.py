@@ -3,8 +3,6 @@
 # Place any industry-specific asynchronous tasks from tasks.py here when needed.
 
 # Standard Library
-import random
-import time
 from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
 
@@ -99,6 +97,7 @@ from ..services.industry_skills import (
 )
 from ..services.location_population import populate_location_names
 from ..utils.analytics import emit_analytics_event
+from ..utils.db_retry import update_or_create_with_mysql_retry
 from ..utils.eve import (
     PLACEHOLDER_PREFIX,
     batch_cache_type_names,
@@ -274,8 +273,9 @@ def _refresh_online_status_for_user(user: User, *, now: datetime | None = None) 
             )
             continue
 
-        CharacterOnlineStatus.objects.update_or_create(
-            character_id=int(char_id),
+        update_or_create_with_mysql_retry(
+            CharacterOnlineStatus,
+            lookup={"character_id": int(char_id)},
             defaults={
                 "owner_user": user,
                 "online": bool(payload.get("online")),
@@ -283,6 +283,7 @@ def _refresh_online_status_for_user(user: User, *, now: datetime | None = None) 
                 "last_logout": _coerce_online_datetime(payload.get("last_logout")),
                 "logins": payload.get("logins"),
             },
+            logger=logger,
         )
 
 
@@ -300,29 +301,20 @@ def _user_recent_job_sync(user: User, *, now: datetime | None = None) -> bool:
     ).exists()
 
 
-def _update_or_create_with_deadlock_retry(
+def _update_or_create_with_mysql_retry(
     model,
     *,
     lookup: dict[str, object],
     defaults: dict[str, object],
     max_attempts: int = 3,
 ) -> tuple[object, bool]:
-    for attempt in range(1, max_attempts + 1):
-        try:
-            return model.objects.update_or_create(**lookup, defaults=defaults)
-        except OperationalError as exc:
-            if not _is_deadlock_error(exc) or attempt >= max_attempts:
-                raise
-            delay = 0.2 * attempt + random.random() * 0.2
-            logger.warning(
-                "Deadlock while writing %s; retrying (%s/%s) in %.2fs",
-                model.__name__,
-                attempt,
-                max_attempts,
-                delay,
-            )
-            time.sleep(delay)
-    raise RuntimeError("Unreachable: deadlock retry loop exhausted")
+    return update_or_create_with_mysql_retry(
+        model,
+        lookup=lookup,
+        defaults=defaults,
+        max_attempts=max_attempts,
+        logger=logger,
+    )
 
 
 MANUAL_REFRESH_KIND_BLUEPRINTS = "blueprints"
@@ -550,13 +542,15 @@ def get_character_corporation_roles(character_id: int) -> set[str]:
         .first()
     )
     if ownership:
-        CharacterRoles.objects.update_or_create(
-            character_id=character_id,
+        update_or_create_with_mysql_retry(
+            CharacterRoles,
+            lookup={"character_id": character_id},
             defaults={
                 "owner_user": ownership.user,
                 "corporation_id": getattr(ownership.character, "corporation_id", None),
                 **role_payload,
             },
+            logger=logger,
         )
 
     collected: set[str] = set()
@@ -1207,8 +1201,9 @@ def update_blueprints_for_user(
                             location_name = f"{PLACEHOLDER_PREFIX}{location_key}"
                         type_id = bp.get("type_id")
                         type_name = get_type_name(type_id)
-                        Blueprint.objects.update_or_create(
-                            item_id=item_id,
+                        update_or_create_with_mysql_retry(
+                            Blueprint,
+                            lookup={"item_id": item_id},
                             defaults={
                                 "owner_user": user,
                                 "owner_kind": Blueprint.OwnerKind.CHARACTER,
@@ -1233,6 +1228,7 @@ def update_blueprints_for_user(
                                     runs=bp.get("runs", 0),
                                 ),
                             },
+                            logger=logger,
                         )
 
                     deleted, _ = (
@@ -1360,8 +1356,9 @@ def update_blueprints_for_user(
                             location_name = f"{PLACEHOLDER_PREFIX}{location_key}"
                         type_id = bp.get("type_id")
                         type_name = get_type_name(type_id)
-                        Blueprint.objects.update_or_create(
-                            item_id=item_id,
+                        update_or_create_with_mysql_retry(
+                            Blueprint,
+                            lookup={"item_id": item_id},
                             defaults={
                                 "owner_user": user,
                                 "owner_kind": Blueprint.OwnerKind.CORPORATION,
@@ -1386,6 +1383,7 @@ def update_blueprints_for_user(
                                     runs=bp.get("runs", 0),
                                 ),
                             },
+                            logger=logger,
                         )
 
                     deleted, _ = (
@@ -1697,7 +1695,7 @@ def update_industry_jobs_for_user(
                             )
                             end_date = start_date
 
-                        _update_or_create_with_deadlock_retry(
+                        _update_or_create_with_mysql_retry(
                             IndustryJob,
                             lookup={"job_id": job_id},
                             defaults={
@@ -1919,7 +1917,7 @@ def update_industry_jobs_for_user(
                                 )
                                 end_date = start_date
 
-                            _update_or_create_with_deadlock_retry(
+                            _update_or_create_with_mysql_retry(
                                 IndustryJob,
                                 lookup={"job_id": job_id},
                                 defaults={
@@ -2400,13 +2398,14 @@ def update_character_skill_snapshot_for_character(
         )
         return {"status": "failed", "reason": str(exc)}
 
-    _update_or_create_with_deadlock_retry(
+    update_or_create_with_mysql_retry(
         IndustrySkillSnapshot,
-        lookup={
+        lookup={"character_id": int(character_id)},
+        defaults={
             "owner_user": ownership.user,
-            "character_id": int(character_id),
+            **build_skill_snapshot_defaults(levels),
         },
-        defaults=build_skill_snapshot_defaults(levels),
+        logger=logger,
     )
     emit_analytics_event(
         task="industry.update_character_skill_snapshot",

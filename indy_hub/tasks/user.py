@@ -33,6 +33,7 @@ from ..services.esi_client import (
     shared_client,
 )
 from ..utils.analytics import emit_analytics_event
+from ..utils.db_retry import update_or_create_with_mysql_retry
 from ..utils.menu_badge import compute_menu_badge_count
 from .industry import _is_user_active
 
@@ -134,8 +135,9 @@ def update_character_roles_for_character(
         )
         return {"status": "failed", "reason": "unexpected_payload"}
 
-    CharacterRoles.objects.update_or_create(
-        character_id=character_id,
+    update_or_create_with_mysql_retry(
+        CharacterRoles,
+        lookup={"character_id": character_id},
         defaults={
             "owner_user": ownership.user,
             "corporation_id": getattr(ownership.character, "corporation_id", None),
@@ -144,6 +146,7 @@ def update_character_roles_for_character(
             "roles_at_base": _coerce_role_list(payload.get("roles_at_base")),
             "roles_at_other": _coerce_role_list(payload.get("roles_at_other")),
         },
+        logger=logger,
     )
     emit_analytics_event(
         task="user.update_character_roles",

@@ -27,6 +27,7 @@ from indy_hub.services.location_population import (
     populate_location_names,
 )
 from indy_hub.utils.analytics import emit_analytics_event
+from indy_hub.utils.db_retry import update_or_create_with_mysql_retry
 from indy_hub.utils.eve import PLACEHOLDER_PREFIX, resolve_location_name
 
 logger = get_extension_logger(__name__)
@@ -133,9 +134,11 @@ def cache_structure_name(
     if not name:
         name = f"{PLACEHOLDER_PREFIX}{structure_id}"
 
-    CachedStructureName.objects.update_or_create(
-        structure_id=structure_id,
+    update_or_create_with_mysql_retry(
+        CachedStructureName,
+        lookup={"structure_id": structure_id},
         defaults={"name": str(name), "last_resolved": now},
+        logger=logger,
     )
 
     emit_analytics_event(

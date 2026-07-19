@@ -78,6 +78,7 @@ from indy_hub.services.esi_client import (
     shared_client,
 )
 from indy_hub.utils.analytics import emit_analytics_event
+from indy_hub.utils.db_retry import update_or_create_with_mysql_retry
 from indy_hub.utils.eve import PLACEHOLDER_PREFIX, get_type_name, resolve_location_name
 from indy_hub.utils.material_exchange_transactions import (
     upsert_material_exchange_transaction,
@@ -423,30 +424,82 @@ def _sync_contracts_for_corporation(corporation_id: int):
     synced_contract_ids = []
     indy_contracts_count = 0
 
-    with transaction.atomic():
-        for contract_data in contracts:
-            contract_payload = _normalize_esi_mapping(
-                contract_data,
-                context=f"contract ({corporation_id})",
-            )
-            if not contract_payload:
-                continue
+    for contract_data in contracts:
+        contract_payload = _normalize_esi_mapping(
+            contract_data,
+            context=f"contract ({corporation_id})",
+        )
+        if not contract_payload:
+            continue
 
-            contract_id = contract_payload.get("contract_id")
-            if not contract_id:
-                continue
+        contract_id = contract_payload.get("contract_id")
+        if not contract_id:
+            continue
 
-            # Filter: only process contracts with "INDY" in title
-            contract_title = contract_payload.get("title", "")
-            if "INDY" not in contract_title.upper():
-                continue
+        # Filter: only process contracts with "INDY" in title
+        contract_title = contract_payload.get("title", "")
+        if "INDY" not in contract_title.upper():
+            continue
 
-            indy_contracts_count += 1
-            synced_contract_ids.append(contract_id)
+        indy_contracts_count += 1
+        synced_contract_ids.append(contract_id)
 
-            # Create or update contract
-            contract, created = ESIContract.objects.update_or_create(
-                contract_id=contract_id,
+        contract_items: list[dict[str, object]] | None = None
+
+        # Fetch contract items before entering a DB transaction so retry sleeps do not
+        # hold unrelated row locks open around external I/O.
+        contract_status = contract_payload.get("status", "")
+        if contract_payload.get("type") == "item_exchange" and contract_status in [
+            "outstanding",
+            "in_progress",
+        ]:
+            try:
+                has_cached_items = ESIContractItem.objects.filter(
+                    contract__contract_id=contract_id
+                ).exists()
+                fetched_items = shared_client.fetch_corporation_contract_items(
+                    corporation_id=corporation_id,
+                    contract_id=contract_id,
+                    character_id=character_id,
+                    force_refresh=not has_cached_items,
+                )
+                if not isinstance(fetched_items, list):
+                    logger.warning(
+                        "Skipping contract items for %s: unexpected payload type %s",
+                        contract_id,
+                        type(fetched_items).__name__,
+                    )
+                else:
+                    contract_items = fetched_items
+            except ESIUnmodifiedError:
+                logger.debug(
+                    "Contract items not modified for %s; skipping items sync",
+                    contract_id,
+                )
+            except ESIClientError as exc:
+                # 404 is normal for contracts without items or expired contracts
+                if "404" in str(exc):
+                    logger.debug(
+                        "Contract %s has no items (404) - skipping items sync",
+                        contract_id,
+                    )
+                else:
+                    logger.warning(
+                        "Failed to fetch items for contract %s: %s",
+                        contract_id,
+                        exc,
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "Failed to fetch items for contract %s: %s",
+                    contract_id,
+                    exc,
+                )
+
+        with transaction.atomic():
+            contract, created = update_or_create_with_mysql_retry(
+                ESIContract,
+                lookup={"contract_id": contract_id},
                 defaults={
                     "issuer_id": contract_payload.get("issuer_id", 0),
                     "issuer_corporation_id": contract_payload.get(
@@ -468,86 +521,37 @@ def _sync_contracts_for_corporation(corporation_id: int):
                     "date_completed": contract_payload.get("date_completed"),
                     "corporation_id": corporation_id,
                 },
+                logger=logger,
             )
 
-            # Fetch and store contract items for item_exchange contracts
-            # Only fetch items for contracts where items are accessible (outstanding/in_progress)
-            # Completed/expired contracts return 404 for items endpoint
-            contract_status = contract_payload.get("status", "")
-            if contract_payload.get("type") == "item_exchange" and contract_status in [
-                "outstanding",
-                "in_progress",
-            ]:
-                try:
-                    has_cached_items = ESIContractItem.objects.filter(
-                        contract=contract
-                    ).exists()
-                    contract_items = shared_client.fetch_corporation_contract_items(
-                        corporation_id=corporation_id,
-                        contract_id=contract_id,
-                        character_id=character_id,
-                        force_refresh=not has_cached_items,
+            if contract_items is not None:
+                ESIContractItem.objects.filter(contract=contract).delete()
+
+                for item_data in contract_items:
+                    item_payload = _normalize_esi_mapping(
+                        item_data,
+                        context=f"contract item ({contract_id})",
                     )
-                    if not isinstance(contract_items, list):
-                        logger.warning(
-                            "Skipping contract items for %s: unexpected payload type %s",
-                            contract_id,
-                            type(contract_items).__name__,
-                        )
+                    if not item_payload:
                         continue
-
-                    # Clear existing items and create new ones
-                    ESIContractItem.objects.filter(contract=contract).delete()
-
-                    for item_data in contract_items:
-                        item_payload = _normalize_esi_mapping(
-                            item_data,
-                            context=f"contract item ({contract_id})",
-                        )
-                        if not item_payload:
-                            continue
-                        ESIContractItem.objects.create(
-                            contract=contract,
-                            record_id=item_payload.get("record_id", 0),
-                            type_id=item_payload.get("type_id", 0),
-                            quantity=item_payload.get("quantity", 0),
-                            is_included=item_payload.get("is_included", False),
-                            is_singleton=item_payload.get("is_singleton", False),
-                        )
-
-                    logger.info(
-                        "Contract %s: synced %s items",
-                        contract_id,
-                        len(contract_items),
+                    ESIContractItem.objects.create(
+                        contract=contract,
+                        record_id=item_payload.get("record_id", 0),
+                        type_id=item_payload.get("type_id", 0),
+                        quantity=item_payload.get("quantity", 0),
+                        is_included=item_payload.get("is_included", False),
+                        is_singleton=item_payload.get("is_singleton", False),
                     )
 
-                except ESIUnmodifiedError:
-                    logger.debug(
-                        "Contract items not modified for %s; skipping items sync",
-                        contract_id,
-                    )
-                except ESIClientError as exc:
-                    # 404 is normal for contracts without items or expired contracts
-                    if "404" in str(exc):
-                        logger.debug(
-                            "Contract %s has no items (404) - skipping items sync",
-                            contract_id,
-                        )
-                    else:
-                        logger.warning(
-                            "Failed to fetch items for contract %s: %s",
-                            contract_id,
-                            exc,
-                        )
-                except Exception as exc:
-                    logger.warning(
-                        "Failed to fetch items for contract %s: %s",
-                        contract_id,
-                        exc,
-                    )
+                logger.info(
+                    "Contract %s: synced %s items",
+                    contract_id,
+                    len(contract_items),
+                )
 
-        # Remove contracts that are no longer in ESI response
-        # Keep contracts from the last 30 days to maintain history
+    # Remove contracts that are no longer in ESI response
+    # Keep contracts from the last 30 days to maintain history
+    with transaction.atomic():
         cutoff_date = timezone.now() - timezone.timedelta(days=30)
         deleted_count, _ = (
             ESIContract.objects.filter(
@@ -559,12 +563,12 @@ def _sync_contracts_for_corporation(corporation_id: int):
             .delete()
         )
 
-        if deleted_count > 0:
-            logger.info(
-                "Removed %s stale contracts for corporation %s",
-                deleted_count,
-                corporation_id,
-            )
+    if deleted_count > 0:
+        logger.info(
+            "Removed %s stale contracts for corporation %s",
+            deleted_count,
+            corporation_id,
+        )
 
     logger.info(
         "Successfully synced %s INDY contracts (filtered from %s total) for corporation %s",
