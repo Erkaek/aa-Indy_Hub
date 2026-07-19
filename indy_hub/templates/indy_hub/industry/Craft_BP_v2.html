@@ -76,7 +76,9 @@
 
     {% with current_tab=active_tab|default:'materials' %}
 
-    {% if bp_type_id and final_outputs|length <= 1 %}
+    <input type="hidden" id="activeTabInput" value="{{ current_tab }}">
+
+    {% if bp_type_id and final_outputs|length <= 1 and not is_project_workspace %}
     <div class="card border-0 shadow-sm mb-4">
         <div class="card-body py-3">
             <div class="d-flex flex-column flex-lg-row align-items-lg-end justify-content-between gap-3">
@@ -97,7 +99,6 @@
                             inputmode="numeric"
                         >
                     </div>
-                    <input type="hidden" id="activeTabInput" value="{{ current_tab }}">
                     <button type="button" class="btn btn-primary" id="recalcNowBtn">
                         <i class="fas fa-arrows-rotate me-1"></i>{% trans "Apply" %}
                     </button>
@@ -242,6 +243,12 @@
                                     <i class="fas fa-sitemap text-success"></i> {% trans "Production Tree" %}
                                 </h3>
                                 <div class="craft-section-controls">
+                                    {% if is_project_workspace %}
+                                    <button class="btn btn-warning btn-sm d-none" type="button" id="updateFinalOutputQuantitiesBtn" title="{% trans 'Refresh the workspace using the current final-item quantities' %}">
+                                        <i class="fas fa-arrows-rotate"></i>
+                                        <span class="ms-1">{% trans "Update" %}</span>
+                                    </button>
+                                    {% endif %}
                                     <button class="btn btn-outline-secondary btn-sm" type="button" id="expand-tree" title="{% trans 'Expand all' %}">
                                         <i class="fas fa-plus-square"></i>
                                     </button>

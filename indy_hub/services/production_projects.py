@@ -979,6 +979,23 @@ def parse_project_me_te_overrides(query_params) -> dict[int, dict[str, int]]:
     return overrides
 
 
+def parse_project_final_output_quantity_overrides(query_params) -> dict[int, int]:
+    """Parse per-final-output quantity overrides from request query params."""
+
+    overrides: dict[int, int] = {}
+    for key, value in query_params.items():
+        if not key.startswith("final_qty_") or value in (None, ""):
+            continue
+        try:
+            output_index = int(key.replace("final_qty_", "", 1))
+            quantity = max(1, int(value))
+        except (TypeError, ValueError):
+            continue
+        if output_index >= 0:
+            overrides[output_index] = quantity
+    return overrides
+
+
 def _clamp_blueprint_me(value) -> int:
     try:
         return max(0, min(int(value or 0), 10))
@@ -1087,6 +1104,55 @@ def _extract_workspace_structure_assignments(
         if type_id > 0 and structure_id > 0:
             assignments[type_id] = structure_id
     return assignments
+
+
+def _extract_workspace_final_output_quantity_overrides(
+    workspace_state: dict[str, object] | None,
+) -> dict[int, int]:
+    state = workspace_state if isinstance(workspace_state, dict) else {}
+    raw_entries = state.get("finalOutputQuantities") or state.get(
+        "final_output_quantities"
+    )
+
+    overrides: dict[int, int] = {}
+    if isinstance(raw_entries, dict):
+        for raw_index, raw_quantity in raw_entries.items():
+            try:
+                output_index = int(raw_index)
+                quantity = max(1, int(raw_quantity))
+            except (TypeError, ValueError):
+                continue
+            if output_index >= 0:
+                overrides[output_index] = quantity
+        return overrides
+
+    for raw_entry in raw_entries if isinstance(raw_entries, list) else []:
+        if not isinstance(raw_entry, dict):
+            continue
+        try:
+            output_index = int(raw_entry.get("index") or 0)
+            quantity = max(1, int(raw_entry.get("quantity") or 0))
+        except (TypeError, ValueError):
+            continue
+        if output_index >= 0 and quantity > 0:
+            overrides[output_index] = quantity
+    return overrides
+
+
+def _merge_final_output_quantity_overrides(
+    *sources: dict[int, int] | None,
+) -> dict[int, int]:
+    merged: dict[int, int] = {}
+    for source in sources:
+        for raw_index, raw_quantity in (source or {}).items():
+            try:
+                output_index = int(raw_index)
+                quantity = max(1, int(raw_quantity))
+            except (TypeError, ValueError):
+                continue
+            if output_index >= 0:
+                merged[output_index] = quantity
+    return merged
 
 
 def _merge_me_te_overrides(
@@ -1357,6 +1423,7 @@ def build_project_workspace_payload(
     skill_cache_ttl=timedelta(hours=1),
     me_te_overrides: dict[int, dict[str, int]] | None = None,
     runs_override: int | None = None,
+    final_output_quantity_overrides: dict[int, int] | None = None,
     include_full_structure_options: bool = True,
 ) -> dict[str, object]:
     """Build a craft workspace payload for a multi-product project."""
@@ -1393,6 +1460,10 @@ def build_project_workspace_payload(
     overrides = _merge_me_te_overrides(
         _extract_workspace_me_te_overrides(workspace_state),
         me_te_overrides,
+    )
+    final_quantity_overrides = _merge_final_output_quantity_overrides(
+        _extract_workspace_final_output_quantity_overrides(workspace_state),
+        final_output_quantity_overrides,
     )
     owned_blueprint_inventory_map: dict[int, dict[str, object]] = {}
     owned_blueprint_efficiency_cache: dict[int, dict[str, int]] = {}
@@ -1488,6 +1559,12 @@ def build_project_workspace_payload(
         saved_runs=saved_runs,
         target_runs=target_runs,
     )
+    if final_quantity_overrides:
+        for output_index, quantity in final_quantity_overrides.items():
+            if 0 <= output_index < len(selected_items):
+                selected_items[output_index].quantity_requested = max(1, int(quantity))
+        workspace_state["runs"] = 1
+        target_runs = 1
 
     blueprint_product_cache: dict[int, dict[str, object] | None] = {}
     blueprint_recipe_cache: dict[tuple[int, int], dict[str, object]] = {}
@@ -2114,7 +2191,7 @@ def build_project_workspace_payload(
     root_product_type_id = 0
     root_product_output_per_cycle = 0
     root_final_product_qty = 0
-    num_runs = max(1, int(workspace_state.get("runs") or 1))
+    num_runs = max(1, int(workspace_state.get("runs") or target_runs or 1))
     main_me = 0
     main_te = 0
     direct_materials = []

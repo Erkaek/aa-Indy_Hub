@@ -120,6 +120,7 @@ from ..services.production_projects import (
     create_project_from_single_blueprint,
     get_cached_project_workspace_payload,
     normalize_production_project_ref,
+    parse_project_final_output_quantity_overrides,
     parse_project_me_te_overrides,
     strip_project_workspace_cache,
 )
@@ -2880,6 +2881,9 @@ def craft_project(request, project_ref):
             project,
             skill_cache_ttl=SKILL_CACHE_TTL,
             me_te_overrides=parse_project_me_te_overrides(request.GET),
+            final_output_quantity_overrides=parse_project_final_output_quantity_overrides(
+                request.GET
+            ),
             runs_override=runs_override,
             include_full_structure_options=False,
         )

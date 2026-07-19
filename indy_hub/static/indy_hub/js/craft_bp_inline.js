@@ -118,6 +118,9 @@
                     assignments: [],
                 },
             fuzzworkPrices,
+            finalOutputQuantities: Array.isArray(state.finalOutputQuantities)
+                ? state.finalOutputQuantities
+                : [],
             pendingWorkspaceRefresh: Boolean(state.pendingWorkspaceRefresh),
             pendingWorkspaceSourceTab: String(state.pendingWorkspaceSourceTab || ''),
         };
@@ -170,6 +173,7 @@
             stockAllocations: normalizedState.stockAllocations,
             manualPrices: normalizedState.manualPrices,
             fuzzworkPrices: normalizedState.fuzzworkPrices,
+            finalOutputQuantities: normalizedState.finalOutputQuantities,
             simulation_name: normalizedState.simulationName,
             simulationName: normalizedState.simulationName,
             runs: normalizedState.runs,
@@ -214,6 +218,7 @@
             active_tab: normalizedState.activeBlueprintTab,
             decisionBuyTolerance: normalizedState.decisionBuyTolerance,
             cachedPayload: collectCachedProjectPayloadSnapshot(normalizedState),
+            finalOutputQuantities: normalizedState.finalOutputQuantities,
             items: gatherProductionItems(),
             blueprint_efficiencies: gatherBlueprintEfficiencies(),
             custom_prices: gatherCustomPrices(),

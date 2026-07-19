@@ -28,6 +28,7 @@ from ..decorators import indy_hub_access_required, indy_hub_permission_required
 # Local
 from ..models import (
     ProductionProject,
+    ProductionProjectItem,
 )
 from ..services.craft_materials import (
     compute_job_material_quantity,
@@ -50,6 +51,7 @@ from ..services.production_projects import (
     get_project_workspace_scoped_sde_signature,
     get_project_workspace_sde_signature,
     normalize_production_project_ref,
+    parse_project_final_output_quantity_overrides,
     parse_project_me_te_overrides,
     strip_project_workspace_cache,
 )
@@ -215,6 +217,9 @@ def production_project_payload(request, project_ref: str):
         project,
         skill_cache_ttl=SKILL_CACHE_TTL,
         me_te_overrides=parse_project_me_te_overrides(request.GET),
+        final_output_quantity_overrides=parse_project_final_output_quantity_overrides(
+            request.GET
+        ),
         runs_override=runs_override,
     )
     return JsonResponse(_to_serializable(payload))
@@ -252,6 +257,27 @@ def save_production_project_workspace(request, project_ref: str):
 
     def sanitize_dict(value):
         return value if isinstance(value, dict) else {}
+
+    def sanitize_final_output_quantities(value):
+        if not isinstance(value, list):
+            return []
+        normalized = []
+        for raw_entry in value:
+            if not isinstance(raw_entry, dict):
+                continue
+            try:
+                output_index = int(raw_entry.get("index") or 0)
+                quantity = max(1, int(raw_entry.get("quantity") or 0))
+            except (TypeError, ValueError):
+                continue
+            normalized.append(
+                {
+                    "index": output_index,
+                    "typeId": int(raw_entry.get("typeId") or 0) or None,
+                    "quantity": quantity,
+                }
+            )
+        return normalized
 
     def sanitize_positive_float(value):
         try:
@@ -303,6 +329,9 @@ def save_production_project_workspace(request, project_ref: str):
         ),
         "meTeConfig": sanitize_dict(data.get("meTeConfig")),
         "copyRequests": sanitize_list(data.get("copyRequests")),
+        "finalOutputQuantities": sanitize_final_output_quantities(
+            data.get("finalOutputQuantities")
+        ),
         "structure": sanitize_dict(data.get("structure")),
         "fuzzworkPrices": sanitize_dict(
             data.get("fuzzworkPrices") or data.get("fuzzwork_prices")
@@ -319,6 +348,32 @@ def save_production_project_workspace(request, project_ref: str):
         "total_buy_items": int(data.get("total_buy_items") or 0),
         "total_prod_items": int(data.get("total_prod_items") or 0),
     }
+
+    selected_items = list(
+        project.items.filter(is_selected=True)
+        .exclude(inclusion_mode=ProductionProjectItem.InclusionMode.SKIP)
+        .order_by("category_order", "id")
+    )
+    final_output_quantities = workspace_state.get("finalOutputQuantities") or []
+    if final_output_quantities:
+        items_to_update: list[ProductionProjectItem] = []
+        for raw_entry in final_output_quantities:
+            try:
+                output_index = int(raw_entry.get("index") or 0)
+                quantity = max(1, int(raw_entry.get("quantity") or 0))
+            except (TypeError, ValueError):
+                continue
+            if 0 <= output_index < len(selected_items):
+                project_item = selected_items[output_index]
+                if project_item.quantity_requested != quantity:
+                    project_item.quantity_requested = quantity
+                    items_to_update.append(project_item)
+        if items_to_update:
+            ProductionProjectItem.objects.bulk_update(
+                items_to_update,
+                ["quantity_requested"],
+            )
+        workspace_state["runs"] = 1
 
     new_name = workspace_state["simulation_name"]
     update_fields = ["workspace_state", "updated_at"]

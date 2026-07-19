@@ -588,6 +588,7 @@ function refreshTabsAfterStateChange(options = {}) {
 
 function updatePendingWorkspaceRefreshNotice() {
     const notice = document.getElementById('craftPendingRefreshNotice');
+    updateFinalOutputQuantityButtonState();
     if (!notice) {
         return;
     }
@@ -688,6 +689,9 @@ function buildCraftRecalculationUrl(options = {}) {
     cleanUrl.searchParams.set('runs', String(runsValue));
     cleanUrl.searchParams.set('me', String(config.mainME || 0));
     cleanUrl.searchParams.set('te', String(config.mainTE || 0));
+    collectFinalOutputQuantityState().forEach((entry) => {
+        cleanUrl.searchParams.set(`final_qty_${entry.index}`, String(entry.quantity));
+    });
     cleanUrl.searchParams.set('active_tab', targetTab);
 
     Object.entries(config.blueprintConfigs || {}).forEach(([typeId, bpConfig]) => {
@@ -997,13 +1001,155 @@ function adjustCraftTreeChildrenForStructure(children, parentTypeId) {
     });
 }
 
+function isProjectWorkspacePayload() {
+    return Boolean(Number(window.BLUEPRINT_DATA?.project_id || window.BLUEPRINT_DATA?.projectId || 0) || 0);
+}
+
+function isPlanPaneHydrated() {
+    return document.getElementById('plan-pane')?.dataset.planHydrated === 'true';
+}
+
+function buildFinalOutputQuantityEntriesFromPayload(payload = window.BLUEPRINT_DATA) {
+    const outputs = Array.isArray(payload?.final_outputs)
+        ? payload.final_outputs
+        : (Array.isArray(payload?.finalOutputs) ? payload.finalOutputs : []);
+    return outputs.map((entry, index) => ({
+        index,
+        typeId: Number(entry?.type_id || entry?.typeId || 0) || 0,
+        quantity: Math.max(1, Math.ceil(Number(entry?.quantity ?? entry?.qty ?? 0) || 0)) || 1,
+    })).filter((entry) => entry.typeId > 0 && entry.quantity > 0);
+}
+
+function normalizeFinalOutputQuantityEntries(entries) {
+    return (Array.isArray(entries) ? entries : []).map((entry) => ({
+        index: Math.max(0, Number(entry?.index ?? 0) || 0),
+        typeId: Number(entry?.typeId || entry?.type_id || 0) || 0,
+        quantity: Math.max(1, Math.ceil(Number(entry?.quantity ?? 0) || 0)) || 1,
+    })).filter((entry) => entry.quantity > 0);
+}
+
+function collectFinalOutputQuantityState() {
+    if (!isPlanPaneHydrated()) {
+        const pending = window.craftBPFlags?.pendingFinalOutputQuantities;
+        return normalizeFinalOutputQuantityEntries(
+            Array.isArray(pending) && pending.length > 0
+                ? pending
+                : buildFinalOutputQuantityEntriesFromPayload()
+        );
+    }
+
+    return Array.from(document.querySelectorAll('#tab-tree input.craft-final-output-quantity[data-final-output-index]'))
+        .map((input) => ({
+            index: Math.max(0, Number(input.getAttribute('data-final-output-index') || 0) || 0),
+            typeId: Number(input.getAttribute('data-type-id') || 0) || 0,
+            quantity: Math.max(1, Math.ceil(Number(input.value) || 0)) || 1,
+        }))
+        .filter((entry) => entry.quantity > 0);
+}
+
+function hasModifiedFinalOutputQuantities() {
+    const currentEntries = normalizeFinalOutputQuantityEntries(
+        collectFinalOutputQuantityState()
+    );
+    const payloadEntries = normalizeFinalOutputQuantityEntries(
+        buildFinalOutputQuantityEntriesFromPayload()
+    );
+    if (currentEntries.length !== payloadEntries.length) {
+        return true;
+    }
+
+    return currentEntries.some((entry, index) => {
+        const payloadEntry = payloadEntries[index] || {};
+        return (
+            entry.index !== payloadEntry.index
+            || entry.typeId !== payloadEntry.typeId
+            || entry.quantity !== payloadEntry.quantity
+        );
+    });
+}
+
+function updateFinalOutputQuantityButtonState() {
+    const button = document.getElementById('updateFinalOutputQuantitiesBtn');
+    if (!button) {
+        return;
+    }
+    const shouldShow = isProjectWorkspacePayload() && hasModifiedFinalOutputQuantities();
+    button.classList.toggle('d-none', !shouldShow);
+}
+
+function bindFinalOutputQuantityControls() {
+    const updateFinalOutputsBtn = document.getElementById('updateFinalOutputQuantitiesBtn');
+    if (updateFinalOutputsBtn && updateFinalOutputsBtn.dataset.bound !== 'true') {
+        updateFinalOutputsBtn.dataset.bound = 'true';
+        updateFinalOutputsBtn.addEventListener('click', () => {
+            updateFinalOutputsBtn.classList.add('pulse');
+            const recalculate = window.CraftBP && typeof window.CraftBP.recalculate === 'function'
+                ? window.CraftBP.recalculate.bind(window.CraftBP)
+                : recalculateBlueprintWorkspace;
+            recalculate({
+                activeTab: getCurrentActiveBlueprintTab() || 'materials',
+            }).catch((error) => {
+                console.error('Error refreshing craft workspace from final output quantities:', error);
+                if (window.CraftBP && typeof window.CraftBP.pushStatus === 'function') {
+                    window.CraftBP.pushStatus(__('Unable to refresh workspace'), 'warning');
+                }
+            }).finally(() => {
+                window.setTimeout(() => updateFinalOutputsBtn.classList.remove('pulse'), 600);
+            });
+        });
+    }
+
+    const treeTab = document.getElementById('tab-tree');
+    if (treeTab && treeTab.dataset.finalOutputQuantityBindingAttached !== 'true') {
+        treeTab.dataset.finalOutputQuantityBindingAttached = 'true';
+        treeTab.addEventListener('input', (event) => {
+            const input = event.target;
+            if (!(input instanceof HTMLInputElement) || !input.classList.contains('craft-final-output-quantity')) {
+                return;
+            }
+            const normalizedQuantity = Math.max(1, Math.ceil(Number(input.value) || 0)) || 1;
+            if (String(normalizedQuantity) !== input.value) {
+                input.value = String(normalizedQuantity);
+            }
+            window.craftBPFlags = window.craftBPFlags || {};
+            window.craftBPFlags.pendingFinalOutputQuantities = collectFinalOutputQuantityState();
+            markPendingWorkspaceRefresh({ sourceTabName: 'plan' });
+            persistCraftPageSessionState();
+        });
+    }
+
+    updateFinalOutputQuantityButtonState();
+}
+
+function applyFinalOutputQuantitiesToInputs(entries) {
+    window.craftBPFlags = window.craftBPFlags || {};
+    const normalized = normalizeFinalOutputQuantityEntries(entries);
+    window.craftBPFlags.pendingFinalOutputQuantities = normalized;
+
+    if (!isPlanPaneHydrated()) {
+        return false;
+    }
+
+    const byIndex = new Map(normalized.map((entry) => [entry.index, entry]));
+    document.querySelectorAll('#tab-tree input.craft-final-output-quantity[data-final-output-index]').forEach((input) => {
+        const outputIndex = Math.max(0, Number(input.getAttribute('data-final-output-index') || 0) || 0);
+        const entry = byIndex.get(outputIndex);
+        if (!entry) {
+            return;
+        }
+        input.value = String(entry.quantity);
+    });
+    updateFinalOutputQuantityButtonState();
+    return true;
+}
+
 function buildMaterialsTreeMarkup(nodes, level = 0) {
     if (!Array.isArray(nodes) || nodes.length === 0) {
         return '';
     }
 
     const marginLevel = Math.min(level + 1, 5);
-    const listItems = nodes.map((node) => {
+    const listItems = nodes.map((node, index) => {
         const typeId = Number(node?.type_id || node?.typeId || 0) || 0;
         const typeName = String(node?.type_name || node?.typeName || typeId || '');
         const quantity = Math.max(0, Math.ceil(Number(node?.quantity ?? node?.qty ?? 0))) || 0;
@@ -1012,6 +1158,7 @@ function buildMaterialsTreeMarkup(nodes, level = 0) {
             typeId
         );
         const hasChildren = children.length > 0;
+        const isEditableFinalOutput = level === 0 && isProjectWorkspacePayload();
         const fallbackSwitchState = String(node?.project_inclusion_mode || node?.projectInclusionMode || 'prod').trim() || 'prod';
         const switchState = typeof window.SimulationAPI?.getSwitchState === 'function'
             ? (window.SimulationAPI.getSwitchState(typeId) || fallbackSwitchState)
@@ -1020,6 +1167,29 @@ function buildMaterialsTreeMarkup(nodes, level = 0) {
         const isProd = !isUseless && switchState !== 'buy';
         const modeLabel = isUseless ? __('Useless') : (isProd ? __('Prod') : __('Buy'));
         const childMarkup = hasChildren ? buildMaterialsTreeMarkup(children, level + 1) : '';
+        const trailingMarkup = isEditableFinalOutput
+            ? `
+                <span class="ms-auto d-inline-flex align-items-center gap-2" onclick="event.stopPropagation()">
+                    <label class="small text-muted mb-0" for="craftFinalOutputQty${index}">${escapeHtml(__('Qty'))}</label>
+                    <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        class="form-control form-control-sm text-end craft-final-output-quantity"
+                        id="craftFinalOutputQty${index}"
+                        value="${quantity}"
+                        data-final-output-index="${index}"
+                        data-type-id="${typeId}"
+                        onclick="event.stopPropagation()"
+                        inputmode="numeric"
+                        style="width: 6rem;"
+                    >
+                    ${hasChildren ? `<span class="tree-mode-label mode-label badge px-2 py-1 fw-bold ${buildTreeModeBadgeClass(switchState)}" data-type-id="${typeId}" data-switch-state="${escapeHtml(switchState)}" style="font-size:0.85em;">${escapeHtml(modeLabel)}</span>` : ''}
+                </span>
+            `
+            : `${hasChildren ? `
+                        <span class="ms-auto"></span>
+                        <span class="tree-mode-label mode-label badge px-2 py-1 fw-bold ${buildTreeModeBadgeClass(switchState)}" data-type-id="${typeId}" data-switch-state="${escapeHtml(switchState)}" style="font-size:0.85em;">${escapeHtml(modeLabel)}</span>` : ''}`;
 
         return `
             <li class="craft-tree-branch">
@@ -1034,9 +1204,7 @@ function buildMaterialsTreeMarkup(nodes, level = 0) {
                         </span>
                         <span class="fw-bold">${escapeHtml(typeName)}</span>
                         <span class="text-muted">x${formatInteger(quantity)}</span>
-                        ${hasChildren ? `
-                        <span class="ms-auto"></span>
-                        <span class="tree-mode-label mode-label badge px-2 py-1 fw-bold ${buildTreeModeBadgeClass(switchState)}" data-type-id="${typeId}" data-switch-state="${escapeHtml(switchState)}" style="font-size:0.85em;">${escapeHtml(modeLabel)}</span>` : ''}
+                        ${trailingMarkup}
                     </summary>
                     ${childMarkup}
                 </details>
@@ -1100,6 +1268,7 @@ function hydratePlanPane() {
     planPane.dataset.planHydrated = 'true';
 
     renderPlanTreeFromPayload();
+    applyFinalOutputQuantitiesToInputs(window.craftBPFlags?.pendingFinalOutputQuantities);
     updatePlanMETEIndicators();
 
     const notice = document.getElementById('planPaneLazyNotice');
@@ -1110,6 +1279,7 @@ function hydratePlanPane() {
     initializeBlueprintIcons();
     initializeCollapseHandlers();
     initializeBuyCraftSwitches();
+    bindFinalOutputQuantityControls();
 
     if (Array.isArray(window.craftBPFlags?.pendingBuyTypeIds)) {
         applyBuyCraftStateFromBuyDecisions(window.craftBPFlags.pendingBuyTypeIds, {
@@ -1138,6 +1308,7 @@ function replaceTreeMarkup(nextTreeNode) {
 
     initializeBuyCraftSwitches();
     refreshTreeSummaryIcons();
+    bindFinalOutputQuantityControls();
 }
 
 function updatePlanMETEIndicators(config = null) {
@@ -2593,6 +2764,7 @@ function collectCraftPageSessionState() {
         // always coherent with the current plan.
         stockAllocations: normalizeCraftStockAllocations(getCraftStockAllocations()),
         runs: Math.max(1, parseInt(document.getElementById('runsInput')?.value || '1', 10) || 1),
+        finalOutputQuantities: collectFinalOutputQuantityState(),
         activeBlueprintTab: getCurrentActiveBlueprintTab() || 'materials',
         manualPrices: collectManualPriceOverrides(),
         fuzzworkPrices: collectFuzzworkPriceSnapshot(),
@@ -2627,11 +2799,13 @@ function applyCraftPageSessionState(parsedState) {
     window.craftBPFlags.restoringSessionState = true;
     window.craftBPFlags.restoredSessionState = parsedState;
     window.craftBPFlags.pendingBuyTypeIds = buyTypeIds;
+    window.craftBPFlags.pendingFinalOutputQuantities = normalizeFinalOutputQuantityEntries(parsedState?.finalOutputQuantities);
     window.craftBPFlags.stockAllocations = normalizeCraftStockAllocations(parsedState?.stockAllocations);
     window.craftBPFlags.revenueMode = normalizeRevenueMode(parsedState?.revenueMode);
     window.craftBPFlags.revenueTotalOverride = normalizeRevenueTotalOverride(parsedState?.revenueTotalOverride);
 
     applyCraftPageRunsValue(parsedState?.runs);
+    applyFinalOutputQuantitiesToInputs(window.craftBPFlags.pendingFinalOutputQuantities);
     if (parsedState?.meTeConfig) {
         window.craftBPFlags.pendingMETEConfig = normalizeMETEConfig(parsedState.meTeConfig);
         applyMETEConfigToInputs(window.craftBPFlags.pendingMETEConfig);
@@ -4394,6 +4568,8 @@ function initializeFinancialCalculations() {
         });
     }
 
+    bindFinalOutputQuantityControls();
+
     // Batch fetch Fuzzwork prices for display (fuzzwork-price and sale-price-unit), only include valid positive type IDs
     const fetchInputs = Array.from(document.querySelectorAll('input.fuzzwork-price[data-type-id], input.sale-price-unit[data-type-id]'))
         .filter(inp => {
@@ -4753,6 +4929,10 @@ function showLoadingIndicator() {
         options.message || __('We are synchronising materials, production tree and financial data.')
     );
     if (elements.workspace) {
+        const activeElement = document.activeElement;
+        if (activeElement instanceof HTMLElement && elements.workspace.contains(activeElement)) {
+            activeElement.blur();
+        }
         elements.workspace.classList.add('is-loading');
         elements.workspace.setAttribute('aria-hidden', 'true');
     }

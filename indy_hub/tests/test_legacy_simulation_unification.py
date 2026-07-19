@@ -438,6 +438,79 @@ class LegacySimulationUnificationTests(TestCase):
         self.assertEqual(project.workspace_state["blueprint_name"], "Merlin Blueprint")
 
     @patch("indy_hub.views.api.build_project_workspace_payload")
+    def test_save_production_project_workspace_updates_final_output_quantities(
+        self,
+        mock_build_project_workspace_payload,
+    ):
+        project = ProductionProject.objects.create(
+            user=self.user,
+            name="Fleet Targets",
+            status=ProductionProject.Status.DRAFT,
+            source_kind=ProductionProject.SourceKind.MANUAL,
+            workspace_state={"runs": 4},
+        )
+        first_item = ProductionProjectItem.objects.create(
+            project=project,
+            type_id=37604,
+            type_name="Guardian",
+            quantity_requested=1,
+            is_selected=True,
+            inclusion_mode=ProductionProjectItem.InclusionMode.PRODUCE,
+            category_order=1,
+        )
+        second_item = ProductionProjectItem.objects.create(
+            project=project,
+            type_id=35834,
+            type_name="Azariel",
+            quantity_requested=1,
+            is_selected=True,
+            inclusion_mode=ProductionProjectItem.InclusionMode.PRODUCE,
+            category_order=2,
+        )
+        mock_build_project_workspace_payload.return_value = {
+            "workspace_state": {},
+            "final_outputs": [
+                {"type_id": first_item.type_id, "quantity": 2},
+                {"type_id": second_item.type_id, "quantity": 3},
+            ],
+        }
+
+        request = self._prepare_request(
+            self.factory.post(
+                reverse(
+                    "indy_hub:save_production_project_workspace",
+                    args=[project.project_ref],
+                ),
+                data=json.dumps(
+                    {
+                        "simulation_name": "Fleet Targets",
+                        "active_tab": "materials",
+                        "finalOutputQuantities": [
+                            {"index": 0, "typeId": first_item.type_id, "quantity": 2},
+                            {"index": 1, "typeId": second_item.type_id, "quantity": 3},
+                        ],
+                    }
+                ),
+                content_type="application/json",
+            )
+        )
+        response = self._save_workspace_view(request, project.project_ref)
+
+        self.assertEqual(response.status_code, 200)
+        project.refresh_from_db()
+        first_item.refresh_from_db()
+        second_item.refresh_from_db()
+        self.assertEqual(first_item.quantity_requested, 2)
+        self.assertEqual(second_item.quantity_requested, 3)
+        self.assertEqual(project.workspace_state["runs"], 1)
+        self.assertEqual(
+            project.workspace_state["finalOutputQuantities"][0]["quantity"], 2
+        )
+        self.assertEqual(
+            project.workspace_state["finalOutputQuantities"][1]["quantity"], 3
+        )
+
+    @patch("indy_hub.views.api.build_project_workspace_payload")
     def test_save_workspace_scoped_signature_ignores_client_cached_payload_ids(
         self,
         mock_build_project_workspace_payload,
@@ -872,7 +945,7 @@ class LegacySimulationUnificationTests(TestCase):
     @patch("indy_hub.views.industry._get_craft_project_stock_refresh_progress")
     @patch("indy_hub.views.industry.build_project_workspace_payload")
     @patch("indy_hub.views.industry.get_cached_project_workspace_payload")
-    def test_craft_project_renders_runs_control_and_uses_runs_override(
+    def test_craft_project_renders_tree_update_control_and_uses_runs_override(
         self,
         mock_get_cached_project_workspace_payload,
         mock_build_project_workspace_payload,
@@ -939,9 +1012,9 @@ class LegacySimulationUnificationTests(TestCase):
             self.user,
             allow_refresh=False,
         )
-        self.assertContains(response, 'id="runsInput"', html=False)
-        self.assertContains(response, 'value="7"', html=False)
-        self.assertContains(response, 'id="recalcNowBtn"', html=False)
+        self.assertNotContains(response, 'id="runsInput"', html=False)
+        self.assertNotContains(response, 'id="recalcNowBtn"', html=False)
+        self.assertContains(response, 'id="updateFinalOutputQuantitiesBtn"', html=False)
 
     @patch("indy_hub.views.industry.build_user_asset_inventory_snapshot")
     @patch("indy_hub.views.industry._get_craft_project_stock_refresh_progress")
