@@ -5,9 +5,9 @@ from __future__ import annotations
 # Standard Library
 import time
 
-# Third Party
 try:
     # Celery
+    # Third Party
     from celery import current_task
 except ImportError:  # pragma: no cover - celery always available in runtime
     current_task = None
@@ -23,8 +23,8 @@ from esi.models import Token
 
 # AA Example App
 # Local
-from indy_hub.app_settings import ESI_COMPATIBILITY_DATE
 from indy_hub.app_settings import (
+    ESI_COMPATIBILITY_DATE,
     ESI_TASK_TARGET_PER_MIN_BLUEPRINTS,
     ESI_TASK_TARGET_PER_MIN_JOBS,
     ESI_TASK_TARGET_PER_MIN_ROLES,
@@ -251,7 +251,9 @@ class ESIClient:
         # Conservative fallback for authenticated endpoints not explicitly mapped.
         return int(ESI_TASK_TARGET_PER_MIN_ROLES)
 
-    def _enforce_task_scope_budget(self, scope: str | None, endpoint: str | None) -> None:
+    def _enforce_task_scope_budget(
+        self, scope: str | None, endpoint: str | None
+    ) -> None:
         if not self._is_running_in_task():
             return
 

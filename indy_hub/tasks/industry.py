@@ -1048,7 +1048,11 @@ def _select_industry_job_sync_user_ids(
         .values_list("user_id", flat=True)
         .distinct()
     )
-    user_ids = sorted(int(user_id) for user_id in (character_user_ids | corporation_user_ids) if user_id)
+    user_ids = sorted(
+        int(user_id)
+        for user_id in (character_user_ids | corporation_user_ids)
+        if user_id
+    )
     if last_user_id:
         user_ids = [user_id for user_id in user_ids if user_id > last_user_id]
     return user_ids[:batch_size]
@@ -2451,11 +2455,18 @@ def update_all_blueprints(
     release_lock = False
     if lock_token is None:
         lock_token = uuid.uuid4().hex
-        if not cache.add(_BLUEPRINTS_BULK_LOCK_KEY, lock_token, _BLUEPRINTS_BULK_LOCK_TTL):
+        if not cache.add(
+            _BLUEPRINTS_BULK_LOCK_KEY, lock_token, _BLUEPRINTS_BULK_LOCK_TTL
+        ):
             logger.info(
                 "Skipping bulk blueprint update: another run is already in progress"
             )
-            return {"users_queued": 0, "characters_queued": 0, "done": True, "reason": "locked"}
+            return {
+                "users_queued": 0,
+                "characters_queued": 0,
+                "done": True,
+                "reason": "locked",
+            }
 
     try:
         logger.info(
@@ -2480,7 +2491,9 @@ def update_all_blueprints(
             }
 
         character_targets = _select_character_blueprint_targets_for_users(user_ids)
-        corporation_user_ids = _select_corporation_blueprint_user_ids_for_users(user_ids)
+        corporation_user_ids = _select_corporation_blueprint_user_ids_for_users(
+            user_ids
+        )
         total_targets = len(character_targets) + len(corporation_user_ids)
 
         window_minutes = max(
@@ -2540,7 +2553,11 @@ def update_all_blueprints(
         release_lock = True
         raise
     finally:
-        if release_lock and lock_token and cache.get(_BLUEPRINTS_BULK_LOCK_KEY) == lock_token:
+        if (
+            release_lock
+            and lock_token
+            and cache.get(_BLUEPRINTS_BULK_LOCK_KEY) == lock_token
+        ):
             cache.delete(_BLUEPRINTS_BULK_LOCK_KEY)
 
 
@@ -2562,11 +2579,18 @@ def update_all_industry_jobs(
     release_lock = False
     if lock_token is None:
         lock_token = uuid.uuid4().hex
-        if not cache.add(_INDUSTRY_JOBS_BULK_LOCK_KEY, lock_token, _INDUSTRY_JOBS_BULK_LOCK_TTL):
+        if not cache.add(
+            _INDUSTRY_JOBS_BULK_LOCK_KEY, lock_token, _INDUSTRY_JOBS_BULK_LOCK_TTL
+        ):
             logger.info(
                 "Skipping bulk industry jobs update: another run is already in progress"
             )
-            return {"users_queued": 0, "characters_queued": 0, "done": True, "reason": "locked"}
+            return {
+                "users_queued": 0,
+                "characters_queued": 0,
+                "done": True,
+                "reason": "locked",
+            }
 
     try:
         logger.info(
@@ -2651,7 +2675,11 @@ def update_all_industry_jobs(
         release_lock = True
         raise
     finally:
-        if release_lock and lock_token and cache.get(_INDUSTRY_JOBS_BULK_LOCK_KEY) == lock_token:
+        if (
+            release_lock
+            and lock_token
+            and cache.get(_INDUSTRY_JOBS_BULK_LOCK_KEY) == lock_token
+        ):
             cache.delete(_INDUSTRY_JOBS_BULK_LOCK_KEY)
 
 

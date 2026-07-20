@@ -174,8 +174,12 @@ class IndustryJobsPayloadTests(TestCase):
                 "indy_hub.tasks.industry._select_corporation_job_user_ids_for_users",
                 return_value=[202, 303],
             ),
-            patch("indy_hub.tasks.industry._queue_staggered_industry_job_character_tasks") as queue_characters,
-            patch("indy_hub.tasks.industry._queue_staggered_industry_job_corporation_tasks") as queue_corporations,
+            patch(
+                "indy_hub.tasks.industry._queue_staggered_industry_job_character_tasks"
+            ) as queue_characters,
+            patch(
+                "indy_hub.tasks.industry._queue_staggered_industry_job_corporation_tasks"
+            ) as queue_corporations,
             patch("indy_hub.tasks.industry.emit_analytics_event"),
             patch("indy_hub.tasks.industry.update_all_industry_jobs.apply_async"),
             patch("indy_hub.tasks.industry.cache.add", return_value=True),
@@ -223,7 +227,9 @@ class IndustryJobsPayloadTests(TestCase):
             patch("indy_hub.tasks.industry.emit_analytics_event"),
             patch("indy_hub.tasks.industry.cache.add", return_value=True),
             patch("indy_hub.tasks.industry.cache.get", return_value=None),
-            patch("indy_hub.tasks.industry.update_all_industry_jobs.apply_async") as requeue,
+            patch(
+                "indy_hub.tasks.industry.update_all_industry_jobs.apply_async"
+            ) as requeue,
         ):
             update_all_industry_jobs(batch_size=2)
 
@@ -248,8 +254,12 @@ class IndustryJobsPayloadTests(TestCase):
                 "indy_hub.tasks.industry._select_corporation_blueprint_user_ids_for_users",
                 return_value=[202, 303],
             ),
-            patch("indy_hub.tasks.industry._queue_staggered_blueprint_character_tasks") as queue_characters,
-            patch("indy_hub.tasks.industry._queue_staggered_blueprint_corporation_tasks") as queue_corporations,
+            patch(
+                "indy_hub.tasks.industry._queue_staggered_blueprint_character_tasks"
+            ) as queue_characters,
+            patch(
+                "indy_hub.tasks.industry._queue_staggered_blueprint_corporation_tasks"
+            ) as queue_corporations,
             patch("indy_hub.tasks.industry.emit_analytics_event"),
             patch("indy_hub.tasks.industry.update_all_blueprints.apply_async"),
             patch("indy_hub.tasks.industry.cache.add", return_value=True),
@@ -297,7 +307,9 @@ class IndustryJobsPayloadTests(TestCase):
             patch("indy_hub.tasks.industry.emit_analytics_event"),
             patch("indy_hub.tasks.industry.cache.add", return_value=True),
             patch("indy_hub.tasks.industry.cache.get", return_value=None),
-            patch("indy_hub.tasks.industry.update_all_blueprints.apply_async") as requeue,
+            patch(
+                "indy_hub.tasks.industry.update_all_blueprints.apply_async"
+            ) as requeue,
         ):
             update_all_blueprints(batch_size=2)
 
