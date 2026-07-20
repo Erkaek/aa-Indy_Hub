@@ -270,9 +270,21 @@ class ESIClient:
 
         try:
             used = int(cache.incr(cache_key))
-        except Exception:  # pragma: no cover - cache backend edge case
-            cache.set(cache_key, 1, timeout=_SCOPE_THROTTLE_TIMEOUT_SECONDS)
-            return
+        except Exception as exc:  # pragma: no cover - cache backend edge case
+            logger.warning(
+                "Task scope throttle counter failed for scope %s on %s; applying conservative backoff: %s",
+                scope_key,
+                endpoint or "unknown-endpoint",
+                exc,
+            )
+            raise ESIRateLimitError(
+                message=(
+                    "Local task ESI throttle unavailable for scope "
+                    f"{scope_key}; backing off to avoid burst traffic"
+                ),
+                retry_after=self._seconds_to_next_minute(),
+                remaining=0,
+            ) from exc
 
         if used <= target_per_min:
             return

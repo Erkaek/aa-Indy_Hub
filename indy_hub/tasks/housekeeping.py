@@ -147,7 +147,9 @@ def refresh_stale_snapshots() -> dict[str, int]:
                 window_minutes=window_minutes,
                 priority=7,
             )
-            result["skills_users_queued"] = queued
+            result["skills_users_queued"] = len(
+                {int(user_id) for user_id, _character_id in skill_targets}
+            )
             result["skills_characters_queued"] = queued
     except Exception as exc:  # pragma: no cover - defensive
         logger.exception("Failed stale skills refresh: %s", exc)
@@ -177,7 +179,9 @@ def refresh_stale_snapshots() -> dict[str, int]:
                 window_minutes=window_minutes,
                 priority=7,
             )
-            result["roles_users_queued"] = queued
+            result["roles_users_queued"] = len(
+                {int(user_id) for user_id, _character_id in role_targets}
+            )
             result["roles_characters_queued"] = queued
     except Exception as exc:  # pragma: no cover - defensive
         logger.exception("Failed stale roles refresh: %s", exc)
