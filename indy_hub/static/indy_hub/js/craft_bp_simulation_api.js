@@ -758,12 +758,20 @@
     function computeStructureAdjustedMaterialQuantity(child, fallbackQuantity, materialBonusPercent) {
         const quantity = normalizeQuantity(fallbackQuantity);
         const materialBonusApplicable = readValue(child, 'material_bonus_applicable', 'materialBonusApplicable');
+        const baseQuantity = Number(readValue(child, 'base_quantity_per_run', 'baseQuantityPerRun')) || 0;
+        const jobRuns = Number(readValue(child, 'job_runs', 'jobRuns')) || 0;
+        const hasExplicitMaterialFlag = materialBonusApplicable === true || materialBonusApplicable === false;
+
+        // Only adjust true recipe material rows. Synthetic fit children and
+        // other non-material leaves must keep their exact quantity.
+        if (!hasExplicitMaterialFlag && !(baseQuantity > 0 && jobRuns > 0)) {
+            return quantity;
+        }
+
         if (!(materialBonusPercent > 0) || materialBonusApplicable === false) {
             return quantity;
         }
 
-        const baseQuantity = Number(readValue(child, 'base_quantity_per_run', 'baseQuantityPerRun')) || 0;
-        const jobRuns = Number(readValue(child, 'job_runs', 'jobRuns')) || 0;
         if (baseQuantity > 0 && jobRuns > 0) {
             const blueprintME = Math.max(
                 0,

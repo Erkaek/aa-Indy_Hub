@@ -4,7 +4,8 @@
  */
 (function () {
     const blueprintData = window.BLUEPRINT_DATA || {};
-    const isProjectWorkspace = Boolean(blueprintData.project_ref || blueprintData.project_id);
+    const isTemporaryProjectWorkspace = Boolean(blueprintData.is_temporary_project || blueprintData.temp_project_ref);
+    const isProjectWorkspace = Boolean(blueprintData.project_ref || blueprintData.project_id || isTemporaryProjectWorkspace);
     const __ = (typeof window !== 'undefined' && typeof window.gettext === 'function') ? window.gettext.bind(window) : (msg => msg);
     const n__ = (typeof window !== 'undefined' && typeof window.ngettext === 'function')
         ? window.ngettext.bind(window)
@@ -105,6 +106,13 @@
                 const v = Number.parseFloat(state.revenueTotalOverride);
                 return Number.isFinite(v) && v > 0 ? v : 0;
             })(),
+            outputGroupRevenueOverrides: state.outputGroupRevenueOverrides && typeof state.outputGroupRevenueOverrides === 'object' && !Array.isArray(state.outputGroupRevenueOverrides)
+                ? Object.fromEntries(
+                    Object.entries(state.outputGroupRevenueOverrides)
+                        .map(([groupKey, value]) => [String(groupKey || '').trim(), Number(value) || 0])
+                        .filter(([groupKey, value]) => groupKey && value > 0)
+                )
+                : {},
             meTeConfig: state.meTeConfig && typeof state.meTeConfig === 'object'
                 ? state.meTeConfig
                 : buildMeTeConfigFromLegacyEfficiencies(state.blueprint_efficiencies),
@@ -138,11 +146,12 @@
         return (Array.isArray(nodes) ? nodes : []).map((node) => {
             const clonedNode = node && typeof node === 'object' ? { ...node } : {};
             const typeId = Number(clonedNode.type_id || clonedNode.typeId || 0) || 0;
-            const inclusionMode = typeId > 0 && buyTypeIds.has(typeId) ? 'buy' : 'prod';
-            clonedNode.project_inclusion_mode = inclusionMode;
             const children = Array.isArray(clonedNode.sub_materials)
                 ? clonedNode.sub_materials
                 : (Array.isArray(clonedNode.subMaterials) ? clonedNode.subMaterials : []);
+            const hasChildren = children.length > 0;
+            const inclusionMode = (typeId > 0 && buyTypeIds.has(typeId)) || !hasChildren ? 'buy' : 'prod';
+            clonedNode.project_inclusion_mode = inclusionMode;
             const nextChildren = applyInclusionModesToTreeSnapshot(children, buyTypeIds);
             if (Array.isArray(clonedNode.sub_materials)) {
                 clonedNode.sub_materials = nextChildren;
@@ -509,7 +518,7 @@
         }
 
         const { payload, normalizedState, signature } = collectProjectWorkspacePayload();
-        if (isProjectWorkspace && signature === lastSavedProjectStateSignature) {
+        if (isProjectWorkspace && !isTemporaryProjectWorkspace && signature === lastSavedProjectStateSignature) {
             setProjectWorkspaceDirty(false);
             return true;
         }
@@ -552,6 +561,11 @@
 
         if (showSuccessStatus) {
             showSimulationStatus(isProjectWorkspace ? __('Table saved successfully.') : __('Simulation saved successfully.'), 'success');
+        }
+
+        if (isTemporaryProjectWorkspace && data.redirect_url) {
+            window.location.href = data.redirect_url;
+            return true;
         }
 
         cachedSimulations = null;
@@ -603,7 +617,7 @@
     }
 
     function autoSaveProjectWorkspaceFromTabChange() {
-        if (!isProjectWorkspace || !projectWorkspaceDirty) {
+        if (!isProjectWorkspace || isTemporaryProjectWorkspace || !projectWorkspaceDirty) {
             return Promise.resolve(true);
         }
         if (projectWorkspaceAutoSavePromise) {

@@ -4,7 +4,7 @@
 <ul class="list-unstyled ms-{{ level|add:1 }}">
     {% for mat in materials %}
     <li class="craft-tree-branch">
-        <details class="mb-2">
+        <details class="mb-2 {% if mat.sub_materials and mat.sub_materials|length > 0 %}craft-tree-node--branch{% else %}craft-tree-node--leaf{% endif %}">
             <summary class="d-flex align-items-center gap-2 py-1" data-type-id="{{ mat.type_id }}" data-type-name="{{ mat.type_name }}" data-qty="{{ mat.quantity }}" data-tree-id="{{ mat.type_id }}">
                 {% if mat.sub_materials and mat.sub_materials|length > 0 %}
                 <span class="summary-icon"><i class="fas fa-caret-right"></i></span>
@@ -19,7 +19,7 @@
                 <span class="text-muted">x{{ mat.quantity|intcomma }}</span>
                 {# Right-side switch only for items with sub-materials #}
                 {% if mat.sub_materials and mat.sub_materials|length > 0 %}
-                <span class="ms-auto"></span>
+                <span class="ms-auto d-inline-flex align-items-center justify-content-end gap-2 craft-tree-tail"></span>
                 <div class="mat-switch-group d-flex align-items-center gap-2">
                     <div class="form-switch">
                         <input class="form-check-input mat-switch" type="checkbox" id="mat-switch-{{ mat.type_id }}" data-type-id="{{ mat.type_id }}" checked style="cursor:pointer; accent-color: #0d6efd;">
@@ -27,6 +27,11 @@
                     </div>
                     <span class="mode-label badge px-2 py-1 fw-bold bg-success text-white" style="font-size:0.85em;">{% trans "Prod" %}</span>
                 </div>
+                {% else %}
+                <span class="ms-auto d-inline-flex align-items-center justify-content-end gap-2 craft-tree-tail">
+                    <span class="text-muted small craft-tree-note">{% trans "No craftable item" %}</span>
+                    <span class="mode-label badge px-2 py-1 fw-bold bg-info text-white" data-switch-state="buy" style="font-size:0.85em;">{% trans "Buy only" %}</span>
+                </span>
                 {% endif %}
             </summary>
             {% if mat.sub_materials and mat.sub_materials|length > 0 %}

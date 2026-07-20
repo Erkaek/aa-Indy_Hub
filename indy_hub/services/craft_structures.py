@@ -81,20 +81,22 @@ def _is_super_carrier_variant(normalized_group: str) -> bool:
     return "super" in tokens and "carrier" in tokens
 
 
-def _get_table_column_names(table_name: str) -> set[str]:
+@lru_cache(maxsize=64)
+def _get_table_column_names(table_name: str) -> frozenset[str]:
     try:
         with connection.cursor() as cursor:
-            return {
+            return frozenset(
                 column.name
                 for column in connection.introspection.get_table_description(
                     cursor,
                     table_name,
                 )
-            }
+            )
     except Exception:
-        return set()
+        return frozenset()
 
 
+@lru_cache(maxsize=128)
 def _sde_name_expression(table_name: str, *, alias: str | None = None) -> str:
     columns = _get_table_column_names(table_name)
     prefix = f"{alias}." if alias else ""

@@ -119,10 +119,62 @@ class _WorkspacePayloadCursorStub:
     def execute(self, sql, params=None):
         query = " ".join(str(sql).split())
         blueprint_type_id = int((params or [0])[0] or 0)
+
+        # Batch fetch materials (WHERE activity.blueprint_item_type_id IN (...))
+        # Check this FIRST because batch products also has "SELECT activity.blueprint_item_type_id"
+        # but batch materials specifically has "m.item_type_id"
+        if (
+            "WHERE activity.blueprint_item_type_id IN" in query
+            and "m.item_type_id" in query
+            and "m.quantity" in query
+            and "SELECT activity.blueprint_item_type_id" in query
+        ):
+            self._result = []
+            for bp_id in params or []:
+                for (
+                    material_type_id,
+                    material_name,
+                    base_quantity,
+                ) in self.material_rows.get(bp_id, []):
+                    self._result.append(
+                        (
+                            bp_id,  # blueprint_item_type_id (blueprint_type_id)
+                            material_type_id,  # m.item_type_id
+                            material_name,  # t.name
+                            base_quantity,  # m.quantity
+                        )
+                    )
+            return
+
+        # Batch fetch products (WHERE activity.blueprint_item_type_id IN (...))
+        # Must check this AFTER batch materials
+        if (
+            "WHERE activity.blueprint_item_type_id IN" in query
+            and "SELECT activity.blueprint_item_type_id" in query
+        ):
+            self._result = []
+            for bp_id, row in self.product_rows.items():
+                if bp_id in (params or []):
+                    # row = (product_type_id, name, qty, qty_again, group_name, group_id)
+                    # Transform to: (blueprint_type_id, product_type_id, name, qty, activity, group_name, group_id)
+                    self._result.append(
+                        (
+                            bp_id,  # blueprint_type_id
+                            row[0],  # product_type_id
+                            row[1],  # product_name
+                            row[4],  # group_name
+                            row[5] if len(row) > 5 else 1,  # quantity
+                            "manufacturing",  # activity
+                            None,  # group_id
+                        )
+                    )
+            return
+
         if "SELECT p.item_type_id" in query:
             row = self.product_rows.get(blueprint_type_id)
             self._result = [row] if row else []
             return
+
         if "SELECT m.item_type_id, m.quantity" in query:
             self._result = [
                 (type_id, quantity)
@@ -134,9 +186,21 @@ class _WorkspacePayloadCursorStub:
         if "SELECT m.item_type_id" in query and "m.quantity" in query:
             self._result = self.material_rows.get(blueprint_type_id, [])
             return
+
+        # Batch fetch type meta (WHERE t.id IN (...))
+        if "SELECT t.id, t.meta_group_id_raw, g.category_id" in query:
+            self._result = [(type_id, None, None) for type_id in (params or [])]
+            return
+
         if "SELECT t.meta_group_id_raw, g.category_id" in query:
             self._result = [(None, None)]
             return
+
+        # Batch fetch market groups (WHERE t.id IN (...))
+        if "SELECT t.id, COALESCE(g.name, ''), g.id" in query:
+            self._result = [(type_id, "", None) for type_id in (params or [])]
+            return
+
         if "SELECT COALESCE(g.name, ''), g.id" in query:
             self._result = [("", None)]
             return
@@ -522,6 +586,35 @@ Heat Sink II
         self.assertEqual(payload["entries"][0]["type_name"], "Retribution")
         self.assertEqual(payload["entries"][0]["category_key"], "hull")
 
+    def test_parse_eft_import_supports_multiple_fit_blocks(self) -> None:
+        payload = parse_project_import_text(
+            """
+[Guardian,   i.Standard Logi - MWD]
+
+Damage Control II
+
+[Devoter,   i.Standard]
+
+Warp Disruption Field Generator II
+""".strip()
+        )
+
+        self.assertEqual(payload["source_kind"], "eft")
+        self.assertEqual(payload["entries"][0]["type_name"], "Guardian")
+        self.assertEqual(payload["entries"][1]["type_name"], "Damage Control II")
+        self.assertEqual(payload["entries"][2]["type_name"], "Devoter")
+        self.assertEqual(
+            payload["entries"][3]["type_name"], "Warp Disruption Field Generator II"
+        )
+        self.assertEqual(
+            payload["entries"][0]["metadata"]["fit_group"],
+            payload["entries"][1]["metadata"]["fit_group"],
+        )
+        self.assertNotEqual(
+            payload["entries"][0]["metadata"]["fit_group"],
+            payload["entries"][2]["metadata"]["fit_group"],
+        )
+
     def test_parse_manual_import_supports_prefix_and_suffix_quantities(self) -> None:
         payload = parse_project_import_text(
             """
@@ -566,6 +659,38 @@ Auto Targeting System I
         self.assertEqual(len(aggregated), 1)
         self.assertEqual(aggregated[0]["quantity"], 3)
         self.assertEqual(len(aggregated[0]["source_lines"]), 2)
+
+    def test_aggregate_import_entries_keeps_same_item_separate_per_eft_fit(
+        self,
+    ) -> None:
+        aggregated = aggregate_project_import_entries(
+            [
+                {
+                    "type_name": "Nanite Repair Paste",
+                    "quantity": 150,
+                    "category_key": "cargo",
+                    "category_label": "Cargo",
+                    "category_order": 90,
+                    "source_line": "Nanite Repair Paste x150",
+                    "metadata": {"fit_group": "fit_guardian"},
+                },
+                {
+                    "type_name": "Nanite Repair Paste",
+                    "quantity": 100,
+                    "category_key": "cargo",
+                    "category_label": "Cargo",
+                    "category_order": 90,
+                    "source_line": "Nanite Repair Paste x100",
+                    "metadata": {"fit_group": "fit_devoter"},
+                },
+            ]
+        )
+
+        self.assertEqual(len(aggregated), 2)
+        self.assertEqual(
+            sorted(int(entry["quantity"]) for entry in aggregated),
+            [100, 150],
+        )
 
     @patch(
         "indy_hub.services.production_projects.connection.cursor",
@@ -633,6 +758,27 @@ Warp Disruptor II
         self.assertEqual(preview["summary"]["craftable_items"], 2)
         self.assertEqual(preview["summary"]["non_craftable_items"], 1)
         self.assertEqual(preview["groups"][0]["key"], "hull")
+
+    @patch(
+        "indy_hub.services.production_projects.connection.cursor",
+        return_value=_PreviewCursorStub(),
+    )
+    def test_build_preview_reports_detected_eft_fits(self, _mock_cursor) -> None:
+        preview = build_project_import_preview(
+            """
+[Guardian, i.Standard Logi - MWD]
+
+Damage Control II
+
+[Devoter, i.Standard]
+
+Warp Disruptor II
+""".strip()
+        )
+
+        self.assertEqual(preview["summary"]["fit_count"], 2)
+        self.assertEqual(preview["fits"][0]["label"], "Guardian, i.Standard Logi - MWD")
+        self.assertEqual(preview["fits"][1]["label"], "Devoter, i.Standard")
 
     @patch("indy_hub.services.production_projects._resolve_blueprints_for_products")
     @patch("indy_hub.services.production_projects._resolve_item_types_by_name")

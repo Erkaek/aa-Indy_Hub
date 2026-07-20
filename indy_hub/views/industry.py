@@ -116,12 +116,16 @@ from ..services.material_exchange_assets import (
     material_exchange_sell_assets_progress_key,
 )
 from ..services.production_projects import (
+    PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY,
     build_project_workspace_payload,
+    build_temporary_project_payload,
     create_project_from_single_blueprint,
     get_cached_project_workspace_payload,
+    get_temporary_project_workspace,
     normalize_production_project_ref,
     parse_project_final_output_quantity_overrides,
     parse_project_me_te_overrides,
+    set_temporary_project_workspace,
     strip_project_workspace_cache,
 )
 from ..services.project_progress import normalize_project_progress
@@ -3022,6 +3026,172 @@ def craft_project(request, project_ref):
         "project": project,
         "sde_snapshot_has_changed": sde_has_changed,
         "sde_refresh_url": sde_refresh_url,
+    }
+    context.update(build_nav_context(request.user, active_tab="industry"))
+    return render(request, "indy_hub/industry/Craft_BP_v2.html", context)
+
+
+@indy_hub_access_required
+@indy_hub_permission_required("can_access_indy_hub")
+@login_required
+def craft_temp_project(request, temp_project_ref):
+    emit_view_analytics_event(view_name="industry.craft_temp_project", request=request)
+
+    temp_state = get_temporary_project_workspace(request.user, temp_project_ref)
+    if not temp_state:
+        return redirect("indy_hub:production_simulations_list")
+
+    if "runs" in request.GET:
+        try:
+            runs_override = max(1, int(request.GET.get("runs") or 1))
+        except (TypeError, ValueError):
+            runs_override = 1
+    else:
+        runs_override = None
+
+    me_te_overrides = parse_project_me_te_overrides(request.GET)
+    final_output_quantity_overrides = parse_project_final_output_quantity_overrides(
+        request.GET
+    )
+    use_cached_payload = (
+        runs_override is None
+        and not me_te_overrides
+        and not final_output_quantity_overrides
+    )
+
+    active_tab = request.GET.get("active_tab") or str(
+        (temp_state.get("workspace_state") or {}).get("active_tab") or "materials"
+    )
+    payload = None
+    if use_cached_payload:
+        cached_payload = (temp_state.get("workspace_state") or {}).get(
+            PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY
+        )
+        if isinstance(cached_payload, dict):
+            payload = dict(cached_payload)
+
+    if payload is None:
+        payload = build_temporary_project_payload(
+            user=request.user,
+            temp_project_ref=temp_project_ref,
+            temp_state=temp_state,
+            skill_cache_ttl=SKILL_CACHE_TTL,
+            me_te_overrides=me_te_overrides,
+            final_output_quantity_overrides=final_output_quantity_overrides,
+            runs_override=runs_override,
+            include_full_structure_options=False,
+        )
+        if use_cached_payload:
+            cached_state = dict(temp_state)
+            cached_workspace_state = strip_project_workspace_cache(
+                cached_state.get("workspace_state")
+            )
+            cached_workspace_state[PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY] = payload
+            cached_state["workspace_state"] = cached_workspace_state
+            set_temporary_project_workspace(temp_project_ref, cached_state)
+
+    payload["temp_project_ref"] = str(temp_project_ref or "")
+    payload["project_ref"] = str(payload.get("project_ref") or temp_project_ref or "")
+    payload["is_temporary_project"] = True
+
+    render_workspace_state = dict(payload.get("workspace_state") or {})
+    render_workspace_state["active_tab"] = active_tab
+    stock_refresh_progress = _get_craft_project_stock_refresh_progress(request.user)
+    payload.update(
+        {
+            "active_tab": active_tab,
+            "workspace_state": render_workspace_state,
+            "character_stock_snapshot": build_user_asset_inventory_snapshot(
+                request.user,
+                allow_refresh=False,
+            ),
+            "character_stock_refresh": stock_refresh_progress,
+            "urls": {
+                "save": reverse(
+                    "indy_hub:save_temporary_production_project_workspace",
+                    args=[temp_project_ref],
+                ),
+                "load_list": reverse("indy_hub:production_simulations_list"),
+                "load_config": None,
+                "fuzzwork_price": reverse("indy_hub:fuzzwork_price"),
+                "craft_bp_payload": reverse(
+                    "indy_hub:temporary_production_project_payload",
+                    args=[temp_project_ref],
+                ),
+                "craft_stock_refresh_status": reverse(
+                    "indy_hub:craft_project_stock_refresh_status"
+                ),
+                "structure_solar_system_search": reverse(
+                    "indy_hub:industry_structure_solar_system_search"
+                ),
+                "craft_structure_jump_distances": reverse(
+                    "indy_hub:craft_structure_jump_distances"
+                ),
+            },
+        }
+    )
+
+    final_outputs = payload.get("final_outputs") or []
+    total_requested_quantity = sum(
+        max(0, int(output.get("quantity") or 0)) for output in final_outputs
+    )
+    source_kind_value = str(
+        temp_state.get("source_kind") or ProductionProject.SourceKind.MANUAL
+    )
+    try:
+        source_kind_label = ProductionProject.SourceKind(source_kind_value).label
+    except ValueError:
+        source_kind_label = source_kind_value
+    craft_header_controls = mark_safe(
+        "".join(
+            [
+                '<button id="saveSimulationBtn" class="btn btn-light btn-sm" type="button">',
+                '<i class="fas fa-save me-1"></i>',
+                escape(str(_("Save table"))),
+                "</button>",
+                '<span class="badge bg-warning text-dark border">',
+                escape(str(_("Temporary"))),
+                "</span>",
+                '<span class="badge bg-light text-dark border">',
+                escape(str(source_kind_label)),
+                "</span>",
+            ]
+        )
+    )
+
+    context = {
+        "ui_version": "v2",
+        "bp_type_id": payload.get("bp_type_id") or 0,
+        "bp_name": str(
+            temp_state.get("name")
+            or temp_state.get("source_name")
+            or _("Temporary craft table")
+        ),
+        "back_url": reverse("indy_hub:production_simulations_list"),
+        "craft_header_controls": craft_header_controls,
+        "deferred_shell": False,
+        "active_tab": active_tab,
+        "num_runs": payload.get("num_runs") or 1,
+        "final_product_qty": payload.get("final_product_qty")
+        or total_requested_quantity,
+        "product_type_id": payload.get("product_type_id"),
+        "me": payload.get("me") or 0,
+        "te": payload.get("te") or 0,
+        "materials": payload.get("materials") or [],
+        "direct_materials": payload.get("direct_materials") or [],
+        "materials_tree": payload.get("materials_tree") or [],
+        "craft_cycles_summary": payload.get("craft_cycles_summary") or {},
+        "blueprint_configs_grouped": payload.get("blueprint_configs_grouped") or [],
+        "materials_by_group": payload.get("materials_by_group") or {},
+        "production_time_map": payload.get("production_time_map") or {},
+        "craft_character_advisor": payload.get("craft_character_advisor") or {},
+        "structure_planner": payload.get("structure_planner") or {},
+        "blueprint_payload": payload,
+        "final_outputs": payload.get("editable_final_outputs") or final_outputs,
+        "is_project_workspace": True,
+        "project": None,
+        "sde_snapshot_has_changed": False,
+        "sde_refresh_url": "",
     }
     context.update(build_nav_context(request.user, active_tab="industry"))
     return render(request, "indy_hub/industry/Craft_BP_v2.html", context)

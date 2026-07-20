@@ -1775,12 +1775,6 @@ class ProductionProjectItem(models.Model):
             models.Index(fields=["project", "inclusion_mode"]),
             models.Index(fields=["project", "type_id"]),
         ]
-        constraints = [
-            models.UniqueConstraint(
-                fields=["project", "type_id", "category_key"],
-                name="indy_hub_project_item_unique_type_category",
-            )
-        ]
 
     def __str__(self):
         return f"{self.project_id} - {self.type_name} x{self.quantity_requested}"
@@ -3185,10 +3179,22 @@ class IndustryStructure(models.Model):
     def get_system_cost_index(self, activity_id: int) -> IndustrySystemCostIndex | None:
         if not self.solar_system_id:
             return None
-        return IndustrySystemCostIndex.objects.filter(
+        cache_key = int(activity_id)
+        cache_attr = "_system_cost_index_cache"
+        cache_map = getattr(self, cache_attr, None)
+        if cache_map is None:
+            cache_map = {}
+            setattr(self, cache_attr, cache_map)
+
+        if cache_key in cache_map:
+            return cache_map[cache_key]
+
+        resolved = IndustrySystemCostIndex.objects.filter(
             solar_system_id=self.solar_system_id,
-            activity_id=activity_id,
+            activity_id=cache_key,
         ).first()
+        cache_map[cache_key] = resolved
+        return resolved
 
     def get_resolved_bonuses(self):
         # AA Example App

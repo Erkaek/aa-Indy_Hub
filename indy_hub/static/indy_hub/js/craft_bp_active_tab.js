@@ -105,9 +105,6 @@ window.CraftBPTabs = {
                     return;
                 }
                 self.activeTabId = targetId.replace('#tab-', '');
-                if (window.SimulationAPI && typeof window.SimulationAPI.markTabDirty === 'function') {
-                    window.SimulationAPI.markTabDirty(self.activeTabId);
-                }
                 self.updateActiveTab();
             });
         });

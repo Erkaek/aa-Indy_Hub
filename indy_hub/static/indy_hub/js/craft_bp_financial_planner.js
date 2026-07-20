@@ -3,15 +3,68 @@ function getFinancialGroupLabel(groupName) {
     return normalizedGroupName || __('Other');
 }
 
+function normalizeFinancialInputGroupKey(groupName) {
+    const normalizedGroupName = String(groupName || '').trim();
+    return normalizedGroupName || '__other__';
+}
+
+function getFinancialGroupCollapseState() {
+    if (!window.craftBPFinancialGroupCollapseState || typeof window.craftBPFinancialGroupCollapseState !== 'object') {
+        window.craftBPFinancialGroupCollapseState = {
+            input: {},
+            output: {},
+        };
+    }
+    if (!window.craftBPFinancialGroupCollapseState.input) {
+        window.craftBPFinancialGroupCollapseState.input = {};
+    }
+    if (!window.craftBPFinancialGroupCollapseState.output) {
+        window.craftBPFinancialGroupCollapseState.output = {};
+    }
+    return window.craftBPFinancialGroupCollapseState;
+}
+
+function isFinancialGroupCollapsed(kind, key) {
+    const safeKind = kind === 'output' ? 'output' : 'input';
+    const safeKey = String(key || '').trim();
+    if (!safeKey) {
+        return true;
+    }
+    const state = getFinancialGroupCollapseState();
+    if (!Object.prototype.hasOwnProperty.call(state[safeKind], safeKey)) {
+        return true;
+    }
+    return Boolean(state[safeKind]?.[safeKey]);
+}
+
+window.isFinancialGroupCollapsed = isFinancialGroupCollapsed;
+
+function setFinancialGroupCollapsed(kind, key, collapsed) {
+    const safeKind = kind === 'output' ? 'output' : 'input';
+    const safeKey = String(key || '').trim();
+    if (!safeKey) {
+        return;
+    }
+    const state = getFinancialGroupCollapseState();
+    state[safeKind][safeKey] = Boolean(collapsed);
+}
+
 function buildFinancialGroupRow(groupName) {
+    const groupKey = normalizeFinancialInputGroupKey(groupName);
+    const collapsed = isFinancialGroupCollapsed('input', groupKey);
     const row = document.createElement('tr');
     row.className = 'craft-financial-group-row';
     row.dataset.marketGroupRow = 'true';
-    row.dataset.marketGroupKey = String(groupName || '').trim();
+    row.dataset.marketGroupKey = groupKey;
+    row.dataset.groupKind = 'input';
+    row.dataset.collapsed = collapsed ? 'true' : 'false';
     row.innerHTML = `
         <td colspan="6">
             <div class="d-flex align-items-center justify-content-between gap-3">
-                <span class="badge bg-secondary-subtle text-secondary-emphasis">${escapeHtml(getFinancialGroupLabel(groupName))}</span>
+                <span class="d-inline-flex align-items-center gap-2">
+                    <span class="financial-group-toggle" aria-hidden="true"><i class="fas fa-chevron-down"></i></span>
+                    <span class="badge bg-secondary-subtle text-secondary-emphasis">${escapeHtml(getFinancialGroupLabel(groupName))}</span>
+                </span>
                 <span class="small text-muted financial-group-count">0 ${escapeHtml(__('lines'))}</span>
             </div>
         </td>
@@ -26,6 +79,7 @@ function updateFinancialGroupRowsVisibility(tableBody) {
 
     let currentGroupRow = null;
     let currentVisibleCount = 0;
+    let currentTotalCount = 0;
 
     const flushCurrentGroupRow = () => {
         if (!currentGroupRow) {
@@ -34,14 +88,19 @@ function updateFinancialGroupRowsVisibility(tableBody) {
 
         const countLabel = currentGroupRow.querySelector('.financial-group-count');
         if (countLabel) {
-            countLabel.textContent = currentVisibleCount > 0
-                ? `${formatInteger(currentVisibleCount)} ${currentVisibleCount === 1 ? __('line') : __('lines')}`
-                : __('No visible lines');
+            if (currentTotalCount <= 0) {
+                countLabel.textContent = __('No visible lines');
+            } else if (currentVisibleCount === currentTotalCount) {
+                countLabel.textContent = `${formatInteger(currentVisibleCount)} ${currentVisibleCount === 1 ? __('line') : __('lines')}`;
+            } else {
+                countLabel.textContent = `${formatInteger(currentVisibleCount)}/${formatInteger(currentTotalCount)} ${currentTotalCount === 1 ? __('line') : __('lines')}`;
+            }
         }
 
-        currentGroupRow.hidden = currentVisibleCount === 0;
+        currentGroupRow.hidden = currentTotalCount === 0;
         currentGroupRow = null;
         currentVisibleCount = 0;
+        currentTotalCount = 0;
     };
 
     Array.from(tableBody.children).forEach((row) => {
@@ -60,8 +119,15 @@ function updateFinancialGroupRowsVisibility(tableBody) {
             return;
         }
 
-        if (row.matches('tr[data-type-id]') && row.getAttribute('data-final-output') !== 'true' && !row.hidden) {
-            currentVisibleCount += 1;
+        if (
+            row.matches('tr[data-type-id]')
+            && row.getAttribute('data-final-output') !== 'true'
+            && !row.hidden
+        ) {
+            currentTotalCount += 1;
+            if (!row.classList.contains('financial-group-collapsed-hidden')) {
+                currentVisibleCount += 1;
+            }
         }
     });
 
@@ -81,7 +147,7 @@ function syncFinancialGroupRows(tableBody) {
 
     let previousGroupKey = null;
     purchaseRows.forEach((row) => {
-        const currentGroupKey = String(row.dataset.marketGroup || '').trim();
+        const currentGroupKey = normalizeFinancialInputGroupKey(row.dataset.marketGroup || '');
         if (currentGroupKey === previousGroupKey) {
             return;
         }
@@ -91,7 +157,89 @@ function syncFinancialGroupRows(tableBody) {
     });
 
     updateFinancialGroupRowsVisibility(tableBody);
+    applyFinancialGroupCollapseVisibility(tableBody);
+    if (typeof window.updateFinancialOutputGroupRowsVisibility === 'function') {
+        window.updateFinancialOutputGroupRowsVisibility(tableBody);
+    }
 }
+
+function updateFinancialGroupSectionSummaries(tableBody = document.getElementById('financialItemsBody')) {
+    if (!tableBody) {
+        return;
+    }
+    const formatGroupSummary = (count) => count > 0
+        ? `${formatInteger(count)} ${count === 1 ? __('group') : __('groups')}`
+        : '';
+
+    const inputSummaryEl = document.getElementById('financialInputGroupSummary');
+    const outputSummaryEl = document.getElementById('financialOutputGroupSummary');
+
+    const inputVisibleGroups = Array.from(tableBody.querySelectorAll('tr[data-market-group-row="true"]'))
+        .filter((row) => !row.hidden).length;
+    const outputVisibleGroups = Array.from(tableBody.querySelectorAll('tr[data-output-group-row="true"]'))
+        .filter((row) => !row.hidden).length;
+
+    if (inputSummaryEl) {
+        inputSummaryEl.textContent = formatGroupSummary(inputVisibleGroups);
+    }
+    if (outputSummaryEl) {
+        outputSummaryEl.textContent = formatGroupSummary(outputVisibleGroups);
+    }
+}
+
+window.updateFinancialGroupSectionSummaries = updateFinancialGroupSectionSummaries;
+
+function applyFinancialGroupCollapseVisibility(tableBody = document.getElementById('financialItemsBody')) {
+    if (!tableBody) {
+        return;
+    }
+
+    let activeInputGroupKey = '';
+    let activeOutputGroupKey = '';
+    let hideInputRows = false;
+    let hideOutputRows = false;
+
+    Array.from(tableBody.children).forEach((row) => {
+        if (row.dataset.marketGroupRow === 'true') {
+            activeInputGroupKey = String(row.dataset.marketGroupKey || '').trim();
+            hideInputRows = isFinancialGroupCollapsed('input', activeInputGroupKey);
+            row.dataset.collapsed = hideInputRows ? 'true' : 'false';
+            return;
+        }
+
+        if (row.dataset.outputGroupRow === 'true') {
+            activeOutputGroupKey = String(row.dataset.outputGroupKey || '').trim();
+            hideOutputRows = isFinancialGroupCollapsed('output', activeOutputGroupKey);
+            row.dataset.collapsed = hideOutputRows ? 'true' : 'false';
+            return;
+        }
+
+        if (row.id === 'financialRevenueSectionRow') {
+            activeInputGroupKey = '';
+            hideInputRows = false;
+        }
+
+        if (row.matches('tr[data-type-id]') && row.getAttribute('data-final-output') !== 'true' && activeInputGroupKey) {
+            row.classList.toggle('financial-group-collapsed-hidden', hideInputRows);
+            return;
+        }
+
+        if (row.matches('tr[data-type-id][data-final-output="true"]') && activeOutputGroupKey) {
+            row.classList.toggle('financial-group-collapsed-hidden', hideOutputRows);
+            return;
+        }
+
+        row.classList.remove('financial-group-collapsed-hidden');
+    });
+
+    updateFinancialGroupRowsVisibility(tableBody);
+    if (typeof window.updateFinancialOutputGroupRowsVisibility === 'function') {
+        window.updateFinancialOutputGroupRowsVisibility(tableBody);
+    }
+    updateFinancialGroupSectionSummaries(tableBody);
+}
+
+window.applyFinancialGroupCollapseVisibility = applyFinancialGroupCollapseVisibility;
 
 function ensureFinancialStockStateNode(row) {
     if (!row) {
@@ -395,6 +543,9 @@ function applyFinancialPlannerFilters() {
     });
 
     updateFinancialGroupRowsVisibility(tableBody);
+    if (typeof window.applyFinancialGroupCollapseVisibility === 'function') {
+        window.applyFinancialGroupCollapseVisibility(tableBody);
+    }
 
     if (purchaseHeader) {
         purchaseHeader.hidden = visibleBuy === 0;
@@ -462,14 +613,71 @@ function initializeFinancialPlannerChrome() {
 
     if (tableBody && tableBody.dataset.boundPlannerReset !== 'true') {
         tableBody.addEventListener('click', (event) => {
+            const outputOverrideInput = event.target.closest('.financial-output-group-override');
+            if (outputOverrideInput) {
+                return;
+            }
+
+            const outputOverrideReset = event.target.closest('.financial-output-group-override-reset');
+            if (outputOverrideReset) {
+                const groupKey = String(outputOverrideReset.getAttribute('data-output-group-key') || '').trim();
+                if (groupKey && typeof window.setOutputGroupRevenueOverride === 'function') {
+                    window.setOutputGroupRevenueOverride(groupKey, 0);
+                }
+                return;
+            }
+
             const button = event.target.closest('.financial-row-reset');
             if (!button) {
+                const groupRow = event.target.closest('tr[data-market-group-row="true"], tr[data-output-group-row="true"]');
+                if (!groupRow) {
+                    return;
+                }
+                const isOutput = groupRow.dataset.outputGroupRow === 'true';
+                const groupKey = isOutput
+                    ? String(groupRow.dataset.outputGroupKey || '').trim()
+                    : String(groupRow.dataset.marketGroupKey || '').trim();
+                if (!groupKey) {
+                    return;
+                }
+                const kind = isOutput ? 'output' : 'input';
+                const collapsed = isFinancialGroupCollapsed(kind, groupKey);
+                setFinancialGroupCollapsed(kind, groupKey, !collapsed);
+                if (typeof window.applyFinancialGroupCollapseVisibility === 'function') {
+                    window.applyFinancialGroupCollapseVisibility(tableBody);
+                }
                 return;
             }
             const row = button.closest('tr[data-type-id]');
             resetFinancialRowManualOverride(row);
         });
         tableBody.dataset.boundPlannerReset = 'true';
+    }
+
+    if (tableBody && tableBody.dataset.boundPlannerOutputOverride !== 'true') {
+        tableBody.addEventListener('input', (event) => {
+            const input = event.target.closest('.financial-output-group-override');
+            if (!input) {
+                return;
+            }
+            const groupKey = String(input.getAttribute('data-output-group-key') || '').trim();
+            if (groupKey && typeof window.setOutputGroupRevenueOverride === 'function') {
+                window.setOutputGroupRevenueOverride(groupKey, input.value, { syncInputs: false });
+            }
+        });
+
+        tableBody.addEventListener('change', (event) => {
+            const input = event.target.closest('.financial-output-group-override');
+            if (!input) {
+                return;
+            }
+            const groupKey = String(input.getAttribute('data-output-group-key') || '').trim();
+            if (groupKey && typeof window.setOutputGroupRevenueOverride === 'function') {
+                window.setOutputGroupRevenueOverride(groupKey, input.value);
+            }
+        });
+
+        tableBody.dataset.boundPlannerOutputOverride = 'true';
     }
 }
 
@@ -547,7 +755,22 @@ function updateFinancialTabFromState() {
         return Promise.resolve();
     }
 
+    if (typeof updateFinalProductRowFromPayload === 'function') {
+        updateFinalProductRowFromPayload(window.BLUEPRINT_DATA || {});
+    }
+
     initializeFinancialPlannerChrome();
+
+    const hasRenderedRows = !!tableBody.querySelector('tr[data-type-id]');
+    const isFinancialDirty = window.SimulationAPI && typeof window.SimulationAPI.isTabDirty === 'function'
+        ? window.SimulationAPI.isTabDirty('financial')
+        : true;
+
+    if (hasRenderedRows && !isFinancialDirty) {
+        applyFinancialPlannerFilters();
+        updateFinancialGroupSectionSummaries(tableBody);
+        return Promise.resolve();
+    }
 
     const pricesMap = getSimulationPricesMap();
     const sortedItems = typeof getCraftSourceRequirementRows === 'function'
@@ -590,6 +813,12 @@ function updateFinancialTabFromState() {
     existingRows.forEach((row) => row.remove());
 
     syncFinancialGroupRows(tableBody);
+    if (typeof window.syncFinancialOutputGroupRows === 'function') {
+        window.syncFinancialOutputGroupRows();
+    }
+    if (typeof window.applyFinancialGroupCollapseVisibility === 'function') {
+        window.applyFinancialGroupCollapseVisibility(tableBody);
+    }
 
     getFinalOutputRows().forEach((row) => {
         if (row.parentElement !== tableBody) {
@@ -600,9 +829,23 @@ function updateFinancialTabFromState() {
         }
     });
 
-    if (newRows.length > 0) {
-        const typeIds = newRows.map((entry) => entry.typeId);
-        return fetchAllPrices(typeIds).then((prices) => {
+    const outputTypeIds = getFinalOutputRows()
+        .map((row) => Number(row.getAttribute('data-type-id')) || 0)
+        .filter((typeId) => typeId > 0)
+        .filter((typeId) => {
+            if (!window.SimulationAPI || typeof window.SimulationAPI.getPrice !== 'function') {
+                return true;
+            }
+            const priceInfo = window.SimulationAPI.getPrice(typeId, true) || { value: 0, source: 'default' };
+            return Number(priceInfo.value || 0) <= 0 || String(priceInfo.source || 'default') === 'default';
+        });
+    const fetchedTypeIds = [...new Set([
+        ...newRows.map((entry) => entry.typeId),
+        ...outputTypeIds,
+    ])];
+
+    if (fetchedTypeIds.length > 0) {
+        return fetchAllPrices(fetchedTypeIds).then((prices) => {
             newRows.forEach(({ typeId, fuzzInput }) => {
                 const priceValue = parseFloat(prices[typeId] ?? prices[String(typeId)]) || 0;
                 fuzzInput.value = priceValue.toFixed(2);
@@ -617,8 +860,26 @@ function updateFinancialTabFromState() {
                     window.SimulationAPI.setPrice(typeId, 'fuzzwork', priceValue);
                 }
             });
+
+            getFinalOutputRows().forEach((row) => {
+                const typeId = Number(row.getAttribute('data-type-id')) || 0;
+                if (!typeId) {
+                    return;
+                }
+                const priceValue = parseFloat(prices[typeId] ?? prices[String(typeId)]) || 0;
+                if (window.SimulationAPI && typeof window.SimulationAPI.setPrice === 'function') {
+                    window.SimulationAPI.setPrice(typeId, 'fuzzwork', priceValue);
+                }
+                if (typeof syncFinalOutputRowPriceState === 'function') {
+                    syncFinalOutputRowPriceState(row);
+                }
+            });
+
             if (typeof recalcFinancials === 'function') {
                 recalcFinancials();
+            }
+            if (window.SimulationAPI && typeof window.SimulationAPI.markTabClean === 'function') {
+                window.SimulationAPI.markTabClean('financial');
             }
         });
     }
@@ -627,6 +888,11 @@ function updateFinancialTabFromState() {
         recalcFinancials();
     }
 
+    if (window.SimulationAPI && typeof window.SimulationAPI.markTabClean === 'function') {
+        window.SimulationAPI.markTabClean('financial');
+    }
+
     applyFinancialPlannerFilters();
+    updateFinancialGroupSectionSummaries(tableBody);
     return Promise.resolve();
 }

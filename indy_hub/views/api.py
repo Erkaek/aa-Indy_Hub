@@ -47,12 +47,18 @@ from ..services.production_projects import (
     PROJECT_WORKSPACE_SDE_SIGNATURE_KEY,
     build_project_import_preview,
     build_project_workspace_payload,
+    build_temporary_project_payload,
+    build_temporary_project_workspace_state,
     create_project_from_entries,
+    create_temporary_project_workspace,
+    delete_temporary_project_workspace,
     get_project_workspace_scoped_sde_signature,
     get_project_workspace_sde_signature,
+    get_temporary_project_workspace,
     normalize_production_project_ref,
     parse_project_final_output_quantity_overrides,
     parse_project_me_te_overrides,
+    set_temporary_project_workspace,
     strip_project_workspace_cache,
 )
 from ..services.project_progress import (
@@ -76,6 +82,171 @@ def _to_serializable(value):
     if isinstance(value, list):
         return [_to_serializable(item) for item in value]
     return value
+
+
+def _sanitize_production_workspace_state(
+    *,
+    project,
+    data: dict[str, object],
+) -> dict[str, object]:
+    def sanitize_list(value):
+        return value if isinstance(value, list) else []
+
+    def sanitize_dict(value):
+        return value if isinstance(value, dict) else {}
+
+    def sanitize_final_output_quantities(value):
+        if not isinstance(value, list):
+            return []
+        normalized = []
+        for raw_entry in value:
+            if not isinstance(raw_entry, dict):
+                continue
+            try:
+                output_index = int(raw_entry.get("index") or 0)
+                quantity = max(1, int(raw_entry.get("quantity") or 0))
+            except (TypeError, ValueError):
+                continue
+            normalized.append(
+                {
+                    "index": output_index,
+                    "typeId": int(raw_entry.get("typeId") or 0) or None,
+                    "quantity": quantity,
+                }
+            )
+        return normalized
+
+    def sanitize_positive_float(value):
+        try:
+            num = float(value or 0)
+        except (TypeError, ValueError):
+            return 0.0
+        if not isfinite(num):
+            return 0.0
+        return max(0.0, num)
+
+    existing_workspace_state = strip_project_workspace_cache(
+        getattr(project, "workspace_state", None)
+    )
+
+    simulation_name = str(
+        data.get("simulationName") or data.get("simulation_name") or ""
+    ).strip()
+    active_blueprint_tab = str(
+        data.get("activeBlueprintTab") or data.get("active_tab") or "materials"
+    )
+    blueprint_type_id = int(
+        data.get("blueprint_type_id")
+        or existing_workspace_state.get("blueprint_type_id")
+        or 0
+    )
+    blueprint_name = str(
+        data.get("blueprint_name")
+        or existing_workspace_state.get("blueprint_name")
+        or ""
+    )
+
+    return {
+        "blueprint_type_id": blueprint_type_id,
+        "blueprint_name": blueprint_name,
+        "runs": max(1, int(data.get("runs") or 1)),
+        "simulation_name": simulation_name,
+        "simulationName": simulation_name,
+        "active_tab": active_blueprint_tab,
+        "activeBlueprintTab": active_blueprint_tab,
+        "buyTypeIds": sanitize_list(data.get("buyTypeIds")),
+        "stockAllocations": sanitize_dict(data.get("stockAllocations")),
+        "manualPrices": sanitize_list(data.get("manualPrices")),
+        "decisionBuyTolerance": str(data.get("decisionBuyTolerance") or ""),
+        "revenueMode": (
+            "total"
+            if str(data.get("revenueMode") or "").strip().lower() == "total"
+            else "per_unit"
+        ),
+        "revenueTotalOverride": sanitize_positive_float(
+            data.get("revenueTotalOverride")
+        ),
+        "meTeConfig": sanitize_dict(data.get("meTeConfig")),
+        "copyRequests": sanitize_list(data.get("copyRequests")),
+        "finalOutputQuantities": sanitize_final_output_quantities(
+            data.get("finalOutputQuantities")
+        ),
+        "structure": sanitize_dict(data.get("structure")),
+        "fuzzworkPrices": sanitize_dict(
+            data.get("fuzzworkPrices") or data.get("fuzzwork_prices")
+        ),
+        "pendingWorkspaceRefresh": False,
+        "pendingWorkspaceSourceTab": "",
+        "items": sanitize_list(data.get("items")),
+        "blueprint_efficiencies": sanitize_list(data.get("blueprint_efficiencies")),
+        "custom_prices": sanitize_list(data.get("custom_prices")),
+        "estimated_cost": float(data.get("estimated_cost") or 0),
+        "estimated_revenue": float(data.get("estimated_revenue") or 0),
+        "estimated_profit": float(data.get("estimated_profit") or 0),
+        "total_items": int(data.get("total_items") or 0),
+        "total_buy_items": int(data.get("total_buy_items") or 0),
+        "total_prod_items": int(data.get("total_prod_items") or 0),
+    }
+
+
+def _apply_workspace_state_to_project(
+    project, workspace_state: dict[str, object]
+) -> None:
+    selected_items = list(
+        project.items.filter(is_selected=True)
+        .exclude(inclusion_mode=ProductionProjectItem.InclusionMode.SKIP)
+        .order_by("category_order", "id")
+    )
+    final_output_quantities = workspace_state.get("finalOutputQuantities") or []
+    if (
+        final_output_quantities
+        and project.source_kind == ProductionProject.SourceKind.EFT
+    ):
+        workspace_state["runs"] = 1
+    elif final_output_quantities:
+        items_to_update: list[ProductionProjectItem] = []
+        for raw_entry in final_output_quantities:
+            try:
+                output_index = int(raw_entry.get("index") or 0)
+                quantity = max(1, int(raw_entry.get("quantity") or 0))
+            except (TypeError, ValueError):
+                continue
+            if 0 <= output_index < len(selected_items):
+                project_item = selected_items[output_index]
+                if project_item.quantity_requested != quantity:
+                    project_item.quantity_requested = quantity
+                    items_to_update.append(project_item)
+        if items_to_update:
+            ProductionProjectItem.objects.bulk_update(
+                items_to_update,
+                ["quantity_requested"],
+            )
+        workspace_state["runs"] = 1
+
+    new_name = workspace_state["simulation_name"]
+    update_fields = ["workspace_state", "updated_at"]
+    project.workspace_state = workspace_state
+    if new_name:
+        project.name = new_name[:255]
+        update_fields.append("name")
+    project.save(update_fields=update_fields)
+
+    server_cached_payload = build_project_workspace_payload(
+        project,
+        skill_cache_ttl=SKILL_CACHE_TTL,
+        include_full_structure_options=False,
+    )
+    workspace_state[PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY] = _to_serializable(
+        server_cached_payload
+    )
+    workspace_state[PROJECT_WORKSPACE_SDE_SIGNATURE_KEY] = (
+        get_project_workspace_sde_signature()
+    )
+    workspace_state[PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_KEY] = (
+        get_project_workspace_scoped_sde_signature(server_cached_payload)
+    )
+    project.workspace_state = workspace_state
+    project.save(update_fields=["workspace_state", "updated_at"])
 
 
 @indy_hub_access_required
@@ -122,6 +293,7 @@ def create_production_project(request):
     requested_status = str(data.get("status") or ProductionProject.Status.DRAFT)
     include_non_craftable_as_buy = bool(data.get("include_non_craftable_as_buy"))
     raw_items = data.get("items") or []
+    raw_fit_quantities = data.get("fit_quantities") or []
 
     if requested_status not in ProductionProject.Status.values:
         requested_status = ProductionProject.Status.DRAFT
@@ -160,7 +332,12 @@ def create_production_project(request):
             status=400,
         )
 
-    project = create_project_from_entries(
+    initial_workspace_state = build_temporary_project_workspace_state(
+        source_kind=source_kind,
+        source_name=project_name or source_name or "New production project",
+        fit_quantities=raw_fit_quantities,
+    )
+    temp_project_ref = create_temporary_project_workspace(
         user=request.user,
         name=project_name or source_name or "New production project",
         status=requested_status,
@@ -168,8 +345,127 @@ def create_production_project(request):
         source_text=source_text,
         source_name=source_name,
         selected_entries=selected_entries,
+        workspace_state=initial_workspace_state,
         notes=str(data.get("notes") or ""),
     )
+
+    return JsonResponse(
+        {
+            "success": True,
+            "temp_project_ref": temp_project_ref,
+            "project_name": project_name or source_name or "New production project",
+            "redirect_url": request.build_absolute_uri(
+                reverse("indy_hub:craft_temp_project", args=[temp_project_ref])
+            ),
+        }
+    )
+
+
+@indy_hub_access_required
+@indy_hub_permission_required("can_access_indy_hub")
+@login_required
+@require_http_methods(["GET"])
+def temporary_production_project_payload(request, temp_project_ref: str):
+    emit_view_analytics_event(
+        view_name="api.temporary_production_project_payload",
+        request=request,
+    )
+
+    temp_state = get_temporary_project_workspace(request.user, temp_project_ref)
+    if not temp_state:
+        return JsonResponse({"error": "Temporary craft table not found"}, status=404)
+
+    if "runs" in request.GET:
+        try:
+            runs_override = max(1, int(request.GET.get("runs") or 1))
+        except (TypeError, ValueError):
+            runs_override = 1
+    else:
+        runs_override = None
+
+    me_te_overrides = parse_project_me_te_overrides(request.GET)
+    final_output_quantity_overrides = parse_project_final_output_quantity_overrides(
+        request.GET
+    )
+    use_cached_payload = (
+        runs_override is None
+        and not me_te_overrides
+        and not final_output_quantity_overrides
+    )
+
+    payload = None
+    if use_cached_payload:
+        cached_payload = (temp_state.get("workspace_state") or {}).get(
+            PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY
+        )
+        if isinstance(cached_payload, dict):
+            payload = dict(cached_payload)
+
+    if payload is None:
+        payload = build_temporary_project_payload(
+            user=request.user,
+            temp_project_ref=temp_project_ref,
+            temp_state=temp_state,
+            skill_cache_ttl=SKILL_CACHE_TTL,
+            me_te_overrides=me_te_overrides,
+            final_output_quantity_overrides=final_output_quantity_overrides,
+            runs_override=runs_override,
+            include_full_structure_options=False,
+        )
+        if use_cached_payload:
+            cached_state = dict(temp_state)
+            cached_workspace_state = strip_project_workspace_cache(
+                cached_state.get("workspace_state")
+            )
+            cached_workspace_state[PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY] = payload
+            cached_state["workspace_state"] = cached_workspace_state
+            set_temporary_project_workspace(temp_project_ref, cached_state)
+
+    payload["temp_project_ref"] = str(temp_project_ref or "")
+    payload["project_ref"] = str(payload.get("project_ref") or temp_project_ref or "")
+    payload["is_temporary_project"] = True
+    return JsonResponse(_to_serializable(payload))
+
+
+@indy_hub_access_required
+@indy_hub_permission_required("can_access_indy_hub")
+@login_required
+@require_http_methods(["POST"])
+def save_temporary_production_project_workspace(request, temp_project_ref: str):
+    emit_view_analytics_event(
+        view_name="api.save_temporary_production_project_workspace",
+        request=request,
+    )
+
+    temp_state = get_temporary_project_workspace(request.user, temp_project_ref)
+    if not temp_state:
+        return JsonResponse({"error": "Temporary craft table not found"}, status=404)
+
+    try:
+        data = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON data"}, status=400)
+
+    project = create_project_from_entries(
+        user=request.user,
+        name=str(
+            temp_state.get("name")
+            or temp_state.get("source_name")
+            or "New production project"
+        ),
+        status=str(temp_state.get("status") or ProductionProject.Status.DRAFT),
+        source_kind=str(
+            temp_state.get("source_kind") or ProductionProject.SourceKind.MANUAL
+        ),
+        source_text=str(temp_state.get("source_text") or ""),
+        source_name=str(temp_state.get("source_name") or ""),
+        selected_entries=temp_state.get("selected_entries") or [],
+        notes=str(temp_state.get("notes") or ""),
+    )
+
+    workspace_state = _sanitize_production_workspace_state(project=project, data=data)
+    _apply_workspace_state_to_project(project, workspace_state)
+    delete_temporary_project_workspace(temp_project_ref)
 
     return JsonResponse(
         {
@@ -177,11 +473,9 @@ def create_production_project(request):
             "project_ref": project.project_ref,
             "project_name": project.name,
             "redirect_url": request.build_absolute_uri(
-                reverse(
-                    "indy_hub:craft_project",
-                    args=[project.project_ref],
-                )
+                reverse("indy_hub:craft_project", args=[project.project_ref])
             ),
+            "message": "Production project workspace saved successfully",
         }
     )
 
@@ -221,6 +515,9 @@ def production_project_payload(request, project_ref: str):
             request.GET
         ),
         runs_override=runs_override,
+        # Keep this API path DB-only and fast; full structure options are computed
+        # lazily where needed.
+        include_full_structure_options=False,
     )
     return JsonResponse(_to_serializable(payload))
 
@@ -251,154 +548,8 @@ def save_production_project_workspace(request, project_ref: str):
         data = json.loads(request.body or "{}")
     except json.JSONDecodeError:
         return JsonResponse({"error": "Invalid JSON data"}, status=400)
-
-    def sanitize_list(value):
-        return value if isinstance(value, list) else []
-
-    def sanitize_dict(value):
-        return value if isinstance(value, dict) else {}
-
-    def sanitize_final_output_quantities(value):
-        if not isinstance(value, list):
-            return []
-        normalized = []
-        for raw_entry in value:
-            if not isinstance(raw_entry, dict):
-                continue
-            try:
-                output_index = int(raw_entry.get("index") or 0)
-                quantity = max(1, int(raw_entry.get("quantity") or 0))
-            except (TypeError, ValueError):
-                continue
-            normalized.append(
-                {
-                    "index": output_index,
-                    "typeId": int(raw_entry.get("typeId") or 0) or None,
-                    "quantity": quantity,
-                }
-            )
-        return normalized
-
-    def sanitize_positive_float(value):
-        try:
-            num = float(value or 0)
-        except (TypeError, ValueError):
-            return 0.0
-        if not isfinite(num):
-            return 0.0
-        return max(0.0, num)
-
-    existing_workspace_state = strip_project_workspace_cache(project.workspace_state)
-
-    simulation_name = str(
-        data.get("simulationName") or data.get("simulation_name") or ""
-    ).strip()
-    active_blueprint_tab = str(
-        data.get("activeBlueprintTab") or data.get("active_tab") or "materials"
-    )
-    blueprint_type_id = int(
-        data.get("blueprint_type_id")
-        or existing_workspace_state.get("blueprint_type_id")
-        or 0
-    )
-    blueprint_name = str(
-        data.get("blueprint_name")
-        or existing_workspace_state.get("blueprint_name")
-        or ""
-    )
-
-    workspace_state = {
-        "blueprint_type_id": blueprint_type_id,
-        "blueprint_name": blueprint_name,
-        "runs": max(1, int(data.get("runs") or 1)),
-        "simulation_name": simulation_name,
-        "simulationName": simulation_name,
-        "active_tab": active_blueprint_tab,
-        "activeBlueprintTab": active_blueprint_tab,
-        "buyTypeIds": sanitize_list(data.get("buyTypeIds")),
-        "stockAllocations": sanitize_dict(data.get("stockAllocations")),
-        "manualPrices": sanitize_list(data.get("manualPrices")),
-        "decisionBuyTolerance": str(data.get("decisionBuyTolerance") or ""),
-        "revenueMode": (
-            "total"
-            if str(data.get("revenueMode") or "").strip().lower() == "total"
-            else "per_unit"
-        ),
-        "revenueTotalOverride": sanitize_positive_float(
-            data.get("revenueTotalOverride")
-        ),
-        "meTeConfig": sanitize_dict(data.get("meTeConfig")),
-        "copyRequests": sanitize_list(data.get("copyRequests")),
-        "finalOutputQuantities": sanitize_final_output_quantities(
-            data.get("finalOutputQuantities")
-        ),
-        "structure": sanitize_dict(data.get("structure")),
-        "fuzzworkPrices": sanitize_dict(
-            data.get("fuzzworkPrices") or data.get("fuzzwork_prices")
-        ),
-        "pendingWorkspaceRefresh": False,
-        "pendingWorkspaceSourceTab": "",
-        "items": sanitize_list(data.get("items")),
-        "blueprint_efficiencies": sanitize_list(data.get("blueprint_efficiencies")),
-        "custom_prices": sanitize_list(data.get("custom_prices")),
-        "estimated_cost": float(data.get("estimated_cost") or 0),
-        "estimated_revenue": float(data.get("estimated_revenue") or 0),
-        "estimated_profit": float(data.get("estimated_profit") or 0),
-        "total_items": int(data.get("total_items") or 0),
-        "total_buy_items": int(data.get("total_buy_items") or 0),
-        "total_prod_items": int(data.get("total_prod_items") or 0),
-    }
-
-    selected_items = list(
-        project.items.filter(is_selected=True)
-        .exclude(inclusion_mode=ProductionProjectItem.InclusionMode.SKIP)
-        .order_by("category_order", "id")
-    )
-    final_output_quantities = workspace_state.get("finalOutputQuantities") or []
-    if final_output_quantities:
-        items_to_update: list[ProductionProjectItem] = []
-        for raw_entry in final_output_quantities:
-            try:
-                output_index = int(raw_entry.get("index") or 0)
-                quantity = max(1, int(raw_entry.get("quantity") or 0))
-            except (TypeError, ValueError):
-                continue
-            if 0 <= output_index < len(selected_items):
-                project_item = selected_items[output_index]
-                if project_item.quantity_requested != quantity:
-                    project_item.quantity_requested = quantity
-                    items_to_update.append(project_item)
-        if items_to_update:
-            ProductionProjectItem.objects.bulk_update(
-                items_to_update,
-                ["quantity_requested"],
-            )
-        workspace_state["runs"] = 1
-
-    new_name = workspace_state["simulation_name"]
-    update_fields = ["workspace_state", "updated_at"]
-    project.workspace_state = workspace_state
-    if new_name:
-        project.name = new_name[:255]
-        update_fields.append("name")
-    project.save(update_fields=update_fields)
-
-    server_cached_payload = build_project_workspace_payload(
-        project,
-        skill_cache_ttl=SKILL_CACHE_TTL,
-        include_full_structure_options=False,
-    )
-    workspace_state[PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY] = _to_serializable(
-        server_cached_payload
-    )
-    workspace_state[PROJECT_WORKSPACE_SDE_SIGNATURE_KEY] = (
-        get_project_workspace_sde_signature()
-    )
-    workspace_state[PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_KEY] = (
-        get_project_workspace_scoped_sde_signature(server_cached_payload)
-    )
-    project.workspace_state = workspace_state
-    project.save(update_fields=["workspace_state", "updated_at"])
+    workspace_state = _sanitize_production_workspace_state(project=project, data=data)
+    _apply_workspace_state_to_project(project, workspace_state)
 
     return JsonResponse(
         {

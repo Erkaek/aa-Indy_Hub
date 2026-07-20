@@ -86,6 +86,70 @@ function cssCustomPropertyString(value) {
     return escapeHtml(JSON.stringify(String(value ?? '')));
 }
 
+function setCraftTabLoading(tabName, isLoading, label = __('Loading')) {
+    const normalizedTabName = String(tabName || '').trim();
+    if (!normalizedTabName) {
+        return;
+    }
+
+    const button = document.querySelector(`#craftMainTabs .nav-link[data-tab-name="${normalizedTabName}"]`);
+    const pane = document.getElementById(`${normalizedTabName}-pane`);
+    const normalizedLabel = String(label || __('Loading')).trim() || __('Loading');
+
+    if (button) {
+        button.classList.toggle('is-loading', Boolean(isLoading));
+        button.setAttribute('aria-busy', Boolean(isLoading) ? 'true' : 'false');
+        button.dataset.loadingLabel = normalizedLabel;
+
+        let indicator = button.querySelector('.craft-main-tab-loading-indicator');
+        if (!indicator) {
+            indicator = document.createElement('span');
+            indicator.className = 'craft-main-tab-loading-indicator';
+            indicator.innerHTML = '<i class="fas fa-spinner fa-spin"></i><span>' + escapeHtml(normalizedLabel) + '</span>';
+            button.appendChild(indicator);
+        } else {
+            const labelNode = indicator.querySelector('span');
+            if (labelNode) {
+                labelNode.textContent = normalizedLabel;
+            }
+        }
+        indicator.hidden = !isLoading;
+    }
+
+    if (pane) {
+        pane.classList.toggle('is-loading', Boolean(isLoading));
+        pane.classList.toggle('craft-main-tab-pane', Boolean(isLoading));
+        pane.setAttribute('aria-busy', Boolean(isLoading) ? 'true' : 'false');
+        pane.dataset.loadingLabel = normalizedLabel;
+    }
+}
+
+function runCraftTabRefresh(tabName, label, refreshFn) {
+    setCraftTabLoading(tabName, true, label);
+    return new Promise((resolve, reject) => {
+        const execute = () => {
+            try {
+                Promise.resolve(refreshFn())
+                    .then(resolve)
+                    .catch(reject)
+                    .finally(() => {
+                        setCraftTabLoading(tabName, false, label);
+                    });
+            } catch (error) {
+                setCraftTabLoading(tabName, false, label);
+                reject(error);
+            }
+        };
+
+        if (typeof window.requestAnimationFrame === 'function') {
+            window.requestAnimationFrame(() => window.setTimeout(execute, 0));
+            return;
+        }
+
+        window.setTimeout(execute, 0);
+    });
+}
+
 function formatInteger(value) {
     const num = Number(value) || 0;
     return num.toLocaleString();
@@ -332,6 +396,7 @@ function getProductTypeIdValue() {
 
 function getFinalOutputEntries(payload = window.BLUEPRINT_DATA) {
     const source = payload || {};
+    const sourceKind = String(source.source_kind || source.sourceKind || '').trim().toLowerCase();
     const rawOutputs = Array.isArray(source.final_outputs)
         ? source.final_outputs
         : (Array.isArray(source.finalOutputs) ? source.finalOutputs : []);
@@ -346,9 +411,57 @@ function getFinalOutputEntries(payload = window.BLUEPRINT_DATA) {
                 type_name: entry?.type_name || entry?.typeName || '',
                 quantity: Math.max(0, Math.ceil(Number(entry?.quantity || entry?.qty || 0))) || 0,
                 produced_per_cycle: Math.max(0, Math.ceil(Number(entry?.produced_per_cycle || entry?.producedPerCycle || 0))) || 0,
+                category_key: String(entry?.category_key || entry?.categoryKey || ''),
+                category_label: String(entry?.category_label || entry?.categoryLabel || ''),
+                detail_label: String(entry?.detail_label || entry?.detailLabel || ''),
+                is_synthetic: Boolean(entry?.is_synthetic || entry?.isSynthetic),
             };
         })
         .filter(Boolean);
+
+    const deriveEftFinalOutputsFromTree = () => {
+        const rootTree = Array.isArray(source.materials_tree)
+            ? source.materials_tree
+            : (Array.isArray(source.materialsTree) ? source.materialsTree : []);
+        if (rootTree.length === 0) {
+            return [];
+        }
+
+        const derived = [];
+        rootTree.forEach((fitNode) => {
+            const fitLabel = String(fitNode?.type_name || fitNode?.typeName || '').trim();
+            const children = Array.isArray(fitNode?.sub_materials)
+                ? fitNode.sub_materials
+                : (Array.isArray(fitNode?.subMaterials) ? fitNode.subMaterials : []);
+            children.forEach((child) => {
+                const typeId = Number(child?.type_id || child?.typeId || 0) || 0;
+                if (!(typeId > 0)) {
+                    return;
+                }
+                const quantity = Math.max(0, Math.ceil(Number(child?.quantity || child?.qty || 0))) || 0;
+                if (!(quantity > 0)) {
+                    return;
+                }
+                derived.push({
+                    type_id: typeId,
+                    type_name: String(child?.type_name || child?.typeName || ''),
+                    quantity,
+                    produced_per_cycle: Math.max(0, Math.ceil(Number(child?.produced_per_cycle || child?.producedPerCycle || 0))) || 0,
+                    detail_label: fitLabel,
+                    is_synthetic: false,
+                });
+            });
+        });
+        return derived;
+    };
+
+    if (sourceKind === 'eft') {
+        const derivedFromTree = deriveEftFinalOutputsFromTree();
+        if (derivedFromTree.length > 0) {
+            return derivedFromTree;
+        }
+    }
+
     if (normalizedOutputs.length > 0) {
         return normalizedOutputs;
     }
@@ -444,15 +557,33 @@ function buildFinalOutputRowMarkup(output, isFirstRow) {
     const typeId = Number(output?.type_id || output?.typeId || 0) || 0;
     const typeName = output?.type_name || output?.typeName || __('Final product');
     const quantity = Math.max(0, Math.ceil(Number(output?.quantity || output?.qty || 0))) || 0;
+    const detailLabel = String(output?.detail_label || output?.detailLabel || output?.category_label || output?.categoryLabel || '').trim();
+    const outputGroupId = String(output?._financialGroupId || '').trim();
+    const isOutputParent = Boolean(output?._financialGroupParent);
+    const isOutputChild = Boolean(output?._financialGroupChild);
+    const revenueBadgeLabel = isOutputChild ? __('Fit item') : __('Revenue target');
+    const rowClasses = [
+        'table-success',
+        'fw-semibold',
+        isOutputParent ? 'financial-output-parent' : '',
+        isOutputChild ? 'financial-output-child' : '',
+    ].filter(Boolean).join(' ');
 
     return `
-        <tr${isFirstRow ? ' id="finalProductRow"' : ''} class="table-success fw-semibold" data-type-id="${typeId}" data-final-output="true">
-            <td data-manual-label="${escapeHtml(__('Manual'))}">
+        <tr${isFirstRow ? ' id="finalProductRow"' : ''} class="${rowClasses}" data-type-id="${typeId}" data-final-output="true" data-row-kind="revenue" data-output-group="${escapeHtml(outputGroupId)}">
+            <td data-manual-label="${escapeHtml(__('Manual'))}" data-fuzzwork-label="${escapeHtml(__('Fuzzwork'))}" data-missing-label="${escapeHtml(__('Missing'))}" data-buy-label="${escapeHtml(__('Buy input'))}" data-revenue-label="${escapeHtml(__('Revenue target'))}">
                 <div class="d-flex align-items-center gap-2 craft-planner-item-flex">
                     <img src="https://images.evetech.net/types/${typeId}/icon?size=32" alt="${escapeHtml(typeName)}" loading="lazy" decoding="async" fetchpriority="low" class="rounded eve-type-icon eve-type-icon--28" onerror="this.style.display='none';">
                     <span class="craft-planner-item-name-wrap">
-                        <span class="text-xs fw-bold craft-planner-item-name">${escapeHtml(typeName)}</span>
+                        <span class="d-flex flex-wrap align-items-center gap-2">
+                            <span class="text-xs fw-bold craft-planner-item-name">${escapeHtml(typeName)}</span>
+                            <span class="badge bg-success-subtle text-success-emphasis financial-row-kind">${escapeHtml(revenueBadgeLabel)}</span>
+                        </span>
+                        ${detailLabel ? `<span class="d-block small text-muted">${escapeHtml(detailLabel)}</span>` : ''}
                     </span>
+                    <button type="button" class="btn btn-link btn-sm text-body-tertiary financial-row-reset" data-type-id="${typeId}" title="${escapeHtml(__('Reset this override'))}">
+                        <i class="fas fa-rotate-left"></i>
+                    </button>
                 </div>
             </td>
             <td class="text-end text-xs" data-qty="${quantity}">
@@ -465,10 +596,168 @@ function buildFinalOutputRowMarkup(output, isFirstRow) {
                 <input type="number" min="0" step="0.01" class="form-control form-control-sm sale-price-unit text-end text-xs" data-type-id="${typeId}" value="0">
             </td>
             <td class="text-end text-xs total-revenue fw-semibold">0</td>
-            <td class="text-end text-xs">-</td>
+            <td class="text-end text-xs item-margin"><span class="badge bg-secondary-subtle text-secondary-emphasis financial-source-badge source-missing">${escapeHtml(__('Missing'))}</span></td>
         </tr>
     `;
 }
+
+function prepareFinancialOutputDisplayEntries(outputs) {
+    const normalizedOutputs = Array.isArray(outputs) ? outputs : [];
+    const result = [];
+    let currentGroupLabel = '';
+    let currentGroupId = '';
+    let groupIndex = 0;
+
+    normalizedOutputs.forEach((entry, index) => {
+        const detailLabel = String(entry?.detail_label || entry?.detailLabel || entry?.category_label || entry?.categoryLabel || '').trim();
+        const hasGroup = detailLabel.length > 0;
+        if (hasGroup && detailLabel !== currentGroupLabel) {
+            groupIndex += 1;
+            currentGroupLabel = detailLabel;
+            currentGroupId = `output-group-${groupIndex}`;
+        }
+        if (!hasGroup) {
+            currentGroupLabel = '';
+            currentGroupId = `output-group-standalone-${index}`;
+        }
+
+        const isFirstInGroup = !hasGroup || index === 0 || detailLabel !== String(normalizedOutputs[index - 1]?.detail_label || normalizedOutputs[index - 1]?.detailLabel || normalizedOutputs[index - 1]?.category_label || normalizedOutputs[index - 1]?.categoryLabel || '').trim();
+        result.push({
+            ...entry,
+            _financialGroupId: currentGroupId,
+            _financialGroupLabel: hasGroup ? detailLabel : __('Workspace outputs'),
+            _financialGroupParent: hasGroup && isFirstInGroup,
+            _financialGroupChild: hasGroup && !isFirstInGroup,
+        });
+    });
+
+    return result;
+}
+
+function buildFinancialOutputGroupRow(groupId, groupLabel) {
+    const safeGroupId = String(groupId || '').trim();
+    const safeLabel = String(groupLabel || '').trim() || __('Workspace outputs');
+    const collapsed = typeof window.isFinancialGroupCollapsed === 'function'
+        ? window.isFinancialGroupCollapsed('output', safeGroupId)
+        : false;
+    const groupOverride = getOutputGroupRevenueOverride(safeGroupId);
+    return `
+        <tr class="craft-financial-output-group-row" data-output-group-row="true" data-output-group-key="${escapeHtml(safeGroupId)}" data-group-kind="output" data-collapsed="${collapsed ? 'true' : 'false'}" data-export-skip="true">
+            <td colspan="6">
+                <div class="d-flex align-items-center justify-content-between gap-3">
+                    <span class="d-inline-flex align-items-center gap-2">
+                        <span class="financial-group-toggle" aria-hidden="true"><i class="fas fa-chevron-down"></i></span>
+                        <span class="badge bg-success-subtle text-success-emphasis">${escapeHtml(safeLabel)}</span>
+                    </span>
+                    <span class="d-flex flex-wrap align-items-center justify-content-end gap-2 financial-output-group-override-wrap">
+                        <span class="input-group input-group-sm w-auto">
+                            <span class="input-group-text">${escapeHtml(__('Fit total'))}</span>
+                            <input type="number" min="0" step="0.01" class="form-control form-control-sm text-end financial-output-group-override" data-output-group-key="${escapeHtml(safeGroupId)}" value="${groupOverride > 0 ? groupOverride.toFixed(2) : '0'}">
+                            <span class="input-group-text">ISK</span>
+                            <button type="button" class="btn btn-outline-secondary financial-output-group-override-reset" data-output-group-key="${escapeHtml(safeGroupId)}" title="${escapeHtml(__('Reset fit total override'))}">
+                                <i class="fas fa-rotate-left"></i>
+                            </button>
+                        </span>
+                        <span class="small text-muted financial-output-group-count">0 ${escapeHtml(__('lines'))}</span>
+                    </span>
+                </div>
+            </td>
+        </tr>
+    `;
+}
+
+function syncFinancialOutputGroupRows() {
+    const tableBody = document.getElementById('financialItemsBody');
+    if (!tableBody) {
+        return;
+    }
+
+    tableBody.querySelectorAll('tr[data-output-group-row="true"]').forEach((row) => row.remove());
+
+    const outputRows = getFinalOutputRows();
+    let previousGroupId = '';
+    outputRows.forEach((row, index) => {
+        const groupId = String(row.dataset.outputGroup || '').trim() || `output-group-default-${index}`;
+        if (groupId === previousGroupId) {
+            return;
+        }
+        const detailLabel = String(row.querySelector('.craft-planner-item-name-wrap .small')?.textContent || '').trim() || __('Workspace outputs');
+        const template = document.createElement('template');
+        template.innerHTML = buildFinancialOutputGroupRow(groupId, detailLabel).trim();
+        const groupRow = template.content.firstElementChild;
+        if (groupRow) {
+            tableBody.insertBefore(groupRow, row);
+            previousGroupId = groupId;
+        }
+    });
+
+    updateFinancialOutputGroupRowsVisibility(tableBody);
+    applyOutputGroupRevenueOverrideInputs();
+    if (typeof window.applyFinancialGroupCollapseVisibility === 'function') {
+        window.applyFinancialGroupCollapseVisibility(tableBody);
+    }
+}
+
+function updateFinancialOutputGroupRowsVisibility(tableBody = document.getElementById('financialItemsBody')) {
+    if (!tableBody) {
+        return;
+    }
+
+    let currentGroupRow = null;
+    let currentVisibleCount = 0;
+    let currentTotalCount = 0;
+    const flushGroup = () => {
+        if (!currentGroupRow) {
+            return;
+        }
+        const countLabel = currentGroupRow.querySelector('.financial-output-group-count');
+        if (countLabel) {
+            if (currentTotalCount <= 0) {
+                countLabel.textContent = __('No visible lines');
+            } else if (currentVisibleCount === currentTotalCount) {
+                countLabel.textContent = `${formatInteger(currentVisibleCount)} ${currentVisibleCount === 1 ? __('line') : __('lines')}`;
+            } else {
+                countLabel.textContent = `${formatInteger(currentVisibleCount)}/${formatInteger(currentTotalCount)} ${currentTotalCount === 1 ? __('line') : __('lines')}`;
+            }
+        }
+        currentGroupRow.hidden = currentTotalCount === 0;
+        currentGroupRow = null;
+        currentVisibleCount = 0;
+        currentTotalCount = 0;
+    };
+
+    Array.from(tableBody.children).forEach((row) => {
+        if (row.dataset.outputGroupRow === 'true') {
+            flushGroup();
+            currentGroupRow = row;
+            return;
+        }
+        if (!currentGroupRow) {
+            return;
+        }
+        if (
+            row.matches('tr[data-type-id][data-final-output="true"]')
+            && !row.hidden
+        ) {
+            currentTotalCount += 1;
+            if (!row.classList.contains('financial-group-collapsed-hidden')) {
+                currentVisibleCount += 1;
+            }
+            return;
+        }
+        if (row.matches('tr[data-type-id]') && row.getAttribute('data-final-output') !== 'true') {
+            flushGroup();
+        }
+    });
+
+    flushGroup();
+    if (typeof window.updateFinancialGroupSectionSummaries === 'function') {
+        window.updateFinancialGroupSectionSummaries(tableBody);
+    }
+}
+
+window.syncFinancialOutputGroupRows = syncFinancialOutputGroupRows;
+window.updateFinancialOutputGroupRowsVisibility = updateFinancialOutputGroupRowsVisibility;
 
 function computeFinalOutputRevenue(api) {
     let revenueTotal = 0;
@@ -936,7 +1225,17 @@ function readCraftNodeValue(source, primaryKey, secondaryKey) {
 
 function computeStructureAdjustedNodeQuantity(node, fallbackQuantity, materialBonusPercent) {
     const quantity = Math.max(0, Math.ceil(Number(fallbackQuantity) || 0)) || 0;
+    const hasBaseQuantity = Number(readCraftNodeValue(node, 'base_quantity_per_run', 'baseQuantityPerRun')) > 0;
+    const hasJobRuns = Number(readCraftNodeValue(node, 'job_runs', 'jobRuns')) > 0;
     const materialBonusApplicable = readCraftNodeValue(node, 'material_bonus_applicable', 'materialBonusApplicable');
+    const hasExplicitMaterialFlag = materialBonusApplicable === true || materialBonusApplicable === false;
+
+    // Only adjust true job-material rows. Final outputs in EFT synthetic fit groups
+    // are also children in the tree, but must keep their exact requested quantity.
+    if (!hasExplicitMaterialFlag && !(hasBaseQuantity && hasJobRuns)) {
+        return quantity;
+    }
+
     if (!(materialBonusPercent > 0) || materialBonusApplicable === false) {
         return quantity;
     }
@@ -1002,7 +1301,17 @@ function adjustCraftTreeChildrenForStructure(children, parentTypeId) {
 }
 
 function isProjectWorkspacePayload() {
-    return Boolean(Number(window.BLUEPRINT_DATA?.project_id || window.BLUEPRINT_DATA?.projectId || 0) || 0);
+    const payload = window.BLUEPRINT_DATA || {};
+    const numericProjectId = Number(payload.project_id || payload.projectId || 0) || 0;
+    return Boolean(
+        numericProjectId
+        || payload.project_ref
+        || payload.projectRef
+        || payload.temp_project_ref
+        || payload.tempProjectRef
+        || payload.is_temporary_project
+        || payload.isTemporaryProject
+    );
 }
 
 function isPlanPaneHydrated() {
@@ -1010,14 +1319,18 @@ function isPlanPaneHydrated() {
 }
 
 function buildFinalOutputQuantityEntriesFromPayload(payload = window.BLUEPRINT_DATA) {
-    const outputs = Array.isArray(payload?.final_outputs)
-        ? payload.final_outputs
-        : (Array.isArray(payload?.finalOutputs) ? payload.finalOutputs : []);
+    const outputs = Array.isArray(payload?.editable_final_outputs)
+        ? payload.editable_final_outputs
+        : (Array.isArray(payload?.editableFinalOutputs)
+            ? payload.editableFinalOutputs
+            : (Array.isArray(payload?.final_outputs)
+                ? payload.final_outputs
+                : (Array.isArray(payload?.finalOutputs) ? payload.finalOutputs : [])));
     return outputs.map((entry, index) => ({
         index,
         typeId: Number(entry?.type_id || entry?.typeId || 0) || 0,
         quantity: Math.max(1, Math.ceil(Number(entry?.quantity ?? entry?.qty ?? 0) || 0)) || 1,
-    })).filter((entry) => entry.typeId > 0 && entry.quantity > 0);
+    })).filter((entry) => entry.quantity > 0);
 }
 
 function normalizeFinalOutputQuantityEntries(entries) {
@@ -1188,12 +1501,17 @@ function buildMaterialsTreeMarkup(nodes, level = 0) {
                 </span>
             `
             : `${hasChildren ? `
-                        <span class="ms-auto"></span>
-                        <span class="tree-mode-label mode-label badge px-2 py-1 fw-bold ${buildTreeModeBadgeClass(switchState)}" data-type-id="${typeId}" data-switch-state="${escapeHtml(switchState)}" style="font-size:0.85em;">${escapeHtml(modeLabel)}</span>` : ''}`;
+                        <span class="ms-auto d-inline-flex align-items-center justify-content-end gap-2 craft-tree-tail">
+                            <span class="tree-mode-label mode-label badge px-2 py-1 fw-bold ${buildTreeModeBadgeClass(switchState)}" data-type-id="${typeId}" data-switch-state="${escapeHtml(switchState)}" style="font-size:0.85em;">${escapeHtml(modeLabel)}</span>
+                        </span>` : `
+                        <span class="ms-auto d-inline-flex align-items-center justify-content-end gap-2 craft-tree-tail">
+                            <span class="text-muted small craft-tree-note">${escapeHtml(__('No craftable item'))}</span>
+                            <span class="tree-mode-label mode-label badge px-2 py-1 fw-bold ${buildTreeModeBadgeClass('buy')}" data-type-id="${typeId}" data-switch-state="buy" style="font-size:0.85em;">${escapeHtml(__('Buy only'))}</span>
+                        </span>`}`;
 
         return `
             <li class="craft-tree-branch">
-                <details class="mb-2">
+                <details class="mb-2 ${hasChildren ? 'craft-tree-node--branch' : 'craft-tree-node--leaf'}">
                     <summary class="d-flex align-items-center gap-2 py-1" data-type-id="${typeId}" data-type-name="${escapeHtml(typeName)}" data-qty="${quantity}" data-tree-id="${typeId}">
                         ${hasChildren
                             ? '<span class="summary-icon"><i class="fas fa-caret-right"></i></span>'
@@ -1331,7 +1649,7 @@ function updateFinalProductRowFromPayload(payload) {
     }
 
     updatePlanMETEIndicators();
-    const outputs = getFinalOutputEntries(payload);
+    const outputs = prepareFinancialOutputDisplayEntries(getFinalOutputEntries(payload));
     if (outputs.length === 0) {
         return;
     }
@@ -1381,6 +1699,8 @@ function updateFinalProductRowFromPayload(payload) {
         attachPriceInputListener(fuzzworkInput);
         attachPriceInputListener(saleInput);
     });
+
+    syncFinancialOutputGroupRows();
 }
 
 function getLoadingOverlayElements() {
@@ -2773,6 +3093,7 @@ function collectCraftPageSessionState() {
         extraCostRows: collectFinancialExtraCostRows(),
         revenueMode: getRevenueMode(),
         revenueTotalOverride: getRevenueTotalOverride(),
+        outputGroupRevenueOverrides: getOutputGroupRevenueOverrides(),
         meTeConfig: getCurrentMETEConfig(),
         copyRequests: collectBlueprintCopyRequestState(),
         structure: {
@@ -2803,6 +3124,7 @@ function applyCraftPageSessionState(parsedState) {
     window.craftBPFlags.stockAllocations = normalizeCraftStockAllocations(parsedState?.stockAllocations);
     window.craftBPFlags.revenueMode = normalizeRevenueMode(parsedState?.revenueMode);
     window.craftBPFlags.revenueTotalOverride = normalizeRevenueTotalOverride(parsedState?.revenueTotalOverride);
+    window.craftBPFlags.outputGroupRevenueOverrides = normalizeOutputGroupRevenueOverrides(parsedState?.outputGroupRevenueOverrides);
 
     applyCraftPageRunsValue(parsedState?.runs);
     applyFinalOutputQuantitiesToInputs(window.craftBPFlags.pendingFinalOutputQuantities);
@@ -4101,8 +4423,28 @@ function renderDecisionStrategyPanel(options = {}) {
         return Promise.resolve(null);
     }
 
+    const waitForPaint = () => new Promise((resolve) => {
+        if (typeof window.requestAnimationFrame === 'function') {
+            window.requestAnimationFrame(() => window.setTimeout(resolve, 0));
+            return;
+        }
+        window.setTimeout(resolve, 0);
+    });
+
     if (decisionStrategyPanelPromise && !options.force) {
         return decisionStrategyPanelPromise;
+    }
+
+    rowsBody.innerHTML = `
+        <tr>
+            <td colspan="8" class="text-center text-muted py-5">
+                <i class="fas fa-spinner fa-spin me-2"></i>${escapeHtml(__('Loading decisions...'))}
+            </td>
+        </tr>
+    `;
+    const summaryEl = document.getElementById('decisionStrategySummary');
+    if (summaryEl) {
+        summaryEl.textContent = __('Loading decisions...');
     }
 
     decisionStrategyPanelPromise = (async () => {
@@ -4111,7 +4453,7 @@ function renderDecisionStrategyPanel(options = {}) {
             toleranceISK: options.toleranceISK,
         });
 
-        const summaryEl = document.getElementById('decisionStrategySummary');
+        const nextSummaryEl = document.getElementById('decisionStrategySummary');
         const itemCountEl = document.getElementById('decisionStrategyItemCount');
         const currentBuyCountEl = document.getElementById('decisionStrategyCurrentBuyCount');
         const recommendedBuyCountEl = document.getElementById('decisionStrategyRecommendedBuyCount');
@@ -4123,14 +4465,15 @@ function renderDecisionStrategyPanel(options = {}) {
                     <td colspan="8" class="text-center text-muted py-4">${escapeHtml(analysis?.error || __('Decision analysis is unavailable.'))}</td>
                 </tr>
             `;
-            if (summaryEl) {
-                summaryEl.textContent = analysis?.error || __('Decision analysis is unavailable.');
+            if (nextSummaryEl) {
+                nextSummaryEl.textContent = analysis?.error || __('Decision analysis is unavailable.');
             }
             if (itemCountEl) itemCountEl.textContent = '0';
             if (currentBuyCountEl) currentBuyCountEl.textContent = '0';
             if (recommendedBuyCountEl) recommendedBuyCountEl.textContent = '0';
             if (potentialSavingsEl) potentialSavingsEl.textContent = formatPrice(0);
             updateTreeModeBadges();
+            await waitForPaint();
             return analysis;
         }
 
@@ -4230,8 +4573,8 @@ function renderDecisionStrategyPanel(options = {}) {
 
         rowsBody.innerHTML = rowsMarkup;
 
-        if (summaryEl) {
-            summaryEl.textContent = analysis.rows.length > 0
+        if (nextSummaryEl) {
+            nextSummaryEl.textContent = analysis.rows.length > 0
                 ? __(`Reviewed ${analysis.rows.length} craftable items. Global buy tolerance: ${formatPrice(analysis.toleranceISK)}.`)
                 : __('No craftable items require a buy / produce review.');
         }
@@ -4243,6 +4586,7 @@ function renderDecisionStrategyPanel(options = {}) {
         initializeBuyCraftSwitches();
         refreshTreeSwitchHierarchy();
         updateTreeModeBadges();
+        await waitForPaint();
         return analysis;
     })().finally(() => {
         decisionStrategyPanelPromise = null;
@@ -4530,21 +4874,21 @@ function initializeDecisionStrategyTab() {
 
     if (tabBtn && tabBtn.dataset.decisionStrategyBound !== 'true') {
         tabBtn.addEventListener('shown.bs.tab', () => {
-            renderDecisionStrategyPanel({ ensurePrices: true, force: true });
+            runCraftTabRefresh('run_optimized', __('Loading decisions'), () => renderDecisionStrategyPanel({ ensurePrices: true, force: true }));
         });
         tabBtn.dataset.decisionStrategyBound = 'true';
     }
 
     if (refreshBtn && refreshBtn.dataset.decisionStrategyBound !== 'true') {
         refreshBtn.addEventListener('click', () => {
-            renderDecisionStrategyPanel({ ensurePrices: true, force: true });
+            runCraftTabRefresh('run_optimized', __('Loading decisions'), () => renderDecisionStrategyPanel({ ensurePrices: true, force: true }));
         });
         refreshBtn.dataset.decisionStrategyBound = 'true';
     }
 
     if (toleranceInput && toleranceInput.dataset.decisionStrategyBound !== 'true') {
         const refreshAnalysis = () => {
-            renderDecisionStrategyPanel({ ensurePrices: false, force: true });
+            runCraftTabRefresh('run_optimized', __('Loading decisions'), () => renderDecisionStrategyPanel({ ensurePrices: false, force: true }));
         };
         toleranceInput.addEventListener('input', refreshAnalysis);
         toleranceInput.addEventListener('change', refreshAnalysis);
@@ -4558,6 +4902,7 @@ function initializeDecisionStrategyTab() {
 function initializeFinancialCalculations() {
     initializeDelegatedFinancialPriceInputs();
     initializeFinancialExtraCostsEditor();
+    updateFinalProductRowFromPayload(window.BLUEPRINT_DATA || {});
 
     const recalcNowBtn = document.getElementById('recalcNowBtn');
     if (recalcNowBtn) {
@@ -4570,13 +4915,14 @@ function initializeFinancialCalculations() {
 
     bindFinalOutputQuantityControls();
 
-    // Batch fetch Fuzzwork prices for display (fuzzwork-price and sale-price-unit), only include valid positive type IDs
+    // Batch fetch Fuzzwork prices for display (fuzzwork-price and sale-price-unit), only include valid positive type IDs.
+    // Keep startup lightweight: full-tree prices are fetched only on explicit user action.
     const fetchInputs = Array.from(document.querySelectorAll('input.fuzzwork-price[data-type-id], input.sale-price-unit[data-type-id]'))
         .filter(inp => {
             const id = parseInt(inp.getAttribute('data-type-id'), 10);
             return id > 0;
         });
-    let typeIds = fetchInputs.map(inp => inp.getAttribute('data-type-id')).filter(Boolean);
+    let startupTypeIds = fetchInputs.map(inp => inp.getAttribute('data-type-id')).filter(Boolean);
 
     // Also fetch prices for *all* typeIds in the production tree so:
     // - optimizer can always compare buy vs prod
@@ -4603,13 +4949,14 @@ function initializeFinancialCalculations() {
         // ignore
     }
 
-    // Include the final product type_id
-    if (CRAFT_BP.productTypeId && !typeIds.includes(CRAFT_BP.productTypeId)) {
-        typeIds.push(CRAFT_BP.productTypeId);
+    // Include the final product type_id in both startup and full fetch scopes.
+    if (CRAFT_BP.productTypeId && !startupTypeIds.includes(CRAFT_BP.productTypeId)) {
+        startupTypeIds.push(CRAFT_BP.productTypeId);
     }
-    typeIds = [...new Set([...typeIds, ...treeTypeIds])];
+    startupTypeIds = [...new Set(startupTypeIds)];
+    const fullPriceTypeIds = [...new Set([...startupTypeIds, ...treeTypeIds])];
 
-    function stashFuzzworkPrices(prices, idsToStash = typeIds) {
+    function stashFuzzworkPrices(prices, idsToStash = startupTypeIds) {
         if (!window.SimulationAPI || typeof window.SimulationAPI.setPrice !== 'function') {
             return;
         }
@@ -4628,29 +4975,78 @@ function initializeFinancialCalculations() {
         && Object.keys(restoredFuzzworkPrices).length > 0
     );
 
-    function applyResolvedPriceState(prices) {
-        stashFuzzworkPrices(prices, typeIds);
-        populatePrices(fetchInputs, prices);
-        applyManualPriceOverrides(window.craftBPFlags?.restoredSessionState?.manualPrices);
-        if (typeof updateFinancialTabFromState === 'function') {
-            return Promise.resolve(updateFinancialTabFromState()).then(() => {
-                recalcFinancials();
-            });
-        }
-        recalcFinancials();
-        return Promise.resolve();
-    }
+    // Keep full scope accessible for explicit refresh actions.
+    CRAFT_BP.fullPriceTypeIds = fullPriceTypeIds;
 
-    const initialFinancialSyncPromise = (window.BLUEPRINT_DATA?.project_ref && hasRestoredFuzzworkPrices)
-        ? Promise.resolve(applyResolvedPriceState(restoredFuzzworkPrices))
-        : fetchAllPrices(typeIds).then(prices => applyResolvedPriceState(prices));
+    // Split initialization into two phases:
+    // Phase 1: quick (price stashing, immediate dom updates)
+    // Phase 2: deferred (heavy financial tab rebuild)
+    const initialFinancialSyncPromise = (() => {
+        const pricePromise = (isProjectWorkspacePayload() && hasRestoredFuzzworkPrices)
+            ? (() => {
+                const restored = restoredFuzzworkPrices && typeof restoredFuzzworkPrices === 'object'
+                    ? { ...restoredFuzzworkPrices }
+                    : {};
+                const missingTypeIds = startupTypeIds.filter((tid) => {
+                    const key = String(tid || '').trim();
+                    if (!key) {
+                        return false;
+                    }
+                    if (!Object.prototype.hasOwnProperty.call(restored, key)) {
+                        return true;
+                    }
+                    const numericValue = Number(restored[key]);
+                    return !Number.isFinite(numericValue) || numericValue <= 0;
+                });
+
+                if (missingTypeIds.length === 0) {
+                    return Promise.resolve(restored);
+                }
+
+                return fetchAllPrices(missingTypeIds).then((fetched) => ({
+                    ...restored,
+                    ...(fetched && typeof fetched === 'object' ? fetched : {}),
+                }));
+            })()
+            : fetchAllPrices(startupTypeIds);
+
+        return pricePromise.then(prices => {
+            stashFuzzworkPrices(prices, startupTypeIds);
+            populatePrices(fetchInputs, prices);
+            applyManualPriceOverrides(window.craftBPFlags?.restoredSessionState?.manualPrices);
+
+            // Schedule heavy work to idle callback to prevent startup freeze
+            if (typeof window.requestIdleCallback === 'function') {
+                window.requestIdleCallback(() => {
+                    if (typeof updateFinancialTabFromState === 'function') {
+                        updateFinancialTabFromState();
+                    }
+                    recalcFinancials();
+                }, { timeout: 3000 });
+            } else {
+                window.setTimeout(() => {
+                    if (typeof updateFinancialTabFromState === 'function') {
+                        updateFinancialTabFromState();
+                    }
+                    recalcFinancials();
+                }, 100);
+            }
+        });
+    })()
 
     // Bind Load Fuzzwork Prices button
     const loadBtn = document.getElementById('loadFuzzworkBtn');
     if (loadBtn) {
         loadBtn.addEventListener('click', function() {
-            fetchAllPrices(typeIds).then(prices => {
-                applyResolvedPriceState(prices);
+            fetchAllPrices(CRAFT_BP.fullPriceTypeIds || startupTypeIds).then(prices => {
+                stashFuzzworkPrices(prices, CRAFT_BP.fullPriceTypeIds || startupTypeIds);
+                populatePrices(fetchInputs, prices);
+                applyManualPriceOverrides(window.craftBPFlags?.restoredSessionState?.manualPrices);
+                // Explicit user button click: do recalc immediately without deferring
+                if (typeof updateFinancialTabFromState === 'function') {
+                    updateFinancialTabFromState();
+                }
+                recalcFinancials();
                 persistCraftPageSessionState();
             });
         });
@@ -5541,7 +5937,7 @@ function ensureFullStructurePlannerLoaded() {
             window.BLUEPRINT_DATA = window.BLUEPRINT_DATA || {};
             window.BLUEPRINT_DATA.structure_planner = structurePlanner;
             window.BLUEPRINT_DATA.structurePlanner = structurePlanner;
-            return true;
+            return hasFullStructurePlannerOptions();
         })
         .catch((error) => {
             console.error('Error loading full structure planner payload:', error);
@@ -5913,28 +6309,28 @@ function renderStructureMetricCell(option, metric, context = {}) {
     return `<span class="craft-structure-metric" tabindex="0" title="${title}" aria-label="${title}">${formatPercent(spec.value, 2)}</span>`;
 }
 
-function renderStructurePlanner() {
+function renderStructurePlanner(options = {}) {
     const summaryContainer = document.getElementById('structurePlannerSummary');
     const rowsContainer = document.getElementById('structurePlannerRows');
     const emptyContainer = document.getElementById('structurePlannerEmpty');
+    const forceRender = options && options.force === true;
+
+    if (!forceRender && getActiveCraftMainTabName() !== 'structure') {
+        return;
+    }
 
     if (!summaryContainer || !rowsContainer || !emptyContainer) {
         return;
     }
 
-    if (!hasFullStructurePlannerOptions()) {
-        emptyContainer.classList.add('d-none');
-        summaryContainer.innerHTML = `<div class="alert alert-info mb-0">${escapeHtml(__('Loading complete structure options…'))}</div>`;
-        rowsContainer.innerHTML = '';
+    const needsFullStructureOptions = !hasFullStructurePlannerOptions();
+
+    if (needsFullStructureOptions) {
         ensureFullStructurePlannerLoaded().then((loaded) => {
             if (loaded) {
                 renderStructurePlanner();
-                return;
             }
-            summaryContainer.innerHTML = '';
-            emptyContainer.classList.remove('d-none');
         });
-        return;
     }
 
     const items = getStructurePlannerItems();
@@ -5988,6 +6384,10 @@ function renderStructurePlanner() {
             <div class="craft-structure-summary-meta">${__('Included in Buy and Plan profitability')}</div>
         </div>
     `;
+
+    if (needsFullStructureOptions) {
+        summaryContainer.insertAdjacentHTML('afterbegin', `<div class="alert alert-info mb-3">${escapeHtml(__('Loading complete structure options…'))}</div>`);
+    }
 
     rowsContainer.innerHTML = items.map((item) => {
         const typeId = Number(item.typeId || item.type_id || 0) || 0;
@@ -6072,6 +6472,99 @@ function normalizeRevenueTotalOverride(value) {
     return Number.isFinite(num) && num > 0 ? num : 0;
 }
 
+function normalizeOutputGroupRevenueOverrides(rawValue) {
+    if (!rawValue || typeof rawValue !== 'object' || Array.isArray(rawValue)) {
+        return {};
+    }
+    const normalized = {};
+    Object.entries(rawValue).forEach(([groupKey, overrideValue]) => {
+        const key = String(groupKey || '').trim();
+        if (!key) {
+            return;
+        }
+        const price = normalizeRevenueTotalOverride(overrideValue);
+        if (price > 0) {
+            normalized[key] = price;
+        }
+    });
+    return normalized;
+}
+
+function getOutputGroupRevenueOverrides() {
+    window.craftBPFlags = window.craftBPFlags || {};
+    if (
+        window.craftBPFlags.outputGroupRevenueOverrides
+        && typeof window.craftBPFlags.outputGroupRevenueOverrides === 'object'
+        && !Array.isArray(window.craftBPFlags.outputGroupRevenueOverrides)
+    ) {
+        return window.craftBPFlags.outputGroupRevenueOverrides;
+    }
+
+    const restored = window.craftBPFlags?.restoredSessionState?.outputGroupRevenueOverrides
+        ?? window.BLUEPRINT_DATA?.workspace_state?.outputGroupRevenueOverrides;
+    const normalized = normalizeOutputGroupRevenueOverrides(restored);
+    window.craftBPFlags.outputGroupRevenueOverrides = normalized;
+    return normalized;
+}
+
+function getOutputGroupRevenueOverride(groupKey) {
+    const key = String(groupKey || '').trim();
+    if (!key) {
+        return 0;
+    }
+    const overrides = getOutputGroupRevenueOverrides();
+    return normalizeRevenueTotalOverride(overrides[key]);
+}
+
+function applyOutputGroupRevenueOverrideInputs() {
+    const mode = getRevenueMode();
+    document.querySelectorAll('.financial-output-group-override').forEach((input) => {
+        const groupKey = String(input.getAttribute('data-output-group-key') || '').trim();
+        const value = getOutputGroupRevenueOverride(groupKey);
+        const formatted = value > 0 ? value.toFixed(2) : '0';
+        if (input.value !== formatted) {
+            input.value = formatted;
+        }
+        input.disabled = mode === REVENUE_MODE_TOTAL;
+    });
+
+    document.querySelectorAll('.financial-output-group-override-reset').forEach((button) => {
+        const groupKey = String(button.getAttribute('data-output-group-key') || '').trim();
+        button.disabled = mode === REVENUE_MODE_TOTAL || getOutputGroupRevenueOverride(groupKey) <= 0;
+    });
+}
+
+function setOutputGroupRevenueOverride(groupKey, value, options = {}) {
+    const key = String(groupKey || '').trim();
+    if (!key) {
+        return;
+    }
+    const normalizedValue = normalizeRevenueTotalOverride(value);
+    const nextOverrides = {
+        ...getOutputGroupRevenueOverrides(),
+    };
+
+    if (normalizedValue > 0) {
+        nextOverrides[key] = normalizedValue;
+    } else {
+        delete nextOverrides[key];
+    }
+
+    window.craftBPFlags.outputGroupRevenueOverrides = nextOverrides;
+
+    if (options.syncInputs !== false) {
+        applyOutputGroupRevenueOverrideInputs();
+    }
+    if (options.recalc !== false && typeof recalcFinancials === 'function') {
+        recalcFinancials();
+    }
+    if (options.persist !== false && typeof persistCraftPageSessionState === 'function') {
+        persistCraftPageSessionState();
+    }
+}
+
+window.setOutputGroupRevenueOverride = setOutputGroupRevenueOverride;
+
 function getRevenueMode() {
     window.craftBPFlags = window.craftBPFlags || {};
     if (window.craftBPFlags.revenueMode === REVENUE_MODE_TOTAL
@@ -6154,8 +6647,8 @@ function applyRevenueModeToInputs() {
     }
     if (hint) {
         hint.textContent = mode === REVENUE_MODE_TOTAL
-            ? __('A single lump-sum revenue applies to the whole project; per-unit sale prices are ignored.')
-            : __('Per-unit prices are summed across every final output.');
+            ? __('Set one fixed sale price for the whole fitted ship/project; per-item sale prices are ignored in this mode.')
+            : __('Set sale prices per output item (ship + fit items). Revenue is the sum of each item price × quantity.');
     }
 
     // Disable/enable per-unit sale-price inputs on final-output rows so the
@@ -6171,6 +6664,8 @@ function applyRevenueModeToInputs() {
             input.classList.remove('craft-revenue-input-disabled');
         }
     });
+
+    applyOutputGroupRevenueOverrideInputs();
 }
 
 function initializeRevenueModeControls() {
@@ -6236,7 +6731,10 @@ function getZeroPricedFinancialRows(revenueMode) {
         .reduce((groups, row) => {
             const label = getFinancialRowLabel(row);
             if (row.getAttribute('data-final-output') === 'true') {
-                if (revenueMode !== REVENUE_MODE_TOTAL && getFinancialRowEffectiveUnitPrice(row, 'sale') <= 0) {
+                const outputGroupKey = String(row.dataset.outputGroup || '').trim();
+                const hasGroupOverride = revenueMode !== REVENUE_MODE_TOTAL
+                    && getOutputGroupRevenueOverride(outputGroupKey) > 0;
+                if (revenueMode !== REVENUE_MODE_TOTAL && !hasGroupOverride && getFinancialRowEffectiveUnitPrice(row, 'sale') <= 0) {
                     groups.revenue.push(label);
                 }
                 return groups;
@@ -6502,6 +7000,7 @@ function recalcFinancials() {
     let materialInvestmentTotal = 0;
     let stockValueTotal = 0;
     let revTotal = 0;
+    const outputRevenueGroups = new Map();
 
     document.querySelectorAll('#financialItemsBody tr').forEach(tr => {
         const qtyCell = tr.querySelector('[data-qty]');
@@ -6579,6 +7078,21 @@ function recalcFinancials() {
                 totalRevenueEl.textContent = formatPrice(rev);
             }
             revTotal += rev;
+
+            const outputGroupKey = String(tr.dataset.outputGroup || '').trim();
+            if (outputGroupKey) {
+                if (!outputRevenueGroups.has(outputGroupKey)) {
+                    outputRevenueGroups.set(outputGroupKey, {
+                        rows: [],
+                        totalQty: 0,
+                        totalRevenue: 0,
+                    });
+                }
+                const groupState = outputRevenueGroups.get(outputGroupKey);
+                groupState.rows.push({ row: tr, qty, revenue: rev });
+                groupState.totalQty += qty;
+                groupState.totalRevenue += rev;
+            }
         }
     });
 
@@ -6590,6 +7104,41 @@ function recalcFinancials() {
     // and the KPI block stay coherent.
     const revenueMode = getRevenueMode();
     const revenueTotalOverride = getRevenueTotalOverride();
+    if (revenueMode !== REVENUE_MODE_TOTAL && outputRevenueGroups.size > 0) {
+        outputRevenueGroups.forEach((groupState, groupKey) => {
+            const groupOverride = getOutputGroupRevenueOverride(groupKey);
+            if (!(groupOverride > 0)) {
+                return;
+            }
+
+            revTotal += groupOverride - (Number(groupState.totalRevenue) || 0);
+
+            const rowCount = groupState.rows.length;
+            const totalQty = Math.max(0, Number(groupState.totalQty) || 0);
+            let distributedTotal = 0;
+            groupState.rows.forEach((entry, index) => {
+                const targetEl = entry.row.querySelector('.total-revenue');
+                if (!targetEl) {
+                    return;
+                }
+
+                let distributedValue = 0;
+                if (index === rowCount - 1) {
+                    distributedValue = Math.max(0, groupOverride - distributedTotal);
+                } else if (rowCount <= 1) {
+                    distributedValue = groupOverride;
+                } else if (totalQty > 0) {
+                    distributedValue = (Math.max(0, Number(entry.qty) || 0) / totalQty) * groupOverride;
+                } else {
+                    distributedValue = groupOverride / rowCount;
+                }
+
+                distributedTotal += distributedValue;
+                targetEl.textContent = formatPrice(distributedValue);
+            });
+        });
+    }
+
     const zeroPricedRows = getZeroPricedFinancialRows(revenueMode);
     if (revenueMode === REVENUE_MODE_TOTAL) {
         revTotal = revenueTotalOverride;
@@ -6921,27 +7470,39 @@ async function fetchAllPrices(typeIds) {
         return {};
     }
 
-    const separator = baseUrl.includes('?') ? '&' : '?';
-    const requestUrl = `${baseUrl}${separator}type_id=${uniqueTypeIds.join(',')}`;
+    const chunkSize = 180;
+    const chunks = [];
+    for (let index = 0; index < uniqueTypeIds.length; index += chunkSize) {
+        chunks.push(uniqueTypeIds.slice(index, index + chunkSize));
+    }
+
+    const mergedData = {};
 
     try {
-        craftBPDebugLog('[CraftBP] Loading Fuzzwork prices from', requestUrl);
-        const resp = await fetch(requestUrl, { credentials: 'same-origin' });
-        if (!resp.ok) {
-            console.error('Fuzzwork price request failed:', resp.status, resp.statusText);
-            try {
-                const errorPayload = await resp.json();
-                console.error('Fuzzwork response body:', errorPayload);
-            } catch (jsonErr) {
-                console.error('Unable to parse error response JSON', jsonErr);
+        for (const chunk of chunks) {
+            const separator = baseUrl.includes('?') ? '&' : '?';
+            const requestUrl = `${baseUrl}${separator}type_id=${chunk.join(',')}`;
+            craftBPDebugLog('[CraftBP] Loading Fuzzwork prices from', requestUrl);
+            const resp = await fetch(requestUrl, { credentials: 'same-origin' });
+            if (!resp.ok) {
+                console.error('Fuzzwork price request failed:', resp.status, resp.statusText, 'chunk size:', chunk.length);
+                try {
+                    const errorPayload = await resp.json();
+                    console.error('Fuzzwork response body:', errorPayload);
+                } catch (jsonErr) {
+                    console.error('Unable to parse error response JSON', jsonErr);
+                }
+                continue;
             }
-            return {};
+            const data = await resp.json();
+            if (data && typeof data === 'object') {
+                Object.assign(mergedData, data);
+            }
         }
-        const data = await resp.json();
-        craftBPDebugLog('[CraftBP] Fuzzwork prices received', data);
-        return data;
+        craftBPDebugLog('[CraftBP] Fuzzwork prices received', mergedData);
+        return mergedData;
     } catch (e) {
-        console.error('Error fetching prices from Fuzzwork, URL:', requestUrl, e);
+        console.error('Error fetching prices from Fuzzwork.', e);
         return {};
     }
 }
@@ -7670,9 +8231,19 @@ function getCurrentBuildFinalProductRows(cyclesSummary) {
             const summaryEntry = cyclesSummary[String(typeId)] || cyclesSummary[typeId] || null;
             const finalRow = getFinalOutputRows().find((row) => (Number(row.getAttribute('data-type-id') || 0) || 0) === typeId) || null;
             const finalQty = getBuildFinalOutputQuantity(output, finalRow);
-            const producedPerCycle = summaryEntry
+            const summaryProducedPerCycle = summaryEntry
                 ? (Math.max(0, Math.ceil(Number(summaryEntry.produced_per_cycle || summaryEntry.producedPerCycle || 0))) || 0)
-                : (Math.max(0, Math.ceil(Number(output?.produced_per_cycle || output?.producedPerCycle || 0))) || 0);
+                : 0;
+            const payloadProducedPerCycle = Math.max(0, Math.ceil(Number(output?.produced_per_cycle || output?.producedPerCycle || 0))) || 0;
+            const producedPerCycle = summaryProducedPerCycle > 0 ? summaryProducedPerCycle : payloadProducedPerCycle;
+
+            // Build tab must only show lines with an actual production cycle.
+            // Non-producible fit items (no blueprint / no cycle output) are
+            // valid Outputs for revenue, but should not appear in Build.
+            if (!(producedPerCycle > 0)) {
+                return null;
+            }
+
             const totalNeeded = finalQty > 0
                 ? finalQty
                 : (summaryEntry ? (Math.max(0, Math.ceil(Number(summaryEntry.total_needed || summaryEntry.totalNeeded || 0))) || 0) : 0);
@@ -7692,9 +8263,9 @@ function getCurrentBuildFinalProductRows(cyclesSummary) {
                 type_id: typeId,
                 type_name: output?.type_name || output?.typeName || '',
                 total_needed: totalNeeded,
-                produced_per_cycle: producedPerCycle || totalNeeded,
+                produced_per_cycle: producedPerCycle,
                 cycles,
-                total_produced: totalProduced || totalNeeded,
+                total_produced: totalProduced,
                 surplus,
             };
         })
@@ -8526,7 +9097,7 @@ try {
         if (planTabBtn) {
             planTabBtn.addEventListener('shown.bs.tab', () => {
                 if (typeof updateMaterialsTabFromState === 'function') {
-                    updateMaterialsTabFromState();
+                    runCraftTabRefresh('plan', __('Loading plan'), () => updateMaterialsTabFromState());
                 }
             });
         }
@@ -8534,8 +9105,14 @@ try {
         const buyTabBtn = document.querySelector('#buy-tab-btn');
         if (buyTabBtn) {
             buyTabBtn.addEventListener('shown.bs.tab', () => {
-                if (typeof updateFinancialTabFromState === 'function') {
-                    updateFinancialTabFromState();
+                const financialDirty = window.SimulationAPI && typeof window.SimulationAPI.isTabDirty === 'function'
+                    ? window.SimulationAPI.isTabDirty('financial')
+                    : true;
+                const hasFinancialRows = !!document.querySelector('#financialItemsBody tr[data-type-id]');
+                if (typeof updateFinancialTabFromState === 'function' && (financialDirty || !hasFinancialRows)) {
+                    runCraftTabRefresh('buy', __('Loading buy data'), () => updateFinancialTabFromState());
+                } else if (typeof window.applyFinancialPlannerFilters === 'function') {
+                    window.applyFinancialPlannerFilters();
                 }
             });
         }
@@ -8544,9 +9121,9 @@ try {
         if (buildTabBtn) {
             buildTabBtn.addEventListener('shown.bs.tab', () => {
                 if (typeof updateBuildTabFromState === 'function') {
-                    updateBuildTabFromState();
+                    runCraftTabRefresh('build', __('Loading build data'), () => updateBuildTabFromState());
                 } else {
-                    sortBuildCyclesTable();
+                    runCraftTabRefresh('build', __('Loading build data'), () => sortBuildCyclesTable());
                 }
             });
         }
@@ -8555,7 +9132,7 @@ try {
         if (timingTabBtn) {
             timingTabBtn.addEventListener('shown.bs.tab', () => {
                 if (typeof updateCraftTimingTabFromState === 'function') {
-                    updateCraftTimingTabFromState();
+                    runCraftTabRefresh('timing', __('Loading timing data'), () => updateCraftTimingTabFromState());
                 }
             });
         }
@@ -8564,7 +9141,7 @@ try {
         if (stepsTabBtn) {
             stepsTabBtn.addEventListener('shown.bs.tab', () => {
                 if (typeof updateCraftStepsTabFromState === 'function') {
-                    updateCraftStepsTabFromState();
+                    runCraftTabRefresh('steps', __('Loading steps data'), () => updateCraftStepsTabFromState());
                 }
             });
         }
@@ -8573,7 +9150,7 @@ try {
         if (structureTabBtn) {
             structureTabBtn.addEventListener('shown.bs.tab', () => {
                 if (typeof renderStructurePlanner === 'function') {
-                    renderStructurePlanner();
+                    runCraftTabRefresh('structure', __('Loading structure data'), () => renderStructurePlanner({ force: true }));
                 }
             });
         }
@@ -8581,12 +9158,14 @@ try {
         const configureTabBtn = document.querySelector('#configure-tab-btn');
         if (configureTabBtn) {
             configureTabBtn.addEventListener('shown.bs.tab', () => {
-                if (typeof window.updateConfigTabFromState === 'function') {
-                    window.updateConfigTabFromState();
-                }
-                if (typeof window.validateBlueprintRuns === 'function') {
-                    window.validateBlueprintRuns();
-                }
+                runCraftTabRefresh('configure', __('Loading blueprints'), () => {
+                    if (typeof window.updateConfigTabFromState === 'function') {
+                        window.updateConfigTabFromState();
+                    }
+                    if (typeof window.validateBlueprintRuns === 'function') {
+                        window.validateBlueprintRuns();
+                    }
+                });
             });
         }
     });

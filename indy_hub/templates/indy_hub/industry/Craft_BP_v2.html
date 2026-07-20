@@ -444,6 +444,7 @@
                                     <td colspan="6">
                                         <span class="badge bg-primary-subtle text-primary-emphasis me-2">{% trans "Inputs" %}</span>
                                         {% trans "Items you still need to source for the plan." %}
+                                        <span class="small text-muted ms-2" id="financialInputGroupSummary"></span>
                                     </td>
                                 </tr>
                                 {% for mat in materials %}
@@ -481,7 +482,8 @@
                                 <tr class="craft-financial-section-row" id="financialRevenueSectionRow" data-export-skip="true">
                                     <td colspan="6">
                                         <span class="badge bg-success-subtle text-success-emphasis me-2">{% trans "Outputs" %}</span>
-                                        {% trans "Final products and revenue targets for this workspace." %}
+                                        {% trans "Fitted ship outputs: parent fit + child items. Set sale prices per item, or switch to one fixed total sale price for the whole fitted ship." %}
+                                        <span class="small text-muted ms-2" id="financialOutputGroupSummary"></span>
                                     </td>
                                 </tr>
                                 {% if final_outputs %}
@@ -627,8 +629,8 @@
                                                 {% trans "Revenue mode" %}
                                             </label>
                                             <select id="financialRevenueMode" class="form-select form-select-sm w-auto" data-revenue-mode>
-                                                <option value="per_unit">{% trans "Per-unit sale prices (× qty)" %}</option>
-                                                <option value="total">{% trans "Total sale price (whole project)" %}</option>
+                                                <option value="per_unit">{% trans "Per-item sale prices (ship + fit items)" %}</option>
+                                                <option value="total">{% trans "Fixed total sale price (whole fitted ship)" %}</option>
                                             </select>
                                             <div class="input-group input-group-sm w-auto" id="financialRevenueTotalGroup" hidden>
                                                 <span class="input-group-text">{% trans "Total" %}</span>
@@ -636,7 +638,7 @@
                                                 <span class="input-group-text">ISK</span>
                                             </div>
                                             <span class="small text-muted" id="financialRevenueModeHint">
-                                                {% trans "Per-unit prices are summed across every final output." %}
+                                                {% trans "Set sale prices per output item (ship + fit items). Revenue is the sum of item price × quantity." %}
                                             </span>
                                         </div>
                                     </td>
