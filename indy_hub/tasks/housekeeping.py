@@ -37,27 +37,26 @@ from .industry import (
     SKILLS_SCOPE,
     STRUCTURE_SCOPE,
     _get_adaptive_window_minutes,
-    _queue_staggered_user_tasks,
     _refresh_online_status_for_user,
-    update_user_skill_snapshots,
+    update_character_skill_snapshot_for_character,
 )
 from .location import cache_structure_names_bulk
-from .user import CORP_ROLES_SCOPE, update_user_roles_snapshots
+from .user import CORP_ROLES_SCOPE, update_character_roles_for_character
 
 logger = get_extension_logger(__name__)
 User = get_user_model()
 
 
-def _select_users_for_stale_snapshots(
+def _select_character_targets_for_stale_snapshots(
     *,
     token_pairs: list[tuple[int, int]],
     snapshot_model,
     stale_hours: int,
     now: timezone.datetime,
-) -> set[int]:
+) -> list[tuple[int, int]]:
     character_ids = [int(cid) for _uid, cid in token_pairs if cid]
     if not character_ids:
-        return set()
+        return []
 
     rows = snapshot_model.objects.filter(character_id__in=character_ids).values_list(
         "character_id",
@@ -73,9 +72,42 @@ def _select_users_for_stale_snapshots(
     target_ids = stale_ids | missing_ids
 
     if not target_ids:
-        return set()
+        return []
 
-    return {int(uid) for uid, cid in token_pairs if int(cid) in target_ids}
+    targets = {
+        (int(uid), int(cid))
+        for uid, cid in token_pairs
+        if uid and cid and int(cid) in target_ids
+    }
+    return sorted(targets, key=lambda row: (row[0], row[1]))
+
+
+def _queue_staggered_character_tasks(
+    task,
+    targets: list[tuple[int, int]],
+    *,
+    window_minutes: int,
+    priority: int | None = None,
+) -> int:
+    if not targets:
+        return 0
+
+    total = len(targets)
+    window_seconds = max(window_minutes * 60, 0)
+    if total == 1 or window_seconds == 0:
+        for user_id, character_id in targets:
+            task.apply_async(args=(int(user_id), int(character_id)), priority=priority)
+        return total
+
+    spacing = window_seconds / total
+    for index, (user_id, character_id) in enumerate(targets):
+        countdown = int(round(index * spacing))
+        task.apply_async(
+            args=(int(user_id), int(character_id)),
+            countdown=countdown,
+            priority=priority,
+        )
+    return total
 
 
 @shared_task
@@ -85,6 +117,8 @@ def refresh_stale_snapshots() -> dict[str, int]:
     result = {
         "skills_users_queued": 0,
         "roles_users_queued": 0,
+        "skills_characters_queued": 0,
+        "roles_characters_queued": 0,
         "online_users_refreshed": 0,
         "structures_queued": 0,
     }
@@ -97,7 +131,7 @@ def refresh_stale_snapshots() -> dict[str, int]:
             .values_list("user_id", "character_id")
             .distinct()
         )
-        skill_user_ids = _select_users_for_stale_snapshots(
+        skill_targets = _select_character_targets_for_stale_snapshots(
             token_pairs=[
                 (int(uid), int(cid)) for uid, cid in skill_tokens if uid and cid
             ],
@@ -105,15 +139,16 @@ def refresh_stale_snapshots() -> dict[str, int]:
             stale_hours=SKILL_SNAPSHOT_STALE_HOURS,
             now=now,
         )
-        if skill_user_ids:
-            window_minutes = _get_adaptive_window_minutes("skills", len(skill_user_ids))
-            queued = _queue_staggered_user_tasks(
-                update_user_skill_snapshots,
-                sorted(skill_user_ids),
+        if skill_targets:
+            window_minutes = _get_adaptive_window_minutes("skills", len(skill_targets))
+            queued = _queue_staggered_character_tasks(
+                update_character_skill_snapshot_for_character,
+                skill_targets,
                 window_minutes=window_minutes,
                 priority=7,
             )
             result["skills_users_queued"] = queued
+            result["skills_characters_queued"] = queued
     except Exception as exc:  # pragma: no cover - defensive
         logger.exception("Failed stale skills refresh: %s", exc)
 
@@ -126,7 +161,7 @@ def refresh_stale_snapshots() -> dict[str, int]:
             .values_list("user_id", "character_id")
             .distinct()
         )
-        role_user_ids = _select_users_for_stale_snapshots(
+        role_targets = _select_character_targets_for_stale_snapshots(
             token_pairs=[
                 (int(uid), int(cid)) for uid, cid in role_tokens if uid and cid
             ],
@@ -134,15 +169,16 @@ def refresh_stale_snapshots() -> dict[str, int]:
             stale_hours=ROLE_SNAPSHOT_STALE_HOURS,
             now=now,
         )
-        if role_user_ids:
-            window_minutes = _get_adaptive_window_minutes("roles", len(role_user_ids))
-            queued = _queue_staggered_user_tasks(
-                update_user_roles_snapshots,
-                sorted(role_user_ids),
+        if role_targets:
+            window_minutes = _get_adaptive_window_minutes("roles", len(role_targets))
+            queued = _queue_staggered_character_tasks(
+                update_character_roles_for_character,
+                role_targets,
                 window_minutes=window_minutes,
                 priority=7,
             )
             result["roles_users_queued"] = queued
+            result["roles_characters_queued"] = queued
     except Exception as exc:  # pragma: no cover - defensive
         logger.exception("Failed stale roles refresh: %s", exc)
 
@@ -234,7 +270,8 @@ def refresh_stale_snapshots() -> dict[str, int]:
         label="completed",
         result="success",
         value=max(
-            result.get("skills_users_queued", 0) + result.get("roles_users_queued", 0),
+            result.get("skills_characters_queued", 0)
+            + result.get("roles_characters_queued", 0),
             1,
         ),
     )
