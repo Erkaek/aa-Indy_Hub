@@ -28,11 +28,11 @@ function isFinancialGroupCollapsed(kind, key) {
     const safeKind = kind === 'output' ? 'output' : 'input';
     const safeKey = String(key || '').trim();
     if (!safeKey) {
-        return true;
+        return false;
     }
     const state = getFinancialGroupCollapseState();
     if (!Object.prototype.hasOwnProperty.call(state[safeKind], safeKey)) {
-        return true;
+        return false;
     }
     return Boolean(state[safeKind]?.[safeKey]);
 }

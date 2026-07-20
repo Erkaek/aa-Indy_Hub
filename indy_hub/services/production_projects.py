@@ -2176,7 +2176,6 @@ def build_project_workspace_payload(
                     AND COALESCE(blueprint_t.published, 0) = 1
                 ORDER BY activity.blueprint_item_type_id,
                     CASE activity.activity WHEN 'manufacturing' THEN 0 WHEN 'reaction' THEN 1 ELSE 99 END
-                LIMIT 1
                 """,
                 blueprint_ids_list,
             )
