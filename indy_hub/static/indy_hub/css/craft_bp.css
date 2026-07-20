@@ -351,6 +351,61 @@ html[data-theme="darkly"] .craft-hero .header-bg {
     color: var(--bs-secondary-color);
 }
 
+.craft-main-tab-pane {
+    position: relative;
+}
+
+.craft-main-tab-pane.is-loading::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    pointer-events: none;
+    border-radius: 1rem;
+    background: linear-gradient(180deg, rgba(248, 250, 252, 0.78), rgba(255, 255, 255, 0.9));
+}
+
+.craft-main-tab-pane.is-loading::after {
+    content: attr(data-loading-label);
+    position: absolute;
+    top: 1rem;
+    left: 50%;
+    z-index: 3;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.9rem;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.92);
+    color: #fff;
+    font-size: 0.875rem;
+    font-weight: 700;
+    transform: translateX(-50%);
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.2);
+}
+
+.craft-main-tab-pane.is-loading::after {
+    content: attr(data-loading-label) '…';
+}
+
+.craft-main-tab-loading-indicator {
+    display: none;
+    align-items: center;
+    gap: 0.35rem;
+    margin-left: 0.5rem;
+    color: inherit;
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
+.craft-main-tab-loading-indicator .fa-spinner {
+    font-size: 0.85em;
+}
+
+.nav-link.is-loading .craft-main-tab-loading-indicator {
+    display: inline-flex;
+}
+
 .craft-bp-loading-progress {
     position: relative;
     overflow: hidden;
@@ -1748,6 +1803,28 @@ div[id="bpTabs"] {
     border-bottom: 1px dashed color-mix(in srgb, var(--bs-border-color) 80%, transparent);
 }
 
+.craft-financial-group-row td,
+.craft-financial-output-group-row td {
+    cursor: pointer;
+}
+
+.financial-group-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.1rem;
+    color: var(--bs-secondary-color);
+    transition: transform 0.2s ease;
+}
+
+tr[data-collapsed="true"] .financial-group-toggle {
+    transform: rotate(-90deg);
+}
+
+tr.financial-group-collapsed-hidden {
+    display: none;
+}
+
 .craft-financial-group-row .badge {
     font-size: 0.72rem;
     letter-spacing: 0.01em;
@@ -1755,6 +1832,38 @@ div[id="bpTabs"] {
 
 .craft-financial-group-row .financial-group-count {
     white-space: nowrap;
+}
+
+.craft-financial-output-group-row td {
+    padding: 0.45rem 0.75rem;
+    background: color-mix(in srgb, var(--bs-success-bg-subtle) 70%, var(--bs-body-bg));
+    border-top: 1px dashed color-mix(in srgb, var(--bs-success-border-subtle) 75%, transparent);
+    border-bottom: 1px dashed color-mix(in srgb, var(--bs-success-border-subtle) 75%, transparent);
+}
+
+.craft-financial-output-group-row .badge {
+    font-size: 0.72rem;
+    letter-spacing: 0.01em;
+}
+
+.craft-financial-output-group-row .financial-output-group-count {
+    white-space: nowrap;
+}
+
+tr[data-final-output="true"].financial-output-child td:first-child .craft-financial-item-shell,
+tr[data-final-output="true"].financial-output-child td:first-child .craft-planner-item-flex {
+    padding-left: 1.05rem;
+    position: relative;
+}
+
+tr[data-final-output="true"].financial-output-child td:first-child .craft-financial-item-shell::before,
+tr[data-final-output="true"].financial-output-child td:first-child .craft-planner-item-flex::before {
+    content: '';
+    position: absolute;
+    left: 0.25rem;
+    top: 0.85rem;
+    width: 0.55rem;
+    border-top: 1px solid color-mix(in srgb, var(--bs-success-border-subtle) 80%, transparent);
 }
 
 /* Item column should truncate when space is tight */
@@ -2640,6 +2749,21 @@ html[data-theme="darkly"] .craft-header-icon {
     overflow-wrap: anywhere;
 }
 
+.craft-tree-tail {
+    min-width: 13rem;
+    flex-shrink: 0;
+}
+
+.craft-tree-note {
+    line-height: 1.1;
+    text-align: right;
+    white-space: nowrap;
+}
+
+.craft-tree-node--leaf {
+    border-left-color: transparent;
+}
+
 .financial-stock-state {
     white-space: normal;
     overflow-wrap: anywhere;
@@ -3454,6 +3578,7 @@ html[data-theme="darkly"] #blueprintSearchInput {
 
     .craft-stackable-table tbody tr.craft-financial-section-row,
     .craft-stackable-table tbody tr.craft-financial-group-row,
+    .craft-stackable-table tbody tr.craft-financial-output-group-row,
     .craft-stackable-table tbody tr.craft-stock-section-row,
     .craft-stackable-table tbody tr.craft-decision-section-row {
         background: var(--bs-secondary-bg);
@@ -3543,6 +3668,7 @@ html[data-theme="darkly"] #blueprintSearchInput {
 
     .craft-stackable-table tbody tr.craft-financial-section-row td,
     .craft-stackable-table tbody tr.craft-financial-group-row td,
+    .craft-stackable-table tbody tr.craft-financial-output-group-row td,
     .craft-stackable-table tbody tr.craft-stock-section-row td,
     .craft-stackable-table tbody tr.craft-decision-section-row td {
         display: block;
@@ -3551,6 +3677,7 @@ html[data-theme="darkly"] #blueprintSearchInput {
 
     .craft-stackable-table tbody tr.craft-financial-section-row td::before,
     .craft-stackable-table tbody tr.craft-financial-group-row td::before,
+    .craft-stackable-table tbody tr.craft-financial-output-group-row td::before,
     .craft-stackable-table tbody tr.craft-stock-section-row td::before,
     .craft-stackable-table tbody tr.craft-decision-section-row td::before {
         display: none;

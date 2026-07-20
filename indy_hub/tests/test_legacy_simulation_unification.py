@@ -36,6 +36,7 @@ from indy_hub.services.production_projects import (
     PROJECT_WORKSPACE_SDE_SIGNATURE_KEY,
     _scale_project_selected_items_for_runs,
     build_project_workspace_payload,
+    create_project_from_entries,
     create_project_from_single_blueprint,
     get_cached_project_workspace_payload,
     get_project_workspace_scoped_sde_signature,
@@ -43,9 +44,11 @@ from indy_hub.services.production_projects import (
 )
 from indy_hub.services.project_progress import normalize_project_progress
 from indy_hub.views.api import (
+    create_production_project,
     production_project_payload,
     save_production_project_progress,
     save_production_project_workspace,
+    save_temporary_production_project_workspace,
 )
 from indy_hub.views.industry import (
     _craft_project_stock_refresh_progress_key,
@@ -112,6 +115,14 @@ class LegacySimulationUnificationTests(TestCase):
     @property
     def _save_progress_view(self):
         return _unwrap_view(save_production_project_progress)
+
+    @property
+    def _create_project_view(self):
+        return _unwrap_view(create_production_project)
+
+    @property
+    def _save_temporary_workspace_view(self):
+        return _unwrap_view(save_temporary_production_project_workspace)
 
     @property
     def _production_project_payload_view(self):
@@ -402,6 +413,201 @@ class LegacySimulationUnificationTests(TestCase):
         self.assertIn("cachedProjectScopedSdeSignature", project.workspace_state)
         self.assertIsInstance(project.workspace_state["cachedProjectPayload"], dict)
 
+    def test_create_production_project_creates_temporary_workspace_only(self):
+        request = self._prepare_request(
+            self.factory.post(
+                reverse("indy_hub:create_production_project"),
+                data=json.dumps(
+                    {
+                        "name": "Temp Guardian Fit",
+                        "source_text": "[Guardian, Fit]\n\nDamage Control II",
+                        "source_kind": "eft",
+                        "items": [
+                            {
+                                "type_id": 37604,
+                                "type_name": "Guardian",
+                                "quantity": 1,
+                                "resolved": True,
+                                "is_craftable": True,
+                                "blueprint_type_id": 5001,
+                                "inclusion_mode": "produce",
+                            }
+                        ],
+                        "fit_quantities": [
+                            {
+                                "fitGroup": "eft_fit_0",
+                                "label": "Guardian",
+                                "quantity": 2,
+                            }
+                        ],
+                    }
+                ),
+                content_type="application/json",
+            )
+        )
+
+        before_count = ProductionProject.objects.count()
+        response = self._create_project_view(request)
+
+        self.assertEqual(response.status_code, 200)
+        payload = json.loads(response.content)
+        self.assertTrue(payload["success"])
+        self.assertIn("/craft/project/temp/", payload["redirect_url"])
+        self.assertEqual(ProductionProject.objects.count(), before_count)
+
+    def test_create_project_from_entries_preserves_duplicate_items_in_same_category(
+        self,
+    ):
+        selected_entries = [
+            {
+                "type_id": 12221,
+                "type_name": "Medium Remote Armor Repairer II",
+                "quantity": 1,
+                "category_key": "high_slots",
+                "category_label": "High slots",
+                "category_order": 30,
+                "source_line": "Medium Remote Armor Repairer II",
+                "inclusion_mode": "produce",
+                "is_craftable": True,
+            },
+            {
+                "type_id": 12221,
+                "type_name": "Medium Remote Armor Repairer II",
+                "quantity": 1,
+                "category_key": "high_slots",
+                "category_label": "High slots",
+                "category_order": 30,
+                "source_line": "Medium Remote Armor Repairer II",
+                "inclusion_mode": "produce",
+                "is_craftable": True,
+            },
+        ]
+
+        project = create_project_from_entries(
+            user=self.user,
+            name="Duplicate slot regression",
+            status=ProductionProject.Status.DRAFT,
+            source_kind=ProductionProject.SourceKind.EFT,
+            source_text="[Guardian, Fit]",
+            source_name="Guardian Fit",
+            selected_entries=selected_entries,
+        )
+
+        duplicates = list(
+            project.items.filter(type_id=12221, category_key="high_slots").order_by(
+                "id"
+            )
+        )
+        self.assertEqual(len(duplicates), 2)
+        self.assertEqual([int(item.quantity_requested) for item in duplicates], [1, 1])
+
+    def test_create_project_from_entries_defaults_non_craftable_to_buy(self):
+        project = create_project_from_entries(
+            user=self.user,
+            name="Non craftable defaults",
+            status=ProductionProject.Status.DRAFT,
+            source_kind=ProductionProject.SourceKind.EFT,
+            source_text="[Guardian, Fit]",
+            source_name="Guardian Fit",
+            selected_entries=[
+                {
+                    "type_id": 13978,
+                    "type_name": "Shadow Serpentis Kinetic Armor Hardener",
+                    "quantity": 1,
+                    "is_craftable": False,
+                }
+            ],
+        )
+
+        item = project.items.get(type_id=13978)
+        self.assertFalse(item.is_craftable)
+        self.assertEqual(item.inclusion_mode, ProductionProjectItem.InclusionMode.BUY)
+
+    @patch("indy_hub.views.api.build_project_workspace_payload")
+    def test_save_temporary_workspace_creates_real_project(
+        self,
+        mock_build_project_workspace_payload,
+    ):
+        mock_build_project_workspace_payload.return_value = {
+            "workspace_state": {},
+            "final_outputs": [{"type_id": 37604, "quantity": 2}],
+        }
+        create_request = self._prepare_request(
+            self.factory.post(
+                reverse("indy_hub:create_production_project"),
+                data=json.dumps(
+                    {
+                        "name": "Temp Guardian Fit",
+                        "source_text": "[Guardian, Fit]\n\nDamage Control II",
+                        "source_kind": "eft",
+                        "items": [
+                            {
+                                "type_id": 37604,
+                                "type_name": "Guardian",
+                                "quantity": 1,
+                                "resolved": True,
+                                "is_craftable": True,
+                                "blueprint_type_id": 5001,
+                                "inclusion_mode": "produce",
+                                "metadata": {
+                                    "fit_group": "eft_fit_0",
+                                    "fit_index": 0,
+                                    "fit_hull_name": "Guardian",
+                                    "is_fit_hull": True,
+                                },
+                            }
+                        ],
+                        "fit_quantities": [
+                            {
+                                "fitGroup": "eft_fit_0",
+                                "label": "Guardian",
+                                "quantity": 2,
+                            }
+                        ],
+                    }
+                ),
+                content_type="application/json",
+            )
+        )
+        create_response = self._create_project_view(create_request)
+        temp_payload = json.loads(create_response.content)
+        temp_ref = temp_payload["temp_project_ref"]
+
+        save_request = self._prepare_request(
+            self.factory.post(
+                reverse(
+                    "indy_hub:save_temporary_production_project_workspace",
+                    args=[temp_ref],
+                ),
+                data=json.dumps(
+                    {
+                        "simulationName": "Saved Guardian Fit",
+                        "active_tab": "materials",
+                        "items": [],
+                        "buyTypeIds": [],
+                        "manualPrices": [],
+                        "stockAllocations": {},
+                        "copyRequests": [],
+                        "structure": {},
+                        "meTeConfig": {},
+                        "finalOutputQuantities": [
+                            {"index": 0, "typeId": 37604, "quantity": 2}
+                        ],
+                    }
+                ),
+                content_type="application/json",
+            )
+        )
+
+        before_count = ProductionProject.objects.count()
+        response = self._save_temporary_workspace_view(save_request, temp_ref)
+
+        self.assertEqual(response.status_code, 200)
+        payload = json.loads(response.content)
+        self.assertTrue(payload["success"])
+        self.assertIn("/craft/project/", payload["redirect_url"])
+        self.assertEqual(ProductionProject.objects.count(), before_count + 1)
+
     def test_save_production_project_workspace_preserves_blueprint_context(self):
         project = ProductionProject.objects.create(
             user=self.user,
@@ -436,6 +642,322 @@ class LegacySimulationUnificationTests(TestCase):
         project.refresh_from_db()
         self.assertEqual(project.workspace_state["blueprint_type_id"], 950)
         self.assertEqual(project.workspace_state["blueprint_name"], "Merlin Blueprint")
+
+    @patch("indy_hub.views.api.build_project_workspace_payload")
+    def test_save_production_project_workspace_updates_final_output_quantities(
+        self,
+        mock_build_project_workspace_payload,
+    ):
+        project = ProductionProject.objects.create(
+            user=self.user,
+            name="Fleet Targets",
+            status=ProductionProject.Status.DRAFT,
+            source_kind=ProductionProject.SourceKind.MANUAL,
+            workspace_state={"runs": 4},
+        )
+        first_item = ProductionProjectItem.objects.create(
+            project=project,
+            type_id=37604,
+            type_name="Guardian",
+            quantity_requested=1,
+            is_selected=True,
+            inclusion_mode=ProductionProjectItem.InclusionMode.PRODUCE,
+            category_order=1,
+        )
+        second_item = ProductionProjectItem.objects.create(
+            project=project,
+            type_id=35834,
+            type_name="Azariel",
+            quantity_requested=1,
+            is_selected=True,
+            inclusion_mode=ProductionProjectItem.InclusionMode.PRODUCE,
+            category_order=2,
+        )
+        mock_build_project_workspace_payload.return_value = {
+            "workspace_state": {},
+            "final_outputs": [
+                {"type_id": first_item.type_id, "quantity": 2},
+                {"type_id": second_item.type_id, "quantity": 3},
+            ],
+        }
+
+        request = self._prepare_request(
+            self.factory.post(
+                reverse(
+                    "indy_hub:save_production_project_workspace",
+                    args=[project.project_ref],
+                ),
+                data=json.dumps(
+                    {
+                        "simulation_name": "Fleet Targets",
+                        "active_tab": "materials",
+                        "finalOutputQuantities": [
+                            {"index": 0, "typeId": first_item.type_id, "quantity": 2},
+                            {"index": 1, "typeId": second_item.type_id, "quantity": 3},
+                        ],
+                    }
+                ),
+                content_type="application/json",
+            )
+        )
+        response = self._save_workspace_view(request, project.project_ref)
+
+        self.assertEqual(response.status_code, 200)
+        project.refresh_from_db()
+        first_item.refresh_from_db()
+        second_item.refresh_from_db()
+        self.assertEqual(first_item.quantity_requested, 2)
+        self.assertEqual(second_item.quantity_requested, 3)
+        self.assertEqual(project.workspace_state["runs"], 1)
+        self.assertEqual(
+            project.workspace_state["finalOutputQuantities"][0]["quantity"], 2
+        )
+        self.assertEqual(
+            project.workspace_state["finalOutputQuantities"][1]["quantity"], 3
+        )
+
+    @patch("indy_hub.views.api.build_project_workspace_payload")
+    def test_save_production_project_workspace_keeps_eft_item_base_quantities(
+        self,
+        mock_build_project_workspace_payload,
+    ):
+        project = ProductionProject.objects.create(
+            user=self.user,
+            name="Guardian Fit",
+            status=ProductionProject.Status.DRAFT,
+            source_kind=ProductionProject.SourceKind.EFT,
+            workspace_state={"runs": 1},
+        )
+        hull_item = ProductionProjectItem.objects.create(
+            project=project,
+            type_id=37604,
+            type_name="Guardian",
+            quantity_requested=1,
+            is_selected=True,
+            inclusion_mode=ProductionProjectItem.InclusionMode.PRODUCE,
+            category_order=1,
+        )
+        module_item = ProductionProjectItem.objects.create(
+            project=project,
+            type_id=2048,
+            type_name="Damage Control II",
+            quantity_requested=1,
+            is_selected=True,
+            inclusion_mode=ProductionProjectItem.InclusionMode.BUY,
+            category_order=2,
+        )
+        mock_build_project_workspace_payload.return_value = {
+            "workspace_state": {},
+            "final_outputs": [
+                {"type_id": hull_item.type_id, "quantity": 2},
+                {"type_id": module_item.type_id, "quantity": 2},
+            ],
+            "editable_final_outputs": [
+                {"type_id": None, "type_name": "Project quantity", "quantity": 2}
+            ],
+        }
+
+        request = self._prepare_request(
+            self.factory.post(
+                reverse(
+                    "indy_hub:save_production_project_workspace",
+                    args=[project.project_ref],
+                ),
+                data=json.dumps(
+                    {
+                        "simulation_name": "Guardian Fit",
+                        "active_tab": "materials",
+                        "finalOutputQuantities": [
+                            {"index": 0, "typeId": 0, "quantity": 2},
+                        ],
+                    }
+                ),
+                content_type="application/json",
+            )
+        )
+        response = self._save_workspace_view(request, project.project_ref)
+
+        self.assertEqual(response.status_code, 200)
+        project.refresh_from_db()
+        hull_item.refresh_from_db()
+        module_item.refresh_from_db()
+        self.assertEqual(hull_item.quantity_requested, 1)
+        self.assertEqual(module_item.quantity_requested, 1)
+        self.assertEqual(project.workspace_state["runs"], 1)
+        self.assertEqual(
+            project.workspace_state["finalOutputQuantities"][0]["quantity"], 2
+        )
+
+    def test_build_project_workspace_payload_uses_selected_hull_as_eft_final_output(
+        self,
+    ):
+        project = ProductionProject.objects.create(
+            user=self.user,
+            name="Guardian Fit",
+            status=ProductionProject.Status.DRAFT,
+            source_kind=ProductionProject.SourceKind.EFT,
+            workspace_state={
+                "finalOutputQuantities": [{"index": 0, "quantity": 2}],
+            },
+        )
+        ProductionProjectItem.objects.create(
+            project=project,
+            type_id=37604,
+            type_name="Guardian",
+            quantity_requested=1,
+            is_selected=True,
+            inclusion_mode=ProductionProjectItem.InclusionMode.PRODUCE,
+            category_order=1,
+            metadata={
+                "fit_group": "eft_fit_0",
+                "fit_index": 0,
+                "fit_hull_name": "Guardian",
+                "is_fit_hull": True,
+            },
+        )
+        ProductionProjectItem.objects.create(
+            project=project,
+            type_id=2048,
+            type_name="Damage Control II",
+            quantity_requested=1,
+            is_selected=True,
+            inclusion_mode=ProductionProjectItem.InclusionMode.BUY,
+            category_order=2,
+            metadata={
+                "fit_group": "eft_fit_0",
+                "fit_index": 0,
+                "fit_hull_name": "Guardian",
+            },
+        )
+
+        with (
+            patch(
+                "indy_hub.services.production_projects._resolve_type_names",
+                return_value={37604: "Guardian", 2048: "Damage Control II"},
+            ),
+            patch(
+                "indy_hub.services.production_projects._resolve_market_groups",
+                return_value={},
+            ),
+            patch(
+                "indy_hub.services.production_projects.build_craft_time_map",
+                return_value={},
+            ),
+            patch(
+                "indy_hub.services.production_projects.build_craft_character_advisor",
+                return_value={"characters": [], "items": {}, "summary": {}},
+            ),
+            patch(
+                "indy_hub.services.production_projects.build_craft_structure_planner",
+                return_value={},
+            ),
+            patch(
+                "indy_hub.services.production_projects._resolve_user_blueprint_inventory",
+                return_value={},
+            ),
+            patch(
+                "indy_hub.services.production_projects._build_project_blueprint_configs_grouped",
+                return_value=([], []),
+            ),
+        ):
+            payload = build_project_workspace_payload(project)
+
+        self.assertEqual(
+            payload["editable_final_outputs"][0]["type_name"],
+            "Guardian",
+        )
+        self.assertEqual(payload["editable_final_outputs"][0]["quantity"], 2)
+        self.assertEqual(
+            payload["materials_tree"][0]["type_name"],
+            "Guardian",
+        )
+        self.assertEqual(payload["materials_tree"][0]["quantity"], 2)
+        self.assertEqual(
+            payload["materials_tree"][0]["sub_materials"][0]["type_name"],
+            "Guardian",
+        )
+        self.assertEqual(
+            payload["materials_tree"][0]["sub_materials"][0]["quantity"],
+            2,
+        )
+        self.assertEqual(
+            payload["materials_tree"][0]["sub_materials"][-1]["type_name"],
+            "Damage Control II",
+        )
+        self.assertEqual(
+            payload["materials_tree"][0]["sub_materials"][-1]["quantity"],
+            2,
+        )
+
+    def test_build_project_workspace_payload_uses_project_quantity_when_eft_hull_is_deselected(
+        self,
+    ):
+        project = ProductionProject.objects.create(
+            user=self.user,
+            name="Guardian Fit",
+            status=ProductionProject.Status.DRAFT,
+            source_kind=ProductionProject.SourceKind.EFT,
+            workspace_state={
+                "finalOutputQuantities": [{"index": 0, "quantity": 3}],
+            },
+        )
+        ProductionProjectItem.objects.create(
+            project=project,
+            type_id=2048,
+            type_name="Damage Control II",
+            quantity_requested=1,
+            is_selected=True,
+            inclusion_mode=ProductionProjectItem.InclusionMode.BUY,
+            category_order=2,
+            metadata={
+                "fit_group": "eft_fit_0",
+                "fit_index": 0,
+                "fit_hull_name": "Guardian",
+            },
+        )
+
+        with (
+            patch(
+                "indy_hub.services.production_projects._resolve_type_names",
+                return_value={2048: "Damage Control II"},
+            ),
+            patch(
+                "indy_hub.services.production_projects._resolve_market_groups",
+                return_value={},
+            ),
+            patch(
+                "indy_hub.services.production_projects.build_craft_time_map",
+                return_value={},
+            ),
+            patch(
+                "indy_hub.services.production_projects.build_craft_character_advisor",
+                return_value={"characters": [], "items": {}, "summary": {}},
+            ),
+            patch(
+                "indy_hub.services.production_projects.build_craft_structure_planner",
+                return_value={},
+            ),
+            patch(
+                "indy_hub.services.production_projects._resolve_user_blueprint_inventory",
+                return_value={},
+            ),
+            patch(
+                "indy_hub.services.production_projects._build_project_blueprint_configs_grouped",
+                return_value=([], []),
+            ),
+        ):
+            payload = build_project_workspace_payload(project)
+
+        self.assertEqual(payload["editable_final_outputs"][0]["type_name"], "Guardian")
+        self.assertEqual(payload["editable_final_outputs"][0]["quantity"], 3)
+        self.assertEqual(payload["materials_tree"][0]["type_name"], "Guardian")
+        self.assertEqual(
+            payload["materials_tree"][0]["sub_materials"][0]["type_name"],
+            "Damage Control II",
+        )
+        self.assertEqual(
+            payload["materials_tree"][0]["sub_materials"][0]["quantity"], 3
+        )
 
     @patch("indy_hub.views.api.build_project_workspace_payload")
     def test_save_workspace_scoped_signature_ignores_client_cached_payload_ids(
@@ -872,7 +1394,7 @@ class LegacySimulationUnificationTests(TestCase):
     @patch("indy_hub.views.industry._get_craft_project_stock_refresh_progress")
     @patch("indy_hub.views.industry.build_project_workspace_payload")
     @patch("indy_hub.views.industry.get_cached_project_workspace_payload")
-    def test_craft_project_renders_runs_control_and_uses_runs_override(
+    def test_craft_project_renders_tree_update_control_and_uses_runs_override(
         self,
         mock_get_cached_project_workspace_payload,
         mock_build_project_workspace_payload,
@@ -939,9 +1461,9 @@ class LegacySimulationUnificationTests(TestCase):
             self.user,
             allow_refresh=False,
         )
-        self.assertContains(response, 'id="runsInput"', html=False)
-        self.assertContains(response, 'value="7"', html=False)
-        self.assertContains(response, 'id="recalcNowBtn"', html=False)
+        self.assertNotContains(response, 'id="runsInput"', html=False)
+        self.assertNotContains(response, 'id="recalcNowBtn"', html=False)
+        self.assertContains(response, 'id="updateFinalOutputQuantitiesBtn"', html=False)
 
     @patch("indy_hub.views.industry.build_user_asset_inventory_snapshot")
     @patch("indy_hub.views.industry._get_craft_project_stock_refresh_progress")

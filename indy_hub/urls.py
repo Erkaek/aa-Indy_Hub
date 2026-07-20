@@ -14,7 +14,9 @@ from .views.api import (
     save_production_config,
     save_production_project_progress,
     save_production_project_workspace,
+    save_temporary_production_project_workspace,
     set_production_project_status,
+    temporary_production_project_payload,
 )
 from .views.hubs import (
     settings_hub,
@@ -43,6 +45,7 @@ from .views.industry import (
     craft_bp,
     craft_project,
     craft_project_stock_refresh_status,
+    craft_temp_project,
     delete_production_project,
 )
 from .views.industry import (
@@ -270,6 +273,11 @@ urlpatterns = [
         craft_project,
         name="craft_project",
     ),
+    path(
+        "craft/project/temp/<str:temp_project_ref>/",
+        craft_temp_project,
+        name="craft_temp_project",
+    ),
     path("api/fuzzwork-price/", fuzzwork_price, name="fuzzwork_price"),
     path(
         "api/craft-bp-payload/<int:type_id>/", craft_bp_payload, name="craft_bp_payload"
@@ -289,10 +297,20 @@ urlpatterns = [
         production_project_payload,
         name="production_project_payload",
     ),
+    path(
+        "api/temp-production-projects/<str:temp_project_ref>/payload/",
+        temporary_production_project_payload,
+        name="temporary_production_project_payload",
+    ),
     re_path(
         r"^api/production-projects/(?P<project_ref>[0-9A-Za-z]{10})/save-workspace/$",
         save_production_project_workspace,
         name="save_production_project_workspace",
+    ),
+    path(
+        "api/temp-production-projects/<str:temp_project_ref>/save-workspace/",
+        save_temporary_production_project_workspace,
+        name="save_temporary_production_project_workspace",
     ),
     re_path(
         r"^api/production-projects/(?P<project_ref>[0-9A-Za-z]{10})/rename/$",

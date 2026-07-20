@@ -1330,6 +1330,31 @@ html[data-theme="darkly"] .summary-card__icon {
     color: var(--bs-body-color);
 }
 
+.summary-card--compact {
+    gap: 0.75rem;
+    padding: 0.85rem 1rem;
+    min-height: 88px;
+}
+
+.summary-card--compact .summary-card__icon {
+    width: 40px;
+    height: 40px;
+    font-size: 1rem;
+    flex: 0 0 40px;
+}
+
+.summary-card--compact .summary-card__label {
+    font-size: 0.68rem;
+    line-height: 1.15;
+    margin-bottom: 0.2rem;
+    word-break: break-word;
+}
+
+.summary-card--compact .summary-card__value {
+    font-size: 1.35rem;
+    line-height: 1.05;
+}
+
 /* Action rows on request cards */
 
 .bp-card-toolbar {

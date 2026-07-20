@@ -13,6 +13,10 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 - Crafting Projects / Structure planner: improved capital ship classification and structure matching so command carriers and super-carriers are detected reliably from SDE ship outputs, with the planner falling back more gracefully when lookups fail.
 
+- Crafting Projects / Project workspace: project pages now let users adjust final-output quantities directly from the Production Tree with an explicit `Update` action. Manual multi-item projects keep per-output quantity control, while EFT imports now group each detected fit under its own editable root so fit quantities scale the ship and contained items together instead of exposing every fitted line as a separate final output.
+
+- Crafting Projects / Create table modal: EFT previews now show the number of detected fits, expose per-fit initial quantities before creation, keep the summary cards and fit detection panels more compact, and only reveal `Create table` after a successful preview.
+
 - Crafting Projects / Craft payload API: blueprint product lookup now resolves against the correct product type for workspace payloads, preventing mismatches when the project blueprint context is rebuilt.
 
 - Material Exchange: stock tables now show available quantity as the primary value, keep total visible, and only surface the secondary quantity when non-zero. Buy flows remain reservation-aware, and sell flows now compute reservations from active sell orders scoped to the selected character (with `character_id` persisted on sell orders) so `Reserved` and max-quantity inputs stay coherent.

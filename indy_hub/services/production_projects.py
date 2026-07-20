@@ -6,10 +6,13 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import secrets
 from collections import OrderedDict
 from collections.abc import Iterable, Sequence
 from copy import copy
+from dataclasses import dataclass
 from datetime import timedelta
+from functools import lru_cache
 from math import ceil
 from time import perf_counter
 
@@ -82,6 +85,8 @@ PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_CACHE_TIMEOUT_SECONDS = 60 * 60 * 6
 LEGACY_SINGLE_BLUEPRINT_PROJECT_NOTE = (
     "Migrated from legacy single-blueprint craft flow."
 )
+TEMP_PROJECT_CACHE_TIMEOUT_SECONDS = 60 * 60 * 24
+TEMP_PROJECT_REF_LENGTH = 20
 
 _SDE_ACTIVITY_NAME_BY_ID = {
     1: "manufacturing",
@@ -94,6 +99,244 @@ _SDE_ACTIVITY_ID_BY_NAME = {
 }
 
 
+class _TemporaryItemsQuerySet:
+    def __init__(self, items: Sequence[ProductionProjectItem]):
+        self._items = list(items)
+
+    def filter(self, **kwargs):
+        items = self._items
+        for field_name, expected_value in kwargs.items():
+            items = [
+                item for item in items if getattr(item, field_name) == expected_value
+            ]
+        return _TemporaryItemsQuerySet(items)
+
+    def exclude(self, **kwargs):
+        items = self._items
+        for field_name, expected_value in kwargs.items():
+            items = [
+                item for item in items if getattr(item, field_name) != expected_value
+            ]
+        return _TemporaryItemsQuerySet(items)
+
+    def order_by(self, *fields):
+        items = list(self._items)
+        for field_name in reversed(fields):
+            reverse = field_name.startswith("-")
+            normalized_name = field_name[1:] if reverse else field_name
+            items.sort(
+                key=lambda item: getattr(item, normalized_name, None), reverse=reverse
+            )
+        return _TemporaryItemsQuerySet(items)
+
+    def __iter__(self):
+        return iter(self._items)
+
+
+@dataclass
+class TemporaryProductionProject:
+    user: object
+    name: str
+    status: str
+    source_kind: str
+    source_text: str
+    source_name: str
+    notes: str
+    workspace_state: dict[str, object]
+    project_ref: str
+    temp_project_ref: str
+    items: _TemporaryItemsQuerySet
+    id: int | None = None
+
+
+def generate_temporary_project_ref() -> str:
+    return "".join(
+        secrets.choice(PROJECT_REF_BASE36_ALPHABET)
+        for _ in range(TEMP_PROJECT_REF_LENGTH)
+    )
+
+
+def temporary_project_cache_key(temp_project_ref: str) -> str:
+    return f"indy_hub:temp_project:{str(temp_project_ref or '').strip().lower()}"
+
+
+def create_temporary_project_workspace(
+    *,
+    user,
+    name: str,
+    status: str,
+    source_kind: str,
+    source_text: str,
+    source_name: str,
+    selected_entries: Sequence[dict[str, object]],
+    workspace_state: dict[str, object] | None = None,
+    notes: str = "",
+) -> str:
+    temp_project_ref = generate_temporary_project_ref()
+    payload = {
+        "user_id": int(user.id),
+        "name": str(name or source_name or "New production project").strip()[:255],
+        "status": str(status or ProductionProject.Status.DRAFT),
+        "source_kind": str(source_kind or ProductionProject.SourceKind.MANUAL),
+        "source_text": str(source_text or ""),
+        "source_name": str(source_name or "").strip()[:255],
+        "selected_entries": [dict(entry) for entry in selected_entries],
+        "workspace_state": dict(workspace_state or {}),
+        "notes": str(notes or ""),
+    }
+    cache.set(
+        temporary_project_cache_key(temp_project_ref),
+        payload,
+        TEMP_PROJECT_CACHE_TIMEOUT_SECONDS,
+    )
+    return temp_project_ref
+
+
+def get_temporary_project_workspace(
+    user, temp_project_ref: str
+) -> dict[str, object] | None:
+    state = cache.get(temporary_project_cache_key(temp_project_ref))
+    if not isinstance(state, dict):
+        return None
+    if int(state.get("user_id") or 0) != int(user.id):
+        return None
+    return state
+
+
+def set_temporary_project_workspace(
+    temp_project_ref: str,
+    state: dict[str, object],
+) -> None:
+    cache.set(
+        temporary_project_cache_key(temp_project_ref),
+        state,
+        TEMP_PROJECT_CACHE_TIMEOUT_SECONDS,
+    )
+
+
+def delete_temporary_project_workspace(temp_project_ref: str) -> None:
+    cache.delete(temporary_project_cache_key(temp_project_ref))
+
+
+def build_temporary_project_workspace_state(
+    *,
+    source_kind: str,
+    source_name: str,
+    fit_quantities: Sequence[dict[str, object]] | None = None,
+) -> dict[str, object]:
+    state: dict[str, object] = {
+        "simulation_name": str(source_name or ""),
+        "simulationName": str(source_name or ""),
+        "active_tab": "materials",
+        "activeBlueprintTab": "materials",
+        "runs": 1,
+    }
+    if str(source_kind) == ProductionProject.SourceKind.EFT and fit_quantities:
+        state["finalOutputQuantities"] = [
+            {
+                "index": index,
+                "fitGroup": str(entry.get("fitGroup") or ""),
+                "label": str(entry.get("label") or ""),
+                "quantity": max(1, int(entry.get("quantity") or 1)),
+            }
+            for index, entry in enumerate(fit_quantities)
+            if isinstance(entry, dict)
+        ]
+    return state
+
+
+def build_temporary_project_items(
+    selected_entries: Sequence[dict[str, object]],
+) -> list[ProductionProjectItem]:
+    item_rows: list[ProductionProjectItem] = []
+    for synthetic_id, entry in enumerate(selected_entries, start=1):
+        is_craftable = bool(entry.get("is_craftable"))
+        raw_inclusion_mode = str(entry.get("inclusion_mode") or "").strip().lower()
+        inclusion_mode = raw_inclusion_mode or (
+            ProductionProjectItem.InclusionMode.PRODUCE
+            if is_craftable
+            else ProductionProjectItem.InclusionMode.BUY
+        )
+        if (
+            not is_craftable
+            and inclusion_mode == ProductionProjectItem.InclusionMode.PRODUCE
+        ):
+            inclusion_mode = ProductionProjectItem.InclusionMode.BUY
+        item_rows.append(
+            ProductionProjectItem(
+                id=synthetic_id,
+                type_id=entry.get("type_id"),
+                type_name=str(entry.get("type_name") or "").strip()[:255],
+                quantity_requested=max(1, int(entry.get("quantity") or 1)),
+                category_key=str(entry.get("category_key") or "")[:64],
+                category_label=str(entry.get("category_label") or "")[:255],
+                category_order=_coerce_category_order(entry.get("category_order")),
+                source_line=str(entry.get("source_line") or "")[:65535],
+                is_selected=True,
+                is_craftable=is_craftable,
+                inclusion_mode=inclusion_mode,
+                blueprint_type_id=entry.get("blueprint_type_id"),
+                metadata={
+                    "group_name": entry.get("group_name") or "",
+                    "categories": entry.get("categories") or [],
+                    "source_lines": entry.get("source_lines") or [],
+                    "not_craftable_reason": entry.get("not_craftable_reason"),
+                    **(
+                        entry.get("metadata")
+                        if isinstance(entry.get("metadata"), dict)
+                        else {}
+                    ),
+                },
+            )
+        )
+    return item_rows
+
+
+def build_temporary_project_payload(
+    *,
+    user,
+    temp_project_ref: str,
+    temp_state: dict[str, object],
+    skill_cache_ttl=timedelta(hours=1),
+    me_te_overrides: dict[int, dict[str, int]] | None = None,
+    runs_override: int | None = None,
+    final_output_quantity_overrides: dict[int, int] | None = None,
+    include_full_structure_options: bool = True,
+) -> dict[str, object]:
+    project = TemporaryProductionProject(
+        user=user,
+        name=str(
+            temp_state.get("name")
+            or temp_state.get("source_name")
+            or "Temporary craft table"
+        ),
+        status=ProductionProject.Status.DRAFT,
+        source_kind=str(
+            temp_state.get("source_kind") or ProductionProject.SourceKind.MANUAL
+        ),
+        source_text=str(temp_state.get("source_text") or ""),
+        source_name=str(temp_state.get("source_name") or ""),
+        notes=str(temp_state.get("notes") or ""),
+        workspace_state=dict(temp_state.get("workspace_state") or {}),
+        project_ref=str(temp_project_ref or ""),
+        temp_project_ref=str(temp_project_ref or ""),
+        items=_TemporaryItemsQuerySet(
+            build_temporary_project_items(temp_state.get("selected_entries") or [])
+        ),
+    )
+    payload = build_project_workspace_payload(
+        project,
+        skill_cache_ttl=skill_cache_ttl,
+        me_te_overrides=me_te_overrides,
+        runs_override=runs_override,
+        final_output_quantity_overrides=final_output_quantity_overrides,
+        include_full_structure_options=include_full_structure_options,
+    )
+    payload["temp_project_ref"] = temp_project_ref
+    payload["is_temporary_project"] = True
+    return payload
+
+
 def _sde_activity_name(activity_id: int | str | None) -> str:
     return _SDE_ACTIVITY_NAME_BY_ID.get(int(activity_id or 0), "manufacturing")
 
@@ -102,20 +345,22 @@ def _sde_activity_id(activity_name: str | None) -> int:
     return _SDE_ACTIVITY_ID_BY_NAME.get(str(activity_name or ""), 1)
 
 
-def _get_table_column_names(table_name: str) -> set[str]:
+@lru_cache(maxsize=64)
+def _get_table_column_names(table_name: str) -> frozenset[str]:
     try:
         with connection.cursor() as cursor:
-            return {
+            return frozenset(
                 column.name
                 for column in connection.introspection.get_table_description(
                     cursor,
                     table_name,
                 )
-            }
+            )
     except Exception:
-        return set()
+        return frozenset()
 
 
+@lru_cache(maxsize=128)
 def _sde_name_expression(table_name: str, *, alias: str | None = None) -> str:
     columns = _get_table_column_names(table_name)
     prefix = f"{alias}." if alias else ""
@@ -775,6 +1020,14 @@ def aggregate_project_import_entries(
 
         quantity = max(1, int(entry.get("quantity") or 1))
         aggregate_key = str(entry.get("type_id") or "").strip() or type_name.casefold()
+        metadata = (
+            entry.get("metadata") if isinstance(entry.get("metadata"), dict) else {}
+        )
+        fit_group = str(metadata.get("fit_group") or "").strip()
+        if fit_group:
+            # Keep EFT entries isolated per fit so identical final items from
+            # different fits do not get merged before project creation.
+            aggregate_key = f"{aggregate_key}::fit::{fit_group}"
         category_key = str(entry.get("category_key") or "")
         category_label = str(entry.get("category_label") or "")
         category_order = _coerce_category_order(entry.get("category_order"))
@@ -797,6 +1050,11 @@ def aggregate_project_import_entries(
                     ]
                     if category_key or category_label
                     else []
+                ),
+                "metadata": (
+                    dict(entry.get("metadata") or {})
+                    if isinstance(entry.get("metadata"), dict)
+                    else {}
                 ),
                 "source_lines": [str(entry.get("source_line") or type_name)],
             }
@@ -924,17 +1182,56 @@ def build_project_import_preview(
     resolved_entries = resolve_project_import_entries(aggregated)
     grouped_entries = _group_project_entries(resolved_entries)
 
+    fits: list[dict[str, object]] = []
+    if parsed["source_kind"] == "eft":
+        fits_by_group: OrderedDict[str, dict[str, object]] = OrderedDict()
+        for index, entry in enumerate(resolved_entries):
+            metadata = (
+                entry.get("metadata") if isinstance(entry.get("metadata"), dict) else {}
+            )
+            fit_group = str(metadata.get("fit_group") or "")
+            if not fit_group:
+                continue
+            fit_entry = fits_by_group.setdefault(
+                fit_group,
+                {
+                    "fit_group": fit_group,
+                    "fit_index": int(metadata.get("fit_index") or len(fits_by_group)),
+                    "label": str(
+                        metadata.get("fit_display_name")
+                        or metadata.get("fit_hull_name")
+                        or entry.get("type_name")
+                        or "Fit"
+                    ),
+                    "hull_name": str(metadata.get("fit_hull_name") or ""),
+                    "fit_name": str(metadata.get("fit_name") or ""),
+                    "default_quantity": 1,
+                    "entry_count": 0,
+                    "hull_entry_index": None,
+                },
+            )
+            fit_entry["entry_count"] = int(fit_entry.get("entry_count") or 0) + 1
+            if metadata.get("is_fit_hull") and fit_entry["hull_entry_index"] is None:
+                fit_entry["hull_entry_index"] = index
+
+        fits = sorted(
+            fits_by_group.values(),
+            key=lambda entry: int(entry.get("fit_index") or 0),
+        )
+
     return {
         "source_kind": parsed["source_kind"],
         "source_name": parsed.get("source_name") or "",
         "entries": resolved_entries,
         "groups": grouped_entries,
+        "fits": fits,
         "summary": {
             "total_lines": len(parsed["entries"]),
             "total_unique_items": len(resolved_entries),
             "total_quantity": sum(
                 int(entry.get("quantity") or 0) for entry in resolved_entries
             ),
+            "fit_count": len(fits),
             "craftable_items": sum(
                 1 for entry in resolved_entries if entry.get("is_craftable")
             ),
@@ -976,6 +1273,23 @@ def parse_project_me_te_overrides(query_params) -> dict[int, dict[str, int]]:
             overrides.setdefault(blueprint_type_id, {})["te"] = max(
                 0, min(numeric_value, 20)
             )
+    return overrides
+
+
+def parse_project_final_output_quantity_overrides(query_params) -> dict[int, int]:
+    """Parse per-final-output quantity overrides from request query params."""
+
+    overrides: dict[int, int] = {}
+    for key, value in query_params.items():
+        if not key.startswith("final_qty_") or value in (None, ""):
+            continue
+        try:
+            output_index = int(key.replace("final_qty_", "", 1))
+            quantity = max(1, int(value))
+        except (TypeError, ValueError):
+            continue
+        if output_index >= 0:
+            overrides[output_index] = quantity
     return overrides
 
 
@@ -1089,6 +1403,55 @@ def _extract_workspace_structure_assignments(
     return assignments
 
 
+def _extract_workspace_final_output_quantity_overrides(
+    workspace_state: dict[str, object] | None,
+) -> dict[int, int]:
+    state = workspace_state if isinstance(workspace_state, dict) else {}
+    raw_entries = state.get("finalOutputQuantities") or state.get(
+        "final_output_quantities"
+    )
+
+    overrides: dict[int, int] = {}
+    if isinstance(raw_entries, dict):
+        for raw_index, raw_quantity in raw_entries.items():
+            try:
+                output_index = int(raw_index)
+                quantity = max(1, int(raw_quantity))
+            except (TypeError, ValueError):
+                continue
+            if output_index >= 0:
+                overrides[output_index] = quantity
+        return overrides
+
+    for raw_entry in raw_entries if isinstance(raw_entries, list) else []:
+        if not isinstance(raw_entry, dict):
+            continue
+        try:
+            output_index = int(raw_entry.get("index") or 0)
+            quantity = max(1, int(raw_entry.get("quantity") or 0))
+        except (TypeError, ValueError):
+            continue
+        if output_index >= 0 and quantity > 0:
+            overrides[output_index] = quantity
+    return overrides
+
+
+def _merge_final_output_quantity_overrides(
+    *sources: dict[int, int] | None,
+) -> dict[int, int]:
+    merged: dict[int, int] = {}
+    for source in sources:
+        for raw_index, raw_quantity in (source or {}).items():
+            try:
+                output_index = int(raw_index)
+                quantity = max(1, int(raw_quantity))
+            except (TypeError, ValueError):
+                continue
+            if output_index >= 0:
+                merged[output_index] = quantity
+    return merged
+
+
 def _merge_me_te_overrides(
     *sources: dict[int, dict[str, int]] | None,
 ) -> dict[int, dict[str, int]]:
@@ -1157,7 +1520,18 @@ def create_project_from_entries(
 
     item_rows: list[ProductionProjectItem] = []
     for entry in selected_entries:
-        inclusion_mode = str(entry.get("inclusion_mode") or "produce")
+        is_craftable = bool(entry.get("is_craftable"))
+        raw_inclusion_mode = str(entry.get("inclusion_mode") or "").strip().lower()
+        inclusion_mode = raw_inclusion_mode or (
+            ProductionProjectItem.InclusionMode.PRODUCE
+            if is_craftable
+            else ProductionProjectItem.InclusionMode.BUY
+        )
+        if (
+            not is_craftable
+            and inclusion_mode == ProductionProjectItem.InclusionMode.PRODUCE
+        ):
+            inclusion_mode = ProductionProjectItem.InclusionMode.BUY
         item_rows.append(
             ProductionProjectItem(
                 project=project,
@@ -1169,7 +1543,7 @@ def create_project_from_entries(
                 category_order=_coerce_category_order(entry.get("category_order")),
                 source_line=str(entry.get("source_line") or "")[:65535],
                 is_selected=True,
-                is_craftable=bool(entry.get("is_craftable")),
+                is_craftable=is_craftable,
                 inclusion_mode=inclusion_mode,
                 blueprint_type_id=entry.get("blueprint_type_id"),
                 metadata={
@@ -1177,6 +1551,11 @@ def create_project_from_entries(
                     "categories": entry.get("categories") or [],
                     "source_lines": entry.get("source_lines") or [],
                     "not_craftable_reason": entry.get("not_craftable_reason"),
+                    **(
+                        entry.get("metadata")
+                        if isinstance(entry.get("metadata"), dict)
+                        else {}
+                    ),
                 },
             )
         )
@@ -1252,6 +1631,27 @@ def _scale_project_selected_items_for_runs(
         scaled_item.quantity_requested = max(1, base_quantity * normalized_target_runs)
         scaled_items.append(scaled_item)
 
+    return scaled_items
+
+
+def _scale_project_selected_items_for_fit_group_multipliers(
+    selected_items: Sequence[ProductionProjectItem],
+    fit_group_multipliers: dict[str, int],
+) -> list[ProductionProjectItem]:
+    scaled_items: list[ProductionProjectItem] = []
+    for item in selected_items:
+        metadata = item.metadata if isinstance(item.metadata, dict) else {}
+        fit_group = str(metadata.get("fit_group") or "")
+        normalized_multiplier = max(
+            1,
+            int(fit_group_multipliers.get(fit_group) or 1),
+        )
+        scaled_item = copy(item)
+        scaled_item.quantity_requested = max(
+            1,
+            int(item.quantity_requested or 1) * normalized_multiplier,
+        )
+        scaled_items.append(scaled_item)
     return scaled_items
 
 
@@ -1357,6 +1757,7 @@ def build_project_workspace_payload(
     skill_cache_ttl=timedelta(hours=1),
     me_te_overrides: dict[int, dict[str, int]] | None = None,
     runs_override: int | None = None,
+    final_output_quantity_overrides: dict[int, int] | None = None,
     include_full_structure_options: bool = True,
 ) -> dict[str, object]:
     """Build a craft workspace payload for a multi-product project."""
@@ -1394,6 +1795,11 @@ def build_project_workspace_payload(
         _extract_workspace_me_te_overrides(workspace_state),
         me_te_overrides,
     )
+    final_quantity_overrides = _merge_final_output_quantity_overrides(
+        _extract_workspace_final_output_quantity_overrides(workspace_state),
+        final_output_quantity_overrides,
+    )
+    is_eft_project = project.source_kind == ProductionProject.SourceKind.EFT
     owned_blueprint_inventory_map: dict[int, dict[str, object]] = {}
     owned_blueprint_efficiency_cache: dict[int, dict[str, int]] = {}
 
@@ -1488,6 +1894,33 @@ def build_project_workspace_payload(
         saved_runs=saved_runs,
         target_runs=target_runs,
     )
+    if is_eft_project:
+        fit_group_keys: list[str] = []
+        for item in selected_items:
+            metadata = item.metadata if isinstance(item.metadata, dict) else {}
+            fit_group = str(metadata.get("fit_group") or "")
+            if fit_group and fit_group not in fit_group_keys:
+                fit_group_keys.append(fit_group)
+
+        fit_group_multipliers = {
+            fit_group: max(1, int(final_quantity_overrides.get(index) or 1))
+            for index, fit_group in enumerate(fit_group_keys)
+        }
+        selected_items = _scale_project_selected_items_for_fit_group_multipliers(
+            selected_items,
+            fit_group_multipliers,
+        )
+        workspace_state["runs"] = 1
+        target_runs = 1
+    elif final_quantity_overrides:
+        fit_group_multipliers = {}
+        for output_index, quantity in final_quantity_overrides.items():
+            if 0 <= output_index < len(selected_items):
+                selected_items[output_index].quantity_requested = max(1, int(quantity))
+        workspace_state["runs"] = 1
+        target_runs = 1
+    else:
+        fit_group_multipliers = {}
 
     blueprint_product_cache: dict[int, dict[str, object] | None] = {}
     blueprint_recipe_cache: dict[tuple[int, int], dict[str, object]] = {}
@@ -1650,34 +2083,27 @@ def build_project_workspace_payload(
         produced_per_cycle = int(product_row.get("produced_per_cycle") or 1)
         adjusted_inputs = []
         me0_inputs = []
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT m.item_type_id, m.quantity
-                FROM eve_sde_blueprintactivitymaterial m
-                JOIN eve_sde_blueprintactivity activity ON activity.id = m.blueprint_activity_id
-                JOIN eve_sde_itemtype t ON t.id = m.item_type_id
-                WHERE activity.blueprint_item_type_id = %s
-                                AND activity.activity IN ('manufacturing', 'reaction')
-                                AND COALESCE(t.published, 0) = 1
-                """,
-                [int(blueprint_type_id)],
-            )
-            for material_type_id, base_quantity in cursor.fetchall():
-                raw_qty = int(base_quantity or 0)
-                if raw_qty <= 0:
-                    continue
-                adjusted_qty = ceil(raw_qty * (100 - int(blueprint_me or 0)) / 100)
-                if adjusted_qty > 0:
-                    adjusted_inputs.append(
-                        {
-                            "type_id": int(material_type_id),
-                            "quantity": int(adjusted_qty),
-                        }
-                    )
-                me0_inputs.append(
-                    {"type_id": int(material_type_id), "quantity": int(raw_qty)}
+
+        # Use pre-cached material rows instead of making individual queries
+        for (
+            material_type_id,
+            _material_name,
+            base_quantity,
+        ) in get_blueprint_material_rows(blueprint_type_id):
+            raw_qty = int(base_quantity or 0)
+            if raw_qty <= 0:
+                continue
+            adjusted_qty = ceil(raw_qty * (100 - int(blueprint_me or 0)) / 100)
+            if adjusted_qty > 0:
+                adjusted_inputs.append(
+                    {
+                        "type_id": int(material_type_id),
+                        "quantity": int(adjusted_qty),
+                    }
                 )
+            me0_inputs.append(
+                {"type_id": int(material_type_id), "quantity": int(raw_qty)}
+            )
 
         blueprint_recipe_cache[cache_key] = {
             "produced_per_cycle": produced_per_cycle,
@@ -1721,7 +2147,155 @@ def build_project_workspace_payload(
         blueprint_material_rows_cache[numeric_blueprint_type_id] = rows
         return rows
 
+    def prefill_blueprint_product_cache(blueprint_type_ids: set[int]) -> None:
+        """Batch-fetch all blueprint products to avoid N+1 queries."""
+        if not blueprint_type_ids:
+            return
+        blueprint_ids_list = list(blueprint_type_ids)
+        item_type_name_expr = _sde_name_expression("eve_sde_itemtype", alias="t")
+        placeholders = ", ".join(["%s"] * len(blueprint_ids_list))
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT
+                    activity.blueprint_item_type_id,
+                    p.item_type_id,
+                    {item_type_name_expr},
+                    p.quantity,
+                    activity.activity,
+                    COALESCE(g.name, ''),
+                    g.id
+                FROM eve_sde_blueprintactivityproduct p
+                JOIN eve_sde_blueprintactivity activity ON activity.id = p.blueprint_activity_id
+                JOIN eve_sde_itemtype t ON t.id = p.item_type_id
+                JOIN eve_sde_itemtype blueprint_t ON blueprint_t.id = activity.blueprint_item_type_id
+                LEFT JOIN eve_sde_itemgroup g ON t.group_id = g.id
+                WHERE activity.blueprint_item_type_id IN ({placeholders})
+                    AND activity.activity IN ('manufacturing', 'reaction')
+                    AND COALESCE(t.published, 0) = 1
+                    AND COALESCE(blueprint_t.published, 0) = 1
+                ORDER BY activity.blueprint_item_type_id,
+                    CASE activity.activity WHEN 'manufacturing' THEN 0 WHEN 'reaction' THEN 1 ELSE 99 END
+                """,
+                blueprint_ids_list,
+            )
+            for row in cursor.fetchall():
+                blueprint_type_id = int(row[0])
+                if blueprint_type_id not in blueprint_product_cache:
+                    blueprint_product_cache[blueprint_type_id] = {
+                        "product_type_id": int(row[1]),
+                        "product_type_name": str(row[2] or ""),
+                        "produced_per_cycle": int(row[3] or 1),
+                        "activity_id": _sde_activity_id(row[4]),
+                        "group_name": str(row[5] or ""),
+                        "group_id": int(row[6]) if row[6] is not None else None,
+                    }
+
+    def prefill_blueprint_material_cache(blueprint_type_ids: set[int]) -> None:
+        """Batch-fetch all blueprint materials to avoid N+1 queries."""
+        if not blueprint_type_ids:
+            return
+        blueprint_ids_list = list(blueprint_type_ids)
+        item_type_name_expr = _sde_name_expression("eve_sde_itemtype", alias="t")
+        placeholders = ", ".join(["%s"] * len(blueprint_ids_list))
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT
+                    activity.blueprint_item_type_id,
+                    m.item_type_id,
+                    {item_type_name_expr},
+                    m.quantity
+                FROM eve_sde_blueprintactivitymaterial m
+                JOIN eve_sde_blueprintactivity activity ON activity.id = m.blueprint_activity_id
+                JOIN eve_sde_itemtype t ON t.id = m.item_type_id
+                WHERE activity.blueprint_item_type_id IN ({placeholders})
+                    AND activity.activity IN ('manufacturing', 'reaction')
+                    AND COALESCE(t.published, 0) = 1
+                """,
+                blueprint_ids_list,
+            )
+            material_rows_by_bp: dict[int, list[tuple[int, str, int]]] = {}
+            for (
+                blueprint_type_id,
+                material_type_id,
+                material_name,
+                base_quantity,
+            ) in cursor.fetchall():
+                bp_id = int(blueprint_type_id)
+                if bp_id not in material_rows_by_bp:
+                    material_rows_by_bp[bp_id] = []
+                material_rows_by_bp[bp_id].append(
+                    (
+                        int(material_type_id),
+                        str(material_name or ""),
+                        int(base_quantity or 0),
+                    )
+                )
+            for bp_id, rows in material_rows_by_bp.items():
+                blueprint_material_rows_cache[bp_id] = rows
+
+    def prefill_market_group_cache(type_ids: set[int]) -> None:
+        """Batch-fetch all market group info to avoid N+1 queries."""
+        if not type_ids:
+            return
+        type_ids_list = list(type_ids)
+        placeholders = ", ".join(["%s"] * len(type_ids_list))
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT
+                    t.id,
+                    COALESCE(g.name, ''),
+                    g.id
+                FROM eve_sde_itemtype t
+                LEFT JOIN eve_sde_itemgroup g ON t.group_id = g.id
+                WHERE t.id IN ({placeholders})
+                """,
+                type_ids_list,
+            )
+            for type_id, group_name, group_id in cursor.fetchall():
+                type_id_int = int(type_id)
+                if type_id_int not in market_group_cache:
+                    market_group_cache[type_id_int] = {
+                        "group_name": str(group_name or ""),
+                        "group_id": int(group_id) if group_id is not None else None,
+                    }
+
+    def prefill_type_meta_cache(type_ids: set[int]) -> None:
+        """Batch-fetch all type metadata to avoid N+1 queries."""
+        if not type_ids:
+            return
+        type_ids_list = list(type_ids)
+        placeholders = ", ".join(["%s"] * len(type_ids_list))
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT
+                    t.id,
+                    t.meta_group_id_raw,
+                    g.category_id
+                FROM eve_sde_itemtype t
+                LEFT JOIN eve_sde_itemgroup g ON t.group_id = g.id
+                WHERE t.id IN ({placeholders}) AND COALESCE(t.published, 0) = 1
+                """,
+                type_ids_list,
+            )
+            for type_id, meta_group_id, category_id in cursor.fetchall():
+                type_id_int = int(type_id)
+                if type_id_int not in type_meta_cache:
+                    type_meta_cache[type_id_int] = (
+                        int(meta_group_id) if meta_group_id is not None else None,
+                        int(category_id) if category_id is not None else None,
+                    )
+
     def collect_project_blueprint_type_ids() -> set[int]:
+        """
+        Collect blueprint type IDs in phases to minimize N+1 queries:
+        1. Fast recursive pass collecting all IDs (using get_blueprint_material_rows which triggers individual queries)
+        2. Pre-fill ALL caches at once
+        3. Continue using cached data
+        """
         blueprint_type_ids: set[int] = set()
 
         def collect_output_blueprints(
@@ -1779,12 +2353,40 @@ def build_project_workspace_payload(
                 blueprint_type_id=item.blueprint_type_id,
             )
 
+        # Now that we've collected all blueprint IDs, pre-fill caches for all of them
+        # This ensures all subsequent get_blueprint_product_row() calls use cached data
+        if blueprint_type_ids:
+            prefill_blueprint_product_cache(blueprint_type_ids)
+            prefill_blueprint_material_cache(blueprint_type_ids)
+
         return blueprint_type_ids
 
     blueprint_inventory_started_at = perf_counter()
+    all_blueprint_type_ids = collect_project_blueprint_type_ids()
+
+    # Prefill market group cache for all types in the project to avoid N+1 queries
+    all_type_ids_for_cache: set[int] = set()
+    for item in selected_items:
+        if item.type_id:
+            all_type_ids_for_cache.add(int(item.type_id))
+    # Also add product types from all blueprints
+    for bp_type_id in all_blueprint_type_ids:
+        product_row = get_blueprint_product_row(bp_type_id) or {}
+        if product_row.get("product_type_id"):
+            all_type_ids_for_cache.add(int(product_row["product_type_id"]))
+    # Also add all material types from all blueprints
+    for material_rows in blueprint_material_rows_cache.values():
+        for material_type_id, _name, _qty in material_rows:
+            all_type_ids_for_cache.add(int(material_type_id))
+
+    # Prefill market group and type meta caches
+    if all_type_ids_for_cache:
+        prefill_market_group_cache(all_type_ids_for_cache)
+        prefill_type_meta_cache(all_type_ids_for_cache)
+
     owned_blueprint_inventory_map = _resolve_user_blueprint_inventory(
         user=project.user,
-        blueprint_type_ids=collect_project_blueprint_type_ids(),
+        blueprint_type_ids=all_blueprint_type_ids,
     )
     record_timing_step(
         "blueprint-inventory",
@@ -1911,7 +2513,12 @@ def build_project_workspace_payload(
                 apply_material_efficiency=apply_material_efficiency,
             )
             child_blueprint_type_id = get_blueprint_for_product(material_type_id)
-            child_item = source_item
+            child_item = copy(source_item)
+            child_item.inclusion_mode = (
+                source_item.inclusion_mode
+                if child_blueprint_type_id
+                else ProductionProjectItem.InclusionMode.BUY
+            )
             child_node = build_project_output_node(
                 type_id=material_type_id,
                 type_name=str(
@@ -1961,6 +2568,88 @@ def build_project_workspace_payload(
         )
         for item in selected_items
     ]
+    selected_item_root_pairs = list(zip(selected_items, root_nodes))
+
+    eft_editable_final_outputs: list[dict[str, object]] | None = None
+    if is_eft_project and selected_item_root_pairs:
+        grouped_pairs: dict[
+            str, list[tuple[ProductionProjectItem, dict[str, object]]]
+        ] = {}
+        for pair_index, (item, root_node) in enumerate(selected_item_root_pairs):
+            metadata = item.metadata if isinstance(item.metadata, dict) else {}
+            fit_group = str(metadata.get("fit_group") or f"eft_fit_{pair_index}")
+            grouped_pairs.setdefault(fit_group, []).append((item, root_node))
+
+        grouped_root_nodes: list[dict[str, object]] = []
+        eft_editable_final_outputs = []
+        for _group_index, (fit_group, pairs) in enumerate(grouped_pairs.items()):
+            group_multiplier = max(
+                1,
+                int(fit_group_multipliers.get(fit_group) or 1),
+            )
+            hull_pair = next(
+                (
+                    pair
+                    for pair in pairs
+                    if isinstance(pair[0].metadata, dict)
+                    and pair[0].metadata.get("is_fit_hull")
+                ),
+                None,
+            )
+            fit_metadata = (
+                hull_pair[0].metadata
+                if hull_pair is not None and isinstance(hull_pair[0].metadata, dict)
+                else (
+                    pairs[0][0].metadata
+                    if isinstance(pairs[0][0].metadata, dict)
+                    else {}
+                )
+            )
+            fit_label = str(
+                fit_metadata.get("fit_display_name")
+                or fit_metadata.get("fit_hull_name")
+                or "Project quantity"
+            )
+            grouped_root_nodes.append(
+                {
+                    "type_id": (
+                        int(hull_pair[0].type_id or 0)
+                        if hull_pair is not None
+                        else None
+                    ),
+                    "type_name": fit_label,
+                    "quantity": group_multiplier,
+                    "cycles": group_multiplier,
+                    "produced_per_cycle": 1,
+                    "total_produced": group_multiplier,
+                    "surplus": 0,
+                    "blueprint_type_id": None,
+                    "market_group": "",
+                    "market_group_id": None,
+                    "project_inclusion_mode": ProductionProjectItem.InclusionMode.PRODUCE,
+                    "sub_materials": [node for _item, node in pairs],
+                    "is_synthetic_final_output": True,
+                }
+            )
+            eft_editable_final_outputs.append(
+                {
+                    "type_id": (
+                        int(hull_pair[0].type_id or 0)
+                        if hull_pair is not None
+                        else None
+                    ),
+                    "type_name": fit_label,
+                    "quantity": group_multiplier,
+                    "is_craftable": True,
+                    "blueprint_type_id": None,
+                    "inclusion_mode": ProductionProjectItem.InclusionMode.PRODUCE,
+                    "category_key": "project_quantity",
+                    "category_label": fit_label,
+                    "is_synthetic": True,
+                }
+            )
+
+        root_nodes = grouped_root_nodes
     record_timing_step("materials-tree", "Build materials tree", root_nodes_started_at)
 
     cycle_summary: dict[int, dict[str, object]] = {}
@@ -2093,7 +2782,7 @@ def build_project_workspace_payload(
     )
 
     final_outputs = []
-    for item, root_node in zip(selected_items, root_nodes):
+    for item, root_node in selected_item_root_pairs:
         resolved_type_id = int(root_node.get("type_id") or item.type_id or 0) or None
         resolved_type_name = str(root_node.get("type_name") or item.type_name or "")
         final_outputs.append(
@@ -2109,12 +2798,16 @@ def build_project_workspace_payload(
             }
         )
 
+    editable_final_outputs = list(final_outputs)
+    if is_eft_project and eft_editable_final_outputs is not None:
+        editable_final_outputs = eft_editable_final_outputs
+
     main_blueprint_info = {}
     root_blueprint_type_id = 0
     root_product_type_id = 0
     root_product_output_per_cycle = 0
     root_final_product_qty = 0
-    num_runs = max(1, int(workspace_state.get("runs") or 1))
+    num_runs = max(1, int(workspace_state.get("runs") or target_runs or 1))
     main_me = 0
     main_te = 0
     direct_materials = []
@@ -2142,7 +2835,19 @@ def build_project_workspace_payload(
             0,
             int(root_item.quantity_requested or root_node.get("quantity") or 0),
         )
+        # Set main_me/te from root blueprint for all project types
+        root_efficiency = get_effective_blueprint_efficiency(root_blueprint_type_id)
+        main_me = int(root_efficiency.get("me") or 0)
+        main_te = int(root_efficiency.get("te") or 0)
 
+    if is_eft_project:
+        root_final_product_qty = sum(
+            max(1, int(output.get("quantity") or 0))
+            for output in editable_final_outputs
+        )
+
+        # For EFT projects, recalculate main_me/te from root efficiency if needed
+        # (overrides any manual project values)
         root_efficiency = get_effective_blueprint_efficiency(root_blueprint_type_id)
         main_me = int(root_efficiency.get("me") or 0)
         main_te = int(root_efficiency.get("te") or 0)
@@ -2244,6 +2949,7 @@ def build_project_workspace_payload(
         "craft_character_advisor": craft_character_advisor,
         "structure_planner": structure_planner,
         "final_outputs": final_outputs,
+        "editable_final_outputs": editable_final_outputs,
         "page": {
             "blueprint_configs": [
                 {
@@ -2285,48 +2991,92 @@ def build_project_workspace_payload(
 
 def _parse_eft_project_import(raw_text: str) -> dict[str, object]:
     lines = [line.rstrip() for line in raw_text.split("\n")]
-    first_non_empty_index = next(
-        (index for index, line in enumerate(lines) if line.strip()), None
-    )
-    if first_non_empty_index is None:
-        return {"source_kind": "eft", "source_name": "", "entries": []}
-
-    header_line = lines[first_non_empty_index].strip()
-    header_match = EFT_HEADER_RE.match(header_line)
-    if not header_match:
+    header_indices = [
+        index
+        for index, line in enumerate(lines)
+        if line.strip() and EFT_HEADER_RE.match(line.strip())
+    ]
+    if not header_indices:
+        first_non_empty_index = next(
+            (index for index, line in enumerate(lines) if line.strip()), None
+        )
+        if first_non_empty_index is None:
+            return {"source_kind": "eft", "source_name": "", "entries": []}
         return _parse_manual_project_import(raw_text)
 
-    entries: list[dict[str, object]] = [
-        _build_entry(
-            type_name=header_match.group("hull").strip(),
-            quantity=1,
-            category=HULL_CATEGORY,
-            source_line=header_line,
+    entries: list[dict[str, object]] = []
+    fit_source_names: list[str] = []
+
+    for fit_index, header_index in enumerate(header_indices):
+        header_line = lines[header_index].strip()
+        header_match = EFT_HEADER_RE.match(header_line)
+        if not header_match:
+            continue
+
+        hull_name = header_match.group("hull").strip()
+        fit_name = header_match.group("fit_name").strip()
+        fit_group = f"eft_fit_{fit_index}"
+        fit_display_name = (
+            f"{hull_name}, {fit_name}"
+            if hull_name and fit_name
+            else fit_name or hull_name
         )
-    ]
+        fit_metadata = {
+            "fit_group": fit_group,
+            "fit_index": fit_index,
+            "fit_hull_name": hull_name,
+            "fit_name": fit_name,
+            "fit_display_name": fit_display_name,
+        }
 
-    grouped_lines = _split_non_empty_groups(lines[first_non_empty_index + 1 :])
-    for group_index, group_lines in enumerate(grouped_lines):
-        category = _get_eft_category(group_index)
-        for raw_line in group_lines:
-            parsed_line = _parse_line_item(raw_line)
-            if not parsed_line:
-                continue
-            entries.append(
-                _build_entry(
-                    type_name=parsed_line["type_name"],
-                    quantity=parsed_line["quantity"],
-                    category=category,
-                    source_line=raw_line,
-                )
+        entries.append(
+            _build_entry(
+                type_name=hull_name,
+                quantity=1,
+                category=HULL_CATEGORY,
+                source_line=header_line,
+                metadata={**fit_metadata, "is_fit_hull": True},
             )
+        )
 
-    hull_name = header_match.group("hull").strip()
-    fit_name = header_match.group("fit_name").strip()
-    if hull_name and fit_name:
-        source_name = f"{hull_name} // {fit_name}"
+        next_header_index = (
+            header_indices[fit_index + 1]
+            if fit_index + 1 < len(header_indices)
+            else len(lines)
+        )
+        grouped_lines = _split_non_empty_groups(
+            lines[header_index + 1 : next_header_index]
+        )
+        for group_index, group_lines in enumerate(grouped_lines):
+            category = _get_eft_category(group_index)
+            for raw_line in group_lines:
+                parsed_line = _parse_line_item(raw_line)
+                if not parsed_line:
+                    continue
+                entries.append(
+                    _build_entry(
+                        type_name=parsed_line["type_name"],
+                        quantity=parsed_line["quantity"],
+                        category=category,
+                        source_line=raw_line,
+                        metadata=fit_metadata,
+                    )
+                )
+
+        if hull_name and fit_name:
+            fit_source_names.append(f"{hull_name} // {fit_name}")
+        else:
+            fit_source_names.append(fit_name or hull_name)
+
+    if not entries:
+        return {"source_kind": "eft", "source_name": "", "entries": []}
+
+    if len(fit_source_names) == 1:
+        source_name = fit_source_names[0]
+    elif fit_source_names:
+        source_name = f"{fit_source_names[0]} + {len(fit_source_names) - 1} more fits"
     else:
-        source_name = fit_name or hull_name
+        source_name = ""
 
     return {
         "source_kind": "eft",
@@ -2487,8 +3237,9 @@ def _build_entry(
     quantity: int,
     category: dict[str, object],
     source_line: str,
+    metadata: dict[str, object] | None = None,
 ) -> dict[str, object]:
-    return {
+    entry = {
         "type_name": str(type_name).strip(),
         "quantity": max(1, int(quantity or 1)),
         "category_key": str(category["key"]),
@@ -2496,6 +3247,9 @@ def _build_entry(
         "category_order": int(category["order"]),
         "source_line": str(source_line).strip(),
     }
+    if isinstance(metadata, dict) and metadata:
+        entry["metadata"] = dict(metadata)
+    return entry
 
 
 def _get_eft_category(group_index: int) -> dict[str, object]:

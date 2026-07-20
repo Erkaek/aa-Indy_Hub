@@ -34,6 +34,7 @@
             return;
         }
         var cards = [
+            { label: 'Detected fits', value: summary.fit_count || 0, icon: 'fa-layer-group', tone: 'secondary' },
             { label: 'Unique items', value: summary.total_unique_items || 0, icon: 'fa-cubes', tone: 'primary' },
             { label: 'Craftable', value: summary.craftable_items || 0, icon: 'fa-industry', tone: 'success' },
             { label: 'Not craftable', value: summary.non_craftable_items || 0, icon: 'fa-cart-shopping', tone: 'warning' },
@@ -41,8 +42,8 @@
         ];
         container.innerHTML = cards.map(function (card) {
             return '' +
-                '<div class="col-sm-6 col-xl-3">' +
-                '  <div class="summary-card h-100">' +
+                '<div class="col-12 col-sm-6">' +
+                '  <div class="summary-card summary-card--compact h-100">' +
                 '    <div class="summary-card__icon bg-' + card.tone + '-subtle text-' + card.tone + '">' +
                 '      <i class="fas ' + card.icon + '"></i>' +
                 '    </div>' +
@@ -53,6 +54,43 @@
                 '  </div>' +
                 '</div>';
         }).join('');
+    }
+
+    function renderDetectedFits(preview) {
+        var container = document.getElementById('productionProjectPreviewFits');
+        if (!container) {
+            return;
+        }
+        var fits = preview && Array.isArray(preview.fits) ? preview.fits : [];
+        if (!fits.length) {
+            container.innerHTML = '';
+            return;
+        }
+
+        container.innerHTML = '' +
+            '<section class="card shadow-sm">' +
+            '  <div class="card-header py-2 d-flex align-items-center justify-content-between bg-body-secondary">' +
+            '    <span class="fw-semibold">Detected fits</span>' +
+            '    <span class="small text-muted">' + formatInteger(fits.length) + '</span>' +
+            '  </div>' +
+            '  <div class="card-body py-2 d-grid gap-2">' +
+            fits.map(function (fit, index) {
+                return '' +
+                    '<div class="border rounded px-3 py-2 bg-body-tertiary-subtle">' +
+                    '  <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2">' +
+                    '    <div class="min-w-0">' +
+                    '      <div class="fw-semibold text-truncate">' + escapeHtml(fit.label || 'Fit') + '</div>' +
+                    '      <div class="small text-muted">' + formatInteger(fit.entry_count || 0) + ' item(s)</div>' +
+                    '    </div>' +
+                    '    <div class="d-flex align-items-center gap-2" style="min-width: 8rem;">' +
+                    '      <label class="small text-muted mb-0" for="productionProjectFitQty' + index + '">Qty</label>' +
+                    '      <input type="number" min="1" step="1" class="form-control form-control-sm text-end production-project-fit-quantity" id="productionProjectFitQty' + index + '" data-fit-group="' + escapeHtml(fit.fit_group || '') + '" value="' + formatInteger(fit.default_quantity || 1) + '">' +
+                    '    </div>' +
+                    '  </div>' +
+                    '</div>';
+            }).join('') +
+            '  </div>' +
+            '</section>';
     }
 
     function escapeHtml(value) {
@@ -160,6 +198,19 @@
             });
         }).filter(function (item) {
             return item.is_selected && item.inclusion_mode !== 'skip';
+        });
+    }
+
+    function collectFitQuantities(preview) {
+        var fits = preview && Array.isArray(preview.fits) ? preview.fits : [];
+        return fits.map(function (fit, index) {
+            var input = document.getElementById('productionProjectFitQty' + index);
+            var quantity = input ? Math.max(1, parseInt(input.value || '1', 10) || 1) : Math.max(1, parseInt(fit.default_quantity || '1', 10) || 1);
+            return {
+                fitGroup: String(fit.fit_group || ''),
+                label: String(fit.label || ''),
+                quantity: quantity
+            };
         });
     }
 
@@ -645,6 +696,7 @@
 
             previewButton.disabled = true;
             createButton.disabled = true;
+            createButton.classList.add('d-none');
             setStatus('Resolving items and checking craftability…', 'info');
 
             try {
@@ -654,6 +706,7 @@
                 });
                 state.preview = preview;
                 renderSummary(preview.summary || {});
+                renderDetectedFits(preview);
                 renderGroups(preview.groups || [], preview.entries || []);
                 if (!nameInput.value.trim() && preview.source_name) {
                     nameInput.value = preview.source_name;
@@ -662,11 +715,14 @@
                     sourceKindInput.value = preview.source_kind;
                 }
                 setStatus('Review the imported items, uncheck what should stay out of the project, then create the table.', 'success');
+                createButton.classList.remove('d-none');
                 createButton.disabled = false;
             } catch (error) {
                 console.error('[ProductionProjects] Preview failed', error);
                 renderSummary(null);
+                renderDetectedFits(null);
                 renderGroups([], []);
+                createButton.classList.add('d-none');
                 setStatus(error.message || 'Unable to preview the import.', 'danger');
             } finally {
                 previewButton.disabled = false;
@@ -696,6 +752,7 @@
                     source_kind: state.preview.source_kind || sourceKindInput.value,
                     source_name: state.preview.source_name || '',
                     include_non_craftable_as_buy: !!document.getElementById('productionProjectIncludeBuy')?.checked,
+                    fit_quantities: collectFitQuantities(state.preview),
                     items: selectedItems
                 });
                 if (modal && window.bootstrap && window.bootstrap.Modal) {
@@ -716,7 +773,9 @@
             modal.addEventListener('hidden.bs.modal', function () {
                 state.preview = null;
                 renderSummary(null);
+                renderDetectedFits(null);
                 renderGroups([], []);
+                createButton.classList.add('d-none');
                 createButton.disabled = true;
                 setStatus('Preview the import to review craftable and non-craftable lines.', 'secondary');
             });

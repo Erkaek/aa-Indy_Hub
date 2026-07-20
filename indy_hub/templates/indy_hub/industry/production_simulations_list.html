@@ -235,14 +235,15 @@ Warp Disruptor II x2' %}"></textarea>
                             <button type="button" class="btn btn-outline-primary" id="productionProjectPreviewBtn">
                                 <i class="fas fa-search me-2"></i>{% trans "Preview items" %}
                             </button>
-                            <button type="button" class="btn btn-primary" id="productionProjectCreateBtn" disabled>
+                            <button type="button" class="btn btn-primary d-none" id="productionProjectCreateBtn" disabled>
                                 <i class="fas fa-industry me-2"></i>{% trans "Create table" %}
                             </button>
                         </div>
+                        <div class="row g-2 mt-1" id="productionProjectPreviewSummary"></div>
                     </div>
                     <div class="col-lg-7">
                         <div id="productionProjectImportStatus" class="alert alert-secondary">{% trans "Preview the import to review craftable and non-craftable lines." %}</div>
-                        <div class="row g-3 mb-3" id="productionProjectPreviewSummary"></div>
+                        <div id="productionProjectPreviewFits" class="d-grid gap-3 mb-3"></div>
                         <div id="productionProjectPreviewGroups" class="d-grid gap-3"></div>
                     </div>
                 </div>
