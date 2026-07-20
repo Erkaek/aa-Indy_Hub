@@ -821,6 +821,25 @@ def _refresh_bulk_lock(lock_key: str, lock_token: str, *, window_minutes: int) -
     return True
 
 
+def _refresh_created_bulk_lock(
+    lock_key: str,
+    lock_token: str,
+    *,
+    window_minutes: int,
+) -> bool:
+    """Refresh a lock created in the current batch while preserving ownership."""
+    owner = cache.get(lock_key)
+    if owner != lock_token:
+        return False
+
+    cache.set(
+        lock_key,
+        lock_token,
+        timeout=_get_bulk_lock_ttl_seconds(window_minutes),
+    )
+    return True
+
+
 def _manual_refresh_cache_key(kind: str, user_id: int, scope: str | None = None) -> str:
     scope_key = (scope or "").lower() or "default"
     return f"{_MANUAL_REFRESH_CACHE_PREFIX}:{kind}:{user_id}:{scope_key}"
@@ -2565,13 +2584,24 @@ def update_all_blueprints(
             _get_bulk_window_minutes(MANUAL_REFRESH_KIND_BLUEPRINTS),
             _get_adaptive_window_minutes("blueprints", total_targets),
         )
-        if created_lock:
-            cache.set(
-                _BLUEPRINTS_BULK_LOCK_KEY,
+        if created_lock and not _refresh_created_bulk_lock(
+            _BLUEPRINTS_BULK_LOCK_KEY,
+            lock_token,
+            window_minutes=window_minutes,
+        ):
+            logger.warning(
+                "Aborting bulk blueprint update batch after lock ownership check failed for token %s",
                 lock_token,
-                timeout=_get_bulk_lock_ttl_seconds(window_minutes),
             )
-        elif not _refresh_bulk_lock(
+            return {
+                "users_queued": 0,
+                "characters_queued": 0,
+                "corporation_users_queued": 0,
+                "batch_size": batch_size,
+                "done": True,
+                "reason": "lock_lost",
+            }
+        elif not created_lock and not _refresh_bulk_lock(
             _BLUEPRINTS_BULK_LOCK_KEY,
             lock_token,
             window_minutes=window_minutes,
@@ -2733,13 +2763,24 @@ def update_all_industry_jobs(
             _get_bulk_window_minutes(MANUAL_REFRESH_KIND_JOBS),
             _get_adaptive_window_minutes("industry_jobs", total_targets),
         )
-        if created_lock:
-            cache.set(
-                _INDUSTRY_JOBS_BULK_LOCK_KEY,
+        if created_lock and not _refresh_created_bulk_lock(
+            _INDUSTRY_JOBS_BULK_LOCK_KEY,
+            lock_token,
+            window_minutes=window_minutes,
+        ):
+            logger.warning(
+                "Aborting bulk industry jobs update batch after lock ownership check failed for token %s",
                 lock_token,
-                timeout=_get_bulk_lock_ttl_seconds(window_minutes),
             )
-        elif not _refresh_bulk_lock(
+            return {
+                "users_queued": 0,
+                "characters_queued": 0,
+                "corporation_users_queued": 0,
+                "batch_size": batch_size,
+                "done": True,
+                "reason": "lock_lost",
+            }
+        elif not created_lock and not _refresh_bulk_lock(
             _INDUSTRY_JOBS_BULK_LOCK_KEY,
             lock_token,
             window_minutes=window_minutes,

@@ -182,9 +182,12 @@ class IndustryJobsPayloadTests(TestCase):
             ) as queue_corporations,
             patch("indy_hub.tasks.industry.emit_analytics_event"),
             patch("indy_hub.tasks.industry.update_all_industry_jobs.apply_async"),
-            patch("indy_hub.tasks.industry.cache.add", return_value=True),
-            patch("indy_hub.tasks.industry.cache.get", return_value=None),
+            patch("indy_hub.tasks.industry.cache.add", return_value=True) as cache_add,
+            patch("indy_hub.tasks.industry.cache.get") as cache_get,
         ):
+            cache_get.side_effect = lambda key, _cache_add=cache_add: (
+                _cache_add.call_args.args[1] if _cache_add.call_args else None
+            )
             queue_characters.return_value = 3
             queue_corporations.return_value = 2
             result = update_all_industry_jobs(batch_size=100)
@@ -225,12 +228,15 @@ class IndustryJobsPayloadTests(TestCase):
                 return_value=0,
             ),
             patch("indy_hub.tasks.industry.emit_analytics_event"),
-            patch("indy_hub.tasks.industry.cache.add", return_value=True),
-            patch("indy_hub.tasks.industry.cache.get", return_value=None),
+            patch("indy_hub.tasks.industry.cache.add", return_value=True) as cache_add,
+            patch("indy_hub.tasks.industry.cache.get") as cache_get,
             patch(
                 "indy_hub.tasks.industry.update_all_industry_jobs.apply_async"
             ) as requeue,
         ):
+            cache_get.side_effect = lambda key, _cache_add=cache_add: (
+                _cache_add.call_args.args[1] if _cache_add.call_args else None
+            )
             update_all_industry_jobs(batch_size=2)
 
         requeue.assert_called_once()
@@ -262,9 +268,12 @@ class IndustryJobsPayloadTests(TestCase):
             ) as queue_corporations,
             patch("indy_hub.tasks.industry.emit_analytics_event"),
             patch("indy_hub.tasks.industry.update_all_blueprints.apply_async"),
-            patch("indy_hub.tasks.industry.cache.add", return_value=True),
-            patch("indy_hub.tasks.industry.cache.get", return_value=None),
+            patch("indy_hub.tasks.industry.cache.add", return_value=True) as cache_add,
+            patch("indy_hub.tasks.industry.cache.get") as cache_get,
         ):
+            cache_get.side_effect = lambda key, _cache_add=cache_add: (
+                _cache_add.call_args.args[1] if _cache_add.call_args else None
+            )
             queue_characters.return_value = 3
             queue_corporations.return_value = 2
             result = update_all_blueprints(batch_size=100)
@@ -305,12 +314,15 @@ class IndustryJobsPayloadTests(TestCase):
                 return_value=0,
             ),
             patch("indy_hub.tasks.industry.emit_analytics_event"),
-            patch("indy_hub.tasks.industry.cache.add", return_value=True),
-            patch("indy_hub.tasks.industry.cache.get", return_value=None),
+            patch("indy_hub.tasks.industry.cache.add", return_value=True) as cache_add,
+            patch("indy_hub.tasks.industry.cache.get") as cache_get,
             patch(
                 "indy_hub.tasks.industry.update_all_blueprints.apply_async"
             ) as requeue,
         ):
+            cache_get.side_effect = lambda key, _cache_add=cache_add: (
+                _cache_add.call_args.args[1] if _cache_add.call_args else None
+            )
             update_all_blueprints(batch_size=2)
 
         requeue.assert_called_once()
