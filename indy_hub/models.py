@@ -3361,7 +3361,6 @@ class IndustryStructure(models.Model):
 
     def get_missing_profile_sections(self) -> list[str]:
         missing_sections: list[str] = []
-        is_synced = self.is_synced_structure()
 
         if not self.structure_type_id or not self.solar_system_id:
             missing_sections.append("Identity")
@@ -3384,17 +3383,12 @@ class IndustryStructure(models.Model):
         ):
             missing_sections.append("Rigs")
 
-        # Synced structures keep tax fields read-only in the UI because they are
-        # governed by the corporation ESI sync flow. Requiring non-zero tax values
-        # on those entries would keep them stuck in "Setup needed" with no manual
-        # path to resolve the warning.
-        if not is_synced:
-            has_non_zero_tax = any(
-                (tax_percent or Decimal("0")) > 0
-                for _label, tax_percent in self.get_activity_tax_rows()
-            )
-            if not has_non_zero_tax:
-                missing_sections.append("Taxes")
+        has_non_zero_tax = any(
+            (tax_percent or Decimal("0")) > 0
+            for _label, tax_percent in self.get_activity_tax_rows()
+        )
+        if not has_non_zero_tax:
+            missing_sections.append("Taxes")
 
         return missing_sections
 

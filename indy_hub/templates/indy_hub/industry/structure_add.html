@@ -33,7 +33,7 @@
 
                             {% if is_synced_structure_locked %}
                                 <div class="alert alert-info m-3 mb-0">
-                                    {% trans "This structure is synchronized automatically from corporation ESI. Identity, activities and taxes are locked here; only rigs can be adjusted." %}
+                                    {% trans "This structure is synchronized automatically from corporation ESI. Identity and activities are locked here; taxes and rigs can still be adjusted." %}
                                 </div>
                             {% endif %}
 
@@ -49,7 +49,7 @@
                                     </div>
                                     <p class="structure-command-card__meta mb-0">
                                         {% if is_synced_structure_locked %}
-                                            {% trans "Identity and taxes are controlled by ESI sync." %}
+                                            {% trans "Identity comes from ESI sync. Taxes and rigs remain locally configurable." %}
                                         {% else %}
                                             {% trans "You control identity, services, taxes and rigs from this screen." %}
                                         {% endif %}
@@ -76,7 +76,6 @@
                                 </section>
                             </div>
 
-                            {% if is_synced_structure_locked %}<fieldset disabled>{% endif %}
                             <section class="border-bottom structure-zone structure-zone--identity">
                                 <div class="card-header bg-body-tertiary border-0 py-3 px-4 structure-zone__header">
                                     <div>
@@ -259,8 +258,6 @@
                                     </div>
                                 </div>
                             </section>
-
-                            {% if is_synced_structure_locked %}</fieldset>{% endif %}
 
                             <section class="structure-zone structure-zone--rigs" id="structure-rig-section">
                                 <div class="card-header bg-body-tertiary border-0 py-3 px-4 structure-zone__header">
