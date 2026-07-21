@@ -11,118 +11,24 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 ### Added
 
-- Industry Structures: added tax configuration and editing for auto-synced structures, allowing administrators to manage installation costs directly on structures synced from corporation ESI.
-- Material Exchange: added Material Hub navbar badge showing active buy/sell order counts, with status differentiation between open, completed, and cancelled transactions.
+- Industry Structures: added tax configuration and editing for auto-synced structures so administrators can manage installation costs on corporation-synced structures.
+- Material Exchange: added a Material Hub navbar badge with active buy/sell order counts and status-aware display.
 
 ### Changed
 
-- Crafting Projects / Structure planner: improved capital ship classification and structure matching so command carriers and super-carriers are detected reliably from SDE ship outputs, with the planner falling back more gracefully when lookups fail.
-
-- Crafting Projects / Project workspace: project pages now let users adjust final-output quantities directly from the Production Tree with an explicit `Update` action. Manual multi-item projects keep per-output quantity control, while EFT imports now group each detected fit under its own editable root so fit quantities scale the ship and contained items together instead of exposing every fitted line as a separate final output.
-
-- Crafting Projects / Create table modal: EFT previews now show the number of detected fits, expose per-fit initial quantities before creation, keep the summary cards and fit detection panels more compact, and only reveal `Create table` after a successful preview.
-
-- Crafting Projects / Craft payload API: blueprint product lookup now resolves against the correct product type for workspace payloads, preventing mismatches when the project blueprint context is rebuilt.
-
-- Crafting Projects / Buy: added custom fixed adjustment lines directly in the financial planner table (between Outputs and Totals). Users can add/remove any number of rows with `Name`, `Type` (Expense/Revenue), `Qty`, and `Unit Price`, with live line totals and immediate impact on project totals.
-
-- Crafting Projects / Buy: fixed-adjustment rows are now persisted in the workspace session state and restored on reload, matching other Buy-tab manual overrides.
-
-- Crafting Projects / Shopping list: improved in-client export/copy workflows for EVE-style shopping output, including clearer compute-before-copy behavior and stronger copy feedback in the Shopping header.
-
-- Crafting Projects / Workspace: quantity-oriented numeric inputs (runs, buy-tolerance override, stock allocation, and financial buy/sell override fields) now reserve enough width to display large industrial values without inner clipping, while keeping right-aligned numeric readability on desktop and mobile. (GH-105)
-
-- Crafting Projects / Workspace responsive layout: significantly improved craft table overflow handling across all tabs (Stock, Build, Timing, Structure, Decision, Buy) using container-query stacked cards for mobile viewports, minimum-width enforcement, and normalized tab pane clipping to prevent unwanted AA-level scrollbars.
-
-- Material Exchange: stock tables now show available quantity as the primary value, keep total visible, and only surface the secondary quantity when non-zero. Buy flows remain reservation-aware, and sell flows now compute reservations from active sell orders scoped to the selected character (with `character_id` persisted on sell orders) so `Reserved` and max-quantity inputs stay coherent.
-
-- Material Exchange: buy-order validation now treats explicit empty type-id filters as an empty result immediately, avoiding unnecessary database work when no stock items remain after filtering.
-
-- Material Exchange: sell page now persists sell-order character context and properly refines reserved quantity display based on active sell orders, preventing false reservation counts and keeping stock visibility aligned with actual transaction state.
-
-- SDE integration: Indy Hub now relies on the base `eve_sde` data path only, removing the legacy compatibility sync flow and related maintenance commands.
-
-- SDE / bootstrap: the SDE compatibility and startup paths were simplified to reduce duplicate state and align the app with the standard Alliance Auth installation flow. (GH-109)
-
-- Industry Structures / Sync: structure sync schedule changed from hourly to daily (06:35 UTC + AA offset) to reduce load on ESI and internal sync queues.
+- Crafting Projects: streamlined project workspace behavior (final-output quantity editing, improved EFT fit grouping/preview flow, persistent buy-tab fixed adjustments, and improved responsive table/input behavior).
+- Material Exchange: improved stock/readability and reservation flows (including sell-character context and empty-filter short-circuiting).
+- SDE integration: simplified to the base `eve_sde` path and reduced compatibility/bootstrap maintenance overhead. (GH-109)
+- Industry Structures: changed structure sync cadence from hourly to daily (06:35 UTC + AA offset) to reduce ESI and task-queue load.
 
 ### Fixed
 
-- Industry and related sync tasks now retry MySQL duplicate-key races in addition to deadlocks when performing unique-row upserts, preventing concurrent Celery workers from crashing on `IntegrityError 1062` for rows such as skill snapshots, roles, cached structure names, contracts, and blueprint sync records.
-
-- Industry Structures / Synced structures: fixed setup state tracking so auto-synced structures no longer remain stuck on "Setup needed" when taxes are edited. Taxes and rigs are now included in structure completeness checks, and partial ESI failures no longer lock the structure in an unusable state.
-
-- Industry Structures / Synced structures: fixed identity field preservation during ESI sync. Manually-entered system ID, system name, constellation/region identifiers, and category information are now reliably preserved when ESI returns incomplete or invalid data (numeric 0, negative IDs, or empty values), implementing the promised "future attempts will be skipped" behavior for 403 Forbidden structures.
-
-- Industry Structures / ESI 403 handling: the structure name resolution loop now skips structures that already have a forbidden (403) cooldown, preventing repeated ESI 403 attempts that waste rate limits. Structures marked forbidden are logged with a 15-day retry delay message.
-
-- Crafting Projects / Structure planner: fixed false `No compatible structures are currently available for this craft plan` states caused by filtering planner rows with blueprint type ids instead of produced item type ids. Planner lookup now uses produced item ids so valid structures (including Sotiyo/supercapital-capable setups) are correctly surfaced.
-
-- Crafting Projects / Structure planner: supercapital structure compatibility no longer depends on supercapital tax fields being populated; support checks now rely on explicit structure capability flags.
-
-- Crafting Projects / Structure planner: advanced component rig matching now recognizes both item category names and the `Construction Component(s)` commodity aliases used by live SDE labels, correctly applying material and time bonuses on structures with Advanced Component rigs.
-
-- Crafting Projects / Structure planner: material quantities now combine blueprint ME and selected structure/rig material bonuses before the final EVE rounding step, eliminating over-counts on T2/T3 jobs where UI rounding cascaded with structure bonus rounding.
-
-- Crafting Projects / Structure planner: ME, TE, and Job values in the assignment table now expose hover details showing component breakdown and structure role bonuses instead of a single tax column.
-
-- Crafting Projects / Structure planner: manually selected per-item structure assignments now persist across tab changes and project reloads when the workspace keeps a compact planner payload.
-
-- Crafting Projects / Build tab: final product cycle rows now use the saved project target quantity as the source of truth, preventing transient SimulationAPI or DOM quantities from displaying incorrect final run counts.
-
-- Crafting Projects / Financial planner: fixed `Total Material Cost`, `Cash Needed for Materials`, `Cash Investment Needed`, and `Total Cost` summaries reading 0 ISK when all items were toggled to Buy mode. Buy-mode items are now correctly counted as both a cost line and revenue line.
-
-- Crafting Projects / Decisions: fixed missing intermediate rows in some project trees (fuel blocks, reactions) by evaluating parent visibility across all ancestor paths instead of only the optimizer-pruned recommendation tree.
-
-- Crafting Projects / Decisions: clicking *Set everything to Buy* / *Set everything to Prod* now works even when the Decisions tab has not been opened yet, with fallback to the materials tree when the Decisions container is lazy-rendered.
-
-- Crafting Projects / Buy: margin now shows `-100%` instead of `0%` when a workspace has costs but zero configured revenue, matching the fully unprofitable state.
-
-- Crafting Projects / Workspace persistence: saved buy/produce decisions and final product prices now restore from the workspace state even when tabs are hidden or lazily hydrated, preventing default zero DOM inputs or partial price refresh responses from wiping saved decisions and allocation state.
-
-- Crafting Projects / Workspace persistence: prevented saved stock allocations from being silently destroyed on save. The persistence path now stores raw user intent (non-negative integers only) instead of display-time clamped allocations, so unrelated SDE refreshes or plan changes no longer wipe allocations not currently required.
-
-- Crafting Projects / Stock allocations: the Stock tab's `Use` inputs now accept large industrial quantities reliably, with numeric attributes using raw integers instead of thousands-separated display values, and deferred batch commits for dependent refreshes.
-
-- Crafting Projects / Blueprint planning: project workspaces now default to the best owned blueprint ME/TE when no saved override exists, so financial calculations no longer fall back to 0/0 for researched blueprints.
-
-- Crafting Projects / Build + Outputs: project renaming no longer leaks into final product item labels. The workspace now canonicalizes product names from SDE type data and never falls back to the project title for item names.
-
-- Crafting Projects / EFT import: fitting names containing square brackets (e.g. `[Retribution, [PRIME] SD 01]`) are now parsed correctly. The header regex no longer bails on inner `]` characters.
-
-- Crafting Projects / EFT import: when importing an EFT fitting without entering a project name, the modal pre-fills it as `Hull // Fit Name` (e.g. `Hurricane // s.2012 T2`) instead of just the fit name.
-
-- Crafting Projects / Tab loading: reduced browser console performance warnings by deferring heavier startup tab initialization and removing forced-layout reads that restarted animation loops.
-
-- Blueprint sharing: the "Request a copy" page no longer issues per-card eligibility and SDE-limit queries while building each card preview. Eligibility lookups for the entire page and the native `max_production_limit` are now resolved with a constant number of queries, eliminating the N+1 pattern that could push the page beyond proxy/gateway timeouts on Alliance Auth v5 instances with thousands of shared blueprints. (GH-101)
-
-- Blueprint sharing: copy-installation estimates on fulfill requests now use manufacturing material EIV, scale totals by the selected copy count, round ISK rows consistently, and keep the grand-total label aligned with the requested number of copies.
-
-- Blueprint sharing: a finished contract that was already linked to a previous buy order is no longer eligible to auto-validate a new identical buy order, preventing false "wrong contract reference" anomaly overrides when users repeat the same request pattern. (GH-119)
-
-- Character skill context loading no longer performs one `EveCharacter` lookup per linked character when building dashboard/industry skill rows. Character names are now read from the already joined ownership records (with fallback only when missing), keeping query counts bounded for users with large linked-character sets. (GH-110)
-
-- Material Exchange / Buy validation: contract structure or item-name resolution edge cases are now handled more robustly, and duplicate transaction processing is prevented.
-
-- Material Exchange / Sell page: clicking a stale Discord link to a completed, cancelled, or deleted order now lands on a friendly "order no longer available" page (HTTP 404) instead of Django's raw debug message.
-
-- Material Exchange / Sell paste import: now renders catalog as a JSON array, guards against malformed payloads, and falls back to normalized visible row names when matching pasted lines. Items like `Core Probe Launcher I\t7` or `tritanium 2500` are now matched instead of reported as unknown.
-
-- Material Exchange / Sell paste import: item names missing from the local page catalog are now resolved against the SDE database before classification, so items are only shown as unknown when the name cannot be found in the DB.
-
-- SDE compatibility sync: when the temporary SDE archive extraction fails with a transient `EOFError` (truncated ZIP stream), the Celery sync task now retries the download+extract step before failing, reducing one-off sync crashes. (GH-109)
-
-- Tests and maintenance: cleaned up brittle or redundant regression coverage, removed dead placeholder tests, and tightened the Material Exchange, craft timing, industry jobs, and structure lookup tests around the actual runtime behavior.
-
-- Performance: reduced repeated location and skill lookups, reused skill and slot snapshots more broadly, and improved query optimization for linked character sets with large inventories.
-
-- Navigation: Indy Hub pages now measure the rendered Alliance Auth top bar and offset content by its actual height, preventing Bootstrap 5 themes (Slate/Darkly) from letting wrapped module navigation overlap the page header.
-
-- Navigation: Indy Hub dropdown labels remain visible in the mobile Alliance Auth menu instead of collapsing to icon-only entries.
-
-- Admin: Blueprint changelist now displays blueprint type, ownership scope, real owner entity, and corporation ID, with matching filters and search fields, so corporation blueprints are no longer easy to confuse with personal character blueprints.
-
-- Notifications: fixed typo in SHORT_LINK_LABEL for transaction notifications.
+- Industry sync tasks: fixed MySQL duplicate-key race handling (`IntegrityError 1062`) by extending retry behavior alongside deadlock retries.
+- Industry Structures: fixed synced-structure setup state, preserved manually-entered identity fields when ESI returns incomplete/invalid values, and enforced 403 forbidden cooldown skipping to avoid repeated rate-limit waste.
+- Crafting Projects: fixed multiple planner and financial regressions (structure compatibility resolution, rig bonus application/rounding, all-buy totals, decision persistence, stock allocation persistence, and lazy-tab action reliability).
+- Blueprint Sharing: fixed request-page performance (N+1 eligibility/limit lookups), copy-install cost consistency, and repeated-contract validation edge cases. (GH-101, GH-119)
+- Material Exchange: fixed duplicate-processing and name-resolution edge cases, improved stale-order link handling, and hardened sell paste-import matching/classification.
+- Platform and UX: improved large-account performance (linked-character query scaling), stabilized navigation header/mobile label behavior, and corrected admin/notification polish issues.
 
 ## [1.17.2] - 2026-06-01
 
