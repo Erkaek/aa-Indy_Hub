@@ -7983,8 +7983,9 @@ def industry_structure_edit(request, structure_id):
                 request.POST, instance=structure
             )
 
+        rig_formset_is_valid = rig_formset.is_valid()
         form_is_valid = structure_form.is_valid()
-        if rig_formset.is_valid() and form_is_valid:
+        if rig_formset_is_valid and form_is_valid:
             structure = structure_form.save(commit=False)
             structure.save()
             saved_rig_count = _save_structure_rigs(structure, rig_formset)
@@ -8003,7 +8004,7 @@ def industry_structure_edit(request, structure_id):
 
         # For synced structures, allow partial save: persist editable fields (taxes) + rigs
         # even if non-editable identity fields fail validation (e.g., ESI lookup failed).
-        if is_synced_structure_locked and rig_formset.is_valid() and not form_is_valid:
+        if is_synced_structure_locked and rig_formset_is_valid and not form_is_valid:
             # Try to save only the editable tax fields and rigs, skipping identity validation
             editable_fields_data = {
                 field_name: structure_form.cleaned_data.get(field_name)
@@ -8011,6 +8012,15 @@ def industry_structure_edit(request, structure_id):
                 if field_name in structure_form.cleaned_data
             }
             if editable_fields_data:
+                # Form clean may exit early when identity lookups fail; normalize
+                # any missing tax values before persisting to non-null DecimalFields.
+                for field_name in synced_editable_tax_fields:
+                    if not field_name.endswith("_tax_percent"):
+                        continue
+                    value = editable_fields_data.get(field_name)
+                    if value in (None, ""):
+                        editable_fields_data[field_name] = Decimal("0")
+
                 for field_name, value in editable_fields_data.items():
                     setattr(structure, field_name, value)
                 structure.save(
