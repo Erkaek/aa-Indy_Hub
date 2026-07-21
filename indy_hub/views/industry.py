@@ -8003,11 +8003,7 @@ def industry_structure_edit(request, structure_id):
 
         # For synced structures, allow partial save: persist editable fields (taxes) + rigs
         # even if non-editable identity fields fail validation (e.g., ESI lookup failed).
-        if (
-            is_synced_structure_locked
-            and rig_formset.is_valid()
-            and not form_is_valid
-        ):
+        if is_synced_structure_locked and rig_formset.is_valid() and not form_is_valid:
             # Try to save only the editable tax fields and rigs, skipping identity validation
             editable_fields_data = {
                 field_name: structure_form.cleaned_data.get(field_name)
@@ -8017,9 +8013,7 @@ def industry_structure_edit(request, structure_id):
             if editable_fields_data:
                 for field_name, value in editable_fields_data.items():
                     setattr(structure, field_name, value)
-                structure.save(
-                    update_fields=list(editable_fields_data.keys())
-                )
+                structure.save(update_fields=list(editable_fields_data.keys()))
                 saved_rig_count = _save_structure_rigs(structure, rig_formset)
                 messages.success(
                     request,
