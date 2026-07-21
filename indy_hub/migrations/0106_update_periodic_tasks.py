@@ -9,12 +9,13 @@ def update_periodic_tasks(apps, schema_editor):
         from indy_hub.tasks import setup_periodic_tasks as _setup_periodic_tasks
 
         _setup_periodic_tasks()
-    except Exception:
+    except ImportError:
         # Standard Library
         import logging
 
-        logging.getLogger(__name__).exception(
-            "Failed to update IndyHub periodic tasks during migration."
+        logging.getLogger(__name__).warning(
+            "IndyHub tasks module not available during migration; periodic tasks not updated. "
+            "Run 'python manage.py shell' and call setup_periodic_tasks() manually if needed."
         )
 
 

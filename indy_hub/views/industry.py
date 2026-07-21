@@ -7983,7 +7983,8 @@ def industry_structure_edit(request, structure_id):
                 request.POST, instance=structure
             )
 
-        if rig_formset.is_valid() and structure_form.is_valid():
+        form_is_valid = structure_form.is_valid()
+        if rig_formset.is_valid() and form_is_valid:
             structure = structure_form.save(commit=False)
             structure.save()
             saved_rig_count = _save_structure_rigs(structure, rig_formset)
@@ -7999,6 +8000,36 @@ def industry_structure_edit(request, structure_id):
                 % {"count": saved_rig_count},
             )
             return redirect("indy_hub:industry_structure_registry")
+
+        # For synced structures, allow partial save: persist editable fields (taxes) + rigs
+        # even if non-editable identity fields fail validation (e.g., ESI lookup failed).
+        if (
+            is_synced_structure_locked
+            and rig_formset.is_valid()
+            and not form_is_valid
+        ):
+            # Try to save only the editable tax fields and rigs, skipping identity validation
+            editable_fields_data = {
+                field_name: structure_form.cleaned_data.get(field_name)
+                for field_name in synced_editable_tax_fields
+                if field_name in structure_form.cleaned_data
+            }
+            if editable_fields_data:
+                for field_name, value in editable_fields_data.items():
+                    setattr(structure, field_name, value)
+                structure.save(
+                    update_fields=list(editable_fields_data.keys())
+                )
+                saved_rig_count = _save_structure_rigs(structure, rig_formset)
+                messages.success(
+                    request,
+                    _(
+                        "Taxes and rigs updated successfully. Rigs saved: %(count)s. "
+                        "(Identity fields could not be updated due to ESI lookup issues.)"
+                    )
+                    % {"count": saved_rig_count},
+                )
+                return redirect("indy_hub:industry_structure_registry")
 
         _emit_structure_form_errors(request, structure_form, rig_formset)
     else:
