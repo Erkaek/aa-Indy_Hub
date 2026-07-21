@@ -232,7 +232,7 @@ def _get_online_industry_activity_flags(payload: dict[str, object]) -> dict[str,
 
 def _merge_synced_identity_value(current_value, incoming_value):
     """Keep existing identity data when ESI payload omits that field.
-    
+
     Preserves manually-entered values when ESI:
     - Omits the field (incoming_value is None)
     - Returns empty/whitespace string
@@ -240,19 +240,19 @@ def _merge_synced_identity_value(current_value, incoming_value):
     """
     if incoming_value is None:
         return current_value
-    
+
     # For string fields: preserve existing when incoming is empty/whitespace
     if isinstance(incoming_value, str):
         if not incoming_value.strip():
             return current_value
         return incoming_value
-    
+
     # For numeric fields (IDs): preserve existing when incoming is 0 or negative
     if isinstance(incoming_value, int):
         if incoming_value <= 0:
             return current_value
         return incoming_value
-    
+
     # For other types, use incoming value
     return incoming_value
 
@@ -420,7 +420,9 @@ def sync_corporation_structure_targets(
                 structure_type_name = (
                     structure_type_reference[1]
                     if structure_type_reference is not None
-                    else (get_type_name(structure_type_id) if structure_type_id else None)
+                    else (
+                        get_type_name(structure_type_id) if structure_type_id else None
+                    )
                 )
 
                 solar_system_reference = (
