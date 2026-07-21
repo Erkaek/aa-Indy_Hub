@@ -8013,7 +8013,9 @@ def industry_structure_edit(request, structure_id):
             if editable_fields_data:
                 for field_name, value in editable_fields_data.items():
                     setattr(structure, field_name, value)
-                structure.save(update_fields=list(editable_fields_data.keys()))
+                structure.save(
+                    update_fields=[*editable_fields_data.keys(), "updated_at"]
+                )
                 saved_rig_count = _save_structure_rigs(structure, rig_formset)
                 messages.success(
                     request,

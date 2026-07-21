@@ -420,9 +420,7 @@ def sync_corporation_structure_targets(
                 structure_type_name = (
                     structure_type_reference[1]
                     if structure_type_reference is not None
-                    else (
-                        get_type_name(structure_type_id) if structure_type_id else None
-                    )
+                    else (get_type_name(structure_type_id) if structure_type_id else "")
                 )
 
                 solar_system_reference = (
@@ -433,7 +431,7 @@ def sync_corporation_structure_targets(
                 solar_system_name = (
                     solar_system_reference[1]
                     if solar_system_reference is not None
-                    else None  # Use None, not "", so merge preserves manual values
+                    else ""
                 )
                 system_security_band = (
                     solar_system_reference[2]
@@ -475,7 +473,7 @@ def sync_corporation_structure_targets(
                         constellation_name=(
                             str(solar_system_location_reference["constellation_name"])
                             if solar_system_location_reference is not None
-                            else None
+                            else ""
                         ),
                         region_id=(
                             solar_system_location_reference["region_id"]
@@ -485,7 +483,7 @@ def sync_corporation_structure_targets(
                         region_name=(
                             str(solar_system_location_reference["region_name"])
                             if solar_system_location_reference is not None
-                            else None
+                            else ""
                         ),
                         system_security_band=system_security_band,
                         external_structure_id=structure_id,
@@ -530,7 +528,7 @@ def sync_corporation_structure_targets(
                         (
                             str(solar_system_location_reference["constellation_name"])
                             if solar_system_location_reference is not None
-                            else None
+                            else ""
                         ),
                     ),
                     "region_id": _merge_synced_identity_value(
@@ -546,7 +544,7 @@ def sync_corporation_structure_targets(
                         (
                             str(solar_system_location_reference["region_name"])
                             if solar_system_location_reference is not None
-                            else None
+                            else ""
                         ),
                     ),
                     "system_security_band": _merge_synced_identity_value(
