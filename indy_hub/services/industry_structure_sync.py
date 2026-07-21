@@ -231,11 +231,29 @@ def _get_online_industry_activity_flags(payload: dict[str, object]) -> dict[str,
 
 
 def _merge_synced_identity_value(current_value, incoming_value):
-    """Keep existing identity data when ESI payload omits that field."""
+    """Keep existing identity data when ESI payload omits that field.
+    
+    Preserves manually-entered values when ESI:
+    - Omits the field (incoming_value is None)
+    - Returns empty/whitespace string
+    - Returns invalid numeric value (0 or negative) for IDs
+    """
     if incoming_value is None:
         return current_value
-    if isinstance(incoming_value, str) and not incoming_value.strip():
-        return current_value
+    
+    # For string fields: preserve existing when incoming is empty/whitespace
+    if isinstance(incoming_value, str):
+        if not incoming_value.strip():
+            return current_value
+        return incoming_value
+    
+    # For numeric fields (IDs): preserve existing when incoming is 0 or negative
+    if isinstance(incoming_value, int):
+        if incoming_value <= 0:
+            return current_value
+        return incoming_value
+    
+    # For other types, use incoming value
     return incoming_value
 
 
@@ -402,8 +420,8 @@ def sync_corporation_structure_targets(
                 structure_type_name = (
                     structure_type_reference[1]
                     if structure_type_reference is not None
-                    else (get_type_name(structure_type_id) if structure_type_id else "")
-                ) or ""
+                    else (get_type_name(structure_type_id) if structure_type_id else None)
+                )
 
                 solar_system_reference = (
                     resolve_solar_system_reference(solar_system_id=solar_system_id)
@@ -413,7 +431,7 @@ def sync_corporation_structure_targets(
                 solar_system_name = (
                     solar_system_reference[1]
                     if solar_system_reference is not None
-                    else ""
+                    else None  # Use None, not "", so merge preserves manual values
                 )
                 system_security_band = (
                     solar_system_reference[2]
@@ -455,7 +473,7 @@ def sync_corporation_structure_targets(
                         constellation_name=(
                             str(solar_system_location_reference["constellation_name"])
                             if solar_system_location_reference is not None
-                            else ""
+                            else None
                         ),
                         region_id=(
                             solar_system_location_reference["region_id"]
@@ -465,7 +483,7 @@ def sync_corporation_structure_targets(
                         region_name=(
                             str(solar_system_location_reference["region_name"])
                             if solar_system_location_reference is not None
-                            else ""
+                            else None
                         ),
                         system_security_band=system_security_band,
                         external_structure_id=structure_id,
@@ -510,7 +528,7 @@ def sync_corporation_structure_targets(
                         (
                             str(solar_system_location_reference["constellation_name"])
                             if solar_system_location_reference is not None
-                            else ""
+                            else None
                         ),
                     ),
                     "region_id": _merge_synced_identity_value(
@@ -526,7 +544,7 @@ def sync_corporation_structure_targets(
                         (
                             str(solar_system_location_reference["region_name"])
                             if solar_system_location_reference is not None
-                            else ""
+                            else None
                         ),
                     ),
                     "system_security_band": _merge_synced_identity_value(
