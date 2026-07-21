@@ -2,6 +2,19 @@
 
 from __future__ import annotations
 
+# Standard Library
+import time
+
+try:
+    # Celery
+    # Third Party
+    from celery import current_task
+except ImportError:  # pragma: no cover - celery always available in runtime
+    current_task = None
+
+# Django
+from django.core.cache import cache
+
 # Alliance Auth
 from allianceauth.services.hooks import get_extension_logger
 from esi.errors import TokenError
@@ -10,7 +23,13 @@ from esi.models import Token
 
 # AA Example App
 # Local
-from indy_hub.app_settings import ESI_COMPATIBILITY_DATE
+from indy_hub.app_settings import (
+    ESI_COMPATIBILITY_DATE,
+    ESI_TASK_TARGET_PER_MIN_BLUEPRINTS,
+    ESI_TASK_TARGET_PER_MIN_JOBS,
+    ESI_TASK_TARGET_PER_MIN_ROLES,
+    ESI_TASK_TARGET_PER_MIN_SKILLS,
+)
 
 # AA Indy Hub
 from indy_hub.services._esi_compat import HTTPError
@@ -19,6 +38,9 @@ from indy_hub.services.providers import esi_provider
 logger = get_extension_logger(__name__)
 
 DEFAULT_COMPATIBILITY_DATE = ESI_COMPATIBILITY_DATE
+
+_SCOPE_THROTTLE_PREFIX = "indy_hub:esi_task_scope_budget"
+_SCOPE_THROTTLE_TIMEOUT_SECONDS = 120
 
 
 class ESIClientError(Exception):
@@ -177,6 +199,114 @@ class ESIClient:
         self.compatibility_date = (compatibility_date or "").strip() or None
         self.provider = esi_provider
         self.client = self.provider.client
+
+    @staticmethod
+    def _is_running_in_task() -> bool:
+        if current_task is None:
+            return False
+        try:
+            request = getattr(current_task, "request", None)
+            return bool(request and getattr(request, "id", None))
+        except Exception:  # pragma: no cover - defensive
+            return False
+
+    @staticmethod
+    def _seconds_to_next_minute() -> int:
+        return max(1, 60 - (int(time.time()) % 60))
+
+    @staticmethod
+    def _target_per_min_for_scope(scope: str | None) -> int:
+        if not scope:
+            return 0
+
+        if scope in {
+            "esi-industry.read_character_jobs.v1",
+            "esi-industry.read_corporation_jobs.v1",
+        }:
+            return int(ESI_TASK_TARGET_PER_MIN_JOBS)
+
+        if scope in {
+            "esi-characters.read_blueprints.v1",
+            "esi-corporations.read_blueprints.v1",
+        }:
+            return int(ESI_TASK_TARGET_PER_MIN_BLUEPRINTS)
+
+        if scope in {
+            "esi-skills.read_skills.v1",
+        }:
+            return int(ESI_TASK_TARGET_PER_MIN_SKILLS)
+
+        if scope in {
+            "esi-characters.read_corporation_roles.v1",
+            "esi-location.read_online.v1",
+            "esi-assets.read_assets.v1",
+            "esi-assets.read_corporation_assets.v1",
+            "esi-contracts.read_character_contracts.v1",
+            "esi-contracts.read_corporation_contracts.v1",
+            "esi-corporations.read_structures.v1",
+            "esi-universe.read_structures.v1",
+        }:
+            return int(ESI_TASK_TARGET_PER_MIN_ROLES)
+
+        # Conservative fallback for authenticated endpoints not explicitly mapped.
+        return int(ESI_TASK_TARGET_PER_MIN_ROLES)
+
+    def _enforce_task_scope_budget(
+        self, scope: str | None, endpoint: str | None
+    ) -> None:
+        if not self._is_running_in_task():
+            return
+
+        target_per_min = self._target_per_min_for_scope(scope)
+        if target_per_min <= 0:
+            return
+
+        scope_key = (scope or "unknown").strip() or "unknown"
+        minute_bucket = int(time.time() // 60)
+        cache_key = f"{_SCOPE_THROTTLE_PREFIX}:{scope_key}:{minute_bucket}"
+
+        if cache.add(cache_key, 1, timeout=_SCOPE_THROTTLE_TIMEOUT_SECONDS):
+            return
+
+        try:
+            used = int(cache.incr(cache_key))
+        except Exception as exc:  # pragma: no cover - cache backend edge case
+            logger.warning(
+                "Task scope throttle counter failed for scope %s on %s; applying conservative backoff: %s",
+                scope_key,
+                endpoint or "unknown-endpoint",
+                exc,
+            )
+            raise ESIRateLimitError(
+                message=(
+                    "Local task ESI throttle unavailable for scope "
+                    f"{scope_key}; backing off to avoid burst traffic"
+                ),
+                retry_after=self._seconds_to_next_minute(),
+                remaining=0,
+            ) from exc
+
+        if used <= target_per_min:
+            return
+
+        raise ESIRateLimitError(
+            message=(
+                "Local task ESI throttle hit for scope "
+                f"{scope_key} ({used}/{target_per_min} req/min)"
+                + (f" on {endpoint}" if endpoint else "")
+            ),
+            retry_after=self._seconds_to_next_minute(),
+            remaining=0,
+        )
+
+    def enforce_task_scope_budget(
+        self,
+        *,
+        scope: str | None,
+        endpoint: str | None = None,
+    ) -> None:
+        """Public wrapper for task-side scope throttling."""
+        self._enforce_task_scope_budget(scope, endpoint)
 
     def fetch_character_blueprints(
         self, character_id: int, *, force_refresh: bool = False
@@ -480,6 +610,7 @@ class ESIClient:
         params: dict,
         force_refresh: bool = False,
     ) -> list[dict]:
+        self._enforce_task_scope_budget(scope, endpoint)
         token_obj = self._get_token(character_id, scope)
         try:
             token_obj.valid_access_token()
@@ -801,6 +932,7 @@ class ESIClient:
     ):
         if operation is None:
             raise ESIClientError("No ESI operation provided")
+        self._enforce_task_scope_budget(scope, endpoint)
         try:
             access_token = token_obj.valid_access_token()
         except Exception as exc:
