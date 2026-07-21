@@ -979,6 +979,12 @@ def resolve_structure_names(
             except Exception as exc:
                 logger.debug("Failed to update task progress: %s", exc)
 
+        # Skip structures that already have a forbidden cooldown to prevent
+        # repeated 403 attempts that waste rate limits
+        if has_structure_forbidden_cooldown(structure_id):
+            forbidden_structure_ids.add(int(structure_id))
+            continue
+
         if do_sync_esi and sync_lookup_budget > 0:
             resolved = False
             structure_forbidden = False
@@ -1039,6 +1045,10 @@ def resolve_structure_names(
             elif structure_forbidden:
                 forbidden_structure_ids.add(int(structure_id))
                 set_structure_forbidden_cooldown(int(structure_id))
+                logger.info(
+                    "Structure %s is forbidden and will be skipped for 15 days (ESI 403)",
+                    structure_id,
+                )
 
     if total_to_resolve and (
         forbidden_attempts
