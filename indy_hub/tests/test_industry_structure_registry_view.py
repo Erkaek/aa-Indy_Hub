@@ -972,6 +972,26 @@ Standup Composite Reactor I
         self.assertNotIn("Rigs", missing)
         self.assertFalse(structure.is_profile_incomplete(), missing)
 
+    def test_synced_structure_does_not_report_missing_taxes(self) -> None:
+        """Synced structures lock tax editing and should not stay stuck on taxes."""
+
+        structure = IndustryStructure.objects.create(
+            name="Iralaja IX - Synced NPC",
+            structure_type_id=NPC_STATION_STRUCTURE_TYPE_ID,
+            structure_type_name="NPC Station",
+            solar_system_id=30002780,
+            solar_system_name="Iralaja",
+            visibility_scope=IndustryStructure.VisibilityScope.PUBLIC,
+            sync_source=IndustryStructure.SyncSource.ESI_CORPORATION,
+            external_structure_id=1020000000009,
+            enable_manufacturing=True,
+            manufacturing_tax_percent=Decimal("0"),
+        )
+
+        missing = structure.get_missing_profile_sections()
+        self.assertNotIn("Taxes", missing)
+        self.assertFalse(structure.is_profile_incomplete(), missing)
+
     @patch(
         "indy_hub.forms.industry_structures.sde_item_types_loaded", return_value=True
     )
