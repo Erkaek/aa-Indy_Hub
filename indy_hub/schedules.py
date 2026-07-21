@@ -28,7 +28,7 @@ INDY_HUB_BEAT_SCHEDULE = {
     },
     "indy-hub-sync-persisted-structures": {
         "task": "indy_hub.tasks.industry_structure_sync.sync_persisted_industry_structure_registry",
-        "schedule": crontab(minute=35, hour="*"),  # Hourly
+        "schedule": crontab(minute=35, hour=6),  # Daily at 06:35
         "options": {"priority": 7},
         "apply_offset": True,
     },
