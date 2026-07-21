@@ -11,7 +11,7 @@ from unittest.mock import patch
 from django.apps import apps
 from django.contrib.auth.models import Permission, User
 from django.core.cache import cache
-from django.test import RequestFactory, TestCase
+from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -3911,11 +3911,13 @@ class ManualRefreshCooldownTests(TestCase):
 
 class NotificationRoutingTests(TestCase):
     def setUp(self) -> None:
+        cache.clear()
         self.user = User.objects.create_user("notify", password="secret123")
 
     @patch("indy_hub.notifications._send_via_discordnotify", autospec=True)
     @patch("indy_hub.notifications.Notification.objects.notify_user", autospec=True)
     @patch("indy_hub.notifications._send_via_aadiscordbot", autospec=True)
+    @override_settings(INDY_HUB_NOTIFICATION_DISPATCH_MODE="discord_direct_only")
     def test_prefers_aadiscordbot_without_creating_auth_notification(
         self,
         mock_bot,
@@ -3933,6 +3935,7 @@ class NotificationRoutingTests(TestCase):
     @patch("indy_hub.notifications._send_via_discordnotify", autospec=True)
     @patch("indy_hub.notifications.Notification.objects.notify_user", autospec=True)
     @patch("indy_hub.notifications._send_via_aadiscordbot", autospec=True)
+    @override_settings(INDY_HUB_NOTIFICATION_DISPATCH_MODE="discord_direct_only")
     def test_falls_back_to_auth_when_bot_unavailable(
         self,
         mock_bot,
@@ -3951,6 +3954,7 @@ class NotificationRoutingTests(TestCase):
     @patch("indy_hub.notifications._send_via_discordnotify", autospec=True)
     @patch("indy_hub.notifications.Notification.objects.notify_user", autospec=True)
     @patch("indy_hub.notifications._send_via_aadiscordbot", autospec=True)
+    @override_settings(INDY_HUB_NOTIFICATION_DISPATCH_MODE="discord_direct_only")
     def test_link_information_propagates_to_all_channels(
         self,
         mock_bot,
@@ -3985,6 +3989,71 @@ class NotificationRoutingTests(TestCase):
         notify_kwargs = mock_notify.call_args.kwargs
         self.assertEqual(notify_kwargs.get("message"), expected_message)
         mock_discordnotify.assert_called_once()
+
+    @patch("indy_hub.notifications._send_via_discordnotify", autospec=True)
+    @patch("indy_hub.notifications.Notification.objects.notify_user", autospec=True)
+    @patch("indy_hub.notifications._send_via_aadiscordbot", autospec=True)
+    @override_settings(INDY_HUB_NOTIFICATION_DISPATCH_MODE="aa_only")
+    def test_aa_only_mode_skips_direct_discord_dispatch(
+        self,
+        mock_bot,
+        mock_notify,
+        mock_discordnotify,
+    ) -> None:
+        notify_user(self.user, "Ping", "Message", level="info")
+
+        mock_bot.assert_not_called()
+        mock_discordnotify.assert_not_called()
+        mock_notify.assert_called_once()
+
+    @patch("indy_hub.notifications._send_via_discordnotify", autospec=True)
+    @patch("indy_hub.notifications.Notification.objects.notify_user", autospec=True)
+    @patch("indy_hub.notifications._send_via_aadiscordbot", autospec=True)
+    @override_settings(INDY_HUB_NOTIFICATION_DISPATCH_MODE="both")
+    def test_both_mode_persists_auth_and_sends_direct_discord(
+        self,
+        mock_bot,
+        mock_notify,
+        mock_discordnotify,
+    ) -> None:
+        mock_bot.return_value = True
+
+        notify_user(self.user, "Ping", "Message", level="info")
+
+        mock_notify.assert_called_once()
+        mock_bot.assert_called_once()
+        mock_discordnotify.assert_not_called()
+
+    @patch("indy_hub.notifications._send_via_discordnotify", autospec=True)
+    @patch("indy_hub.notifications.Notification.objects.notify_user", autospec=True)
+    @patch("indy_hub.notifications._send_via_aadiscordbot", autospec=True)
+    @override_settings(INDY_HUB_NOTIFICATION_DISPATCH_MODE="both")
+    def test_idempotency_key_prevents_duplicate_dispatch(
+        self,
+        mock_bot,
+        mock_notify,
+        mock_discordnotify,
+    ) -> None:
+        mock_bot.return_value = True
+
+        notify_user(
+            self.user,
+            "Ping",
+            "Message",
+            level="info",
+            idempotency_key="event-129-duplicate-check",
+        )
+        notify_user(
+            self.user,
+            "Ping",
+            "Message",
+            level="info",
+            idempotency_key="event-129-duplicate-check",
+        )
+
+        self.assertEqual(mock_notify.call_count, 1)
+        self.assertEqual(mock_bot.call_count, 1)
+        mock_discordnotify.assert_not_called()
 
 
 class DashboardNotificationCountsTests(TestCase):

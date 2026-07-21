@@ -210,7 +210,11 @@ Steps:
 1. `python manage.py migrate`
 1. `python manage.py collectstatic --noinput`
 1. Restart gunicorn + celery beat (mandatory — rewritten schedules) + workers.
-1. (Optional) Set `INDY_HUB_DISCORD_DM_ENABLED = False` in `local.py` to disable Discord DMs (introduced in 1.10.2).
+1. (Optional) Choose notification dispatch mode in `local.py`:
+   - `INDY_HUB_NOTIFICATION_DISPATCH_MODE = "aa_only"` when a proxy already relays Alliance Auth notifications to Discord (prevents duplicate Discord DMs).
+   - `INDY_HUB_NOTIFICATION_DISPATCH_MODE = "discord_direct_only"` for direct Discord delivery with Alliance Auth fallback.
+   - `INDY_HUB_NOTIFICATION_DISPATCH_MODE = "both"` only when duplicate channel delivery is intentional.
+1. (Optional) Keep `INDY_HUB_DISCORD_DM_ENABLED = False` to fully disable direct Discord DMs.
 1. Assign the 1.11.0 corporation/copy-manager permissions in `Django Admin → Auth → Groups`.
 1. Ask corp directors to re-link their tokens for the corp roles scope (1.11.0) and the new Material Exchange scopes (1.14.0).
 1. (Optional) Configure corp token allow-lists in Token Management.

@@ -4,11 +4,13 @@ Notification helpers for Indy Hub.
 Supports Alliance Auth notifications and (future) Discord/webhook fallback.
 """
 # Standard Library
+import hashlib
 from urllib.parse import urljoin, urlparse
 
 # Django
 from django.apps import apps
 from django.conf import settings
+from django.core.cache import cache
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
@@ -21,6 +23,10 @@ from allianceauth.services.hooks import get_extension_logger
 from indy_hub.app_settings import DISCORD_DM_ENABLED as DM_ENABLED
 from indy_hub.app_settings import DISCORD_FOOTER_TEXT as EMBED_FOOTER_TEXT
 from indy_hub.app_settings import (
+    NOTIFICATION_DISPATCH_MODE as DEFAULT_NOTIFICATION_DISPATCH_MODE,
+)
+from indy_hub.app_settings import (
+    NOTIFICATION_IDEMPOTENCY_TTL_SECONDS,
     SITE_URL,
 )
 
@@ -42,6 +48,15 @@ DISCORD_EMBED_COLORS = {
 
 DEFAULT_LINK_LABEL = _("View details")
 SHORT_LINK_LABEL = _("click here")
+
+DISPATCH_MODE_AA_ONLY = "aa_only"
+DISPATCH_MODE_DISCORD_DIRECT_ONLY = "discord_direct_only"
+DISPATCH_MODE_BOTH = "both"
+VALID_DISPATCH_MODES = {
+    DISPATCH_MODE_AA_ONLY,
+    DISPATCH_MODE_DISCORD_DIRECT_ONLY,
+    DISPATCH_MODE_BOTH,
+}
 
 
 def build_site_url(path: str | None) -> str | None:
@@ -590,11 +605,12 @@ def notify_user(
     message,
     level="info",
     *,
+    idempotency_key: str | None = None,
     link: str | None = None,
     link_label: str | None = None,
     thumbnail_url: str | None = None,
 ):
-    """Send a notification via Alliance Auth and mirror it to Discord DMs."""
+    """Send a notification via configured AA/Discord dispatch strategy."""
 
     if not user:
         return
@@ -632,7 +648,71 @@ def notify_user(
 
     effective_link = normalized_link
 
-    if DM_ENABLED:
+    dispatch_mode = (
+        str(
+            getattr(
+                settings,
+                "INDY_HUB_NOTIFICATION_DISPATCH_MODE",
+                DEFAULT_NOTIFICATION_DISPATCH_MODE,
+            )
+            or DEFAULT_NOTIFICATION_DISPATCH_MODE
+        )
+        .strip()
+        .lower()
+    )
+    if dispatch_mode not in VALID_DISPATCH_MODES:
+        dispatch_mode = DEFAULT_NOTIFICATION_DISPATCH_MODE
+
+    idempotency_ttl = getattr(
+        settings,
+        "INDY_HUB_NOTIFICATION_IDEMPOTENCY_TTL_SECONDS",
+        NOTIFICATION_IDEMPOTENCY_TTL_SECONDS,
+    )
+    try:
+        idempotency_ttl = max(1, int(idempotency_ttl))
+    except (TypeError, ValueError):
+        idempotency_ttl = NOTIFICATION_IDEMPOTENCY_TTL_SECONDS
+    dispatch_fingerprint = (
+        f"{dispatch_mode}|{getattr(user, 'id', 'na')}|{level_value}|"
+        f"{title}|{stored_message}|{dm_body}|{effective_link or ''}"
+    )
+    dedupe_source = (idempotency_key or dispatch_fingerprint).encode("utf-8")
+    dedupe_digest = hashlib.sha256(dedupe_source).hexdigest()
+    dedupe_cache_key = f"indy_hub:notify_user:dedupe:{dedupe_digest}"
+
+    if not cache.add(
+        dedupe_cache_key,
+        "1",
+        timeout=idempotency_ttl,
+    ):
+        logger.info(
+            "Skipped duplicate notification dispatch for user=%s mode=%s key=%s",
+            user,
+            dispatch_mode,
+            dedupe_digest[:12],
+        )
+        return
+
+    def _persist_auth_notification() -> Notification | None:
+        try:
+            persisted = Notification.objects.notify_user(
+                user=user,
+                title=title,
+                message=stored_message,
+                level=level_value,
+            )
+            logger.info("Notification sent to %s: %s", user, title)
+            return persisted
+        except Exception as exc:
+            logger.error(
+                "Failed to persist notification for %s: %s", user, exc, exc_info=True
+            )
+            return None
+
+    def _send_discord_direct(*, notification_obj: Notification | None) -> bool:
+        if not DM_ENABLED:
+            return False
+
         try:
             if _send_via_aadiscordbot(
                 user,
@@ -642,26 +722,46 @@ def notify_user(
                 link=effective_link,
                 thumbnail_url=thumbnail_url,
             ):
-                logger.info("Discord bot notification sent to %s: %s", user, title)
-                return
+                logger.info(
+                    "Direct Discord DM sent to %s via aadiscordbot (mode=%s)",
+                    user,
+                    dispatch_mode,
+                )
+                return True
         except Exception as exc:  # pragma: no cover - defensive logging
             logger.warning(
                 "Discord bot notification failed for %s: %s", user, exc, exc_info=True
             )
 
-    try:
-        notification = Notification.objects.notify_user(
-            user=user,
-            title=title,
-            message=stored_message,
-            level=level_value,
+        _dispatch_discord_dm(
+            notification_obj,
+            user,
+            title,
+            dm_body,
+            level_value,
+            allow_bot=False,
+            link=effective_link,
+            thumbnail_url=thumbnail_url,
         )
-        logger.info("Notification sent to %s: %s", user, title)
-    except Exception as exc:
-        logger.error(
-            "Failed to persist notification for %s: %s", user, exc, exc_info=True
-        )
+        return False
 
+    logger.info("Notification dispatch mode=%s for user=%s", dispatch_mode, user)
+
+    if dispatch_mode == DISPATCH_MODE_AA_ONLY:
+        _persist_auth_notification()
+        return
+
+    if dispatch_mode == DISPATCH_MODE_BOTH:
+        notification = _persist_auth_notification()
+        _send_discord_direct(notification_obj=notification)
+        return
+
+    # Default mode: direct Discord first, fallback to AA notification when needed.
+    direct_sent = _send_discord_direct(notification_obj=None)
+    if direct_sent:
+        return
+
+    notification = _persist_auth_notification()
     if DM_ENABLED:
         _dispatch_discord_dm(
             notification,

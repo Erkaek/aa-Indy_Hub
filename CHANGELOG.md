@@ -25,6 +25,7 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 - Industry sync tasks: fixed MySQL duplicate-key race handling (`IntegrityError 1062`) by extending retry behavior alongside deadlock retries.
 - Industry Structures: fixed synced-structure setup state, preserved manually-entered identity fields when ESI returns incomplete/invalid values, and enforced 403 forbidden cooldown skipping to avoid repeated rate-limit waste.
+- Notifications: fixed duplicate Discord DM risk in proxy setups by adding explicit dispatch modes (`aa_only`, `discord_direct_only`, `both`) and idempotent dispatch guarding. (GH-129)
 - Crafting Projects: fixed multiple planner and financial regressions (structure compatibility resolution, rig bonus application/rounding, all-buy totals, decision persistence, stock allocation persistence, and lazy-tab action reliability).
 - Blueprint Sharing: fixed request-page performance (N+1 eligibility/limit lookups), copy-install cost consistency, and repeated-contract validation edge cases. (GH-101, GH-119)
 - Material Exchange: fixed duplicate-processing and name-resolution edge cases, improved stale-order link handling, and hardened sell paste-import matching/classification.
