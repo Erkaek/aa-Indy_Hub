@@ -116,3 +116,64 @@ class IndustryStructureSyncServiceTests(TestCase):
         self.assertFalse(structure.enable_biochemical_reactions)
         self.assertFalse(structure.enable_hybrid_reactions)
         self.assertTrue(structure.enable_composite_reactions)
+
+    @patch(
+        "indy_hub.services.industry_structure_sync.resolve_solar_system_location_reference"
+    )
+    @patch("indy_hub.services.industry_structure_sync.resolve_solar_system_reference")
+    @patch("indy_hub.services.industry_structure_sync.resolve_item_type_reference")
+    @patch(
+        "indy_hub.services.industry_structure_sync.shared_client.fetch_corporation_structures"
+    )
+    def test_sync_does_not_wipe_identity_when_payload_omits_solar_system(
+        self,
+        mock_fetch_corporation_structures,
+        mock_resolve_item_type_reference,
+        mock_resolve_solar_system_reference,
+        mock_resolve_solar_system_location_reference,
+    ) -> None:
+        mock_fetch_corporation_structures.return_value = [
+            {
+                "structure_id": 1020000000002,
+                "name": "Azbel ESI",
+                "type_id": 35826,
+                "solar_system_id": None,
+                "services": [
+                    {"name": "Manufacturing (Standard)", "state": "online"},
+                ],
+            }
+        ]
+        mock_resolve_item_type_reference.return_value = (35826, "Azbel")
+        mock_resolve_solar_system_reference.return_value = None
+        mock_resolve_solar_system_location_reference.return_value = None
+
+        structure = IndustryStructure.objects.create(
+            name="Azbel ESI [Acme Corp #1020000000002]",
+            structure_type_id=35826,
+            structure_type_name="Azbel",
+            solar_system_id=30000142,
+            solar_system_name="Jita",
+            constellation_id=20000020,
+            constellation_name="Kimotoro",
+            region_id=10000002,
+            region_name="The Forge",
+            system_security_band=IndustryStructure.SecurityBand.HIGHSEC,
+            external_structure_id=1020000000002,
+            owner_corporation_id=98134807,
+            owner_corporation_name="Acme Corp",
+            sync_source=IndustryStructure.SyncSource.ESI_CORPORATION,
+            visibility_scope=IndustryStructure.VisibilityScope.PUBLIC,
+            enable_manufacturing=True,
+        )
+
+        summary = sync_corporation_structure_targets(
+            [{"id": 98134807, "name": "Acme Corp", "character_id": 2112625428}],
+            force_refresh=True,
+        )
+
+        self.assertEqual(summary["errors"], [])
+        structure.refresh_from_db()
+        self.assertEqual(structure.solar_system_id, 30000142)
+        self.assertEqual(structure.solar_system_name, "Jita")
+        self.assertEqual(structure.constellation_id, 20000020)
+        self.assertEqual(structure.region_id, 10000002)

@@ -230,6 +230,33 @@ def _get_online_industry_activity_flags(payload: dict[str, object]) -> dict[str,
     return enabled_flags
 
 
+def _merge_synced_identity_value(current_value, incoming_value):
+    """Keep existing identity data when ESI payload omits that field.
+
+    Preserves manually-entered values when ESI:
+    - Omits the field (incoming_value is None)
+    - Returns empty/whitespace string
+    - Returns invalid numeric value (0 or negative) for IDs
+    """
+    if incoming_value is None:
+        return current_value
+
+    # For string fields: preserve existing when incoming is empty/whitespace
+    if isinstance(incoming_value, str):
+        if not incoming_value.strip():
+            return current_value
+        return incoming_value
+
+    # For numeric fields (IDs): preserve existing when incoming is 0 or negative
+    if isinstance(incoming_value, int):
+        if incoming_value <= 0:
+            return current_value
+        return incoming_value
+
+    # For other types, use incoming value
+    return incoming_value
+
+
 def _has_online_industry_service(payload: dict[str, object]) -> bool:
     return any(_get_online_industry_activity_flags(payload).values())
 
@@ -394,7 +421,7 @@ def sync_corporation_structure_targets(
                     structure_type_reference[1]
                     if structure_type_reference is not None
                     else (get_type_name(structure_type_id) if structure_type_id else "")
-                ) or ""
+                )
 
                 solar_system_reference = (
                     resolve_solar_system_reference(solar_system_id=solar_system_id)
@@ -472,34 +499,64 @@ def sync_corporation_structure_targets(
                 changed_fields: list[str] = []
                 synced_field_values = {
                     "name": synced_name,
-                    "structure_type_id": structure_type_id,
-                    "structure_type_name": structure_type_name,
-                    "solar_system_id": solar_system_id,
-                    "solar_system_name": solar_system_name,
-                    "constellation_id": (
-                        solar_system_location_reference["constellation_id"]
-                        if solar_system_location_reference is not None
-                        else None
+                    "structure_type_id": _merge_synced_identity_value(
+                        existing_structure.structure_type_id,
+                        structure_type_id,
                     ),
-                    "constellation_name": (
-                        str(solar_system_location_reference["constellation_name"])
-                        if solar_system_location_reference is not None
-                        else ""
+                    "structure_type_name": _merge_synced_identity_value(
+                        existing_structure.structure_type_name,
+                        structure_type_name,
                     ),
-                    "region_id": (
-                        solar_system_location_reference["region_id"]
-                        if solar_system_location_reference is not None
-                        else None
+                    "solar_system_id": _merge_synced_identity_value(
+                        existing_structure.solar_system_id,
+                        solar_system_id,
                     ),
-                    "region_name": (
-                        str(solar_system_location_reference["region_name"])
-                        if solar_system_location_reference is not None
-                        else ""
+                    "solar_system_name": _merge_synced_identity_value(
+                        existing_structure.solar_system_name,
+                        solar_system_name,
                     ),
-                    "system_security_band": system_security_band,
+                    "constellation_id": _merge_synced_identity_value(
+                        existing_structure.constellation_id,
+                        (
+                            solar_system_location_reference["constellation_id"]
+                            if solar_system_location_reference is not None
+                            else None
+                        ),
+                    ),
+                    "constellation_name": _merge_synced_identity_value(
+                        existing_structure.constellation_name,
+                        (
+                            str(solar_system_location_reference["constellation_name"])
+                            if solar_system_location_reference is not None
+                            else ""
+                        ),
+                    ),
+                    "region_id": _merge_synced_identity_value(
+                        existing_structure.region_id,
+                        (
+                            solar_system_location_reference["region_id"]
+                            if solar_system_location_reference is not None
+                            else None
+                        ),
+                    ),
+                    "region_name": _merge_synced_identity_value(
+                        existing_structure.region_name,
+                        (
+                            str(solar_system_location_reference["region_name"])
+                            if solar_system_location_reference is not None
+                            else ""
+                        ),
+                    ),
+                    "system_security_band": _merge_synced_identity_value(
+                        existing_structure.system_security_band,
+                        system_security_band,
+                    ),
                     "external_structure_id": structure_id,
                     "owner_corporation_id": corporation_id,
-                    "owner_corporation_name": corporation_name,
+                    "owner_corporation_name": _merge_synced_identity_value(
+                        existing_structure.owner_corporation_name,
+                        corporation_name,
+                    ),
                     "sync_source": IndustryStructure.SyncSource.ESI_CORPORATION,
                     "last_synced_at": now,
                     **enabled_activity_flags,

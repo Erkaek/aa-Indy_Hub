@@ -9,53 +9,26 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 ## [Unreleased]
 
-### Changed
+### Added
 
-- Crafting Projects / Structure planner: improved capital ship classification and structure matching so command carriers and super-carriers are detected reliably from SDE ship outputs, with the planner falling back more gracefully when lookups fail.
-
-- Crafting Projects / Project workspace: project pages now let users adjust final-output quantities directly from the Production Tree with an explicit `Update` action. Manual multi-item projects keep per-output quantity control, while EFT imports now group each detected fit under its own editable root so fit quantities scale the ship and contained items together instead of exposing every fitted line as a separate final output.
-
-- Crafting Projects / Create table modal: EFT previews now show the number of detected fits, expose per-fit initial quantities before creation, keep the summary cards and fit detection panels more compact, and only reveal `Create table` after a successful preview.
-
-- Crafting Projects / Craft payload API: blueprint product lookup now resolves against the correct product type for workspace payloads, preventing mismatches when the project blueprint context is rebuilt.
-
-- Material Exchange: stock tables now show available quantity as the primary value, keep total visible, and only surface the secondary quantity when non-zero. Buy flows remain reservation-aware, and sell flows now compute reservations from active sell orders scoped to the selected character (with `character_id` persisted on sell orders) so `Reserved` and max-quantity inputs stay coherent.
-
-- Material Exchange: buy-order validation now treats explicit empty type-id filters as an empty result immediately, avoiding unnecessary database work when no stock items remain after filtering.
-
-### Fixed
-
-- Industry and related sync tasks now retry MySQL duplicate-key races in addition to deadlocks when performing unique-row upserts, preventing concurrent Celery workers from crashing on `IntegrityError 1062` for rows such as skill snapshots, roles, cached structure names, contracts, and blueprint sync records.
-
-- SDE integration: Indy Hub now relies on the base `eve_sde` data path only, removing the legacy compatibility sync flow and related maintenance commands.
-
-- SDE / bootstrap: the SDE compatibility and startup paths were simplified to reduce duplicate state and align the app with the standard Alliance Auth installation flow.
-
-- Tests and maintenance: cleaned up brittle or redundant regression coverage, removed a dead placeholder test, and tightened the Material Exchange, craft timing, industry jobs, and structure lookup tests around the actual runtime behavior.
-
-## [1.18.0] - 2026-06-06
+- Industry Structures: added tax configuration and editing for auto-synced structures so administrators can manage installation costs on corporation-synced structures.
+- Material Exchange: added a Material Hub navbar badge with active buy/sell order counts and status-aware display.
 
 ### Changed
 
-- Crafting Projects / Buy: added custom fixed adjustment lines directly in the financial planner table (between Outputs and Totals). Users can add/remove any number of rows with `Name`, `Type` (Expense/Revenue), `Qty`, and `Unit Price`, with live line totals and immediate impact on project totals.
-- Crafting Projects / Buy: fixed-adjustment rows are now persisted in the workspace session state and restored on reload, matching other Buy-tab manual overrides.
-- Crafting Projects / Shopping list: improved in-client export/copy workflows for EVE-style shopping output, including clearer compute-before-copy behavior and stronger copy feedback in the Shopping header.
+- Crafting Projects: streamlined project workspace behavior (final-output quantity editing, improved EFT fit grouping/preview flow, persistent buy-tab fixed adjustments, and improved responsive table/input behavior).
+- Material Exchange: improved stock/readability and reservation flows (including sell-character context and empty-filter short-circuiting).
+- SDE integration: simplified to the base `eve_sde` path and reduced compatibility/bootstrap maintenance overhead. (GH-109)
+- Industry Structures: changed structure sync cadence from hourly to daily (06:35 UTC + AA offset) to reduce ESI and task-queue load.
 
 ### Fixed
 
-- Crafting Projects / Structure planner: fixed false `No compatible structures are currently available for this craft plan` states caused by filtering planner rows with blueprint type ids instead of produced item type ids. Planner lookup now uses produced item ids so valid structures (including Sotiyo/supercapital-capable setups) are correctly surfaced.
-
-- Crafting Projects / Structure planner: supercapital structure compatibility no longer depends on supercapital tax fields being populated; support checks now rely on explicit structure capability flags.
-
-- Blueprint sharing: the "Request a copy" page no longer issues per-card eligibility and SDE-limit queries while building each card preview. Eligibility lookups for the entire page and the native `max_production_limit` are now resolved with a constant number of queries, eliminating the N+1 pattern that could push the page beyond proxy/gateway timeouts on Alliance Auth v5 instances with thousands of shared blueprints. (GH-101)
-
-- Character skill context loading no longer performs one `EveCharacter` lookup per linked character when building dashboard/industry skill rows. Character names are now read from the already joined ownership records (with fallback only when missing), keeping query counts bounded for users with large linked-character sets. (GH-110)
-
-- Crafting Projects / Workspace: quantity-oriented numeric inputs (runs, buy-tolerance override, stock allocation, and financial buy/sell override fields) now reserve enough width to display large industrial values without inner clipping, while keeping right-aligned numeric readability on desktop and mobile. (GH-105)
-
-- SDE loading now uses the base `eve_sde` data directly. Indy Hub no longer maintains a parallel compatibility cache or `sync_sde_compat`/`indy_sde_compat` refresh flow, and operator guidance now relies on the standard `eve_sde` setup process. (GH-109)
-
-- Material Exchange / Buy validation: a finished contract that was already linked to a previous buy order is no longer eligible to auto-validate a new identical buy order, preventing false "wrong contract reference" anomaly overrides when users repeat the same request pattern. (GH-119)
+- Industry sync tasks: fixed MySQL duplicate-key race handling (`IntegrityError 1062`) by extending retry behavior alongside deadlock retries.
+- Industry Structures: fixed synced-structure setup state, preserved manually-entered identity fields when ESI returns incomplete/invalid values, and enforced 403 forbidden cooldown skipping to avoid repeated rate-limit waste.
+- Crafting Projects: fixed multiple planner and financial regressions (structure compatibility resolution, rig bonus application/rounding, all-buy totals, decision persistence, stock allocation persistence, and lazy-tab action reliability).
+- Blueprint Sharing: fixed request-page performance (N+1 eligibility/limit lookups), copy-install cost consistency, and repeated-contract validation edge cases. (GH-101, GH-119)
+- Material Exchange: fixed duplicate-processing and name-resolution edge cases, improved stale-order link handling, and hardened sell paste-import matching/classification.
+- Platform and UX: improved large-account performance (linked-character query scaling), stabilized navigation header/mobile label behavior, and corrected admin/notification polish issues.
 
 ## [1.17.2] - 2026-06-01
 

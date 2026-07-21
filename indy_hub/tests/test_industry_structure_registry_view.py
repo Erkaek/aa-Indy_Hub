@@ -972,6 +972,26 @@ Standup Composite Reactor I
         self.assertNotIn("Rigs", missing)
         self.assertFalse(structure.is_profile_incomplete(), missing)
 
+    def test_synced_structure_reports_missing_taxes_when_all_zero(self) -> None:
+        """Synced structures should report missing taxes when all enabled taxes are zero."""
+
+        structure = IndustryStructure.objects.create(
+            name="Iralaja IX - Synced NPC",
+            structure_type_id=NPC_STATION_STRUCTURE_TYPE_ID,
+            structure_type_name="NPC Station",
+            solar_system_id=30002780,
+            solar_system_name="Iralaja",
+            visibility_scope=IndustryStructure.VisibilityScope.PUBLIC,
+            sync_source=IndustryStructure.SyncSource.ESI_CORPORATION,
+            external_structure_id=1020000000009,
+            enable_manufacturing=True,
+            manufacturing_tax_percent=Decimal("0"),
+        )
+
+        missing = structure.get_missing_profile_sections()
+        self.assertIn("Taxes", missing)
+        self.assertTrue(structure.is_profile_incomplete())
+
     @patch(
         "indy_hub.forms.industry_structures.sde_item_types_loaded", return_value=True
     )
@@ -1691,12 +1711,16 @@ Standup Composite Reactor I
     @patch(
         "indy_hub.forms.industry_structures.sde_item_types_loaded", return_value=True
     )
+    @patch("indy_hub.forms.industry_structures.resolve_solar_system_location_reference")
+    @patch("indy_hub.forms.industry_structures.resolve_solar_system_reference")
     @patch("indy_hub.forms.industry_structures.resolve_item_type_reference")
     @patch("indy_hub.forms.industry_structures.is_rig_compatible_with_structure_type")
-    def test_edit_view_for_synced_structure_only_updates_rigs(
+    def test_edit_view_for_synced_structure_updates_taxes_and_rigs_only(
         self,
         mock_is_rig_compatible,
         mock_resolve_item_type_reference,
+        mock_resolve_solar_system_reference,
+        mock_resolve_solar_system_location_reference,
         _mock_form_sde_loaded,
     ) -> None:
         structure = IndustryStructure.objects.create(
@@ -1724,9 +1748,24 @@ Standup Composite Reactor I
         mock_is_rig_compatible.return_value = True
         mock_resolve_item_type_reference.side_effect = (
             lambda *, item_type_id=None, item_type_name=None: {
+                35826: (35826, "Azbel"),
                 43879: (43879, "Standup M-Set Invention Cost Optimization I"),
             }.get(item_type_id)
         )
+        mock_resolve_solar_system_reference.return_value = (
+            30000142,
+            "Jita",
+            IndustryStructure.SecurityBand.HIGHSEC,
+        )
+        mock_resolve_solar_system_location_reference.return_value = {
+            "solar_system_id": 30000142,
+            "solar_system_name": "Jita",
+            "system_security_band": IndustryStructure.SecurityBand.HIGHSEC,
+            "constellation_id": 20000020,
+            "constellation_name": "Kimotoro",
+            "region_id": 10000002,
+            "region_name": "The Forge",
+        }
 
         request = self._prepare_request(
             self.factory.post(
@@ -1737,6 +1776,13 @@ Standup Composite Reactor I
                     "solar_system_name": "Perimeter",
                     "enable_invention": "1",
                     "manufacturing_tax_percent": "9.999",
+                    "manufacturing_capitals_tax_percent": "0.000",
+                    "manufacturing_super_capitals_tax_percent": "0.000",
+                    "research_tax_percent": "0.000",
+                    "invention_tax_percent": "2.500",
+                    "biochemical_reactions_tax_percent": "0.000",
+                    "hybrid_reactions_tax_percent": "0.000",
+                    "composite_reactions_tax_percent": "0.000",
                     "rigs-TOTAL_FORMS": "3",
                     "rigs-INITIAL_FORMS": "3",
                     "rigs-MIN_NUM_FORMS": "0",
@@ -1763,7 +1809,8 @@ Standup Composite Reactor I
         self.assertEqual(structure.structure_type_id, 35826)
         self.assertEqual(structure.solar_system_name, "Jita")
         self.assertFalse(structure.enable_invention)
-        self.assertEqual(structure.manufacturing_tax_percent, Decimal("0.500"))
+        self.assertEqual(structure.manufacturing_tax_percent, Decimal("9.999"))
+        self.assertEqual(structure.invention_tax_percent, Decimal("2.500"))
         self.assertEqual(structure.rigs.count(), 1)
         self.assertEqual(structure.rigs.get(slot_index=2).rig_type_id, 43879)
 

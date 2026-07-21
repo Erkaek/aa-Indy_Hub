@@ -7610,8 +7610,17 @@ def _build_structure_rig_formset(
     )
 
 
-def _set_structure_form_read_only(structure_form) -> None:
-    for field in structure_form.fields.values():
+def _set_structure_form_read_only(
+    structure_form,
+    *,
+    editable_field_names: set[str] | None = None,
+) -> None:
+    editable_fields = editable_field_names or set()
+    for field_name, field in structure_form.fields.items():
+        if field_name in editable_fields:
+            field.disabled = False
+            field.widget.attrs.pop("disabled", None)
+            continue
         field.disabled = True
         field.widget.attrs["disabled"] = "disabled"
 
@@ -7746,7 +7755,7 @@ def _build_structure_edit_page_context(request, structure, structure_form, rig_f
             ),
             "page_subtitle": (
                 _(
-                    "Automatically synchronized structures keep their identity, activities and taxes locked. Only installed rigs can be edited here."
+                    "Automatically synchronized structures keep identity and activities locked. Taxes and installed rigs can be edited here."
                 )
                 if is_synced_structure_locked
                 else _(
@@ -7949,6 +7958,9 @@ def industry_structure_edit(request, structure_id):
         )
 
     is_synced_structure_locked = structure.is_synced_structure()
+    synced_editable_tax_fields = {
+        field_name for field_name, _label in IndustryStructure.TAX_FIELD_LABELS
+    }
     emit_view_analytics_event(
         view_name="industry.structure_edit",
         request=request,
@@ -7959,19 +7971,23 @@ def industry_structure_edit(request, structure_id):
             structure=structure, data=request.POST
         )
         if is_synced_structure_locked:
-            structure_form = IndustryStructureRegistryForm(instance=structure)
-            _set_structure_form_read_only(structure_form)
+            structure_form = IndustryStructureRegistryForm(
+                request.POST, instance=structure
+            )
+            _set_structure_form_read_only(
+                structure_form,
+                editable_field_names=synced_editable_tax_fields,
+            )
         else:
             structure_form = IndustryStructureRegistryForm(
                 request.POST, instance=structure
             )
 
-        if rig_formset.is_valid() and (
-            is_synced_structure_locked or structure_form.is_valid()
-        ):
-            if not is_synced_structure_locked:
-                structure = structure_form.save(commit=False)
-                structure.save()
+        rig_formset_is_valid = rig_formset.is_valid()
+        form_is_valid = structure_form.is_valid()
+        if rig_formset_is_valid and form_is_valid:
+            structure = structure_form.save(commit=False)
+            structure.save()
             saved_rig_count = _save_structure_rigs(structure, rig_formset)
             messages.success(
                 request,
@@ -7986,11 +8002,49 @@ def industry_structure_edit(request, structure_id):
             )
             return redirect("indy_hub:industry_structure_registry")
 
+        # For synced structures, allow partial save: persist editable fields (taxes) + rigs
+        # even if non-editable identity fields fail validation (e.g., ESI lookup failed).
+        if is_synced_structure_locked and rig_formset_is_valid and not form_is_valid:
+            # Try to save only the editable tax fields and rigs, skipping identity validation
+            editable_fields_data = {
+                field_name: structure_form.cleaned_data.get(field_name)
+                for field_name in synced_editable_tax_fields
+                if field_name in structure_form.cleaned_data
+            }
+            if editable_fields_data:
+                # Form clean may exit early when identity lookups fail; normalize
+                # any missing tax values before persisting to non-null DecimalFields.
+                for field_name in synced_editable_tax_fields:
+                    if not field_name.endswith("_tax_percent"):
+                        continue
+                    value = editable_fields_data.get(field_name)
+                    if value in (None, ""):
+                        editable_fields_data[field_name] = Decimal("0")
+
+                for field_name, value in editable_fields_data.items():
+                    setattr(structure, field_name, value)
+                structure.save(
+                    update_fields=[*editable_fields_data.keys(), "updated_at"]
+                )
+                saved_rig_count = _save_structure_rigs(structure, rig_formset)
+                messages.success(
+                    request,
+                    _(
+                        "Taxes and rigs updated successfully. Rigs saved: %(count)s. "
+                        "(Identity fields could not be updated due to ESI lookup issues.)"
+                    )
+                    % {"count": saved_rig_count},
+                )
+                return redirect("indy_hub:industry_structure_registry")
+
         _emit_structure_form_errors(request, structure_form, rig_formset)
     else:
         structure_form = IndustryStructureRegistryForm(instance=structure)
         if is_synced_structure_locked:
-            _set_structure_form_read_only(structure_form)
+            _set_structure_form_read_only(
+                structure_form,
+                editable_field_names=synced_editable_tax_fields,
+            )
         rig_formset = _build_structure_rig_formset(structure=structure)
 
     context = _build_structure_edit_page_context(
