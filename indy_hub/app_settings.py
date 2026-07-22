@@ -190,6 +190,12 @@ INDUSTRY_JOBS_BULK_WINDOW_MINUTES = clean_setting(
     min_value=0,
     required_type=int,
 )
+INDUSTRY_JOBS_TASK_MAX_RETRIES = clean_setting(
+    "INDY_HUB_INDUSTRY_JOBS_TASK_MAX_RETRIES",
+    12,
+    min_value=1,
+    required_type=int,
+)
 BULK_UPDATE_WINDOW_MINUTES = clean_setting(
     "INDY_HUB_BULK_UPDATE_WINDOW_MINUTES",
     720,

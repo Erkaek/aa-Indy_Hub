@@ -36,6 +36,7 @@ from ..app_settings import (
     ESI_TASK_TARGET_PER_MIN_ROLES,
     ESI_TASK_TARGET_PER_MIN_SKILLS,
     INDUSTRY_JOBS_BULK_WINDOW_MINUTES,
+    INDUSTRY_JOBS_TASK_MAX_RETRIES,
     MANUAL_REFRESH_COOLDOWN_SECONDS,
     ONLINE_STATUS_STALE_HOURS,
     ROLE_SNAPSHOT_STALE_HOURS,
@@ -1758,7 +1759,7 @@ def update_blueprints_for_user(
 @shared_task(
     bind=True,
     base=QueueOnce,
-    max_retries=None,
+    max_retries=INDUSTRY_JOBS_TASK_MAX_RETRIES,
     once={"graceful": True, "keys": ["user_id", "scope", "character_id"]},
 )
 @rate_limit_retry_task
