@@ -207,6 +207,8 @@ def build_user_character_skill_contexts(
     fetch_character_skill_levels=None,
     update_skill_snapshot=None,
     skill_cache_ttl,
+    allow_live_fetch: bool = True,
+    force_refresh: bool = False,
 ) -> list[dict[str, object]]:
     ownerships = CharacterOwnership.objects.filter(user=user).select_related(
         "character"
@@ -282,9 +284,14 @@ def build_user_character_skill_contexts(
         has_skill_token = character_id in skill_token_ids
         skills_missing = not has_skill_token
 
-        if has_skill_token and fetch_character_skill_levels and update_skill_snapshot:
+        if (
+            has_skill_token
+            and fetch_character_skill_levels
+            and update_skill_snapshot
+            and allow_live_fetch
+        ):
             try:
-                if snapshot is None:
+                if force_refresh or snapshot is None:
                     levels = fetch_character_skill_levels(
                         character_id, force_refresh=True
                     )

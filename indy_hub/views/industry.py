@@ -21,7 +21,7 @@ from django.core.cache import cache
 from django.core.exceptions import FieldDoesNotExist, ValidationError
 from django.core.paginator import Paginator
 from django.db import connection
-from django.db.models import Case, Count, Prefetch, Q, When
+from django.db.models import Case, Count, Max, Prefetch, Q, When
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -335,12 +335,19 @@ def _skill_snapshot_stale(snapshot: IndustrySkillSnapshot | None) -> bool:
     return skill_snapshot_stale(snapshot, SKILL_CACHE_TTL)
 
 
-def _build_slot_overview_rows(user: User) -> list[dict[str, object]]:
+def _build_slot_overview_rows(
+    user: User,
+    *,
+    allow_live_fetch: bool = False,
+    force_refresh: bool = False,
+) -> list[dict[str, object]]:
     return build_user_character_skill_contexts(
         user,
         fetch_character_skill_levels=_fetch_character_skill_levels,
         update_skill_snapshot=_update_skill_snapshot,
         skill_cache_ttl=SKILL_CACHE_TTL,
+        allow_live_fetch=allow_live_fetch,
+        force_refresh=force_refresh,
     )
 
 
@@ -2290,6 +2297,7 @@ def personnal_job_list(request, scope="character"):
         )
     try:
         force_update = request.GET.get("refresh") == "1"
+        force_skill_refresh = request.GET.get("force_refresh") == "1" or force_update
         if force_update:
             logger.info(
                 f"User {request.user.username} requested jobs refresh; enqueuing Celery task"
@@ -2710,7 +2718,22 @@ def personnal_job_list(request, scope="character"):
             if grouped_jobs.get(meta["key"])
         ]
 
-        slot_overview_rows = _build_slot_overview_rows(request.user)
+        slot_overview_rows = _build_slot_overview_rows(
+            request.user,
+            allow_live_fetch=force_skill_refresh,
+            force_refresh=force_skill_refresh,
+        )
+        latest_skill_snapshot_at = (
+            IndustrySkillSnapshot.objects.filter(owner_user=request.user)
+            .aggregate(last_updated=Max("last_updated"))
+            .get("last_updated")
+        )
+        latest_jobs_refresh_at = base_jobs_qs.aggregate(
+            last_updated=Max("last_updated")
+        ).get("last_updated")
+        last_data_refresh_at = latest_skill_snapshot_at or latest_jobs_refresh_at
+        if latest_skill_snapshot_at and latest_jobs_refresh_at:
+            last_data_refresh_at = max(latest_skill_snapshot_at, latest_jobs_refresh_at)
         context = {
             "jobs": jobs_page,
             "statistics": statistics,
@@ -2752,6 +2775,7 @@ def personnal_job_list(request, scope="character"):
             "slot_overview_rows": slot_overview_rows,
             "slot_overview_summary": _build_slot_overview_summary(slot_overview_rows),
             "skills_scope": SKILLS_SCOPE,
+            "last_data_refresh_at": last_data_refresh_at,
         }
         context.update(
             build_nav_context(

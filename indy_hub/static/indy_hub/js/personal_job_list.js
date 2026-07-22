@@ -13,6 +13,7 @@ function refreshJobs() {
 
     const url = new URL(window.location.href);
     url.searchParams.set('refresh', '1');
+    url.searchParams.set('force_refresh', '1');
     window.location.href = url.toString();
 }
 
