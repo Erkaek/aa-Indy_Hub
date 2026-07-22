@@ -1625,106 +1625,110 @@ def update_blueprints_for_user(
                     error_messages.append(message)
                     continue
 
-            corp_blueprint_location_names = _resolve_location_name_batch(
-                [
-                    bp.get("location_id")
-                    for bp in corp_blueprints
-                    if isinstance(bp, dict)
-                ],
-                user=user,
-                character_id=int(corp_char_id),
-                corporation_id=int(corp_id),
-                schedule_async=True,
-            )
+                corp_blueprint_location_names = _resolve_location_name_batch(
+                    [
+                        bp.get("location_id")
+                        for bp in corp_blueprints
+                        if isinstance(bp, dict)
+                    ],
+                    user=user,
+                    character_id=int(corp_char_id),
+                    corporation_id=int(corp_id),
+                    schedule_async=True,
+                )
 
-            corp_esi_ids: set[int] = set()
-            try:
-                with transaction.atomic():
-                    for bp in corp_blueprints:
-                        item_id = bp.get("item_id")
-                        if item_id is None:
-                            logger.debug(
-                                "Corporate blueprint without item_id ignored for %s (%s)",
-                                corp_name,
-                                bp,
+                corp_esi_ids: set[int] = set()
+                try:
+                    with transaction.atomic():
+                        for bp in corp_blueprints:
+                            item_id = bp.get("item_id")
+                            if item_id is None:
+                                logger.debug(
+                                    "Corporate blueprint without item_id ignored for %s (%s)",
+                                    corp_name,
+                                    bp,
+                                )
+                                continue
+                            corp_esi_ids.add(item_id)
+                            location_id = bp.get("location_id")
+                            try:
+                                location_key = (
+                                    int(location_id)
+                                    if location_id is not None
+                                    else None
+                                )
+                            except (TypeError, ValueError):
+                                location_key = None
+                            location_name = (
+                                corp_blueprint_location_names.get(location_key, "")
+                                if location_key is not None
+                                else ""
                             )
-                            continue
-                        corp_esi_ids.add(item_id)
-                        location_id = bp.get("location_id")
-                        try:
-                            location_key = (
-                                int(location_id) if location_id is not None else None
+                            if location_key is not None and not location_name:
+                                location_name = f"{PLACEHOLDER_PREFIX}{location_key}"
+                            type_id = bp.get("type_id")
+                            type_name = get_type_name(type_id)
+                            update_or_create_with_mysql_retry(
+                                Blueprint,
+                                lookup={"item_id": item_id},
+                                defaults={
+                                    "owner_user": user,
+                                    "owner_kind": Blueprint.OwnerKind.CORPORATION,
+                                    "corporation_id": corp_id,
+                                    "corporation_name": corp_name,
+                                    "character_id": None,
+                                    "character_name": acting_character_name,
+                                    "blueprint_id": bp.get("blueprint_id"),
+                                    "type_id": type_id,
+                                    "location_id": location_id,
+                                    "location_name": location_name,
+                                    "location_flag": bp.get("location_flag", ""),
+                                    "quantity": bp.get("quantity"),
+                                    "time_efficiency": bp.get("time_efficiency", 0),
+                                    "material_efficiency": bp.get(
+                                        "material_efficiency", 0
+                                    ),
+                                    "runs": bp.get("runs", 0),
+                                    "type_name": type_name,
+                                    "bp_type": Blueprint.classify_bp_type(
+                                        quantity=bp.get("quantity"),
+                                        type_name=type_name,
+                                        type_id=type_id,
+                                        runs=bp.get("runs", 0),
+                                    ),
+                                },
+                                max_attempts=6,
+                                logger=logger,
                             )
-                        except (TypeError, ValueError):
-                            location_key = None
-                        location_name = (
-                            corp_blueprint_location_names.get(location_key, "")
-                            if location_key is not None
-                            else ""
-                        )
-                        if location_key is not None and not location_name:
-                            location_name = f"{PLACEHOLDER_PREFIX}{location_key}"
-                        type_id = bp.get("type_id")
-                        type_name = get_type_name(type_id)
-                        update_or_create_with_mysql_retry(
-                            Blueprint,
-                            lookup={"item_id": item_id},
-                            defaults={
-                                "owner_user": user,
-                                "owner_kind": Blueprint.OwnerKind.CORPORATION,
-                                "corporation_id": corp_id,
-                                "corporation_name": corp_name,
-                                "character_id": None,
-                                "character_name": acting_character_name,
-                                "blueprint_id": bp.get("blueprint_id"),
-                                "type_id": type_id,
-                                "location_id": location_id,
-                                "location_name": location_name,
-                                "location_flag": bp.get("location_flag", ""),
-                                "quantity": bp.get("quantity"),
-                                "time_efficiency": bp.get("time_efficiency", 0),
-                                "material_efficiency": bp.get("material_efficiency", 0),
-                                "runs": bp.get("runs", 0),
-                                "type_name": type_name,
-                                "bp_type": Blueprint.classify_bp_type(
-                                    quantity=bp.get("quantity"),
-                                    type_name=type_name,
-                                    type_id=type_id,
-                                    runs=bp.get("runs", 0),
-                                ),
-                            },
-                            max_attempts=6,
-                            logger=logger,
-                        )
 
-                    deleted, _ = (
-                        Blueprint.objects.filter(
-                            owner_kind=Blueprint.OwnerKind.CORPORATION,
-                            corporation_id=corp_id,
+                        deleted, _ = (
+                            Blueprint.objects.filter(
+                                owner_kind=Blueprint.OwnerKind.CORPORATION,
+                                corporation_id=corp_id,
+                            )
+                            .exclude(item_id__in=corp_esi_ids)
+                            .delete()
                         )
-                        .exclude(item_id__in=corp_esi_ids)
-                        .delete()
-                    )
-            except OperationalError as exc:
-                if _is_deadlock_error(exc):
-                    delay = 2 * (2**self.request.retries)
-                    logger.warning(
-                        "Deadlock syncing corp blueprints for %s (%s); retrying in %ss",
-                        corp_name,
-                        corp_id,
-                        delay,
-                    )
-                    raise self.retry(exc=exc, countdown=delay)
-                raise
+                except OperationalError as exc:
+                    if _is_deadlock_error(exc):
+                        delay = 2 * (2**self.request.retries)
+                        logger.warning(
+                            "Deadlock syncing corp blueprints for %s (%s); retrying in %ss",
+                            corp_name,
+                            corp_id,
+                            delay,
+                        )
+                        raise self.retry(exc=exc, countdown=delay)
+                    raise
 
-            updated_count += len(corp_blueprints)
-            deleted_total += deleted
-            logger.debug(
-                "Corporate blueprint synchronization finished for %s (%s updated, %s deleted)",
-                corp_name,
-                len(corp_blueprints),
-                deleted,
-            )
+                updated_count += len(corp_blueprints)
+                deleted_total += deleted
+                logger.debug(
+                    "Corporate blueprint synchronization finished for %s (%s updated, %s deleted)",
+                    corp_name,
+                    len(corp_blueprints),
+                    deleted,
+                )
 
         logger.info(
             "Blueprints synchronized for %s: %s updated, %s deleted",
