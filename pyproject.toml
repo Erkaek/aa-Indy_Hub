@@ -23,7 +23,6 @@ classifiers = [
     "Environment :: Web Environment",
     "Framework :: Celery",
     "Framework :: Django",
-    "Framework :: Django :: 4.2",
     "Framework :: Django :: 5.2",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",

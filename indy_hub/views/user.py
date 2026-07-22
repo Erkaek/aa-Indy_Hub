@@ -39,7 +39,7 @@ from allianceauth.authentication.models import CharacterOwnership
 from allianceauth.eveonline.models import EveCharacter
 from allianceauth.services.hooks import get_extension_logger
 from esi.errors import TokenError
-from esi.exceptions import HTTPNotModified
+from esi.exceptions import HTTPClientError, HTTPNotModified, HTTPServerError
 from esi.models import CallbackRedirect, Token
 from esi.views import sso_redirect
 
@@ -48,7 +48,6 @@ from eve_sde.models import EveSDE
 
 # AA Example App
 from indy_hub.models import CharacterSettings, CorporationSharingSetting
-from indy_hub.services._esi_compat import HTTPError
 
 from ..app_settings import ROLE_SNAPSHOT_STALE_HOURS
 from ..decorators import indy_hub_access_required, tokens_required
@@ -90,6 +89,8 @@ from .navigation import build_nav_context
 User = get_user_model()
 
 logger = get_extension_logger(__name__)
+
+_HTTP_ERROR_TYPES = (HTTPClientError, HTTPServerError)
 
 _TOKEN_MANAGEMENT_LIVE_CACHE_TTL_SECONDS = 300
 
@@ -339,7 +340,7 @@ def _fetch_character_corporation_roles_with_token(
             token_obj.character_id,
         )
         return None
-    except HTTPError as exc:
+    except _HTTP_ERROR_TYPES as exc:
         status_code = getattr(exc, "status_code", None) or getattr(
             exc.response, "status_code", None
         )

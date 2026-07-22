@@ -42,10 +42,10 @@ ______________________________________________________________________
 
 ## Requirements
 
-- **Alliance Auth v4.x** or **v5.x**
-- **Python 3.10+** for AA4; **Python 3.12+** recommended for AA5
-- **Django 4.2 or 5.2** (as required by your Alliance Auth version)
-- **django-esi 8.x or 9.x** (as required by your Alliance Auth version)
+- **Alliance Auth v5.x**
+- **Python 3.12+**
+- **Django 5.2**
+- **django-esi 9.x**
 - **django-eveonline-sde 0.0.1b9+** (base SDE data)
 - **Celery** (for background sync and notifications)
 - *(Optional)* Director characters for corporate dashboards
@@ -181,6 +181,10 @@ Customize Indy Hub behavior in `local.py`:
 ```python
 # Discord notifications
 INDY_HUB_DISCORD_DM_ENABLED = True  # Default: True
+INDY_HUB_NOTIFICATION_DISPATCH_MODE = (
+    "discord_direct_only"  # aa_only | discord_direct_only | both
+)
+INDY_HUB_NOTIFICATION_IDEMPOTENCY_TTL_SECONDS = 300  # Default: 300s
 INDY_HUB_DISCORD_ACTION_TOKEN_MAX_AGE = 86400  # Default: 24 hours
 
 # ESI compatibility date (OpenAPI)
@@ -199,6 +203,12 @@ INDY_HUB_SKILL_SNAPSHOT_STALE_HOURS = 24  # Default: 24
 INDY_HUB_ROLE_SNAPSHOT_STALE_HOURS = 24  # Default: 24
 INDY_HUB_STRUCTURE_NAME_STALE_HOURS = 24  # Default: 24
 ```
+
+Notification dispatch modes:
+
+- `aa_only`: persist Alliance Auth notifications only (recommended when a proxy already relays AA notifications to Discord).
+- `discord_direct_only`: send direct Discord DM first; fallback to Alliance Auth notifications when direct delivery fails.
+- `both`: persist Alliance Auth notifications and send direct Discord DMs (explicit opt-in).
 
 **Scheduled Tasks** (auto-created):
 

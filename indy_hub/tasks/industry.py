@@ -9,33 +9,7 @@ from datetime import timezone as dt_timezone
 
 # Third Party
 from celery import shared_task
-
-try:
-    try:
-        # Alliance Auth
-        from esi.decorators import rate_limit_retry_task, wait_for_esi_errorlimit_reset
-    except ImportError:  # pragma: no cover - older django-esi
-
-        def rate_limit_retry_task(func):
-            return func
-
-        def wait_for_esi_errorlimit_reset(*args, **kwargs):
-            def decorator(func):
-                return func
-
-            return decorator
-
-except ImportError:  # pragma: no cover - older django-esi
-
-    def rate_limit_retry_task(func):
-        return func
-
-    def wait_for_esi_errorlimit_reset(*args, **kwargs):
-        def decorator(func):
-            return func
-
-        return decorator
-
+from celery.exceptions import MaxRetriesExceededError, Retry
 
 # Django
 from django.contrib.auth.models import User
@@ -48,13 +22,10 @@ from django.utils.dateparse import parse_datetime
 # Alliance Auth
 from allianceauth.authentication.models import CharacterOwnership
 from allianceauth.services.hooks import get_extension_logger
+from allianceauth.services.tasks import QueueOnce
+from esi.decorators import rate_limit_retry_task
+from esi.exceptions import HTTPNotModified
 from esi.models import Token
-
-try:
-    # Alliance Auth
-    from esi.exceptions import HTTPNotModified
-except ImportError:  # pragma: no cover - older django-esi
-    HTTPNotModified = None
 
 from ..app_settings import (
     BLUEPRINTS_BULK_WINDOW_MINUTES,
@@ -65,6 +36,7 @@ from ..app_settings import (
     ESI_TASK_TARGET_PER_MIN_ROLES,
     ESI_TASK_TARGET_PER_MIN_SKILLS,
     INDUSTRY_JOBS_BULK_WINDOW_MINUTES,
+    INDUSTRY_JOBS_TASK_MAX_RETRIES,
     MANUAL_REFRESH_COOLDOWN_SECONDS,
     ONLINE_STATUS_STALE_HOURS,
     ROLE_SNAPSHOT_STALE_HOURS,
@@ -1784,7 +1756,12 @@ def update_blueprints_for_user(
         )
 
 
-@shared_task(bind=True, max_retries=3)
+@shared_task(
+    bind=True,
+    base=QueueOnce,
+    max_retries=INDUSTRY_JOBS_TASK_MAX_RETRIES,
+    once={"graceful": True, "keys": ["user_id", "scope", "character_id"]},
+)
 @rate_limit_retry_task
 def update_industry_jobs_for_user(
     self,
@@ -2346,6 +2323,12 @@ def update_industry_jobs_for_user(
             "deleted": deleted_total,
             "errors": error_messages,
         }
+    except Retry:
+        # Celery retry has already been scheduled by an inner branch.
+        raise
+    except MaxRetriesExceededError:
+        # Retries are exhausted for this task invocation; avoid nesting retry calls.
+        raise
     except Exception as e:
         logger.error(f"Error updating jobs for user {user_id}: {e}")
         emit_analytics_event(

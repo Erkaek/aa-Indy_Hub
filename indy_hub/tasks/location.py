@@ -12,16 +12,10 @@ from django.utils import timezone
 # Alliance Auth
 from allianceauth.services.hooks import get_extension_logger
 from allianceauth.services.tasks import QueueOnce
+from esi.exceptions import HTTPServerError
 
 # AA Example App
 from indy_hub.models import CachedStructureName
-
-# AA Indy Hub
-from indy_hub.services._esi_compat import (
-    HTTPBadGateway,
-    HTTPGatewayTimeout,
-    HTTPServiceUnavailable,
-)
 from indy_hub.services.location_population import (
     DEFAULT_TASK_PRIORITY,
     populate_location_names,
@@ -41,9 +35,7 @@ _TASK_ESI_KWARGS: dict[str, object] = {
     **{
         "autoretry_for": (
             OSError,
-            HTTPBadGateway,
-            HTTPGatewayTimeout,
-            HTTPServiceUnavailable,
+            HTTPServerError,
         ),
         "retry_kwargs": {"max_retries": 3},
         "retry_backoff": 30,

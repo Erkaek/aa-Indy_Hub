@@ -32,6 +32,30 @@ DISCORD_DM_ENABLED = clean_setting(
     True,
     required_type=bool,
 )
+NOTIFICATION_DISPATCH_MODE = (
+    clean_setting(
+        "INDY_HUB_NOTIFICATION_DISPATCH_MODE",
+        "discord_direct_only",
+        required_type=str,
+    )
+    .strip()
+    .lower()
+)
+if NOTIFICATION_DISPATCH_MODE not in {
+    "aa_only",
+    "discord_direct_only",
+    "both",
+}:
+    raise ImproperlyConfigured(
+        "INDY_HUB_NOTIFICATION_DISPATCH_MODE must be one of: "
+        "aa_only, discord_direct_only, both"
+    )
+NOTIFICATION_IDEMPOTENCY_TTL_SECONDS = clean_setting(
+    "INDY_HUB_NOTIFICATION_IDEMPOTENCY_TTL_SECONDS",
+    300,
+    min_value=1,
+    required_type=int,
+)
 DISCORD_FOOTER_TEXT = clean_setting(
     "INDY_HUB_DISCORD_FOOTER_TEXT",
     "",
@@ -164,6 +188,12 @@ INDUSTRY_JOBS_BULK_WINDOW_MINUTES = clean_setting(
     "INDY_HUB_INDUSTRY_JOBS_BULK_WINDOW_MINUTES",
     60,
     min_value=0,
+    required_type=int,
+)
+INDUSTRY_JOBS_TASK_MAX_RETRIES = clean_setting(
+    "INDY_HUB_INDUSTRY_JOBS_TASK_MAX_RETRIES",
+    12,
+    min_value=1,
     required_type=int,
 )
 BULK_UPDATE_WINDOW_MINUTES = clean_setting(

@@ -16,6 +16,7 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 ### Changed
 
+- Platform baseline: Indy Hub now targets Alliance Auth 5 / Django 5.2 / django-esi 9 only. Legacy AA4 and django-esi8 compatibility shims were removed in favor of direct OpenAPI exception/decorator paths.
 - Crafting Projects: streamlined project workspace behavior (final-output quantity editing, improved EFT fit grouping/preview flow, persistent buy-tab fixed adjustments, and improved responsive table/input behavior).
 - Material Exchange: improved stock/readability and reservation flows (including sell-character context and empty-filter short-circuiting).
 - SDE integration: simplified to the base `eve_sde` path and reduced compatibility/bootstrap maintenance overhead. (GH-109)
@@ -24,7 +25,9 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 ### Fixed
 
 - Industry sync tasks: fixed MySQL duplicate-key race handling (`IntegrityError 1062`) by extending retry behavior alongside deadlock retries.
+- Navigation: optimized missing-scope badge computation for linked characters by replacing repeated per-character scope-subquery checks with a bulk scope aggregation path, reducing cold-cache navbar latency on large accounts.
 - Industry Structures: fixed synced-structure setup state, preserved manually-entered identity fields when ESI returns incomplete/invalid values, and enforced 403 forbidden cooldown skipping to avoid repeated rate-limit waste.
+- Notifications: fixed duplicate Discord DM risk in proxy setups by adding explicit dispatch modes (`aa_only`, `discord_direct_only`, `both`) and idempotent dispatch guarding. (GH-129)
 - Crafting Projects: fixed multiple planner and financial regressions (structure compatibility resolution, rig bonus application/rounding, all-buy totals, decision persistence, stock allocation persistence, and lazy-tab action reliability).
 - Blueprint Sharing: fixed request-page performance (N+1 eligibility/limit lookups), copy-install cost consistency, and repeated-contract validation edge cases. (GH-101, GH-119)
 - Material Exchange: fixed duplicate-processing and name-resolution edge cases, improved stale-order link handling, and hardened sell paste-import matching/classification.

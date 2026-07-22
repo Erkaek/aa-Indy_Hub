@@ -12,8 +12,8 @@ python manage.py collectstatic --noinput
 Docker equivalent: prefix commands with `docker compose exec allianceauth_gunicorn auth …`
 (or `bash -c "…"` when chaining with `pip`).
 
-> Indy Hub 1.18 supports **both Alliance Auth 4 and 5** from the same package.
-> `pip install --upgrade indy-hub` does **not** declare `allianceauth`, `django-esi` or `django-eveonline-sde` as runtime dependencies, so an AA4 install stays on AA4 and an AA5 install stays on AA5 — install / upgrade Alliance Auth itself with its own command.
+> Indy Hub now targets **Alliance Auth 5** only.
+> Upgrade Alliance Auth and django-esi as part of your stack upgrade, then upgrade Indy Hub.
 
 ______________________________________________________________________
 
@@ -210,7 +210,11 @@ Steps:
 1. `python manage.py migrate`
 1. `python manage.py collectstatic --noinput`
 1. Restart gunicorn + celery beat (mandatory — rewritten schedules) + workers.
-1. (Optional) Set `INDY_HUB_DISCORD_DM_ENABLED = False` in `local.py` to disable Discord DMs (introduced in 1.10.2).
+1. (Optional) Choose notification dispatch mode in `local.py`:
+   - `INDY_HUB_NOTIFICATION_DISPATCH_MODE = "aa_only"` when a proxy already relays Alliance Auth notifications to Discord (prevents duplicate Discord DMs).
+   - `INDY_HUB_NOTIFICATION_DISPATCH_MODE = "discord_direct_only"` for direct Discord delivery with Alliance Auth fallback.
+   - `INDY_HUB_NOTIFICATION_DISPATCH_MODE = "both"` only when duplicate channel delivery is intentional.
+1. (Optional) Keep `INDY_HUB_DISCORD_DM_ENABLED = False` to fully disable direct Discord DMs.
 1. Assign the 1.11.0 corporation/copy-manager permissions in `Django Admin → Auth → Groups`.
 1. Ask corp directors to re-link their tokens for the corp roles scope (1.11.0) and the new Material Exchange scopes (1.14.0).
 1. (Optional) Configure corp token allow-lists in Token Management.
