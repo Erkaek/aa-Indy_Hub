@@ -25,6 +25,7 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 ### Fixed
 
 - Industry sync tasks: fixed MySQL duplicate-key race handling (`IntegrityError 1062`) by extending retry behavior alongside deadlock retries.
+- Navigation: optimized missing-scope badge computation for linked characters by replacing repeated per-character scope-subquery checks with a bulk scope aggregation path, reducing cold-cache navbar latency on large accounts.
 - Industry Structures: fixed synced-structure setup state, preserved manually-entered identity fields when ESI returns incomplete/invalid values, and enforced 403 forbidden cooldown skipping to avoid repeated rate-limit waste.
 - Notifications: fixed duplicate Discord DM risk in proxy setups by adding explicit dispatch modes (`aa_only`, `discord_direct_only`, `both`) and idempotent dispatch guarding. (GH-129)
 - Crafting Projects: fixed multiple planner and financial regressions (structure compatibility resolution, rig bonus application/rounding, all-buy totals, decision persistence, stock allocation persistence, and lazy-tab action reliability).

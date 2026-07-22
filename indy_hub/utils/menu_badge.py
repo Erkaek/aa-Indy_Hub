@@ -1,5 +1,8 @@
 """Helpers for Indy Hub menu badge count computation."""
 
+# Standard Library
+from collections import defaultdict
+
 # Django
 from django.core.cache import cache
 from django.db.models import Exists, F, OuterRef, Q
@@ -148,22 +151,37 @@ def count_characters_missing_scopes(user_id: int) -> int:
     except Exception:
         return 0
 
-    ownerships = CharacterOwnership.objects.filter(user_id=user_id).values_list(
-        "character__character_id", flat=True
+    character_ids = list(
+        CharacterOwnership.objects.filter(user_id=user_id).values_list(
+            "character__character_id", flat=True
+        )
     )
-    if not ownerships:
+    if not character_ids:
         return 0
 
-    missing_count = 0
-    for character_id in ownerships:
-        char_tokens = Token.objects.filter(
-            user_id=user_id, character_id=character_id
-        ).require_valid()
-        if not char_tokens.exists():
-            # Character was never linked to Indy Hub — don't pollute the badge.
-            continue
-        for scope in _CHARACTER_REQUIRED_SCOPES:
-            if not char_tokens.require_scopes([scope]).exists():
-                missing_count += 1
-                break
-    return missing_count
+    valid_tokens = Token.objects.filter(
+        user_id=user_id, character_id__in=character_ids
+    ).require_valid()
+    valid_character_ids = set(
+        valid_tokens.values_list("character_id", flat=True).distinct()
+    )
+    if not valid_character_ids:
+        return 0
+
+    required_scopes = set(_CHARACTER_REQUIRED_SCOPES)
+    scopes_by_character: dict[int, set[str]] = defaultdict(set)
+    for character_id, scope_name in valid_tokens.filter(
+        scopes__name__in=required_scopes
+    ).values_list("character_id", "scopes__name"):
+        if scope_name:
+            scopes_by_character[int(character_id)].add(scope_name)
+
+    # Count only characters that already have valid tokens, then flag those
+    # missing at least one required scope.
+    return sum(
+        1
+        for character_id in valid_character_ids
+        if not required_scopes.issubset(
+            scopes_by_character.get(int(character_id), set())
+        )
+    )
