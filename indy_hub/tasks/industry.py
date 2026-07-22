@@ -914,7 +914,7 @@ def _queue_staggered_industry_job_corporation_tasks(
         for user_id in user_ids:
             update_industry_jobs_for_user.apply_async(
                 args=(int(user_id),),
-                kwargs={"scope": "corporation"},
+                kwargs={"scope": "corporation", "character_id": 0},
                 priority=priority,
             )
         return total
@@ -924,7 +924,7 @@ def _queue_staggered_industry_job_corporation_tasks(
         countdown = int(round(index * spacing))
         update_industry_jobs_for_user.apply_async(
             args=(int(user_id),),
-            kwargs={"scope": "corporation"},
+            kwargs={"scope": "corporation", "character_id": 0},
             countdown=countdown,
             priority=priority,
         )
@@ -1202,8 +1202,9 @@ def queue_industry_job_update_for_user(
     countdown: int = 0,
     priority: int | None = None,
     scope: str | None = None,
+    character_id: int | None = None,
 ) -> None:
-    kwargs = {}
+    kwargs = {"character_id": int(character_id) if character_id else 0}
     if scope:
         kwargs["scope"] = scope
     update_industry_jobs_for_user.apply_async(
