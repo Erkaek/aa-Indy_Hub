@@ -15,9 +15,10 @@ from django.db.utils import OperationalError
 def _is_mysql_deadlock_error(exc: Exception) -> bool:
     if getattr(exc, "args", None):
         code = exc.args[0]
-        if code == 1213:
+        if code in {1205, 1213}:
             return True
-    return "Deadlock found" in str(exc)
+    message = str(exc)
+    return "Deadlock found" in message or "Lock wait timeout exceeded" in message
 
 
 def _is_mysql_duplicate_key_error(exc: Exception) -> bool:
@@ -44,7 +45,7 @@ def update_or_create_with_mysql_retry(
     max_attempts: int = 3,
     logger: Any | None = None,
 ) -> tuple[object, bool]:
-    """Run `update_or_create` with retries for MySQL deadlocks and duplicate keys."""
+    """Run `update_or_create` with retries for MySQL lock-contention and duplicate keys."""
 
     def _log(message: str, *args: object) -> None:
         if logger is not None:
@@ -61,7 +62,7 @@ def update_or_create_with_mysql_retry(
                 raise
             delay = _retry_delay(attempt)
             _log(
-                "Deadlock while writing %s; retrying (%s/%s) in %.2fs",
+                "MySQL lock contention while writing %s; retrying (%s/%s) in %.2fs",
                 model.__name__,
                 attempt,
                 max_attempts,
@@ -98,7 +99,7 @@ def update_or_create_with_mysql_retry(
                     raise
                 delay = _retry_delay(attempt)
                 _log(
-                    "Deadlock while recovering duplicate key for %s; retrying (%s/%s) in %.2fs",
+                    "MySQL lock contention while recovering duplicate key for %s; retrying (%s/%s) in %.2fs",
                     model.__name__,
                     attempt,
                     max_attempts,

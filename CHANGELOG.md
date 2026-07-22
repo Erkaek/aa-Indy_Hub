@@ -13,6 +13,8 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 - Industry Structures: added tax configuration and editing for auto-synced structures so administrators can manage installation costs on corporation-synced structures.
 - Material Exchange: added a Material Hub navbar badge with active buy/sell order counts and status-aware display.
+- Industry Jobs: added an explicit `Force Refresh` action on the jobs page and a `Last update` timestamp in the header so users can decide when to trigger live ESI refreshes.
+- Industry Structures: added persistent resolved-bonus cache fields on `IndustryStructure` (`resolved_bonuses_cache`, signature, and timestamp) with migration `0107_industrystructure_resolved_bonus_cache`.
 
 ### Changed
 
@@ -21,6 +23,9 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 - Material Exchange: improved stock/readability and reservation flows (including sell-character context and empty-filter short-circuiting).
 - SDE integration: simplified to the base `eve_sde` path and reduced compatibility/bootstrap maintenance overhead. (GH-109)
 - Industry Structures: changed structure sync cadence from hourly to daily (06:35 UTC + AA offset) to reduce ESI and task-queue load.
+- Render path performance: settings pages now use a dedicated lightweight settings context builder instead of the full dashboard context.
+- Token-management rendering: switched to passive token validity filtering on render paths to avoid live token refresh side effects while still excluding expired tokens from coverage status.
+- Industry jobs rendering: live skill fetch is now disabled by default and only enabled through explicit force refresh.
 
 ### Fixed
 
@@ -32,6 +37,8 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 - Blueprint Sharing: fixed request-page performance (N+1 eligibility/limit lookups), copy-install cost consistency, and repeated-contract validation edge cases. (GH-101, GH-119)
 - Material Exchange: fixed duplicate-processing and name-resolution edge cases, improved stale-order link handling, and hardened sell paste-import matching/classification.
 - Platform and UX: improved large-account performance (linked-character query scaling), stabilized navigation header/mobile label behavior, and corrected admin/notification polish issues.
+- Celery scheduling: fixed `QueueOnce` `KeyError('character_id')` in corporation job update dispatch by ensuring the dedupe key is always present in task kwargs.
+- Industry Structures cache invalidation: rig saves now invalidate resolved-bonus cache only when signature-relevant fields change (structure, slot, rig type), avoiding unnecessary recomputation on label-only updates.
 
 ## [1.17.2] - 2026-06-01
 

@@ -46,6 +46,9 @@ ______________________________________________________________________
 1. `python manage.py collectstatic --noinput`
 1. Restart gunicorn + celery beat + workers.
 1. If you previously automated `sync_sde_compat`/`indy_sde_compat`, remove it from your runbooks: 1.18.0 no longer uses that compatibility cache flow. The old periodic refresh task (`indy-hub-refresh-production-items`) is legacy and is automatically cleaned up by Indy Hub periodic-task setup, so no manual beat-task deletion is normally required.
+1. Migration `0107_industrystructure_resolved_bonus_cache` adds persistent structure bonus cache fields. No manual data backfill is required; cache rows are generated lazily during normal structure usage.
+1. Jobs page behavior changed: live ESI skill refresh now runs only when users click `Force Refresh`. Normal page loads use cached snapshot data and display a `Last update` timestamp.
+1. Token Management and Settings views no longer trigger live token refresh while rendering. Expired tokens are still excluded from coverage checks through passive validity filtering.
 
 ______________________________________________________________________
 

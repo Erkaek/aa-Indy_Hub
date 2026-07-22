@@ -118,9 +118,10 @@ MATERIAL_EXCHANGE_SCOPE_SET = [
 def _is_deadlock_error(exc: Exception) -> bool:
     if getattr(exc, "args", None):
         code = exc.args[0]
-        if code == 1213:
+        if code in {1205, 1213}:
             return True
-    return "Deadlock found" in str(exc)
+    message = str(exc)
+    return "Deadlock found" in message or "Lock wait timeout exceeded" in message
 
 
 def _is_user_active(user: User, *, now: datetime | None = None) -> bool:
@@ -279,7 +280,7 @@ def _update_or_create_with_mysql_retry(
     *,
     lookup: dict[str, object],
     defaults: dict[str, object],
-    max_attempts: int = 3,
+    max_attempts: int = 6,
 ) -> tuple[object, bool]:
     return update_or_create_with_mysql_retry(
         model,
@@ -1536,6 +1537,7 @@ def update_blueprints_for_user(
                                     runs=bp.get("runs", 0),
                                 ),
                             },
+                            max_attempts=6,
                             logger=logger,
                         )
 
@@ -1691,6 +1693,7 @@ def update_blueprints_for_user(
                                     runs=bp.get("runs", 0),
                                 ),
                             },
+                            max_attempts=6,
                             logger=logger,
                         )
 
