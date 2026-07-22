@@ -17,22 +17,8 @@ from django.utils import timezone
 
 # Alliance Auth
 from allianceauth.services.hooks import get_extension_logger
+from esi.decorators import rate_limit_retry_task
 from esi.models import Token
-
-try:
-    try:
-        # Alliance Auth
-        from esi.decorators import rate_limit_retry_task
-    except ImportError:  # pragma: no cover - older django-esi
-
-        def rate_limit_retry_task(func):
-            return func
-
-except ImportError:  # pragma: no cover - older django-esi
-
-    def rate_limit_retry_task(func):
-        return func
-
 
 # AA Example App
 from indy_hub.models import (

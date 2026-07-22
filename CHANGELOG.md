@@ -16,6 +16,7 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 ### Changed
 
+- Platform baseline: Indy Hub now targets Alliance Auth 5 / Django 5.2 / django-esi 9 only. Legacy AA4 and django-esi8 compatibility shims were removed in favor of direct OpenAPI exception/decorator paths.
 - Crafting Projects: streamlined project workspace behavior (final-output quantity editing, improved EFT fit grouping/preview flow, persistent buy-tab fixed adjustments, and improved responsive table/input behavior).
 - Material Exchange: improved stock/readability and reservation flows (including sell-character context and empty-filter short-circuiting).
 - SDE integration: simplified to the base `eve_sde` path and reduced compatibility/bootstrap maintenance overhead. (GH-109)

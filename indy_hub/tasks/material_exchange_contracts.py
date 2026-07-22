@@ -11,33 +11,6 @@ from decimal import Decimal, InvalidOperation
 # Third Party
 from celery import shared_task
 
-try:
-    try:
-        # Alliance Auth
-        from esi.decorators import rate_limit_retry_task, wait_for_esi_errorlimit_reset
-    except ImportError:  # pragma: no cover - older django-esi
-
-        def rate_limit_retry_task(func):
-            return func
-
-        def wait_for_esi_errorlimit_reset(*args, **kwargs):
-            def decorator(func):
-                return func
-
-            return decorator
-
-except ImportError:  # pragma: no cover - older django-esi
-
-    def rate_limit_retry_task(func):
-        return func
-
-    def wait_for_esi_errorlimit_reset(*args, **kwargs):
-        def decorator(func):
-            return func
-
-        return decorator
-
-
 # Django
 from django.contrib.auth.models import User
 from django.core.cache import cache
@@ -48,6 +21,7 @@ from django.utils.translation import gettext_lazy as _
 
 # Alliance Auth
 from allianceauth.services.hooks import get_extension_logger
+from esi.decorators import rate_limit_retry_task
 
 # AA Example App
 # Local

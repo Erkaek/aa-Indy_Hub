@@ -12,8 +12,8 @@ python manage.py collectstatic --noinput
 Docker equivalent: prefix commands with `docker compose exec allianceauth_gunicorn auth …`
 (or `bash -c "…"` when chaining with `pip`).
 
-> Indy Hub 1.18 supports **both Alliance Auth 4 and 5** from the same package.
-> `pip install --upgrade indy-hub` does **not** declare `allianceauth`, `django-esi` or `django-eveonline-sde` as runtime dependencies, so an AA4 install stays on AA4 and an AA5 install stays on AA5 — install / upgrade Alliance Auth itself with its own command.
+> Indy Hub now targets **Alliance Auth 5** only.
+> Upgrade Alliance Auth and django-esi as part of your stack upgrade, then upgrade Indy Hub.
 
 ______________________________________________________________________
 

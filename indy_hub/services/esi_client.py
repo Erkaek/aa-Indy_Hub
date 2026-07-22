@@ -18,7 +18,7 @@ from django.core.cache import cache
 # Alliance Auth
 from allianceauth.services.hooks import get_extension_logger
 from esi.errors import TokenError
-from esi.exceptions import HTTPNotModified
+from esi.exceptions import HTTPClientError, HTTPNotModified, HTTPServerError
 from esi.models import Token
 
 # AA Example App
@@ -30,9 +30,6 @@ from indy_hub.app_settings import (
     ESI_TASK_TARGET_PER_MIN_ROLES,
     ESI_TASK_TARGET_PER_MIN_SKILLS,
 )
-
-# AA Indy Hub
-from indy_hub.services._esi_compat import HTTPError
 from indy_hub.services.providers import esi_provider
 
 logger = get_extension_logger(__name__)
@@ -41,6 +38,9 @@ DEFAULT_COMPATIBILITY_DATE = ESI_COMPATIBILITY_DATE
 
 _SCOPE_THROTTLE_PREFIX = "indy_hub:esi_task_scope_budget"
 _SCOPE_THROTTLE_TIMEOUT_SECONDS = 120
+_SCOPE_THROTTLE_HIT_PREFIX = "indy_hub:esi_task_scope_budget_hits"
+_SCOPE_THROTTLE_HIT_TIMEOUT_SECONDS = 120
+_HTTP_ERROR_TYPES = (HTTPClientError, HTTPServerError)
 
 
 class ESIClientError(Exception):
@@ -214,6 +214,25 @@ class ESIClient:
     def _seconds_to_next_minute() -> int:
         return max(1, 60 - (int(time.time()) % 60))
 
+    def _record_scope_throttle_hit(
+        self,
+        *,
+        scope_key: str,
+        key_suffix: str | None,
+        minute_bucket: int,
+    ) -> int:
+        subject_key = key_suffix or "global"
+        hit_key = (
+            f"{_SCOPE_THROTTLE_HIT_PREFIX}:{scope_key}:{subject_key}:{minute_bucket}"
+        )
+        if cache.add(hit_key, 1, timeout=_SCOPE_THROTTLE_HIT_TIMEOUT_SECONDS):
+            return 1
+
+        try:
+            return int(cache.incr(hit_key))
+        except Exception:  # pragma: no cover - cache backend edge case
+            return 1
+
     @staticmethod
     def _target_per_min_for_scope(scope: str | None) -> int:
         if not scope:
@@ -252,7 +271,11 @@ class ESIClient:
         return int(ESI_TASK_TARGET_PER_MIN_ROLES)
 
     def _enforce_task_scope_budget(
-        self, scope: str | None, endpoint: str | None
+        self,
+        scope: str | None,
+        endpoint: str | None,
+        *,
+        throttle_key: str | None = None,
     ) -> None:
         if not self._is_running_in_task():
             return
@@ -262,8 +285,14 @@ class ESIClient:
             return
 
         scope_key = (scope or "unknown").strip() or "unknown"
+        key_suffix = (throttle_key or "").strip() or None
         minute_bucket = int(time.time() // 60)
-        cache_key = f"{_SCOPE_THROTTLE_PREFIX}:{scope_key}:{minute_bucket}"
+        if key_suffix:
+            cache_key = (
+                f"{_SCOPE_THROTTLE_PREFIX}:{scope_key}:{key_suffix}:{minute_bucket}"
+            )
+        else:
+            cache_key = f"{_SCOPE_THROTTLE_PREFIX}:{scope_key}:{minute_bucket}"
 
         if cache.add(cache_key, 1, timeout=_SCOPE_THROTTLE_TIMEOUT_SECONDS):
             return
@@ -289,10 +318,18 @@ class ESIClient:
         if used <= target_per_min:
             return
 
+        hit_count = self._record_scope_throttle_hit(
+            scope_key=scope_key,
+            key_suffix=key_suffix,
+            minute_bucket=minute_bucket,
+        )
+
         raise ESIRateLimitError(
             message=(
                 "Local task ESI throttle hit for scope "
                 f"{scope_key} ({used}/{target_per_min} req/min)"
+                + (f" key={key_suffix}" if key_suffix else "")
+                + f" hits={hit_count}/min"
                 + (f" on {endpoint}" if endpoint else "")
             ),
             retry_after=self._seconds_to_next_minute(),
@@ -304,9 +341,14 @@ class ESIClient:
         *,
         scope: str | None,
         endpoint: str | None = None,
+        throttle_key: str | None = None,
     ) -> None:
         """Public wrapper for task-side scope throttling."""
-        self._enforce_task_scope_budget(scope, endpoint)
+        self._enforce_task_scope_budget(
+            scope,
+            endpoint,
+            throttle_key=throttle_key,
+        )
 
     def fetch_character_blueprints(
         self, character_id: int, *, force_refresh: bool = False
@@ -333,6 +375,7 @@ class ESIClient:
             resource="Industry",
             operation="get_characters_character_id_industry_jobs",
             params={"character_id": character_id},
+            throttle_key=f"char:{int(character_id)}",
             force_refresh=force_refresh,
         )
 
@@ -369,6 +412,7 @@ class ESIClient:
             resource="Industry",
             operation="get_corporations_corporation_id_industry_jobs",
             params={"corporation_id": corporation_id},
+            throttle_key=f"corp:{int(corporation_id)}",
             force_refresh=force_refresh,
         )
 
@@ -585,7 +629,7 @@ class ESIClient:
                 payload = operation_call.results(**results_kwargs)
         except HTTPNotModified:
             return []
-        except HTTPError as exc:
+        except _HTTP_ERROR_TYPES as exc:
             self._handle_http_error(exc, endpoint="/industry/systems/")
             raise
         except Exception as exc:
@@ -608,9 +652,14 @@ class ESIClient:
         resource: str,
         operation: str,
         params: dict,
+        throttle_key: str | None = None,
         force_refresh: bool = False,
     ) -> list[dict]:
-        self._enforce_task_scope_budget(scope, endpoint)
+        self._enforce_task_scope_budget(
+            scope,
+            endpoint,
+            throttle_key=throttle_key,
+        )
         token_obj = self._get_token(character_id, scope)
         try:
             token_obj.valid_access_token()
@@ -642,7 +691,7 @@ class ESIClient:
                 payload = operation_call.results(**results_kwargs)
         except HTTPNotModified as exc:
             raise ESIUnmodifiedError(f"ESI returned 304 for {endpoint}") from exc
-        except HTTPError as exc:
+        except _HTTP_ERROR_TYPES as exc:
             self._handle_http_error(
                 exc,
                 character_id=character_id,
@@ -674,7 +723,7 @@ class ESIClient:
                 raise ESIUnmodifiedError(
                     f"ESI returned 304 for {endpoint}"
                 ) from retry_exc
-            except HTTPError as retry_exc:
+            except _HTTP_ERROR_TYPES as retry_exc:
                 self._handle_http_error(
                     retry_exc,
                     character_id=character_id,
@@ -871,7 +920,7 @@ class ESIClient:
             batch = ids[i : i + 1000]
             try:
                 payload = operation_fn(ids=batch).results()
-            except HTTPError as exc:
+            except _HTTP_ERROR_TYPES as exc:
                 status_code = getattr(exc, "status_code", None)
                 if status_code is None:
                     response = getattr(exc, "response", None)
@@ -890,7 +939,7 @@ class ESIClient:
             except Exception:
                 try:
                     payload = operation_fn(body=batch).results()
-                except HTTPError as exc2:
+                except _HTTP_ERROR_TYPES as exc2:
                     status_code = getattr(exc2, "status_code", None)
                     if status_code is None:
                         response = getattr(exc2, "response", None)
@@ -951,7 +1000,7 @@ class ESIClient:
             raise ESIUnmodifiedError(
                 f"ESI returned 304 for {endpoint or 'request'}"
             ) from exc
-        except HTTPError as exc:
+        except _HTTP_ERROR_TYPES as exc:
             self._handle_http_error(
                 exc,
                 character_id=character_id,
@@ -977,7 +1026,7 @@ class ESIClient:
             raise ESIUnmodifiedError(
                 f"ESI returned 304 for {endpoint or 'request'}"
             ) from exc
-        except HTTPError as exc:
+        except _HTTP_ERROR_TYPES as exc:
             self._handle_http_error(
                 exc,
                 character_id=character_id,
@@ -1003,7 +1052,7 @@ class ESIClient:
             raise ESIUnmodifiedError(
                 f"ESI returned 304 for {endpoint or 'request'}"
             ) from exc
-        except HTTPError as exc:
+        except _HTTP_ERROR_TYPES as exc:
             self._handle_http_error(
                 exc,
                 character_id=character_id,
@@ -1034,7 +1083,7 @@ class ESIClient:
 
     def _handle_http_error(
         self,
-        exc: HTTPError,
+        exc: HTTPClientError | HTTPServerError,
         *,
         character_id: int | None = None,
         structure_id: int | None = None,

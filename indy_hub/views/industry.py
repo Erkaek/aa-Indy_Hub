@@ -34,6 +34,7 @@ from django.views.decorators.http import require_http_methods
 # Alliance Auth
 from allianceauth.authentication.models import CharacterOwnership, UserProfile
 from allianceauth.services.hooks import get_extension_logger
+from esi.exceptions import HTTPNotModified
 from esi.models import Token
 
 # AA Example App
@@ -250,13 +251,6 @@ def craft_project_stock_refresh_status(request):
         latest_update and latest_update.isoformat() != initial_synced_at
     )
     return JsonResponse(response)
-
-
-try:
-    # Alliance Auth
-    from esi.exceptions import HTTPNotModified
-except ImportError:  # pragma: no cover - older django-esi
-    HTTPNotModified = None
 
 
 def _fetch_character_skill_levels(

@@ -19,11 +19,8 @@ from django.utils import timezone
 # Alliance Auth
 from allianceauth.eveonline.models import EveCharacter, EveCorporationInfo
 from allianceauth.services.hooks import get_extension_logger
+from esi.exceptions import HTTPClientError, HTTPServerError
 from esi.models import Token
-
-# AA Example App
-# AA Indy Hub
-from indy_hub.services._esi_compat import HTTPError
 
 from ..services.esi_client import (
     ESIClientError,
@@ -55,6 +52,8 @@ else:  # pragma: no cover - eve_sde app not installed
     EveType = None
 
 logger = get_extension_logger(__name__)
+
+_HTTP_ERROR_TYPES = (HTTPClientError, HTTPServerError)
 
 _TYPE_NAME_CACHE: dict[int, str] = {}
 _CHAR_NAME_CACHE: dict[int, str] = {}
@@ -242,7 +241,7 @@ def _rate_limited_public_results(
             else:
                 payload, response = result, None
             return payload, response
-        except HTTPError as exc:
+        except _HTTP_ERROR_TYPES as exc:
             response = getattr(exc, "response", None)
             last_response = response
             status_code = getattr(exc, "status_code", None) or getattr(
