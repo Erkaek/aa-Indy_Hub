@@ -27,6 +27,14 @@ ______________________________________________________________________
 
 ## About
 
+### 1.18.0 Highlights
+
+- **Industry Jobs refresh behavior**: live ESI skill refresh is now explicit on the jobs page (`Force Refresh`) instead of running on every render.
+- **Jobs freshness visibility**: the jobs header now shows `Last update` to clarify current data recency.
+- **Settings render performance**: settings hub uses a lightweight context path to reduce page render latency.
+- **Token Management safety/perf**: render paths avoid live token refresh side effects and use passive validity filtering for scope coverage.
+- **Industry Structures performance**: resolved structure bonuses are cached persistently and invalidated only when relevant structure/rig signature fields change.
+
 ### Features
 
 - **Blueprint Library**: Browse, search, and manage personal and corporation blueprints.
@@ -219,6 +227,8 @@ Notification dispatch modes:
 ______________________________________________________________________
 
 ## Updating
+
+For release-specific operational notes (including 1.18.0 behavior changes), see [docs/UPGRADE_NOTES.md](docs/UPGRADE_NOTES.md).
 
 ### Bare Metal Update
 

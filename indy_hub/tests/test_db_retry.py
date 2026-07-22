@@ -67,6 +67,39 @@ class MySQLRetryHelperTests(SimpleTestCase):
         self.assertEqual(manager.update_or_create.call_count, 2)
         mock_sleep.assert_called_once()
 
+    def test_lock_wait_timeout_retries_then_updates_successfully(self) -> None:
+        manager = Mock()
+        manager.update_or_create.side_effect = [
+            OperationalError(
+                1205, "Lock wait timeout exceeded; try restarting transaction"
+            ),
+            ("row", False),
+        ]
+
+        model = type(
+            "DummyModel",
+            (),
+            {
+                "__name__": "DummyModel",
+                "DoesNotExist": type("DoesNotExist", (Exception,), {}),
+                "objects": manager,
+            },
+        )
+
+        with (
+            patch("indy_hub.utils.db_retry.random.random", return_value=0.0),
+            patch("indy_hub.utils.db_retry.time.sleep") as mock_sleep,
+        ):
+            result = update_or_create_with_mysql_retry(
+                model,
+                lookup={"character_id": 1},
+                defaults={"owner_user": "user"},
+            )
+
+        self.assertEqual(result, ("row", False))
+        self.assertEqual(manager.update_or_create.call_count, 2)
+        mock_sleep.assert_called_once()
+
     def test_duplicate_key_refreshes_existing_row_in_transaction(self) -> None:
         existing = SimpleNamespace(save=Mock())
 
