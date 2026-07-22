@@ -2728,7 +2728,7 @@ def personnal_job_list(request, scope="character"):
             .aggregate(last_updated=Max("last_updated"))
             .get("last_updated")
         )
-        latest_jobs_refresh_at = jobs_qs.aggregate(
+        latest_jobs_refresh_at = base_jobs_qs.aggregate(
             last_updated=Max("last_updated")
         ).get("last_updated")
         last_data_refresh_at = latest_skill_snapshot_at or latest_jobs_refresh_at

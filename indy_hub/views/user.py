@@ -38,6 +38,7 @@ from django.views.decorators.http import require_POST
 from allianceauth.authentication.models import CharacterOwnership
 from allianceauth.eveonline.models import EveCharacter
 from allianceauth.services.hooks import get_extension_logger
+from esi import app_settings as esi_app_settings
 from esi.errors import TokenError
 from esi.exceptions import HTTPClientError, HTTPNotModified, HTTPServerError
 from esi.models import CallbackRedirect, Token
@@ -98,6 +99,18 @@ logger = get_extension_logger(__name__)
 _HTTP_ERROR_TYPES = (HTTPClientError, HTTPServerError)
 
 _TOKEN_MANAGEMENT_LIVE_CACHE_TTL_SECONDS = 300
+
+
+def _apply_token_validity_filter(token_queryset, *, validate_tokens: bool):
+    """Filter tokens by validity while optionally avoiding live refresh side effects."""
+
+    if validate_tokens:
+        return token_queryset.require_valid()
+
+    max_age = timezone.now() - timedelta(
+        seconds=esi_app_settings.ESI_TOKEN_VALID_DURATION
+    )
+    return token_queryset.filter(created__gt=max_age)
 
 
 def _token_management_live_cache_key(user_id: int) -> str:
@@ -533,11 +546,6 @@ def _collect_corporation_scope_status(
     corp_role_state: dict[int, dict[str, bool]] = {}
     warnings: list[dict[str, Any]] = [] if include_warnings else []
 
-    def _apply_token_validity_filter(token_queryset):
-        if not validate_tokens:
-            return token_queryset
-        return token_queryset.require_valid()
-
     def _revoke_corporation_tokens(
         token_queryset,
         character_id: int,
@@ -558,7 +566,8 @@ def _collect_corporation_scope_status(
         for scope in normalized_scopes:
             token_ids.update(
                 _apply_token_validity_filter(
-                    token_queryset.require_scopes([scope])
+                    token_queryset.require_scopes([scope]),
+                    validate_tokens=validate_tokens,
                 ).values_list("pk", flat=True)
             )
 
@@ -591,7 +600,8 @@ def _collect_corporation_scope_status(
                 continue
             seen.add(normalized)
             candidate = _apply_token_validity_filter(
-                token_qs.require_scopes(scope_list)
+                token_qs.require_scopes(scope_list),
+                validate_tokens=validate_tokens,
             )
             token = candidate.order_by("-created").first()
             if token:
@@ -641,7 +651,10 @@ def _collect_corporation_scope_status(
         blueprint_token = _select_corporation_token(token_qs, CORP_BLUEPRINT_SCOPE)
         jobs_token = _select_corporation_token(token_qs, CORP_JOBS_SCOPE)
         roles_token = (
-            _apply_token_validity_filter(token_qs.require_scopes([CORP_ROLES_SCOPE]))
+            _apply_token_validity_filter(
+                token_qs.require_scopes([CORP_ROLES_SCOPE]),
+                validate_tokens=validate_tokens,
+            )
             .order_by("-created")
             .first()
         )
@@ -810,7 +823,10 @@ def _collect_corporation_scope_status(
         present_scopes = {
             scope
             for scope in required_corporation_scopes
-            if _apply_token_validity_filter(token_qs.require_scopes([scope])).exists()
+            if _apply_token_validity_filter(
+                token_qs.require_scopes([scope]),
+                validate_tokens=validate_tokens,
+            ).exists()
         }
         if present_scopes:
             corp_available_scopes.setdefault(corp_id, set()).update(present_scopes)
@@ -886,7 +902,8 @@ def _collect_corporation_scope_status(
 
         material_exchange_token = (
             _apply_token_validity_filter(
-                token_qs.require_scopes(MATERIAL_EXCHANGE_SCOPE_SET)
+                token_qs.require_scopes(MATERIAL_EXCHANGE_SCOPE_SET),
+                validate_tokens=validate_tokens,
             )
             .order_by("-created")
             .first()
@@ -901,7 +918,8 @@ def _collect_corporation_scope_status(
 
         material_exchange_token = (
             _apply_token_validity_filter(
-                token_qs.require_scopes(MATERIAL_EXCHANGE_SCOPE_SET)
+                token_qs.require_scopes(MATERIAL_EXCHANGE_SCOPE_SET),
+                validate_tokens=validate_tokens,
             )
             .order_by("-created")
             .first()
@@ -2688,14 +2706,21 @@ def token_management(request):
         corporation_sharing = None
     if Token:
         try:
-            blueprint_tokens = Token.objects.filter(user=request.user).require_scopes(
-                BLUEPRINT_SCOPE_SET
+            blueprint_tokens = _apply_token_validity_filter(
+                Token.objects.filter(user=request.user).require_scopes(
+                    BLUEPRINT_SCOPE_SET
+                ),
+                validate_tokens=False,
             )
-            jobs_tokens = Token.objects.filter(user=request.user).require_scopes(
-                JOBS_SCOPE_SET
+            jobs_tokens = _apply_token_validity_filter(
+                Token.objects.filter(user=request.user).require_scopes(JOBS_SCOPE_SET),
+                validate_tokens=False,
             )
-            assets_tokens = Token.objects.filter(user=request.user).require_scopes(
-                ASSETS_SCOPE_SET
+            assets_tokens = _apply_token_validity_filter(
+                Token.objects.filter(user=request.user).require_scopes(
+                    ASSETS_SCOPE_SET
+                ),
+                validate_tokens=False,
             )
             # Deduplicate by character_id
             blueprint_char_ids = (
@@ -2779,7 +2804,10 @@ def token_management(request):
 
         missing_scopes: list[str] = []
         if Token:
-            char_tokens = Token.objects.filter(user=request.user, character_id=cid)
+            char_tokens = _apply_token_validity_filter(
+                Token.objects.filter(user=request.user, character_id=cid),
+                validate_tokens=False,
+            )
             for scope in character_required_scopes:
                 if not char_tokens.require_scopes([scope]).exists():
                     missing_scopes.append(scope)

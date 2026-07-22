@@ -3613,7 +3613,38 @@ class IndustryStructureRig(models.Model):
         )
 
     def save(self, *args, **kwargs):
+        update_fields = kwargs.get("update_fields")
+        invalidate_bonus_cache = not bool(self.pk)
+        previous_structure_id = None
+
+        if self.pk:
+            watched_fields = {"structure_id", "slot_index", "rig_type_id"}
+            if update_fields is None or watched_fields.intersection(set(update_fields)):
+                previous = (
+                    IndustryStructureRig.objects.filter(pk=self.pk)
+                    .values("structure_id", "slot_index", "rig_type_id")
+                    .first()
+                )
+                if previous is not None:
+                    previous_structure_id = previous.get("structure_id")
+                    if (
+                        previous.get("structure_id") != self.structure_id
+                        or previous.get("slot_index") != self.slot_index
+                        or previous.get("rig_type_id") != self.rig_type_id
+                    ):
+                        invalidate_bonus_cache = True
+
         super().save(*args, **kwargs)
+        if not invalidate_bonus_cache:
+            return
+
+        if previous_structure_id and previous_structure_id != self.structure_id:
+            IndustryStructure.objects.filter(pk=previous_structure_id).update(
+                resolved_bonuses_cache=[],
+                resolved_bonuses_cache_signature="",
+                resolved_bonuses_cache_updated_at=None,
+            )
+
         self._invalidate_structure_bonus_cache()
 
     def delete(self, *args, **kwargs):
