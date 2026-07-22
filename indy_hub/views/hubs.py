@@ -12,14 +12,13 @@ from allianceauth.services.hooks import get_extension_logger
 
 # Local
 from ..decorators import indy_hub_permission_required
-from ..models import MaterialExchangeConfig, MaterialExchangeSettings
 from ..services.corporation_blueprint_visibility import (
     can_view_corporation_blueprints,
     can_view_corporation_jobs,
 )
 from ..utils.analytics import emit_view_analytics_event
 from .navigation import build_nav_context
-from .user import _build_dashboard_context
+from .user import _build_settings_hub_context
 
 logger = get_extension_logger(__name__)
 
@@ -40,7 +39,7 @@ def settings_hub(request):
         can_manage_material_hub,
     )
 
-    context = _build_dashboard_context(request)
+    context = _build_settings_hub_context(request)
     context.update(
         {
             "can_manage_material_hub": can_manage_material_hub,
@@ -48,18 +47,6 @@ def settings_hub(request):
             "can_view_corporation_blueprints": can_view_corporation_bp,
             "can_view_corporation_jobs": can_view_corporation_jobs_flag,
         }
-    )
-
-    # Material Exchange counters
-    context["material_exchange_config_total"] = MaterialExchangeConfig.objects.count()
-    context["material_exchange_enabled"] = (
-        MaterialExchangeSettings.get_solo().is_enabled
-    )
-    context["material_exchange_config_active"] = (
-        1
-        if context["material_exchange_enabled"]
-        and context["material_exchange_config_total"]
-        else 0
     )
 
     logger.debug(

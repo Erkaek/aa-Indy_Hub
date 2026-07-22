@@ -47,7 +47,12 @@ from esi.views import sso_redirect
 from eve_sde.models import EveSDE
 
 # AA Example App
-from indy_hub.models import CharacterSettings, CorporationSharingSetting
+from indy_hub.models import (
+    CharacterSettings,
+    CorporationSharingSetting,
+    MaterialExchangeConfig,
+    MaterialExchangeSettings,
+)
 
 from ..app_settings import ROLE_SNAPSHOT_STALE_HOURS
 from ..decorators import indy_hub_access_required, tokens_required
@@ -499,6 +504,7 @@ def _collect_corporation_scope_status(
     *,
     include_warnings: bool = False,
     allow_live_role_fetch: bool = True,
+    validate_tokens: bool = True,
 ) -> list[dict[str, Any]] | tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     if not user.has_perm("indy_hub.can_manage_corp_bp_requests"):
         empty: list[dict[str, Any]] = []
@@ -527,6 +533,11 @@ def _collect_corporation_scope_status(
     corp_role_state: dict[int, dict[str, bool]] = {}
     warnings: list[dict[str, Any]] = [] if include_warnings else []
 
+    def _apply_token_validity_filter(token_queryset):
+        if not validate_tokens:
+            return token_queryset
+        return token_queryset.require_valid()
+
     def _revoke_corporation_tokens(
         token_queryset,
         character_id: int,
@@ -546,9 +557,9 @@ def _collect_corporation_scope_status(
         token_ids: set[int] = set()
         for scope in normalized_scopes:
             token_ids.update(
-                token_queryset.require_scopes([scope])
-                .require_valid()
-                .values_list("pk", flat=True)
+                _apply_token_validity_filter(
+                    token_queryset.require_scopes([scope])
+                ).values_list("pk", flat=True)
             )
 
         if not token_ids:
@@ -579,7 +590,9 @@ def _collect_corporation_scope_status(
             if normalized in seen:
                 continue
             seen.add(normalized)
-            candidate = token_qs.require_scopes(scope_list).require_valid()
+            candidate = _apply_token_validity_filter(
+                token_qs.require_scopes(scope_list)
+            )
             token = candidate.order_by("-created").first()
             if token:
                 return token
@@ -628,8 +641,7 @@ def _collect_corporation_scope_status(
         blueprint_token = _select_corporation_token(token_qs, CORP_BLUEPRINT_SCOPE)
         jobs_token = _select_corporation_token(token_qs, CORP_JOBS_SCOPE)
         roles_token = (
-            token_qs.require_scopes([CORP_ROLES_SCOPE])
-            .require_valid()
+            _apply_token_validity_filter(token_qs.require_scopes([CORP_ROLES_SCOPE]))
             .order_by("-created")
             .first()
         )
@@ -798,7 +810,7 @@ def _collect_corporation_scope_status(
         present_scopes = {
             scope
             for scope in required_corporation_scopes
-            if token_qs.require_scopes([scope]).require_valid().exists()
+            if _apply_token_validity_filter(token_qs.require_scopes([scope])).exists()
         }
         if present_scopes:
             corp_available_scopes.setdefault(corp_id, set()).update(present_scopes)
@@ -873,8 +885,9 @@ def _collect_corporation_scope_status(
             }
 
         material_exchange_token = (
-            token_qs.require_scopes(MATERIAL_EXCHANGE_SCOPE_SET)
-            .require_valid()
+            _apply_token_validity_filter(
+                token_qs.require_scopes(MATERIAL_EXCHANGE_SCOPE_SET)
+            )
             .order_by("-created")
             .first()
         )
@@ -887,8 +900,9 @@ def _collect_corporation_scope_status(
             }
 
         material_exchange_token = (
-            token_qs.require_scopes(MATERIAL_EXCHANGE_SCOPE_SET)
-            .require_valid()
+            _apply_token_validity_filter(
+                token_qs.require_scopes(MATERIAL_EXCHANGE_SCOPE_SET)
+            )
             .order_by("-created")
             .first()
         )
@@ -953,6 +967,7 @@ def build_corporation_sharing_context(
     user,
     *,
     allow_live_role_fetch: bool = True,
+    validate_tokens: bool = True,
 ) -> dict[str, Any] | None:
     if not user.has_perm("indy_hub.can_manage_corp_bp_requests"):
         return None
@@ -974,6 +989,7 @@ def build_corporation_sharing_context(
     corp_scope_status = _collect_corporation_scope_status(
         user,
         allow_live_role_fetch=allow_live_role_fetch,
+        validate_tokens=validate_tokens,
     )
     settings_map = {
         setting.corporation_id: setting
@@ -1628,14 +1644,12 @@ def _build_dashboard_context(request):
             blueprint_char_ids = list(
                 Token.objects.filter(user=request.user)
                 .require_scopes(BLUEPRINT_SCOPE_SET)
-                .require_valid()
                 .values_list("character_id", flat=True)
                 .distinct()
             )
             jobs_char_ids = list(
                 Token.objects.filter(user=request.user)
                 .require_scopes(JOBS_SCOPE_SET)
-                .require_valid()
                 .values_list("character_id", flat=True)
                 .distinct()
             )
@@ -1994,6 +2008,7 @@ def _build_dashboard_context(request):
             corp_scope_status = _collect_corporation_scope_status(
                 request.user,
                 allow_live_role_fetch=False,
+                validate_tokens=False,
             )
             cache.set(corp_scope_status_cache_key, corp_scope_status, timeout=300)
     else:
@@ -2103,6 +2118,7 @@ def _build_dashboard_context(request):
         build_corporation_sharing_context(
             request.user,
             allow_live_role_fetch=False,
+            validate_tokens=False,
         )
         if can_manage_corp
         else None
@@ -2191,6 +2207,234 @@ def _build_dashboard_context(request):
         "show_corporation_tab": can_manage_corp,
     }
     return context
+
+
+def _build_settings_hub_context(request) -> dict[str, Any]:
+    """Collect only the data required by the settings hub view."""
+
+    settings_obj, _created = CharacterSettings.objects.get_or_create(
+        user=request.user, character_id=0
+    )
+
+    pending_updates: list[str] = []
+    if not settings_obj.jobs_notify_frequency:
+        default_frequency = (
+            CharacterSettings.NOTIFY_IMMEDIATE
+            if settings_obj.jobs_notify_completed
+            else CharacterSettings.NOTIFY_DISABLED
+        )
+        settings_obj.jobs_notify_frequency = default_frequency
+        pending_updates.append("jobs_notify_frequency")
+
+    if (
+        not settings_obj.jobs_notify_custom_days
+        or settings_obj.jobs_notify_custom_days < 1
+    ):
+        settings_obj.jobs_notify_custom_days = 3
+        pending_updates.append("jobs_notify_custom_days")
+
+    if (
+        not getattr(settings_obj, "jobs_notify_custom_hours", None)
+        or settings_obj.jobs_notify_custom_hours < 1
+    ):
+        settings_obj.jobs_notify_custom_hours = 6
+        pending_updates.append("jobs_notify_custom_hours")
+
+    if pending_updates:
+        settings_obj.save(update_fields=pending_updates)
+
+    jobs_notify_frequency = settings_obj.jobs_notify_frequency
+    valid_frequencies = dict(CharacterSettings.JOB_NOTIFICATION_FREQUENCY_CHOICES)
+    if jobs_notify_frequency not in valid_frequencies:
+        jobs_notify_frequency = CharacterSettings.NOTIFY_DISABLED
+        if settings_obj.jobs_notify_frequency != jobs_notify_frequency:
+            settings_obj.jobs_notify_frequency = jobs_notify_frequency
+            settings_obj.save(update_fields=["jobs_notify_frequency"])
+
+    jobs_notify_completed = jobs_notify_frequency != CharacterSettings.NOTIFY_DISABLED
+    if settings_obj.jobs_notify_completed != jobs_notify_completed:
+        settings_obj.jobs_notify_completed = jobs_notify_completed
+        settings_obj.save(update_fields=["jobs_notify_completed"])
+
+    job_notification_custom_days = max(1, settings_obj.jobs_notify_custom_days or 1)
+    if job_notification_custom_days != settings_obj.jobs_notify_custom_days:
+        settings_obj.jobs_notify_custom_days = job_notification_custom_days
+        settings_obj.save(update_fields=["jobs_notify_custom_days"])
+
+    job_notification_custom_hours = max(
+        1, getattr(settings_obj, "jobs_notify_custom_hours", 1) or 1
+    )
+    if job_notification_custom_hours != settings_obj.jobs_notify_custom_hours:
+        settings_obj.jobs_notify_custom_hours = job_notification_custom_hours
+        settings_obj.save(update_fields=["jobs_notify_custom_hours"])
+
+    job_notification_hint = _describe_job_notification_hint(
+        jobs_notify_frequency,
+        job_notification_custom_days,
+        job_notification_custom_hours,
+    )
+
+    copy_sharing_scope = settings_obj.copy_sharing_scope
+    if copy_sharing_scope not in dict(CharacterSettings.COPY_SHARING_SCOPE_CHOICES):
+        copy_sharing_scope = CharacterSettings.SCOPE_NONE
+
+    copy_sharing_states = get_copy_sharing_states()
+    copy_sharing_states_with_scope = {
+        key: {**value, "scope": key} for key, value in copy_sharing_states.items()
+    }
+    sharing_state = copy_sharing_states.get(
+        copy_sharing_scope, copy_sharing_states[CharacterSettings.SCOPE_NONE]
+    )
+
+    allow_copy_requests = sharing_state["enabled"]
+    if allow_copy_requests != settings_obj.allow_copy_requests:
+        settings_obj.allow_copy_requests = allow_copy_requests
+        settings_obj.save(update_fields=["allow_copy_requests"])
+
+    can_manage_corp = request.user.has_perm("indy_hub.can_manage_corp_bp_requests")
+    can_manage_material_hub = request.user.has_perm("indy_hub.can_manage_material_hub")
+    can_view_corporation_bp = can_view_corporation_blueprints(request.user)
+    can_view_corporation_jobs_flag = can_view_corporation_jobs(request.user)
+
+    if can_manage_corp:
+        corp_scope_status_cache_key = (
+            f"indy_hub:corp_scope_status:settings:{int(request.user.id)}"
+        )
+        corp_scope_status = cache.get(corp_scope_status_cache_key)
+        if corp_scope_status is None:
+            corp_scope_status = _collect_corporation_scope_status(
+                request.user,
+                allow_live_role_fetch=False,
+                validate_tokens=False,
+            )
+            cache.set(corp_scope_status_cache_key, corp_scope_status, timeout=300)
+    else:
+        corp_scope_status = []
+
+    corporation_share_controls, corporation_share_summary = (
+        _build_corporation_share_controls(request.user, corp_scope_status)
+    )
+
+    corp_job_notification_controls: list[dict[str, Any]] = []
+    if can_manage_corp and corporation_share_controls:
+        for corp_ctrl in corporation_share_controls:
+            corp_id = corp_ctrl["corporation_id"]
+            corp_name = corp_ctrl["corporation_name"]
+            corp_setting, _created = CorporationSharingSetting.objects.get_or_create(
+                user=request.user,
+                corporation_id=corp_id,
+                defaults={
+                    "corporation_name": corp_name,
+                    "corp_jobs_notify_frequency": CharacterSettings.NOTIFY_DISABLED,
+                    "corp_jobs_notify_custom_days": 3,
+                    "corp_jobs_notify_custom_hours": 6,
+                },
+            )
+
+            freq = (
+                corp_setting.corp_jobs_notify_frequency
+                or CharacterSettings.NOTIFY_DISABLED
+            )
+            if freq not in valid_frequencies:
+                freq = CharacterSettings.NOTIFY_DISABLED
+                if corp_setting.corp_jobs_notify_frequency != freq:
+                    corp_setting.corp_jobs_notify_frequency = freq
+                    corp_setting.save(update_fields=["corp_jobs_notify_frequency"])
+
+            custom_days = max(1, corp_setting.corp_jobs_notify_custom_days or 1)
+            if custom_days != corp_setting.corp_jobs_notify_custom_days:
+                corp_setting.corp_jobs_notify_custom_days = custom_days
+                corp_setting.save(update_fields=["corp_jobs_notify_custom_days"])
+
+            custom_hours = max(1, corp_setting.corp_jobs_notify_custom_hours or 1)
+            if custom_hours != corp_setting.corp_jobs_notify_custom_hours:
+                corp_setting.corp_jobs_notify_custom_hours = custom_hours
+                corp_setting.save(update_fields=["corp_jobs_notify_custom_hours"])
+
+            hint = _describe_job_notification_hint(freq, custom_days, custom_hours)
+            corp_job_notification_controls.append(
+                {
+                    "corporation_id": corp_id,
+                    "corporation_name": corp_name,
+                    "frequency": freq,
+                    "custom_days": custom_days,
+                    "custom_hours": custom_hours,
+                    "hint": hint,
+                }
+            )
+
+    corporation_settings_controls: list[dict[str, object]] = []
+    if can_manage_corp and corporation_share_controls:
+        job_by_corp_id = {
+            int(entry.get("corporation_id")): entry
+            for entry in corp_job_notification_controls
+            if isinstance(entry, dict) and entry.get("corporation_id") is not None
+        }
+        for corp_ctrl in corporation_share_controls:
+            corp_id = int(corp_ctrl["corporation_id"])
+            job_ctrl = job_by_corp_id.get(corp_id, {})
+            corporation_settings_controls.append(
+                {
+                    "corporation_id": corp_id,
+                    "corporation_name": corp_ctrl.get("corporation_name"),
+                    "has_blueprint_scope": corp_ctrl.get("has_blueprint_scope"),
+                    "share_scope": corp_ctrl.get("share_scope"),
+                    "blueprint_catalog_scope": corp_ctrl.get("blueprint_catalog_scope"),
+                    "job_catalog_scope": corp_ctrl.get("job_catalog_scope"),
+                    "status_label": corp_ctrl.get("status_label"),
+                    "status_hint": corp_ctrl.get("status_hint"),
+                    "badge_class": corp_ctrl.get("badge_class"),
+                    "catalog_status_label": corp_ctrl.get("catalog_status_label"),
+                    "catalog_status_hint": corp_ctrl.get("catalog_status_hint"),
+                    "catalog_badge_class": corp_ctrl.get("catalog_badge_class"),
+                    "job_catalog_status_label": corp_ctrl.get(
+                        "job_catalog_status_label"
+                    ),
+                    "job_catalog_status_hint": corp_ctrl.get("job_catalog_status_hint"),
+                    "job_catalog_badge_class": corp_ctrl.get("job_catalog_badge_class"),
+                    "jobs_frequency": job_ctrl.get(
+                        "frequency", CharacterSettings.NOTIFY_DISABLED
+                    ),
+                    "jobs_custom_days": job_ctrl.get("custom_days", 3),
+                    "jobs_custom_hours": job_ctrl.get("custom_hours", 6),
+                    "jobs_hint": job_ctrl.get("hint", ""),
+                }
+            )
+
+    material_exchange_config_total = MaterialExchangeConfig.objects.count()
+    material_exchange_enabled = MaterialExchangeSettings.get_solo().is_enabled
+    material_exchange_config_active = (
+        1 if material_exchange_enabled and material_exchange_config_total else 0
+    )
+
+    return {
+        "job_notification_frequency": jobs_notify_frequency,
+        "job_notification_custom_days": job_notification_custom_days,
+        "job_notification_custom_hours": job_notification_custom_hours,
+        "job_notification_hint": job_notification_hint,
+        "copy_sharing_scope": copy_sharing_scope,
+        "copy_sharing_state": sharing_state,
+        "copy_sharing_states": copy_sharing_states_with_scope,
+        "copy_sharing_states_json": json.dumps(copy_sharing_states_with_scope),
+        "blueprint_catalog_states_json": json.dumps(get_blueprint_catalog_states()),
+        "job_catalog_states_json": json.dumps(get_job_catalog_states()),
+        "can_manage_corp_bp_requests": can_manage_corp,
+        "can_manage_material_hub": can_manage_material_hub,
+        "can_view_corporation_blueprints": can_view_corporation_bp,
+        "can_view_corporation_jobs": can_view_corporation_jobs_flag,
+        "corporation_share_controls": corporation_share_controls,
+        "corporation_share_controls_json": json.dumps(corporation_share_controls),
+        "corporation_share_summary": corporation_share_summary,
+        "corp_job_notification_controls": corp_job_notification_controls,
+        "corp_job_notification_controls_json": json.dumps(
+            corp_job_notification_controls
+        ),
+        "corporation_settings_controls": corporation_settings_controls,
+        "corporation_settings_controls_json": json.dumps(corporation_settings_controls),
+        "material_exchange_enabled": material_exchange_enabled,
+        "material_exchange_config_total": material_exchange_config_total,
+        "material_exchange_config_active": material_exchange_config_active,
+    }
 
 
 def _is_base_eve_sde_loaded() -> bool:
@@ -2417,6 +2661,7 @@ def token_management(request):
                 request.user,
                 include_warnings=True,
                 allow_live_role_fetch=False,
+                validate_tokens=False,
             )
             corp_scope_status = [
                 status
@@ -2429,6 +2674,7 @@ def token_management(request):
             corporation_sharing = build_corporation_sharing_context(
                 request.user,
                 allow_live_role_fetch=False,
+                validate_tokens=False,
             )
             token_management_live_hash = _token_management_payload_hash(
                 corporations=corp_scope_status,
@@ -2442,20 +2688,14 @@ def token_management(request):
         corporation_sharing = None
     if Token:
         try:
-            blueprint_tokens = (
-                Token.objects.filter(user=request.user)
-                .require_scopes(BLUEPRINT_SCOPE_SET)
-                .require_valid()
+            blueprint_tokens = Token.objects.filter(user=request.user).require_scopes(
+                BLUEPRINT_SCOPE_SET
             )
-            jobs_tokens = (
-                Token.objects.filter(user=request.user)
-                .require_scopes(JOBS_SCOPE_SET)
-                .require_valid()
+            jobs_tokens = Token.objects.filter(user=request.user).require_scopes(
+                JOBS_SCOPE_SET
             )
-            assets_tokens = (
-                Token.objects.filter(user=request.user)
-                .require_scopes(ASSETS_SCOPE_SET)
-                .require_valid()
+            assets_tokens = Token.objects.filter(user=request.user).require_scopes(
+                ASSETS_SCOPE_SET
             )
             # Deduplicate by character_id
             blueprint_char_ids = (
@@ -2539,9 +2779,7 @@ def token_management(request):
 
         missing_scopes: list[str] = []
         if Token:
-            char_tokens = Token.objects.filter(
-                user=request.user, character_id=cid
-            ).require_valid()
+            char_tokens = Token.objects.filter(user=request.user, character_id=cid)
             for scope in character_required_scopes:
                 if not char_tokens.require_scopes([scope]).exists():
                     missing_scopes.append(scope)

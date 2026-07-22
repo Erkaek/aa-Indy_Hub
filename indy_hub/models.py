@@ -3011,6 +3011,9 @@ class IndustryStructure(models.Model):
             MaxValueValidator(Decimal("100")),
         ],
     )
+    resolved_bonuses_cache = models.JSONField(default=list, blank=True)
+    resolved_bonuses_cache_signature = models.CharField(max_length=255, blank=True)
+    resolved_bonuses_cache_updated_at = models.DateTimeField(blank=True, null=True)
     last_synced_at = models.DateTimeField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -3198,9 +3201,111 @@ class IndustryStructure(models.Model):
 
     def get_resolved_bonuses(self):
         # AA Example App
-        from indy_hub.services.industry_structures import resolve_structure_bonuses
+        from indy_hub.services.industry_structures import (
+            IndustryStructureResolvedBonus,
+            resolve_structure_bonuses,
+        )
 
-        return resolve_structure_bonuses(self)
+        def _serialize_bonus_rows(
+            rows: list[IndustryStructureResolvedBonus],
+        ) -> list[dict[str, object]]:
+            payload: list[dict[str, object]] = []
+            for row in rows:
+                payload.append(
+                    {
+                        "source": row.source,
+                        "label": row.label,
+                        "activity_id": int(row.activity_id),
+                        "supported_types_label": row.supported_types_label,
+                        "supported_type_names": list(row.supported_type_names or ()),
+                        "material_efficiency_percent": str(
+                            row.material_efficiency_percent or Decimal("0")
+                        ),
+                        "time_efficiency_percent": str(
+                            row.time_efficiency_percent or Decimal("0")
+                        ),
+                        "job_cost_percent": str(row.job_cost_percent or Decimal("0")),
+                    }
+                )
+            return payload
+
+        def _deserialize_bonus_rows(
+            payload: object,
+        ) -> list[IndustryStructureResolvedBonus] | None:
+            if not isinstance(payload, list):
+                return None
+            rows: list[IndustryStructureResolvedBonus] = []
+            try:
+                for item in payload:
+                    if not isinstance(item, dict):
+                        return None
+                    rows.append(
+                        IndustryStructureResolvedBonus(
+                            source=str(item.get("source") or ""),
+                            label=str(item.get("label") or ""),
+                            activity_id=int(item.get("activity_id") or 0),
+                            supported_types_label=str(
+                                item.get("supported_types_label") or ""
+                            ),
+                            supported_type_names=tuple(
+                                str(name)
+                                for name in (item.get("supported_type_names") or [])
+                                if name
+                            ),
+                            material_efficiency_percent=Decimal(
+                                str(item.get("material_efficiency_percent") or "0")
+                            ),
+                            time_efficiency_percent=Decimal(
+                                str(item.get("time_efficiency_percent") or "0")
+                            ),
+                            job_cost_percent=Decimal(
+                                str(item.get("job_cost_percent") or "0")
+                            ),
+                        )
+                    )
+            except Exception:
+                return None
+            return rows
+
+        rig_rows = list(self.rigs.all())
+        rig_rows.sort(
+            key=lambda rig: (
+                int(getattr(rig, "slot_index", 0) or 0),
+                int(getattr(rig, "rig_type_id", 0) or 0),
+            )
+        )
+        signature = "|".join(
+            [
+                str(int(self.structure_type_id or 0)),
+                str(self.system_security_band or ""),
+                ",".join(
+                    f"{int(getattr(rig, 'slot_index', 0) or 0)}:{int(getattr(rig, 'rig_type_id', 0) or 0)}"
+                    for rig in rig_rows
+                ),
+            ]
+        )
+
+        cached_rows = _deserialize_bonus_rows(self.resolved_bonuses_cache)
+        if (
+            signature
+            and self.resolved_bonuses_cache_signature == signature
+            and cached_rows is not None
+        ):
+            return cached_rows
+
+        resolved_rows = resolve_structure_bonuses(self)
+        serialized_rows = _serialize_bonus_rows(resolved_rows)
+        cache_updated_at = timezone.now()
+        self.resolved_bonuses_cache = serialized_rows
+        self.resolved_bonuses_cache_signature = signature
+        self.resolved_bonuses_cache_updated_at = cache_updated_at
+        if self.pk:
+            IndustryStructure.objects.filter(pk=self.pk).update(
+                resolved_bonuses_cache=serialized_rows,
+                resolved_bonuses_cache_signature=signature,
+                resolved_bonuses_cache_updated_at=cache_updated_at,
+            )
+        return resolved_rows
 
     def get_bonus_multiplier(self, activity_id: int, bonus_field: str) -> Decimal:
         multiplier = Decimal("1")
@@ -3437,6 +3542,33 @@ class IndustryStructure(models.Model):
             raise ValidationError(validation_errors)
 
     def save(self, *args, **kwargs):
+        update_fields = kwargs.get("update_fields")
+        invalidate_bonus_cache = not bool(self.pk)
+        if self.pk:
+            watched_fields = {"structure_type_id", "system_security_band"}
+            if update_fields is None or watched_fields.intersection(set(update_fields)):
+                previous = (
+                    IndustryStructure.objects.filter(pk=self.pk)
+                    .values("structure_type_id", "system_security_band")
+                    .first()
+                )
+                if previous is not None and (
+                    previous.get("structure_type_id") != self.structure_type_id
+                    or previous.get("system_security_band") != self.system_security_band
+                ):
+                    invalidate_bonus_cache = True
+
+        if invalidate_bonus_cache:
+            self.resolved_bonuses_cache = []
+            self.resolved_bonuses_cache_signature = ""
+            self.resolved_bonuses_cache_updated_at = None
+            if update_fields is not None:
+                kwargs["update_fields"] = set(update_fields) | {
+                    "resolved_bonuses_cache",
+                    "resolved_bonuses_cache_signature",
+                    "resolved_bonuses_cache_updated_at",
+                }
+
         if not kwargs.get("raw", False):
             self.full_clean()
         super().save(*args, **kwargs)
@@ -3470,3 +3602,26 @@ class IndustryStructureRig(models.Model):
     def __str__(self) -> str:
         label = self.rig_type_name or self.rig_type_id
         return f"{self.structure.name} - Slot {self.slot_index}: {label}"
+
+    def _invalidate_structure_bonus_cache(self) -> None:
+        if not self.structure_id:
+            return
+        IndustryStructure.objects.filter(pk=self.structure_id).update(
+            resolved_bonuses_cache=[],
+            resolved_bonuses_cache_signature="",
+            resolved_bonuses_cache_updated_at=None,
+        )
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        self._invalidate_structure_bonus_cache()
+
+    def delete(self, *args, **kwargs):
+        structure_id = self.structure_id
+        super().delete(*args, **kwargs)
+        if structure_id:
+            IndustryStructure.objects.filter(pk=structure_id).update(
+                resolved_bonuses_cache=[],
+                resolved_bonuses_cache_signature="",
+                resolved_bonuses_cache_updated_at=None,
+            )

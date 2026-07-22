@@ -1522,7 +1522,9 @@ def resolve_structure_bonuses(
         structure.structure_type_id,
         structure_type_name=structure.structure_type_name,
     )
-    for rig in structure.rigs.all().order_by("slot_index"):
+    rig_rows = list(structure.rigs.all())
+    rig_rows.sort(key=lambda rig: int(getattr(rig, "slot_index", 0) or 0))
+    for rig in rig_rows:
         bonuses.extend(
             resolve_rig_type_bonuses(
                 rig.rig_type_id,
