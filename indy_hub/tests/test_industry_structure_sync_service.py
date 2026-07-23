@@ -196,7 +196,7 @@ class IndustryStructureSyncServiceTests(TestCase):
         )
 
         self.assertEqual(summary["skipped_forbidden"], 1)
-        self.assertEqual(summary["skipped_missing_token"], 0)
+        self.assertEqual(summary["skipped_unusable_token"], 0)
         self.assertEqual(summary["rate_limited"], 0)
         self.assertEqual(summary["deferred_due_to_rate_limit"], 0)
         self.assertEqual(summary["errors"], [])

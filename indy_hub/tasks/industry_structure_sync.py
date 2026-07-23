@@ -23,7 +23,7 @@ def sync_persisted_industry_structure_registry(
     error_count = len(summary["errors"])
     logger_method = logger.warning if error_count else logger.info
     logger_method(
-        "Automatic industry structure sync complete: corporations=%s created=%s updated=%s unchanged=%s deleted=%s skipped_unsupported=%s skipped_forbidden=%s skipped_missing_token=%s rate_limited=%s deferred=%s errors=%s",
+        "Automatic industry structure sync complete: corporations=%s created=%s updated=%s unchanged=%s deleted=%s skipped_unsupported=%s skipped_forbidden=%s skipped_unusable_token=%s rate_limited=%s deferred=%s errors=%s",
         summary["corporations"],
         summary["created"],
         summary["updated"],
@@ -31,7 +31,7 @@ def sync_persisted_industry_structure_registry(
         summary.get("deleted", 0),
         summary.get("skipped_unsupported", 0),
         summary.get("skipped_forbidden", 0),
-        summary.get("skipped_missing_token", 0),
+        summary.get("skipped_unusable_token", 0),
         summary.get("rate_limited", 0),
         summary.get("deferred_due_to_rate_limit", 0),
         error_count,
@@ -40,10 +40,10 @@ def sync_persisted_industry_structure_registry(
         logger.info(
             "Structure sync 403 sample: %s", " | ".join(summary["forbidden_samples"])
         )
-    if summary.get("missing_token_samples"):
+    if summary.get("unusable_token_samples"):
         logger.info(
-            "Structure sync missing-token sample: %s",
-            " | ".join(summary["missing_token_samples"]),
+            "Structure sync unusable-token sample: %s",
+            " | ".join(summary["unusable_token_samples"]),
         )
     if summary.get("rate_limit_samples"):
         logger.info(

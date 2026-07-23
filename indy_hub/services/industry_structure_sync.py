@@ -362,12 +362,12 @@ def sync_corporation_structure_targets(
         "skipped_unsupported": 0,
         "deleted": 0,
         "skipped_forbidden": 0,
-        "skipped_missing_token": 0,
+        "skipped_unusable_token": 0,
         "rate_limited": 0,
         "deferred_due_to_rate_limit": 0,
         "errors": [],
         "forbidden_samples": [],
-        "missing_token_samples": [],
+        "unusable_token_samples": [],
         "rate_limit_samples": [],
     }
     now = timezone.now()
@@ -399,10 +399,10 @@ def sync_corporation_structure_targets(
             )
             continue
         except ESITokenError as exc:
-            summary["skipped_missing_token"] += 1
-            missing_token_samples = summary["missing_token_samples"]
-            if len(missing_token_samples) < SYNC_ERROR_SAMPLE_LIMIT:
-                missing_token_samples.append(f"{corporation_name}: {exc}")
+            summary["skipped_unusable_token"] += 1
+            unusable_token_samples = summary["unusable_token_samples"]
+            if len(unusable_token_samples) < SYNC_ERROR_SAMPLE_LIMIT:
+                unusable_token_samples.append(f"{corporation_name}: {exc}")
             logger.info(
                 "Skipping corporation %s structure sync because no usable token/scope is available",
                 corporation_id,
