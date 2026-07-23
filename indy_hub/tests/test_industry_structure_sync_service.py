@@ -10,6 +10,7 @@ from django.test import TestCase
 
 # AA Example App
 from indy_hub.models import IndustryStructure
+from indy_hub.services.esi_client import ESIForbiddenError, ESIRateLimitError
 from indy_hub.services.industry_structure_sync import (
     _get_online_industry_activity_flags,
     sync_corporation_structure_targets,
@@ -177,3 +178,49 @@ class IndustryStructureSyncServiceTests(TestCase):
         self.assertEqual(structure.solar_system_name, "Jita")
         self.assertEqual(structure.constellation_id, 20000020)
         self.assertEqual(structure.region_id, 10000002)
+
+    @patch(
+        "indy_hub.services.industry_structure_sync.shared_client.fetch_corporation_structures"
+    )
+    def test_sync_aggregates_forbidden_errors_without_marking_as_failure(
+        self,
+        mock_fetch_corporation_structures,
+    ) -> None:
+        mock_fetch_corporation_structures.side_effect = ESIForbiddenError(
+            "ESI returned 403 for /corporations/98134807/structures/"
+        )
+
+        summary = sync_corporation_structure_targets(
+            [{"id": 98134807, "name": "Acme Corp", "character_id": 2112625428}],
+            force_refresh=True,
+        )
+
+        self.assertEqual(summary["skipped_forbidden"], 1)
+        self.assertEqual(summary["skipped_missing_token"], 0)
+        self.assertEqual(summary["rate_limited"], 0)
+        self.assertEqual(summary["deferred_due_to_rate_limit"], 0)
+        self.assertEqual(summary["errors"], [])
+        self.assertEqual(len(summary["forbidden_samples"]), 1)
+
+    @patch(
+        "indy_hub.services.industry_structure_sync.shared_client.fetch_corporation_structures"
+    )
+    def test_sync_stops_after_rate_limit_and_defers_remaining_targets(
+        self,
+        mock_fetch_corporation_structures,
+    ) -> None:
+        mock_fetch_corporation_structures.side_effect = ESIRateLimitError(
+            "Local task ESI throttle hit"
+        )
+
+        sync_targets = [
+            {"id": 98134807, "name": "Acme Corp", "character_id": 2112625428},
+            {"id": 98201666, "name": "Beta Corp", "character_id": 2112625429},
+            {"id": 98209999, "name": "Gamma Corp", "character_id": 2112625430},
+        ]
+        summary = sync_corporation_structure_targets(sync_targets, force_refresh=True)
+
+        self.assertEqual(summary["rate_limited"], 1)
+        self.assertEqual(summary["deferred_due_to_rate_limit"], 2)
+        self.assertEqual(summary["errors"], [])
+        self.assertEqual(mock_fetch_corporation_structures.call_count, 1)

@@ -14,6 +14,8 @@ from esi.models import Token
 # AA Example App
 from indy_hub.models import IndustryStructure
 from indy_hub.services.esi_client import (
+    ESIForbiddenError,
+    ESIRateLimitError,
     ESITokenError,
     ESIUnmodifiedError,
     shared_client,
@@ -55,6 +57,8 @@ DEFAULT_DISABLED_ACTIVITY_FLAGS = {
     "enable_hybrid_reactions": False,
     "enable_composite_reactions": False,
 }
+
+SYNC_ERROR_SAMPLE_LIMIT = 5
 
 
 def _truncate_structure_sync_name(value: str) -> str:
@@ -357,11 +361,18 @@ def sync_corporation_structure_targets(
         "unchanged": 0,
         "skipped_unsupported": 0,
         "deleted": 0,
+        "skipped_forbidden": 0,
+        "skipped_missing_token": 0,
+        "rate_limited": 0,
+        "deferred_due_to_rate_limit": 0,
         "errors": [],
+        "forbidden_samples": [],
+        "missing_token_samples": [],
+        "rate_limit_samples": [],
     }
     now = timezone.now()
 
-    for corporation in sync_targets:
+    for index, corporation in enumerate(sync_targets):
         corporation_id = int(corporation["id"])
         corporation_name = str(corporation.get("name") or corporation_id)
         character_id = int(corporation["character_id"])
@@ -377,6 +388,41 @@ def sync_corporation_structure_targets(
                 corporation_id,
             )
             continue
+        except ESIForbiddenError as exc:
+            summary["skipped_forbidden"] += 1
+            forbidden_samples = summary["forbidden_samples"]
+            if len(forbidden_samples) < SYNC_ERROR_SAMPLE_LIMIT:
+                forbidden_samples.append(f"{corporation_name}: {exc}")
+            logger.info(
+                "Skipping corporation %s structure sync after ESI 403",
+                corporation_id,
+            )
+            continue
+        except ESITokenError as exc:
+            summary["skipped_missing_token"] += 1
+            missing_token_samples = summary["missing_token_samples"]
+            if len(missing_token_samples) < SYNC_ERROR_SAMPLE_LIMIT:
+                missing_token_samples.append(f"{corporation_name}: {exc}")
+            logger.info(
+                "Skipping corporation %s structure sync because no usable token/scope is available",
+                corporation_id,
+            )
+            continue
+        except ESIRateLimitError as exc:
+            summary["rate_limited"] += 1
+            rate_limit_samples = summary["rate_limit_samples"]
+            if len(rate_limit_samples) < SYNC_ERROR_SAMPLE_LIMIT:
+                rate_limit_samples.append(f"{corporation_name}: {exc}")
+
+            remaining_targets = max(len(sync_targets) - index - 1, 0)
+            if remaining_targets:
+                summary["deferred_due_to_rate_limit"] += int(remaining_targets)
+            logger.info(
+                "Stopping structure sync early after local ESI throttle for corporation %s; deferred=%s",
+                corporation_id,
+                remaining_targets,
+            )
+            break
         except Exception as exc:
             logger.warning(
                 "Unable to sync structures for corporation %s: %s",

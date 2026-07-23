@@ -20,14 +20,34 @@ def sync_persisted_industry_structure_registry(
     force_refresh: bool = True,
 ) -> dict[str, int | str | list[str]]:
     summary = sync_persisted_industry_structures(force_refresh=force_refresh)
-    logger.info(
-        "Automatic industry structure sync complete: corporations=%s created=%s updated=%s unchanged=%s deleted=%s skipped_unsupported=%s errors=%s",
+    error_count = len(summary["errors"])
+    logger_method = logger.warning if error_count else logger.info
+    logger_method(
+        "Automatic industry structure sync complete: corporations=%s created=%s updated=%s unchanged=%s deleted=%s skipped_unsupported=%s skipped_forbidden=%s skipped_missing_token=%s rate_limited=%s deferred=%s errors=%s",
         summary["corporations"],
         summary["created"],
         summary["updated"],
         summary["unchanged"],
         summary.get("deleted", 0),
         summary.get("skipped_unsupported", 0),
-        len(summary["errors"]),
+        summary.get("skipped_forbidden", 0),
+        summary.get("skipped_missing_token", 0),
+        summary.get("rate_limited", 0),
+        summary.get("deferred_due_to_rate_limit", 0),
+        error_count,
     )
+    if summary.get("forbidden_samples"):
+        logger.info(
+            "Structure sync 403 sample: %s", " | ".join(summary["forbidden_samples"])
+        )
+    if summary.get("missing_token_samples"):
+        logger.info(
+            "Structure sync missing-token sample: %s",
+            " | ".join(summary["missing_token_samples"]),
+        )
+    if summary.get("rate_limit_samples"):
+        logger.info(
+            "Structure sync rate-limit sample: %s",
+            " | ".join(summary["rate_limit_samples"]),
+        )
     return {"status": "ok", **summary}
