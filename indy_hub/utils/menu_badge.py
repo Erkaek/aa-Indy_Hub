@@ -10,20 +10,18 @@ from django.db.models import Exists, F, OuterRef, Q
 MENU_BADGE_CACHE_TTL_SECONDS = 45
 
 # Required personal-character ESI scopes for Indy Hub. Kept in sync with
-# ``indy_hub.views.user`` (BLUEPRINT/JOBS/ASSETS/SKILLS/ONLINE scope sets).
+# ``indy_hub.views.user`` (BLUEPRINT/JOBS/ASSETS/SKILLS scope sets).
 _BLUEPRINT_SCOPE = "esi-characters.read_blueprints.v1"
 _JOBS_SCOPE = "esi-industry.read_character_jobs.v1"
 _STRUCTURE_SCOPE = "esi-universe.read_structures.v1"
 _SKILLS_SCOPE = "esi-skills.read_skills.v1"
 _ASSETS_SCOPE = "esi-assets.read_assets.v1"
-_ONLINE_SCOPE = "esi-location.read_online.v1"
 _CHARACTER_REQUIRED_SCOPES = (
     _BLUEPRINT_SCOPE,
     _JOBS_SCOPE,
     _STRUCTURE_SCOPE,
     _SKILLS_SCOPE,
     _ASSETS_SCOPE,
-    _ONLINE_SCOPE,
 )
 
 
@@ -138,9 +136,8 @@ def count_characters_missing_scopes(user_id: int) -> int:
 
     Only characters that already have at least one valid token are counted, so
     brand-new users that never authorized Indy Hub do not see a navbar warning.
-    The goal is to surface freshly added scope requirements (e.g. a new
-    ``esi-location.read_online.v1`` requirement after an upgrade) on accounts
-    that are already partially linked.
+    The goal is to surface accounts that are only partially linked to the
+    currently required personal Indy Hub scopes.
     Returns ``0`` silently when Alliance Auth's character or token models are
     not available (e.g. minimal test environments).
     """

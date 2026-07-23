@@ -1,6 +1,7 @@
 """Tests for industry job payload validation."""
 
 # Standard Library
+from datetime import timedelta
 from unittest.mock import patch
 
 # Django
@@ -13,8 +14,8 @@ from allianceauth.authentication.models import CharacterOwnership
 from allianceauth.eveonline.models import EveCharacter
 
 # AA Example App
-from indy_hub.models import CharacterOnlineStatus
 from indy_hub.tasks.industry import (
+    _is_user_active,
     update_all_blueprints,
     update_all_industry_jobs,
     update_industry_jobs_for_user,
@@ -87,14 +88,36 @@ class IndustryJobsPayloadTests(TestCase):
             character=character,
             owner_hash=f"hash-{character_id}-{self.user.id}",
         )
-        CharacterOnlineStatus.objects.create(
-            owner_user=self.user,
-            character_id=character_id,
-            online=True,
-            last_login=timezone.now(),
-            last_logout=timezone.now(),
-            logins=1,
-        )
+
+    def test_user_activity_is_permissive_when_corptools_table_is_missing(self) -> None:
+        with patch(
+            "indy_hub.tasks.industry._fetch_corptools_activity_rows",
+            return_value=None,
+        ):
+            self.assertTrue(_is_user_active(self.user))
+
+    def test_user_activity_is_permissive_when_corptools_login_is_empty(self) -> None:
+        with patch(
+            "indy_hub.tasks.industry._fetch_corptools_activity_rows",
+            return_value=[(9000001, "")],
+        ):
+            self.assertTrue(_is_user_active(self.user))
+
+    def test_user_activity_is_false_when_corptools_login_is_stale(self) -> None:
+        stale_login = timezone.now() - timedelta(days=32)
+        with patch(
+            "indy_hub.tasks.industry._fetch_corptools_activity_rows",
+            return_value=[(9000001, stale_login)],
+        ):
+            self.assertFalse(_is_user_active(self.user))
+
+    def test_user_activity_is_true_when_corptools_login_is_recent(self) -> None:
+        recent_login = timezone.now() - timedelta(days=2)
+        with patch(
+            "indy_hub.tasks.industry._fetch_corptools_activity_rows",
+            return_value=[(9000001, recent_login)],
+        ):
+            self.assertTrue(_is_user_active(self.user))
 
     def test_skips_non_list_payload(self) -> None:
         with (
@@ -118,9 +141,6 @@ class IndustryJobsPayloadTests(TestCase):
     def test_skips_character_without_valid_job_token(self) -> None:
         with (
             patch("indy_hub.tasks.industry.Token", _MissingToken),
-            patch(
-                "indy_hub.tasks.industry._refresh_online_status_for_user",
-            ),
             patch(
                 "indy_hub.tasks.industry._is_user_active",
                 return_value=True,

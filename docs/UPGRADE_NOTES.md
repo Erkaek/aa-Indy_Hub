@@ -47,8 +47,16 @@ ______________________________________________________________________
 1. Restart gunicorn + celery beat + workers.
 1. If you previously automated `sync_sde_compat`/`indy_sde_compat`, remove it from your runbooks: 1.18.0 no longer uses that compatibility cache flow. The old periodic refresh task (`indy-hub-refresh-production-items`) is legacy and is automatically cleaned up by Indy Hub periodic-task setup, so no manual beat-task deletion is normally required.
 1. Migration `0107_industrystructure_resolved_bonus_cache` adds persistent structure bonus cache fields. No manual data backfill is required; cache rows are generated lazily during normal structure usage.
+1. Migration `0108_remove_character_online_status` drops the obsolete Indy Hub online-status snapshot table. No manual data migration is required.
 1. Jobs page behavior changed: live ESI skill refresh now runs only when users click `Force Refresh`. Normal page loads use cached snapshot data and display a `Last update` timestamp.
 1. Token Management and Settings views no longer trigger live token refresh while rendering. Expired tokens are still excluded from coverage checks through passive validity filtering.
+1. Activity-aware manual refresh gating now uses Corptools `corptools_characteraudit.last_known_login` when available. If Corptools is absent, the table is missing, or the login value is empty, Indy Hub falls back to permissive behavior and does not block refreshes.
+1. Personal Indy Hub authorization no longer requires `esi-location.read_online.v1`; users do not need to re-link characters for that scope on this release.
+1. If your stack proxies Alliance Auth notifications to Discord, explicitly review `INDY_HUB_NOTIFICATION_DISPATCH_MODE` in `local.py` before restart:
+   - `aa_only` when the proxy already relays Alliance Auth notifications to Discord (prevents duplicate Discord DMs).
+   - `discord_direct_only` for direct Discord delivery with Alliance Auth fallback.
+   - `both` only when duplicate channel delivery is intentional.
+1. (Optional) Set `INDY_HUB_DISCORD_DM_ENABLED = False` to fully disable direct Discord DMs.
 
 ______________________________________________________________________
 
@@ -59,7 +67,6 @@ ______________________________________________________________________
 1. `python manage.py migrate`
 1. `python manage.py collectstatic --noinput`
 1. Restart gunicorn + celery beat + workers.
-1. Ask users to re-link their characters via CharLink or Token Management to grant the new `esi-location.read_online.v1` scope (additive — existing tokens keep working otherwise). The Indy Hub navbar badge now increments by **one per character** that is linked but missing at least one required personal scope, so affected pilots will see the warning immediately.
 1. (Optional) Tune `INDY_HUB_MAX_FORM_FIELDS` (default `50000`) and `INDY_HUB_MAX_REQUEST_BODY_BYTES` (default 50 MB) in `local.py` if your users push very large catalogues / craft workspaces.
 
 ______________________________________________________________________
@@ -76,7 +83,6 @@ This path crosses the 1.16.0 Crafting Projects rewrite.
 1. Restart gunicorn + celery beat + workers.
 1. Update internal links / bookmarks: deprecated `simulation*` endpoints now return `410 Gone`.
 1. In `Django Admin`, assign the new Industry Structures / Crafting Project permissions to the relevant groups.
-1. Ask users to re-link their characters to grant the new `esi-location.read_online.v1` scope.
 1. (Optional) Tune `INDY_HUB_MAX_FORM_FIELDS` / `INDY_HUB_MAX_REQUEST_BODY_BYTES` in `local.py`.
 
 ______________________________________________________________________
@@ -97,7 +103,6 @@ This path crosses the 1.15.0 SDE backend swap and the 1.16.0 Crafting Projects r
 1. Restart gunicorn + celery beat + workers.
 1. Update internal links / bookmarks: deprecated `simulation*` endpoints now return `410 Gone`.
 1. In `Django Admin`, assign the new Industry Structures / Crafting Project permissions to the relevant groups.
-1. Ask users to re-link their characters to grant the new `esi-location.read_online.v1` scope.
 1. (Optional) Tune `INDY_HUB_MAX_FORM_FIELDS` / `INDY_HUB_MAX_REQUEST_BODY_BYTES` in `local.py`.
 1. (Optional) `django-eveuniverse` is no longer used by Indy Hub — uninstall once you confirm no other AA module depends on it.
 
@@ -123,7 +128,6 @@ This path crosses the 1.14.0 Material Exchange refactor, the 1.15.0 SDE backend 
 1. Ask corporation directors using Material Exchange to re-link their corp tokens. New scopes since 1.14.0: `esi-corporations.read_divisions.v1`, `esi-contracts.read_corporation_contracts.v1`. Removed: corp wallet scope.
 1. Update internal links / bookmarks: deprecated `simulation*` endpoints now return `410 Gone`.
 1. In `Django Admin`, assign the new Industry Structures / Crafting Project permissions to the relevant groups.
-1. Ask users to re-link their characters to grant the new `esi-location.read_online.v1` scope.
 1. (Optional) Configure Discord notification webhooks in `Django Admin → Indy Hub → Notification Webhooks` (introduced in 1.13.4).
 1. (Optional) Tune `INDY_HUB_MAX_FORM_FIELDS` / `INDY_HUB_MAX_REQUEST_BODY_BYTES` in `local.py`.
 
@@ -151,7 +155,6 @@ This path crosses the 1.13.0 Material Exchange order-reference rule, then all of
 1. Ask corp directors using Material Exchange to re-link their corp tokens (new scopes from 1.14.0).
 1. Update bookmarks: deprecated `simulation*` endpoints now return `410 Gone`.
 1. Assign the new Industry Structures / Crafting Project permissions in `Django Admin`.
-1. Ask users to re-link their characters for `esi-location.read_online.v1`.
 1. (Optional) Tune `INDY_HUB_MAX_FORM_FIELDS` / `INDY_HUB_MAX_REQUEST_BODY_BYTES` in `local.py`.
 
 ______________________________________________________________________
@@ -190,7 +193,6 @@ This path crosses the 1.11.0 corporation blueprints / permissions overhaul.
 1. (Optional) Configure Discord notification webhooks (1.13.4).
 1. Update bookmarks: `simulation*` endpoints return `410 Gone`.
 1. Assign the new Industry Structures / Crafting Project permissions in `Django Admin`.
-1. Ask users to re-link their characters for `esi-location.read_online.v1`.
 1. (Optional) Tune `INDY_HUB_MAX_FORM_FIELDS` / `INDY_HUB_MAX_REQUEST_BODY_BYTES` in `local.py`.
 
 ______________________________________________________________________
@@ -225,7 +227,6 @@ Steps:
 1. (Optional) Configure Discord notification webhooks (1.13.4).
 1. Update bookmarks: `simulation*` endpoints return `410 Gone`.
 1. Assign the new Industry Structures / Crafting Project permissions in `Django Admin`.
-1. Ask users to re-link their characters for `esi-location.read_online.v1`.
 1. (Optional) Tune `INDY_HUB_MAX_FORM_FIELDS` / `INDY_HUB_MAX_REQUEST_BODY_BYTES` in `local.py`.
 
 ______________________________________________________________________
@@ -253,6 +254,10 @@ python manage.py collectstatic --noinput
 
 # 6. Restart everything
 supervisorctl restart auth_gunicorn auth_celery_beat auth_celery_worker
+
+# 7. If your stack proxies AA notifications to Discord, review before restart:
+# INDY_HUB_NOTIFICATION_DISPATCH_MODE = "aa_only"
+# INDY_HUB_DISCORD_DM_ENABLED = False  # optional hard disable of direct DMs
 ```
 
 When in doubt, the per-version `### Update from X.Y.Z` blocks of `CHANGELOG.md` are authoritative.

@@ -33,6 +33,7 @@ ______________________________________________________________________
 - **Jobs freshness visibility**: the jobs header now shows `Last update` to clarify current data recency.
 - **Settings render performance**: settings hub uses a lightweight context path to reduce page render latency.
 - **Token Management safety/perf**: render paths avoid live token refresh side effects and use passive validity filtering for scope coverage.
+- **User activity gating**: manual refresh gating now uses Corptools `last_known_login` when available, and falls back permissively when Corptools is absent or has no usable login data.
 - **Industry Structures performance**: resolved structure bonuses are cached persistently and invalidated only when relevant structure/rig signature fields change.
 
 ### Features
@@ -57,6 +58,7 @@ ______________________________________________________________________
 - **django-eveonline-sde 0.0.1b9+** (base SDE data)
 - **Celery** (for background sync and notifications)
 - *(Optional)* Director characters for corporate dashboards
+- *(Optional)* Corptools, to provide `corptools_characteraudit.last_known_login` for activity-aware refresh gating. If absent, Indy Hub falls back to permissive behavior.
 - *(Optional)* [`aa-charlink`](https://apps.allianceauth.org/apps/detail/aa-charlink) to let users authorize Indy Hub scopes through CharLink
 - *(Optional)* [`aadiscordbot`](https://apps.allianceauth.org/apps/detail/allianceauth-discordbot) (preferred) or [`discordnotify`](https://apps.allianceauth.org/apps/detail/aa-discordnotify) for Discord notifications
 
@@ -206,7 +208,6 @@ INDY_HUB_ESI_TASK_TARGET_PER_MIN_SKILLS = 40  # Default: 40
 INDY_HUB_ESI_TASK_TARGET_PER_MIN_ROLES = 30  # Default: 30
 
 # Stale refresh thresholds (hours)
-INDY_HUB_ONLINE_STATUS_STALE_HOURS = 72  # Default: 72
 INDY_HUB_SKILL_SNAPSHOT_STALE_HOURS = 24  # Default: 24
 INDY_HUB_ROLE_SNAPSHOT_STALE_HOURS = 24  # Default: 24
 INDY_HUB_STRUCTURE_NAME_STALE_HOURS = 24  # Default: 24
@@ -222,7 +223,7 @@ Notification dispatch modes:
 
 - `indy-hub-update-all-blueprints` → Daily at 03:30 UTC
 - `indy-hub-update-all-industry-jobs` → Every 2 hours
-- `indy-hub-refresh-stale-snapshots` → Hourly (skills/roles/online/structures)
+- `indy-hub-refresh-stale-snapshots` → Hourly (skills/roles/structures)
 
 ______________________________________________________________________
 

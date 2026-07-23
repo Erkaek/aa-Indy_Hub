@@ -251,11 +251,10 @@ BLUEPRINT_SCOPE = "esi-characters.read_blueprints.v1"
 JOBS_SCOPE = "esi-industry.read_character_jobs.v1"
 STRUCTURE_SCOPE = "esi-universe.read_structures.v1"
 SKILLS_SCOPE = "esi-skills.read_skills.v1"
-ONLINE_SCOPE = "esi-location.read_online.v1"
 BLUEPRINT_SCOPE_SET = [BLUEPRINT_SCOPE, STRUCTURE_SCOPE]
 JOBS_SCOPE_SET = [JOBS_SCOPE, STRUCTURE_SCOPE]
 ASSETS_SCOPE = "esi-assets.read_assets.v1"
-ASSETS_SCOPE_SET = [ASSETS_SCOPE, ONLINE_SCOPE]
+ASSETS_SCOPE_SET = [ASSETS_SCOPE]
 
 
 def _fetch_character_corporation_roles_with_token(
@@ -3311,7 +3310,7 @@ def sync_all_tokens(request, tokens):
                     messages.warning(
                         request,
                         _(
-                            "Blueprint synchronization skipped: user inactive or missing online scope."
+                            "Blueprint synchronization skipped: user considered inactive."
                         ),
                     )
                 else:
@@ -3351,9 +3350,7 @@ def sync_all_tokens(request, tokens):
                 elif remaining is None:
                     messages.warning(
                         request,
-                        _(
-                            "Jobs synchronization skipped: user inactive or missing online scope."
-                        ),
+                        _("Jobs synchronization skipped: user considered inactive."),
                     )
                 else:
                     wait_minutes = max(1, ceil(remaining.total_seconds() / 60))
@@ -3417,7 +3414,7 @@ def sync_blueprints(request, tokens):
                     messages.warning(
                         request,
                         _(
-                            "Blueprint synchronization skipped: user inactive or missing online scope."
+                            "Blueprint synchronization skipped: user considered inactive."
                         ),
                     )
                 else:
@@ -3474,9 +3471,7 @@ def sync_jobs(request, tokens):
                 elif remaining is None:
                     messages.warning(
                         request,
-                        _(
-                            "Jobs synchronization skipped: user inactive or missing online scope."
-                        ),
+                        _("Jobs synchronization skipped: user considered inactive."),
                     )
                 else:
                     wait_minutes = max(1, ceil(remaining.total_seconds() / 60))

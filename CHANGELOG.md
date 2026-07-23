@@ -26,6 +26,7 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 - Render path performance: settings pages now use a dedicated lightweight settings context builder instead of the full dashboard context.
 - Token-management rendering: switched to passive token validity filtering on render paths to avoid live token refresh side effects while still excluding expired tokens from coverage status.
 - Industry jobs rendering: live skill fetch is now disabled by default and only enabled through explicit force refresh.
+- Activity gating: manual refresh eligibility now uses Corptools `corptools_characteraudit.last_known_login` when available, and no longer depends on the ESI online-status scope or snapshot table.
 
 ### Fixed
 
@@ -39,6 +40,7 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 - Platform and UX: improved large-account performance (linked-character query scaling), stabilized navigation header/mobile label behavior, and corrected admin/notification polish issues.
 - Celery scheduling: fixed `QueueOnce` `KeyError('character_id')` in corporation job update dispatch by ensuring the dedupe key is always present in task kwargs.
 - Industry Structures cache invalidation: rig saves now invalidate resolved-bonus cache only when signature-relevant fields change (structure, slot, rig type), avoiding unnecessary recomputation on label-only updates.
+- Cleanup: removed the obsolete `CharacterOnlineStatus` runtime model and added migration `0108_remove_character_online_status` to drop the unused table.
 
 ## [1.17.2] - 2026-06-01
 

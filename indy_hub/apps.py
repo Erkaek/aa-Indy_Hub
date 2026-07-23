@@ -170,7 +170,7 @@ class IndyHubConfig(AppConfig):
                 logger.exception("Error setting up periodic tasks: %s", e)
 
             # Bootstrap stale snapshots once after migration when local tables are empty.
-            # This helps fresh/reinstalled instances populate role/skill/online/structure
+            # This helps fresh/reinstalled instances populate role/skill/structure
             # snapshots without waiting for the next periodic schedule.
             try:
                 # Alliance Auth
@@ -178,7 +178,6 @@ class IndyHubConfig(AppConfig):
 
                 from .models import (
                     CachedStructureName,
-                    CharacterOnlineStatus,
                     CharacterRoles,
                     IndustrySkillSnapshot,
                 )
@@ -189,7 +188,6 @@ class IndyHubConfig(AppConfig):
                     [
                         not CharacterRoles.objects.exists(),
                         not IndustrySkillSnapshot.objects.exists(),
-                        not CharacterOnlineStatus.objects.exists(),
                         not CachedStructureName.objects.exists(),
                     ]
                 )

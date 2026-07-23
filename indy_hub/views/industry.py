@@ -1811,9 +1811,7 @@ def personnal_bp_list(request, scope="character"):
                 elif remaining is None:
                     messages.warning(
                         request,
-                        _(
-                            "Blueprint refresh skipped: user inactive or missing online scope."
-                        ),
+                        _("Blueprint refresh skipped: user considered inactive."),
                     )
                 else:
                     wait_minutes = max(1, ceil(remaining.total_seconds() / 60))
@@ -2332,9 +2330,7 @@ def personnal_job_list(request, scope="character"):
                 elif remaining is None:
                     messages.warning(
                         request,
-                        _(
-                            "Industry jobs refresh skipped: user inactive or missing online scope."
-                        ),
+                        _("Industry jobs refresh skipped: user considered inactive."),
                     )
                 else:
                     wait_minutes = max(1, ceil(remaining.total_seconds() / 60))

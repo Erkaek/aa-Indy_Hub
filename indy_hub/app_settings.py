@@ -143,13 +143,6 @@ DIVISION_CACHE_MAX_AGE_MINUTES = clean_setting(
     required_type=int,
 )
 
-ONLINE_STATUS_STALE_HOURS = clean_setting(
-    "INDY_HUB_ONLINE_STATUS_STALE_HOURS",
-    72,
-    min_value=1,
-    required_type=int,
-)
-
 SKILL_SNAPSHOT_STALE_HOURS = clean_setting(
     "INDY_HUB_SKILL_SNAPSHOT_STALE_HOURS",
     24,

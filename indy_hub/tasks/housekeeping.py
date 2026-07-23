@@ -18,14 +18,12 @@ from esi.models import Token
 # Indy Hub
 from ..app_settings import (
     LOCATION_LOOKUP_BUDGET,
-    ONLINE_STATUS_STALE_HOURS,
     ROLE_SNAPSHOT_STALE_HOURS,
     SKILL_SNAPSHOT_STALE_HOURS,
     STRUCTURE_NAME_STALE_HOURS,
 )
 from ..models import (
     CachedStructureName,
-    CharacterOnlineStatus,
     CharacterRoles,
     IndustrySkillSnapshot,
 )
@@ -33,11 +31,9 @@ from ..services.asset_cache import STRUCTURE_PLACEHOLDER_TTL
 from ..utils.analytics import emit_analytics_event
 from ..utils.eve import PLACEHOLDER_PREFIX, has_structure_forbidden_cooldown
 from .industry import (
-    ONLINE_SCOPE,
     SKILLS_SCOPE,
     STRUCTURE_SCOPE,
     _get_adaptive_window_minutes,
-    _refresh_online_status_for_user,
     update_character_skill_snapshot_for_character,
 )
 from .location import cache_structure_names_bulk
@@ -119,7 +115,6 @@ def refresh_stale_snapshots() -> dict[str, int]:
         "roles_users_queued": 0,
         "skills_characters_queued": 0,
         "roles_characters_queued": 0,
-        "online_users_refreshed": 0,
         "structures_queued": 0,
     }
     try:
@@ -185,44 +180,6 @@ def refresh_stale_snapshots() -> dict[str, int]:
             result["roles_characters_queued"] = queued
     except Exception as exc:  # pragma: no cover - defensive
         logger.exception("Failed stale roles refresh: %s", exc)
-
-    try:
-        # Online status snapshots
-        online_tokens = list(
-            Token.objects.filter()
-            .require_scopes([ONLINE_SCOPE])
-            .require_valid()
-            .values_list("user_id", "character_id")
-            .distinct()
-        )
-        if online_tokens:
-            cutoff = now - timedelta(hours=ONLINE_STATUS_STALE_HOURS)
-            tokens_by_user: dict[int, list[int]] = {}
-            for uid, cid in online_tokens:
-                if not uid or not cid:
-                    continue
-                tokens_by_user.setdefault(int(uid), []).append(int(cid))
-
-            for user_id, char_ids in tokens_by_user.items():
-                status_rows = CharacterOnlineStatus.objects.filter(
-                    owner_user_id=user_id,
-                    character_id__in=char_ids,
-                ).values_list("character_id", "last_updated")
-                status_map = {int(cid): last for cid, last in status_rows}
-                missing = set(char_ids) - set(status_map)
-                stale = {
-                    int(cid)
-                    for cid, last in status_map.items()
-                    if last and last < cutoff
-                }
-                if missing or stale:
-                    user = User.objects.filter(id=user_id).first()
-                    if not user:
-                        continue
-                    _refresh_online_status_for_user(user=user, now=now)
-                    result["online_users_refreshed"] += 1
-    except Exception as exc:  # pragma: no cover - defensive
-        logger.exception("Failed stale online refresh: %s", exc)
 
     try:
         # Structure names

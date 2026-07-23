@@ -14,7 +14,7 @@ from celery.exceptions import MaxRetriesExceededError, Retry
 # Django
 from django.contrib.auth.models import User
 from django.core.cache import cache
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.utils import OperationalError
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -38,13 +38,11 @@ from ..app_settings import (
     INDUSTRY_JOBS_BULK_WINDOW_MINUTES,
     INDUSTRY_JOBS_TASK_MAX_RETRIES,
     MANUAL_REFRESH_COOLDOWN_SECONDS,
-    ONLINE_STATUS_STALE_HOURS,
     ROLE_SNAPSHOT_STALE_HOURS,
     SKILL_SNAPSHOT_STALE_HOURS,
 )
 from ..models import (
     Blueprint,
-    CharacterOnlineStatus,
     CharacterRoles,
     CharacterSettings,
     CorporationSharingSetting,
@@ -90,7 +88,6 @@ CORP_ROLES_SCOPE = "esi-characters.read_corporation_roles.v1"
 CORP_STRUCTURES_SCOPE = "esi-corporations.read_structures.v1"
 CORP_ASSETS_SCOPE = "esi-assets.read_corporation_assets.v1"
 CORP_WALLET_SCOPE = "esi-wallet.read_corporation_wallets.v1"
-ONLINE_SCOPE = "esi-location.read_online.v1"
 CORP_BLUEPRINT_SCOPE_SET = [
     CORP_BLUEPRINT_SCOPE,
     STRUCTURE_SCOPE,
@@ -128,7 +125,6 @@ def _is_user_active(user: User, *, now: datetime | None = None) -> bool:
     if not user:
         return False
     now = now or timezone.now()
-    refresh_cutoff = now - timedelta(hours=ONLINE_STATUS_STALE_HOURS)
     cutoff = now - timedelta(days=ACTIVE_USER_DAYS)
     ownerships = CharacterOwnership.objects.filter(user=user).select_related(
         "character"
@@ -140,40 +136,77 @@ def _is_user_active(user: User, *, now: datetime | None = None) -> bool:
     ]
     if not character_ids:
         return False
-    statuses = CharacterOnlineStatus.objects.filter(
-        owner_user=user,
-        character_id__in=character_ids,
+
+    corptools_active_state = _is_user_active_from_corptools(
+        character_ids=character_ids,
+        cutoff=cutoff,
     )
-    known_ids = set(statuses.values_list("character_id", flat=True))
-    stale_ids = set(
-        statuses.filter(last_updated__lt=refresh_cutoff).values_list(
-            "character_id", flat=True
-        )
+    if corptools_active_state is not None:
+        return corptools_active_state
+
+    logger.debug(
+        "Corptools activity data unavailable for user %s; falling back to permissive active state",
+        user.id,
     )
-    missing_ids = set(character_ids) - known_ids
-    if missing_ids or stale_ids:
-        logger.info(
-            "Refreshing online status for user %s (missing=%s stale=%s)",
-            user.id,
-            len(missing_ids),
-            len(stale_ids),
-        )
-        _refresh_online_status_for_user(user, now=now)
-    active_char_ids = list(
-        CharacterOnlineStatus.objects.filter(
-            owner_user=user,
-            last_login__isnull=False,
-            last_login__gte=cutoff,
-        ).values_list("character_id", flat=True)
-    )
-    if not active_char_ids:
+    return True
+
+
+def _is_user_active_from_corptools(
+    *,
+    character_ids: list[int],
+    cutoff: datetime,
+) -> bool | None:
+    """Return recent-login activity from Corptools, or ``None`` when unavailable.
+
+    This dependency is optional: if Corptools is absent, the table is missing,
+    or there is no usable login data, Indy Hub should not block refreshes.
+    """
+
+    normalized_character_ids = [
+        int(character_id) for character_id in character_ids if character_id
+    ]
+    if not normalized_character_ids:
         return False
-    return (
-        Token.objects.filter(user=user, character_id__in=active_char_ids)
-        .require_scopes([ONLINE_SCOPE])
-        .require_valid()
-        .exists()
-    )
+
+    rows = _fetch_corptools_activity_rows(normalized_character_ids)
+    if rows is None:
+        return None
+
+    if not rows:
+        return None
+
+    has_usable_login_data = False
+    for _character_id, raw_last_login in rows:
+        last_login = _coerce_online_datetime(raw_last_login)
+        if last_login is None:
+            continue
+        has_usable_login_data = True
+        if last_login >= cutoff:
+            return True
+
+    if not has_usable_login_data:
+        return None
+    return False
+
+
+def _fetch_corptools_activity_rows(
+    character_ids: list[int],
+) -> list[tuple[int, object]] | None:
+    placeholders = ", ".join(["%s"] * len(character_ids))
+    query = f"""
+        SELECT ec.character_id, cca.last_known_login
+        FROM corptools_characteraudit cca
+        JOIN eveonline_evecharacter ec ON ec.id = cca.character_id
+        WHERE ec.character_id IN ({placeholders})
+    """
+
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(query, character_ids)
+            return list(cursor.fetchall())
+    except Exception as exc:  # pragma: no cover - optional integration
+        logger.debug("Corptools activity lookup unavailable: %s", exc)
+        return None
 
 
 def _coerce_online_datetime(value):
@@ -190,75 +223,6 @@ def _coerce_online_datetime(value):
     if timezone.is_naive(dt):
         dt = timezone.make_aware(dt, dt_timezone.utc)
     return dt
-
-
-def _refresh_online_status_for_user(user: User, *, now: datetime | None = None) -> None:
-    now = now or timezone.now()
-    ownerships = CharacterOwnership.objects.filter(user=user).select_related(
-        "character"
-    )
-    for ownership in ownerships:
-        char_id = ownership.character.character_id
-        if not char_id:
-            continue
-        token = (
-            Token.objects.filter(user=user, character_id=int(char_id))
-            .require_scopes([ONLINE_SCOPE])
-            .require_valid()
-            .order_by("-created")
-            .first()
-        )
-        if not token:
-            continue
-
-        try:
-            payload = shared_client.fetch_character_online_status(int(char_id))
-        except ESIUnmodifiedError:
-            CharacterOnlineStatus.objects.filter(character_id=int(char_id)).update(
-                owner_user=user,
-                last_updated=now,
-            )
-            continue
-        except (
-            ESITokenError,
-            ESIForbiddenError,
-            ESIRateLimitError,
-            ESIClientError,
-        ) as exc:
-            logger.warning(
-                "Failed to refresh online status for character %s: %s",
-                char_id,
-                exc,
-            )
-            continue
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.warning(
-                "Unexpected error refreshing online status for character %s: %s",
-                char_id,
-                exc,
-            )
-            continue
-
-        if not isinstance(payload, dict):
-            logger.warning(
-                "Unexpected online status payload for character %s: %s",
-                char_id,
-                type(payload),
-            )
-            continue
-
-        update_or_create_with_mysql_retry(
-            CharacterOnlineStatus,
-            lookup={"character_id": int(char_id)},
-            defaults={
-                "owner_user": user,
-                "online": bool(payload.get("online")),
-                "last_login": _coerce_online_datetime(payload.get("last_login")),
-                "last_logout": _coerce_online_datetime(payload.get("last_logout")),
-                "logins": payload.get("logins"),
-            },
-            logger=logger,
-        )
 
 
 def _user_recent_blueprint_sync(user: User, *, now: datetime | None = None) -> bool:
@@ -1233,7 +1197,6 @@ def request_manual_refresh(
         if not user:
             _clear_manual_refresh_inflight(kind, user_id, scope)
             return False, None, "inactive_or_missing_scope"
-        _refresh_online_status_for_user(user)
         if not _is_user_active(user):
             _clear_manual_refresh_inflight(kind, user_id, scope)
             return False, None, "inactive_or_missing_scope"
@@ -1337,7 +1300,6 @@ def update_blueprints_for_user(
         raise self.retry(exc=exc, countdown=60 * (2**self.request.retries))
 
     now = timezone.now()
-    _refresh_online_status_for_user(user, now=now)
     if not _is_user_active(user, now=now):
         logger.info("Skipping blueprint sync for inactive user %s", user.username)
         return {"success": True, "skipped": "inactive_user"}
@@ -1784,7 +1746,6 @@ def update_industry_jobs_for_user(
     try:
         user = User.objects.get(id=user_id)
         now = timezone.now()
-        _refresh_online_status_for_user(user, now=now)
         if not _is_user_active(user, now=now):
             logger.info(
                 "Skipping industry jobs sync for inactive user %s", user.username

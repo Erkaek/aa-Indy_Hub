@@ -257,7 +257,6 @@ class ESIClient:
 
         if scope in {
             "esi-characters.read_corporation_roles.v1",
-            "esi-location.read_online.v1",
             "esi-assets.read_assets.v1",
             "esi-assets.read_corporation_assets.v1",
             "esi-contracts.read_character_contracts.v1",
@@ -467,64 +466,6 @@ class ESIClient:
             return coerced
         raise ESIClientError(
             "ESI /characters/{character_id}/roles returned an unexpected payload"
-        )
-
-    def fetch_character_online_status(self, character_id: int) -> dict:
-        """Return the online status for a character."""
-        scope = "esi-location.read_online.v1"
-        token_obj = self._get_token(character_id, scope)
-        operation_fn = None
-        location_resource = getattr(self.client, "Location", None)
-        if location_resource is not None:
-            operation_fn = getattr(
-                location_resource,
-                "get_characters_character_id_online",
-                None,
-            ) or getattr(location_resource, "GetCharactersCharacterIdOnline", None)
-        if not operation_fn:
-            character_resource = getattr(self.client, "Character", None)
-            if character_resource is not None:
-                operation_fn = getattr(
-                    character_resource,
-                    "get_characters_character_id_online",
-                    None,
-                ) or getattr(character_resource, "GetCharactersCharacterIdOnline", None)
-        if not operation_fn:
-            raise ESIClientError(
-                "ESI operation Location.get_characters_character_id_online is not available"
-            )
-        payload = self._call_authed(
-            token_obj,
-            character_id=character_id,
-            endpoint=f"/characters/{character_id}/online/",
-            scope=scope,
-            operation=lambda token: operation_fn(
-                character_id=character_id,
-                token=token,
-                **{"If-None-Match": ""},
-            ),
-        )
-        if isinstance(payload, list):
-            if not payload:
-                raise ESIClientError(
-                    "ESI /characters/{character_id}/online returned an empty payload"
-                )
-            payload = payload[0]
-        if isinstance(payload, dict):
-            return payload
-        coerced = self._coerce_mapping(payload)
-        if isinstance(coerced, dict):
-            return coerced
-        if payload is not None:
-            attr_payload = {
-                key: getattr(payload, key)
-                for key in ("online", "last_login", "last_logout", "logins")
-                if hasattr(payload, key)
-            }
-            if attr_payload:
-                return attr_payload
-        raise ESIClientError(
-            "ESI /characters/{character_id}/online returned an unexpected payload"
         )
 
     def fetch_structure_name(
