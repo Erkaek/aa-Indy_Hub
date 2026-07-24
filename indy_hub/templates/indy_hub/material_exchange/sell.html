@@ -97,6 +97,7 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
     const sellModePanels = queryAll('[data-sell-mode-panel]');
     const sellPasteTextarea = query('#sellPasteTextarea');
     const sellPasteClearButton = query('#sellPasteClearButton');
+    const sellPasteSubmitWrapper = query('#sellPasteSubmitWrapper');
     const sellPasteQuantitiesJson = query('#sellPasteQuantitiesJson');
     const sellPasteResults = query('#sellPasteResults');
     const sellPasteCatalogNode = query('#sellPasteCatalogData');
@@ -333,7 +334,6 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
             })
             .filter(Boolean);
     }
-
     function pickBestQuantityCandidate(candidates) {
         if (!candidates.length) {
             return null;
@@ -677,6 +677,9 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
             if (sellPasteResults) {
                 sellPasteResults.classList.add('d-none');
             }
+            if (sellPasteSubmitWrapper) {
+                sellPasteSubmitWrapper.classList.add('d-none');
+            }
             ['Accepted', 'Rejected', 'Unavailable', 'Unknown'].forEach(prefix => {
                 const countNode = query('#sellPaste' + prefix + 'Count');
                 const badgeNode = query('#sellPaste' + prefix + 'Badge');
@@ -749,9 +752,10 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
                         ? `${sellPasteMessages.notOnCharacter} (${totalOwned.toLocaleString()})`
                         : sellPasteMessages.notOnCharacter
                 });
+                return;
             }
 
-            if (!isUnavailable && entry.quantity > Number.parseInt(catalogItem.available_qty, 10)) {
+            if (entry.quantity > Number.parseInt(catalogItem.available_qty, 10)) {
                 rejectedItems.push({
                     label: `${catalogItem.type_name} x ${entry.quantity.toLocaleString()}`,
                     detail: `${sellPasteMessages.insufficient} (${catalogItem.available_qty.toLocaleString()})`
@@ -768,7 +772,7 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
                 quantity: entry.quantity,
                 unitPrice: Number.parseFloat(catalogItem.unit_price || '0'),
                 subtotalCents,
-                warning: isUnavailable ? sellPasteMessages.notOnCharacter : ''
+                warning: ''
             });
         });
 
@@ -817,6 +821,9 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
         }
         if (acceptedValueNode) {
             acceptedValueNode.textContent = formatWholeISK(Math.ceil(acceptedTotalCents / 100)) + ' ISK';
+        }
+        if (sellPasteSubmitWrapper) {
+            sellPasteSubmitWrapper.classList.toggle('d-none', acceptedItems.length === 0);
         }
 
         const visibleCardCount = [

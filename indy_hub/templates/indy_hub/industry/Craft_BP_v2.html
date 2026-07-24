@@ -997,7 +997,7 @@
                                         <div class="craft-config-items-grid">
                                             {% for bc in level.blueprints %}
                                             <div class="craft-bp-card card h-100" data-blueprint-type-id="{{ bc.type_id }}" {% if not bc.user_owns %}data-blueprint-not-owned="true"{% endif %} {% if bc.is_reaction %}data-blueprint-is-reaction="true"{% endif %}>
-                                                <div class="card-header text-center py-1 {% if bc.user_owns %}bg-success bg-opacity-10{% elif bc.shared_copies_available and not bc.is_reaction %}bg-warning bg-opacity-10{% else %}bg-danger bg-opacity-10{% endif %}">
+                                                <div class="card-header text-center py-1 {% if bc.user_owns %}bg-success bg-opacity-10{% elif not bc.user_owns and not bc.is_reaction %}bg-warning bg-opacity-10{% else %}bg-danger bg-opacity-10{% endif %}">
                                                     <img
                                                         src="https://images.evetech.net/types/{{ bc.type_id }}/bp?size=128"
                                                         alt="{{ bc.type_name }}"
@@ -1017,6 +1017,10 @@
                                                     {% elif bc.shared_copies_available and not bc.is_reaction %}
                                                     <span class="badge bg-warning w-100 mb-1" style="font-size: 0.75rem;">
                                                         <i class="fas fa-share-alt me-1"></i>{% trans "Available" %}
+                                                    </span>
+                                                    {% elif not bc.user_owns and not bc.is_reaction %}
+                                                    <span class="badge bg-warning w-100 mb-1" style="font-size: 0.75rem;">
+                                                        <i class="fas fa-paper-plane me-1"></i>{% trans "Requestable" %}
                                                     </span>
                                                     {% else %}
                                                     <span class="badge bg-danger w-100 mb-1" style="font-size: 0.75rem;">
@@ -1110,9 +1114,39 @@
                                                             </button>
                                                         </div>
                                                         {% else %}
-                                                        <div class="alert alert-danger py-1 px-2 mb-0" style="font-size: 0.8rem;">
-                                                            <small class="text-muted"><i class="fas fa-times-circle me-1"></i>{% trans "No copies" %}</small>
+                                                        <div class="alert alert-warning py-1 px-2 mb-1" style="font-size: 0.8rem;">
+                                                            <small class="text-muted"><i class="fas fa-info-circle me-1"></i>{% trans "No ready copy listed, but you can still send a copy request." %}</small>
                                                         </div>
+                                                        <select class="form-select form-select-sm mb-1" id="bpCopySelect{{ bc.type_id }}" style="font-size: 0.8rem; padding: 0.25rem;" hidden>
+                                                            <option value="{{ bc.material_efficiency }},{{ bc.time_efficiency }}">ME{{ bc.material_efficiency }}/TE{{ bc.time_efficiency }}</option>
+                                                        </select>
+
+                                                        <div class="d-flex gap-1 mb-1">
+                                                            <input
+                                                                type="number"
+                                                                id="bpRunsRequested{{ bc.type_id }}"
+                                                                class="form-control form-control-sm"
+                                                                min="1"
+                                                                value="300"
+                                                                title="{% trans 'Runs requested' %}"
+                                                                placeholder="{% trans 'Runs' %}"
+                                                                style="font-size: 0.8rem; padding: 0.25rem;"
+                                                            >
+                                                            <input
+                                                                type="number"
+                                                                id="bpCopiesRequested{{ bc.type_id }}"
+                                                                class="form-control form-control-sm"
+                                                                min="1"
+                                                                value="1"
+                                                                title="{% trans 'Copies requested' %}"
+                                                                placeholder="{% trans 'Copies' %}"
+                                                                style="font-size: 0.8rem; padding: 0.25rem;"
+                                                            >
+                                                        </div>
+
+                                                        <button type="button" class="btn btn-sm btn-primary w-100" data-request-blueprint-copy="{{ bc.type_id }}" style="font-size: 0.8rem; padding: 0.25rem;">
+                                                            <i class="fas fa-paper-plane me-1"></i>{% trans "Request" %}
+                                                        </button>
                                                         {% endif %}
                                                     </div>
                                                     {% endif %}

@@ -1115,6 +1115,8 @@ class LocationNameSignalTests(TestCase):
             2222,
             character_id=7001,
             owner_user_id=self.user.id,
+            allow_public=False,
+            allow_authenticated=False,
         )
         self.assertEqual(blueprint.location_name, "Structure Beta")
 
@@ -1155,6 +1157,8 @@ class LocationNameSignalTests(TestCase):
             4444,
             character_id=8001,
             owner_user_id=self.user.id,
+            allow_public=False,
+            allow_authenticated=False,
         )
         self.assertEqual(job.location_name, "Station Gamma")
 

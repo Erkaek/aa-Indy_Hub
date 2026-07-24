@@ -451,10 +451,14 @@ def sync_corporation_structure_targets(
                 enabled_activity_flags = _get_online_industry_activity_flags(payload)
                 if not any(enabled_activity_flags.values()):
                     continue
+                # ESI /corporations/{corporation_id}/structures returns `system_id`.
+                # Keep `solar_system_id` as a backward-compatible fallback for
+                # older payload mocks/caches.
+                raw_system_id = payload.get("system_id")
+                if raw_system_id is None:
+                    raw_system_id = payload.get("solar_system_id")
                 solar_system_id = (
-                    int(payload["solar_system_id"])
-                    if payload.get("solar_system_id") is not None
-                    else None
+                    int(raw_system_id) if raw_system_id is not None else None
                 )
                 retained_structure_ids.add(structure_id)
 

@@ -126,6 +126,65 @@ class IndustryStructureSyncServiceTests(TestCase):
     @patch(
         "indy_hub.services.industry_structure_sync.shared_client.fetch_corporation_structures"
     )
+    def test_sync_uses_esi_system_id_field_for_solar_system_resolution(
+        self,
+        mock_fetch_corporation_structures,
+        mock_resolve_item_type_reference,
+        mock_resolve_solar_system_reference,
+        mock_resolve_solar_system_location_reference,
+    ) -> None:
+        mock_fetch_corporation_structures.return_value = [
+            {
+                "structure_id": 1020000000999,
+                "name": "Tatara ESI",
+                "type_id": 35835,
+                "system_id": 30002187,
+                "services": [
+                    {"name": "Manufacturing (Standard)", "state": "online"},
+                ],
+            }
+        ]
+        mock_resolve_item_type_reference.return_value = (35835, "Tatara")
+        mock_resolve_solar_system_reference.return_value = (
+            30002187,
+            "Amarr",
+            IndustryStructure.SecurityBand.HIGHSEC,
+        )
+        mock_resolve_solar_system_location_reference.return_value = {
+            "solar_system_id": 30002187,
+            "solar_system_name": "Amarr",
+            "system_security_band": IndustryStructure.SecurityBand.HIGHSEC,
+            "constellation_id": 20000303,
+            "constellation_name": "Throne Worlds",
+            "region_id": 10000043,
+            "region_name": "Domain",
+        }
+
+        summary = sync_corporation_structure_targets(
+            [{"id": 98134807, "name": "Acme Corp", "character_id": 2112625428}],
+            force_refresh=True,
+        )
+
+        self.assertEqual(summary["created"], 1)
+        self.assertEqual(summary["errors"], [])
+        mock_resolve_solar_system_reference.assert_called_once_with(
+            solar_system_id=30002187
+        )
+
+        structure = IndustryStructure.objects.get(external_structure_id=1020000000999)
+        self.assertEqual(structure.solar_system_id, 30002187)
+        self.assertEqual(structure.solar_system_name, "Amarr")
+        self.assertEqual(structure.constellation_name, "Throne Worlds")
+        self.assertEqual(structure.region_name, "Domain")
+
+    @patch(
+        "indy_hub.services.industry_structure_sync.resolve_solar_system_location_reference"
+    )
+    @patch("indy_hub.services.industry_structure_sync.resolve_solar_system_reference")
+    @patch("indy_hub.services.industry_structure_sync.resolve_item_type_reference")
+    @patch(
+        "indy_hub.services.industry_structure_sync.shared_client.fetch_corporation_structures"
+    )
     def test_sync_does_not_wipe_identity_when_payload_omits_solar_system(
         self,
         mock_fetch_corporation_structures,

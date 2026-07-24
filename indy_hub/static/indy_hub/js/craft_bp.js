@@ -5560,10 +5560,10 @@ function syncStructureMotherSystemSelectionFromInput() {
         structureMotherSystemState.selectedSolarSystemName = String(exactSuggestion.name || typedName);
         return;
     }
-    if (typedName !== structureMotherSystemState.selectedSolarSystemName) {
-        structureMotherSystemState.selectedSolarSystemId = null;
-        structureMotherSystemState.selectedSolarSystemName = typedName;
-    }
+    // Without an exact match from suggestions, never keep a stale system id
+    // from a previous selection because it can override the typed system name.
+    structureMotherSystemState.selectedSolarSystemId = null;
+    structureMotherSystemState.selectedSolarSystemName = typedName;
 }
 
 function getRelevantStructureSystemIds() {
@@ -5710,7 +5710,14 @@ async function applyStructureMotherSystemDistances() {
         return;
     }
 
-    const targetSystemIds = getRelevantStructureSystemIds();
+    let targetSystemIds = getRelevantStructureSystemIds();
+    if (targetSystemIds.length === 0) {
+        const loaded = await ensureFullStructurePlannerLoaded();
+        if (loaded) {
+            renderStructurePlanner();
+            targetSystemIds = getRelevantStructureSystemIds();
+        }
+    }
     if (targetSystemIds.length === 0) {
         updateStructureMotherSystemStatus(__('No structure systems are available for the current production tree.'), 'danger');
         return;
