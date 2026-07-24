@@ -51,8 +51,29 @@ def update_or_create_with_mysql_retry(
         if logger is not None:
             logger.warning(message, *args)
 
+    def _log_debug(message: str, *args: object) -> None:
+        if logger is None:
+            return
+        debug = getattr(logger, "debug", None)
+        if callable(debug):
+            debug(message, *args)
+        else:
+            logger.warning(message, *args)
+
+    def _log_retry(message: str, attempt: int, *args: object) -> None:
+        # Avoid warning spam for high-volume sync loops: keep warnings on the
+        # first retry and right before the final attempt, use debug in between.
+        if attempt == 1 or attempt >= max_attempts - 1:
+            _log(message, *args)
+        else:
+            _log_debug(message, *args)
+
     def _retry_delay(attempt: int) -> float:
-        return 0.2 * attempt + random.random() * 0.2
+        # Exponential backoff with jitter helps de-synchronize workers that
+        # contend on the same rows (common on blueprint/task bursts).
+        base = 0.25 * (2 ** max(attempt - 1, 0))
+        jitter = random.random() * 0.35
+        return min(base + jitter, 5.0)
 
     for attempt in range(1, max_attempts + 1):
         try:
@@ -64,8 +85,9 @@ def update_or_create_with_mysql_retry(
             if not _is_mysql_deadlock_error(exc) or attempt >= max_attempts:
                 raise
             delay = _retry_delay(attempt)
-            _log(
+            _log_retry(
                 "MySQL lock contention while writing %s; retrying (%s/%s) in %.2fs",
+                attempt,
                 model.__name__,
                 attempt,
                 max_attempts,
@@ -101,8 +123,9 @@ def update_or_create_with_mysql_retry(
                 ):
                     raise
                 delay = _retry_delay(attempt)
-                _log(
+                _log_retry(
                     "MySQL lock contention while recovering duplicate key for %s; retrying (%s/%s) in %.2fs",
+                    attempt,
                     model.__name__,
                     attempt,
                     max_attempts,
@@ -114,8 +137,9 @@ def update_or_create_with_mysql_retry(
                 if attempt >= max_attempts:
                     raise exc
                 delay = _retry_delay(attempt)
-                _log(
+                _log_retry(
                     "Duplicate key while writing %s but row was not visible yet; retrying (%s/%s) in %.2fs",
+                    attempt,
                     model.__name__,
                     attempt,
                     max_attempts,
