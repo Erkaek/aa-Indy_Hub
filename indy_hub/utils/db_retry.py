@@ -56,7 +56,10 @@ def update_or_create_with_mysql_retry(
 
     for attempt in range(1, max_attempts + 1):
         try:
-            return model.objects.update_or_create(**lookup, defaults=defaults)
+            # Use a savepoint per attempt so lock errors do not leave the
+            # caller's outer atomic transaction in a broken state.
+            with transaction.atomic():
+                return model.objects.update_or_create(**lookup, defaults=defaults)
         except OperationalError as exc:
             if not _is_mysql_deadlock_error(exc) or attempt >= max_attempts:
                 raise
