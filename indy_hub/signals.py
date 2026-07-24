@@ -1,5 +1,6 @@
 # Django
 from django.core.cache import cache
+from django.db import connection
 from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 
@@ -197,10 +198,17 @@ def _ensure_location_name(instance, *, id_field: str, name_field: str) -> None:
     character_id = getattr(instance, "character_id", None)
 
     try:
+        # Never trigger authenticated ESI/token refresh while we are already in
+        # an atomic block (e.g. bulk sync upserts). A lock timeout during token
+        # refresh would mark the transaction as broken and cascade into
+        # TransactionManagementError for the caller.
+        in_atomic_block = bool(getattr(connection, "in_atomic_block", False))
         resolved_name = resolve_location_name(
             normalized_id,
             character_id=character_id,
             owner_user_id=owner_user_id,
+            allow_public=not in_atomic_block,
+            allow_authenticated=not in_atomic_block,
         )
     except Exception:  # pragma: no cover - defensive fallback
         logger.debug(

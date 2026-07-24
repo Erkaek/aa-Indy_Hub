@@ -863,6 +863,7 @@ def resolve_location_name(
     owner_user_id: int | None = None,
     force_refresh: bool = False,
     allow_public: bool = True,
+    allow_authenticated: bool = True,
 ) -> str:
     """Resolve a structure or station name using ESI lookups with caching.
 
@@ -1019,7 +1020,7 @@ def resolve_location_name(
             )
             return None
 
-    if not is_station and structure_id > 2_147_483_647:
+    if allow_authenticated and not is_station and structure_id > 2_147_483_647:
         name = try_structure_lookup(character_id)
 
         if not name and owner_user_id:
