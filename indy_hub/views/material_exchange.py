@@ -27,8 +27,9 @@ from django.views.decorators.http import require_http_methods
 # Alliance Auth
 from allianceauth.authentication.models import UserProfile
 from allianceauth.services.hooks import get_extension_logger
+from esi.decorators import tokens_required
 
-from ..decorators import indy_hub_permission_required, tokens_required
+from ..decorators import indy_hub_permission_required
 from ..models import (
     CachedCharacterAsset,
     MaterialExchangeBuyOrder,

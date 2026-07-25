@@ -134,9 +134,8 @@ def sync_system_cost_indices(*, force_refresh: bool = False) -> dict[str, int]:
                 if existing.cost_index_percent != cost_percent:
                     existing.cost_index_percent = cost_percent
                     changed = True
-                if existing.source_updated_at != now:
+                if changed:
                     existing.source_updated_at = now
-                    changed = True
 
                 if changed:
                     to_update.append(existing)

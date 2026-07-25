@@ -53,6 +53,11 @@ QUANTITY_SUFFIX_RE = re.compile(r"^(?P<name>.+?)\s+x(?P<quantity>\d+)$", re.IGNO
 QUANTITY_PREFIX_RE = re.compile(
     r"^(?P<quantity>\d+)\s*x?\s+(?P<name>.+)$", re.IGNORECASE
 )
+OFFLINE_SUFFIX_RE = re.compile(r"\s*/offline\s*$", re.IGNORECASE)
+EFT_EMPTY_SLOT_RE = re.compile(
+    r"^\[\s*empty\s+(?:low|med|high|rig|service)\s+slot\s*\]$",
+    re.IGNORECASE,
+)
 STRATEGIC_CRUISER_SUBSYSTEM_NAME_RE = re.compile(
     r"\b(?:legion|loki|proteus|tengu)\s+(?:defensive|offensive|core|propulsion)\b",
     re.IGNORECASE,
@@ -63,8 +68,9 @@ EFT_CATEGORY_SPECS: list[dict[str, object]] = [
     {"key": "high_slots", "label": "High slots", "order": 30},
     {"key": "rig_slots", "label": "Rig slots", "order": 40},
     {"key": "subsystems", "label": "Subsystems", "order": 50},
-    {"key": "drone_bay", "label": "Drone bay", "order": 60},
-    {"key": "cargo", "label": "Cargo", "order": 70},
+    {"key": "service_slots", "label": "Service slots", "order": 60},
+    {"key": "drone_bay", "label": "Drone bay", "order": 70},
+    {"key": "cargo", "label": "Cargo", "order": 80},
 ]
 
 MANUAL_CATEGORY = {"key": "manual", "label": "Manual list", "order": 90}
@@ -74,6 +80,8 @@ EFT_CATEGORY_SPEC_BY_KEY = {
 }
 DRONE_GROUP_KEYWORDS = ("drone", "fighter", "fighter bomber")
 SUBSYSTEM_GROUP_KEYWORDS = ("subsystem", "strategic cruiser")
+SERVICE_GROUP_KEYWORDS = ("service",)
+EFT_DRONE_CATEGORY_INDEX = 6
 PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY = "cachedProjectPayload"
 PROJECT_WORKSPACE_PAYLOAD_CACHE_VERSION = 5
 PROJECT_WORKSPACE_SDE_SIGNATURE_KEY = "cachedProjectSdeSignature"
@@ -3047,8 +3055,14 @@ def _parse_eft_project_import(raw_text: str) -> dict[str, object]:
         grouped_lines = _split_non_empty_groups(
             lines[header_index + 1 : next_header_index]
         )
-        for group_index, group_lines in enumerate(grouped_lines):
-            category = _get_eft_category(group_index)
+        section_index = 0
+        for separator_size, group_lines in grouped_lines:
+            # Two or more empty lines indicate bay sections in EFT exports.
+            # When optional sections are missing, jump directly to drone bay.
+            if separator_size >= 2 and section_index < EFT_DRONE_CATEGORY_INDEX:
+                section_index = EFT_DRONE_CATEGORY_INDEX
+            category = _get_eft_category(section_index)
+            section_index += 1
             for raw_line in group_lines:
                 parsed_line = _parse_line_item(raw_line)
                 if not parsed_line:
@@ -3193,25 +3207,36 @@ def _resolve_blueprints_for_products(type_ids: Iterable[int]) -> dict[int, int]:
     return blueprint_map
 
 
-def _split_non_empty_groups(lines: Sequence[str]) -> list[list[str]]:
-    groups: list[list[str]] = []
+def _split_non_empty_groups(lines: Sequence[str]) -> list[tuple[int, list[str]]]:
+    groups: list[tuple[int, list[str]]] = []
     current_group: list[str] = []
+    blank_run = 0
+    separator_size = 0
     for raw_line in lines:
         line = raw_line.strip()
         if not line:
+            blank_run += 1
             if current_group:
-                groups.append(current_group)
+                groups.append((separator_size, current_group))
                 current_group = []
+                separator_size = 0
             continue
+        if not current_group:
+            separator_size = blank_run
+        blank_run = 0
         current_group.append(line)
     if current_group:
-        groups.append(current_group)
+        groups.append((separator_size, current_group))
     return groups
 
 
 def _parse_line_item(raw_line: str) -> dict[str, object] | None:
     line = str(raw_line or "").strip()
     if not line:
+        return None
+
+    line = OFFLINE_SUFFIX_RE.sub("", line).strip()
+    if not line or EFT_EMPTY_SLOT_RE.match(line):
         return None
 
     suffix_match = QUANTITY_SUFFIX_RE.match(line)
@@ -3267,7 +3292,7 @@ def _normalize_resolved_eft_category(
     group_name: str,
 ) -> dict[str, object] | None:
     category_key = str(entry.get("category_key") or "")
-    if category_key not in {"subsystems", "drone_bay"}:
+    if category_key not in {"subsystems", "service_slots", "drone_bay"}:
         return None
 
     normalized_group_name = str(group_name or "").casefold()
@@ -3279,21 +3304,21 @@ def _normalize_resolved_eft_category(
     is_subsystem_group = any(
         keyword in normalized_group_name for keyword in SUBSYSTEM_GROUP_KEYWORDS
     )
+    is_service_group = any(
+        keyword in normalized_group_name for keyword in SERVICE_GROUP_KEYWORDS
+    )
     if not is_subsystem_group and _looks_like_strategic_cruiser_subsystem(
         type_name=type_name,
         source_line=source_line,
     ):
         is_subsystem_group = True
 
-    if category_key == "subsystems":
-        if is_drone_group:
-            return EFT_CATEGORY_SPEC_BY_KEY["drone_bay"]
-        if not is_subsystem_group:
-            return EFT_CATEGORY_SPEC_BY_KEY["cargo"]
-        return None
-
     if is_subsystem_group:
         return EFT_CATEGORY_SPEC_BY_KEY["subsystems"]
+    if is_service_group:
+        return EFT_CATEGORY_SPEC_BY_KEY["service_slots"]
+    if is_drone_group:
+        return EFT_CATEGORY_SPEC_BY_KEY["drone_bay"]
     if not is_drone_group:
         return EFT_CATEGORY_SPEC_BY_KEY["cargo"]
     return None

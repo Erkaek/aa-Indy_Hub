@@ -6,6 +6,7 @@ from __future__ import annotations
 import time
 from collections.abc import Iterable, Mapping
 from datetime import timedelta
+from functools import lru_cache
 from uuid import uuid4
 
 # Django
@@ -19,14 +20,19 @@ from django.utils import timezone
 # Alliance Auth
 from allianceauth.eveonline.models import EveCharacter, EveCorporationInfo
 from allianceauth.services.hooks import get_extension_logger
-from esi.exceptions import HTTPClientError, HTTPServerError
+from esi.exceptions import (
+    ESIBucketLimitException,
+    ESIErrorLimitException,
+    HTTPClientError,
+    HTTPServerError,
+)
 from esi.models import Token
 
 from ..services.esi_client import (
     ESIClientError,
     ESIForbiddenError,
-    ESIRateLimitError,
     ESITokenError,
+    get_rate_limit_reset_seconds,
     rate_limit_wait_seconds,
     shared_client,
 )
@@ -66,7 +72,8 @@ PLACEHOLDER_PREFIX = "Structure "
 _STRUCTURE_SCOPE = "esi-universe.read_structures.v1"
 _FALLBACK_STRUCTURE_TOKEN_IDS: list[int] | None = None
 _OWNER_STRUCTURE_TOKEN_CACHE: dict[int, list[int]] = {}
-_STATION_ID_MAX = 100_000_000
+_STATION_ID_MIN = 60_000_000
+_STATION_ID_MAX = 69_999_999
 _MAX_STRUCTURE_LOOKUPS = 3
 _STRUCTURE_LOOKUP_PAUSE_UNTIL: float = 0.0
 STRUCTURE_FORBIDDEN_RETRY_DELAY = timedelta(days=15)
@@ -248,9 +255,7 @@ def _rate_limited_public_results(
                 response, "status_code", None
             )
             if status_code == 420 and response is not None:
-                sleep_for, remaining = rate_limit_wait_seconds(
-                    response, shared_client.backoff_factor * (2 ** (attempt - 1))
-                )
+                sleep_for, remaining = rate_limit_wait_seconds(response)
                 logger.warning(
                     "ESI rate limit reached for %s (public), attempt %s/%s (remaining=%s).",
                     description,
@@ -273,15 +278,12 @@ def _rate_limited_public_results(
                     exc,
                 )
                 break
-            sleep_for = shared_client.backoff_factor * (2 ** (attempt - 1))
             logger.warning(
-                "Public lookup error for %s, retry %s/%s in %.1fs",
+                "Public lookup error for %s, retry %s/%s immediately",
                 description,
                 attempt,
                 max_attempts,
-                sleep_for,
             )
-            time.sleep(sleep_for)
             continue
 
     return None, last_response
@@ -377,10 +379,72 @@ def is_station_id(location_id: int | None) -> bool:
         return False
 
     try:
-        return int(location_id) < _STATION_ID_MAX
+        numeric_id = int(location_id)
+        return _STATION_ID_MIN <= numeric_id <= _STATION_ID_MAX
     except (TypeError, ValueError):  # pragma: no cover - defensive parsing
         logger.debug("Unable to coerce %s into an integer station id", location_id)
         return False
+
+
+@lru_cache(maxsize=64)
+def _get_table_columns(table_name: str) -> frozenset[str]:
+    try:
+        with connection.cursor() as cursor:
+            description = connection.introspection.get_table_description(
+                cursor,
+                table_name,
+            )
+    except Exception:
+        return frozenset()
+    return frozenset(column.name for column in description)
+
+
+def _resolve_sde_location_name(location_id: int) -> str | None:
+    """Resolve location names directly from SDE map data when possible.
+
+    This fallback is useful for celestial/stargate IDs that are public int32 values
+    but may not resolve through ESI universe names.
+    """
+
+    numeric_id = int(location_id or 0)
+    if numeric_id <= 0:
+        return None
+
+    table_name = "eve_sde_mapdenormalize"
+    columns = _get_table_columns(table_name)
+    if not columns:
+        return None
+
+    id_column = None
+    for candidate in ("item_id", "itemid", "id"):
+        if candidate in columns:
+            id_column = candidate
+            break
+    if not id_column:
+        return None
+
+    name_column = None
+    for candidate in ("item_name", "itemname", "name", "name_en"):
+        if candidate in columns:
+            name_column = candidate
+            break
+    if not name_column:
+        return None
+
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"SELECT {name_column} FROM {table_name} WHERE {id_column} = %s LIMIT 1",
+                [numeric_id],
+            )
+            row = cursor.fetchone()
+    except Exception:
+        return None
+
+    if not row:
+        return None
+    resolved = str(row[0] or "").strip()
+    return resolved or None
 
 
 def get_type_name(type_id: int | None) -> str:
@@ -998,16 +1062,14 @@ def resolve_location_name(
             if invalidate_fallback:
                 _invalidate_structure_scope_token_cache()
             return None
-        except ESIRateLimitError as exc:
-            pause = exc.retry_after or shared_client.backoff_factor * (
-                2 ** max(len(attempted_characters) - 1, 0)
-            )
+        except (ESIErrorLimitException, ESIBucketLimitException) as exc:
+            pause = get_rate_limit_reset_seconds(exc)
             _schedule_structure_rate_limit_pause(pause)
             logger.warning(
-                "ESI rate limit reached while fetching structure %s via %s (remaining=%s). Pausing for %.1fs",
+                "ESI rate limit reached while fetching structure %s via %s (reset=%s). Pausing for %.1fs",
                 structure_id,
                 candidate_character_id,
-                exc.remaining,
+                getattr(exc, "reset", None),
                 pause,
             )
             return None
@@ -1061,6 +1123,9 @@ def resolve_location_name(
                     description=f"/universe/stations/{structure_id}/",
                 )
                 name = _extract_public_name(payload)
+
+    if not name:
+        name = _resolve_sde_location_name(structure_id)
 
     if not name:
         name = placeholder_value

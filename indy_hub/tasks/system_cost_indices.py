@@ -13,12 +13,12 @@ from django.core.cache import cache
 
 # Alliance Auth
 from allianceauth.services.hooks import get_extension_logger
+from esi.exceptions import ESIBucketLimitException, ESIErrorLimitException
 
 # AA Example App
 from indy_hub.services.esi_client import (
     ESIClientError,
-    ESIRateLimitError,
-    get_retry_after_seconds,
+    get_rate_limit_reset_seconds,
 )
 from indy_hub.services.system_cost_indices import sync_system_cost_indices
 
@@ -47,8 +47,8 @@ def sync_industry_system_cost_indices(
     try:
         try:
             summary = sync_system_cost_indices(force_refresh=force_refresh)
-        except ESIRateLimitError as exc:
-            delay = get_retry_after_seconds(exc)
+        except (ESIErrorLimitException, ESIBucketLimitException) as exc:
+            delay = get_rate_limit_reset_seconds(exc)
             logger.warning(
                 "ESI rate limit hit while syncing industry system cost indices; retrying in %ss",
                 delay,

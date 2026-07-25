@@ -5,7 +5,7 @@ from __future__ import annotations
 # Standard Library
 import re
 from dataclasses import dataclass
-from decimal import ROUND_CEILING, Decimal
+from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal
 from functools import lru_cache
 
 # Django
@@ -529,6 +529,23 @@ def sde_item_types_loaded() -> bool:
         cursor.execute("SELECT COUNT(*) FROM eve_sde_itemtype")
         row = cursor.fetchone()
     return bool(row and row[0])
+
+
+def round_security_status(
+    security_status: Decimal | int | float | str | None,
+) -> Decimal:
+    """Round security status to in-game display precision.
+
+    EVE uses one decimal place with a special case: any positive value below
+    0.05 displays as 0.1 rather than 0.0.
+    """
+
+    value = _normalize_decimal(security_status)
+    if value == Decimal("0"):
+        return Decimal("0.0")
+    if Decimal("0") < value < Decimal("0.05"):
+        return Decimal("0.1")
+    return value.quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
 
 
 def security_status_to_band(security_status: Decimal | int | float | str | None) -> str:

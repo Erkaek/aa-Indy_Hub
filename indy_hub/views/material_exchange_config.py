@@ -18,13 +18,14 @@ from django.utils.translation import gettext_lazy as _
 
 # Alliance Auth
 from allianceauth.services.hooks import get_extension_logger
+from esi.decorators import tokens_required
 from esi.views import sso_redirect
 
 # AA Example App
 from indy_hub.services.providers import esi_provider
 
 from ..app_settings import ROLE_SNAPSHOT_STALE_HOURS
-from ..decorators import indy_hub_permission_required, tokens_required
+from ..decorators import indy_hub_permission_required
 from ..models import (
     CharacterRoles,
     MaterialExchangeAcceptedLocation,

@@ -615,6 +615,54 @@ Warp Disruption Field Generator II
             payload["entries"][2]["metadata"]["fit_group"],
         )
 
+    def test_parse_eft_import_ignores_empty_slots_and_offline_suffix(self) -> None:
+        payload = parse_project_import_text(
+            """
+[Heron, Salvage]
+
+[Empty low slot]
+Damage Control II /offline
+""".strip()
+        )
+
+        self.assertEqual(payload["source_kind"], "eft")
+        self.assertEqual(len(payload["entries"]), 2)
+        self.assertEqual(payload["entries"][1]["type_name"], "Damage Control II")
+        self.assertEqual(payload["entries"][1]["category_key"], "low_slots")
+
+    def test_parse_eft_import_supports_service_drone_and_cargo_sections(self) -> None:
+        payload = parse_project_import_text(
+            """
+[Azbel, Service Scan]
+
+Reactor Control Unit I
+
+Multispectrum Shield Hardener II
+
+Small Tractor Beam I
+
+Medium Core Defense Field Extender I
+
+Legion Defensive - Augmented Plating
+
+Standup Reprocessing Facility I
+
+
+Hobgoblin II x5
+
+
+Tritanium x10
+""".strip()
+        )
+
+        by_name = {entry["type_name"]: entry for entry in payload["entries"]}
+        self.assertEqual(
+            by_name["Standup Reprocessing Facility I"]["category_key"],
+            "service_slots",
+        )
+        self.assertEqual(by_name["Hobgoblin II"]["category_key"], "drone_bay")
+        self.assertEqual(by_name["Tritanium"]["category_key"], "cargo")
+
     def test_parse_manual_import_supports_prefix_and_suffix_quantities(self) -> None:
         payload = parse_project_import_text(
             """

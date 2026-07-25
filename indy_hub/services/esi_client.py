@@ -17,14 +17,23 @@ from django.core.cache import cache
 
 # Alliance Auth
 from allianceauth.services.hooks import get_extension_logger
+from esi import app_settings as esi_app_settings
 from esi.errors import TokenError
-from esi.exceptions import HTTPClientError, HTTPNotModified, HTTPServerError
+from esi.exceptions import (
+    ESIBucketLimitException,
+    ESIErrorLimitException,
+    HTTPClientError,
+    HTTPNotModified,
+    HTTPServerError,
+)
 from esi.models import Token
+
+# Alliance Auth (External Libs)
+from app_utils.helpers import chunks
 
 # AA Example App
 # Local
 from indy_hub.app_settings import (
-    ESI_COMPATIBILITY_DATE,
     ESI_TASK_TARGET_PER_MIN_BLUEPRINTS,
     ESI_TASK_TARGET_PER_MIN_JOBS,
     ESI_TASK_TARGET_PER_MIN_ROLES,
@@ -34,13 +43,12 @@ from indy_hub.services.providers import esi_provider
 
 logger = get_extension_logger(__name__)
 
-DEFAULT_COMPATIBILITY_DATE = ESI_COMPATIBILITY_DATE
-
 _SCOPE_THROTTLE_PREFIX = "indy_hub:esi_task_scope_budget"
 _SCOPE_THROTTLE_TIMEOUT_SECONDS = 120
 _SCOPE_THROTTLE_HIT_PREFIX = "indy_hub:esi_task_scope_budget_hits"
 _SCOPE_THROTTLE_HIT_TIMEOUT_SECONDS = 120
 _HTTP_ERROR_TYPES = (HTTPClientError, HTTPServerError)
+_DJANGO_ESI_RATE_LIMIT_ERRORS = (ESIBucketLimitException, ESIErrorLimitException)
 
 
 class ESIClientError(Exception):
@@ -74,27 +82,12 @@ class ESIForbiddenError(ESIClientError):
         self.structure_id = structure_id
 
 
-class ESIRateLimitError(ESIClientError):
-    """Raised when ESI signals that the error limit has been exceeded."""
-
-    def __init__(
-        self,
-        message: str = "ESI rate limit exceeded",
-        *,
-        retry_after: float | None = None,
-        remaining: int | None = None,
-    ) -> None:
-        super().__init__(message)
-        self.retry_after = retry_after
-        self.remaining = remaining
-
-
 class ESIUnmodifiedError(ESIClientError):
     """Raised when ESI responds with HTTP 304 (Not Modified)."""
 
 
-def rate_limit_wait_seconds(response, fallback: float) -> tuple[float, int | None]:
-    """Return the recommended pause in seconds from ESI headers."""
+def rate_limit_wait_seconds(response) -> tuple[float | None, int | None]:
+    """Return pause seconds from ESI error-limit headers when available."""
 
     wait_candidates: list[float] = []
     retry_after_header = response.headers.get("Retry-After")
@@ -108,11 +101,11 @@ def rate_limit_wait_seconds(response, fallback: float) -> tuple[float, int | Non
         except (TypeError, ValueError):
             continue
 
-    wait = fallback
+    wait: float | None = None
     if wait_candidates:
         positive = [value for value in wait_candidates if value > 0]
         if positive:
-            wait = max(max(positive), fallback)
+            wait = max(positive)
 
     remaining_header = response.headers.get("X-Esi-Error-Limit-Remain")
     remaining: int | None = None
@@ -126,9 +119,9 @@ def rate_limit_wait_seconds(response, fallback: float) -> tuple[float, int | Non
 
 
 def token_rate_limit_wait_seconds(
-    response, fallback: float
-) -> tuple[float, int | None]:
-    """Return wait seconds from token-based rate limit headers."""
+    response,
+) -> tuple[float | None, int | None]:
+    """Return pause seconds from token-rate headers when available."""
 
     retry_after_header = response.headers.get("Retry-After")
     reset_header = response.headers.get("X-Ratelimit-Reset")
@@ -143,11 +136,11 @@ def token_rate_limit_wait_seconds(
         except (TypeError, ValueError):
             continue
 
-    wait = fallback
+    wait: float | None = None
     if wait_candidates:
         positive = [value for value in wait_candidates if value > 0]
         if positive:
-            wait = max(max(positive), fallback)
+            wait = max(positive)
 
     remaining: int | None = None
     if remaining_header is not None:
@@ -159,15 +152,17 @@ def token_rate_limit_wait_seconds(
     return wait, remaining
 
 
-def get_retry_after_seconds(
+def get_rate_limit_reset_seconds(
     exc: Exception,
     *,
-    fallback: int = 60,
+    fallback: int = 1,
     minimum: int = 1,
 ) -> int:
-    """Normalize retry delay from an ESIRateLimitError or similar exception."""
+    """Normalize retry delay from django-esi rate limit exceptions."""
 
-    raw_delay = getattr(exc, "retry_after", None)
+    raw_delay = getattr(exc, "reset", None)
+    if raw_delay is None:
+        raw_delay = getattr(exc, "retry_after", None)
     delay = 0
     if raw_delay is not None:
         try:
@@ -184,21 +179,13 @@ def get_retry_after_seconds(
 class ESIClient:
     """Small helper around django-esi OpenAPI client with AA-friendly errors."""
 
-    def __init__(
-        self,
-        base_url: str = "https://esi.evetech.net/latest",
-        timeout: int = 20,
-        max_attempts: int = 3,
-        backoff_factor: float = 0.75,
-        compatibility_date: str | None = None,
-    ) -> None:
-        self.base_url = base_url.rstrip("/")
-        self.timeout = timeout
-        self.max_attempts = max_attempts
-        self.backoff_factor = backoff_factor
-        self.compatibility_date = (compatibility_date or "").strip() or None
+    def __init__(self) -> None:
         self.provider = esi_provider
-        self.client = self.provider.client
+
+    @property
+    def client(self):
+        """Lazily materialize the django-esi OpenAPI client on first access."""
+        return self.provider.client
 
     @staticmethod
     def _is_running_in_task() -> bool:
@@ -305,13 +292,12 @@ class ESIClient:
                 endpoint or "unknown-endpoint",
                 exc,
             )
-            raise ESIRateLimitError(
+            raise ESIErrorLimitException(
+                reset=self._seconds_to_next_minute(),
                 message=(
                     "Local task ESI throttle unavailable for scope "
                     f"{scope_key}; backing off to avoid burst traffic"
                 ),
-                retry_after=self._seconds_to_next_minute(),
-                remaining=0,
             ) from exc
 
         if used <= target_per_min:
@@ -323,7 +309,8 @@ class ESIClient:
             minute_bucket=minute_bucket,
         )
 
-        raise ESIRateLimitError(
+        raise ESIErrorLimitException(
+            reset=self._seconds_to_next_minute(),
             message=(
                 "Local task ESI throttle hit for scope "
                 f"{scope_key} ({used}/{target_per_min} req/min)"
@@ -331,8 +318,6 @@ class ESIClient:
                 + f" hits={hit_count}/min"
                 + (f" on {endpoint}" if endpoint else "")
             ),
-            retry_after=self._seconds_to_next_minute(),
-            remaining=0,
         )
 
     def enforce_task_scope_budget(
@@ -624,12 +609,16 @@ class ESIClient:
         if force_refresh:
             results_kwargs = {"use_etag": False, "force_refresh": True}
 
+        last_response = None
         try:
             operation_call = operation_fn(**params, token=token_obj, **request_kwargs)
             if results_kwargs is None:
-                payload = operation_call.results()
+                payload, last_response = operation_call.results(return_response=True)
             else:
-                payload = operation_call.results(**results_kwargs)
+                payload, last_response = operation_call.results(
+                    return_response=True,
+                    **results_kwargs,
+                )
         except HTTPNotModified as exc:
             raise ESIUnmodifiedError(f"ESI returned 304 for {endpoint}") from exc
         except _HTTP_ERROR_TYPES as exc:
@@ -686,7 +675,97 @@ class ESIClient:
             raise ESIClientError(
                 f"ESI {endpoint} returned an unexpected payload type: {type(payload)}"
             )
+
+        self._validate_paginated_last_modified(
+            operation_fn=operation_fn,
+            params=params,
+            token_obj=token_obj,
+            request_kwargs=request_kwargs,
+            endpoint=endpoint,
+            force_refresh=force_refresh,
+            last_response=last_response,
+        )
+
         return [self._coerce_mapping(item) for item in payload]
+
+    def _validate_paginated_last_modified(
+        self,
+        *,
+        operation_fn,
+        params: dict,
+        token_obj: Token,
+        request_kwargs: dict,
+        endpoint: str,
+        force_refresh: bool,
+        last_response,
+    ) -> None:
+        """Verify Last-Modified consistency across paged resources.
+
+        ESI recommends that paginated pages for one resource share the same
+        Last-Modified value to avoid mixed snapshots.
+        """
+        if force_refresh:
+            # Manual refresh can bypass etag/cache on purpose; avoid issuing extra
+            # live requests for validation in this mode.
+            return
+
+        if not last_response:
+            return
+
+        try:
+            total_pages = int(last_response.headers.get("X-Pages", 1))
+        except (TypeError, ValueError):
+            total_pages = 1
+
+        if total_pages <= 1:
+            return
+
+        if not getattr(esi_app_settings, "ESI_CACHE_RESPONSE", True):
+            logger.debug(
+                "Skipping Last-Modified pagination validation for %s because ESI cache is disabled.",
+                endpoint,
+            )
+            return
+
+        baseline_last_modified = last_response.headers.get("Last-Modified")
+        if not baseline_last_modified:
+            return
+
+        for page in range(1, total_pages + 1):
+            try:
+                operation_call = operation_fn(
+                    **params,
+                    token=token_obj,
+                    page=page,
+                    **request_kwargs,
+                )
+                _, page_response = operation_call.result(
+                    return_response=True,
+                    use_etag=False,
+                    use_cache=True,
+                )
+            except HTTPNotModified:
+                # Should not happen with use_etag=False, but a 304 still means
+                # content is unchanged for that page.
+                continue
+            except Exception as exc:  # pragma: no cover - defensive logging
+                logger.debug(
+                    "Failed Last-Modified pagination probe for %s page=%s: %s",
+                    endpoint,
+                    page,
+                    exc,
+                )
+                continue
+
+            page_last_modified = None
+            if page_response is not None:
+                page_last_modified = page_response.headers.get("Last-Modified")
+
+            if page_last_modified and page_last_modified != baseline_last_modified:
+                raise ESIClientError(
+                    "ESI returned inconsistent Last-Modified values across pages "
+                    f"for {endpoint}; refusing mixed snapshot"
+                )
 
     @staticmethod
     def _coerce_mapping(item):
@@ -716,15 +795,6 @@ class ESIClient:
                 f"No valid token for character {character_id} and scope {scope}"
             )
         return token
-
-    def _get_access_token(self, character_id: int, scope: str) -> str:
-        token = self._get_token(character_id, scope)
-        try:
-            return token.valid_access_token()
-        except Exception as exc:  # pragma: no cover - Alliance Auth handles details
-            raise ESITokenError(
-                f"No valid token for character {character_id} and scope {scope}"
-            ) from exc
 
     def fetch_corporation_contracts(
         self,
@@ -857,10 +927,15 @@ class ESIClient:
             operation_fn = self._resolve_operation("Universe", "post_universe_names")
         except AttributeError:
             return result
-        for i in range(0, len(ids), 1000):
-            batch = ids[i : i + 1000]
+        for batch in chunks(ids, 1000):
             try:
                 payload = operation_fn(ids=batch).results()
+            except _DJANGO_ESI_RATE_LIMIT_ERRORS as exc:
+                logger.warning(
+                    "resolve_ids_to_names hit django-esi rate limit: %s",
+                    exc,
+                )
+                break
             except _HTTP_ERROR_TYPES as exc:
                 status_code = getattr(exc, "status_code", None)
                 if status_code is None:
@@ -880,6 +955,12 @@ class ESIClient:
             except Exception:
                 try:
                     payload = operation_fn(body=batch).results()
+                except _DJANGO_ESI_RATE_LIMIT_ERRORS as exc2:
+                    logger.warning(
+                        "resolve_ids_to_names hit django-esi rate limit: %s",
+                        exc2,
+                    )
+                    break
                 except _HTTP_ERROR_TYPES as exc2:
                     status_code = getattr(exc2, "status_code", None)
                     if status_code is None:
@@ -1036,21 +1117,18 @@ class ESIClient:
             exc.response, "status_code", None
         )
         if status_code == 420:
-            sleep_for, remaining = rate_limit_wait_seconds(
-                exc.response, self.backoff_factor
-            )
-            raise ESIRateLimitError(
-                retry_after=sleep_for,
-                remaining=remaining,
+            sleep_for, remaining = rate_limit_wait_seconds(exc.response)
+            raise ESIErrorLimitException(
+                reset=sleep_for or 1,
+                message=f"ESI error limit reached (remaining={remaining})",
             ) from exc
 
         if status_code == 429:
-            sleep_for, remaining = token_rate_limit_wait_seconds(
-                exc.response, self.backoff_factor
-            )
-            raise ESIRateLimitError(
-                retry_after=sleep_for,
-                remaining=remaining,
+            sleep_for, remaining = token_rate_limit_wait_seconds(exc.response)
+            raise ESIBucketLimitException(
+                bucket="esi-bucket",
+                reset=sleep_for or 1,
+                message=f"ESI bucket limit reached (remaining={remaining})",
             ) from exc
 
         if status_code == 403 and character_id is not None:
@@ -1102,4 +1180,4 @@ class ESIClient:
 
 
 # Module level singleton to avoid re-creating sessions
-shared_client = ESIClient(compatibility_date=DEFAULT_COMPATIBILITY_DATE)
+shared_client = ESIClient()

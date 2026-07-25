@@ -55,6 +55,7 @@ from indy_hub.services.location_population import (
     LocationTarget,
     _resolve_location_name_for_target,
 )
+from indy_hub.services.providers import ESI_REQUIRED_OPERATIONS
 from indy_hub.tasks.industry import (
     MANUAL_REFRESH_KIND_BLUEPRINTS,
     MANUAL_REFRESH_KIND_JOBS,
@@ -3763,6 +3764,37 @@ class StructureLookupDbCacheTests(TestCase):
         cached = CachedStructureName.objects.get(structure_id=office_folder_item_id)
         self.assertEqual(cached.name, "Cached Structure Alias")
 
+    def test_is_station_id_matches_documented_station_ranges(self) -> None:
+        self.assertTrue(eve_utils.is_station_id(60_000_000))
+        self.assertTrue(eve_utils.is_station_id(69_999_999))
+        self.assertFalse(eve_utils.is_station_id(59_999_999))
+        self.assertFalse(eve_utils.is_station_id(70_000_000))
+
+    def test_resolve_location_name_uses_sde_fallback_when_public_name_missing(
+        self,
+    ) -> None:
+        location_id = 50_000_001
+        with (
+            patch(
+                "indy_hub.utils.eve.shared_client.resolve_ids_to_names",
+                return_value={},
+            ) as mock_resolve_ids_to_names,
+            patch(
+                "indy_hub.utils.eve._resolve_sde_location_name",
+                return_value="Stargate (Jita)",
+            ) as mock_resolve_sde_location_name,
+        ):
+            result = eve_utils.resolve_location_name(
+                location_id,
+                allow_authenticated=False,
+                allow_public=True,
+                force_refresh=True,
+            )
+
+        self.assertEqual(result, "Stargate (Jita)")
+        mock_resolve_ids_to_names.assert_called_once_with([location_id])
+        mock_resolve_sde_location_name.assert_called_once_with(location_id)
+
     def test_resolve_location_name_writes_through_to_central_cache(self) -> None:
         structure_id = 1_045_667_241_057
         CachedStructureName.objects.filter(structure_id=structure_id).delete()
@@ -5602,3 +5634,178 @@ class EsiClientForbiddenTokenTests(TestCase):
         )
 
         token.delete.assert_not_called()
+
+    def test_constructor_does_not_load_openapi_client_eagerly(self) -> None:
+        # AA Example App
+        from indy_hub.services import esi_client as esi_client_module
+
+        class _ProviderStub:
+            @property
+            def client(self):
+                raise AssertionError("provider.client should not be accessed")
+
+        with patch.object(esi_client_module, "esi_provider", _ProviderStub()):
+            esi_client_module.ESIClient()
+
+
+class EsiProviderOperationWhitelistTests(TestCase):
+    """Guard against using unsupported operationId formats in provider filters."""
+
+    def test_operation_ids_use_pascal_case_and_include_industry_systems(self) -> None:
+        self.assertIn("GetIndustrySystems", ESI_REQUIRED_OPERATIONS)
+        self.assertNotIn("get_industry_systems", ESI_REQUIRED_OPERATIONS)
+        self.assertTrue(
+            all(operation[:1].isupper() for operation in ESI_REQUIRED_OPERATIONS)
+        )
+
+
+class EsiClientPaginationHeaderConsistencyTests(TestCase):
+    """Guard against mixed snapshots on paginated ESI responses."""
+
+    class _Response:
+        def __init__(self, headers: dict[str, str]) -> None:
+            self.headers = headers
+
+    class _OperationCall:
+        def __init__(self, response) -> None:
+            self._response = response
+
+        def result(self, **kwargs):
+            return [], self._response
+
+    @patch("indy_hub.services.esi_client.esi_app_settings.ESI_CACHE_RESPONSE", True)
+    def test_raises_when_last_modified_differs_between_pages(self) -> None:
+        # AA Example App
+        from indy_hub.services.esi_client import ESIClientError, shared_client
+
+        calls: list[int] = []
+
+        def operation_fn(**kwargs):
+            page = int(kwargs.get("page", 1))
+            calls.append(page)
+            header = "same" if page != 2 else "different"
+            return self._OperationCall(
+                self._Response(
+                    {
+                        "Last-Modified": header,
+                    }
+                )
+            )
+
+        with self.assertRaises(ESIClientError):
+            shared_client._validate_paginated_last_modified(
+                operation_fn=operation_fn,
+                params={"character_id": 42},
+                token_obj=object(),
+                request_kwargs={},
+                endpoint="/characters/42/industry/jobs/",
+                force_refresh=False,
+                last_response=self._Response(
+                    {
+                        "X-Pages": "3",
+                        "Last-Modified": "same",
+                    }
+                ),
+            )
+
+        self.assertEqual(calls, [1, 2])
+
+    @patch("indy_hub.services.esi_client.esi_app_settings.ESI_CACHE_RESPONSE", True)
+    def test_accepts_when_last_modified_is_consistent(self) -> None:
+        # AA Example App
+        from indy_hub.services.esi_client import shared_client
+
+        calls: list[int] = []
+
+        def operation_fn(**kwargs):
+            page = int(kwargs.get("page", 1))
+            calls.append(page)
+            return self._OperationCall(
+                self._Response(
+                    {
+                        "Last-Modified": "same",
+                    }
+                )
+            )
+
+        shared_client._validate_paginated_last_modified(
+            operation_fn=operation_fn,
+            params={"character_id": 42},
+            token_obj=object(),
+            request_kwargs={},
+            endpoint="/characters/42/industry/jobs/",
+            force_refresh=False,
+            last_response=self._Response(
+                {
+                    "X-Pages": "3",
+                    "Last-Modified": "same",
+                }
+            ),
+        )
+
+        self.assertEqual(calls, [1, 2, 3])
+
+    @patch("indy_hub.services.esi_client.esi_app_settings.ESI_CACHE_RESPONSE", True)
+    def test_skips_validation_on_force_refresh(self) -> None:
+        # AA Example App
+        from indy_hub.services.esi_client import shared_client
+
+        calls: list[int] = []
+
+        def operation_fn(**kwargs):
+            calls.append(int(kwargs.get("page", 1)))
+            return self._OperationCall(self._Response({"Last-Modified": "same"}))
+
+        shared_client._validate_paginated_last_modified(
+            operation_fn=operation_fn,
+            params={"character_id": 42},
+            token_obj=object(),
+            request_kwargs={},
+            endpoint="/characters/42/industry/jobs/",
+            force_refresh=True,
+            last_response=self._Response(
+                {
+                    "X-Pages": "3",
+                    "Last-Modified": "same",
+                }
+            ),
+        )
+
+        self.assertEqual(calls, [])
+
+
+class EsiClientRateLimitResetTests(TestCase):
+    def test_uses_error_limit_reset_value(self) -> None:
+        # Alliance Auth
+        from esi.exceptions import ESIErrorLimitException
+
+        # AA Example App
+        from indy_hub.services.esi_client import get_rate_limit_reset_seconds
+
+        delay = get_rate_limit_reset_seconds(ESIErrorLimitException(reset=37))
+        self.assertEqual(delay, 37)
+
+    def test_uses_bucket_limit_reset_value(self) -> None:
+        # Alliance Auth
+        from esi.exceptions import ESIBucketLimitException
+
+        # AA Example App
+        from indy_hub.services.esi_client import get_rate_limit_reset_seconds
+
+        class _Bucket:
+            window = 90
+
+        delay = get_rate_limit_reset_seconds(
+            ESIBucketLimitException(bucket=_Bucket(), reset=12)
+        )
+        self.assertEqual(delay, 12)
+
+    def test_falls_back_to_minimum_when_reset_missing(self) -> None:
+        # Alliance Auth
+        from esi.exceptions import ESIErrorLimitException
+
+        # AA Example App
+        from indy_hub.services.esi_client import get_rate_limit_reset_seconds
+
+        delay = get_rate_limit_reset_seconds(ESIErrorLimitException(reset=None))
+        self.assertEqual(delay, 1)

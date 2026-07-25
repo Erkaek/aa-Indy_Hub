@@ -9,13 +9,13 @@ from django.utils import timezone
 
 # Alliance Auth
 from allianceauth.services.hooks import get_extension_logger
+from esi.exceptions import ESIBucketLimitException, ESIErrorLimitException
 from esi.models import Token
 
 # AA Example App
 from indy_hub.models import IndustryStructure
 from indy_hub.services.esi_client import (
     ESIForbiddenError,
-    ESIRateLimitError,
     ESITokenError,
     ESIUnmodifiedError,
     shared_client,
@@ -408,7 +408,7 @@ def sync_corporation_structure_targets(
                 corporation_id,
             )
             continue
-        except ESIRateLimitError as exc:
+        except (ESIErrorLimitException, ESIBucketLimitException) as exc:
             summary["rate_limited"] += 1
             rate_limit_samples = summary["rate_limit_samples"]
             if len(rate_limit_samples) < SYNC_ERROR_SAMPLE_LIMIT:
