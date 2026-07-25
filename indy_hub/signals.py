@@ -1,4 +1,5 @@
 # Django
+from django.contrib.auth.models import User
 from django.core.cache import cache
 from django.db import connection
 from django.db.models.signals import post_delete, post_save, pre_save
@@ -45,10 +46,11 @@ from indy_hub.tasks.industry import (
     REQUIRED_CORPORATION_ROLES,
     SKILLS_SCOPE,
     STRUCTURE_SCOPE,
+    _is_user_active,
     get_character_corporation_roles,
-    update_blueprints_for_user,
+    queue_blueprint_update_for_user,
+    queue_industry_job_update_for_user,
     update_character_skill_snapshot_for_character,
-    update_industry_jobs_for_user,
 )
 
 from .services.esi_client import ESITokenError
@@ -467,6 +469,16 @@ if Token:
             logger.debug(f"Token {instance.pk} updated but not created, skipping sync")
             return
 
+        user = instance.user if getattr(instance, "user", None) else None
+        if user is None and instance.user_id:
+            user = User.objects.filter(id=instance.user_id).first()
+        if user and not _is_user_active(user):
+            logger.debug(
+                "Skipping token-triggered sync for inactive user %s",
+                user.username,
+            )
+            return
+
         logger.info(
             f"New token created for user {instance.user_id}, character {instance.character_id}"
         )
@@ -478,12 +490,10 @@ if Token:
         if blueprint_scopes.exists():
             logger.info(f"Triggering blueprint sync for user {instance.user_id}")
             try:
-                update_blueprints_for_user.apply_async(
-                    args=(instance.user_id,),
-                    kwargs={
-                        "scope": "character",
-                        "character_id": int(instance.character_id),
-                    },
+                queue_blueprint_update_for_user(
+                    int(instance.user_id),
+                    scope="character",
+                    character_id=int(instance.character_id),
                 )
             except Exception as e:
                 logger.error(f"Failed to trigger blueprint sync: {e}")
@@ -493,12 +503,10 @@ if Token:
         if jobs_scopes.exists():
             logger.info(f"Triggering jobs sync for user {instance.user_id}")
             try:
-                update_industry_jobs_for_user.apply_async(
-                    args=(instance.user_id,),
-                    kwargs={
-                        "scope": "character",
-                        "character_id": int(instance.character_id),
-                    },
+                queue_industry_job_update_for_user(
+                    int(instance.user_id),
+                    scope="character",
+                    character_id=int(instance.character_id),
                 )
             except Exception as e:
                 logger.error(f"Failed to trigger jobs sync: {e}")

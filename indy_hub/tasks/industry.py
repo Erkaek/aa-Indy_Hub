@@ -264,6 +264,9 @@ MANUAL_REFRESH_KIND_JOBS = "jobs"
 _MANUAL_REFRESH_CACHE_PREFIX = "indy_hub:manual_refresh"
 _MANUAL_REFRESH_INFLIGHT_PREFIX = "indy_hub:manual_refresh_inflight"
 _MANUAL_REFRESH_INFLIGHT_TTL_SECONDS = 15 * 60
+_TASK_QUEUE_INFLIGHT_PREFIX = "indy_hub:task_queue_inflight"
+_TASK_QUEUE_INFLIGHT_BUFFER_SECONDS = 15 * 60
+_TASK_QUEUE_INFLIGHT_MIN_SECONDS = 60
 _BLUEPRINTS_BULK_LOCK_KEY = "indy_hub:blueprints_bulk:lock"
 _INDUSTRY_JOBS_BULK_LOCK_KEY = "indy_hub:industry_jobs_bulk:lock"
 _BULK_LOCK_TTL_BUFFER_SECONDS = 15 * 60
@@ -792,6 +795,73 @@ def _manual_refresh_inflight_key(
     return f"{_MANUAL_REFRESH_INFLIGHT_PREFIX}:{kind}:{user_id}:{scope_key}"
 
 
+def _task_queue_inflight_key(
+    task_name: str,
+    user_id: int,
+    scope: str | None = None,
+    character_id: int | None = None,
+    queue_source: str | None = None,
+) -> str:
+    scope_key = (scope or "").lower() or "default"
+    source_key = (queue_source or "auto").strip().lower() or "auto"
+    character_key = "none" if character_id is None else int(character_id)
+    return (
+        f"{_TASK_QUEUE_INFLIGHT_PREFIX}:{task_name}:{source_key}:{int(user_id)}"
+        f":{scope_key}:{character_key}"
+    )
+
+
+def _task_queue_inflight_ttl(countdown: int) -> int:
+    delay = max(int(countdown), 0)
+    return max(
+        delay + _TASK_QUEUE_INFLIGHT_BUFFER_SECONDS, _TASK_QUEUE_INFLIGHT_MIN_SECONDS
+    )
+
+
+def _mark_task_queue_inflight(
+    task_name: str,
+    user_id: int,
+    scope: str | None = None,
+    character_id: int | None = None,
+    queue_source: str | None = None,
+    *,
+    countdown: int = 0,
+) -> bool:
+    if user_id is None:
+        return False
+    return bool(
+        cache.add(
+            _task_queue_inflight_key(
+                task_name,
+                user_id,
+                scope,
+                character_id,
+                queue_source,
+            ),
+            timezone.now().timestamp(),
+            timeout=_task_queue_inflight_ttl(countdown),
+        )
+    )
+
+
+def _clear_task_queue_inflight(
+    task_name: str,
+    user_id: int,
+    scope: str | None = None,
+    character_id: int | None = None,
+    queue_source: str | None = None,
+) -> None:
+    cache.delete(
+        _task_queue_inflight_key(
+            task_name,
+            user_id,
+            scope,
+            character_id,
+            queue_source,
+        )
+    )
+
+
 def _mark_manual_refresh_inflight(
     kind: str, user_id: int, scope: str | None = None
 ) -> bool:
@@ -846,24 +916,30 @@ def _queue_staggered_industry_job_character_tasks(
     window_seconds = max(window_minutes * 60, 0)
 
     if total == 1 or window_seconds == 0:
+        queued = 0
         for user_id, character_id in targets:
-            update_industry_jobs_for_user.apply_async(
-                args=(int(user_id),),
-                kwargs={"scope": "character", "character_id": int(character_id)},
+            if queue_industry_job_update_for_user(
+                int(user_id),
                 priority=priority,
-            )
-        return total
+                scope="character",
+                character_id=int(character_id),
+            ):
+                queued += 1
+        return queued
 
     spacing = window_seconds / total
+    queued = 0
     for index, (user_id, character_id) in enumerate(targets):
         countdown = int(round(index * spacing))
-        update_industry_jobs_for_user.apply_async(
-            args=(int(user_id),),
-            kwargs={"scope": "character", "character_id": int(character_id)},
+        if queue_industry_job_update_for_user(
+            int(user_id),
             countdown=countdown,
             priority=priority,
-        )
-    return total
+            scope="character",
+            character_id=int(character_id),
+        ):
+            queued += 1
+    return queued
 
 
 def _queue_staggered_industry_job_corporation_tasks(
@@ -879,24 +955,30 @@ def _queue_staggered_industry_job_corporation_tasks(
     window_seconds = max(window_minutes * 60, 0)
 
     if total == 1 or window_seconds == 0:
+        queued = 0
         for user_id in user_ids:
-            update_industry_jobs_for_user.apply_async(
-                args=(int(user_id),),
-                kwargs={"scope": "corporation", "character_id": 0},
+            if queue_industry_job_update_for_user(
+                int(user_id),
                 priority=priority,
-            )
-        return total
+                scope="corporation",
+                character_id=0,
+            ):
+                queued += 1
+        return queued
 
     spacing = window_seconds / total
+    queued = 0
     for index, user_id in enumerate(user_ids):
         countdown = int(round(index * spacing))
-        update_industry_jobs_for_user.apply_async(
-            args=(int(user_id),),
-            kwargs={"scope": "corporation", "character_id": 0},
+        if queue_industry_job_update_for_user(
+            int(user_id),
             countdown=countdown,
             priority=priority,
-        )
-    return total
+            scope="corporation",
+            character_id=0,
+        ):
+            queued += 1
+    return queued
 
 
 def _queue_staggered_blueprint_character_tasks(
@@ -912,24 +994,28 @@ def _queue_staggered_blueprint_character_tasks(
     window_seconds = max(window_minutes * 60, 0)
 
     if total == 1 or window_seconds == 0:
+        queued = 0
         for user_id, character_id in targets:
-            update_blueprints_for_user.apply_async(
-                args=(int(user_id),),
-                kwargs={"scope": "character", "character_id": int(character_id)},
+            if queue_blueprint_update_for_user(
+                int(user_id),
                 priority=priority,
-            )
-        return total
+                scope="character",
+            ):
+                queued += 1
+        return queued
 
     spacing = window_seconds / total
+    queued = 0
     for index, (user_id, character_id) in enumerate(targets):
         countdown = int(round(index * spacing))
-        update_blueprints_for_user.apply_async(
-            args=(int(user_id),),
-            kwargs={"scope": "character", "character_id": int(character_id)},
+        if queue_blueprint_update_for_user(
+            int(user_id),
             countdown=countdown,
             priority=priority,
-        )
-    return total
+            scope="character",
+        ):
+            queued += 1
+    return queued
 
 
 def _queue_staggered_blueprint_corporation_tasks(
@@ -945,24 +1031,28 @@ def _queue_staggered_blueprint_corporation_tasks(
     window_seconds = max(window_minutes * 60, 0)
 
     if total == 1 or window_seconds == 0:
+        queued = 0
         for user_id in user_ids:
-            update_blueprints_for_user.apply_async(
-                args=(int(user_id),),
-                kwargs={"scope": "corporation"},
+            if queue_blueprint_update_for_user(
+                int(user_id),
                 priority=priority,
-            )
-        return total
+                scope="corporation",
+            ):
+                queued += 1
+        return queued
 
     spacing = window_seconds / total
+    queued = 0
     for index, user_id in enumerate(user_ids):
         countdown = int(round(index * spacing))
-        update_blueprints_for_user.apply_async(
-            args=(int(user_id),),
-            kwargs={"scope": "corporation"},
+        if queue_blueprint_update_for_user(
+            int(user_id),
             countdown=countdown,
             priority=priority,
-        )
-    return total
+            scope="corporation",
+        ):
+            queued += 1
+    return queued
 
 
 def _select_blueprint_sync_user_ids(
@@ -1008,7 +1098,21 @@ def _select_sync_user_ids(
     rows = list(
         character_user_ids.union(corporation_user_ids).order_by("user_id")[:batch_size]
     )
-    return [int(row["user_id"]) for row in rows if row.get("user_id")]
+    selected_user_ids = [int(row["user_id"]) for row in rows if row.get("user_id")]
+    if not selected_user_ids:
+        return []
+
+    now = timezone.now()
+    active_user_ids: list[int] = []
+    for user in User.objects.filter(id__in=selected_user_ids).order_by("id"):
+        if _is_user_active(user, now=now):
+            active_user_ids.append(int(user.id))
+        else:
+            logger.debug(
+                "Skipping industry sync for inactive user %s before queueing",
+                user.username,
+            )
+    return active_user_ids
 
 
 def _select_character_blueprint_targets_for_users(
@@ -1034,12 +1138,25 @@ def _select_corporation_blueprint_user_ids_for_users(user_ids: list[int]) -> lis
     if not user_ids:
         return []
 
+    permitted_user_ids: list[int] = []
+    for user in User.objects.filter(id__in=user_ids).order_by("id"):
+        if user.has_perm("indy_hub.can_manage_corp_bp_requests"):
+            permitted_user_ids.append(int(user.id))
+        else:
+            logger.debug(
+                "Skipping corporation blueprint sync for %s before queueing: missing permission",
+                user.username,
+            )
+
+    if not permitted_user_ids:
+        return []
+
     return [
         int(user_id)
         for user_id in Token.objects.all()
         .require_scopes([CORP_BLUEPRINT_SCOPE])
         .require_valid()
-        .filter(user_id__in=user_ids)
+        .filter(user_id__in=permitted_user_ids)
         .values_list("user_id", flat=True)
         .distinct()
         .order_by("user_id")
@@ -1083,12 +1200,25 @@ def _select_corporation_job_user_ids_for_users(user_ids: list[int]) -> list[int]
     if not user_ids:
         return []
 
+    permitted_user_ids: list[int] = []
+    for user in User.objects.filter(id__in=user_ids).order_by("id"):
+        if user.has_perm("indy_hub.can_manage_corp_bp_requests"):
+            permitted_user_ids.append(int(user.id))
+        else:
+            logger.debug(
+                "Skipping corporation job sync for %s before queueing: missing permission",
+                user.username,
+            )
+
+    if not permitted_user_ids:
+        return []
+
     return [
         int(user_id)
         for user_id in Token.objects.all()
         .require_scopes([CORP_JOBS_SCOPE])
         .require_valid()
-        .filter(user_id__in=user_ids)
+        .filter(user_id__in=permitted_user_ids)
         .values_list("user_id", flat=True)
         .distinct()
         .order_by("user_id")
@@ -1153,15 +1283,61 @@ def queue_blueprint_update_for_user(
     priority: int | None = None,
     scope: str | None = None,
     force_refresh: bool = False,
-) -> None:
+    queue_source: str | None = None,
+) -> bool:
     kwargs = {}
     if scope:
         kwargs["scope"] = scope
     if force_refresh:
         kwargs["force_refresh"] = True
-    update_blueprints_for_user.apply_async(
-        args=(user_id,), kwargs=kwargs, countdown=countdown, priority=priority
-    )
+    normalized_source = (queue_source or "auto").strip().lower() or "auto"
+    user = User.objects.filter(id=user_id).first()
+    if not user:
+        return False
+    if not _is_user_active(user):
+        logger.debug(
+            "Skipping blueprint sync for inactive user %s before queueing",
+            user.username,
+        )
+        return False
+    if scope == "corporation" and not user.has_perm(
+        "indy_hub.can_manage_corp_bp_requests"
+    ):
+        logger.debug(
+            "Skipping corporate blueprint sync for %s before queueing: missing permission",
+            user.username,
+        )
+        return False
+    if not _mark_task_queue_inflight(
+        "blueprints",
+        int(user_id),
+        scope,
+        queue_source=normalized_source,
+        countdown=countdown,
+    ):
+        logger.debug(
+            "Skipping blueprint sync enqueue for %s before queueing: already pending (%s, scope=%s)",
+            user.username,
+            normalized_source,
+            scope or "all",
+        )
+        return False
+    try:
+        update_blueprints_for_user.apply_async(
+            args=(user_id,),
+            kwargs={**kwargs, "queue_source": normalized_source},
+            countdown=countdown,
+            priority=priority,
+        )
+    except Exception:
+        _clear_task_queue_inflight(
+            "blueprints",
+            int(user_id),
+            scope,
+            queue_source=normalized_source,
+        )
+        raise
+    return True
 
 
 def queue_industry_job_update_for_user(
@@ -1171,13 +1347,62 @@ def queue_industry_job_update_for_user(
     priority: int | None = None,
     scope: str | None = None,
     character_id: int | None = None,
-) -> None:
+    queue_source: str | None = None,
+) -> bool:
     kwargs = {"character_id": int(character_id) if character_id else 0}
     if scope:
         kwargs["scope"] = scope
-    update_industry_jobs_for_user.apply_async(
-        args=(user_id,), kwargs=kwargs, countdown=countdown, priority=priority
-    )
+    normalized_source = (queue_source or "auto").strip().lower() or "auto"
+    user = User.objects.filter(id=user_id).first()
+    if not user:
+        return False
+    if not _is_user_active(user):
+        logger.debug(
+            "Skipping industry jobs sync for inactive user %s before queueing",
+            user.username,
+        )
+        return False
+    if scope == "corporation" and not user.has_perm(
+        "indy_hub.can_manage_corp_bp_requests"
+    ):
+        logger.debug(
+            "Skipping corporate industry job sync for %s before queueing: missing permission",
+            user.username,
+        )
+        return False
+    if not _mark_task_queue_inflight(
+        "industry_jobs",
+        int(user_id),
+        scope,
+        character_id,
+        queue_source=normalized_source,
+        countdown=countdown,
+    ):
+        logger.debug(
+            "Skipping industry jobs sync enqueue for %s before queueing: already pending (%s, scope=%s, character_id=%s)",
+            user.username,
+            normalized_source,
+            scope or "all",
+            int(character_id) if character_id else 0,
+        )
+        return False
+    try:
+        update_industry_jobs_for_user.apply_async(
+            args=(user_id,),
+            kwargs={**kwargs, "queue_source": normalized_source},
+            countdown=countdown,
+            priority=priority,
+        )
+    except Exception:
+        _clear_task_queue_inflight(
+            "industry_jobs",
+            int(user_id),
+            scope,
+            character_id,
+            queue_source=normalized_source,
+        )
+        raise
+    return True
 
 
 def request_manual_refresh(
@@ -1210,9 +1435,15 @@ def request_manual_refresh(
             priority=priority,
             scope=scope,
             force_refresh=True,
+            queue_source="manual",
         )
     elif kind == MANUAL_REFRESH_KIND_JOBS:
-        queue_industry_job_update_for_user(user_id, priority=priority, scope=scope)
+        queue_industry_job_update_for_user(
+            user_id,
+            priority=priority,
+            scope=scope,
+            queue_source="manual",
+        )
     else:
         _clear_manual_refresh_inflight(kind, user_id, scope)
         raise ValueError(f"Unknown manual refresh kind: {kind}")
@@ -1278,7 +1509,15 @@ def _resolve_location_name_batch(
     }
 
 
-@shared_task(bind=True, max_retries=3)
+@shared_task(
+    bind=True,
+    base=QueueOnce,
+    max_retries=3,
+    once={
+        "graceful": True,
+        "keys": ["user_id", "scope", "character_id", "queue_source"],
+    },
+)
 @rate_limit_retry_task
 def update_blueprints_for_user(
     self,
@@ -1286,6 +1525,7 @@ def update_blueprints_for_user(
     scope: str | None = None,
     character_id: int | None = None,
     force_refresh: bool = False,
+    queue_source: str | None = None,
 ):
     normalized_scope = (scope or "").strip().lower()
     if normalized_scope not in {"character", "corporation"}:
@@ -1739,13 +1979,23 @@ def update_blueprints_for_user(
             int(user_id),
             normalized_scope,
         )
+        _clear_task_queue_inflight(
+            "blueprints",
+            int(user_id),
+            normalized_scope,
+            int(character_id) if character_id else None,
+            queue_source=queue_source,
+        )
 
 
 @shared_task(
     bind=True,
     base=QueueOnce,
     max_retries=INDUSTRY_JOBS_TASK_MAX_RETRIES,
-    once={"graceful": True, "keys": ["user_id", "scope", "character_id"]},
+    once={
+        "graceful": True,
+        "keys": ["user_id", "scope", "character_id", "queue_source"],
+    },
 )
 @rate_limit_retry_task
 def update_industry_jobs_for_user(
@@ -1754,6 +2004,7 @@ def update_industry_jobs_for_user(
     scope: str | None = None,
     character_id: int | None = None,
     force_refresh: bool = False,
+    queue_source: str | None = None,
 ):
     normalized_scope = (scope or "").strip().lower()
     if normalized_scope not in {"character", "corporation"}:
@@ -1762,7 +2013,7 @@ def update_industry_jobs_for_user(
         user = User.objects.get(id=user_id)
         now = timezone.now()
         if not _is_user_active(user, now=now):
-            logger.info(
+            logger.debug(
                 "Skipping industry jobs sync for inactive user %s", user.username
             )
             return {"success": True, "skipped": "inactive_user"}
@@ -2339,6 +2590,13 @@ def update_industry_jobs_for_user(
             MANUAL_REFRESH_KIND_JOBS,
             int(user_id),
             normalized_scope,
+        )
+        _clear_task_queue_inflight(
+            "industry_jobs",
+            int(user_id),
+            normalized_scope,
+            int(character_id) if character_id else None,
+            queue_source=queue_source,
         )
 
 

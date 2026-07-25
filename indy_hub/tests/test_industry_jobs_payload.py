@@ -5,7 +5,7 @@ from datetime import timedelta
 from unittest.mock import patch
 
 # Django
-from django.contrib.auth.models import User
+from django.contrib.auth.models import Permission, User
 from django.test import TestCase
 from django.utils import timezone
 
@@ -16,6 +16,8 @@ from allianceauth.eveonline.models import EveCharacter
 # AA Example App
 from indy_hub.tasks.industry import (
     _is_user_active,
+    queue_industry_job_update_for_user,
+    request_manual_refresh,
     update_all_blueprints,
     update_all_industry_jobs,
     update_industry_jobs_for_user,
@@ -118,6 +120,80 @@ class IndustryJobsPayloadTests(TestCase):
             return_value=[(9000001, recent_login)],
         ):
             self.assertTrue(_is_user_active(self.user))
+
+    def test_queue_industry_job_update_skips_corporation_scope_without_permission(
+        self,
+    ) -> None:
+        user = User.objects.create_user("corp-less-user", password="secret123")
+        corp_permission = Permission.objects.get(codename="can_manage_corp_bp_requests")
+        user.user_permissions.add(corp_permission)
+        user.user_permissions.clear()
+
+        with (
+            patch("indy_hub.tasks.industry._is_user_active", return_value=True),
+            patch(
+                "indy_hub.tasks.industry.update_industry_jobs_for_user.apply_async"
+            ) as apply_async,
+        ):
+            scheduled = queue_industry_job_update_for_user(
+                user.id,
+                scope="corporation",
+                character_id=0,
+            )
+
+        self.assertFalse(scheduled)
+        apply_async.assert_not_called()
+
+    def test_queue_industry_job_update_skips_duplicate_enqueue_when_pending(
+        self,
+    ) -> None:
+        with (
+            patch("indy_hub.tasks.industry._is_user_active", return_value=True),
+            patch("indy_hub.tasks.industry.cache.add", return_value=False) as cache_add,
+            patch(
+                "indy_hub.tasks.industry.update_industry_jobs_for_user.apply_async"
+            ) as apply_async,
+        ):
+            scheduled = queue_industry_job_update_for_user(
+                self.user.id,
+                scope="character",
+                character_id=9000001,
+            )
+
+        self.assertFalse(scheduled)
+        cache_add.assert_called_once()
+        apply_async.assert_not_called()
+
+    def test_manual_refresh_uses_manual_queue_source(self) -> None:
+        with (
+            patch(
+                "indy_hub.tasks.industry.manual_refresh_allowed",
+                return_value=(True, None),
+            ),
+            patch(
+                "indy_hub.tasks.industry._mark_manual_refresh_inflight",
+                return_value=True,
+            ),
+            patch(
+                "indy_hub.tasks.industry.queue_industry_job_update_for_user",
+                return_value=True,
+            ) as queue_jobs,
+        ):
+            allowed, remaining, reason = request_manual_refresh(
+                "jobs",
+                self.user.id,
+                scope="character",
+            )
+
+        self.assertTrue(allowed)
+        self.assertIsNone(remaining)
+        self.assertIsNone(reason)
+        queue_jobs.assert_called_once_with(
+            self.user.id,
+            priority=None,
+            scope="character",
+            queue_source="manual",
+        )
 
     def test_skips_non_list_payload(self) -> None:
         with (

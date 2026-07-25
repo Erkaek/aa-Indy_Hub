@@ -29,6 +29,7 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 - ESI reliability: improved pagination consistency checks and cleaner native rate-limit handling.
 - Industry sync stability: better handling of lock/race conditions in heavy task workloads.
+- Industry sync scheduling: duplicate blueprint and industry job enqueues are now collapsed earlier, with manual refreshes kept separate from automatic fan-out so ESI bucket pressure stays lower.
 - Industry Structures sync: better handling of partial/forbidden ESI responses and less noisy retries.
 - Task scheduling reliability: improved task dedup/scheduling behavior to avoid intermittent update stalls.
 - Notifications: fixed duplicate Discord DM edge cases.
