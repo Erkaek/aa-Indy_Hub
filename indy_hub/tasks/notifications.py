@@ -240,6 +240,15 @@ def dispatch_job_notification_digests() -> dict[str, int]:
         )
         processed += 1
 
+    if processed == 0 and skipped == 0:
+        logger.debug("Job notification digest scan completed with no eligible digests")
+    else:
+        logger.info(
+            "Job notification digests completed: %s processed, %s skipped",
+            processed,
+            skipped,
+        )
+
     emit_analytics_event(
         task="notifications.dispatch_job_notification_digests",
         label="completed",

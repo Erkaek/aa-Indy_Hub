@@ -58,14 +58,22 @@ def sync_industry_system_cost_indices(
             logger.warning("Failed to sync industry system cost indices: %s", exc)
             return {"status": "failed", "reason": str(exc)}
 
-        logger.info(
-            "Industry system cost indices synced: systems=%s entries=%s created=%s updated=%s unchanged=%s",
-            summary["systems"],
-            summary["entries_seen"],
-            summary["created"],
-            summary["updated"],
-            summary["unchanged"],
-        )
+        if summary["created"] == 0 and summary["updated"] == 0:
+            logger.debug(
+                "Industry system cost indices unchanged: systems=%s entries=%s unchanged=%s",
+                summary["systems"],
+                summary["entries_seen"],
+                summary["unchanged"],
+            )
+        else:
+            logger.info(
+                "Industry system cost indices synced: systems=%s entries=%s created=%s updated=%s unchanged=%s",
+                summary["systems"],
+                summary["entries_seen"],
+                summary["created"],
+                summary["updated"],
+                summary["unchanged"],
+            )
         return {"status": "ok", **summary}
     finally:
         # Only release the lock if it still belongs to us; if the TTL

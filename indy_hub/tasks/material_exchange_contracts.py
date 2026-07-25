@@ -262,14 +262,14 @@ def sync_esi_contracts():
     """
     try:
         if not MaterialExchangeSettings.get_solo().is_enabled:
-            logger.info("Material Exchange disabled; skipping contract sync.")
+            logger.debug("Material Exchange disabled; skipping contract sync.")
             return
     except Exception:
         pass
 
     configs = MaterialExchangeConfig.objects.all()
     if not configs.exists():
-        logger.info("Material Exchange not configured; skipping contract sync.")
+        logger.debug("Material Exchange not configured; skipping contract sync.")
         return
 
     for config in configs:
@@ -308,14 +308,16 @@ def run_material_exchange_cycle():
     """
     try:
         if not MaterialExchangeSettings.get_solo().is_enabled:
-            logger.info("Material Exchange disabled; skipping cycle.")
+            logger.debug("Material Exchange disabled; skipping cycle.")
             return
     except Exception:
         pass
 
     if not MaterialExchangeConfig.objects.exists():
-        logger.info("Material Exchange not configured; skipping cycle.")
+        logger.debug("Material Exchange not configured; skipping cycle.")
         return
+
+    logger.info("Starting Material Exchange cycle")
 
     # Step 1: sync cached contracts
     sync_esi_contracts()
@@ -328,6 +330,8 @@ def run_material_exchange_cycle():
 
     # Step 4: check completion/payment for approved orders
     check_completed_material_exchange_contracts()
+
+    logger.info("Completed Material Exchange cycle")
 
 
 def _sync_contracts_for_corporation(corporation_id: int):
@@ -578,7 +582,7 @@ def validate_material_exchange_sell_orders():
     """
     try:
         if not MaterialExchangeSettings.get_solo().is_enabled:
-            logger.info("Material Exchange disabled; skipping sell validation.")
+            logger.debug("Material Exchange disabled; skipping sell validation.")
             return
     except Exception:
         pass
@@ -662,7 +666,7 @@ def validate_material_exchange_buy_orders():
     """
     try:
         if not MaterialExchangeSettings.get_solo().is_enabled:
-            logger.info("Material Exchange disabled; skipping buy validation.")
+            logger.debug("Material Exchange disabled; skipping buy validation.")
             return
     except Exception:
         pass
@@ -2063,7 +2067,7 @@ def check_completed_material_exchange_contracts():
     """
     try:
         if not MaterialExchangeSettings.get_solo().is_enabled:
-            logger.info("Material Exchange disabled; skipping completion check.")
+            logger.debug("Material Exchange disabled; skipping completion check.")
             return
     except Exception:
         pass

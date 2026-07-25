@@ -484,7 +484,7 @@ def _refresh_corp_assets(
                 break
             except ESIForbiddenError as exc:
                 last_forbidden = exc
-                logger.info(
+                logger.debug(
                     "Character %s lacks corp roles for assets in corp %s; trying next token",
                     cid,
                     corporation_id,
@@ -545,7 +545,7 @@ def _refresh_corp_assets(
         assets_scope_missing = True
     except ESIForbiddenError as exc:
         if owner_user is not None:
-            logger.info(
+            logger.debug(
                 "ESI assets forbidden for corp %s (user %s): %s",
                 corporation_id,
                 getattr(owner_user, "username", None),

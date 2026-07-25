@@ -633,7 +633,7 @@ def _collect_corporation_contexts(
         try:
             roles = get_character_corporation_roles(char_id)
         except ESITokenError:
-            logger.info(
+            logger.debug(
                 "Character %s lacks the required corporation roles scope for corporation %s",
                 char_id,
                 corp_id,
@@ -649,7 +649,7 @@ def _collect_corporation_contexts(
             continue
 
         if not roles.intersection(REQUIRED_CORPORATION_ROLES):
-            logger.info(
+            logger.debug(
                 "Character %s does not have roles %s for corporation %s",
                 char_id,
                 ", ".join(sorted(REQUIRED_CORPORATION_ROLES)),
@@ -1301,7 +1301,7 @@ def update_blueprints_for_user(
 
     now = timezone.now()
     if not _is_user_active(user, now=now):
-        logger.info("Skipping blueprint sync for inactive user %s", user.username)
+        logger.debug("Skipping blueprint sync for inactive user %s", user.username)
         return {"success": True, "skipped": "inactive_user"}
 
     try:
@@ -1324,8 +1324,9 @@ def update_blueprints_for_user(
             user.username,
             scope_label,
         )
-        updated_count = 0
+        processed_count = 0
         deleted_total = 0
+        unchanged_fetches = 0
         error_messages: list[str] = []
         corp_contexts: dict[int, dict[str, int | str]] = {}
 
@@ -1414,6 +1415,7 @@ def update_blueprints_for_user(
                     character_name,
                     char_id,
                 )
+                unchanged_fetches += 1
                 continue
             except ESITokenError as exc:
                 message = f"Invalid token for {character_name} ({char_id}): {exc}"
@@ -1524,7 +1526,7 @@ def update_blueprints_for_user(
                     raise self.retry(exc=exc, countdown=delay)
                 raise
             deleted_total += deleted
-            updated_count += len(blueprints)
+            processed_count += len(blueprints)
             logger.debug(
                 "Blueprint synchronization finished for %s (%s updated, %s deleted)",
                 character_name,
@@ -1562,6 +1564,7 @@ def update_blueprints_for_user(
                         corp_name,
                         corp_id,
                     )
+                    unchanged_fetches += 1
                     continue
                 except ESITokenError as exc:
                     message = f"Invalid token for corporation {corp_name} ({corp_id}) via {acting_character_name}: {exc}"
@@ -1683,7 +1686,7 @@ def update_blueprints_for_user(
                         raise self.retry(exc=exc, countdown=delay)
                     raise
 
-                updated_count += len(corp_blueprints)
+                processed_count += len(corp_blueprints)
                 deleted_total += deleted
                 logger.debug(
                     "Corporate blueprint synchronization finished for %s (%s updated, %s deleted)",
@@ -1692,12 +1695,20 @@ def update_blueprints_for_user(
                     deleted,
                 )
 
-        logger.info(
-            "Blueprints synchronized for %s: %s updated, %s deleted",
-            user.username,
-            updated_count,
-            deleted_total,
-        )
+        if processed_count == 0 and deleted_total == 0 and not error_messages:
+            logger.debug(
+                "Blueprint sync for %s completed with no data changes (%s unchanged source responses)",
+                user.username,
+                unchanged_fetches,
+            )
+        else:
+            logger.info(
+                "Blueprint sync for %s completed: %s processed, %s deleted, %s unchanged source responses",
+                user.username,
+                processed_count,
+                deleted_total,
+                unchanged_fetches,
+            )
         if error_messages:
             logger.warning(
                 "Issues during blueprint synchronization %s: %s",
@@ -1709,13 +1720,14 @@ def update_blueprints_for_user(
             task="industry.update_blueprints_for_user",
             label="completed",
             result="success",
-            value=max(updated_count, 1),
+            value=max(processed_count, 1),
         )
 
         return {
             "success": True,
-            "blueprints_updated": updated_count,
+            "blueprints_processed": processed_count,
             "deleted": deleted_total,
+            "unchanged_fetches": unchanged_fetches,
             "errors": error_messages,
         }
     finally:
@@ -1765,8 +1777,9 @@ def update_industry_jobs_for_user(
             )
             return {"success": True, "skipped": "recent_sync"}
         logger.info("Starting industry jobs update for user %s", user.username)
-        updated_count = 0
+        processed_count = 0
         deleted_total = 0
+        unchanged_fetches = 0
         error_messages: list[str] = []
         location_cache: dict[int, str] = {}
         lookup_budget_warned = False
@@ -1876,6 +1889,7 @@ def update_industry_jobs_for_user(
                     character_name,
                     char_id,
                 )
+                unchanged_fetches += 1
                 continue
             except ESITokenError as exc:
                 message = f"Invalid token for {character_name} ({char_id}): {exc}"
@@ -2039,7 +2053,7 @@ def update_industry_jobs_for_user(
                 raise
 
             deleted_total += deleted
-            updated_count += len(jobs)
+            processed_count += len(jobs)
             logger.debug(
                 "Finished syncing jobs for %s (%s updated, %s removed)",
                 character_name,
@@ -2090,6 +2104,7 @@ def update_industry_jobs_for_user(
                         corp_name,
                         corp_id,
                     )
+                    unchanged_fetches += 1
                     continue
                 except ESITokenError as exc:
                     message = f"Invalid token for corporation {corp_name} ({corp_id}) via {acting_character_name}: {exc}"
@@ -2259,7 +2274,7 @@ def update_industry_jobs_for_user(
                         raise self.retry(exc=exc, countdown=delay)
                     raise
 
-                updated_count += len(corp_jobs)
+                processed_count += len(corp_jobs)
                 deleted_total += deleted
                 logger.debug(
                     "Finished syncing corporate jobs for %s (%s updated, %s removed)",
@@ -2268,12 +2283,20 @@ def update_industry_jobs_for_user(
                     deleted,
                 )
 
-        logger.info(
-            "Jobs synced for %s: %s updated, %s removed",
-            user.username,
-            updated_count,
-            deleted_total,
-        )
+        if processed_count == 0 and deleted_total == 0 and not error_messages:
+            logger.debug(
+                "Industry jobs sync for %s completed with no data changes (%s unchanged source responses)",
+                user.username,
+                unchanged_fetches,
+            )
+        else:
+            logger.info(
+                "Industry jobs sync for %s completed: %s processed, %s removed, %s unchanged source responses",
+                user.username,
+                processed_count,
+                deleted_total,
+                unchanged_fetches,
+            )
         if error_messages:
             logger.warning(
                 "Issues occurred while syncing jobs for %s: %s",
@@ -2284,12 +2307,13 @@ def update_industry_jobs_for_user(
             task="industry.update_industry_jobs_for_user",
             label="completed",
             result="success",
-            value=max(updated_count, 1),
+            value=max(processed_count, 1),
         )
         return {
             "success": True,
-            "jobs_updated": updated_count,
+            "jobs_processed": processed_count,
             "deleted": deleted_total,
+            "unchanged_fetches": unchanged_fetches,
             "errors": error_messages,
         }
     except Retry:
@@ -2426,7 +2450,7 @@ def populate_location_names_async(
     if location_ids is not None:
         normalized_ids = [int(value) for value in location_ids if value]
         if not normalized_ids:
-            logger.info("No valid location IDs supplied; skipping population job")
+            logger.debug("No valid location IDs supplied; skipping population job")
             return {"blueprints": 0, "jobs": 0, "locations": 0}
 
     summary = populate_location_names(

@@ -274,11 +274,14 @@ def populate_location_names(
     blueprint_count = len(blueprint_updates)
     job_count = len(job_updates)
     if dry_run:
-        active_logger.info(
-            "Dry run: would update %s blueprints and %s industry jobs",
-            blueprint_count,
-            job_count,
-        )
+        if blueprint_count == 0 and job_count == 0:
+            active_logger.debug("Dry run: no location name changes would be needed")
+        else:
+            active_logger.info(
+                "Dry run: would update %s blueprints and %s industry jobs",
+                blueprint_count,
+                job_count,
+            )
         return {
             "blueprints": blueprint_count,
             "jobs": job_count,
@@ -301,6 +304,19 @@ def populate_location_names(
             active_logger.info(
                 "Updated location names for %s industry job records", job_count
             )
+
+    if blueprint_count == 0 and job_count == 0:
+        active_logger.debug(
+            "Location name population completed with no record changes (%s locations checked)",
+            len(targets),
+        )
+    else:
+        active_logger.info(
+            "Location name population completed: %s blueprint updates, %s industry job updates across %s locations",
+            blueprint_count,
+            job_count,
+            len(targets),
+        )
 
     return {
         "blueprints": blueprint_count,
