@@ -60,3 +60,4 @@ runtests.py
 NOTES.local.md
 .github/copilot-instructions.md
 .github/instructions/indy_hub.instructions.md
+docs/manual-prod-validation-checklist.md
