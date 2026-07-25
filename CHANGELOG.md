@@ -19,6 +19,8 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 ### Changed
 
 - Platform baseline: Indy Hub now targets Alliance Auth 5 / Django 5.2 / django-esi 9 only. Legacy AA4 and django-esi8 compatibility shims were removed in favor of direct OpenAPI exception/decorator paths.
+- ESI integration cleanup: removed remaining Indy Hub compatibility glue around django-esi (`tokens_required` wrapper and provider signature fallbacks) and switched to direct AA v5 / django-esi v9 APIs.
+- Shared helpers: declared `allianceauth-app-utils` as an explicit dependency and adopted its chunking helper in ESI ID name resolution to reduce local utility boilerplate without changing behavior.
 - Crafting Projects: streamlined project workspace behavior (final-output quantity editing, improved EFT fit grouping/preview flow, persistent buy-tab fixed adjustments, and improved responsive table/input behavior).
 - Material Exchange: improved stock/readability and reservation flows (including sell-character context and empty-filter short-circuiting).
 - SDE integration: simplified to the base `eve_sde` path and reduced compatibility/bootstrap maintenance overhead. (GH-109)
@@ -30,6 +32,9 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 ### Fixed
 
+- ESI pagination safety: paginated authenticated ESI fetches now validate `Last-Modified` consistency across pages (normal cached path) and abort mixed snapshots to avoid partial stale/fresh payload merges when ESI page caches drift during multi-page reads.
+- ESI pagination safety: `force_refresh` continues to bypass that consistency probe (exception flow) to avoid adding extra live requests during explicit manual refreshes.
+- ESI rate limiting: Indy Hub now uses django-esi native `ESIErrorLimitException` / `ESIBucketLimitException` directly end-to-end and removed custom exponential backoff in ESI paths. Retry timing now follows django-esi/ESI reset data (with only a minimal 1s technical fallback when no reset value is provided), reducing duplicate limiter logic.
 - Industry sync tasks: fixed MySQL duplicate-key race handling (`IntegrityError 1062`) by extending retry behavior alongside deadlock retries.
 - Navigation: optimized missing-scope badge computation for linked characters by replacing repeated per-character scope-subquery checks with a bulk scope aggregation path, reducing cold-cache navbar latency on large accounts.
 - Industry Structures: fixed synced-structure setup state, preserved manually-entered identity fields when ESI returns incomplete/invalid values, and enforced 403 forbidden cooldown skipping to avoid repeated rate-limit waste.
@@ -41,6 +46,7 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 - Celery scheduling: fixed `QueueOnce` `KeyError('character_id')` in corporation job update dispatch by ensuring the dedupe key is always present in task kwargs.
 - Industry Structures cache invalidation: rig saves now invalidate resolved-bonus cache only when signature-relevant fields change (structure, slot, rig type), avoiding unnecessary recomputation on label-only updates.
 - Cleanup: removed the obsolete `CharacterOnlineStatus` runtime model and added migration `0108_remove_character_online_status` to drop the unused table.
+- Tests: added regression coverage for ESI paginated `Last-Modified` consistency checks (mismatch rejection, consistent-page acceptance, and `force_refresh` bypass behavior).
 
 ## [1.17.2] - 2026-06-01
 

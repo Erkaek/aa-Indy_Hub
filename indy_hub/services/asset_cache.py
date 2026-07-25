@@ -15,7 +15,11 @@ from django.utils import timezone
 from allianceauth.authentication.models import CharacterOwnership
 from allianceauth.eveonline.models import EveCharacter
 from allianceauth.services.hooks import get_extension_logger
-from esi.exceptions import HTTPNotModified
+from esi.exceptions import (
+    ESIBucketLimitException,
+    ESIErrorLimitException,
+    HTTPNotModified,
+)
 from esi.models import Token
 
 # AA Example App
@@ -39,7 +43,6 @@ from indy_hub.models import (
 from indy_hub.services.esi_client import (
     ESIClientError,
     ESIForbiddenError,
-    ESIRateLimitError,
     ESITokenError,
     ESIUnmodifiedError,
     shared_client,
@@ -555,7 +558,7 @@ def _refresh_corp_assets(
             logger.warning(
                 "ESI assets lookup failed for corp %s: %s", corporation_id, exc
             )
-    except (ESIRateLimitError, ESIClientError) as exc:
+    except (ESIErrorLimitException, ESIBucketLimitException, ESIClientError) as exc:
         logger.warning("ESI assets lookup failed for corp %s: %s", corporation_id, exc)
     except Exception as exc:  # pragma: no cover - defensive
         logger.warning(
@@ -1007,11 +1010,12 @@ def resolve_structure_names(
                     invalid_character_ids.add(cid)
                     _mark_structure_character_tried(structure_id, cid)
                     continue
-                except ESIRateLimitError as exc:
+                except (ESIErrorLimitException, ESIBucketLimitException) as exc:
                     rate_limited_attempts += 1
-                    if exc.retry_after is not None:
+                    reset = getattr(exc, "reset", None)
+                    if reset is not None:
                         try:
-                            retry_after = float(exc.retry_after)
+                            retry_after = float(reset)
                         except Exception:
                             retry_after = None
                         if retry_after is not None:
@@ -1392,7 +1396,8 @@ def _refresh_character_assets(user) -> tuple[list[dict], bool]:
             )
         except (
             ESITokenError,
-            ESIRateLimitError,
+            ESIErrorLimitException,
+            ESIBucketLimitException,
             ESIForbiddenError,
             ESIClientError,
         ) as exc:

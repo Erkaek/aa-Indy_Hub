@@ -16,78 +16,30 @@ except ImportError as exc:  # pragma: no cover - enforce OpenAPI-only
 from indy_hub import __app_name_ua__, __title__, __url__, __version__
 from indy_hub.app_settings import ESI_COMPATIBILITY_DATE
 
-_SUPPORTS_COMPATIBILITY_DATE = True
-
-DEFAULT_COMPATIBILITY_DATE = ESI_COMPATIBILITY_DATE
-DEFAULT_ESI_OPERATIONS = [
+ESI_REQUIRED_OPERATIONS = [
+    "GetCharactersCharacterIdAssets",
     "GetCharactersCharacterIdBlueprints",
-    "GetCharactersCharacterIdIndustryJobs",
-    "GetCharactersCharacterIdSkills",
-    "GetCharactersCharacterIdOnline",
-    "GetCorporationsCorporationIdBlueprints",
-    "GetCorporationsCorporationIdIndustryJobs",
-    "GetCharactersCharacterIdRoles",
-    "GetUniverseStructuresStructureId",
-    "GetUniverseStationsStationId",
-    "PostUniverseNames",
-    "GetCorporationsCorporationIdContracts",
-    "GetCorporationsCorporationIdContractsContractIdItems",
     "GetCharactersCharacterIdContracts",
     "GetCharactersCharacterIdContractsContractIdItems",
+    "GetCharactersCharacterIdIndustryJobs",
+    "GetCharactersCharacterIdRoles",
+    "GetCharactersCharacterIdSkills",
     "GetCorporationsCorporationIdAssets",
-    "GetCharactersCharacterIdAssets",
+    "GetCorporationsCorporationIdBlueprints",
+    "GetCorporationsCorporationIdContracts",
+    "GetCorporationsCorporationIdContractsContractIdItems",
+    "GetCorporationsCorporationIdIndustryJobs",
     "GetCorporationsCorporationIdStructures",
-    "GetCorporationsCorporationIdDivisions",
-    "GetCharactersCharacterId",
-    "GetCorporationsCorporationId",
-]
-DEFAULT_ESI_TAGS = [
-    "Assets",
-    "Character",
-    "Contracts",
-    "Corporation",
-    "Industry",
-    "Skills",
-    "Universe",
+    "GetIndustrySystems",
+    "GetUniverseStationsStationId",
+    "GetUniverseStructuresStructureId",
+    "PostUniverseNames",
 ]
 
-_compat_date = DEFAULT_COMPATIBILITY_DATE
-
-
-def _build_esi_provider() -> ESIClientProvider:
-    base_kwargs = {
-        "ua_appname": __app_name_ua__ or __title__,
-        "ua_version": __version__,
-        "ua_url": __url__,
-    }
-
-    if not _SUPPORTS_COMPATIBILITY_DATE:
-        return ESIClientProvider(**base_kwargs)
-
-    candidate_kwargs = [
-        {
-            **base_kwargs,
-            "compatibility_date": _compat_date,
-            "operations": DEFAULT_ESI_OPERATIONS,
-            "tags": DEFAULT_ESI_TAGS,
-        },
-        {
-            **base_kwargs,
-            "compatibility_date": _compat_date,
-        },
-        base_kwargs,
-    ]
-
-    last_error: TypeError | None = None
-    for kwargs in candidate_kwargs:
-        try:
-            return ESIClientProvider(**kwargs)
-        except TypeError as exc:
-            last_error = exc
-
-    if last_error:
-        raise last_error
-    return ESIClientProvider(**base_kwargs)
-
-
-esi_provider = _build_esi_provider()
+esi_provider = ESIClientProvider(
+    ua_appname=__app_name_ua__ or __title__,
+    ua_version=__version__,
+    ua_url=__url__,
+    compatibility_date=ESI_COMPATIBILITY_DATE,
+    operations=ESI_REQUIRED_OPERATIONS,
+)

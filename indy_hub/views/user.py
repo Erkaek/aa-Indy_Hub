@@ -39,6 +39,7 @@ from allianceauth.authentication.models import CharacterOwnership
 from allianceauth.eveonline.models import EveCharacter
 from allianceauth.services.hooks import get_extension_logger
 from esi import app_settings as esi_app_settings
+from esi.decorators import tokens_required
 from esi.errors import TokenError
 from esi.exceptions import HTTPClientError, HTTPNotModified, HTTPServerError
 from esi.models import CallbackRedirect, Token
@@ -56,7 +57,7 @@ from indy_hub.models import (
 )
 
 from ..app_settings import ROLE_SNAPSHOT_STALE_HOURS
-from ..decorators import indy_hub_access_required, tokens_required
+from ..decorators import indy_hub_access_required
 from ..models import (
     Blueprint,
     BlueprintCopyChat,
@@ -3382,7 +3383,7 @@ def sync_all_tokens(request, tokens):
 
 @indy_hub_access_required
 @login_required
-@tokens_required(scopes=BLUEPRINT_SCOPE_SET)
+@tokens_required(scopes=sorted(BLUEPRINT_SCOPE_SET))
 def sync_blueprints(request, tokens):
     emit_view_analytics_event(view_name="user.sync_blueprints", request=request)
     if Token:
@@ -3440,7 +3441,7 @@ def sync_blueprints(request, tokens):
 
 @indy_hub_access_required
 @login_required
-@tokens_required(scopes=JOBS_SCOPE_SET)
+@tokens_required(scopes=sorted(JOBS_SCOPE_SET))
 def sync_jobs(request, tokens):
     emit_view_analytics_event(view_name="user.sync_jobs", request=request)
     if Token:

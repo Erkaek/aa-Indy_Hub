@@ -10,7 +10,7 @@ from django.test import TestCase
 
 # AA Example App
 from indy_hub.models import IndustryStructure
-from indy_hub.services.esi_client import ESIForbiddenError, ESIRateLimitError
+from indy_hub.services.esi_client import ESIForbiddenError
 from indy_hub.services.industry_structure_sync import (
     _get_online_industry_activity_flags,
     sync_corporation_structure_targets,
@@ -268,8 +268,12 @@ class IndustryStructureSyncServiceTests(TestCase):
         self,
         mock_fetch_corporation_structures,
     ) -> None:
-        mock_fetch_corporation_structures.side_effect = ESIRateLimitError(
-            "Local task ESI throttle hit"
+        # Alliance Auth
+        from esi.exceptions import ESIErrorLimitException
+
+        mock_fetch_corporation_structures.side_effect = ESIErrorLimitException(
+            reset=30,
+            message="Local task ESI throttle hit",
         )
 
         sync_targets = [

@@ -89,3 +89,37 @@ class IndustrySystemCostIndexSyncTests(TestCase):
         )
         self.assertEqual(manufacturing.solar_system_name, "Jita")
         self.assertEqual(manufacturing.cost_index_percent, Decimal("0.14000"))
+
+    @patch("indy_hub.services.system_cost_indices._resolve_solar_system_names")
+    @patch("indy_hub.services.system_cost_indices.shared_client.fetch_industry_systems")
+    def test_sync_keeps_unchanged_rows_without_rewriting_timestamps(
+        self,
+        mock_fetch_industry_systems,
+        mock_resolve_names,
+    ) -> None:
+        payload = [
+            {
+                "solar_system_id": 30000142,
+                "cost_indices": [
+                    {"activity": "manufacturing", "cost_index": 0.0014},
+                ],
+            }
+        ]
+        mock_fetch_industry_systems.return_value = payload
+        mock_resolve_names.return_value = {30000142: "Jita"}
+
+        first_summary = sync_system_cost_indices(force_refresh=True)
+        self.assertEqual(first_summary["created"], 1)
+
+        row = IndustrySystemCostIndex.objects.get(
+            solar_system_id=30000142,
+            activity_id=IndustryActivityMixin.ACTIVITY_MANUFACTURING,
+        )
+        first_source_updated_at = row.source_updated_at
+
+        second_summary = sync_system_cost_indices(force_refresh=True)
+        self.assertEqual(second_summary["updated"], 0)
+        self.assertEqual(second_summary["unchanged"], 1)
+
+        row.refresh_from_db()
+        self.assertEqual(row.source_updated_at, first_source_updated_at)

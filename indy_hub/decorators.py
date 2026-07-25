@@ -6,22 +6,6 @@ from functools import wraps
 from django.contrib import messages
 from django.shortcuts import redirect
 
-# Alliance Auth
-from esi.decorators import tokens_required as esi_tokens_required
-
-
-def _normalize_scopes(scopes):
-    if scopes is None:
-        return []
-    if isinstance(scopes, str):
-        return [scopes]
-    return list(scopes)
-
-
-def tokens_required(scopes=None, new=False):
-    """Compatibility wrapper around django-esi's `tokens_required`."""
-    return esi_tokens_required(scopes=_normalize_scopes(scopes), new=new)
-
 
 def indy_hub_access_required(view_func):
     @wraps(view_func)

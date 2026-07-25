@@ -18,6 +18,7 @@ from django.utils import timezone
 # Alliance Auth
 from allianceauth.services.hooks import get_extension_logger
 from esi.decorators import rate_limit_retry_task
+from esi.exceptions import ESIBucketLimitException, ESIErrorLimitException
 from esi.models import Token
 
 # AA Example App
@@ -38,9 +39,8 @@ from indy_hub.services.asset_cache import (
 from indy_hub.services.esi_client import (
     ESIClientError,
     ESIForbiddenError,
-    ESIRateLimitError,
     ESITokenError,
-    get_retry_after_seconds,
+    get_rate_limit_reset_seconds,
     shared_client,
 )
 from indy_hub.services.material_exchange_assets import (
@@ -387,8 +387,8 @@ def refresh_material_exchange_sell_user_assets(user_id: int) -> None:
                 character_id=int(character_id),
                 force_refresh=True,
             )
-        except ESIRateLimitError as exc:
-            delay = get_retry_after_seconds(exc)
+        except (ESIErrorLimitException, ESIBucketLimitException) as exc:
+            delay = get_rate_limit_reset_seconds(exc)
             logger.warning(
                 "ESI rate limit hit while refreshing assets for character %s; retrying in %ss: %s",
                 character_id,
@@ -614,8 +614,8 @@ def refresh_material_exchange_buy_stock(corporation_id: int) -> None:
             label="success",
             result="success",
         )
-    except ESIRateLimitError as exc:
-        delay = get_retry_after_seconds(exc)
+    except (ESIErrorLimitException, ESIBucketLimitException) as exc:
+        delay = get_rate_limit_reset_seconds(exc)
         logger.warning(
             "ESI rate limit hit while refreshing buy stock for corporation %s; retrying in %ss: %s",
             corporation_id,

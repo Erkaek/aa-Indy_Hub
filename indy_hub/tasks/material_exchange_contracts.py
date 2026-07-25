@@ -22,6 +22,7 @@ from django.utils.translation import gettext_lazy as _
 # Alliance Auth
 from allianceauth.services.hooks import get_extension_logger
 from esi.decorators import rate_limit_retry_task
+from esi.exceptions import ESIBucketLimitException, ESIErrorLimitException
 
 # AA Example App
 # Local
@@ -45,10 +46,9 @@ from indy_hub.notifications import (
 from indy_hub.services.esi_client import (
     ESIClientError,
     ESIForbiddenError,
-    ESIRateLimitError,
     ESITokenError,
     ESIUnmodifiedError,
-    get_retry_after_seconds,
+    get_rate_limit_reset_seconds,
     shared_client,
 )
 from indy_hub.utils.analytics import emit_analytics_event
@@ -62,6 +62,27 @@ logger = get_extension_logger(__name__)
 
 # Cache for structure names to avoid repeated lookups within a task run.
 _structure_name_cache: dict[int, str | None] = {}
+
+
+def _log_contract_cache_status_for_validation_skip(corporation_id: int) -> None:
+    """Log a non-error cache summary when validation has nothing to process."""
+
+    base_qs = ESIContract.objects.filter(corporation_id=corporation_id)
+    total_cached = base_qs.count()
+    item_exchange_cached = base_qs.filter(contract_type="item_exchange").count()
+    indy_active_cached = base_qs.filter(
+        contract_type="item_exchange",
+        title__icontains="INDY",
+        status__in=["outstanding", "in_progress"],
+    ).count()
+
+    logger.info(
+        "Contract cache status for corporation %s: total_cached=%s, item_exchange_cached=%s, indy_active_cached=%s; validation skipped (no cached item_exchange contracts).",
+        corporation_id,
+        total_cached,
+        item_exchange_cached,
+        indy_active_cached,
+    )
 
 
 def _normalize_esi_mapping(payload, *, context: str) -> dict | None:
@@ -275,8 +296,8 @@ def sync_esi_contracts():
     for config in configs:
         try:
             _sync_contracts_for_corporation(config.corporation_id)
-        except ESIRateLimitError as exc:
-            delay = get_retry_after_seconds(exc)
+        except (ESIErrorLimitException, ESIBucketLimitException) as exc:
+            delay = get_rate_limit_reset_seconds(exc)
             logger.warning(
                 "ESI rate limit reached during contract sync; retrying in %ss: %s",
                 delay,
@@ -382,7 +403,7 @@ def _sync_contracts_for_corporation(corporation_id: int):
             corporation_id,
         )
         return
-    except ESIRateLimitError as exc:
+    except (ESIErrorLimitException, ESIBucketLimitException) as exc:
         logger.warning(
             "ESI rate limit reached while syncing contracts for corporation %s: %s",
             corporation_id,
@@ -614,11 +635,7 @@ def validate_material_exchange_sell_orders():
     ).prefetch_related("items")
 
     if not contracts.exists():
-        logger.warning(
-            "No cached contracts found for corporation %s. "
-            "Run sync_esi_contracts task first.",
-            config.corporation_id,
-        )
+        _log_contract_cache_status_for_validation_skip(config.corporation_id)
         return
 
     logger.info(
@@ -720,11 +737,7 @@ def validate_material_exchange_buy_orders():
     ).prefetch_related("items")
 
     if not contracts.exists():
-        logger.warning(
-            "No cached contracts found for corporation %s. "
-            "Run sync_esi_contracts task first.",
-            config.corporation_id,
-        )
+        _log_contract_cache_status_for_validation_skip(config.corporation_id)
         return
 
     logger.info(
@@ -2106,8 +2119,8 @@ def check_completed_material_exchange_contracts():
                 config.corporation_id,
             )
             return
-    except ESIRateLimitError as exc:
-        delay = get_retry_after_seconds(exc)
+    except (ESIErrorLimitException, ESIBucketLimitException) as exc:
+        delay = get_rate_limit_reset_seconds(exc)
         logger.warning(
             "ESI rate limit reached while checking contract status; retrying in %ss: %s",
             delay,

@@ -24,7 +24,11 @@ from allianceauth.authentication.models import CharacterOwnership
 from allianceauth.services.hooks import get_extension_logger
 from allianceauth.services.tasks import QueueOnce
 from esi.decorators import rate_limit_retry_task
-from esi.exceptions import HTTPNotModified
+from esi.exceptions import (
+    ESIBucketLimitException,
+    ESIErrorLimitException,
+    HTTPNotModified,
+)
 from esi.models import Token
 
 from ..app_settings import (
@@ -53,10 +57,9 @@ from ..services.asset_cache import resolve_structure_names
 from ..services.esi_client import (
     ESIClientError,
     ESIForbiddenError,
-    ESIRateLimitError,
     ESITokenError,
     ESIUnmodifiedError,
-    get_retry_after_seconds,
+    get_rate_limit_reset_seconds,
     shared_client,
 )
 from ..services.industry_skills import (
@@ -451,8 +454,8 @@ def get_character_corporation_roles(character_id: int) -> set[str]:
             character_id,
         )
         return set()
-    except ESIRateLimitError as exc:
-        delay = get_retry_after_seconds(exc)
+    except (ESIErrorLimitException, ESIBucketLimitException) as exc:
+        delay = get_rate_limit_reset_seconds(exc)
         logger.warning(
             "ESI rate limit hit while fetching roles for character %s; using cached roles when available (retry in %ss): %s",
             character_id,
@@ -1422,8 +1425,8 @@ def update_blueprints_for_user(
                 logger.warning(message)
                 error_messages.append(message)
                 continue
-            except ESIRateLimitError as exc:
-                delay = get_retry_after_seconds(exc)
+            except (ESIErrorLimitException, ESIBucketLimitException) as exc:
+                delay = get_rate_limit_reset_seconds(exc)
                 message = f"ESI rate limit hit for {character_name} ({char_id}); retrying in {delay}s: {exc}"
                 logger.warning(message)
                 raise self.retry(countdown=delay)
@@ -1571,8 +1574,8 @@ def update_blueprints_for_user(
                     logger.warning(message)
                     error_messages.append(message)
                     continue
-                except ESIRateLimitError as exc:
-                    delay = get_retry_after_seconds(exc)
+                except (ESIErrorLimitException, ESIBucketLimitException) as exc:
+                    delay = get_rate_limit_reset_seconds(exc)
                     message = (
                         "ESI rate limit hit for corporation "
                         f"{corp_name} ({corp_id}) via {acting_character_name}; retrying in {delay}s: {exc}"
@@ -1896,8 +1899,8 @@ def update_industry_jobs_for_user(
                 logger.warning(message)
                 error_messages.append(message)
                 continue
-            except ESIRateLimitError as exc:
-                delay = get_retry_after_seconds(exc)
+            except (ESIErrorLimitException, ESIBucketLimitException) as exc:
+                delay = get_rate_limit_reset_seconds(exc)
                 message = f"ESI rate limit hit for {character_name} ({char_id}); retrying in {delay}s: {exc}"
                 logger.warning(message)
                 raise self.retry(countdown=delay)
@@ -2111,8 +2114,8 @@ def update_industry_jobs_for_user(
                     logger.warning(message)
                     error_messages.append(message)
                     continue
-                except ESIRateLimitError as exc:
-                    delay = get_retry_after_seconds(exc)
+                except (ESIErrorLimitException, ESIBucketLimitException) as exc:
+                    delay = get_rate_limit_reset_seconds(exc)
                     message = (
                         "ESI rate limit hit for corporation "
                         f"{corp_name} ({corp_id}) via {acting_character_name}; retrying in {delay}s: {exc}"
@@ -2899,8 +2902,8 @@ def update_character_skill_snapshot_for_character(
         if snapshot is not None:
             snapshot.save(update_fields=["last_updated"])
         return {"status": "skipped", "reason": "not_modified"}
-    except ESIRateLimitError as exc:
-        delay = get_retry_after_seconds(exc)
+    except (ESIErrorLimitException, ESIBucketLimitException) as exc:
+        delay = get_rate_limit_reset_seconds(exc)
         logger.warning(
             "ESI rate limit hit while refreshing skills for character %s; retrying in %ss: %s",
             character_id,

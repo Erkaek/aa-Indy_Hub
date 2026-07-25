@@ -17,6 +17,7 @@ from django.utils import timezone
 # Alliance Auth
 from allianceauth.authentication.models import CharacterOwnership
 from allianceauth.services.hooks import get_extension_logger
+from esi.exceptions import ESIBucketLimitException, ESIErrorLimitException
 from esi.models import Token
 
 from ..app_settings import ROLE_SNAPSHOT_STALE_HOURS
@@ -26,10 +27,9 @@ from ..models import CharacterRoles
 from ..services.esi_client import (
     ESIClientError,
     ESIForbiddenError,
-    ESIRateLimitError,
     ESITokenError,
     ESIUnmodifiedError,
-    get_retry_after_seconds,
+    get_rate_limit_reset_seconds,
     shared_client,
 )
 from ..utils.analytics import emit_analytics_event
@@ -97,8 +97,8 @@ def update_character_roles_for_character(
         )
     except ESIUnmodifiedError:
         return {"status": "skipped", "reason": "not_modified"}
-    except ESIRateLimitError as exc:
-        delay = get_retry_after_seconds(exc)
+    except (ESIErrorLimitException, ESIBucketLimitException) as exc:
+        delay = get_rate_limit_reset_seconds(exc)
         update_character_roles_for_character.apply_async(
             args=[user_id, int(character_id)],
             kwargs={"force_refresh": force_refresh},

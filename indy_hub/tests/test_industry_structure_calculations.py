@@ -21,10 +21,19 @@ from indy_hub.services.industry_structures import (
     build_structure_activity_previews,
     calculate_installation_cost,
     resolve_rig_type_bonuses,
+    round_security_status,
 )
 
 
 class IndustryStructureCalculationTests(TestCase):
+    def test_round_security_status_applies_special_positive_floor(self) -> None:
+        self.assertEqual(round_security_status(Decimal("0")), Decimal("0.0"))
+        self.assertEqual(round_security_status(Decimal("0.000001")), Decimal("0.1"))
+        self.assertEqual(round_security_status(Decimal("0.049999")), Decimal("0.1"))
+        self.assertEqual(round_security_status(Decimal("0.05")), Decimal("0.1"))
+        self.assertEqual(round_security_status(Decimal("0.44")), Decimal("0.4"))
+        self.assertEqual(round_security_status(Decimal("0.45")), Decimal("0.5"))
+
     def setUp(self) -> None:
         self.structure = IndustryStructure.objects.create(
             name="Raitaru Prime",
