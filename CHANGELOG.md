@@ -11,42 +11,29 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 ### Added
 
-- Industry Structures: added tax configuration and editing for auto-synced structures so administrators can manage installation costs on corporation-synced structures.
-- Material Exchange: added a Material Hub navbar badge with active buy/sell order counts and status-aware display.
-- Industry Jobs: added an explicit `Force Refresh` action on the jobs page and a `Last update` timestamp in the header so users can decide when to trigger live ESI refreshes.
-- Industry Structures: added persistent resolved-bonus cache fields on `IndustryStructure` (`resolved_bonuses_cache`, signature, and timestamp) with migration `0107_industrystructure_resolved_bonus_cache`.
+- Industry Structures: admins can now set and edit taxes on auto-synced structures.
+- Material Exchange: added a Material Hub navbar badge showing active buy/sell order activity.
+- Industry Jobs: added a clear `Force Refresh` action and a visible “last update” timestamp.
+- Crafting Projects: final output quantity can now be edited directly in the workspace.
 
 ### Changed
 
-- Platform baseline: Indy Hub now targets Alliance Auth 5 / Django 5.2 / django-esi 9 only. Legacy AA4 and django-esi8 compatibility shims were removed in favor of direct OpenAPI exception/decorator paths.
-- ESI integration cleanup: removed remaining Indy Hub compatibility glue around django-esi (`tokens_required` wrapper and provider signature fallbacks) and switched to direct AA v5 / django-esi v9 APIs.
-- Shared helpers: declared `allianceauth-app-utils` as an explicit dependency and adopted its chunking helper in ESI ID name resolution to reduce local utility boilerplate without changing behavior.
-- Crafting Projects: streamlined project workspace behavior (final-output quantity editing, improved EFT fit grouping/preview flow, persistent buy-tab fixed adjustments, and improved responsive table/input behavior).
-- Material Exchange: improved stock/readability and reservation flows (including sell-character context and empty-filter short-circuiting).
-- SDE integration: simplified to the base `eve_sde` path and reduced compatibility/bootstrap maintenance overhead. (GH-109)
-- Industry Structures: changed structure sync cadence from hourly to daily (06:35 UTC + AA offset) to reduce ESI and task-queue load.
-- Render path performance: settings pages now use a dedicated lightweight settings context builder instead of the full dashboard context.
-- Token-management rendering: switched to passive token validity filtering on render paths to avoid live token refresh side effects while still excluding expired tokens from coverage status.
-- Industry jobs rendering: live skill fetch is now disabled by default and only enabled through explicit force refresh.
-- Activity gating: manual refresh eligibility now uses Corptools `corptools_characteraudit.last_known_login` when available, and no longer depends on the ESI online-status scope or snapshot table.
+- Platform baseline: Indy Hub now targets Alliance Auth 5 (Django 5.2 / django-esi 9).
+- Performance: Indy Hub navigation and badge counters were optimized, with noticeably faster page/header rendering on accounts with many linked characters.
+- Industry Structures sync now runs daily instead of hourly to reduce background load.
+- Crafting Projects and Material Exchange pages were cleaned up for better readability and behavior on smaller screens.
+- Material Exchange stock/reservation displays were simplified to make current ownership context clearer.
+- Internal SDE handling was simplified around the base `eve_sde` flow.
 
 ### Fixed
 
-- ESI pagination safety: paginated authenticated ESI fetches now validate `Last-Modified` consistency across pages (normal cached path) and abort mixed snapshots to avoid partial stale/fresh payload merges when ESI page caches drift during multi-page reads.
-- ESI pagination safety: `force_refresh` continues to bypass that consistency probe (exception flow) to avoid adding extra live requests during explicit manual refreshes.
-- ESI rate limiting: Indy Hub now uses django-esi native `ESIErrorLimitException` / `ESIBucketLimitException` directly end-to-end and removed custom exponential backoff in ESI paths. Retry timing now follows django-esi/ESI reset data (with only a minimal 1s technical fallback when no reset value is provided), reducing duplicate limiter logic.
-- Industry sync tasks: fixed MySQL duplicate-key race handling (`IntegrityError 1062`) by extending retry behavior alongside deadlock retries.
-- Navigation: optimized missing-scope badge computation for linked characters by replacing repeated per-character scope-subquery checks with a bulk scope aggregation path, reducing cold-cache navbar latency on large accounts.
-- Industry Structures: fixed synced-structure setup state, preserved manually-entered identity fields when ESI returns incomplete/invalid values, and enforced 403 forbidden cooldown skipping to avoid repeated rate-limit waste.
-- Notifications: fixed duplicate Discord DM risk in proxy setups by adding explicit dispatch modes (`aa_only`, `discord_direct_only`, `both`) and idempotent dispatch guarding. (GH-129)
-- Crafting Projects: fixed multiple planner and financial regressions (structure compatibility resolution, rig bonus application/rounding, all-buy totals, decision persistence, stock allocation persistence, and lazy-tab action reliability).
-- Blueprint Sharing: fixed request-page performance (N+1 eligibility/limit lookups), copy-install cost consistency, and repeated-contract validation edge cases. (GH-101, GH-119)
-- Material Exchange: fixed duplicate-processing and name-resolution edge cases, improved stale-order link handling, and hardened sell paste-import matching/classification.
-- Platform and UX: improved large-account performance (linked-character query scaling), stabilized navigation header/mobile label behavior, and corrected admin/notification polish issues.
-- Celery scheduling: fixed `QueueOnce` `KeyError('character_id')` in corporation job update dispatch by ensuring the dedupe key is always present in task kwargs.
-- Industry Structures cache invalidation: rig saves now invalidate resolved-bonus cache only when signature-relevant fields change (structure, slot, rig type), avoiding unnecessary recomputation on label-only updates.
-- Cleanup: removed the obsolete `CharacterOnlineStatus` runtime model and added migration `0108_remove_character_online_status` to drop the unused table.
-- Tests: added regression coverage for ESI paginated `Last-Modified` consistency checks (mismatch rejection, consistent-page acceptance, and `force_refresh` bypass behavior).
+- ESI reliability: improved pagination consistency checks and cleaner native rate-limit handling.
+- Industry sync stability: better handling of lock/race conditions in heavy task workloads.
+- Industry Structures sync: better handling of partial/forbidden ESI responses and less noisy retries.
+- Task scheduling reliability: improved task dedup/scheduling behavior to avoid intermittent update stalls.
+- Notifications: fixed duplicate Discord DM edge cases.
+- Blueprint Sharing and Material Exchange: fixed several contract/order validation and matching edge cases.
+- Large-account responsiveness: reduced expensive repeated checks in dashboard/header paths.
 
 ## [1.17.2] - 2026-06-01
 
