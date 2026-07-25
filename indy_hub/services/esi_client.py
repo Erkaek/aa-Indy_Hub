@@ -1119,7 +1119,7 @@ class ESIClient:
         if status_code == 420:
             sleep_for, remaining = rate_limit_wait_seconds(exc.response)
             raise ESIErrorLimitException(
-                reset=sleep_for,
+                reset=sleep_for or 1,
                 message=f"ESI error limit reached (remaining={remaining})",
             ) from exc
 
