@@ -180,13 +180,13 @@ LOCATION_LOOKUP_BUDGET = clean_setting(
 
 BLUEPRINTS_BULK_WINDOW_MINUTES = clean_setting(
     "INDY_HUB_BLUEPRINTS_BULK_WINDOW_MINUTES",
-    240,
+    0,
     min_value=0,
     required_type=int,
 )
 INDUSTRY_JOBS_BULK_WINDOW_MINUTES = clean_setting(
     "INDY_HUB_INDUSTRY_JOBS_BULK_WINDOW_MINUTES",
-    120,
+    0,
     min_value=0,
     required_type=int,
 )
@@ -205,7 +205,7 @@ BULK_UPDATE_WINDOW_MINUTES = clean_setting(
 
 ESI_TASK_STAGGER_THRESHOLD = clean_setting(
     "INDY_HUB_ESI_TASK_STAGGER_THRESHOLD",
-    400,
+    0,
     min_value=0,
     required_type=int,
 )

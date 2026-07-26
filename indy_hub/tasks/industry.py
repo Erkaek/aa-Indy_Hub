@@ -15,6 +15,7 @@ from celery.exceptions import MaxRetriesExceededError, Retry
 from django.contrib.auth.models import User
 from django.core.cache import cache
 from django.db import connection, transaction
+from django.db.models import Q
 from django.db.utils import OperationalError
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -1105,17 +1106,99 @@ def _select_sync_user_ids(
     if not selected_user_ids:
         return []
 
+    return _filter_active_user_ids_bulk(selected_user_ids)
+
+
+def _filter_active_user_ids_bulk(user_ids: list[int]) -> list[int]:
+    if not user_ids:
+        return []
+
     now = timezone.now()
+    cutoff = now - timedelta(days=ACTIVE_USER_DAYS)
+
+    ownership_rows = CharacterOwnership.objects.filter(user_id__in=user_ids).values_list(
+        "user_id", "character__character_id"
+    )
+    user_characters: dict[int, list[int]] = {}
+    for user_id, character_id in ownership_rows:
+        if user_id and character_id:
+            user_characters.setdefault(int(user_id), []).append(int(character_id))
+
+    candidate_user_ids = [int(user_id) for user_id in user_ids if int(user_id) in user_characters]
+    if not candidate_user_ids:
+        return []
+
+    all_character_ids = {
+        character_id
+        for character_ids in user_characters.values()
+        for character_id in character_ids
+    }
+    corptools_rows = _fetch_corptools_activity_rows(sorted(all_character_ids))
+
+    if corptools_rows is None:
+        if cache.add(
+            _CORPTOOLS_FALLBACK_LOG_CACHE_KEY,
+            "1",
+            timeout=_CORPTOOLS_FALLBACK_LOG_TTL_SECONDS,
+        ):
+            logger.debug(
+                "Corptools activity data unavailable; falling back to permissive active state for industry sync targets"
+            )
+        return sorted(candidate_user_ids)
+
+    login_by_character: dict[int, datetime | None] = {}
+    for character_id, raw_last_login in corptools_rows:
+        if not character_id:
+            continue
+        login_by_character[int(character_id)] = _coerce_online_datetime(raw_last_login)
+
     active_user_ids: list[int] = []
-    for user in User.objects.filter(id__in=selected_user_ids).order_by("id"):
-        if _is_user_active(user, now=now):
-            active_user_ids.append(int(user.id))
+    for user_id in sorted(candidate_user_ids):
+        has_usable_login_data = False
+        is_active = False
+        for character_id in user_characters.get(user_id, []):
+            if character_id not in login_by_character:
+                continue
+            last_login = login_by_character.get(character_id)
+            if last_login is None:
+                continue
+            has_usable_login_data = True
+            if last_login >= cutoff:
+                is_active = True
+                break
+
+        if is_active or not has_usable_login_data:
+            active_user_ids.append(user_id)
         else:
             logger.debug(
-                "Skipping industry sync for inactive user %s before queueing",
-                user.username,
+                "Skipping industry sync for inactive user id=%s before queueing",
+                user_id,
             )
+
     return active_user_ids
+
+
+def _users_with_corp_blueprint_permission(user_ids: list[int]) -> set[int]:
+    if not user_ids:
+        return set()
+
+    return {
+        int(user_id)
+        for user_id in User.objects.filter(id__in=user_ids)
+        .filter(
+            Q(is_superuser=True)
+            | Q(
+                user_permissions__content_type__app_label="indy_hub",
+                user_permissions__codename="can_manage_corp_bp_requests",
+            )
+            | Q(
+                groups__permissions__content_type__app_label="indy_hub",
+                groups__permissions__codename="can_manage_corp_bp_requests",
+            )
+        )
+        .values_list("id", flat=True)
+        .distinct()
+    }
 
 
 def _select_character_blueprint_targets_for_users(
@@ -1141,15 +1224,7 @@ def _select_corporation_blueprint_user_ids_for_users(user_ids: list[int]) -> lis
     if not user_ids:
         return []
 
-    permitted_user_ids: list[int] = []
-    for user in User.objects.filter(id__in=user_ids).order_by("id"):
-        if user.has_perm("indy_hub.can_manage_corp_bp_requests"):
-            permitted_user_ids.append(int(user.id))
-        else:
-            logger.debug(
-                "Skipping corporation blueprint sync for %s before queueing: missing permission",
-                user.username,
-            )
+    permitted_user_ids = sorted(_users_with_corp_blueprint_permission(user_ids))
 
     if not permitted_user_ids:
         return []
@@ -1203,15 +1278,7 @@ def _select_corporation_job_user_ids_for_users(user_ids: list[int]) -> list[int]
     if not user_ids:
         return []
 
-    permitted_user_ids: list[int] = []
-    for user in User.objects.filter(id__in=user_ids).order_by("id"):
-        if user.has_perm("indy_hub.can_manage_corp_bp_requests"):
-            permitted_user_ids.append(int(user.id))
-        else:
-            logger.debug(
-                "Skipping corporation job sync for %s before queueing: missing permission",
-                user.username,
-            )
+    permitted_user_ids = sorted(_users_with_corp_blueprint_permission(user_ids))
 
     if not permitted_user_ids:
         return []
