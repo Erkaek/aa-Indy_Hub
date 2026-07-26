@@ -16,6 +16,7 @@ from allianceauth.eveonline.models import EveCharacter
 # AA Example App
 from indy_hub.tasks.industry import (
     _is_user_active,
+    queue_blueprint_update_for_user,
     queue_industry_job_update_for_user,
     request_manual_refresh,
     update_all_blueprints,
@@ -163,6 +164,50 @@ class IndustryJobsPayloadTests(TestCase):
         self.assertFalse(scheduled)
         cache_add.assert_called_once()
         apply_async.assert_not_called()
+
+    def test_queue_blueprint_update_includes_character_id_kwarg_for_queueonce(self):
+        with (
+            patch("indy_hub.tasks.industry._is_user_active", return_value=True),
+            patch("indy_hub.tasks.industry.cache.add", return_value=True),
+            patch(
+                "indy_hub.tasks.industry.update_blueprints_for_user.apply_async"
+            ) as apply_async,
+        ):
+            scheduled = queue_blueprint_update_for_user(self.user.id)
+
+        self.assertTrue(scheduled)
+        apply_async.assert_called_once_with(
+            args=(self.user.id,),
+            kwargs={"character_id": None, "queue_source": "auto"},
+            countdown=0,
+            priority=None,
+        )
+
+    def test_queue_blueprint_update_passes_character_id_for_character_scope(self):
+        with (
+            patch("indy_hub.tasks.industry._is_user_active", return_value=True),
+            patch("indy_hub.tasks.industry.cache.add", return_value=True),
+            patch(
+                "indy_hub.tasks.industry.update_blueprints_for_user.apply_async"
+            ) as apply_async,
+        ):
+            scheduled = queue_blueprint_update_for_user(
+                self.user.id,
+                scope="character",
+                character_id=9000001,
+            )
+
+        self.assertTrue(scheduled)
+        apply_async.assert_called_once_with(
+            args=(self.user.id,),
+            kwargs={
+                "character_id": 9000001,
+                "scope": "character",
+                "queue_source": "auto",
+            },
+            countdown=0,
+            priority=None,
+        )
 
     def test_manual_refresh_uses_manual_queue_source(self) -> None:
         with (

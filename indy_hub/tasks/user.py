@@ -61,7 +61,6 @@ def update_character_roles_for_character(
     force_refresh: bool = False,
 ) -> dict:
     """Refresh stored corporation roles for a single character."""
-    table_empty = not CharacterRoles.objects.exists()
     ownership = (
         CharacterOwnership.objects.filter(
             user_id=user_id, character__character_id=character_id
@@ -72,6 +71,17 @@ def update_character_roles_for_character(
     if not ownership:
         return {"status": "skipped", "reason": "ownership_missing"}
 
+    snapshot = CharacterRoles.objects.filter(character_id=character_id).first()
+    now = timezone.now()
+    snapshot_stale = bool(
+        snapshot
+        and (now - snapshot.last_updated) >= timedelta(hours=ROLE_SNAPSHOT_STALE_HOURS)
+    )
+    if snapshot and not snapshot_stale:
+        return {"status": "skipped", "reason": "fresh"}
+
+    table_empty = not CharacterRoles.objects.exists()
+
     token = (
         Token.objects.filter(user=ownership.user, character_id=character_id)
         .require_scopes([CORP_ROLES_SCOPE])
@@ -81,15 +91,6 @@ def update_character_roles_for_character(
     )
     if not token:
         return {"status": "skipped", "reason": "token_missing"}
-
-    snapshot = CharacterRoles.objects.filter(character_id=character_id).first()
-    now = timezone.now()
-    snapshot_stale = bool(
-        snapshot
-        and (now - snapshot.last_updated) >= timedelta(hours=ROLE_SNAPSHOT_STALE_HOURS)
-    )
-    if snapshot and not snapshot_stale:
-        return {"status": "skipped", "reason": "fresh"}
     try:
         payload = shared_client.fetch_character_corporation_roles(
             int(character_id),
@@ -163,17 +164,32 @@ def update_user_roles_snapshots(user_id: int) -> dict[str, int]:
     if not user or not _is_user_active(user):
         return {"updated": 0, "skipped": 1, "failures": 0}
 
-    ownerships = (
+    ownerships = list(
         CharacterOwnership.objects.filter(user_id=user_id)
         .select_related("character")
         .values_list("character__character_id", flat=True)
         .distinct()
     )
+
+    character_ids = [int(character_id) for character_id in ownerships if character_id]
+    fresh_character_ids: set[int] = set()
+    if character_ids:
+        fresh_cutoff = timezone.now() - timedelta(hours=ROLE_SNAPSHOT_STALE_HOURS)
+        fresh_character_ids = set(
+            CharacterRoles.objects.filter(
+                character_id__in=character_ids,
+                last_updated__gte=fresh_cutoff,
+            ).values_list("character_id", flat=True)
+        )
+
     updated = 0
     skipped = 0
     failures = 0
-    for character_id in ownerships:
+    for character_id in character_ids:
         if not character_id:
+            skipped += 1
+            continue
+        if int(character_id) in fresh_character_ids:
             skipped += 1
             continue
         result = update_character_roles_for_character(int(user_id), int(character_id))

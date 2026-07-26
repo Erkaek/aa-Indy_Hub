@@ -193,6 +193,10 @@ def _get_character_for_scope(
         except Exception:
             return False
 
+    role_eligibility_cache: dict[tuple[int, int], bool] = {}
+    skipped_for_missing_roles = 0
+    sample_skipped_character_id: int | None = None
+
     for token in tokens:
         try:
             scope_names = list(token.scopes.values_list("name", flat=True))
@@ -202,21 +206,33 @@ def _get_character_for_scope(
                 continue
 
             candidate_character_id = int(token.character_id)
-            if not _character_has_structure_sync_role(
-                candidate_character_id,
-                int(corporation_id),
-            ):
-                logger.debug(
-                    "Character %s skipped for corporation %s structure sync: missing required roles %s",
+            cache_key = (candidate_character_id, int(corporation_id))
+            has_required_role = role_eligibility_cache.get(cache_key)
+            if has_required_role is None:
+                has_required_role = _character_has_structure_sync_role(
                     candidate_character_id,
-                    corporation_id,
-                    ", ".join(sorted(REQUIRED_STRUCTURE_SYNC_ROLES)),
+                    int(corporation_id),
                 )
+                role_eligibility_cache[cache_key] = has_required_role
+
+            if not has_required_role:
+                skipped_for_missing_roles += 1
+                if sample_skipped_character_id is None:
+                    sample_skipped_character_id = candidate_character_id
                 continue
 
             return candidate_character_id
         except Exception:
             continue
+
+    if skipped_for_missing_roles:
+        logger.debug(
+            "Skipped %s candidate characters for corporation %s structure sync: missing required roles %s (sample character=%s)",
+            skipped_for_missing_roles,
+            corporation_id,
+            ", ".join(sorted(REQUIRED_STRUCTURE_SYNC_ROLES)),
+            sample_skipped_character_id,
+        )
 
     raise ESITokenError(
         f"No character in corporation {corporation_id} has scope '{CORP_STRUCTURES_SCOPE}'."
@@ -316,6 +332,8 @@ def _iter_syncable_corporations(tokens) -> list[dict[str, object]]:
     from allianceauth.eveonline.models import EveCharacter
 
     corporations_by_id: dict[int, dict[str, object]] = {}
+    role_eligibility_cache: dict[tuple[int, int], bool] = {}
+    skipped_by_corporation: dict[int, dict[str, int]] = {}
     for token in tokens:
         character_id = getattr(token, "character_id", None)
         if not character_id:
@@ -339,13 +357,21 @@ def _iter_syncable_corporations(tokens) -> list[dict[str, object]]:
         if corporation_id in corporations_by_id:
             continue
 
-        if not _character_has_structure_sync_role(int(character_id), corporation_id):
-            logger.debug(
-                "Character %s skipped for corporation %s structure sync target: missing required roles %s",
-                character_id,
+        cache_key = (int(character_id), corporation_id)
+        has_required_role = role_eligibility_cache.get(cache_key)
+        if has_required_role is None:
+            has_required_role = _character_has_structure_sync_role(
+                int(character_id),
                 corporation_id,
-                ", ".join(sorted(REQUIRED_STRUCTURE_SYNC_ROLES)),
             )
+            role_eligibility_cache[cache_key] = has_required_role
+
+        if not has_required_role:
+            bucket = skipped_by_corporation.setdefault(
+                corporation_id,
+                {"count": 0, "sample_character_id": int(character_id)},
+            )
+            bucket["count"] += 1
             continue
 
         corporation_name = getattr(character, "corporation_name", "") or ""
@@ -362,6 +388,15 @@ def _iter_syncable_corporations(tokens) -> list[dict[str, object]]:
             "ticker": corporation_ticker,
             "character_id": int(character_id),
         }
+
+    for corporation_id, payload in skipped_by_corporation.items():
+        logger.debug(
+            "Skipped %s candidate characters for corporation %s structure sync target selection: missing required roles %s (sample character=%s)",
+            payload["count"],
+            corporation_id,
+            ", ".join(sorted(REQUIRED_STRUCTURE_SYNC_ROLES)),
+            payload["sample_character_id"],
+        )
 
     return sorted(corporations_by_id.values(), key=lambda row: str(row["name"]).lower())
 

@@ -82,6 +82,11 @@ from ..utils.eve import (
 
 logger = get_extension_logger(__name__)
 
+_CORPTOOLS_FALLBACK_LOG_CACHE_KEY = (
+    "indy_hub:industry:corptools_activity_fallback_debug_logged"
+)
+_CORPTOOLS_FALLBACK_LOG_TTL_SECONDS = 3600
+
 BLUEPRINT_SCOPE = "esi-characters.read_blueprints.v1"
 JOBS_SCOPE = "esi-industry.read_character_jobs.v1"
 STRUCTURE_SCOPE = "esi-universe.read_structures.v1"
@@ -147,10 +152,14 @@ def _is_user_active(user: User, *, now: datetime | None = None) -> bool:
     if corptools_active_state is not None:
         return corptools_active_state
 
-    logger.debug(
-        "Corptools activity data unavailable for user %s; falling back to permissive active state",
-        user.id,
-    )
+    if cache.add(
+        _CORPTOOLS_FALLBACK_LOG_CACHE_KEY,
+        "1",
+        timeout=_CORPTOOLS_FALLBACK_LOG_TTL_SECONDS,
+    ):
+        logger.debug(
+            "Corptools activity data unavailable; falling back to permissive active state for industry sync targets"
+        )
     return True
 
 
@@ -526,6 +535,35 @@ def _collect_corporation_contexts(
         "character"
     )
 
+    owned_character_ids = [
+        int(ownership.character.character_id)
+        for ownership in ownerships
+        if getattr(ownership, "character", None)
+        and getattr(ownership.character, "character_id", None)
+    ]
+
+    fresh_roles_cutoff = timezone.now() - timedelta(hours=ROLE_SNAPSHOT_STALE_HOURS)
+    eligible_snapshot_roles_by_corp: dict[int, set[int]] = {}
+    ineligible_snapshot_roles_by_corp: dict[int, set[int]] = {}
+    if owned_character_ids:
+        for snapshot in CharacterRoles.objects.filter(
+            character_id__in=owned_character_ids,
+            last_updated__gte=fresh_roles_cutoff,
+        ):
+            snapshot_corp_id = getattr(snapshot, "corporation_id", None)
+            if not snapshot_corp_id:
+                continue
+            snapshot_corp_id = int(snapshot_corp_id)
+            snapshot_roles = _roles_from_snapshot(snapshot)
+            if snapshot_roles.intersection(REQUIRED_CORPORATION_ROLES):
+                eligible_snapshot_roles_by_corp.setdefault(snapshot_corp_id, set()).add(
+                    int(snapshot.character_id)
+                )
+            else:
+                ineligible_snapshot_roles_by_corp.setdefault(
+                    snapshot_corp_id, set()
+                ).add(int(snapshot.character_id))
+
     # Optimize: Bulk load corp settings instead of querying in get_or_create loop
     corp_settings = {
         setting.corporation_id: setting
@@ -637,7 +675,21 @@ def _collect_corporation_contexts(
             )
 
         try:
-            roles = get_character_corporation_roles(char_id)
+            has_required_roles = char_id in eligible_snapshot_roles_by_corp.get(
+                int(corp_id), set()
+            )
+            if (
+                not has_required_roles
+                and char_id
+                in ineligible_snapshot_roles_by_corp.get(int(corp_id), set())
+            ):
+                continue
+
+            if not has_required_roles:
+                roles = get_character_corporation_roles(char_id)
+                has_required_roles = bool(
+                    roles.intersection(REQUIRED_CORPORATION_ROLES)
+                )
         except ESITokenError:
             logger.debug(
                 "Character %s lacks the required corporation roles scope for corporation %s",
@@ -654,7 +706,7 @@ def _collect_corporation_contexts(
             )
             continue
 
-        if not roles.intersection(REQUIRED_CORPORATION_ROLES):
+        if not has_required_roles:
             logger.debug(
                 "Character %s does not have roles %s for corporation %s",
                 char_id,
@@ -1000,6 +1052,7 @@ def _queue_staggered_blueprint_character_tasks(
                 int(user_id),
                 priority=priority,
                 scope="character",
+                character_id=int(character_id),
             ):
                 queued += 1
         return queued
@@ -1013,6 +1066,7 @@ def _queue_staggered_blueprint_character_tasks(
             countdown=countdown,
             priority=priority,
             scope="character",
+            character_id=int(character_id),
         ):
             queued += 1
     return queued
@@ -1282,10 +1336,11 @@ def queue_blueprint_update_for_user(
     countdown: int = 0,
     priority: int | None = None,
     scope: str | None = None,
+    character_id: int | None = None,
     force_refresh: bool = False,
     queue_source: str | None = None,
 ) -> bool:
-    kwargs = {}
+    kwargs = {"character_id": int(character_id) if character_id else None}
     if scope:
         kwargs["scope"] = scope
     if force_refresh:
@@ -1312,6 +1367,7 @@ def queue_blueprint_update_for_user(
         "blueprints",
         int(user_id),
         scope,
+        character_id,
         queue_source=normalized_source,
         countdown=countdown,
     ):
@@ -1334,6 +1390,7 @@ def queue_blueprint_update_for_user(
             "blueprints",
             int(user_id),
             scope,
+            character_id,
             queue_source=normalized_source,
         )
         raise
@@ -1430,20 +1487,42 @@ def request_manual_refresh(
             return False, None, "inactive_or_missing_scope"
 
     if kind == MANUAL_REFRESH_KIND_BLUEPRINTS:
-        queue_blueprint_update_for_user(
-            user_id,
-            priority=priority,
-            scope=scope,
-            force_refresh=True,
-            queue_source="manual",
-        )
+        if check_active:
+            queue_blueprint_update_for_user(
+                user_id,
+                priority=priority,
+                scope=scope,
+                force_refresh=True,
+                queue_source="manual",
+            )
+        else:
+            kwargs = {"force_refresh": True}
+            if scope:
+                kwargs["scope"] = scope
+            update_blueprints_for_user.apply_async(
+                args=(user_id,),
+                kwargs=kwargs,
+                countdown=0,
+                priority=priority,
+            )
     elif kind == MANUAL_REFRESH_KIND_JOBS:
-        queue_industry_job_update_for_user(
-            user_id,
-            priority=priority,
-            scope=scope,
-            queue_source="manual",
-        )
+        if check_active:
+            queue_industry_job_update_for_user(
+                user_id,
+                priority=priority,
+                scope=scope,
+                queue_source="manual",
+            )
+        else:
+            kwargs = {}
+            if scope:
+                kwargs["scope"] = scope
+            update_industry_jobs_for_user.apply_async(
+                args=(user_id,),
+                kwargs=kwargs,
+                countdown=0,
+                priority=priority,
+            )
     else:
         _clear_manual_refresh_inflight(kind, user_id, scope)
         raise ValueError(f"Unknown manual refresh kind: {kind}")
@@ -3121,6 +3200,16 @@ def update_character_skill_snapshot_for_character(
             character_id,
         )
 
+    snapshot = IndustrySkillSnapshot.objects.filter(
+        character_id=int(character_id)
+    ).first()
+    snapshot_stale = industry_skill_snapshot_stale(
+        snapshot,
+        timedelta(hours=SKILL_SNAPSHOT_STALE_HOURS),
+    )
+    if snapshot and not snapshot_stale:
+        return {"status": "skipped", "reason": "fresh"}
+
     token = (
         Token.objects.filter(user=ownership.user, character_id=character_id)
         .require_scopes([SKILLS_SCOPE])
@@ -3135,16 +3224,7 @@ def update_character_skill_snapshot_for_character(
         )
         return {"status": "skipped", "reason": "token_missing"}
 
-    snapshot = IndustrySkillSnapshot.objects.filter(
-        character_id=int(character_id)
-    ).first()
     table_empty = not IndustrySkillSnapshot.objects.exists()
-    snapshot_stale = industry_skill_snapshot_stale(
-        snapshot,
-        timedelta(hours=SKILL_SNAPSHOT_STALE_HOURS),
-    )
-    if snapshot and not snapshot_stale:
-        return {"status": "skipped", "reason": "fresh"}
 
     try:
         levels = _fetch_character_skill_levels_with_token(

@@ -25,6 +25,7 @@ from indy_hub.tasks.material_exchange_contracts import (
     _extract_contract_id,
     _matches_buy_order_criteria_db,
     _matches_sell_order_criteria_db,
+    run_material_exchange_cycle,
     validate_material_exchange_buy_orders,
     validate_material_exchange_sell_orders,
 )
@@ -1411,6 +1412,101 @@ class NotificationDeduplicationTest(TestCase):
         self.assertTrue(mock_notify_user.called)
         self.assertTrue(mock_notify_multi.called)
 
+
+class MaterialExchangeCycleSyncGateTests(TestCase):
+    def setUp(self):
+        self.config = MaterialExchangeConfig.objects.create(
+            corporation_id=123456789,
+            structure_id=60003760,
+            structure_name="Test Structure",
+            is_active=True,
+        )
+        self.user = User.objects.create_user(username="cycle_user")
+
+    @patch(
+        "indy_hub.tasks.material_exchange_contracts.check_completed_material_exchange_contracts"
+    )
+    @patch(
+        "indy_hub.tasks.material_exchange_contracts.validate_material_exchange_buy_orders"
+    )
+    @patch(
+        "indy_hub.tasks.material_exchange_contracts.validate_material_exchange_sell_orders"
+    )
+    @patch("indy_hub.tasks.material_exchange_contracts.sync_esi_contracts")
+    def test_cycle_skips_contract_sync_without_pending_orders(
+        self,
+        mock_sync_contracts,
+        mock_validate_sell,
+        mock_validate_buy,
+        mock_check_completed,
+    ):
+        run_material_exchange_cycle()
+
+        mock_sync_contracts.assert_not_called()
+        mock_validate_sell.assert_called_once_with()
+        mock_validate_buy.assert_called_once_with()
+        mock_check_completed.assert_called_once_with()
+
+    @patch(
+        "indy_hub.tasks.material_exchange_contracts.check_completed_material_exchange_contracts"
+    )
+    @patch(
+        "indy_hub.tasks.material_exchange_contracts.validate_material_exchange_buy_orders"
+    )
+    @patch(
+        "indy_hub.tasks.material_exchange_contracts.validate_material_exchange_sell_orders"
+    )
+    @patch("indy_hub.tasks.material_exchange_contracts.sync_esi_contracts")
+    def test_cycle_syncs_contracts_when_pending_sell_exists(
+        self,
+        mock_sync_contracts,
+        mock_validate_sell,
+        mock_validate_buy,
+        mock_check_completed,
+    ):
+        MaterialExchangeSellOrder.objects.create(
+            config=self.config,
+            seller=self.user,
+            status=MaterialExchangeSellOrder.Status.DRAFT,
+        )
+
+        run_material_exchange_cycle()
+
+        mock_sync_contracts.assert_called_once_with()
+        mock_validate_sell.assert_called_once_with()
+        mock_validate_buy.assert_called_once_with()
+        mock_check_completed.assert_called_once_with()
+
+    @patch(
+        "indy_hub.tasks.material_exchange_contracts.check_completed_material_exchange_contracts"
+    )
+    @patch(
+        "indy_hub.tasks.material_exchange_contracts.validate_material_exchange_buy_orders"
+    )
+    @patch(
+        "indy_hub.tasks.material_exchange_contracts.validate_material_exchange_sell_orders"
+    )
+    @patch("indy_hub.tasks.material_exchange_contracts.sync_esi_contracts")
+    def test_cycle_syncs_contracts_when_pending_buy_exists(
+        self,
+        mock_sync_contracts,
+        mock_validate_sell,
+        mock_validate_buy,
+        mock_check_completed,
+    ):
+        MaterialExchangeBuyOrder.objects.create(
+            config=self.config,
+            buyer=self.user,
+            status=MaterialExchangeBuyOrder.Status.DRAFT,
+        )
+
+        run_material_exchange_cycle()
+
+        mock_sync_contracts.assert_called_once_with()
+        mock_validate_sell.assert_called_once_with()
+        mock_validate_buy.assert_called_once_with()
+        mock_check_completed.assert_called_once_with()
+
     @patch("indy_hub.tasks.material_exchange_contracts._get_user_character_ids")
     @patch("indy_hub.tasks.material_exchange_contracts.notify_user")
     def test_anomaly_contract_rejected_stays_open_for_redo(
@@ -1433,7 +1529,7 @@ class NotificationDeduplicationTest(TestCase):
 
         sell_order = MaterialExchangeSellOrder.objects.create(
             config=self.config,
-            seller=self.seller,
+            seller=self.user,
             status=MaterialExchangeSellOrder.Status.ANOMALY,
             order_reference="INDY-ANOM-REJECTED-1",
         )

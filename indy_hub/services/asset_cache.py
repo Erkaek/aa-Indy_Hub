@@ -819,6 +819,10 @@ def resolve_structure_names(
     # Filter only user's characters with DIRECTOR role to limit ESI calls
     if user:
         try:
+            director_added_count = 0
+            lacking_director_ids: list[int] = []
+            role_snapshot_unavailable_ids: list[int] = []
+
             # 1. Get user's character IDs
             user_char_ids = list(
                 CharacterOwnership.objects.filter(user=user).values_list(
@@ -837,41 +841,73 @@ def resolve_structure_names(
                 .values_list("character_id", flat=True)
             )
 
+            fresh_roles_cutoff = timezone.now() - timedelta(
+                hours=ROLE_SNAPSHOT_STALE_HOURS
+            )
+            snapshot_roles_by_character: dict[int, set[str]] = {}
+            for snapshot in CharacterRoles.objects.filter(
+                character_id__in=user_tokens_with_scope,
+                corporation_id=corporation_id,
+                last_updated__gte=fresh_roles_cutoff,
+            ):
+                snapshot_roles_by_character[int(snapshot.character_id)] = {
+                    str(role).upper()
+                    for key in (
+                        "roles",
+                        "roles_at_hq",
+                        "roles_at_base",
+                        "roles_at_other",
+                    )
+                    for role in (getattr(snapshot, key, None) or [])
+                    if role
+                }
+
             # 3. Verify DIRECTOR role for each character to limit candidates
             for cid in user_tokens_with_scope:
                 if cid in candidate_characters:
                     continue
 
                 try:
-                    corp_roles = _get_or_fetch_character_roles(
-                        int(cid),
-                        owner_user=user,
-                        corporation_id=corporation_id,
-                        allow_fetch=False,
-                    )
+                    corp_roles = snapshot_roles_by_character.get(int(cid), set())
+                    if not corp_roles:
+                        corp_roles = set(
+                            _get_or_fetch_character_roles(
+                                int(cid),
+                                owner_user=user,
+                                corporation_id=corporation_id,
+                                allow_fetch=False,
+                            )
+                        )
 
                     # Accept only DIRECTOR role
                     if "DIRECTOR" in corp_roles:
                         candidate_characters.append(int(cid))
-                        logger.debug(
-                            "Character %s has Director role, added to candidates", cid
-                        )
+                        director_added_count += 1
                     elif corp_roles:
-                        logger.debug(
-                            "Character %s lacks Director role (has: %s)",
-                            cid,
-                            corp_roles,
-                        )
+                        lacking_director_ids.append(int(cid))
                     else:
-                        logger.debug(
-                            "Character %s role snapshot unavailable; skipping Director filter",
-                            cid,
-                        )
+                        role_snapshot_unavailable_ids.append(int(cid))
                 except Exception as exc:
                     logger.warning(
                         "Failed to check roles for character %s: %s", cid, exc
                     )
                     continue
+
+            if (
+                director_added_count
+                or lacking_director_ids
+                or role_snapshot_unavailable_ids
+            ):
+                logger.debug(
+                    "Director role filter summary for user %s corp %s: added=%s, lacking=%s, snapshot_unavailable=%s, lacking_sample=%s, snapshot_sample=%s",
+                    user.username,
+                    corporation_id,
+                    director_added_count,
+                    len(lacking_director_ids),
+                    len(role_snapshot_unavailable_ids),
+                    lacking_director_ids[:5],
+                    role_snapshot_unavailable_ids[:5],
+                )
 
         except Exception as exc:  # pragma: no cover - defensive
             logger.warning("Failed to filter user characters: %s", exc)

@@ -340,8 +340,28 @@ def run_material_exchange_cycle():
 
     logger.info("Starting Material Exchange cycle")
 
-    # Step 1: sync cached contracts
-    sync_esi_contracts()
+    pending_sell_exists = MaterialExchangeSellOrder.objects.filter(
+        status__in=[
+            MaterialExchangeSellOrder.Status.DRAFT,
+            MaterialExchangeSellOrder.Status.AWAITING_VALIDATION,
+            MaterialExchangeSellOrder.Status.ANOMALY,
+            MaterialExchangeSellOrder.Status.ANOMALY_REJECTED,
+        ],
+    ).exists()
+    pending_buy_exists = MaterialExchangeBuyOrder.objects.filter(
+        status__in=[
+            MaterialExchangeBuyOrder.Status.DRAFT,
+            MaterialExchangeBuyOrder.Status.AWAITING_VALIDATION,
+        ],
+    ).exists()
+
+    # Step 1: sync cached contracts only when there are pending orders to validate.
+    if pending_sell_exists or pending_buy_exists:
+        sync_esi_contracts()
+    else:
+        logger.debug(
+            "Skipping contract sync: no pending sell/buy orders require validation"
+        )
 
     # Step 2: validate pending sell orders using cached contracts
     validate_material_exchange_sell_orders()

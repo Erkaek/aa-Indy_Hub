@@ -466,7 +466,6 @@ if Token:
 
         # Only trigger sync for newly created tokens or significant updates
         if not created:
-            logger.debug(f"Token {instance.pk} updated but not created, skipping sync")
             return
 
         user = instance.user if getattr(instance, "user", None) else None
