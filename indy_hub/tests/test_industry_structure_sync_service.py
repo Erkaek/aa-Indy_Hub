@@ -12,7 +12,7 @@ from django.test import TestCase
 
 # AA Example App
 from indy_hub.models import CharacterRoles, IndustryStructure
-from indy_hub.services.esi_client import ESIForbiddenError
+from indy_hub.services.esi_client import ESIClientError, ESIForbiddenError
 from indy_hub.services.industry_structure_sync import (
     _get_online_industry_activity_flags,
     get_available_structure_sync_targets,
@@ -373,5 +373,31 @@ class IndustryStructureSyncServiceTests(TestCase):
 
         self.assertEqual(summary["rate_limited"], 1)
         self.assertEqual(summary["deferred_due_to_rate_limit"], 2)
+        self.assertEqual(summary["errors"], [])
+        self.assertEqual(mock_fetch_corporation_structures.call_count, 1)
+
+    @patch(
+        "indy_hub.services.industry_structure_sync.shared_client.fetch_corporation_structures"
+    )
+    def test_sync_stops_after_transient_esi_5xx_and_defers_remaining_targets(
+        self,
+        mock_fetch_corporation_structures,
+    ) -> None:
+        mock_fetch_corporation_structures.side_effect = ESIClientError(
+            "ESI returned 504 for /corporations/98134807/structures/",
+            status_code=504,
+            retry_after=30,
+        )
+
+        sync_targets = [
+            {"id": 98134807, "name": "Acme Corp", "character_id": 2112625428},
+            {"id": 98201666, "name": "Beta Corp", "character_id": 2112625429},
+            {"id": 98209999, "name": "Gamma Corp", "character_id": 2112625430},
+        ]
+        summary = sync_corporation_structure_targets(sync_targets, force_refresh=True)
+
+        self.assertEqual(summary["rate_limited"], 1)
+        self.assertEqual(summary["deferred_due_to_rate_limit"], 2)
+        self.assertEqual(summary["retry_after_seconds"], 30)
         self.assertEqual(summary["errors"], [])
         self.assertEqual(mock_fetch_corporation_structures.call_count, 1)

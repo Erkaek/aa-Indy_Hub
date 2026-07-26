@@ -47,6 +47,7 @@ from indy_hub.services.esi_client import (
     ESIClientError,
     ESIForbiddenError,
     ESITokenError,
+    get_retry_after_seconds,
     ESIUnmodifiedError,
     get_rate_limit_reset_seconds,
     shared_client,
@@ -62,6 +63,14 @@ logger = get_extension_logger(__name__)
 
 # Cache for structure names to avoid repeated lookups within a task run.
 _structure_name_cache: dict[int, str | None] = {}
+
+
+def _is_transient_esi_error(exc: ESIClientError) -> bool:
+    try:
+        status_code = int(exc.status_code or 0)
+    except (TypeError, ValueError):
+        status_code = 0
+    return 500 <= status_code < 600
 
 
 def _log_contract_cache_status_for_validation_skip(corporation_id: int) -> None:
@@ -2148,7 +2157,7 @@ def check_completed_material_exchange_contracts():
         )
         check_completed_material_exchange_contracts.apply_async(countdown=delay)
         return
-    except (ESITokenError, ESIForbiddenError, ESIClientError) as exc:
+    except (ESITokenError, ESIForbiddenError) as exc:
         if "304" in str(exc):
             contracts = list(
                 ESIContract.objects.filter(corporation_id=config.corporation_id).values(
@@ -2161,9 +2170,26 @@ def check_completed_material_exchange_contracts():
                     config.corporation_id,
                 )
                 return
-        else:
-            logger.error("Failed to check contract status: %s", exc)
+        logger.error("Failed to check contract status: %s", exc)
+        return
+    except ESIClientError as exc:
+        if _is_transient_esi_error(exc):
+            delay = get_retry_after_seconds(
+                exc,
+                fallback=15,
+                minimum=5,
+                maximum=10 * 60,
+            )
+            logger.warning(
+                "Transient ESI error while checking contract status; retrying in %ss: %s",
+                delay,
+                exc,
+            )
+            check_completed_material_exchange_contracts.apply_async(countdown=delay)
             return
+
+        logger.error("Failed to check contract status: %s", exc)
+        return
 
     for order in approved_orders:
         # Extract contract ID from stored field or notes

@@ -52,6 +52,8 @@ _RATE_LIMIT_META_PREFIX = "indy_hub:esi_rate_limit_meta"
 _RATE_LIMIT_COOLDOWN_PREFIX = "indy_hub:esi_rate_limit_cooldown"
 _RATE_LIMIT_META_TTL_SECONDS = 24 * 60 * 60
 _RATE_LIMIT_REQUIRED_TOKENS = 2
+_TRANQUILITY_COOLDOWN_CACHE_KEY = "indy_hub:esi_tranquility_global_cooldown_until"
+_TRANQUILITY_COOLDOWN_FALLBACK_SECONDS = 60
 _HTTP_ERROR_TYPES = (HTTPClientError, HTTPServerError)
 _DJANGO_ESI_RATE_LIMIT_ERRORS = (ESIBucketLimitException, ESIErrorLimitException)
 
@@ -59,9 +61,16 @@ _DJANGO_ESI_RATE_LIMIT_ERRORS = (ESIBucketLimitException, ESIErrorLimitException
 class ESIClientError(Exception):
     """Base error raised when the ESI client fails."""
 
-    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        retry_after: int | None = None,
+    ) -> None:
         super().__init__(message)
         self.status_code = status_code
+        self.retry_after = retry_after
 
 
 class ESITokenError(ESIClientError):
@@ -181,6 +190,43 @@ def get_rate_limit_reset_seconds(
     return max(delay, int(minimum))
 
 
+def get_retry_after_seconds(
+    exc: Exception,
+    *,
+    fallback: int = 1,
+    minimum: int = 1,
+    maximum: int = 15 * 60,
+) -> int:
+    """Best-effort Retry-After extraction for transient ESI failures."""
+
+    raw_delay = getattr(exc, "retry_after", None)
+    response = getattr(exc, "response", None)
+    if raw_delay is None and response is not None:
+        headers = getattr(response, "headers", None)
+        if headers is not None:
+            for header in (
+                "Retry-After",
+                "X-Esi-Error-Limit-Reset",
+                "X-Ratelimit-Reset",
+            ):
+                raw_delay = headers.get(header)
+                if raw_delay is not None:
+                    break
+
+    delay = 0
+    if raw_delay is not None:
+        try:
+            delay = int(math.ceil(float(raw_delay)))
+        except (TypeError, ValueError):
+            delay = 0
+
+    if delay <= 0:
+        delay = int(fallback)
+
+    bounded = max(int(minimum), delay)
+    return min(bounded, int(maximum))
+
+
 class ESIClient:
     """Small helper around django-esi OpenAPI client with AA-friendly errors."""
 
@@ -249,6 +295,53 @@ class ESIClient:
     @staticmethod
     def _rate_limit_meta_cache_key(endpoint: str) -> str:
         return f"{_RATE_LIMIT_META_PREFIX}:{endpoint}"
+
+    @staticmethod
+    def _tranquility_cooldown_seconds_remaining() -> int:
+        blocked_until = cache.get(_TRANQUILITY_COOLDOWN_CACHE_KEY)
+        if blocked_until is None:
+            return 0
+        try:
+            remaining = int(math.ceil(float(blocked_until) - time.time()))
+        except (TypeError, ValueError):
+            return 0
+        return max(remaining, 0)
+
+    def _set_tranquility_cooldown(self, cooldown_seconds: int) -> int:
+        cooldown = max(int(cooldown_seconds), 1)
+        cache.set(
+            _TRANQUILITY_COOLDOWN_CACHE_KEY,
+            time.time() + cooldown,
+            timeout=cooldown,
+        )
+        return cooldown
+
+    def _record_tranquility_outage(self, exc: Exception) -> int:
+        cooldown = get_retry_after_seconds(
+            exc,
+            fallback=_TRANQUILITY_COOLDOWN_FALLBACK_SECONDS,
+            minimum=5,
+            maximum=15 * 60,
+        )
+        applied = self._set_tranquility_cooldown(cooldown)
+        logger.warning(
+            "Set global Tranquility outage cooldown to %ss after transient ESI failure",
+            applied,
+        )
+        return applied
+
+    def _enforce_tranquility_cooldown(self, endpoint: str | None) -> None:
+        remaining = self._tranquility_cooldown_seconds_remaining()
+        if remaining <= 0:
+            return
+        raise ESIErrorLimitException(
+            reset=remaining,
+            message=(
+                "Global Tranquility outage cooldown active"
+                + (f" for {endpoint}" if endpoint else "")
+                + f" (retry in {remaining}s)"
+            ),
+        )
 
     @staticmethod
     def _rate_limit_cooldown_cache_key(group: str, key_suffix: str) -> str:
@@ -839,6 +932,7 @@ class ESIClient:
 
     def fetch_industry_systems(self, *, force_refresh: bool = False) -> list[dict]:
         """Fetch public industry system cost indices from ESI."""
+        self._enforce_tranquility_cooldown("/industry/systems/")
         try:
             operation_fn = self._resolve_operation("Industry", "get_industry_systems")
         except AttributeError as exc:
@@ -1234,6 +1328,8 @@ class ESIClient:
         if not ids:
             return {}
 
+        self._enforce_tranquility_cooldown("/universe/names/")
+
         # ESI accepts max 1000 IDs per request
         result: dict[int, str] = {}
         try:
@@ -1317,6 +1413,7 @@ class ESIClient:
     ):
         if operation is None:
             raise ESIClientError("No ESI operation provided")
+        self._enforce_tranquility_cooldown(endpoint)
         if throttle_key is None and character_id:
             throttle_key = f"char:{int(character_id)}"
         self._enforce_task_scope_budget(scope, endpoint, throttle_key=throttle_key)
@@ -1515,9 +1612,22 @@ class ESIClient:
                 status_code=status_code,
             ) from exc
 
+        if status_code is not None and 500 <= int(status_code) < 600:
+            retry_after = self._record_tranquility_outage(exc)
+            raise ESIClientError(
+                f"ESI returned {status_code} for {endpoint or 'request'}: {exc}",
+                status_code=status_code,
+                retry_after=retry_after,
+            ) from exc
+
         raise ESIClientError(
             f"ESI returned {status_code} for {endpoint or 'request'}: {exc}",
             status_code=status_code,
+            retry_after=(
+                get_retry_after_seconds(exc, fallback=5, minimum=1, maximum=15 * 60)
+                if status_code is not None and 500 <= int(status_code) < 600
+                else None
+            ),
         ) from exc
 
     def _handle_forbidden_token(

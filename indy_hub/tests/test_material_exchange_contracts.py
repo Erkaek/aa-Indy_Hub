@@ -25,6 +25,7 @@ from indy_hub.tasks.material_exchange_contracts import (
     _extract_contract_id,
     _matches_buy_order_criteria_db,
     _matches_sell_order_criteria_db,
+    check_completed_material_exchange_contracts,
     run_material_exchange_cycle,
     validate_material_exchange_buy_orders,
     validate_material_exchange_sell_orders,
@@ -225,6 +226,31 @@ class ContractValidationTaskTest(TestCase):
         )
         # User is not notified when no contracts are cached (just a warning log)
         mock_notify_user.assert_not_called()
+
+    @patch("indy_hub.tasks.material_exchange_contracts._get_character_for_scope")
+    @patch("indy_hub.tasks.material_exchange_contracts.shared_client")
+    @patch(
+        "indy_hub.tasks.material_exchange_contracts.check_completed_material_exchange_contracts.apply_async"
+    )
+    def test_check_completed_contracts_retries_on_transient_esi_5xx(
+        self,
+        mock_apply_async,
+        mock_client,
+        mock_get_char,
+    ):
+        # AA Example App
+        from indy_hub.services.esi_client import ESIClientError
+
+        mock_get_char.return_value = 111111111
+        mock_client.fetch_corporation_contracts.side_effect = ESIClientError(
+            "ESI returned 504 for /corporations/123456789/contracts/",
+            status_code=504,
+            retry_after=42,
+        )
+
+        check_completed_material_exchange_contracts()
+
+        mock_apply_async.assert_called_once_with(countdown=42)
 
 
 class ContractLocationMatchingTests(TestCase):

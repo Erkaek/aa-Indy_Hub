@@ -15,9 +15,11 @@ from esi.models import Token
 # AA Example App
 from indy_hub.models import CharacterRoles, IndustryStructure
 from indy_hub.services.esi_client import (
+    ESIClientError,
     ESIForbiddenError,
     ESITokenError,
     ESIUnmodifiedError,
+    get_retry_after_seconds,
     shared_client,
 )
 from indy_hub.services.industry_structures import (
@@ -513,6 +515,43 @@ def sync_corporation_structure_targets(
                 remaining_targets,
             )
             break
+        except ESIClientError as exc:
+            status_code = int(exc.status_code or 0)
+            if 500 <= status_code < 600:
+                summary["rate_limited"] += 1
+                retry_after = get_retry_after_seconds(
+                    exc,
+                    fallback=15,
+                    minimum=5,
+                    maximum=10 * 60,
+                )
+                summary["retry_after_seconds"] = retry_after
+
+                rate_limit_samples = summary["rate_limit_samples"]
+                if len(rate_limit_samples) < SYNC_ERROR_SAMPLE_LIMIT:
+                    rate_limit_samples.append(
+                        f"{corporation_name}: transient {status_code}, retry_after={retry_after}s"
+                    )
+
+                remaining_targets = max(len(sync_targets) - index - 1, 0)
+                if remaining_targets:
+                    summary["deferred_due_to_rate_limit"] += int(remaining_targets)
+                logger.info(
+                    "Stopping structure sync early after transient ESI %s for corporation %s; retry_after=%ss deferred=%s",
+                    status_code,
+                    corporation_id,
+                    retry_after,
+                    remaining_targets,
+                )
+                break
+
+            logger.warning(
+                "Unable to sync structures for corporation %s: %s",
+                corporation_id,
+                exc,
+            )
+            summary["errors"].append(f"{corporation_name}: {exc}")
+            continue
         except Exception as exc:
             logger.warning(
                 "Unable to sync structures for corporation %s: %s",

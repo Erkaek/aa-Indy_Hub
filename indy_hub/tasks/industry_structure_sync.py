@@ -20,6 +20,19 @@ def sync_persisted_industry_structure_registry(
     force_refresh: bool = True,
 ) -> dict[str, int | str | list[str]]:
     summary = sync_persisted_industry_structures(force_refresh=force_refresh)
+    retry_after = int(summary.get("retry_after_seconds") or 0)
+    deferred = int(summary.get("deferred_due_to_rate_limit") or 0)
+    if retry_after > 0 and deferred > 0:
+        sync_persisted_industry_structure_registry.apply_async(
+            kwargs={"force_refresh": force_refresh},
+            countdown=retry_after,
+        )
+        logger.info(
+            "Scheduled structure sync retry in %ss after transient ESI failures (deferred=%s)",
+            retry_after,
+            deferred,
+        )
+
     error_count = len(summary["errors"])
     logger_method = logger.warning if error_count else logger.info
     logger_method(

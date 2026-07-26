@@ -16,6 +16,7 @@ from esi.exceptions import HTTPServerError
 
 # AA Example App
 from indy_hub.models import CachedStructureName
+from indy_hub.services.esi_client import ESIClientError, get_retry_after_seconds
 from indy_hub.services.location_population import (
     DEFAULT_TASK_PRIORITY,
     populate_location_names,
@@ -121,7 +122,15 @@ def cache_structure_name(
         )
     except Exception as exc:  # pragma: no cover - defensive
         logger.exception("Failed to resolve structure name for %s", structure_id)
-        raise self.retry(exc=exc, countdown=DEFAULT_TASK_PRIORITY * 10) from exc
+        retry_delay = DEFAULT_TASK_PRIORITY * 10
+        if isinstance(exc, ESIClientError):
+            retry_delay = get_retry_after_seconds(
+                exc,
+                fallback=retry_delay,
+                minimum=5,
+                maximum=15 * 60,
+            )
+        raise self.retry(exc=exc, countdown=retry_delay) from exc
 
     if not name:
         name = f"{PLACEHOLDER_PREFIX}{structure_id}"
