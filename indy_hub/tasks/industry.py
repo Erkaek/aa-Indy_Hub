@@ -1116,15 +1116,17 @@ def _filter_active_user_ids_bulk(user_ids: list[int]) -> list[int]:
     now = timezone.now()
     cutoff = now - timedelta(days=ACTIVE_USER_DAYS)
 
-    ownership_rows = CharacterOwnership.objects.filter(user_id__in=user_ids).values_list(
-        "user_id", "character__character_id"
-    )
+    ownership_rows = CharacterOwnership.objects.filter(
+        user_id__in=user_ids
+    ).values_list("user_id", "character__character_id")
     user_characters: dict[int, list[int]] = {}
     for user_id, character_id in ownership_rows:
         if user_id and character_id:
             user_characters.setdefault(int(user_id), []).append(int(character_id))
 
-    candidate_user_ids = [int(user_id) for user_id in user_ids if int(user_id) in user_characters]
+    candidate_user_ids = [
+        int(user_id) for user_id in user_ids if int(user_id) in user_characters
+    ]
     if not candidate_user_ids:
         return []
 

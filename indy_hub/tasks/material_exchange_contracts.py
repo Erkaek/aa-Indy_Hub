@@ -47,9 +47,9 @@ from indy_hub.services.esi_client import (
     ESIClientError,
     ESIForbiddenError,
     ESITokenError,
-    get_retry_after_seconds,
     ESIUnmodifiedError,
     get_rate_limit_reset_seconds,
+    get_retry_after_seconds,
     shared_client,
 )
 from indy_hub.utils.analytics import emit_analytics_event
