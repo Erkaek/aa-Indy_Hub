@@ -27,7 +27,6 @@ from esi.decorators import rate_limit_retry_task
 from esi.exceptions import (
     ESIBucketLimitException,
     ESIErrorLimitException,
-    HTTPNotModified,
 )
 from esi.models import Token
 
@@ -343,67 +342,17 @@ def _fetch_character_skill_levels_with_token(
     force_refresh: bool = False,
 ) -> dict[int, dict[str, int]]:
     global _SKILLS_OPERATION_UNAVAILABLE
-    client = shared_client.client
-    skills_resource = getattr(client, "Skills", None)
-    operation_fn = None
-    if skills_resource is not None:
-        operation_fn = getattr(
-            skills_resource,
-            "get_characters_character_id_skills",
-            None,
-        ) or getattr(skills_resource, "GetCharactersCharacterIdSkills", None)
-
-    if not operation_fn:
-        character_resource = client.Character
-        operation_fn = getattr(
-            character_resource,
-            "get_characters_character_id_skills",
-            None,
-        ) or getattr(character_resource, "GetCharactersCharacterIdSkills", None)
-
-    if not operation_fn:
-        _SKILLS_OPERATION_UNAVAILABLE = True
-        raise ESIClientError("ESI skills operation unavailable")
-
-    shared_client.enforce_task_scope_budget(
-        scope=SKILLS_SCOPE,
-        endpoint=f"/characters/{int(token_obj.character_id)}/skills/",
-    )
-
     try:
-        request_kwargs = {}
-        if force_refresh:
-            request_kwargs["If-None-Match"] = ""
-        payload = operation_fn(
-            character_id=token_obj.character_id,
-            token=token_obj,
-            **request_kwargs,
-        ).results()
-    except HTTPNotModified as exc:
-        raise ESIUnmodifiedError("ESI skills not modified") from exc
+        payload = shared_client.fetch_character_skills(
+            int(token_obj.character_id),
+            force_refresh=force_refresh,
+            token_obj=token_obj,
+        )
     except Exception as exc:
         if "GetCharactersCharacterIdSkills" in str(exc):
             _SKILLS_OPERATION_UNAVAILABLE = True
             raise ESIClientError("ESI skills operation unavailable") from exc
-        if "is not of type 'string'" not in str(exc):
-            raise
-        access_token = token_obj.valid_access_token()
-        request_kwargs = {}
-        if force_refresh:
-            request_kwargs["If-None-Match"] = ""
-        try:
-            payload = operation_fn(
-                character_id=token_obj.character_id,
-                token=access_token,
-                **request_kwargs,
-            ).results()
-        except HTTPNotModified as nested_exc:
-            raise ESIUnmodifiedError("ESI skills not modified") from nested_exc
-        except Exception as nested_exc:
-            if "GetCharactersCharacterIdSkills" in str(nested_exc):
-                _SKILLS_OPERATION_UNAVAILABLE = True
-                raise ESIClientError("ESI skills operation unavailable") from nested_exc
-            raise
+        raise
 
     if isinstance(payload, list):
         payload = payload[0] if payload else {}

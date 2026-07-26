@@ -23,8 +23,6 @@ from allianceauth.services.hooks import get_extension_logger
 from esi.exceptions import (
     ESIBucketLimitException,
     ESIErrorLimitException,
-    HTTPClientError,
-    HTTPServerError,
 )
 from esi.models import Token
 
@@ -33,10 +31,8 @@ from ..services.esi_client import (
     ESIForbiddenError,
     ESITokenError,
     get_rate_limit_reset_seconds,
-    rate_limit_wait_seconds,
     shared_client,
 )
-from ..services.providers import esi_provider
 
 
 def _is_eve_sde_installed() -> bool:
@@ -58,8 +54,6 @@ else:  # pragma: no cover - eve_sde app not installed
     EveType = None
 
 logger = get_extension_logger(__name__)
-
-_HTTP_ERROR_TYPES = (HTTPClientError, HTTPServerError)
 
 _TYPE_NAME_CACHE: dict[int, str] = {}
 _CHAR_NAME_CACHE: dict[int, str] = {}
@@ -225,68 +219,6 @@ def _wait_for_structure_rate_limit_window() -> None:
             remaining,
         )
         time.sleep(remaining)
-
-
-def _rate_limited_public_results(
-    operation,
-    *,
-    description: str,
-    max_attempts: int = 3,
-):
-    """Perform a public ESI operation honouring the shared rate limit pause."""
-
-    last_response = None
-    for attempt in range(1, max_attempts + 1):
-        _wait_for_structure_rate_limit_window()
-
-        try:
-            if hasattr(operation, "request_config"):
-                operation.request_config.also_return_response = True
-            result = operation.results(use_etag=False)
-            if isinstance(result, tuple) and len(result) == 2:
-                payload, response = result
-            else:
-                payload, response = result, None
-            return payload, response
-        except _HTTP_ERROR_TYPES as exc:
-            response = getattr(exc, "response", None)
-            last_response = response
-            status_code = getattr(exc, "status_code", None) or getattr(
-                response, "status_code", None
-            )
-            if status_code == 420 and response is not None:
-                sleep_for, remaining = rate_limit_wait_seconds(response)
-                logger.warning(
-                    "ESI rate limit reached for %s (public), attempt %s/%s (remaining=%s).",
-                    description,
-                    attempt,
-                    max_attempts,
-                    remaining,
-                )
-                _schedule_structure_rate_limit_pause(sleep_for)
-                if attempt >= max_attempts:
-                    break
-                continue
-            return None, response
-        except Exception as exc:  # pragma: no cover - defensive
-            if attempt >= max_attempts:
-                logger.debug(
-                    "Public lookup %s failed on attempt %s/%s: %s",
-                    description,
-                    attempt,
-                    max_attempts,
-                    exc,
-                )
-                break
-            logger.warning(
-                "Public lookup error for %s, retry %s/%s immediately",
-                description,
-                attempt,
-                max_attempts,
-            )
-            continue
-
-    return None, last_response
 
 
 def reset_forbidden_structure_lookup_cache() -> None:
@@ -976,34 +908,6 @@ def resolve_location_name(
     attempted_characters: set[int] = set()
     remaining_attempts = _MAX_STRUCTURE_LOOKUPS
 
-    def _extract_public_name(payload) -> str | None:
-        if isinstance(payload, list):
-            if not payload:
-                return None
-            payload = payload[0]
-        if isinstance(payload, Mapping):
-            value = payload.get("name")
-            return str(value) if value else None
-        if payload is not None:
-            value = getattr(payload, "name", None)
-            return str(value) if value else None
-        return None
-
-    def _get_universe_operation(op_name: str, **kwargs):
-        universe_client = getattr(esi_provider.client, "Universe", None)
-        if universe_client is None:
-            return None
-        operation = getattr(universe_client, op_name, None)
-        if operation is None:
-            camel = "".join(part.capitalize() for part in op_name.split("_"))
-            operation = getattr(universe_client, camel, None)
-        if operation is None:
-            return None
-        try:
-            return operation(**kwargs)
-        except TypeError:
-            return None
-
     def try_structure_lookup(
         candidate_character_id: int | None,
         *,
@@ -1108,21 +1012,9 @@ def resolve_location_name(
                     break
 
     if allow_public and not name:
-        if not is_station:
-            if structure_id <= 2_147_483_647:
-                public_names = shared_client.resolve_ids_to_names([structure_id])
-                name = public_names.get(structure_id)
-        else:
-            operation = _get_universe_operation(
-                "get_universe_stations_station_id",
-                station_id=structure_id,
-            )
-            if operation is not None:
-                payload, response = _rate_limited_public_results(
-                    operation,
-                    description=f"/universe/stations/{structure_id}/",
-                )
-                name = _extract_public_name(payload)
+        if structure_id <= 2_147_483_647:
+            public_names = shared_client.resolve_ids_to_names([structure_id])
+            name = public_names.get(structure_id)
 
     if not name:
         name = _resolve_sde_location_name(structure_id)

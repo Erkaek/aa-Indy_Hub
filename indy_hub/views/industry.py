@@ -34,8 +34,6 @@ from django.views.decorators.http import require_http_methods
 # Alliance Auth
 from allianceauth.authentication.models import CharacterOwnership, UserProfile
 from allianceauth.services.hooks import get_extension_logger
-from esi.exceptions import HTTPNotModified
-from esi.models import Token
 
 # AA Example App
 from indy_hub.forms.industry_structures import (
@@ -261,50 +259,19 @@ def _fetch_character_skill_levels(
     global _SKILLS_OPERATION_UNAVAILABLE
     if _SKILLS_OPERATION_UNAVAILABLE:
         raise ESIUnmodifiedError("ESI skills operation unavailable")
-    token = Token.get_token(character_id, SKILLS_SCOPE)
-    client = shared_client.client
-    skills_resource = getattr(client, "Skills", None)
-    operation_fn = None
-    if skills_resource is not None:
-        operation_fn = getattr(
-            skills_resource,
-            "get_characters_character_id_skills",
-            None,
-        ) or getattr(skills_resource, "GetCharactersCharacterIdSkills", None)
-    if operation_fn is None:
-        character_resource = client.Character
-        operation_fn = getattr(
-            character_resource,
-            "get_characters_character_id_skills",
-            None,
-        ) or getattr(character_resource, "GetCharactersCharacterIdSkills", None)
-    if not callable(operation_fn):
-        _SKILLS_OPERATION_UNAVAILABLE = True
-        raise ESIUnmodifiedError("ESI skills operation unavailable")
+
     try:
-        request_kwargs = {"If-None-Match": ""} if force_refresh else {}
-        payload = operation_fn(
-            character_id=character_id,
-            token=token,
-            **request_kwargs,
-        ).results()
-    except HTTPNotModified as exc:
-        raise ESIUnmodifiedError("ESI skills not modified") from exc
+        payload = shared_client.fetch_character_skills(
+            int(character_id),
+            force_refresh=force_refresh,
+        )
     except Exception as exc:
         exc_text = str(exc)
         if "GetCharactersCharacterIdSkills" in exc_text and "not found" in exc_text:
             _SKILLS_OPERATION_UNAVAILABLE = True
             raise ESIUnmodifiedError("ESI skills operation unavailable") from exc
-        if "is not of type 'string'" in exc_text:
-            access_token = token.valid_access_token()
-            request_kwargs = {"If-None-Match": ""} if force_refresh else {}
-            payload = operation_fn(
-                character_id=character_id,
-                token=access_token,
-                **request_kwargs,
-            ).results()
-        else:
-            raise
+        raise
+
     skills = payload.get("skills", []) if payload else []
     levels: dict[int, dict[str, int]] = {}
     for skill in skills:

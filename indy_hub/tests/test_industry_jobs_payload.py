@@ -335,12 +335,12 @@ class IndustryJobsPayloadTests(TestCase):
 
         queue_characters.assert_called_once()
         args, kwargs = queue_characters.call_args
-        self.assertEqual(kwargs["window_minutes"], 60)
+        self.assertEqual(kwargs["window_minutes"], 120)
         self.assertEqual(kwargs["priority"], 7)
         self.assertEqual(args[0], [(101, 1001), (101, 1002), (202, 2001)])
         queue_corporations.assert_called_once_with(
             [202, 303],
-            window_minutes=60,
+            window_minutes=120,
             priority=7,
         )
         self.assertEqual(result["characters_queued"], 3)
@@ -385,7 +385,7 @@ class IndustryJobsPayloadTests(TestCase):
         self.assertEqual(kwargs["last_user_id"], 202)
         self.assertEqual(kwargs["batch_size"], 2)
         self.assertTrue(kwargs["lock_token"])
-        self.assertEqual(requeue.call_args.kwargs["countdown"], 3600)
+        self.assertEqual(requeue.call_args.kwargs["countdown"], 7200)
 
     def test_bulk_blueprint_updates_are_staggered_per_character(self) -> None:
         with (
@@ -421,12 +421,12 @@ class IndustryJobsPayloadTests(TestCase):
 
         queue_characters.assert_called_once()
         args, kwargs = queue_characters.call_args
-        self.assertEqual(kwargs["window_minutes"], 720)
+        self.assertEqual(kwargs["window_minutes"], 240)
         self.assertEqual(kwargs["priority"], 7)
         self.assertEqual(args[0], [(101, 1001), (101, 1002), (202, 2001)])
         queue_corporations.assert_called_once_with(
             [202, 303],
-            window_minutes=720,
+            window_minutes=240,
             priority=7,
         )
         self.assertEqual(result["characters_queued"], 3)
@@ -471,4 +471,4 @@ class IndustryJobsPayloadTests(TestCase):
         self.assertEqual(kwargs["last_user_id"], 202)
         self.assertEqual(kwargs["batch_size"], 2)
         self.assertTrue(kwargs["lock_token"])
-        self.assertEqual(requeue.call_args.kwargs["countdown"], 43200)
+        self.assertEqual(requeue.call_args.kwargs["countdown"], 14400)

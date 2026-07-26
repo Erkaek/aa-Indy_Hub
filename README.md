@@ -27,7 +27,7 @@ ______________________________________________________________________
 
 ## About
 
-### 1.18.0 Highlights
+### Current Highlights
 
 - **Industry Jobs refresh behavior**: live ESI skill refresh is now explicit on the jobs page (`Force Refresh`) instead of running on every render.
 - **Jobs freshness visibility**: the jobs header now shows `Last update` to clarify current data recency.
@@ -117,7 +117,7 @@ INSTALLED_APPS = [
 Add to your `conf/requirements.txt` (Always use current versions)
 
 ```text
-indy-hub==1.18.0
+indy-hub==1.17.2
 ```
 
 Ensure the base `eve_sde` data is already loaded in your stack by following
@@ -197,15 +197,14 @@ INDY_HUB_NOTIFICATION_DISPATCH_MODE = (
 INDY_HUB_NOTIFICATION_IDEMPOTENCY_TTL_SECONDS = 300  # Default: 300s
 INDY_HUB_DISCORD_ACTION_TOKEN_MAX_AGE = 86400  # Default: 24 hours
 
-# ESI compatibility date (OpenAPI)
-INDY_HUB_ESI_COMPATIBILITY_DATE = "2025-09-30"  # Default: app default
-
 # ESI task staggering (rate-limit friendly scheduling)
 INDY_HUB_ESI_TASK_STAGGER_THRESHOLD = 400  # Default: 400
-INDY_HUB_ESI_TASK_TARGET_PER_MIN_BLUEPRINTS = 30  # Default: 30
-INDY_HUB_ESI_TASK_TARGET_PER_MIN_JOBS = 30  # Default: 30
-INDY_HUB_ESI_TASK_TARGET_PER_MIN_SKILLS = 40  # Default: 40
-INDY_HUB_ESI_TASK_TARGET_PER_MIN_ROLES = 30  # Default: 30
+INDY_HUB_ESI_TASK_TARGET_PER_MIN_BLUEPRINTS = 90  # Default: 90
+INDY_HUB_ESI_TASK_TARGET_PER_MIN_JOBS = 60  # Default: 60
+INDY_HUB_ESI_TASK_TARGET_PER_MIN_SKILLS = 80  # Default: 80
+INDY_HUB_ESI_TASK_TARGET_PER_MIN_ROLES = 60  # Default: 60
+INDY_HUB_BLUEPRINTS_BULK_WINDOW_MINUTES = 240  # Default: 240
+INDY_HUB_INDUSTRY_JOBS_BULK_WINDOW_MINUTES = 120  # Default: 120
 
 # Stale refresh thresholds (hours)
 INDY_HUB_SKILL_SNAPSHOT_STALE_HOURS = 24  # Default: 24
@@ -229,7 +228,7 @@ ______________________________________________________________________
 
 ## Updating
 
-For release-specific operational notes (including 1.18.0 behavior changes), see [docs/UPGRADE_NOTES.md](docs/UPGRADE_NOTES.md).
+For release-specific operational notes, see [docs/UPGRADE_NOTES.md](docs/UPGRADE_NOTES.md).
 
 ### Bare Metal Update
 
@@ -252,9 +251,7 @@ systemctl restart allianceauth
 Update Versions in `conf/requirements.txt` (Always use current versions)
 
 ```text
-indy-hub==1.18.0
-
-
+indy-hub==1.17.2
 ```
 
 Update the Package:

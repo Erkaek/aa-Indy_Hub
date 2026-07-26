@@ -40,8 +40,6 @@ from allianceauth.eveonline.models import EveCharacter
 from allianceauth.services.hooks import get_extension_logger
 from esi import app_settings as esi_app_settings
 from esi.decorators import tokens_required
-from esi.errors import TokenError
-from esi.exceptions import HTTPClientError, HTTPNotModified, HTTPServerError
 from esi.models import CallbackRedirect, Token
 from esi.views import sso_redirect
 
@@ -73,9 +71,13 @@ from ..services.corporation_blueprint_visibility import (
     can_view_corporation_blueprints,
     can_view_corporation_jobs,
 )
-from ..services.esi_client import ESIClientError, ESITokenError
+from ..services.esi_client import (
+    ESIClientError,
+    ESITokenError,
+    ESIUnmodifiedError,
+    shared_client,
+)
 from ..services.industry_skills import build_user_character_skill_contexts
-from ..services.providers import esi_provider
 from ..tasks.industry import (
     CORP_ASSETS_SCOPE,
     CORP_BLUEPRINT_SCOPE,
@@ -96,8 +98,6 @@ from .navigation import build_nav_context
 User = get_user_model()
 
 logger = get_extension_logger(__name__)
-
-_HTTP_ERROR_TYPES = (HTTPClientError, HTTPServerError)
 
 _TOKEN_MANAGEMENT_LIVE_CACHE_TTL_SECONDS = 300
 
@@ -321,30 +321,12 @@ def _fetch_character_corporation_roles_with_token(
 
     force_refresh = cached_roles is None and (snapshot is None)
     try:
-        character_resource = esi_provider.client.Character
-        operation_fn = getattr(
-            character_resource,
-            "get_characters_character_id_roles",
-            None,
-        ) or getattr(character_resource, "GetCharactersCharacterIdRoles")
-        try:
-            request_kwargs = {"If-None-Match": ""} if force_refresh else {}
-            payload = operation_fn(
-                character_id=token_obj.character_id,
-                token=token_obj,
-                **request_kwargs,
-            ).results()
-        except Exception as exc:
-            if "is not of type 'string'" not in str(exc):
-                raise
-            access_token = token_obj.valid_access_token()
-            request_kwargs = {"If-None-Match": ""} if force_refresh else {}
-            payload = operation_fn(
-                character_id=token_obj.character_id,
-                token=access_token,
-                **request_kwargs,
-            ).results()
-    except HTTPNotModified:
+        payload = shared_client.fetch_character_corporation_roles(
+            int(token_obj.character_id),
+            force_refresh=force_refresh,
+            token_obj=token_obj,
+        )
+    except ESIUnmodifiedError:
         cached_roles = cache.get(cache_key)
         if cached_roles:
             return {str(role).upper() for role in cached_roles if role}
@@ -358,41 +340,6 @@ def _fetch_character_corporation_roles_with_token(
             token_obj.character_id,
         )
         return None
-    except _HTTP_ERROR_TYPES as exc:
-        status_code = getattr(exc, "status_code", None) or getattr(
-            exc.response, "status_code", None
-        )
-        response_text = None
-        try:
-            response_text = getattr(exc.response, "text", None)
-        except Exception:
-            response_text = None
-        if status_code == 304:
-            cached_roles = cache.get(cache_key)
-            if cached_roles:
-                return {str(role).upper() for role in cached_roles if role}
-            snapshot = CharacterRoles.objects.filter(
-                character_id=token_obj.character_id
-            ).first()
-            if snapshot:
-                return _roles_from_snapshot(snapshot)
-            logger.debug(
-                "ESI roles endpoint returned 304 without cache for character %s",
-                token_obj.character_id,
-            )
-            return None
-        if status_code in (401, 403):
-            raise ESITokenError(
-                f"Token validation failed for character {token_obj.character_id}"
-            ) from exc
-        raise ESIClientError(
-            "ESI request failed for character "
-            f"{token_obj.character_id} roles (status {status_code}): {response_text or exc}"
-        ) from exc
-    except TokenError as exc:
-        raise ESITokenError(
-            f"Token validation failed for character {token_obj.character_id}"
-        ) from exc
     except Exception as exc:
         raise ESIClientError(
             f"ESI request failed for character {token_obj.character_id} roles: {exc}"

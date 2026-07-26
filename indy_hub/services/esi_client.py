@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # Standard Library
+import math
 import time
 
 try:
@@ -47,6 +48,10 @@ _SCOPE_THROTTLE_PREFIX = "indy_hub:esi_task_scope_budget"
 _SCOPE_THROTTLE_TIMEOUT_SECONDS = 120
 _SCOPE_THROTTLE_HIT_PREFIX = "indy_hub:esi_task_scope_budget_hits"
 _SCOPE_THROTTLE_HIT_TIMEOUT_SECONDS = 120
+_RATE_LIMIT_META_PREFIX = "indy_hub:esi_rate_limit_meta"
+_RATE_LIMIT_COOLDOWN_PREFIX = "indy_hub:esi_rate_limit_cooldown"
+_RATE_LIMIT_META_TTL_SECONDS = 24 * 60 * 60
+_RATE_LIMIT_REQUIRED_TOKENS = 2
 _HTTP_ERROR_TYPES = (HTTPClientError, HTTPServerError)
 _DJANGO_ESI_RATE_LIMIT_ERRORS = (ESIBucketLimitException, ESIErrorLimitException)
 
@@ -201,6 +206,185 @@ class ESIClient:
     def _seconds_to_next_minute() -> int:
         return max(1, 60 - (int(time.time()) % 60))
 
+    @staticmethod
+    def _parse_rate_limit_limit(
+        limit_header: str | None,
+    ) -> tuple[int | None, int | None]:
+        """Parse X-Ratelimit-Limit header like '150/15m' into tokens/window."""
+        if not limit_header:
+            return None, None
+
+        raw = str(limit_header).strip().lower()
+        if "/" not in raw:
+            return None, None
+
+        tokens_raw, window_raw = raw.split("/", 1)
+        try:
+            max_tokens = int(tokens_raw.strip())
+        except (TypeError, ValueError):
+            return None, None
+
+        window_raw = window_raw.strip()
+        if not window_raw:
+            return None, None
+
+        unit = window_raw[-1]
+        try:
+            magnitude = int(window_raw[:-1])
+        except (TypeError, ValueError):
+            return None, None
+
+        if magnitude <= 0 or max_tokens <= 0:
+            return None, None
+
+        if unit == "m":
+            window_seconds = magnitude * 60
+        elif unit == "h":
+            window_seconds = magnitude * 60 * 60
+        else:
+            return None, None
+
+        return max_tokens, window_seconds
+
+    @staticmethod
+    def _rate_limit_meta_cache_key(endpoint: str) -> str:
+        return f"{_RATE_LIMIT_META_PREFIX}:{endpoint}"
+
+    @staticmethod
+    def _rate_limit_cooldown_cache_key(group: str, key_suffix: str) -> str:
+        return f"{_RATE_LIMIT_COOLDOWN_PREFIX}:{group}:{key_suffix}"
+
+    def _store_rate_limit_meta(
+        self,
+        *,
+        endpoint: str | None,
+        group: str,
+        max_tokens: int,
+        window_seconds: int,
+    ) -> None:
+        if not endpoint:
+            return
+        cache.set(
+            self._rate_limit_meta_cache_key(endpoint),
+            {
+                "group": group,
+                "max_tokens": int(max_tokens),
+                "window_seconds": int(window_seconds),
+            },
+            timeout=_RATE_LIMIT_META_TTL_SECONDS,
+        )
+
+    def _read_rate_limit_meta(self, endpoint: str | None) -> dict | None:
+        if not endpoint:
+            return None
+        value = cache.get(self._rate_limit_meta_cache_key(endpoint))
+        if isinstance(value, dict):
+            return value
+        return None
+
+    def _set_rate_limit_cooldown(
+        self,
+        *,
+        group: str,
+        key_suffix: str,
+        cooldown_seconds: int,
+    ) -> None:
+        cooldown = max(int(cooldown_seconds), 1)
+        cache.set(
+            self._rate_limit_cooldown_cache_key(group, key_suffix),
+            time.time() + cooldown,
+            timeout=cooldown,
+        )
+
+    def _enforce_rate_limit_cooldown(
+        self,
+        *,
+        endpoint: str | None,
+        throttle_key: str | None,
+    ) -> None:
+        key_suffix = (throttle_key or "").strip()
+        if not endpoint or not key_suffix:
+            return
+
+        meta = self._read_rate_limit_meta(endpoint)
+        if not meta:
+            return
+
+        group = str(meta.get("group") or "").strip()
+        if not group:
+            return
+
+        blocked_until = cache.get(
+            self._rate_limit_cooldown_cache_key(group, key_suffix)
+        )
+        if blocked_until is None:
+            return
+
+        try:
+            wait_seconds = int(math.ceil(float(blocked_until) - time.time()))
+        except (TypeError, ValueError):
+            wait_seconds = 0
+        if wait_seconds <= 0:
+            return
+
+        raise ESIErrorLimitException(
+            reset=max(wait_seconds, 1),
+            message=(
+                "Local ESI endpoint cooldown active for "
+                f"group {group} key={key_suffix} on {endpoint}"
+            ),
+        )
+
+    def _update_rate_limit_state_from_response(
+        self,
+        *,
+        response,
+        endpoint: str | None,
+        throttle_key: str | None,
+    ) -> None:
+        if response is None:
+            return
+        headers = getattr(response, "headers", None)
+        if headers is None:
+            return
+
+        group = str(headers.get("X-Ratelimit-Group") or "").strip()
+        limit_raw = headers.get("X-Ratelimit-Limit")
+        remaining_raw = headers.get("X-Ratelimit-Remaining")
+        if not group:
+            return
+
+        max_tokens, window_seconds = self._parse_rate_limit_limit(limit_raw)
+        if max_tokens and window_seconds:
+            self._store_rate_limit_meta(
+                endpoint=endpoint,
+                group=group,
+                max_tokens=max_tokens,
+                window_seconds=window_seconds,
+            )
+
+        if not throttle_key or not max_tokens or not window_seconds:
+            return
+
+        try:
+            remaining = int(remaining_raw)
+        except (TypeError, ValueError):
+            return
+
+        refill_per_token_seconds = float(window_seconds) / float(max_tokens)
+        missing_tokens = _RATE_LIMIT_REQUIRED_TOKENS - remaining
+        if missing_tokens <= 0:
+            return
+
+        cooldown_seconds = int(
+            max(1, math.ceil(float(missing_tokens) * refill_per_token_seconds))
+        )
+        self._set_rate_limit_cooldown(
+            group=group,
+            key_suffix=str(throttle_key).strip(),
+            cooldown_seconds=cooldown_seconds,
+        )
+
     def _record_scope_throttle_hit(
         self,
         *,
@@ -263,6 +447,11 @@ class ESIClient:
         *,
         throttle_key: str | None = None,
     ) -> None:
+        self._enforce_rate_limit_cooldown(
+            endpoint=endpoint,
+            throttle_key=throttle_key,
+        )
+
         if not self._is_running_in_task():
             return
 
@@ -363,6 +552,73 @@ class ESIClient:
             force_refresh=force_refresh,
         )
 
+    def fetch_character_skills(
+        self,
+        character_id: int,
+        *,
+        force_refresh: bool = False,
+        token_obj: Token | None = None,
+    ) -> dict:
+        """Return the skill payload for a character."""
+        token_obj = token_obj or self._get_token(
+            character_id, "esi-skills.read_skills.v1"
+        )
+
+        skills_resource = getattr(self.client, "Skills", None)
+        operation_fn = None
+        if skills_resource is not None:
+            operation_fn = getattr(
+                skills_resource,
+                "get_characters_character_id_skills",
+                None,
+            ) or getattr(skills_resource, "GetCharactersCharacterIdSkills", None)
+
+        if operation_fn is None:
+            character_resource = getattr(self.client, "Character", None)
+            if character_resource is not None:
+                operation_fn = getattr(
+                    character_resource,
+                    "get_characters_character_id_skills",
+                    None,
+                ) or getattr(
+                    character_resource,
+                    "GetCharactersCharacterIdSkills",
+                    None,
+                )
+
+        if not callable(operation_fn):
+            raise ESIClientError("ESI skills operation unavailable")
+
+        request_kwargs = {"If-None-Match": ""} if force_refresh else {}
+        results_kwargs = (
+            {"use_etag": False, "force_refresh": True} if force_refresh else None
+        )
+
+        payload = self._call_authed(
+            token_obj,
+            character_id=int(character_id),
+            endpoint=f"/characters/{int(character_id)}/skills/",
+            scope="esi-skills.read_skills.v1",
+            throttle_key=f"char:{int(character_id)}",
+            results_kwargs=results_kwargs,
+            operation=lambda token: operation_fn(
+                character_id=int(character_id),
+                token=token,
+                **request_kwargs,
+            ),
+        )
+
+        if isinstance(payload, list):
+            payload = payload[0] if payload else {}
+        if isinstance(payload, dict):
+            return payload
+        coerced = self._coerce_mapping(payload)
+        if isinstance(coerced, dict):
+            return coerced
+        raise ESIClientError(
+            "ESI /characters/{character_id}/skills returned an unexpected payload"
+        )
+
     def fetch_corporation_blueprints(
         self,
         corporation_id: int,
@@ -396,7 +652,7 @@ class ESIClient:
             resource="Industry",
             operation="get_corporations_corporation_id_industry_jobs",
             params={"corporation_id": corporation_id},
-            throttle_key=f"corp:{int(corporation_id)}",
+            throttle_key=f"char:{int(character_id)}",
             force_refresh=force_refresh,
         )
 
@@ -405,9 +661,10 @@ class ESIClient:
         character_id: int,
         *,
         force_refresh: bool = False,
+        token_obj: Token | None = None,
     ) -> dict:
         """Return the corporation roles assigned to a character."""
-        token_obj = self._get_token(
+        token_obj = token_obj or self._get_token(
             character_id, "esi-characters.read_corporation_roles.v1"
         )
         operation_fn = self._resolve_operation(
@@ -451,6 +708,52 @@ class ESIClient:
             return coerced
         raise ESIClientError(
             "ESI /characters/{character_id}/roles returned an unexpected payload"
+        )
+
+    def fetch_corporation_divisions(
+        self,
+        corporation_id: int,
+        *,
+        character_id: int,
+        force_refresh: bool = False,
+        token_obj: Token | None = None,
+    ) -> dict:
+        """Return corporation division payload for a corporation."""
+        token_obj = token_obj or self._get_token(
+            int(character_id),
+            "esi-corporations.read_divisions.v1",
+        )
+        operation_fn = self._resolve_operation(
+            "Corporation", "get_corporations_corporation_id_divisions"
+        )
+        request_kwargs = {"If-None-Match": ""} if force_refresh else {}
+        results_kwargs = (
+            {"use_etag": False, "force_refresh": True} if force_refresh else None
+        )
+
+        payload = self._call_authed(
+            token_obj,
+            character_id=int(character_id),
+            endpoint=f"/corporations/{int(corporation_id)}/divisions/",
+            scope="esi-corporations.read_divisions.v1",
+            throttle_key=f"char:{int(character_id)}",
+            results_kwargs=results_kwargs,
+            operation=lambda token: operation_fn(
+                corporation_id=int(corporation_id),
+                token=token,
+                **request_kwargs,
+            ),
+        )
+
+        if isinstance(payload, list):
+            payload = payload[0] if payload else {}
+        if isinstance(payload, dict):
+            return payload
+        coerced = self._coerce_mapping(payload)
+        if isinstance(coerced, dict):
+            return coerced
+        raise ESIClientError(
+            "ESI /corporations/{corporation_id}/divisions returned an unexpected payload"
         )
 
     def fetch_structure_name(
@@ -581,6 +884,8 @@ class ESIClient:
         throttle_key: str | None = None,
         force_refresh: bool = False,
     ) -> list[dict]:
+        if throttle_key is None and character_id:
+            throttle_key = f"char:{int(character_id)}"
         self._enforce_task_scope_budget(
             scope,
             endpoint,
@@ -628,6 +933,7 @@ class ESIClient:
                 endpoint=endpoint,
                 token_obj=token_obj,
                 scope=scope,
+                throttle_key=throttle_key,
             )
             raise
         except TokenError as exc:
@@ -660,6 +966,7 @@ class ESIClient:
                     endpoint=endpoint,
                     token_obj=token_obj,
                     scope=scope,
+                    throttle_key=throttle_key,
                 )
                 raise
             except TokenError as retry_exc:
@@ -675,6 +982,12 @@ class ESIClient:
             raise ESIClientError(
                 f"ESI {endpoint} returned an unexpected payload type: {type(payload)}"
             )
+
+        self._update_rate_limit_state_from_response(
+            response=last_response,
+            endpoint=endpoint,
+            throttle_key=throttle_key,
+        )
 
         self._validate_paginated_last_modified(
             operation_fn=operation_fn,
@@ -998,12 +1311,15 @@ class ESIClient:
         structure_id: int | None = None,
         endpoint: str | None = None,
         scope: str | None = None,
+        throttle_key: str | None = None,
         operation=None,
         results_kwargs: dict | None = None,
     ):
         if operation is None:
             raise ESIClientError("No ESI operation provided")
-        self._enforce_task_scope_budget(scope, endpoint)
+        if throttle_key is None and character_id:
+            throttle_key = f"char:{int(character_id)}"
+        self._enforce_task_scope_budget(scope, endpoint, throttle_key=throttle_key)
         try:
             access_token = token_obj.valid_access_token()
         except Exception as exc:
@@ -1012,12 +1328,28 @@ class ESIClient:
             ) from exc
 
         def _execute(token_value):
-            if results_kwargs is None:
-                return operation(token_value).results()
-            return operation(token_value).results(**results_kwargs)
+            try:
+                if results_kwargs is None:
+                    return operation(token_value).results(return_response=True)
+                return operation(token_value).results(
+                    return_response=True,
+                    **results_kwargs,
+                )
+            except TypeError:
+                if results_kwargs is None:
+                    payload = operation(token_value).results()
+                else:
+                    payload = operation(token_value).results(**results_kwargs)
+                return payload, None
 
         try:
-            return _execute(token_obj)
+            payload, response = _execute(token_obj)
+            self._update_rate_limit_state_from_response(
+                response=response,
+                endpoint=endpoint,
+                throttle_key=throttle_key,
+            )
+            return payload
         except HTTPNotModified as exc:
             raise ESIUnmodifiedError(
                 f"ESI returned 304 for {endpoint or 'request'}"
@@ -1030,6 +1362,7 @@ class ESIClient:
                 endpoint=endpoint,
                 token_obj=token_obj,
                 scope=scope,
+                throttle_key=throttle_key,
             )
             raise
         except TokenError as exc:
@@ -1043,7 +1376,13 @@ class ESIClient:
                 ) from exc
 
         try:
-            return _execute(access_token)
+            payload, response = _execute(access_token)
+            self._update_rate_limit_state_from_response(
+                response=response,
+                endpoint=endpoint,
+                throttle_key=throttle_key,
+            )
+            return payload
         except HTTPNotModified as exc:
             raise ESIUnmodifiedError(
                 f"ESI returned 304 for {endpoint or 'request'}"
@@ -1056,6 +1395,7 @@ class ESIClient:
                 endpoint=endpoint,
                 token_obj=token_obj,
                 scope=scope,
+                throttle_key=throttle_key,
             )
             raise
         except TokenError as exc:
@@ -1069,7 +1409,13 @@ class ESIClient:
                 ) from exc
 
         try:
-            return _execute(access_token)
+            payload, response = _execute(access_token)
+            self._update_rate_limit_state_from_response(
+                response=response,
+                endpoint=endpoint,
+                throttle_key=throttle_key,
+            )
+            return payload
         except HTTPNotModified as exc:
             raise ESIUnmodifiedError(
                 f"ESI returned 304 for {endpoint or 'request'}"
@@ -1082,6 +1428,7 @@ class ESIClient:
                 endpoint=endpoint,
                 token_obj=token_obj,
                 scope=scope,
+                throttle_key=throttle_key,
             )
             raise
         except TokenError as exc:
@@ -1112,6 +1459,7 @@ class ESIClient:
         endpoint: str | None = None,
         token_obj: Token | None = None,
         scope: str | None = None,
+        throttle_key: str | None = None,
     ) -> None:
         status_code = getattr(exc, "status_code", None) or getattr(
             exc.response, "status_code", None
@@ -1125,6 +1473,23 @@ class ESIClient:
 
         if status_code == 429:
             sleep_for, remaining = token_rate_limit_wait_seconds(exc.response)
+            self._update_rate_limit_state_from_response(
+                response=getattr(exc, "response", None),
+                endpoint=endpoint,
+                throttle_key=throttle_key,
+            )
+            if sleep_for and throttle_key:
+                response = getattr(exc, "response", None)
+                headers = getattr(response, "headers", None)
+                group = ""
+                if headers is not None:
+                    group = str(headers.get("X-Ratelimit-Group") or "").strip()
+                if group:
+                    self._set_rate_limit_cooldown(
+                        group=group,
+                        key_suffix=str(throttle_key).strip(),
+                        cooldown_seconds=max(int(sleep_for), 1),
+                    )
             raise ESIBucketLimitException(
                 bucket="esi-bucket",
                 reset=sleep_for or 1,

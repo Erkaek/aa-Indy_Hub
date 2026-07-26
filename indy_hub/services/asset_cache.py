@@ -18,7 +18,6 @@ from allianceauth.services.hooks import get_extension_logger
 from esi.exceptions import (
     ESIBucketLimitException,
     ESIErrorLimitException,
-    HTTPNotModified,
 )
 from esi.models import Token
 
@@ -47,7 +46,6 @@ from indy_hub.services.esi_client import (
     ESIUnmodifiedError,
     shared_client,
 )
-from indy_hub.services.providers import esi_provider
 from indy_hub.utils.eve import PLACEHOLDER_PREFIX as EVE_PLACEHOLDER_PREFIX
 from indy_hub.utils.eve import (
     _is_structure_character_tried,
@@ -72,7 +70,6 @@ PUBLIC_ID_PLACEHOLDER_TTL = timedelta(minutes=15)
 STRUCTURE_NAME_TTL = timedelta(hours=STRUCTURE_NAME_STALE_HOURS)
 
 logger = get_extension_logger(__name__)
-esi = esi_provider
 
 
 def _coerce_role_list(value: object) -> list[str]:
@@ -1259,59 +1256,34 @@ def _refresh_corp_divisions(corporation_id: int) -> tuple[dict[int, str], bool]:
 
     scope_missing = False
     try:
-
-        def _coerce_payload(payload):
-            if isinstance(payload, list):
-                payload = payload[0] if payload else {}
-            if isinstance(payload, dict):
-                return payload
-            for attr in ("model_dump", "dict", "to_dict"):
-                converter = getattr(payload, attr, None)
-                if callable(converter):
-                    try:
-                        result = converter()
-                    except Exception:
-                        result = None
-                    if isinstance(result, dict):
-                        return result
-            return {}
-
         character_id = _get_character_for_scope(
             corporation_id, "esi-corporations.read_divisions.v1"
         )
         token_obj = Token.get_token(character_id, "esi-corporations.read_divisions.v1")
-        operation = getattr(
-            esi.client.Corporation,
-            "get_corporations_corporation_id_divisions",
-            None,
-        )
-        if operation is None:
-            operation = getattr(
-                esi.client.Corporation,
-                "GetCorporationsCorporationIdDivisions",
-                None,
-            )
-        if operation is None:
-            raise AttributeError("Corporation divisions operation not available")
+
         try:
-            divisions_data = operation(
-                corporation_id=corporation_id,
-                token=token_obj,
-            ).results()
-        except HTTPNotModified:
+            divisions_data = shared_client.fetch_corporation_divisions(
+                int(corporation_id),
+                character_id=int(character_id),
+                force_refresh=False,
+                token_obj=token_obj,
+            )
+        except ESIUnmodifiedError:
             # 304 means "Not Modified" relative to a cached ETag. This can happen
             # even if the Indy Hub DB cache was wiped; force-refresh once so we can
             # repopulate the DB cache.
             if not CachedCorporationDivision.objects.filter(
                 corporation_id=int(corporation_id)
             ).exists():
-                divisions_data = operation(
-                    corporation_id=corporation_id,
-                    token=token_obj,
-                ).results(use_etag=False, force_refresh=True)
+                divisions_data = shared_client.fetch_corporation_divisions(
+                    int(corporation_id),
+                    character_id=int(character_id),
+                    force_refresh=True,
+                    token_obj=token_obj,
+                )
             else:
                 return {}, scope_missing
-        divisions_data = _coerce_payload(divisions_data)
+
         hangar_divisions = divisions_data.get("hangar", []) if divisions_data else []
 
         now = timezone.now()
@@ -1349,11 +1321,6 @@ def _refresh_corp_divisions(corporation_id: int) -> tuple[dict[int, str], bool]:
 
     except ESITokenError:
         scope_missing = True
-    except HTTPNotModified:
-        logger.debug(
-            "Corporation divisions not modified for %s; using cached divisions",
-            corporation_id,
-        )
     except Exception as exc:  # pragma: no cover - defensive
         logger.warning(
             "Error refreshing corp divisions for %s: %s", corporation_id, exc

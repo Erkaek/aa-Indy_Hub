@@ -6,8 +6,15 @@ from __future__ import annotations
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 
+# Alliance Auth / django-esi
+try:
+    # Alliance Auth
+    from esi import __esi_compatibility_date__ as _esi_default_compatibility_date
+except ImportError:  # pragma: no cover - defensive fallback
+    _esi_default_compatibility_date = None
+
 # AA Example App
-from indy_hub import __esi_compatibility_date__
+from indy_hub import __esi_compatibility_date__ as _indy_hub_default_compatibility_date
 
 
 def clean_setting(
@@ -76,7 +83,7 @@ SITE_URL = clean_setting(
 
 ESI_COMPATIBILITY_DATE = clean_setting(
     "INDY_HUB_ESI_COMPATIBILITY_DATE",
-    __esi_compatibility_date__,
+    _esi_default_compatibility_date or _indy_hub_default_compatibility_date,
     required_type=str,
 )
 
@@ -173,13 +180,13 @@ LOCATION_LOOKUP_BUDGET = clean_setting(
 
 BLUEPRINTS_BULK_WINDOW_MINUTES = clean_setting(
     "INDY_HUB_BLUEPRINTS_BULK_WINDOW_MINUTES",
-    720,
+    240,
     min_value=0,
     required_type=int,
 )
 INDUSTRY_JOBS_BULK_WINDOW_MINUTES = clean_setting(
     "INDY_HUB_INDUSTRY_JOBS_BULK_WINDOW_MINUTES",
-    60,
+    120,
     min_value=0,
     required_type=int,
 )
@@ -204,25 +211,25 @@ ESI_TASK_STAGGER_THRESHOLD = clean_setting(
 )
 ESI_TASK_TARGET_PER_MIN_BLUEPRINTS = clean_setting(
     "INDY_HUB_ESI_TASK_TARGET_PER_MIN_BLUEPRINTS",
-    30,
+    90,
     min_value=0,
     required_type=int,
 )
 ESI_TASK_TARGET_PER_MIN_JOBS = clean_setting(
     "INDY_HUB_ESI_TASK_TARGET_PER_MIN_JOBS",
-    30,
+    60,
     min_value=0,
     required_type=int,
 )
 ESI_TASK_TARGET_PER_MIN_SKILLS = clean_setting(
     "INDY_HUB_ESI_TASK_TARGET_PER_MIN_SKILLS",
-    40,
+    80,
     min_value=0,
     required_type=int,
 )
 ESI_TASK_TARGET_PER_MIN_ROLES = clean_setting(
     "INDY_HUB_ESI_TASK_TARGET_PER_MIN_ROLES",
-    30,
+    60,
     min_value=0,
     required_type=int,
 )
