@@ -3,21 +3,109 @@
 from __future__ import annotations
 
 # Standard Library
+from types import SimpleNamespace
 from unittest.mock import patch
 
 # Django
+from django.contrib.auth.models import User
 from django.test import TestCase
 
 # AA Example App
-from indy_hub.models import IndustryStructure
+from indy_hub.models import CharacterRoles, IndustryStructure
 from indy_hub.services.esi_client import ESIForbiddenError
 from indy_hub.services.industry_structure_sync import (
     _get_online_industry_activity_flags,
+    get_available_structure_sync_targets,
     sync_corporation_structure_targets,
 )
 
 
 class IndustryStructureSyncServiceTests(TestCase):
+    @patch("allianceauth.eveonline.models.EveCharacter.objects.get_character_by_id")
+    @patch("indy_hub.services.industry_structure_sync._get_structure_scope_tokens")
+    def test_sync_target_selection_requires_structure_roles_snapshot(
+        self,
+        mock_get_structure_scope_tokens,
+        mock_get_character_by_id,
+    ) -> None:
+        owner = User.objects.create_user("roles-owner", password="secret123")
+
+        CharacterRoles.objects.create(
+            owner_user=owner,
+            character_id=1001,
+            corporation_id=9001,
+            roles=["Factory_Manager"],
+        )
+        CharacterRoles.objects.create(
+            owner_user=owner,
+            character_id=1002,
+            corporation_id=9001,
+            roles=["Station_Manager"],
+        )
+        CharacterRoles.objects.create(
+            owner_user=owner,
+            character_id=2001,
+            corporation_id=9002,
+            roles=["Director"],
+        )
+
+        mock_get_structure_scope_tokens.return_value = [
+            SimpleNamespace(character_id=1001),
+            SimpleNamespace(character_id=1002),
+            SimpleNamespace(character_id=2001),
+        ]
+
+        character_map = {
+            1001: SimpleNamespace(
+                corporation_id=9001,
+                corporation_name="Corp Alpha",
+                corporation_ticker="ALPHA",
+            ),
+            1002: SimpleNamespace(
+                corporation_id=9001,
+                corporation_name="Corp Alpha",
+                corporation_ticker="ALPHA",
+            ),
+            2001: SimpleNamespace(
+                corporation_id=9002,
+                corporation_name="Corp Beta",
+                corporation_ticker="BETA",
+            ),
+        }
+
+        def _resolve_character(cid: int):
+            return character_map[int(cid)]
+
+        mock_get_character_by_id.side_effect = _resolve_character
+
+        targets = get_available_structure_sync_targets()
+
+        self.assertEqual(len(targets), 2)
+        self.assertEqual(targets[0]["id"], 9001)
+        self.assertEqual(targets[0]["character_id"], 1002)
+        self.assertEqual(targets[1]["id"], 9002)
+        self.assertEqual(targets[1]["character_id"], 2001)
+
+    @patch("allianceauth.eveonline.models.EveCharacter.objects.get_character_by_id")
+    @patch("indy_hub.services.industry_structure_sync._get_structure_scope_tokens")
+    def test_sync_target_selection_skips_characters_without_roles_snapshot(
+        self,
+        mock_get_structure_scope_tokens,
+        mock_get_character_by_id,
+    ) -> None:
+        mock_get_structure_scope_tokens.return_value = [
+            SimpleNamespace(character_id=3001)
+        ]
+        mock_get_character_by_id.return_value = SimpleNamespace(
+            corporation_id=9300,
+            corporation_name="No Roles Corp",
+            corporation_ticker="NORL",
+        )
+
+        targets = get_available_structure_sync_targets()
+
+        self.assertEqual(targets, [])
+
     def test_get_online_industry_activity_flags_maps_new_categories(self) -> None:
         payload = {
             "services": [

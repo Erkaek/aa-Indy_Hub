@@ -13,7 +13,7 @@ from esi.exceptions import ESIBucketLimitException, ESIErrorLimitException
 from esi.models import Token
 
 # AA Example App
-from indy_hub.models import IndustryStructure
+from indy_hub.models import CharacterRoles, IndustryStructure
 from indy_hub.services.esi_client import (
     ESIForbiddenError,
     ESITokenError,
@@ -59,6 +59,37 @@ DEFAULT_DISABLED_ACTIVITY_FLAGS = {
 }
 
 SYNC_ERROR_SAMPLE_LIMIT = 5
+REQUIRED_STRUCTURE_SYNC_ROLES = {"DIRECTOR", "STATION_MANAGER"}
+
+
+def _normalize_role_name(raw_role: object) -> str:
+    value = str(raw_role or "").strip().upper()
+    if not value:
+        return ""
+    return value.replace(" ", "_").replace("-", "_")
+
+
+def _character_has_structure_sync_role(character_id: int, corporation_id: int) -> bool:
+    role_snapshot = CharacterRoles.objects.filter(
+        character_id=character_id,
+        corporation_id=corporation_id,
+    ).first()
+
+    if role_snapshot is None:
+        # Compatibility fallback for legacy rows that might not have corporation_id.
+        role_snapshot = CharacterRoles.objects.filter(character_id=character_id).first()
+
+    if role_snapshot is None:
+        return False
+
+    role_values: set[str] = set()
+    for attr in ("roles", "roles_at_hq", "roles_at_base", "roles_at_other"):
+        for role in getattr(role_snapshot, attr, []) or []:
+            normalized = _normalize_role_name(role)
+            if normalized:
+                role_values.add(normalized)
+
+    return bool(role_values.intersection(REQUIRED_STRUCTURE_SYNC_ROLES))
 
 
 def _truncate_structure_sync_name(value: str) -> str:
@@ -165,10 +196,25 @@ def _get_character_for_scope(
     for token in tokens:
         try:
             scope_names = list(token.scopes.values_list("name", flat=True))
-            if CORP_STRUCTURES_SCOPE in scope_names and _character_matches_corporation(
-                token
+            if CORP_STRUCTURES_SCOPE not in scope_names:
+                continue
+            if not _character_matches_corporation(token):
+                continue
+
+            candidate_character_id = int(token.character_id)
+            if not _character_has_structure_sync_role(
+                candidate_character_id,
+                int(corporation_id),
             ):
-                return int(token.character_id)
+                logger.debug(
+                    "Character %s skipped for corporation %s structure sync: missing required roles %s",
+                    candidate_character_id,
+                    corporation_id,
+                    ", ".join(sorted(REQUIRED_STRUCTURE_SYNC_ROLES)),
+                )
+                continue
+
+            return candidate_character_id
         except Exception:
             continue
 
@@ -291,6 +337,15 @@ def _iter_syncable_corporations(tokens) -> list[dict[str, object]]:
             continue
         corporation_id = int(corporation_id)
         if corporation_id in corporations_by_id:
+            continue
+
+        if not _character_has_structure_sync_role(int(character_id), corporation_id):
+            logger.debug(
+                "Character %s skipped for corporation %s structure sync target: missing required roles %s",
+                character_id,
+                corporation_id,
+                ", ".join(sorted(REQUIRED_STRUCTURE_SYNC_ROLES)),
+            )
             continue
 
         corporation_name = getattr(character, "corporation_name", "") or ""
