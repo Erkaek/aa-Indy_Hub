@@ -1,0 +1,300 @@
+# Standard Library
+from unittest.mock import patch
+
+# Django
+from django.test import TestCase
+from django.utils import timezone
+
+# AA Example App
+from indy_hub.models import (
+    CachedCorporationAsset,
+    CachedCorporationDivision,
+    CachedStructureName,
+)
+from indy_hub.services.asset_cache import (
+    asset_chain_has_context,
+    build_asset_index_by_item_id,
+    get_office_folder_item_id_from_assets,
+    make_managed_hangar_location_id,
+    resolve_asset_root_location_id,
+    resolve_structure_names,
+)
+from indy_hub.services.esi_client import ESIForbiddenError
+from indy_hub.tasks.location import cache_structure_names_bulk
+from indy_hub.utils.eve import (
+    has_structure_forbidden_cooldown,
+    reset_forbidden_structure_lookup_cache,
+)
+
+
+class TestMaterialExchangeLocations(TestCase):
+    def setUp(self) -> None:
+        reset_forbidden_structure_lookup_cache()
+
+    def tearDown(self) -> None:
+        reset_forbidden_structure_lookup_cache()
+
+    def test_container_asset_resolves_to_parent_structure(self):
+        # Item A is inside container C, which is inside structure B.
+        item_a = {
+            "item_id": 1040503713425,
+            "location_id": 1045691258254,
+            "location_flag": "Unlocked",
+            "type_id": 34,
+            "quantity": 10,
+            "is_singleton": False,
+            "is_blueprint": False,
+        }
+        container_c = {
+            "item_id": 1045691258254,
+            "location_id": 1045667241057,
+            "location_flag": "Hangar",
+            "type_id": 23,
+            "quantity": 1,
+            "is_singleton": True,
+            "is_blueprint": False,
+        }
+
+        assets = [item_a, container_c]
+        index_by_item_id = build_asset_index_by_item_id(assets)
+
+        assert resolve_asset_root_location_id(item_a, index_by_item_id) == 1045667241057
+
+    def test_container_asset_inherits_location_context_from_parent(self):
+        # Container C carries the real hub hangar context; item A should match it.
+        effective_location_id = 1045722708748
+        target_flag = "CorpSAG7"
+
+        item_a = {
+            "item_id": 1040503713425,
+            "location_id": 5555550001,  # container item id
+            "location_flag": "Unlocked",
+            "type_id": 34,
+            "quantity": 10,
+            "is_singleton": False,
+            "is_blueprint": False,
+        }
+        container_c = {
+            "item_id": 5555550001,
+            "location_id": effective_location_id,
+            "location_flag": target_flag,
+            "type_id": 23,
+            "quantity": 1,
+            "is_singleton": True,
+            "is_blueprint": False,
+        }
+
+        assets = [item_a, container_c]
+        index_by_item_id = build_asset_index_by_item_id(assets)
+
+        assert asset_chain_has_context(
+            item_a,
+            index_by_item_id,
+            location_id=effective_location_id,
+            location_flag=target_flag,
+        )
+
+    def test_office_folder_item_id_extraction(self):
+        corp_assets = [
+            {
+                "item_id": 1045722708748,
+                "location_id": 1045667241057,
+                "location_flag": "OfficeFolder",
+                "type_id": 27,
+                "quantity": 1,
+                "is_singleton": True,
+                "is_blueprint": False,
+            },
+            {
+                "item_id": 999,
+                "location_id": 1045722708748,
+                "location_flag": "CorpSAG7",
+                "type_id": 34,
+                "quantity": 10,
+                "is_singleton": False,
+                "is_blueprint": False,
+            },
+        ]
+
+        assert (
+            get_office_folder_item_id_from_assets(
+                corp_assets, structure_id=1045667241057
+            )
+            == 1045722708748
+        )
+
+    def test_managed_hangar_location_id(self):
+        assert make_managed_hangar_location_id(1045722708748, 7) == -10457227087487
+
+    def test_structure_name_cache_not_overwritten_on_403(self):
+        # AA Example App
+        from indy_hub.services import asset_cache
+
+        structure_id = 1045667241057
+
+        # First call: 200 OK, cache is populated
+        def _ok(structure_id_in, character_id_in):
+            assert int(structure_id_in) == structure_id
+            assert int(character_id_in) == 1
+            return "C-N4OD - Fountain of Life"
+
+        # Second call: 403 Forbidden, must NOT overwrite existing cached name
+        def _forbidden(structure_id_in, character_id_in):
+            raise ESIForbiddenError(
+                "Structure lookup forbidden",
+                character_id=int(character_id_in),
+                structure_id=int(structure_id_in),
+            )
+
+        with patch.object(asset_cache.shared_client, "fetch_structure_name", _ok):
+            names = resolve_structure_names([structure_id], character_id=1)
+            assert names[structure_id] == "C-N4OD - Fountain of Life"
+
+        with patch.object(
+            asset_cache.shared_client,
+            "fetch_structure_name",
+            _forbidden,
+        ):
+            names2 = resolve_structure_names([structure_id], character_id=1)
+            assert names2[structure_id] == "C-N4OD - Fountain of Life"
+
+        cached = CachedStructureName.objects.get(structure_id=structure_id)
+        assert cached.name == "C-N4OD - Fountain of Life"
+
+    def test_int32_location_uses_public_names_without_authed_lookup(self):
+        station_id = 60003760
+
+        with (
+            patch(
+                "indy_hub.services.asset_cache.shared_client.resolve_ids_to_names",
+                return_value={
+                    station_id: "Jita IV - Moon 4 - Caldari Navy Assembly Plant"
+                },
+            ) as mock_public,
+            patch(
+                "indy_hub.services.asset_cache.shared_client.fetch_structure_name"
+            ) as mock_authed,
+        ):
+            mock_authed.side_effect = RuntimeError(
+                "fetch_structure_name should not be called for int32 IDs"
+            )
+            names = resolve_structure_names([station_id], character_id=1)
+
+        assert names[station_id] == "Jita IV - Moon 4 - Caldari Navy Assembly Plant"
+        mock_public.assert_called_once_with([station_id])
+        assert mock_authed.call_count == 0
+
+    def test_recent_int32_placeholder_is_refreshed_immediately(self):
+        station_id = 60000844
+        CachedStructureName.objects.update_or_create(
+            structure_id=station_id,
+            defaults={
+                "name": f"Structure {station_id}",
+                "last_resolved": timezone.now(),
+            },
+        )
+
+        with patch(
+            "indy_hub.services.asset_cache.shared_client.resolve_ids_to_names",
+            return_value={station_id: "Amarr VIII (Oris) - Emperor Family Academy"},
+        ) as mock_public:
+            names = resolve_structure_names([station_id], character_id=1)
+
+        assert names[station_id] == "Amarr VIII (Oris) - Emperor Family Academy"
+        mock_public.assert_called_once_with([station_id])
+
+        cached = CachedStructureName.objects.get(structure_id=station_id)
+        assert cached.name == "Amarr VIII (Oris) - Emperor Family Academy"
+
+    def test_structure_403_sets_placeholder_retry_cooldown(self):
+        structure_id = 1045667241057
+
+        with patch(
+            "indy_hub.services.asset_cache.shared_client.fetch_structure_name"
+        ) as mock_fetch:
+            mock_fetch.side_effect = ESIForbiddenError(
+                "Structure lookup forbidden",
+                character_id=1,
+                structure_id=structure_id,
+            )
+            names = resolve_structure_names([structure_id], character_id=1)
+
+        assert names[structure_id] == f"Structure {structure_id}"
+        cached = CachedStructureName.objects.get(structure_id=structure_id)
+        assert cached.name == f"Structure {structure_id}"
+        assert has_structure_forbidden_cooldown(structure_id)
+
+        with (
+            patch(
+                "indy_hub.services.asset_cache.shared_client.fetch_structure_name"
+            ) as retry_fetch,
+            patch(
+                "indy_hub.tasks.location.cache_structure_names_bulk.delay"
+            ) as mock_delay,
+        ):
+            retry_fetch.side_effect = RuntimeError(
+                "fetch_structure_name should not run during active 403 cooldown"
+            )
+            names = resolve_structure_names(
+                [structure_id],
+                character_id=1,
+                schedule_async=True,
+            )
+
+        assert names[structure_id] == f"Structure {structure_id}"
+        assert retry_fetch.call_count == 0
+        mock_delay.assert_not_called()
+
+    def test_cache_structure_names_bulk_spreads_large_batches(self):
+        structure_ids = [1045667241000 + idx for idx in range(6)]
+        countdowns: list[int] = []
+
+        class _FakeSignature:
+            def set(self, **kwargs):
+                countdowns.append(int(kwargs["countdown"]))
+                return self
+
+        with (
+            patch(
+                "indy_hub.tasks.location.cache_structure_name.s",
+                side_effect=lambda sid, **kwargs: _FakeSignature(),
+            ),
+            patch("indy_hub.tasks.location.group") as mock_group,
+        ):
+            mock_group.return_value.apply_async.return_value = None
+            result = cache_structure_names_bulk(structure_ids)
+
+        assert result == {"total": 6, "queued": 6}
+        assert countdowns[0] == 0
+        assert countdowns[-1] >= 300
+        assert countdowns == sorted(countdowns)
+
+    def test_resolve_managed_hangar_name_from_cache(self):
+        corp_id = 123
+        structure_id = 1045667241057
+        office_folder_item_id = 1045722708748
+        division = 7
+        managed_id = make_managed_hangar_location_id(office_folder_item_id, division)
+
+        CachedCorporationDivision.objects.create(
+            corporation_id=corp_id,
+            division=division,
+            name="Division 7",
+        )
+        CachedStructureName.objects.create(
+            structure_id=structure_id,
+            name="C-N4OD - Fountain of Life",
+        )
+        CachedCorporationAsset.objects.create(
+            corporation_id=corp_id,
+            item_id=office_folder_item_id,
+            location_id=structure_id,
+            location_flag="OfficeFolder",
+            type_id=27,
+            quantity=1,
+            is_singleton=True,
+            is_blueprint=False,
+        )
+
+        names = resolve_structure_names([managed_id], corporation_id=corp_id)
+        assert names[managed_id] == "C-N4OD - Fountain of Life > Division 7"
