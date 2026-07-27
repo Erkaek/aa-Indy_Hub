@@ -20,6 +20,7 @@ from indy_hub.services.asset_cache import (
     resolve_structure_names,
 )
 from indy_hub.services.esi_client import ESIForbiddenError
+from indy_hub.tasks.location import cache_structure_names_bulk
 from indy_hub.utils.eve import (
     has_structure_forbidden_cooldown,
     reset_forbidden_structure_lookup_cache,
@@ -243,6 +244,30 @@ class TestMaterialExchangeLocations(TestCase):
         assert names[structure_id] == f"Structure {structure_id}"
         assert retry_fetch.call_count == 0
         mock_delay.assert_not_called()
+
+    def test_cache_structure_names_bulk_spreads_large_batches(self):
+        structure_ids = [1045667241000 + idx for idx in range(6)]
+        countdowns: list[int] = []
+
+        class _FakeSignature:
+            def set(self, **kwargs):
+                countdowns.append(int(kwargs["countdown"]))
+                return self
+
+        with (
+            patch(
+                "indy_hub.tasks.location.cache_structure_name.s",
+                side_effect=lambda sid, **kwargs: _FakeSignature(),
+            ),
+            patch("indy_hub.tasks.location.group") as mock_group,
+        ):
+            mock_group.return_value.apply_async.return_value = None
+            result = cache_structure_names_bulk(structure_ids)
+
+        assert result == {"total": 6, "queued": 6}
+        assert countdowns[0] == 0
+        assert countdowns[-1] >= 300
+        assert countdowns == sorted(countdowns)
 
     def test_resolve_managed_hangar_name_from_cache(self):
         corp_id = 123

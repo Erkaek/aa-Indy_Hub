@@ -180,9 +180,15 @@ def cache_structure_names_bulk(
         return {"total": 0, "queued": 0}
 
     sigs = []
+    total = len(normalized)
     for idx, sid in enumerate(normalized):
-        # Stagger scheduling to reduce burstiness across workers.
-        countdown = int(idx // 3)
+        # Spread larger batches across a wider window to avoid a burst of lookups.
+        if total <= 5:
+            countdown = int(idx * 30)
+        else:
+            window_seconds = min(max(total * 60, 600), 1800)
+            spacing = window_seconds / max(total - 1, 1)
+            countdown = int(round(idx * spacing))
         sigs.append(
             cache_structure_name.s(
                 int(sid),
