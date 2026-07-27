@@ -20,22 +20,22 @@ ______________________________________________________________________
 ## How to use this document
 
 1. Find the section that matches **your current Indy Hub version** below.
-1. Run the steps **in order, top to bottom** — every section is cumulative and includes all intermediate releases up to 1.18.0.
+1. Run the steps **in order, top to bottom** — every section is cumulative and includes all intermediate releases up to 1.18.1.
 1. The standard cycle (`pip install` / `migrate` / `collectstatic` / restart) is run **once at the end** of the merged step list, unless an intermediate step explicitly says otherwise (e.g. "stop workers before `migrate`").
 
 Quick map:
 
 | Current version   | Section                                                         |
 | ----------------- | --------------------------------------------------------------- |
-| `1.17.x`          | [Upgrading from 1.17.x to 1.18.0](#upgrading-from-117x-to-1180) |
-| `1.16.x`          | [Upgrading from 1.16.x to 1.18.0](#upgrading-from-116x-to-1180) |
-| `1.15.x`          | [Upgrading from 1.15.x to 1.18.0](#upgrading-from-115x-to-1180) |
-| `1.14.x`          | [Upgrading from 1.14.x to 1.18.0](#upgrading-from-114x-to-1180) |
-| `1.13.x`          | [Upgrading from 1.13.x to 1.18.0](#upgrading-from-113x-to-1180) |
-| `1.12.x`          | [Upgrading from 1.12.x to 1.18.0](#upgrading-from-112x-to-1180) |
-| `1.11.x`          | [Upgrading from 1.11.x to 1.18.0](#upgrading-from-111x-to-1180) |
-| `1.10.x`          | [Upgrading from 1.10.x to 1.18.0](#upgrading-from-110x-to-1180) |
-| `1.9.x` and older | [Upgrading from 1.9.x to 1.18.0](#upgrading-from-19x-to-1180)   |
+| `1.17.x`          | [Upgrading from 1.17.x to 1.18.1](#upgrading-from-117x-to-1181) |
+| `1.16.x`          | [Upgrading from 1.16.x to 1.18.1](#upgrading-from-116x-to-1181) |
+| `1.15.x`          | [Upgrading from 1.15.x to 1.18.1](#upgrading-from-115x-to-1181) |
+| `1.14.x`          | [Upgrading from 1.14.x to 1.18.1](#upgrading-from-114x-to-1181) |
+| `1.13.x`          | [Upgrading from 1.13.x to 1.18.1](#upgrading-from-113x-to-1181) |
+| `1.12.x`          | [Upgrading from 1.12.x to 1.18.1](#upgrading-from-112x-to-1181) |
+| `1.11.x`          | [Upgrading from 1.11.x to 1.18.1](#upgrading-from-111x-to-1181) |
+| `1.10.x`          | [Upgrading from 1.10.x to 1.18.1](#upgrading-from-110x-to-1181) |
+| `1.9.x` and older | [Upgrading from 1.9.x to 1.18.1](#upgrading-from-19x-to-1181)   |
 
 ______________________________________________________________________
 
@@ -45,7 +45,7 @@ ______________________________________________________________________
 1. `python manage.py migrate`
 1. `python manage.py collectstatic --noinput`
 1. Restart gunicorn + celery beat + workers.
-1. If you previously automated `sync_sde_compat`/`indy_sde_compat`, remove it from your runbooks: 1.18.0 no longer uses that compatibility cache flow. The old periodic refresh task (`indy-hub-refresh-production-items`) is legacy and is automatically cleaned up by Indy Hub periodic-task setup, so no manual beat-task deletion is normally required.
+1. If you previously automated `sync_sde_compat`/`indy_sde_compat`, remove it from your runbooks: 1.18.1 no longer uses that compatibility cache flow. The old periodic refresh task (`indy-hub-refresh-production-items`) is legacy and is automatically cleaned up by Indy Hub periodic-task setup, so no manual beat-task deletion is normally required.
 1. Migration `0107_industrystructure_resolved_bonus_cache` adds persistent structure bonus cache fields. No manual data backfill is required; cache rows are generated lazily during normal structure usage.
 1. Migration `0108_remove_character_online_status` drops the obsolete Indy Hub online-status snapshot table. No manual data migration is required.
 1. Jobs page behavior changed: live ESI skill refresh now runs only when users click `Force Refresh`. Normal page loads use cached snapshot data and display a `Last update` timestamp.
@@ -60,7 +60,7 @@ ______________________________________________________________________
 
 ______________________________________________________________________
 
-## Upgrading from 1.16.x to 1.18.0
+## Upgrading from 1.16.x to 1.18.1
 
 1. **Before `migrate`** — stop celery beat and workers. Migration `0100_repair_blueprint_bp_type_classification` rewrites `bp_type` for legacy BPO/BPC rows and can take a few minutes on a large fleet.
 1. `pip install --upgrade indy-hub`
@@ -71,7 +71,7 @@ ______________________________________________________________________
 
 ______________________________________________________________________
 
-## Upgrading from 1.15.x to 1.18.0
+## Upgrading from 1.15.x to 1.18.1 
 
 This path crosses the 1.16.0 Crafting Projects rewrite.
 
@@ -87,7 +87,7 @@ This path crosses the 1.16.0 Crafting Projects rewrite.
 
 ______________________________________________________________________
 
-## Upgrading from 1.14.x to 1.18.0
+## Upgrading from 1.14.x to 1.18.1
 
 This path crosses the 1.15.0 SDE backend swap and the 1.16.0 Crafting Projects rewrite.
 
@@ -108,7 +108,7 @@ This path crosses the 1.15.0 SDE backend swap and the 1.16.0 Crafting Projects r
 
 ______________________________________________________________________
 
-## Upgrading from 1.13.x to 1.18.0
+## Upgrading from 1.13.x to 1.18.1
 
 This path crosses the 1.14.0 Material Exchange refactor, the 1.15.0 SDE backend swap and the 1.16.0 Crafting Projects rewrite.
 
@@ -133,9 +133,9 @@ This path crosses the 1.14.0 Material Exchange refactor, the 1.15.0 SDE backend 
 
 ______________________________________________________________________
 
-## Upgrading from 1.12.x to 1.18.0
+## Upgrading from 1.12.x to 1.18.1
 
-This path crosses the 1.13.0 Material Exchange order-reference rule, then all of the 1.13.x → 1.18.0 steps.
+This path crosses the 1.13.0 Material Exchange order-reference rule, then all of the 1.13.x → 1.18.1 steps.
 
 1. **Backup the database.**
 1. Notify Material Exchange users in advance: since 1.13.0, ESI contract titles **must** include the order reference (e.g. `INDY-123`). Open contracts created before the upgrade should be closed or amended.
@@ -159,15 +159,15 @@ This path crosses the 1.13.0 Material Exchange order-reference rule, then all of
 
 ______________________________________________________________________
 
-## Upgrading from 1.11.x to 1.18.0
+## Upgrading from 1.11.x to 1.18.1
 
 The 1.11→1.12 step itself has no extra requirement, so this path matches the 1.12.x section.
 
-Apply the steps from [Upgrading from 1.12.x to 1.18.0](#upgrading-from-112x-to-1180).
+Apply the steps from [Upgrading from 1.12.x to 1.18.1](#upgrading-from-112x-to-1181).
 
 ______________________________________________________________________
 
-## Upgrading from 1.10.x to 1.18.0
+## Upgrading from 1.10.x to 1.18.1
 
 This path crosses the 1.11.0 corporation blueprints / permissions overhaul.
 
@@ -197,9 +197,9 @@ This path crosses the 1.11.0 corporation blueprints / permissions overhaul.
 
 ______________________________________________________________________
 
-## Upgrading from 1.9.x to 1.18.0
+## Upgrading from 1.9.x to 1.18.1
 
-Same as [Upgrading from 1.10.x to 1.18.0](#upgrading-from-110x-to-1180), with one addition: the 1.10.2 release rewrote the existing `PeriodicTask` rows (daily bulk blueprint sync at 03:00 UTC, jobs every 2 h, with staggering). The chained `migrate` applies that change too — **just make sure celery beat is restarted after the upgrade** so it reloads the rewritten schedules.
+Same as [Upgrading from 1.10.x to 1.18.1](#upgrading-from-110x-to-1181), with one addition: the 1.10.2 release rewrote the existing `PeriodicTask` rows (daily bulk blueprint sync at 03:00 UTC, jobs every 2 h, with staggering). The chained `migrate` applies that change too — **just make sure celery beat is restarted after the upgrade** so it reloads the rewritten schedules.
 
 Steps:
 
