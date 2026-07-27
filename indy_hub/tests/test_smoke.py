@@ -3641,6 +3641,71 @@ class StructureLookupForbiddenCacheTests(TestCase):
         self.assertEqual(mock_fetch.call_count, 2)
 
 
+class StructureLookupGlobalRateLimitCooldownTests(TestCase):
+    def setUp(self) -> None:
+        reset_forbidden_structure_lookup_cache()
+
+    def tearDown(self) -> None:
+        reset_forbidden_structure_lookup_cache()
+        eve_utils._LOCATION_NAME_CACHE.clear()
+
+    def test_rate_limit_sets_global_cooldown(self) -> None:
+        from esi.exceptions import ESIErrorLimitException
+
+        structure_id = 1_046_000_000_111
+        character_id = 7001
+
+        with patch(
+            "indy_hub.utils.eve.shared_client.fetch_structure_name"
+        ) as mock_fetch:
+            mock_fetch.side_effect = ESIErrorLimitException(reset=12)
+            result = eve_utils.resolve_location_name(
+                structure_id,
+                character_id=character_id,
+                owner_user_id=None,
+                force_refresh=True,
+                allow_public=False,
+            )
+
+        self.assertEqual(result, f"Structure {structure_id}")
+        self.assertEqual(mock_fetch.call_count, 1)
+        self.assertGreaterEqual(eve_utils.get_structure_rate_limit_cooldown_seconds(), 1)
+
+    def test_global_cooldown_skips_followup_authenticated_lookup(self) -> None:
+        from esi.exceptions import ESIErrorLimitException
+
+        first_structure_id = 1_046_000_000_211
+        second_structure_id = 1_046_000_000_212
+        character_id = 7001
+
+        with patch(
+            "indy_hub.utils.eve.shared_client.fetch_structure_name"
+        ) as mock_fetch:
+            mock_fetch.side_effect = ESIErrorLimitException(reset=10)
+            first_result = eve_utils.resolve_location_name(
+                first_structure_id,
+                character_id=character_id,
+                owner_user_id=None,
+                force_refresh=True,
+                allow_public=False,
+            )
+
+            mock_fetch.side_effect = RuntimeError(
+                "fetch_structure_name should not run during global cooldown"
+            )
+            second_result = eve_utils.resolve_location_name(
+                second_structure_id,
+                character_id=character_id,
+                owner_user_id=None,
+                force_refresh=True,
+                allow_public=False,
+            )
+
+        self.assertEqual(first_result, f"Structure {first_structure_id}")
+        self.assertEqual(second_result, f"Structure {second_structure_id}")
+        self.assertEqual(mock_fetch.call_count, 1)
+
+
 class StructureLookupDbCacheTests(TestCase):
     def setUp(self) -> None:
         reset_forbidden_structure_lookup_cache()

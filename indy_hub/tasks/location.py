@@ -92,7 +92,7 @@ def refresh_structure_location(self, structure_id: int) -> dict[str, int]:
             "base": QueueOnce,
             "once": {"keys": ["structure_id"], "graceful": True},
             # Keep this conservative: this endpoint is easy to rate-limit.
-            "rate_limit": "100/m",
+            "rate_limit": "40/m",
             "max_retries": None,
         },
     }

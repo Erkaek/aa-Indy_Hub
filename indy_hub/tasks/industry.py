@@ -282,8 +282,9 @@ _BULK_LOCK_TTL_BUFFER_SECONDS = 15 * 60
 _BULK_LOCK_TTL_MIN_SECONDS = 30 * 60
 _BULK_LOCK_TTL_MAX_SECONDS = 18 * 60 * 60
 _DEFAULT_BULK_WINDOWS = {
-    MANUAL_REFRESH_KIND_BLUEPRINTS: BLUEPRINTS_BULK_WINDOW_MINUTES,
-    MANUAL_REFRESH_KIND_JOBS: INDUSTRY_JOBS_BULK_WINDOW_MINUTES,
+    # Stable defaults used when no explicit per-kind window is configured.
+    MANUAL_REFRESH_KIND_BLUEPRINTS: 240,
+    MANUAL_REFRESH_KIND_JOBS: 120,
 }
 
 ACTIVE_USER_DAYS = 30
@@ -682,11 +683,17 @@ def _get_manual_refresh_cooldown_seconds() -> int:
 
 
 def _get_bulk_window_minutes(kind: str) -> int:
-    fallback = _DEFAULT_BULK_WINDOWS.get(kind, 720)
+    kind_default = _DEFAULT_BULK_WINDOWS.get(kind, 720)
+    fallback = kind_default
     try:
-        fallback = int(BULK_UPDATE_WINDOW_MINUTES)
+        configured_global = int(BULK_UPDATE_WINDOW_MINUTES)
     except (TypeError, ValueError):
-        fallback = _DEFAULT_BULK_WINDOWS.get(kind, 720)
+        configured_global = 0
+
+    # Keep the per-kind defaults unless an explicit non-default global override
+    # is configured.
+    if configured_global > 0 and configured_global != 720:
+        fallback = configured_global
 
     specific = fallback
     if kind == MANUAL_REFRESH_KIND_BLUEPRINTS:
@@ -697,6 +704,8 @@ def _get_bulk_window_minutes(kind: str) -> int:
     try:
         minutes = int(specific)
     except (TypeError, ValueError):
+        minutes = fallback
+    if minutes <= 0:
         minutes = fallback
     return max(minutes, 0)
 

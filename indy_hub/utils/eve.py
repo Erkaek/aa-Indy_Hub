@@ -72,8 +72,11 @@ _MAX_STRUCTURE_LOOKUPS = 3
 _STRUCTURE_LOOKUP_PAUSE_UNTIL: float = 0.0
 STRUCTURE_FORBIDDEN_RETRY_DELAY = timedelta(days=15)
 STRUCTURE_TRIED_CHARACTER_RETRY_DELAY = timedelta(days=7)
-_STRUCTURE_FORBIDDEN_COOLDOWN_CACHE_NAMESPACE = uuid4().hex
-_STRUCTURE_TRIED_CHARACTER_CACHE_NAMESPACE = uuid4().hex
+STRUCTURE_RATE_LIMIT_RETRY_DELAY = timedelta(seconds=60)
+# Use stable namespaces so all worker processes share the same cooldown keys.
+_STRUCTURE_FORBIDDEN_COOLDOWN_CACHE_NAMESPACE = "v1"
+_STRUCTURE_TRIED_CHARACTER_CACHE_NAMESPACE = "v1"
+_STRUCTURE_RATE_LIMIT_CACHE_NAMESPACE = "v1"
 
 
 def _normalized_location_aliases(
@@ -221,13 +224,44 @@ def _wait_for_structure_rate_limit_window() -> None:
         time.sleep(remaining)
 
 
+def build_structure_rate_limit_cooldown_cache_key() -> str:
+    return (
+        "indy_hub:structure-rate-limit:"
+        f"{_STRUCTURE_RATE_LIMIT_CACHE_NAMESPACE}:global"
+    )
+
+
+def get_structure_rate_limit_cooldown_seconds() -> int:
+    remaining = cache.get(build_structure_rate_limit_cooldown_cache_key(), 0)
+    try:
+        return max(int(remaining), 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def set_structure_rate_limit_cooldown(
+    *,
+    duration: timedelta = STRUCTURE_RATE_LIMIT_RETRY_DELAY,
+) -> int:
+    timeout = max(int(duration.total_seconds()), 1)
+    cache.set(
+        build_structure_rate_limit_cooldown_cache_key(),
+        timeout,
+        timeout=timeout,
+    )
+    return timeout
+
+
 def reset_forbidden_structure_lookup_cache() -> None:
     """Clear the cache of structure lookup attempts used to skip recent failures."""
 
     global _STRUCTURE_FORBIDDEN_COOLDOWN_CACHE_NAMESPACE
     global _STRUCTURE_TRIED_CHARACTER_CACHE_NAMESPACE
+    global _STRUCTURE_LOOKUP_PAUSE_UNTIL
     _STRUCTURE_FORBIDDEN_COOLDOWN_CACHE_NAMESPACE = uuid4().hex
     _STRUCTURE_TRIED_CHARACTER_CACHE_NAMESPACE = uuid4().hex
+    _STRUCTURE_LOOKUP_PAUSE_UNTIL = 0.0
+    cache.delete(build_structure_rate_limit_cooldown_cache_key())
 
 
 def _build_structure_tried_character_cache_key(structure_id: int) -> str:
@@ -803,11 +837,13 @@ def set_structure_forbidden_cooldown(
         return
 
     timeout = max(int(duration.total_seconds()), 1)
-    cache.set(
-        build_structure_forbidden_cooldown_cache_key(int(structure_id)),
-        True,
-        timeout=timeout,
-    )
+    alias_ids = _normalized_location_aliases(structure_id) or (int(structure_id),)
+    for alias_id in alias_ids:
+        cache.set(
+            build_structure_forbidden_cooldown_cache_key(int(alias_id)),
+            True,
+            timeout=timeout,
+        )
 
 
 def _store_location_name_in_db(
@@ -903,10 +939,20 @@ def resolve_location_name(
             _store_location_name_in_db(structure_id, db_name)
             return db_name
 
+    global_rate_limit_pause = get_structure_rate_limit_cooldown_seconds()
+    if global_rate_limit_pause > 0:
+        _schedule_structure_rate_limit_pause(float(global_rate_limit_pause))
+        logger.info(
+            "Skipping authenticated structure lookup for %s due to global rate-limit cooldown (%ss remaining)",
+            structure_id,
+            global_rate_limit_pause,
+        )
+
     name: str | None = None
     is_station = is_station_id(structure_id)
     attempted_characters: set[int] = set()
     remaining_attempts = _MAX_STRUCTURE_LOOKUPS
+    structure_forbidden_hit = False
 
     def try_structure_lookup(
         candidate_character_id: int | None,
@@ -914,8 +960,11 @@ def resolve_location_name(
         invalidate_owner: bool = False,
         invalidate_fallback: bool = False,
     ) -> str | None:
-        nonlocal remaining_attempts
+        nonlocal remaining_attempts, structure_forbidden_hit
         if not candidate_character_id or remaining_attempts <= 0:
+            return None
+
+        if structure_forbidden_hit or has_structure_forbidden_cooldown(structure_id):
             return None
 
         candidate_character_id = int(candidate_character_id)
@@ -944,6 +993,7 @@ def resolve_location_name(
         except ESIForbiddenError:
             _mark_structure_character_tried(structure_id, candidate_character_id)
             set_structure_forbidden_cooldown(structure_id)
+            structure_forbidden_hit = True
             logger.info(
                 "Character %s forbidden from fetching structure %s; future attempts will be skipped",
                 candidate_character_id,
@@ -967,10 +1017,11 @@ def resolve_location_name(
                 _invalidate_structure_scope_token_cache()
             return None
         except (ESIErrorLimitException, ESIBucketLimitException) as exc:
-            pause = get_rate_limit_reset_seconds(exc)
+            pause = get_rate_limit_reset_seconds(exc, fallback=60, minimum=5)
             _schedule_structure_rate_limit_pause(pause)
+            set_structure_rate_limit_cooldown(duration=timedelta(seconds=pause))
             logger.warning(
-                "ESI rate limit reached while fetching structure %s via %s (reset=%s). Pausing for %.1fs",
+                "ESI rate limit reached while fetching structure %s via %s (reset=%s). Pausing for %.1fs with global cooldown",
                 structure_id,
                 candidate_character_id,
                 getattr(exc, "reset", None),
@@ -986,10 +1037,15 @@ def resolve_location_name(
             )
             return None
 
-    if allow_authenticated and not is_station and structure_id > 2_147_483_647:
+    if (
+        allow_authenticated
+        and not is_station
+        and structure_id > 2_147_483_647
+        and global_rate_limit_pause <= 0
+    ):
         name = try_structure_lookup(character_id)
 
-        if not name and owner_user_id:
+        if not name and owner_user_id and not structure_forbidden_hit:
             for owner_character_id in _get_owner_structure_token_ids(owner_user_id):
                 if remaining_attempts <= 0:
                     break
@@ -997,8 +1053,10 @@ def resolve_location_name(
                 if result:
                     name = result
                     break
+                if structure_forbidden_hit:
+                    break
 
-        if not name and remaining_attempts > 0:
+        if not name and remaining_attempts > 0 and not structure_forbidden_hit:
             for fallback_character_id in _get_structure_scope_token_ids():
                 if fallback_character_id == character_id:
                     continue
@@ -1009,6 +1067,8 @@ def resolve_location_name(
                 )
                 if result:
                     name = result
+                    break
+                if structure_forbidden_hit:
                     break
 
     if allow_public and not name:
