@@ -117,7 +117,7 @@ INSTALLED_APPS = [
 Add to your `conf/requirements.txt` (Always use current versions)
 
 ```text
-indy-hub==1.17.2
+indy-hub==1.18.1
 ```
 
 Ensure the base `eve_sde` data is already loaded in your stack by following
@@ -251,7 +251,7 @@ systemctl restart allianceauth
 Update Versions in `conf/requirements.txt` (Always use current versions)
 
 ```text
-indy-hub==1.17.2
+indy-hub==1.18.1
 ```
 
 Update the Package:

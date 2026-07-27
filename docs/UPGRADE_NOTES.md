@@ -39,7 +39,7 @@ Quick map:
 
 ______________________________________________________________________
 
-## Upgrading from 1.17.x to 1.18.0
+## Upgrading from 1.17.x to 1.18.1
 
 1. `pip install --upgrade indy-hub`
 1. `python manage.py migrate`
@@ -233,7 +233,7 @@ ______________________________________________________________________
 
 ## Reusable cheat sheet
 
-```bash
+```
 # 0. Backup DB
 pg_dump / mysqldump …
 

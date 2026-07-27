@@ -9,6 +9,8 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 ## [Unreleased]
 
+## [1.18.1] - 2026-07-27
+
 ### Added
 
 - Industry Structures: admins can now set and edit taxes on auto-synced structures.
