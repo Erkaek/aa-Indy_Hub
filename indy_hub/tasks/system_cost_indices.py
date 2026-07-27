@@ -16,6 +16,7 @@ from allianceauth.services.hooks import get_extension_logger
 from esi.exceptions import ESIBucketLimitException, ESIErrorLimitException
 
 # AA Example App
+from indy_hub.models import IndustrySystemCostIndex
 from indy_hub.services.esi_client import (
     ESIClientError,
     get_rate_limit_reset_seconds,
@@ -26,6 +27,12 @@ logger = get_extension_logger(__name__)
 
 _SYNC_LOCK_KEY = "indy_hub:sync_system_cost_indices:lock"
 _SYNC_LOCK_TTL = 30 * 60  # 30 minutes
+_TRANQUILITY_RETRY_DELAY = 10 * 60
+_TRANQUILITY_MAX_ATTEMPTS = 3
+
+
+def _is_tranquility_outage_cooldown(exc: Exception) -> bool:
+    return "Global Tranquility outage cooldown active" in str(exc)
 
 
 @shared_task(bind=True, max_retries=3)
@@ -46,14 +53,34 @@ def sync_industry_system_cost_indices(
         return {"status": "skipped", "reason": "locked"}
     try:
         try:
-            summary = sync_system_cost_indices(force_refresh=force_refresh)
+            effective_force_refresh = not IndustrySystemCostIndex.objects.exists()
+            summary = sync_system_cost_indices(
+                force_refresh=effective_force_refresh
+            )
         except (ESIErrorLimitException, ESIBucketLimitException) as exc:
+            if _is_tranquility_outage_cooldown(exc):
+                attempt = int(getattr(self.request, "retries", 0)) + 1
+                if attempt >= _TRANQUILITY_MAX_ATTEMPTS:
+                    logger.warning(
+                        "Failed to sync industry system cost indices after %s attempts; reason=tranquility",
+                        attempt,
+                    )
+                    return {"status": "failed", "reason": "tranquility"}
+
+                logger.warning(
+                    "Tranquility outage cooldown hit while syncing industry system cost indices; retrying in %ss (attempt %s/%s)",
+                    _TRANQUILITY_RETRY_DELAY,
+                    attempt,
+                    _TRANQUILITY_MAX_ATTEMPTS,
+                )
+                raise self.retry(countdown=_TRANQUILITY_RETRY_DELAY)
+
             delay = get_rate_limit_reset_seconds(exc)
             logger.warning(
                 "ESI rate limit hit while syncing industry system cost indices; retrying in %ss",
                 delay,
             )
-            raise self.retry(countdown=delay, exc=exc)
+            raise self.retry(countdown=delay)
         except ESIClientError as exc:
             logger.warning("Failed to sync industry system cost indices: %s", exc)
             return {"status": "failed", "reason": str(exc)}

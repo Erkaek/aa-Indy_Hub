@@ -9,8 +9,12 @@ from unittest.mock import patch
 # Django
 from django.test import TestCase
 
+# Third Party
+from esi.exceptions import ESIErrorLimitException
+
 # AA Example App
 from indy_hub.models import IndustryActivityMixin, IndustrySystemCostIndex
+from indy_hub.tasks.system_cost_indices import sync_industry_system_cost_indices
 from indy_hub.services.system_cost_indices import sync_system_cost_indices
 
 
@@ -123,3 +127,130 @@ class IndustrySystemCostIndexSyncTests(TestCase):
 
         row.refresh_from_db()
         self.assertEqual(row.source_updated_at, first_source_updated_at)
+
+
+class IndustrySystemCostIndexTaskTests(TestCase):
+    @patch("indy_hub.tasks.system_cost_indices.cache.delete")
+    @patch("indy_hub.tasks.system_cost_indices.cache.get")
+    @patch("indy_hub.tasks.system_cost_indices.cache.add")
+    @patch("indy_hub.tasks.system_cost_indices.uuid.uuid4")
+    @patch("indy_hub.tasks.system_cost_indices.sync_system_cost_indices")
+    def test_tranquility_cooldown_retries_for_ten_minutes(
+        self,
+        mock_sync_system_cost_indices,
+        mock_uuid4,
+        mock_cache_add,
+        mock_cache_get,
+        mock_cache_delete,
+    ) -> None:
+        mock_uuid4.return_value.hex = "token"
+        mock_cache_add.return_value = True
+        mock_cache_get.return_value = "token"
+        mock_sync_system_cost_indices.side_effect = ESIErrorLimitException(
+            reset=35,
+            message=(
+                "Global Tranquility outage cooldown active for /industry/systems/ "
+                "(retry in 35s)"
+            ),
+        )
+        task = sync_industry_system_cost_indices
+
+        task.push_request(retries=0)
+        try:
+            with patch.object(
+                task,
+                "retry",
+                side_effect=RuntimeError("retry called"),
+            ) as mock_retry:
+                with self.assertRaises(RuntimeError):
+                    task.__wrapped__(force_refresh=True)
+        finally:
+            task.pop_request()
+
+        self.assertEqual(mock_retry.call_args.kwargs["countdown"], 600)
+        self.assertNotIn("exc", mock_retry.call_args.kwargs)
+        self.assertEqual(
+            mock_sync_system_cost_indices.call_args.kwargs["force_refresh"],
+            True,
+        )
+        mock_cache_delete.assert_called_once_with("indy_hub:sync_system_cost_indices:lock")
+
+    @patch("indy_hub.tasks.system_cost_indices.cache.delete")
+    @patch("indy_hub.tasks.system_cost_indices.cache.get")
+    @patch("indy_hub.tasks.system_cost_indices.cache.add")
+    @patch("indy_hub.tasks.system_cost_indices.uuid.uuid4")
+    @patch("indy_hub.tasks.system_cost_indices.sync_system_cost_indices")
+    def test_skips_force_refresh_once_cost_indices_exist(
+        self,
+        mock_sync_system_cost_indices,
+        mock_uuid4,
+        mock_cache_add,
+        mock_cache_get,
+        mock_cache_delete,
+    ) -> None:
+        IndustrySystemCostIndex.objects.create(
+            solar_system_id=30000142,
+            solar_system_name="Jita",
+            activity_id=IndustryActivityMixin.ACTIVITY_MANUFACTURING,
+            cost_index_percent=Decimal("0.14000"),
+        )
+        mock_uuid4.return_value.hex = "token"
+        mock_cache_add.return_value = True
+        mock_cache_get.return_value = "token"
+        mock_sync_system_cost_indices.return_value = {
+            "systems": 1,
+            "entries_seen": 1,
+            "created": 0,
+            "updated": 0,
+            "unchanged": 1,
+        }
+        task = sync_industry_system_cost_indices
+
+        task.push_request(retries=0)
+        try:
+            summary = task.__wrapped__()
+        finally:
+            task.pop_request()
+
+        self.assertEqual(summary["status"], "ok")
+        self.assertEqual(
+            mock_sync_system_cost_indices.call_args.kwargs["force_refresh"],
+            False,
+        )
+        mock_cache_delete.assert_called_once_with("indy_hub:sync_system_cost_indices:lock")
+
+    @patch("indy_hub.tasks.system_cost_indices.cache.delete")
+    @patch("indy_hub.tasks.system_cost_indices.cache.get")
+    @patch("indy_hub.tasks.system_cost_indices.cache.add")
+    @patch("indy_hub.tasks.system_cost_indices.uuid.uuid4")
+    @patch("indy_hub.tasks.system_cost_indices.sync_system_cost_indices")
+    def test_tranquility_cooldown_fails_cleanly_after_three_attempts(
+        self,
+        mock_sync_system_cost_indices,
+        mock_uuid4,
+        mock_cache_add,
+        mock_cache_get,
+        mock_cache_delete,
+    ) -> None:
+        mock_uuid4.return_value.hex = "token"
+        mock_cache_add.return_value = True
+        mock_cache_get.return_value = "token"
+        mock_sync_system_cost_indices.side_effect = ESIErrorLimitException(
+            reset=35,
+            message=(
+                "Global Tranquility outage cooldown active for /industry/systems/ "
+                "(retry in 35s)"
+            ),
+        )
+        task = sync_industry_system_cost_indices
+
+        task.push_request(retries=2)
+        try:
+            with patch.object(task, "retry") as mock_retry:
+                summary = task.__wrapped__(force_refresh=True)
+        finally:
+            task.pop_request()
+
+        self.assertEqual(summary, {"status": "failed", "reason": "tranquility"})
+        mock_retry.assert_not_called()
+        mock_cache_delete.assert_called_once_with("indy_hub:sync_system_cost_indices:lock")

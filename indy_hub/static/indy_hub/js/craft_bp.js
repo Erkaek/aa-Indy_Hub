@@ -1415,6 +1415,22 @@ function bindFinalOutputQuantityControls() {
     const treeTab = document.getElementById('tab-tree');
     if (treeTab && treeTab.dataset.finalOutputQuantityBindingAttached !== 'true') {
         treeTab.dataset.finalOutputQuantityBindingAttached = 'true';
+        treeTab.addEventListener('focusin', (event) => {
+            const input = event.target;
+            if (!(input instanceof HTMLInputElement) || !input.classList.contains('craft-final-output-quantity')) {
+                return;
+            }
+            window.requestAnimationFrame(() => {
+                input.select();
+            });
+        });
+        treeTab.addEventListener('mouseup', (event) => {
+            const input = event.target;
+            if (!(input instanceof HTMLInputElement) || !input.classList.contains('craft-final-output-quantity')) {
+                return;
+            }
+            event.preventDefault();
+        });
         treeTab.addEventListener('input', (event) => {
             const input = event.target;
             if (!(input instanceof HTMLInputElement) || !input.classList.contains('craft-final-output-quantity')) {
