@@ -3650,6 +3650,7 @@ class StructureLookupGlobalRateLimitCooldownTests(TestCase):
         eve_utils._LOCATION_NAME_CACHE.clear()
 
     def test_rate_limit_sets_global_cooldown(self) -> None:
+        # Alliance Auth
         from esi.exceptions import ESIErrorLimitException
 
         structure_id = 1_046_000_000_111
@@ -3669,9 +3670,12 @@ class StructureLookupGlobalRateLimitCooldownTests(TestCase):
 
         self.assertEqual(result, f"Structure {structure_id}")
         self.assertEqual(mock_fetch.call_count, 1)
-        self.assertGreaterEqual(eve_utils.get_structure_rate_limit_cooldown_seconds(), 1)
+        self.assertGreaterEqual(
+            eve_utils.get_structure_rate_limit_cooldown_seconds(), 1
+        )
 
     def test_global_cooldown_skips_followup_authenticated_lookup(self) -> None:
+        # Alliance Auth
         from esi.exceptions import ESIErrorLimitException
 
         first_structure_id = 1_046_000_000_211

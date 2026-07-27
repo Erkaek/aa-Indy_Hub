@@ -54,9 +54,7 @@ def sync_industry_system_cost_indices(
     try:
         try:
             effective_force_refresh = not IndustrySystemCostIndex.objects.exists()
-            summary = sync_system_cost_indices(
-                force_refresh=effective_force_refresh
-            )
+            summary = sync_system_cost_indices(force_refresh=effective_force_refresh)
         except (ESIErrorLimitException, ESIBucketLimitException) as exc:
             if _is_tranquility_outage_cooldown(exc):
                 attempt = int(getattr(self.request, "retries", 0)) + 1

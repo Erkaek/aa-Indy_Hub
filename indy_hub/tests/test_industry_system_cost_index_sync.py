@@ -9,13 +9,13 @@ from unittest.mock import patch
 # Django
 from django.test import TestCase
 
-# Third Party
+# Alliance Auth
 from esi.exceptions import ESIErrorLimitException
 
 # AA Example App
 from indy_hub.models import IndustryActivityMixin, IndustrySystemCostIndex
-from indy_hub.tasks.system_cost_indices import sync_industry_system_cost_indices
 from indy_hub.services.system_cost_indices import sync_system_cost_indices
+from indy_hub.tasks.system_cost_indices import sync_industry_system_cost_indices
 
 
 class IndustrySystemCostIndexSyncTests(TestCase):
@@ -173,7 +173,9 @@ class IndustrySystemCostIndexTaskTests(TestCase):
             mock_sync_system_cost_indices.call_args.kwargs["force_refresh"],
             True,
         )
-        mock_cache_delete.assert_called_once_with("indy_hub:sync_system_cost_indices:lock")
+        mock_cache_delete.assert_called_once_with(
+            "indy_hub:sync_system_cost_indices:lock"
+        )
 
     @patch("indy_hub.tasks.system_cost_indices.cache.delete")
     @patch("indy_hub.tasks.system_cost_indices.cache.get")
@@ -217,7 +219,9 @@ class IndustrySystemCostIndexTaskTests(TestCase):
             mock_sync_system_cost_indices.call_args.kwargs["force_refresh"],
             False,
         )
-        mock_cache_delete.assert_called_once_with("indy_hub:sync_system_cost_indices:lock")
+        mock_cache_delete.assert_called_once_with(
+            "indy_hub:sync_system_cost_indices:lock"
+        )
 
     @patch("indy_hub.tasks.system_cost_indices.cache.delete")
     @patch("indy_hub.tasks.system_cost_indices.cache.get")
@@ -253,4 +257,6 @@ class IndustrySystemCostIndexTaskTests(TestCase):
 
         self.assertEqual(summary, {"status": "failed", "reason": "tranquility"})
         mock_retry.assert_not_called()
-        mock_cache_delete.assert_called_once_with("indy_hub:sync_system_cost_indices:lock")
+        mock_cache_delete.assert_called_once_with(
+            "indy_hub:sync_system_cost_indices:lock"
+        )
