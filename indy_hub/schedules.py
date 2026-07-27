@@ -44,18 +44,22 @@ INDY_HUB_BEAT_SCHEDULE = {
     },
     "indy-hub-cleanup-old-jobs": {
         "task": "indy_hub.tasks.industry.cleanup_old_jobs",
-        "schedule": crontab(hour=2, minute=0),  # Daily at 02:00
+        "schedule": crontab(
+            hour=2, minute=0, day_of_month="*/3"
+        ),  # Every 3 days at 02:00
         "options": {"priority": 8},  # Low priority for cleanup
     },
     "indy-hub-update-type-names": {
         "task": "indy_hub.tasks.industry.update_type_names",
-        "schedule": crontab(hour=3, minute=0),  # Daily at 03:00
+        "schedule": crontab(
+            hour=3, minute=0, day_of_month="*/3"
+        ),  # Every 3 days at 03:00
         "options": {"priority": 8},  # Low priority for caching
         "apply_offset": True,
     },
     "indy-hub-refresh-stale-snapshots": {
         "task": "indy_hub.tasks.housekeeping.refresh_stale_snapshots",
-        "schedule": crontab(minute=0, hour="*"),  # Hourly
+        "schedule": crontab(minute=0, hour="*/3"),  # Every 3 hours
         "options": {"priority": 7},
         "apply_offset": True,
     },
