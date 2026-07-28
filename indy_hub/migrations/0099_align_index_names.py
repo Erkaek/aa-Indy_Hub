@@ -18,15 +18,40 @@ def _rename_index_if_needed(
     old_name: str,
     new_name: str,
 ) -> None:
+    connection = schema_editor.connection
     existing = _table_constraints(schema_editor, table_name)
     if new_name in existing or old_name not in existing:
         return
 
+    with connection.cursor() as cursor:
+        constraint_map = connection.introspection.get_constraints(cursor, table_name)
+    old_info = constraint_map.get(old_name, {})
+    columns = old_info.get("columns") or []
+    unique = bool(old_info.get("unique"))
+
     quoted_table = schema_editor.quote_name(table_name)
     quoted_old = schema_editor.quote_name(old_name)
     quoted_new = schema_editor.quote_name(new_name)
+
+    vendor = connection.vendor
+    if vendor == "mysql":
+        schema_editor.execute(
+            f"ALTER TABLE {quoted_table} RENAME INDEX {quoted_old} TO {quoted_new}"
+        )
+        return
+
+    if vendor == "postgresql":
+        schema_editor.execute(f"ALTER INDEX {quoted_old} RENAME TO {quoted_new}")
+        return
+
+    # SQLite and any backend without native rename-index support.
+    if not columns:
+        return
+    quoted_cols = ", ".join(schema_editor.quote_name(column) for column in columns)
+    unique_sql = "UNIQUE " if unique else ""
+    schema_editor.execute(f"DROP INDEX {quoted_old}")
     schema_editor.execute(
-        f"ALTER TABLE {quoted_table} RENAME INDEX {quoted_old} TO {quoted_new}"
+        f"CREATE {unique_sql}INDEX {quoted_new} ON {quoted_table} ({quoted_cols})"
     )
 
 
