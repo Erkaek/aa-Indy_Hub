@@ -6,15 +6,15 @@ This procedure helps restore a clean `indy_hub` installation when an older merge
 
 1. Stop Alliance Auth:
 
-   ```bash
+```bash
    supervisorctl stop all
-   ```
+```
 
 1. Uninstall the package:
 
-   ```bash
+```bash
    pip uninstall indy_hub
-   ```
+```
 
 1. Check the venv `site-packages` directory and manually remove the `indy_hub` folder if files are still present.
 
@@ -22,6 +22,6 @@ This procedure helps restore a clean `indy_hub` installation when an older merge
 
 1. Restart Supervisor:
 
-   ```bash
+```bash
    supervisorctl start all
-   ```
+```
