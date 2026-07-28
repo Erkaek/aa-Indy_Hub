@@ -10,17 +10,17 @@ This procedure helps restore a clean `indy_hub` installation when an older merge
    supervisorctl stop all
    ```
 
-2. Uninstall the package:
+1. Uninstall the package:
 
    ```bash
    pip uninstall indy_hub
    ```
 
-3. Check the venv `site-packages` directory and manually remove the `indy_hub` folder if files are still present.
+1. Check the venv `site-packages` directory and manually remove the `indy_hub` folder if files are still present.
 
-4. Reinstall `indy_hub`.
+1. Reinstall `indy_hub`.
 
-5. Restart Supervisor:
+1. Restart Supervisor:
 
    ```bash
    supervisorctl start all
