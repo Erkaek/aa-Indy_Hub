@@ -30,6 +30,9 @@
                 </p>
             </div>
             <div class="d-flex flex-wrap gap-2">
+                <button type="button" class="btn btn-outline-danger btn-action" id="projectsDeleteModeToggle" data-delete-label="{% trans 'Delete' %}" data-done-label="{% trans 'Done' %}">
+                    <i class="fas fa-trash me-2"></i>{% trans "Delete" %}
+                </button>
                 <button type="button" class="btn btn-light btn-action" data-bs-toggle="modal" data-bs-target="#productionProjectImportModal">
                     <i class="fas fa-plus me-2"></i>{% trans "New craft table" %}
                 </button>
@@ -83,6 +86,28 @@
         {% endif %}
     </div>
 
+    <form method="post" action="{% url 'indy_hub:production_simulations_list' %}" id="projectsBulkDeleteForm" class="projects-bulk-delete-form">
+        {% csrf_token %}
+        <div class="projects-bulk-delete-toolbar d-none" id="projectsBulkDeleteToolbar">
+            <div class="d-flex flex-wrap align-items-center gap-3">
+                <div class="form-check mb-0">
+                    <input class="form-check-input" type="checkbox" id="projectsBulkDeleteSelectAll">
+                    <label class="form-check-label fw-semibold" for="projectsBulkDeleteSelectAll">
+                        {% trans "Select all" %}
+                    </label>
+                </div>
+                <span class="small text-muted" id="projectsBulkDeleteCount">{% trans "0 selected" %}</span>
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+                <button type="submit" class="btn btn-danger" id="projectsBulkDeleteSubmit" disabled>
+                    <i class="fas fa-trash me-2"></i>{% trans "Delete selected" %}
+                </button>
+                <button type="button" class="btn btn-outline-secondary" id="projectsBulkDeleteCancel">
+                    {% trans "Cancel" %}
+                </button>
+            </div>
+        </div>
+
     {# === DRAFTS === #}
     <section class="registry-section">
         <header class="registry-section__head">
@@ -97,6 +122,7 @@
             <table class="registry-table">
                 <thead>
                     <tr>
+                        <th class="col-select"></th>
                         <th class="col-status">{% trans "Status" %}</th>
                         <th class="col-name">{% trans "Project" %}</th>
                         <th class="col-scope">{% trans "Scope" %}</th>
@@ -131,6 +157,7 @@
             <table class="registry-table">
                 <thead>
                     <tr>
+                        <th class="col-select"></th>
                         <th class="col-status">{% trans "Status" %}</th>
                         <th class="col-name">{% trans "Project" %}</th>
                         <th class="col-scope">{% trans "Scope" %}</th>
@@ -167,6 +194,7 @@
                 <table class="registry-table">
                     <thead>
                         <tr>
+                            <th class="col-select"></th>
                             <th class="col-status">{% trans "Status" %}</th>
                             <th class="col-name">{% trans "Project" %}</th>
                             <th class="col-scope">{% trans "Scope" %}</th>
@@ -187,6 +215,8 @@
             {% endif %}
         </div>
     </section>
+
+    </form>
 
 </div>
 <div class="modal fade" id="productionProjectImportModal" tabindex="-1" aria-labelledby="productionProjectImportModalLabel" aria-hidden="true">

@@ -9,7 +9,10 @@ from django.urls import reverse
 
 # AA Example App
 from indy_hub.models import ProductionProject
-from indy_hub.views.industry import delete_production_project
+from indy_hub.views.industry import (
+    delete_production_project,
+    production_simulations_list,
+)
 
 
 class ProductionProjectDeleteViewTests(TestCase):
@@ -50,6 +53,10 @@ class ProductionProjectDeleteViewTests(TestCase):
         request.session.save()
         setattr(request, "_messages", FallbackStorage(request))
         return request
+
+    @property
+    def _list_view(self):
+        return production_simulations_list.__wrapped__.__wrapped__
 
     def test_get_delete_view_renders_confirmation_page(self):
         request = self._prepare_request(
@@ -100,5 +107,79 @@ class ProductionProjectDeleteViewTests(TestCase):
         self.assertTrue(
             ProductionProject.objects.filter(
                 project_ref=self.project.project_ref
+            ).exists()
+        )
+
+    def test_list_view_renders_bulk_delete_mode_controls(self):
+        request = self._prepare_request(
+            self.factory.get(reverse("indy_hub:production_simulations_list"))
+        )
+
+        response = self._list_view(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "projectsDeleteModeToggle")
+        self.assertContains(response, "projectsBulkDeleteToolbar")
+        self.assertContains(response, "project-delete-checkbox")
+        self.assertContains(response, "projectsBulkDeleteSelectAll")
+
+    def test_list_view_bulk_delete_removes_selected_projects(self):
+        other_project = ProductionProject.objects.create(
+            user=self.user,
+            name="Fleet Muninn",
+            status=ProductionProject.Status.SAVED,
+            source_kind=ProductionProject.SourceKind.MANUAL,
+            summary={
+                "selected_items": 2,
+                "selected_quantity": 9,
+                "craftable_items": 1,
+                "buy_items": 1,
+            },
+        )
+
+        request = self._prepare_request(
+            self.factory.post(
+                reverse("indy_hub:production_simulations_list"),
+                {"project_refs": [self.project.project_ref, other_project.project_ref]},
+            )
+        )
+
+        response = self._list_view(request)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, reverse("indy_hub:production_simulations_list"))
+        self.assertFalse(
+            ProductionProject.objects.filter(
+                project_ref__in=[self.project.project_ref, other_project.project_ref]
+            ).exists()
+        )
+
+    def test_list_view_bulk_delete_ignores_projects_not_owned_by_user(self):
+        other_project = ProductionProject.objects.create(
+            user=self.other_user,
+            name="Enemy Fleet",
+            status=ProductionProject.Status.DRAFT,
+            source_kind=ProductionProject.SourceKind.MANUAL,
+            summary={
+                "selected_items": 1,
+                "selected_quantity": 1,
+                "craftable_items": 0,
+                "buy_items": 1,
+            },
+        )
+
+        request = self._prepare_request(
+            self.factory.post(
+                reverse("indy_hub:production_simulations_list"),
+                {"project_refs": [other_project.project_ref]},
+            )
+        )
+
+        response = self._list_view(request)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(
+            ProductionProject.objects.filter(
+                project_ref=other_project.project_ref
             ).exists()
         )

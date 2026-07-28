@@ -2124,9 +2124,9 @@ def material_exchange_buy(request, tokens):
             # Get available stock and lock the rows so concurrent submissions see
             # a consistent reservation snapshot.
             stock_items = list(
-                config.stock_items.select_for_update().filter(
-                    quantity__gt=0, jita_buy_price__gt=0
-                )
+                config.stock_items.select_related("config")
+                .select_for_update()
+                .filter(quantity__gt=0, jita_buy_price__gt=0)
             )
             _normalize_stock_type_names(stock_items)
 
@@ -2341,7 +2341,7 @@ def material_exchange_buy(request, tokens):
             buy_stock_progress["retry_after_minutes"] = int((retry_seconds + 59) // 60)
 
     # GET: ensure prices are populated if stock exists without prices
-    base_stock_qs = config.stock_items.filter(quantity__gt=0)
+    base_stock_qs = config.stock_items.select_related("config").filter(quantity__gt=0)
     if (
         base_stock_qs.exists()
         and not base_stock_qs.filter(jita_buy_price__gt=0).exists()
@@ -2353,7 +2353,11 @@ def material_exchange_buy(request, tokens):
             messages.warning(request, f"Price sync failed automatically: {exc}")
 
     # Show available stock (quantity > 0 and price available)
-    stock_items = list(config.stock_items.filter(quantity__gt=0, jita_buy_price__gt=0))
+    stock_items = list(
+        config.stock_items.select_related("config").filter(
+            quantity__gt=0, jita_buy_price__gt=0
+        )
+    )
     _normalize_stock_type_names(stock_items)
     pre_filter_stock_count = len(stock_items)
 

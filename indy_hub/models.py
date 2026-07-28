@@ -673,6 +673,20 @@ class BlueprintCopyRequest(models.Model):
                 fields=("requested_by", "fulfilled"),
                 name="indy_copy_req_user_state",
             ),
+            models.Index(
+                fields=("requested_by", "fulfilled", "delivered"),
+                name="indy_copy_req_user_deliv",
+            ),
+            models.Index(
+                fields=(
+                    "type_id",
+                    "material_efficiency",
+                    "time_efficiency",
+                    "fulfilled",
+                    "delivered",
+                ),
+                name="indy_copy_req_key_state",
+            ),
         ]
 
     def __str__(self):
@@ -2213,6 +2227,14 @@ class MaterialExchangeSellOrder(models.Model):
             models.Index(fields=["status", "-created_at"]),
             models.Index(fields=["seller", "-created_at"]),
             models.Index(fields=["esi_contract_id"]),
+            models.Index(
+                fields=["seller", "status", "-created_at"],
+                name="indy_me_sell_user_state_idx",
+            ),
+            models.Index(
+                fields=["config", "status", "-created_at"],
+                name="indy_me_sell_cfg_state_idx",
+            ),
         ]
 
     def __str__(self):
@@ -2445,6 +2467,14 @@ class MaterialExchangeBuyOrder(models.Model):
             models.Index(fields=["status", "-created_at"]),
             models.Index(fields=["buyer", "-created_at"]),
             models.Index(fields=["esi_contract_id"]),
+            models.Index(
+                fields=["buyer", "status", "-created_at"],
+                name="indy_me_buy_user_state_idx",
+            ),
+            models.Index(
+                fields=["config", "status", "-created_at"],
+                name="indy_me_buy_cfg_state_idx",
+            ),
         ]
 
     def __str__(self):

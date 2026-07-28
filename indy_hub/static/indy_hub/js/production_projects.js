@@ -675,6 +675,13 @@
         var modal = document.getElementById('productionProjectImportModal');
         var progressModal = document.getElementById('productionProjectProgressModal');
         var progressSaveButton = document.getElementById('productionProjectProgressSaveBtn');
+        var deleteModeToggle = document.getElementById('projectsDeleteModeToggle');
+        var deleteToolbar = document.getElementById('projectsBulkDeleteToolbar');
+        var deleteForm = document.getElementById('projectsBulkDeleteForm');
+        var deleteCancelButton = document.getElementById('projectsBulkDeleteCancel');
+        var deleteSelectAll = document.getElementById('projectsBulkDeleteSelectAll');
+        var deleteSubmitButton = document.getElementById('projectsBulkDeleteSubmit');
+        var deleteCountLabel = document.getElementById('projectsBulkDeleteCount');
         var state = { preview: null };
         var progressState = {
             saveUrl: null,
@@ -682,9 +689,66 @@
             card: null,
             progress: null
         };
+        var deleteState = {
+            active: false
+        };
 
         if (!previewButton || !createButton || !sourceTextInput || !sourceKindInput || !nameInput || !statusInput) {
             return;
+        }
+
+        function getProjectDeleteCheckboxes() {
+            return Array.prototype.slice.call(document.querySelectorAll('.project-delete-checkbox'));
+        }
+
+        function updateDeleteSelectionState() {
+            if (!deleteToolbar || !deleteSelectAll || !deleteSubmitButton || !deleteCountLabel) {
+                return;
+            }
+
+            var checkboxes = getProjectDeleteCheckboxes();
+            var checkedCount = checkboxes.filter(function (checkbox) {
+                return checkbox.checked;
+            }).length;
+
+            deleteCountLabel.textContent = checkedCount + ' selected';
+            deleteSubmitButton.disabled = checkedCount === 0;
+
+            if (!checkboxes.length) {
+                deleteSelectAll.checked = false;
+                deleteSelectAll.indeterminate = false;
+                return;
+            }
+
+            deleteSelectAll.checked = checkedCount > 0 && checkedCount === checkboxes.length;
+            deleteSelectAll.indeterminate = checkedCount > 0 && checkedCount < checkboxes.length;
+        }
+
+        function setDeleteMode(enabled) {
+            deleteState.active = !!enabled;
+            root.classList.toggle('projects-registry--delete-mode', deleteState.active);
+
+            if (deleteModeToggle) {
+                deleteModeToggle.innerHTML = deleteState.active
+                    ? '<i class="fas fa-xmark me-2"></i>' + (deleteModeToggle.dataset.doneLabel || 'Done')
+                    : '<i class="fas fa-trash me-2"></i>' + (deleteModeToggle.dataset.deleteLabel || 'Delete');
+            }
+
+            if (deleteToolbar) {
+                deleteToolbar.classList.toggle('d-none', !deleteState.active);
+            }
+
+            if (!deleteState.active) {
+                getProjectDeleteCheckboxes().forEach(function (checkbox) {
+                    checkbox.checked = false;
+                });
+                if (deleteSelectAll) {
+                    deleteSelectAll.checked = false;
+                    deleteSelectAll.indeterminate = false;
+                }
+            }
+
+            updateDeleteSelectionState();
         }
 
         previewButton.addEventListener('click', async function () {
@@ -891,6 +955,57 @@
                     progressSaveButton.disabled = false;
                 }
             });
+        }
+
+        if (deleteModeToggle && deleteToolbar && deleteForm) {
+            deleteModeToggle.addEventListener('click', function () {
+                setDeleteMode(!deleteState.active);
+            });
+
+            if (deleteCancelButton) {
+                deleteCancelButton.addEventListener('click', function () {
+                    setDeleteMode(false);
+                });
+            }
+
+            if (deleteSelectAll) {
+                deleteSelectAll.addEventListener('change', function () {
+                    var checked = !!deleteSelectAll.checked;
+                    getProjectDeleteCheckboxes().forEach(function (checkbox) {
+                        checkbox.checked = checked;
+                    });
+                    updateDeleteSelectionState();
+                });
+            }
+
+            deleteForm.addEventListener('change', function (event) {
+                if (event.target && event.target.classList && event.target.classList.contains('project-delete-checkbox')) {
+                    updateDeleteSelectionState();
+                }
+            });
+
+            deleteForm.addEventListener('submit', function (event) {
+                var selected = getProjectDeleteCheckboxes().filter(function (checkbox) {
+                    return checkbox.checked;
+                });
+
+                if (!selected.length) {
+                    event.preventDefault();
+                    updateDeleteSelectionState();
+                    return;
+                }
+
+                var confirmMessage = selected.length === 1
+                    ? 'Delete the selected craft table?'
+                    : 'Delete ' + selected.length + ' craft tables?';
+
+                if (!window.confirm(confirmMessage)) {
+                    event.preventDefault();
+                    return;
+                }
+            });
+
+            setDeleteMode(false);
         }
     }
 

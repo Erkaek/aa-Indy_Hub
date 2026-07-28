@@ -1410,10 +1410,65 @@ html[data-theme="darkly"] .registry-table tbody tr.registry-row:hover {
 }
 
 .registry-table .col-status   { width: 1%; white-space: nowrap; }
+.registry-table .col-select   { width: 1%; text-align: center; white-space: nowrap; }
 .registry-table .col-scope    { width: 1%; white-space: nowrap; }
 .registry-table .col-progress { width: 30%; min-width: 220px; }
 .registry-table .col-updated  { width: 1%; white-space: nowrap; }
 .registry-table .col-actions  { width: 1%; text-align: right; white-space: nowrap; }
+
+.projects-bulk-delete-form {
+    margin-bottom: 1rem;
+}
+
+.projects-bulk-delete-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+    padding: 0.8rem 1rem;
+    border: 1px solid var(--reg-border);
+    border-radius: 12px;
+    background: linear-gradient(180deg, rgb(248 250 252 / 95%), rgb(241 245 249 / 90%));
+}
+
+html[data-theme="darkly"] .projects-bulk-delete-toolbar {
+    background: rgb(15 23 42 / 80%);
+    border-color: rgb(71 85 105 / 60%);
+}
+
+.projects-bulk-delete-toolbar .form-check-label {
+    cursor: pointer;
+}
+
+.projects-delete-cell {
+    display: none;
+}
+
+.projects-registry--delete-mode .projects-delete-cell {
+    display: table-cell;
+}
+
+.projects-registry--delete-mode .row-actions .btn-outline-danger {
+    display: none;
+}
+
+.projects-row-select {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+}
+
+.projects-row-select .form-check-input {
+    margin-top: 0;
+    cursor: pointer;
+}
+
+.projects-registry--delete-mode .projects-bulk-delete-toolbar.d-none {
+    display: flex !important;
+}
 
 /* --- Status pill --- */
 .status-pill {
@@ -1738,7 +1793,13 @@ html[data-theme="darkly"] .plan-tag--running .plan-tag__label { color: #fde68a; 
     .registry-table .col-progress,
     .registry-table .col-scope,
     .registry-table .col-status,
+    .registry-table .col-select,
     .registry-table .col-updated,
     .registry-table .col-actions { width: auto; white-space: normal; text-align: left; }
     .registry-table .col-actions { padding-top: 0.5rem; }
+
+    .projects-registry--delete-mode .projects-delete-cell {
+        display: block;
+        padding-top: 0.65rem;
+    }
 }

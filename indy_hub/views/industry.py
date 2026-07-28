@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from math import ceil
+from types import SimpleNamespace
 from typing import Any
 from urllib.parse import urlencode
 
@@ -20,8 +21,8 @@ from django.contrib.auth.models import User
 from django.core.cache import cache
 from django.core.exceptions import FieldDoesNotExist, ValidationError
 from django.core.paginator import Paginator
-from django.db import connection
-from django.db.models import Case, Count, Max, Prefetch, Q, When
+from django.db import connection, transaction
+from django.db.models import Case, Count, Max, Prefetch, Q, Sum, When
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -115,10 +116,12 @@ from ..services.material_exchange_assets import (
     material_exchange_sell_assets_progress_key,
 )
 from ..services.production_projects import (
+    LEGACY_SINGLE_BLUEPRINT_PROJECT_NOTE,
     PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY,
     build_project_workspace_payload,
     build_temporary_project_payload,
-    create_project_from_single_blueprint,
+    build_temporary_project_workspace_state,
+    create_temporary_project_workspace,
     get_cached_project_workspace_payload,
     get_temporary_project_workspace,
     normalize_production_project_ref,
@@ -1913,51 +1916,101 @@ def personnal_bp_list(request, scope="character"):
                     "[BLUEPRINTS FILTER] Invalid owner filter: %s", owner_filter
                 )
         blueprints_qs = blueprints_qs.order_by("type_name")
+
+        quantity_normalized_expr = Case(
+            When(quantity__in=[-1, -2], then=1),
+            When(quantity__isnull=True, then=0),
+            When(quantity__lt=0, then=0),
+            default="quantity",
+        )
+
+        grouped_rows = list(
+            blueprints_qs.values(
+                "type_id",
+                "material_efficiency",
+                "time_efficiency",
+                "bp_type",
+            )
+            .annotate(
+                type_name=Max("type_name"),
+                character_id=Max("character_id"),
+                corporation_id=Max("corporation_id"),
+                character_name=Max("character_name"),
+                location_id=Max("location_id"),
+                location_flag=Max("location_flag"),
+                location_name=Max("location_name"),
+                quantity_value=Sum(quantity_normalized_expr),
+                total_runs=Sum(
+                    Case(
+                        When(
+                            bp_type=Blueprint.BPType.COPY,
+                            then=Case(
+                                When(runs__isnull=True, then=0),
+                                When(runs__lt=0, then=0),
+                                default="runs",
+                            )
+                            * Case(
+                                When(quantity__in=[-1, -2], then=1),
+                                When(quantity__isnull=True, then=0),
+                                When(quantity__lt=0, then=0),
+                                default="quantity",
+                            ),
+                        ),
+                        default=0,
+                    )
+                ),
+            )
+            .order_by("type_name", "material_efficiency", "time_efficiency", "bp_type")
+        )
+
         bp_items = []
-        grouped = {}
-
-        def normalized_quantity(value):
-            if value in (-1, -2):
-                return 1
-            if value is None:
-                return 0
-            return max(value, 0)
-
         total_original_quantity = 0
         total_copy_quantity = 0
-        total_quantity = 0
 
-        for bp in blueprints_qs:
-            quantity_value = normalized_quantity(bp.quantity)
-            total_quantity += quantity_value
+        for row in grouped_rows:
+            quantity_value = int(row.get("quantity_value") or 0)
+            is_copy = row["bp_type"] == Blueprint.BPType.COPY
+            is_reaction = row["bp_type"] == Blueprint.BPType.REACTION
+            total_runs = int(row.get("total_runs") or 0)
 
-            if bp.is_copy:
-                category = "copy"
+            if is_copy:
+                orig_quantity = 0
+                copy_quantity = quantity_value
                 total_copy_quantity += quantity_value
             else:
-                category = "reaction" if bp.is_reaction else "original"
+                orig_quantity = quantity_value
+                copy_quantity = 0
                 total_original_quantity += quantity_value
 
-            key = (bp.type_id, bp.material_efficiency, bp.time_efficiency, category)
-            if key not in grouped:
-                bp.orig_quantity = 0
-                bp.copy_quantity = 0
-                bp.total_quantity = 0
-                bp.total_runs = 0
-                grouped[key] = bp
-                bp_items.append(bp)
+            bp_items.append(
+                SimpleNamespace(
+                    type_id=row["type_id"],
+                    type_name=row.get("type_name") or str(row["type_id"]),
+                    material_efficiency=row["material_efficiency"],
+                    time_efficiency=row["time_efficiency"],
+                    bp_type=row["bp_type"],
+                    is_copy=is_copy,
+                    is_reaction=is_reaction,
+                    is_original=not is_copy and not is_reaction,
+                    orig_quantity=orig_quantity,
+                    copy_quantity=copy_quantity,
+                    total_quantity=orig_quantity + copy_quantity,
+                    total_runs=total_runs,
+                    runs=total_runs,
+                    character_id=row.get("character_id"),
+                    corporation_id=row.get("corporation_id"),
+                    character_name=row.get("character_name") or "",
+                    location_id=row.get("location_id"),
+                    location_flag=row.get("location_flag") or "",
+                    location_name=row.get("location_name") or "",
+                )
+            )
 
-            agg = grouped[key]
-            if category == "copy":
-                agg.copy_quantity += quantity_value
-                agg.total_runs += (bp.runs or 0) * max(quantity_value, 1)
-            else:
-                agg.orig_quantity += quantity_value
+        paginator = Paginator(bp_items, per_page)
+        blueprints_page = paginator.get_page(page)
+        page_bp_items = list(blueprints_page.object_list)
 
-            agg.total_quantity = agg.orig_quantity + agg.copy_quantity
-            agg.runs = agg.total_runs
-
-        location_ids = {bp.location_id for bp in bp_items if bp.location_id}
+        location_ids = {bp.location_id for bp in page_bp_items if bp.location_id}
 
         def _populate_location_map(ids: set[int], location_map: dict[int, str]) -> None:
             if not ids:
@@ -2003,7 +2056,7 @@ def personnal_bp_list(request, scope="character"):
                 if root_ids:
                     _populate_location_map(root_ids, location_map)
 
-        for bp in bp_items:
+        for bp in page_bp_items:
             effective_location_id = container_root_map.get(
                 bp.location_id, bp.location_id
             )
@@ -2023,17 +2076,14 @@ def personnal_bp_list(request, scope="character"):
             "fas fa-building" if is_corporation_scope else "fas fa-user-astronaut"
         )
 
-        for bp in bp_items:
+        for bp in page_bp_items:
             owner_id_value = getattr(bp, owner_field)
             owner_display = owner_map.get(owner_id_value, owner_id_value)
             setattr(bp, "owner_display", owner_display)
             setattr(bp, "owner_id", owner_id_value)
             if is_corporation_scope:
                 bp.character_name = owner_display
-
-        paginator = Paginator(bp_items, per_page)
-        blueprints_page = paginator.get_page(page)
-        total_blueprints = total_quantity
+        total_blueprints = total_original_quantity + total_copy_quantity
         originals_count = total_original_quantity
         copies_count = total_copy_quantity
 
@@ -2121,35 +2171,47 @@ def all_bp_list(request):
     search = request.GET.get("search", "").strip()
     activity_id = request.GET.get("activity_id", "")
     market_group_id = request.GET.get("market_group_id", "")
+    try:
+        page = int(request.GET.get("page", 1))
+    except (TypeError, ValueError):
+        page = 1
+    try:
+        per_page = int(request.GET.get("per_page", 25))
+    except (TypeError, ValueError):
+        per_page = 25
+    if per_page not in {10, 25, 50, 100, 200}:
+        per_page = 25
+    page = max(page, 1)
+    offset = (page - 1) * per_page
 
-    # Base SQL
-    sql = (
-        "SELECT t.id, t.name "
-        "FROM eve_sde_itemtype t "
-        "JOIN eve_sde_blueprintactivity a ON t.id = a.blueprint_item_type_id "
-        "WHERE t.published = 1"
-    )
-    # Append activity filter
+    where_clauses = ["COALESCE(t.published, 0) = 1"]
+    params: list[Any] = []
+
     if activity_id == "1":
-        sql += " AND a.activity = 'manufacturing'"
+        where_clauses.append("a.activity = 'manufacturing'")
     elif activity_id == "reactions":
-        sql += " AND a.activity = 'reaction'"
+        where_clauses.append("a.activity = 'reaction'")
     else:
-        sql += " AND a.activity IN ('manufacturing', 'reaction')"
-    # Params for search and market_group filters
-    params = []
+        where_clauses.append("a.activity IN ('manufacturing', 'reaction')")
+
     if search:
-        sql += " AND (t.name LIKE %s OR t.id LIKE %s)"
+        where_clauses.append("(t.name LIKE %s OR t.id LIKE %s)")
         params.extend([f"%{search}%", f"%{search}%"])
     if market_group_id:
-        sql += " AND t.group_id = %s"
+        where_clauses.append("t.group_id = %s")
         params.append(market_group_id)
-    sql += " ORDER BY t.name ASC"
-    page = int(request.GET.get("page", 1))
-    per_page = int(request.GET.get("per_page", 25))
-    # Initial empty pagination before fetching data
-    paginator = Paginator([], per_page)
-    blueprints_page = paginator.get_page(page)
+
+    where_sql = " AND ".join(where_clauses)
+    base_from_sql = (
+        "FROM eve_sde_itemtype t "
+        "JOIN eve_sde_blueprintactivity a ON t.id = a.blueprint_item_type_id"
+    )
+    count_sql = f"SELECT COUNT(DISTINCT t.id) {base_from_sql} WHERE {where_sql}"
+    data_sql = (
+        f"SELECT DISTINCT t.id, t.name {base_from_sql} "
+        f"WHERE {where_sql} ORDER BY t.name ASC LIMIT %s OFFSET %s"
+    )
+
     # Fixed activity options for the dropdown.
     raw_activity_options = [
         (IndustryActivityMixin.ACTIVITY_MANUFACTURING, "Manufacturing"),
@@ -2174,11 +2236,17 @@ def all_bp_list(request):
     # Reactions group
     if any(r in raw_ids for r in [9, 11]):
         activity_options.append(("reactions", activity_labels[9]))
+
     blueprints = []
+    total_blueprints = 0
     market_group_options: list[tuple[int, str]] = []
+
     try:
         with connection.cursor() as cursor:
-            cursor.execute(sql, params)
+            cursor.execute(count_sql, params)
+            total_blueprints = int(cursor.fetchone()[0] or 0)
+
+            cursor.execute(data_sql, [*params, per_page, offset])
             blueprints = [
                 {
                     "type_id": row[0],
@@ -2186,30 +2254,26 @@ def all_bp_list(request):
                 }
                 for row in cursor.fetchall()
             ]
-        paginator = Paginator(blueprints, per_page)
-        blueprints_page = paginator.get_page(page)
 
-        # Fetch market group options based on all matching blueprints, not just current page
+        paginator = Paginator(range(total_blueprints), per_page)
+        blueprints_page = paginator.get_page(page)
+        blueprints_page.object_list = blueprints
+
         with connection.cursor() as cursor:
-            type_ids = [bp["type_id"] for bp in blueprints]
-            if type_ids:
-                placeholders = ",".join(["%s"] * len(type_ids))
-                query = f"""
-                    SELECT DISTINCT t.group_id, g.name
-                    FROM eve_sde_itemtype t
-                    JOIN eve_sde_itemgroup g ON t.group_id = g.id
-                    WHERE t.group_id IS NOT NULL
-                        AND t.id IN ({placeholders})
-                        AND COALESCE(t.published, 0) = 1
-                    ORDER BY g.name
-                """
-                cursor.execute(query, type_ids)
-                market_group_options = [(row[0], row[1]) for row in cursor.fetchall()]
-            else:
-                market_group_options = []
+            market_group_sql = (
+                "SELECT DISTINCT t.group_id, g.name "
+                "FROM eve_sde_itemtype t "
+                "JOIN eve_sde_blueprintactivity a ON t.id = a.blueprint_item_type_id "
+                "JOIN eve_sde_itemgroup g ON t.group_id = g.id "
+                f"WHERE {where_sql} AND t.group_id IS NOT NULL "
+                "ORDER BY g.name"
+            )
+            cursor.execute(market_group_sql, params)
+            market_group_options = [(row[0], row[1]) for row in cursor.fetchall()]
     except Exception as e:
         logger.error(f"Error fetching blueprints: {e}")
         messages.error(request, f"Error fetching blueprints: {e}")
+        paginator = Paginator([], per_page)
         blueprints_page = paginator.get_page(page)
         market_group_options = []
 
@@ -2810,19 +2874,56 @@ def craft_bp(request, type_id):
     te = max(0, min(te, 20))
 
     active_tab = str(request.GET.get("active_tab") or "materials")
-    project = create_project_from_single_blueprint(
+    selected_entries = [
+        {
+            "type_id": int(type_id),
+            "type_name": blueprint_name,
+            "quantity": max(1, num_runs),
+            "category_key": "manual",
+            "category_label": "Manual list",
+            "category_order": 90,
+            "source_line": blueprint_name,
+            "is_craftable": True,
+            "blueprint_type_id": int(type_id),
+            "inclusion_mode": ProductionProjectItem.InclusionMode.PRODUCE,
+        }
+    ]
+    workspace_state = build_temporary_project_workspace_state(
+        source_kind=ProductionProject.SourceKind.MANUAL,
+        source_name=blueprint_name,
+    )
+    workspace_state.update(
+        {
+            "blueprint_type_id": int(type_id),
+            "blueprint_name": blueprint_name,
+            "runs": num_runs,
+            "active_tab": active_tab,
+            "activeBlueprintTab": active_tab,
+            "items": [],
+            "blueprint_efficiencies": [
+                {
+                    "blueprint_type_id": int(type_id),
+                    "material_efficiency": me,
+                    "time_efficiency": te,
+                }
+            ],
+            "custom_prices": [],
+        }
+    )
+    temp_project_ref = create_temporary_project_workspace(
         user=request.user,
-        blueprint_type_id=type_id,
-        blueprint_name=blueprint_name,
-        runs=num_runs,
         name=blueprint_name,
-        me=me,
-        te=te,
-        active_tab=active_tab,
+        status=ProductionProject.Status.DRAFT,
+        source_kind=ProductionProject.SourceKind.MANUAL,
+        source_text=blueprint_name,
+        source_name=blueprint_name,
+        selected_entries=selected_entries,
+        workspace_state=workspace_state,
+        notes=LEGACY_SINGLE_BLUEPRINT_PROJECT_NOTE,
     )
 
-    project_url = reverse("indy_hub:craft_project", args=[project.project_ref])
-    return redirect(project_url)
+    temp_project_url = reverse("indy_hub:craft_temp_project", args=[temp_project_ref])
+    return redirect(temp_project_url)
 
 
 @indy_hub_access_required
@@ -3419,29 +3520,36 @@ def _build_copy_request_blueprint_visibility_filter(user: User) -> Q | None:
     return combined_blueprint_filter
 
 
-def _build_visible_copy_request_blueprint_entries(user: User) -> list[dict[str, Any]]:
+def _build_visible_copy_request_blueprint_entries(
+    user: User,
+    *,
+    search: str = "",
+    min_me: int | None = None,
+    min_te: int | None = None,
+) -> list[dict[str, Any]]:
     visibility_filter = _build_copy_request_blueprint_visibility_filter(user)
     if visibility_filter is None:
         qs = Blueprint.objects.none()
     else:
-        qs = (
-            Blueprint.objects.filter(visibility_filter)
-            .filter(bp_type=Blueprint.BPType.ORIGINAL)
-            .values(
-                "type_id",
-                "type_name",
-                "material_efficiency",
-                "time_efficiency",
-            )
-            .order_by("type_name", "material_efficiency", "time_efficiency")
+        qs = Blueprint.objects.filter(visibility_filter).filter(
+            bp_type=Blueprint.BPType.ORIGINAL
         )
-    seen = set()
+        if search:
+            qs = qs.filter(type_name__icontains=search)
+        if min_me is not None:
+            qs = qs.filter(material_efficiency__gte=min_me)
+        if min_te is not None:
+            qs = qs.filter(time_efficiency__gte=min_te)
+        qs = qs.values(
+            "type_id",
+            "type_name",
+            "material_efficiency",
+            "time_efficiency",
+        ).distinct()
+        qs = qs.order_by("type_name", "material_efficiency", "time_efficiency")
+
     bp_list = []
     for bp in qs:
-        key = (bp["type_id"], bp["material_efficiency"], bp["time_efficiency"])
-        if key in seen:
-            continue
-        seen.add(key)
         bp_list.append(
             {
                 "type_id": bp["type_id"],
@@ -3472,15 +3580,14 @@ def bp_copy_request_page(request):
     if per_page not in {12, 24, 48, 96}:
         per_page = 24
 
-    bp_list = _build_visible_copy_request_blueprint_entries(request.user)
-    if search:
-        bp_list = [bp for bp in bp_list if search.lower() in bp["type_name"].lower()]
-    if min_me.isdigit():
-        min_me_val = int(min_me)
-        bp_list = [bp for bp in bp_list if bp["material_efficiency"] >= min_me_val]
-    if min_te.isdigit():
-        min_te_val = int(min_te)
-        bp_list = [bp for bp in bp_list if bp["time_efficiency"] >= min_te_val]
+    min_me_val = int(min_me) if min_me.isdigit() else None
+    min_te_val = int(min_te) if min_te.isdigit() else None
+    bp_list = _build_visible_copy_request_blueprint_entries(
+        request.user,
+        search=search,
+        min_me=min_me_val,
+        min_te=min_te_val,
+    )
     per_page_options = [12, 24, 48, 96]
     me_options = list(range(0, 11))
     te_options = list(range(0, 21, 2))  # 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20
@@ -4027,32 +4134,38 @@ def bp_copy_fulfill_requests(request):
             request, "indy_hub/blueprint_sharing/bp_copy_fulfill_requests.html", context
         )
 
-    accessible_blueprints: list[Blueprint] = []
+    accessible_blueprint_keys: set[tuple[int, int, int]] = set()
 
     if setting:
-        my_bps_qs = Blueprint.objects.filter(
+        personal_keys = Blueprint.objects.filter(
             owner_user=request.user,
             owner_kind=Blueprint.OwnerKind.CHARACTER,
             bp_type=Blueprint.BPType.ORIGINAL,
+        ).values_list("type_id", "material_efficiency", "time_efficiency")
+        accessible_blueprint_keys.update(
+            {
+                (int(type_id), int(me), int(te))
+                for type_id, me, te in personal_keys
+                if type_id is not None and me is not None and te is not None
+            }
         )
-        accessible_blueprints.extend(list(my_bps_qs))
 
     if accessible_corporation_ids:
-        corp_bp_qs = Blueprint.objects.filter(
+        corporate_keys = Blueprint.objects.filter(
             owner_kind=Blueprint.OwnerKind.CORPORATION,
             bp_type=Blueprint.BPType.ORIGINAL,
             corporation_id__in=accessible_corporation_ids,
+        ).values_list("type_id", "material_efficiency", "time_efficiency")
+        accessible_blueprint_keys.update(
+            {
+                (int(type_id), int(me), int(te))
+                for type_id, me, te in corporate_keys
+                if type_id is not None and me is not None and te is not None
+            }
         )
-        accessible_blueprints.extend(list(corp_bp_qs))
 
-    bp_index = defaultdict(list)
-    bp_item_map = {}
-
-    for bp in accessible_blueprints:
-        key = (bp.type_id, bp.material_efficiency, bp.time_efficiency)
-        bp_index[key].append(bp)
-        if bp.item_id is not None:
-            bp_item_map[bp.item_id] = key
+    bp_index: dict[tuple[int, int, int], list[Blueprint]] = defaultdict(list)
+    bp_item_map: dict[int, tuple[int, int, int]] = {}
 
     visible_copying_structures = [
         structure
@@ -4132,28 +4245,7 @@ def bp_copy_fulfill_requests(request):
         "offer_rejected": 0,
     }
 
-    if not accessible_blueprints and not include_self_requests:
-        context = {
-            "requests": [],
-            "metrics": metrics,
-            "include_self_requests": include_self_requests,
-            "has_requests": False,
-            "active_filter": active_filter,
-        }
-        context.update(nav_context)
-        return render(
-            request, "indy_hub/blueprint_sharing/bp_copy_fulfill_requests.html", context
-        )
-
-    q = Q()
-    has_filters = False
-    for bp in accessible_blueprints:
-        has_filters = True
-        q |= Q(
-            type_id=bp.type_id,
-            material_efficiency=bp.material_efficiency,
-            time_efficiency=bp.time_efficiency,
-        )
+    has_filters = bool(accessible_blueprint_keys)
 
     if not has_filters and not include_self_requests:
         context = {
@@ -4167,6 +4259,75 @@ def bp_copy_fulfill_requests(request):
         return render(
             request, "indy_hub/blueprint_sharing/bp_copy_fulfill_requests.html", context
         )
+
+    q = Q()
+    for type_id, material_efficiency, time_efficiency in accessible_blueprint_keys:
+        q |= Q(
+            type_id=type_id,
+            material_efficiency=material_efficiency,
+            time_efficiency=time_efficiency,
+        )
+
+    if has_filters:
+        base_qs = BlueprintCopyRequest.objects.filter(q)
+        if include_self_requests:
+            # Also include user's own requests even if they don't match blueprints
+            base_qs = BlueprintCopyRequest.objects.filter(
+                q | Q(requested_by=request.user)
+            )
+    else:
+        base_qs = BlueprintCopyRequest.objects.filter(requested_by=request.user)
+
+    if not include_self_requests:
+        base_qs = base_qs.exclude(requested_by=request.user)
+
+    state_filter = (
+        Q(fulfilled=False)
+        | Q(fulfilled=True, delivered=False, offers__owner=request.user)
+        | Q(fulfilled=True, delivered=False, fulfilled_by=request.user)
+    )
+
+    if include_self_requests:
+        state_filter = state_filter | Q(requested_by=request.user, delivered=False)
+
+    candidate_request_keys = set(
+        base_qs.filter(state_filter)
+        .values_list("type_id", "material_efficiency", "time_efficiency")
+        .distinct()
+    )
+
+    if candidate_request_keys:
+        key_filter = Q()
+        for type_id, material_efficiency, time_efficiency in candidate_request_keys:
+            key_filter |= Q(
+                type_id=type_id,
+                material_efficiency=material_efficiency,
+                time_efficiency=time_efficiency,
+            )
+
+        visible_blueprints_q = Q(
+            owner_kind=Blueprint.OwnerKind.CHARACTER, owner_user=request.user
+        )
+        if accessible_corporation_ids:
+            visible_blueprints_q |= Q(
+                owner_kind=Blueprint.OwnerKind.CORPORATION,
+                corporation_id__in=accessible_corporation_ids,
+            )
+
+        relevant_blueprints = Blueprint.objects.filter(
+            visible_blueprints_q,
+            bp_type=Blueprint.BPType.ORIGINAL,
+        ).filter(key_filter)
+
+        for blueprint in relevant_blueprints:
+            key = (
+                int(blueprint.type_id),
+                int(blueprint.material_efficiency),
+                int(blueprint.time_efficiency),
+            )
+            bp_index[key].append(blueprint)
+            if blueprint.item_id is not None:
+                bp_item_map[int(blueprint.item_id)] = key
 
     def _init_occupancy():
         return {"count": 0, "soonest_end": None}
@@ -4276,28 +4437,6 @@ def bp_copy_fulfill_requests(request):
         corp_name_cache[corp_id] = corp_name or str(corp_id)
         return corp_name_cache[corp_id]
 
-    if has_filters:
-        base_qs = BlueprintCopyRequest.objects.filter(q)
-        if include_self_requests:
-            # Also include user's own requests even if they don't match blueprints
-            base_qs = BlueprintCopyRequest.objects.filter(
-                q | Q(requested_by=request.user)
-            )
-    else:
-        base_qs = BlueprintCopyRequest.objects.filter(requested_by=request.user)
-
-    if not include_self_requests:
-        base_qs = base_qs.exclude(requested_by=request.user)
-
-    state_filter = (
-        Q(fulfilled=False)
-        | Q(fulfilled=True, delivered=False, offers__owner=request.user)
-        | Q(fulfilled=True, delivered=False, fulfilled_by=request.user)
-    )
-
-    if include_self_requests:
-        state_filter = state_filter | Q(requested_by=request.user, delivered=False)
-
     qset = (
         base_qs.filter(state_filter)
         .select_related("requested_by")
@@ -4336,6 +4475,8 @@ def bp_copy_fulfill_requests(request):
     ] = {}
 
     requests_to_fulfill = []
+    eligible_details_cache: dict[tuple[int, int, int, int], EligibleOwnerDetails] = {}
+
     for req in qset:
         if req.requested_by_id == request.user.id and not include_self_requests:
             continue
@@ -4345,7 +4486,16 @@ def bp_copy_fulfill_requests(request):
             (offer for offer in offers if offer.owner_id == request.user.id), None
         )
         offers_by_owner = {offer.owner_id: offer for offer in offers}
-        eligible_details = _eligible_owner_details_for_request(req)
+        eligible_details_key = (
+            int(req.type_id or 0),
+            int(req.material_efficiency or 0),
+            int(req.time_efficiency or 0),
+            int(req.requested_by_id or 0),
+        )
+        eligible_details = eligible_details_cache.get(eligible_details_key)
+        if eligible_details is None:
+            eligible_details = _eligible_owner_details_for_request(req)
+            eligible_details_cache[eligible_details_key] = eligible_details
         requester_identity = _identity_for(req.requested_by)
 
         eligible_character_entries: list[dict[str, Any]] = []
@@ -6752,6 +6902,59 @@ def production_simulations_list(request):
     Display the list of production simulations saved by the user.
     Return JSON when api=1 is included in the query string.
     """
+    if request.method == "POST":
+        raw_project_refs = request.POST.getlist("project_refs")
+        normalized_project_refs: list[str] = []
+        for project_ref in raw_project_refs:
+            try:
+                normalized_ref = normalize_production_project_ref(project_ref)
+            except Exception:
+                continue
+            if normalized_ref not in normalized_project_refs:
+                normalized_project_refs.append(normalized_ref)
+
+        if not normalized_project_refs:
+            messages.warning(
+                request,
+                _("Select at least one craft table before deleting multiple projects."),
+            )
+            return redirect("indy_hub:production_simulations_list")
+
+        projects_to_delete = list(
+            ProductionProject.objects.filter(
+                user=request.user, project_ref__in=normalized_project_refs
+            ).only("project_ref", "name")
+        )
+
+        if not projects_to_delete:
+            messages.warning(
+                request,
+                _(
+                    "No selected craft tables were available to delete. Refresh the page and try again."
+                ),
+            )
+            return redirect("indy_hub:production_simulations_list")
+
+        deleted_count = len(projects_to_delete)
+        deleted_names = [project.name for project in projects_to_delete if project.name]
+        with transaction.atomic():
+            ProductionProject.objects.filter(
+                user=request.user, project_ref__in=normalized_project_refs
+            ).delete()
+
+        if deleted_count == 1:
+            deleted_name = deleted_names[0] if deleted_names else _("craft table")
+            messages.success(
+                request,
+                _(f'Craft table "{deleted_name}" deleted successfully.'),
+            )
+        else:
+            messages.success(
+                request,
+                _("Deleted %(count)s craft tables.") % {"count": deleted_count},
+            )
+        return redirect("indy_hub:production_simulations_list")
+
     production_projects = list(
         ProductionProject.objects.filter(user=request.user)
         .order_by("-updated_at")

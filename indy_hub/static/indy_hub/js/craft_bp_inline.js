@@ -616,33 +616,6 @@
         }
     }
 
-    function autoSaveProjectWorkspaceFromTabChange() {
-        if (!isProjectWorkspace || isTemporaryProjectWorkspace || !projectWorkspaceDirty) {
-            return Promise.resolve(true);
-        }
-        if (projectWorkspaceAutoSavePromise) {
-            return projectWorkspaceAutoSavePromise;
-        }
-
-        projectWorkspaceAutoSavePromise = persistProjectWorkspace({
-            showSuccessStatus: false,
-            showErrorStatus: false,
-        }).then((saved) => {
-            if (!saved && projectWorkspaceDirty) {
-                showSimulationStatus(__('Failed to auto-save table changes. Click Save table to retry.'), 'danger', { persistent: true });
-            }
-            return saved;
-        }).catch((error) => {
-            console.error('[CraftBP] Failed to auto-save project workspace after tab change', error);
-            showSimulationStatus(__('Failed to auto-save table changes. Click Save table to retry.'), 'danger', { persistent: true });
-            return false;
-        }).finally(() => {
-            projectWorkspaceAutoSavePromise = null;
-        });
-
-        return projectWorkspaceAutoSavePromise;
-    }
-
     async function fetchSimulationsList() {
         if (cachedSimulations) {
             return cachedSimulations;
@@ -912,9 +885,8 @@
             if (tabRoot.dataset.workspaceAutoSaveBound === 'true') {
                 return;
             }
-            tabRoot.addEventListener('shown.bs.tab', () => {
-                autoSaveProjectWorkspaceFromTabChange();
-            });
+            // Keep craft workspaces in simulation/cache mode until the user
+            // explicitly clicks Save table.
             tabRoot.dataset.workspaceAutoSaveBound = 'true';
         });
 

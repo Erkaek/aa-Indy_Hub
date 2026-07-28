@@ -7,7 +7,7 @@ Handles user-facing order tracking, details, and history.
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
-from django.db.models import Count, Q
+from django.db.models import BooleanField, Case, CharField, Count, Value, When
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -100,68 +100,117 @@ def my_orders(request):
         view_name="material_exchange_orders.my_orders", request=request
     )
     logger.debug("Material exchange orders list accessed (user_id=%s)", request.user.id)
-    # Optimize: Annotate items_count to avoid N+1 queries
-    # Get all sell orders for user with annotated count
-    sell_orders = (
+    closed_statuses = ["completed", "rejected", "cancelled"]
+    sell_count = MaterialExchangeSellOrder.objects.filter(seller=request.user).count()
+    buy_count = MaterialExchangeBuyOrder.objects.filter(buyer=request.user).count()
+
+    sell_rows = (
         MaterialExchangeSellOrder.objects.filter(seller=request.user)
-        .select_related("config")
-        .annotate(items_count=Count("items"))
-        .order_by("-created_at")
+        .order_by()
+        .annotate(
+            items_count=Count("items"),
+            row_type=Value("sell", output_field=CharField()),
+            is_closed=Case(
+                When(status__in=closed_statuses, then=Value(True)),
+                default=Value(False),
+                output_field=BooleanField(),
+            ),
+        )
+        .values("id", "created_at", "row_type", "is_closed", "items_count")
     )
-
-    # Get all buy orders for user with annotated count
-    buy_orders = (
+    buy_rows = (
         MaterialExchangeBuyOrder.objects.filter(buyer=request.user)
-        .select_related("config")
-        .annotate(items_count=Count("items"))
-        .order_by("-created_at")
+        .order_by()
+        .annotate(
+            items_count=Count("items"),
+            row_type=Value("buy", output_field=CharField()),
+            is_closed=Case(
+                When(status__in=closed_statuses, then=Value(True)),
+                default=Value(False),
+                output_field=BooleanField(),
+            ),
+        )
+        .values("id", "created_at", "row_type", "is_closed", "items_count")
     )
 
-    # Combine and sort by created_at
-    all_orders = []
+    combined_rows = sell_rows.union(buy_rows, all=True).order_by(
+        "is_closed", "-created_at", "-id"
+    )
 
-    for order in sell_orders:
-        timeline = _build_timeline_breadcrumb(order, "sell")
-        is_closed = order.status in {"completed", "rejected", "cancelled"}
-        corporation_name = get_corporation_name(
-            getattr(order.config, "corporation_id", None)
-        )
-        all_orders.append(
-            {
-                "type": "sell",
-                "order": order,
-                "reference": order.order_reference,
-                "status": order.get_status_display(),
-                "status_class": _get_status_class(order.status),
-                "items_count": order.items_count,  # Use annotated value
-                "total_price": order.total_price,
-                "created_at": order.created_at,
-                "is_closed": is_closed,
-                "id": order.id,
-                "timeline_breadcrumb": timeline,
-                "progress_width": _calc_progress_width(timeline),
-                "contract_check_enabled": not is_closed,
-                "contract_check_recipient": corporation_name,
-                "contract_check_location": _get_material_exchange_location_summary(
-                    order.config
-                ),
-                "contract_check_amount": str(order.total_price),
-                "contract_check_amount_label": _("I will receive"),
-            }
-        )
+    paginator = Paginator(combined_rows, 20)
+    page_number = request.GET.get("page")
+    page_obj = paginator.get_page(page_number)
+    page_rows = list(page_obj.object_list)
 
-    for order in buy_orders:
+    sell_ids = [row["id"] for row in page_rows if row["row_type"] == "sell"]
+    buy_ids = [row["id"] for row in page_rows if row["row_type"] == "buy"]
+
+    sell_orders_map = {
+        order.id: order
+        for order in MaterialExchangeSellOrder.objects.filter(id__in=sell_ids)
+        .select_related("config")
+        .annotate(items_count=Count("items"))
+    }
+    buy_orders_map = {
+        order.id: order
+        for order in MaterialExchangeBuyOrder.objects.filter(id__in=buy_ids)
+        .select_related("config", "buyer")
+        .annotate(items_count=Count("items"))
+    }
+
+    hydrated_orders = []
+    for row in page_rows:
+        order_id = row["id"]
+        row_type = row["row_type"]
+
+        if row_type == "sell":
+            order = sell_orders_map.get(order_id)
+            if not order:
+                continue
+            timeline = _build_timeline_breadcrumb(order, "sell")
+            is_closed = order.status in {"completed", "rejected", "cancelled"}
+            corporation_name = get_corporation_name(
+                getattr(order.config, "corporation_id", None)
+            )
+            hydrated_orders.append(
+                {
+                    "type": "sell",
+                    "order": order,
+                    "reference": order.order_reference,
+                    "status": order.get_status_display(),
+                    "status_class": _get_status_class(order.status),
+                    "items_count": int(row.get("items_count") or 0),
+                    "total_price": order.total_price,
+                    "created_at": order.created_at,
+                    "is_closed": is_closed,
+                    "id": order.id,
+                    "timeline_breadcrumb": timeline,
+                    "progress_width": _calc_progress_width(timeline),
+                    "contract_check_enabled": not is_closed,
+                    "contract_check_recipient": corporation_name,
+                    "contract_check_location": _get_material_exchange_location_summary(
+                        order.config
+                    ),
+                    "contract_check_amount": str(order.total_price),
+                    "contract_check_amount_label": _("I will receive"),
+                }
+            )
+            continue
+
+        order = buy_orders_map.get(order_id)
+        if not order:
+            continue
         timeline = _build_timeline_breadcrumb(order, "buy")
         is_closed = order.status in {"completed", "rejected", "cancelled"}
         buyer_main_character = _resolve_main_character_name(order.buyer)
-        all_orders.append(
+        hydrated_orders.append(
             {
                 "type": "buy",
                 "order": order,
                 "reference": order.order_reference,
                 "status": order.get_status_display(),
                 "status_class": _get_status_class(order.status),
-                "items_count": order.items_count,  # Use annotated value
+                "items_count": int(row.get("items_count") or 0),
                 "total_price": order.total_price,
                 "created_at": order.created_at,
                 "is_closed": is_closed,
@@ -178,36 +227,20 @@ def my_orders(request):
             }
         )
 
-    # Sort: in-progress orders first, then closed orders; each group newest-first.
-    all_orders.sort(key=lambda x: x["created_at"], reverse=True)
-    all_orders.sort(key=lambda x: x["is_closed"])
-
-    # Paginate
-    paginator = Paginator(all_orders, 20)
-    page_number = request.GET.get("page")
-    page_obj = paginator.get_page(page_number)
+    page_obj.object_list = hydrated_orders
 
     # Optimize: Use aggregate instead of separate count() calls
-    orders_stats = MaterialExchangeSellOrder.objects.filter(
-        Q(seller=request.user) | Q(pk__in=[])
-    ).aggregate(
-        sell_count=Count("id", filter=Q(seller=request.user)),
-    )
-    buy_stats = MaterialExchangeBuyOrder.objects.filter(buyer=request.user).aggregate(
-        buy_count=Count("id")
-    )
-
     context = {
         "page_obj": page_obj,
-        "total_sell": orders_stats["sell_count"],
-        "total_buy": buy_stats["buy_count"],
+        "total_sell": sell_count,
+        "total_buy": buy_count,
     }
 
     logger.debug(
         "Material exchange orders summary (user_id=%s, sell=%s, buy=%s)",
         request.user.id,
-        orders_stats["sell_count"],
-        buy_stats["buy_count"],
+        sell_count,
+        buy_count,
     )
 
     context.update(build_nav_context(request.user, active_tab="material_hub"))

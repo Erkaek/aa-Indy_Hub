@@ -278,15 +278,9 @@ class LegacySimulationUnificationTests(TestCase):
         project.save(update_fields=["workspace_state", "updated_at"])
         return project
 
-    @patch("indy_hub.views.industry.create_project_from_single_blueprint")
-    def test_craft_bp_redirects_to_project_workspace(self, mock_create_project):
-        project = ProductionProject.objects.create(
-            user=self.user,
-            name="Vedmak",
-            status=ProductionProject.Status.DRAFT,
-            source_kind=ProductionProject.SourceKind.MANUAL,
-        )
-        mock_create_project.return_value = project
+    @patch("indy_hub.views.industry.create_temporary_project_workspace")
+    def test_craft_bp_redirects_to_temp_workspace(self, mock_create_workspace):
+        mock_create_workspace.return_value = "temp123"
 
         request = self._prepare_request(
             self.factory.get(
@@ -299,9 +293,9 @@ class LegacySimulationUnificationTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(
             response.url,
-            reverse("indy_hub:craft_project", args=[project.project_ref]),
+            reverse("indy_hub:craft_temp_project", args=["temp123"]),
         )
-        mock_create_project.assert_called_once()
+        mock_create_workspace.assert_called_once()
 
     def test_save_production_project_workspace_persists_workspace_state(self):
         project = ProductionProject.objects.create(

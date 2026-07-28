@@ -2,6 +2,16 @@
 {% load humanize %}
 {% with status=project.status progress=project.activity_progress|default_if_none:None summary=project.summary|default_if_none:None %}
 <tr class="registry-row registry-row--{{ status }}" data-project-id="{{ project.id }}">
+    <td class="col-select projects-delete-cell">
+        <div class="projects-row-select">
+            <input
+                class="form-check-input project-delete-checkbox"
+                type="checkbox"
+                name="project_refs"
+                value="{{ project.project_ref }}"
+                aria-label="{% trans 'Select project for deletion' %}">
+        </div>
+    </td>
     <td class="col-status">
         <span class="status-pill status-pill--{{ status }}">
             {% if status == 'draft' %}<i class="fas fa-pencil-ruler"></i>{% elif status == 'saved' %}<i class="fas fa-bookmark"></i>{% else %}<i class="fas fa-box-archive"></i>{% endif %}

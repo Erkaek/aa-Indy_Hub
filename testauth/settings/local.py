@@ -57,6 +57,11 @@ LOGGING = {
         },
     },
     "loggers": {
+        "esi": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
         "extensions": {
             "handlers": ["console"],
             "level": "DEBUG",

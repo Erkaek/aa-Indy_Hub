@@ -1780,44 +1780,57 @@ def _build_dashboard_context(request):
     # Fulfill queue count (requests I can help with)
     fulfill_count = 0
     try:
-        my_keys = list(
-            Blueprint.objects.filter(
+        my_keys = {
+            (int(type_id), int(me), int(te))
+            for type_id, me, te in Blueprint.objects.filter(
                 owner_user=request.user,
                 owner_kind=Blueprint.OwnerKind.CHARACTER,
                 bp_type=Blueprint.BPType.ORIGINAL,
-            ).values_list("type_id", "material_efficiency", "time_efficiency")
-        )
+            )
+            .values_list("type_id", "material_efficiency", "time_efficiency")
+            .distinct()
+            if type_id is not None and me is not None and te is not None
+        }
 
         if my_keys:
-            key_filter = Q()
-            for type_id, me, te in my_keys:
-                key_filter |= Q(
-                    type_id=type_id,
-                    material_efficiency=me,
-                    time_efficiency=te,
-                )
-
-            eligible = (
-                BlueprintCopyRequest.objects.exclude(requested_by=request.user)
-                .filter(key_filter)
-                .exclude(offers__owner=request.user, offers__status="rejected")
+            request_state_filter = Q(fulfilled=False) | Q(
+                fulfilled=True,
+                delivered=False,
+                offers__owner=request.user,
+                offers__status="accepted",
+                offers__accepted_by_buyer=True,
+                offers__accepted_by_seller=True,
             )
 
-            fulfill_count = (
-                eligible.filter(
-                    Q(fulfilled=False)
-                    | Q(
-                        fulfilled=True,
-                        delivered=False,
-                        offers__owner=request.user,
-                        offers__status="accepted",
-                        offers__accepted_by_buyer=True,
-                        offers__accepted_by_seller=True,
-                    )
+            candidate_keys = {
+                (int(type_id), int(me), int(te))
+                for type_id, me, te in BlueprintCopyRequest.objects.exclude(
+                    requested_by=request.user
                 )
+                .filter(request_state_filter)
+                .values_list("type_id", "material_efficiency", "time_efficiency")
                 .distinct()
-                .count()
-            )
+                if type_id is not None and me is not None and te is not None
+            }
+
+            matching_keys = my_keys & candidate_keys
+
+            if matching_keys:
+                key_filter = Q()
+                for type_id, me, te in matching_keys:
+                    key_filter |= Q(
+                        type_id=type_id,
+                        material_efficiency=me,
+                        time_efficiency=te,
+                    )
+
+                eligible = (
+                    BlueprintCopyRequest.objects.exclude(requested_by=request.user)
+                    .filter(key_filter)
+                    .exclude(offers__owner=request.user, offers__status="rejected")
+                )
+
+                fulfill_count = eligible.filter(request_state_filter).distinct().count()
     except Exception:
         fulfill_count = 0
 

@@ -37,6 +37,8 @@ Quick map:
 | `1.10.x`          | [Upgrading from 1.10.x to 1.18.1](#upgrading-from-110x-to-1181) |
 | `1.9.x` and older | [Upgrading from 1.9.x to 1.18.1](#upgrading-from-19x-to-1181)   |
 
+If your previous deployment path involved manual merge-based installs and you hit leftover package-file issues after upgrade, follow the recovery process in [PROCESS_RESOLUTION_INSTALL.md](PROCESS_RESOLUTION_INSTALL.md).
+
 ______________________________________________________________________
 
 ## Upgrading from 1.17.x to 1.18.1

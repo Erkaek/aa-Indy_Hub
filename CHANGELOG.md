@@ -17,6 +17,8 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 - Material Exchange: added a Material Hub navbar badge showing active buy/sell order activity.
 - Industry Jobs: added a clear `Force Refresh` action and a visible “last update” timestamp.
 - Crafting Projects: final output quantity can now be edited directly in the workspace.
+- Crafting Projects: added a bulk-delete mode on `/indy_hub/projects/` with row checkboxes, select-all, confirmation dialog, and responsive toolbar controls.
+- Documentation: added `docs/PROCESS_RESOLUTION_INSTALL.md` and linked it from upgrade guidance for legacy merge-based install recovery.
 
 ### Changed
 
@@ -26,6 +28,14 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 - Crafting Projects and Material Exchange pages were cleaned up for better readability and behavior on smaller screens.
 - Material Exchange stock/reservation displays were simplified to make current ownership context clearer.
 - Internal SDE handling was simplified around the base `eve_sde` flow.
+- Crafting Projects entry flow: `/indy_hub/craft/<type_id>/` now starts in a temporary cached workspace and redirects to the temp project route, so opening craft no longer creates a persisted project before explicit save.
+- Crafting Projects frontend: removed tab-switch auto-save in the workspace JS so project persistence remains an explicit `Save table` action.
+- Blueprint catalog (`/indy_hub/all-bp/`): reworked SQL pagination to use distinct count + paged data queries, and rebuilt market-group options from the full filtered result set instead of only the current page.
+- Blueprint sharing request filters: search, ME, and TE filtering now execute at query level with deduplicated result rows (`distinct`) instead of post-query Python filtering.
+- Material Exchange buy flow: stock queries now use `select_related("config")` across reservation and display paths to reduce repeated related-object lookups.
+- Material Exchange orders list: refactored listing to union lightweight sell/buy rows for pagination and hydrate only visible page IDs, improving large account order history responsiveness.
+- User dashboard fulfill metrics: copy-request eligibility counting now intersects deduplicated blueprint key sets before expensive request filtering.
+- Test/dev workflow: `tox` now defaults to quieter output and accepts targeted test selectors; `make tox_tests` supports `TOX_ENV` and `TESTS` overrides.
 
 ### Fixed
 
@@ -37,6 +47,14 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 - Notifications: fixed duplicate Discord DM edge cases.
 - Blueprint Sharing and Material Exchange: fixed several contract/order validation and matching edge cases.
 - Large-account responsiveness: reduced expensive repeated checks in dashboard/header paths.
+- Crafting Projects persistence semantics: opening and navigating craft tabs no longer writes project workspace updates implicitly.
+- Projects bulk deletion safety: bulk delete POST handling now normalizes refs, enforces ownership scope, and executes deletions inside an atomic transaction.
+
+### Internal
+
+- Database indexing: added migration `0109_optimize_query_indexes` with new composite indexes for blueprint copy request state filters and Material Exchange buy/sell order state timelines.
+- Tests: extended project view coverage for bulk-delete UI/backend behavior and updated craft entrypoint tests to assert temporary-workspace redirect behavior.
+- Local test settings: lowered the `esi` logger in local settings to `INFO` to reduce callback-path debug noise during development.
 
 ## [1.17.2] - 2026-06-01
 
