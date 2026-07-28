@@ -11,7 +11,7 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 ## [1.18.1] - 2026-07-27
 
-### Added
+### Added.
 
 - Industry Structures: admins can now set and edit taxes on auto-synced structures.
 - Material Exchange: added a Material Hub navbar badge showing active buy/sell order activity.
