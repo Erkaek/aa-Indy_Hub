@@ -4,36 +4,118 @@
 from django.db import migrations
 
 
+def _table_constraints(schema_editor, table_name: str) -> set[str]:
+    connection = schema_editor.connection
+    with connection.cursor() as cursor:
+        constraints = connection.introspection.get_constraints(cursor, table_name)
+    return set(constraints.keys())
+
+
+def _rename_index_if_needed(
+    schema_editor,
+    *,
+    table_name: str,
+    old_name: str,
+    new_name: str,
+) -> None:
+    existing = _table_constraints(schema_editor, table_name)
+    if new_name in existing or old_name not in existing:
+        return
+
+    quoted_table = schema_editor.quote_name(table_name)
+    quoted_old = schema_editor.quote_name(old_name)
+    quoted_new = schema_editor.quote_name(new_name)
+    schema_editor.execute(
+        f"ALTER TABLE {quoted_table} RENAME INDEX {quoted_old} TO {quoted_new}"
+    )
+
+
+def _forwards(apps, schema_editor):
+    # `RenameIndex` fails on environments where the old index names were
+    # already aligned manually or by backend-specific name normalization.
+    rename_specs = [
+        (
+            "indy_hub_industrystructure",
+            "indy_hub_in_constel_22f76f_idx",
+            "indy_hub_in_constel_30b149_idx",
+        ),
+        (
+            "indy_hub_industrystructure",
+            "indy_hub_in_region__8e4ef4_idx",
+            "indy_hub_in_region__db733f_idx",
+        ),
+        (
+            "indy_hub_industrystructure",
+            "indy_hub_in_visibili_215887_idx",
+            "indy_hub_in_visibil_c32ce1_idx",
+        ),
+        (
+            "indy_hub_industrystructure",
+            "indy_hub_in_source__2f4ab3_idx",
+            "indy_hub_in_source__b435e9_idx",
+        ),
+        (
+            "indy_hub_sdeblueprintactivity",
+            "indy_hub_sd_eve_typ_6e34d2_idx",
+            "indy_hub_sd_eve_typ_366e41_idx",
+        ),
+    ]
+
+    for table_name, old_name, new_name in rename_specs:
+        _rename_index_if_needed(
+            schema_editor,
+            table_name=table_name,
+            old_name=old_name,
+            new_name=new_name,
+        )
+
+
+def _backwards(apps, schema_editor):
+    reverse_specs = [
+        (
+            "indy_hub_industrystructure",
+            "indy_hub_in_constel_30b149_idx",
+            "indy_hub_in_constel_22f76f_idx",
+        ),
+        (
+            "indy_hub_industrystructure",
+            "indy_hub_in_region__db733f_idx",
+            "indy_hub_in_region__8e4ef4_idx",
+        ),
+        (
+            "indy_hub_industrystructure",
+            "indy_hub_in_visibil_c32ce1_idx",
+            "indy_hub_in_visibili_215887_idx",
+        ),
+        (
+            "indy_hub_industrystructure",
+            "indy_hub_in_source__b435e9_idx",
+            "indy_hub_in_source__2f4ab3_idx",
+        ),
+        (
+            "indy_hub_sdeblueprintactivity",
+            "indy_hub_sd_eve_typ_366e41_idx",
+            "indy_hub_sd_eve_typ_6e34d2_idx",
+        ),
+    ]
+
+    for table_name, old_name, new_name in reverse_specs:
+        _rename_index_if_needed(
+            schema_editor,
+            table_name=table_name,
+            old_name=old_name,
+            new_name=new_name,
+        )
+
+
 class Migration(migrations.Migration):
+
+    atomic = False
 
     dependencies = [
         ("indy_hub", "0098_align_corporation_sharing_choices"),
     ]
 
     operations = [
-        migrations.RenameIndex(
-            model_name="industrystructure",
-            new_name="indy_hub_in_constel_30b149_idx",
-            old_name="indy_hub_in_constel_22f76f_idx",
-        ),
-        migrations.RenameIndex(
-            model_name="industrystructure",
-            new_name="indy_hub_in_region__db733f_idx",
-            old_name="indy_hub_in_region__8e4ef4_idx",
-        ),
-        migrations.RenameIndex(
-            model_name="industrystructure",
-            new_name="indy_hub_in_visibil_c32ce1_idx",
-            old_name="indy_hub_in_visibili_215887_idx",
-        ),
-        migrations.RenameIndex(
-            model_name="industrystructure",
-            new_name="indy_hub_in_source__b435e9_idx",
-            old_name="indy_hub_in_source__2f4ab3_idx",
-        ),
-        migrations.RenameIndex(
-            model_name="sdeblueprintactivity",
-            new_name="indy_hub_sd_eve_typ_366e41_idx",
-            old_name="indy_hub_sd_eve_typ_6e34d2_idx",
-        ),
+        migrations.RunPython(_forwards, _backwards),
     ]

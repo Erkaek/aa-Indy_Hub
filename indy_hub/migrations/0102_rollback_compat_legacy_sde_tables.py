@@ -20,6 +20,30 @@ def _ensure_legacy_tables_for_rollback(_apps, schema_editor):
     connection = schema_editor.connection
     table_names = set(connection.introspection.table_names())
 
+    if "indy_hub_sdeindustryactivity" not in table_names:
+        schema_editor.execute(
+            """
+            CREATE TABLE indy_hub_sdeindustryactivity (
+                id INTEGER PRIMARY KEY,
+                name VARCHAR(100) NOT NULL DEFAULT ''
+            )
+            """
+        )
+
+    if "indy_hub_sdemarketgroup" not in table_names:
+        schema_editor.execute(
+            """
+            CREATE TABLE indy_hub_sdemarketgroup (
+                id BIGINT PRIMARY KEY,
+                name VARCHAR(255) NOT NULL DEFAULT '',
+                description LONGTEXT NULL,
+                has_types BOOL NOT NULL DEFAULT 0,
+                icon_id INTEGER NULL,
+                parent_market_group_id BIGINT NULL
+            )
+            """
+        )
+
     if "indy_hub_sdeindustryactivityproduct" not in table_names:
         schema_editor.execute(
             """
@@ -33,13 +57,40 @@ def _ensure_legacy_tables_for_rollback(_apps, schema_editor):
             """
         )
 
+    if "indy_hub_sdeindustryactivitymaterial" not in table_names:
+        schema_editor.execute(
+            """
+            CREATE TABLE indy_hub_sdeindustryactivitymaterial (
+                id INTEGER PRIMARY KEY,
+                eve_type_id BIGINT NOT NULL,
+                activity_id INTEGER NOT NULL,
+                material_eve_type_id BIGINT NOT NULL,
+                quantity INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+
     if "indy_hub_sdeblueprintactivity" not in table_names:
         schema_editor.execute(
             """
             CREATE TABLE indy_hub_sdeblueprintactivity (
                 id INTEGER PRIMARY KEY,
                 eve_type_id BIGINT NOT NULL,
-                activity VARCHAR(32) NOT NULL
+                activity_id INTEGER NOT NULL,
+                time INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+
+    if "indy_hub_sde_sync_state" not in table_names:
+        schema_editor.execute(
+            """
+            CREATE TABLE indy_hub_sde_sync_state (
+                id SMALLINT PRIMARY KEY,
+                last_source_build_number INTEGER NULL,
+                last_source_release_date DATETIME NULL,
+                last_synced_at DATETIME NULL,
+                updated_at DATETIME NULL
             )
             """
         )
@@ -54,12 +105,14 @@ def _ensure_legacy_tables_for_rollback(_apps, schema_editor):
         schema_editor.execute(
             """
             CREATE INDEX indy_hub_sd_eve_typ_366e41_idx
-            ON indy_hub_sdeblueprintactivity (eve_type_id, activity)
+            ON indy_hub_sdeblueprintactivity (eve_type_id, activity_id)
             """
         )
 
 
 class Migration(migrations.Migration):
+
+    atomic = False
 
     dependencies = [
         ("indy_hub", "0101_drop_legacy_indy_sde_tables"),
