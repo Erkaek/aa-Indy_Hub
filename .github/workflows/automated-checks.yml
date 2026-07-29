@@ -49,10 +49,20 @@ jobs:
 #      - run: npm install
 
       - name: Install pre-commit
-        run: python -m pip install --upgrade pip pre-commit
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pre-commit==4.5.1
 
       - name: Run Pre Commit Checks
-        run: pre-commit run --all-files
+        run: |
+          set -e
+          if ! pre-commit run --all-files; then
+            echo "::group::pre-commit workspace diff"
+            git status --short
+            git --no-pager diff
+            echo "::endgroup::"
+            exit 1
+          fi
 
   # Run Test Coverage
   test-coverage:
