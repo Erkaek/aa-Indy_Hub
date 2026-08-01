@@ -18,6 +18,8 @@ from indy_hub.views.api import (
     craft_bp_payload,
     craft_structure_jump_distances,
     fuzzwork_price,
+    production_project_payload,
+    temporary_production_project_payload,
 )
 
 
@@ -55,6 +57,76 @@ class CraftBlueprintPayloadApiTests(TestCase):
         self.user = User.objects.create_user(username="builder", password="secret")
         permission = Permission.objects.get(codename="can_access_indy_hub")
         self.user.user_permissions.add(permission)
+
+    @patch("indy_hub.views.api.build_project_workspace_payload")
+    @patch("indy_hub.views.api.get_object_or_404")
+    @patch("indy_hub.views.api.emit_view_analytics_event")
+    def test_production_project_payload_requests_full_structure_options(
+        self,
+        mock_emit_view_analytics_event,
+        mock_get_object_or_404,
+        mock_build_project_workspace_payload,
+    ) -> None:
+        mock_emit_view_analytics_event.return_value = None
+        mock_get_object_or_404.return_value = object()
+        mock_build_project_workspace_payload.return_value = {}
+
+        request = self.factory.get(
+            "/indy_hub/api/production-project-payload/test-project/",
+            {"include_full_structure_options": "1"},
+        )
+        request.user = self.user
+
+        view = production_project_payload
+        while hasattr(view, "__wrapped__"):
+            view = view.__wrapped__
+
+        response = view(request, "test-project")
+
+        self.assertEqual(response.status_code, 200)
+        mock_build_project_workspace_payload.assert_called_once()
+        self.assertTrue(
+            mock_build_project_workspace_payload.call_args.kwargs[
+                "include_full_structure_options"
+            ]
+        )
+
+    @patch("indy_hub.views.api.build_temporary_project_payload")
+    @patch("indy_hub.views.api.get_temporary_project_workspace")
+    @patch("indy_hub.views.api.emit_view_analytics_event")
+    def test_temporary_payload_bypasses_cache_for_full_structure_options(
+        self,
+        mock_emit_view_analytics_event,
+        mock_get_temporary_project_workspace,
+        mock_build_temporary_project_payload,
+    ) -> None:
+        mock_emit_view_analytics_event.return_value = None
+        mock_get_temporary_project_workspace.return_value = {
+            "workspace_state": {
+                "cached_payload": {"structure_planner": {"summary": {}}}
+            }
+        }
+        mock_build_temporary_project_payload.return_value = {"temp_project_ref": "x"}
+
+        request = self.factory.get(
+            "/indy_hub/api/temporary-production-project-payload/test-temp/",
+            {"include_full_structure_options": "1"},
+        )
+        request.user = self.user
+
+        view = temporary_production_project_payload
+        while hasattr(view, "__wrapped__"):
+            view = view.__wrapped__
+
+        response = view(request, "test-temp")
+
+        self.assertEqual(response.status_code, 200)
+        mock_build_temporary_project_payload.assert_called_once()
+        self.assertTrue(
+            mock_build_temporary_project_payload.call_args.kwargs[
+                "include_full_structure_options"
+            ]
+        )
 
     @patch("indy_hub.views.api.build_craft_time_map")
     @patch("indy_hub.views.api.emit_view_analytics_event")

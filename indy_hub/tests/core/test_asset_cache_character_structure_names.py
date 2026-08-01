@@ -96,3 +96,52 @@ class CharacterAssetRefreshStructureNameTests(TestCase):
         refresh_mock.assert_called_once_with(user)
         self.assertFalse(scope_missing)
         self.assertEqual(assets, refreshed_assets)
+
+    def test_build_user_asset_inventory_snapshot_groups_assets_by_location(
+        self,
+    ) -> None:
+        user = User.objects.create_user("location_snapshot_user", password="secret123")
+        cached_assets = [
+            {
+                "character_id": 12345,
+                "location_id": 60003760,
+                "location_name": "Jita IV - Moon 4",
+                "type_id": 34,
+                "quantity": 100,
+                "is_blueprint": False,
+            },
+            {
+                "character_id": 12345,
+                "location_id": 60003760,
+                "location_name": "Jita IV - Moon 4",
+                "type_id": 35,
+                "quantity": 50,
+                "is_blueprint": False,
+            },
+            {
+                "character_id": 67890,
+                "location_id": 1029384756,
+                "location_name": "Amarr Factory",
+                "type_id": 34,
+                "quantity": 25,
+                "is_blueprint": False,
+            },
+        ]
+
+        with patch.object(
+            asset_cache,
+            "get_user_assets_cached",
+            return_value=(cached_assets, False),
+        ):
+            snapshot = asset_cache.build_user_asset_inventory_snapshot(
+                user,
+                allow_refresh=False,
+            )
+
+        self.assertEqual(snapshot["totals_by_type"]["34"], 125)
+        self.assertEqual(len(snapshot["locations"]), 2)
+        self.assertEqual(snapshot["locations"][0]["location_name"], "Amarr Factory")
+        self.assertEqual(snapshot["locations"][0]["items_by_type"]["34"], 25)
+        self.assertEqual(snapshot["locations"][1]["location_name"], "Jita IV - Moon 4")
+        self.assertEqual(snapshot["locations"][1]["items_by_type"]["34"], 100)
+        self.assertEqual(snapshot["locations"][1]["items_by_type"]["35"], 50)

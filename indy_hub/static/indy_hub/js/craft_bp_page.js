@@ -1144,6 +1144,115 @@
     function bindCraftStateHandlers() {
         window.validateBlueprintRuns = validateBlueprintRuns;
 
+        function reportCraftInitError(error) {
+            const message = String(error || 'CraftBP init failed');
+            if (typeof console !== 'undefined' && typeof console.warn === 'function') {
+                console.warn('[CraftBP] Initialization retry pending:', message);
+            }
+            document.dispatchEvent(new CustomEvent('CraftBP:status', {
+                detail: {
+                    message: __('Initializing workspace...'),
+                    variant: 'info',
+                }
+            }));
+        }
+
+        function scheduleFinalOutputPriceHydrationFallback() {
+            let attempts = 0;
+            let stableChecks = 0;
+            const maxAttempts = 24;
+            const initialDelayMs = 300;
+            const retryDelayMs = 500;
+
+            const fallbackUrl = pageUrls.fuzzwork_price || window.BLUEPRINT_DATA?.fuzzwork_price_url || '/indy_hub/api/fuzzwork-price/';
+
+            const tick = () => {
+                attempts += 1;
+
+                const rows = Array.from(document.querySelectorAll('#financialItemsBody tr[data-final-output="true"]'));
+                if (rows.length === 0) {
+                    if (attempts < maxAttempts) {
+                        window.setTimeout(tick, retryDelayMs);
+                    }
+                    return;
+                }
+
+                const missingRows = rows.filter((row) => {
+                    const typeId = Number(row.getAttribute('data-type-id') || 0) || 0;
+                    const displayed = Number(row.querySelector('.fuzzwork-price')?.value || 0);
+                    return typeId > 0 && displayed <= 0;
+                });
+                const missingTypeIds = [...new Set(missingRows
+                    .map((row) => Number(row.getAttribute('data-type-id') || 0) || 0)
+                    .filter((typeId) => typeId > 0))];
+
+                const hydratePromise = (missingTypeIds.length === 0)
+                    ? Promise.resolve(false)
+                    : (() => {
+                        const separator = fallbackUrl.includes('?') ? '&' : '?';
+                        const requestUrl = `${fallbackUrl}${separator}type_id=${missingTypeIds.join(',')}`;
+                        return fetch(requestUrl, { credentials: 'same-origin' })
+                            .then((response) => (response.ok ? response.json() : null))
+                            .then((payload) => {
+                                let changed = false;
+                                missingRows.forEach((row) => {
+                                    const typeId = Number(row.getAttribute('data-type-id') || 0) || 0;
+                                    const raw = payload && (payload[String(typeId)] ?? payload[typeId]);
+                                    const value = Number(raw) || 0;
+                                    if (!(value > 0)) {
+                                        return;
+                                    }
+
+                                    if (window.SimulationAPI && typeof window.SimulationAPI.setPrice === 'function') {
+                                        window.SimulationAPI.setPrice(typeId, 'fuzzwork', value);
+                                    }
+
+                                    const input = row.querySelector('.fuzzwork-price');
+                                    if (input) {
+                                        input.value = value.toFixed(2);
+                                        input.classList.remove('bg-warning', 'border-warning');
+                                        input.removeAttribute('title');
+                                    }
+
+                                    if (typeof window.syncFinalOutputRowPriceState === 'function') {
+                                        window.syncFinalOutputRowPriceState(row);
+                                    }
+
+                                    changed = true;
+                                });
+
+                                if (changed && typeof window.recalcFinancials === 'function') {
+                                    window.recalcFinancials();
+                                }
+
+                                return changed;
+                            })
+                            .catch(() => false);
+                    })();
+
+                hydratePromise.then(() => {
+                    const hasMissingPrices = Array.from(document.querySelectorAll('#financialItemsBody tr[data-final-output="true"]'))
+                        .some((row) => {
+                            const typeId = Number(row.getAttribute('data-type-id') || 0) || 0;
+                            const displayed = Number(row.querySelector('.fuzzwork-price')?.value || 0);
+                            return typeId > 0 && displayed <= 0;
+                        });
+
+                    if (hasMissingPrices) {
+                        stableChecks = 0;
+                    } else {
+                        stableChecks += 1;
+                    }
+
+                    if (attempts < maxAttempts && stableChecks < 2) {
+                        window.setTimeout(tick, retryDelayMs);
+                    }
+                });
+            };
+
+            window.setTimeout(tick, initialDelayMs);
+        }
+
         document.addEventListener('change', function (event) {
             if (event.target.classList.contains('bp-me-input') || event.target.classList.contains('bp-te-input')) {
                 if (window.CraftBP && typeof window.CraftBP.markPendingWorkspaceRefresh === 'function') {
@@ -1159,12 +1268,83 @@
         }, true);
 
         let craftInitPromise = Promise.resolve();
-        if (window.CraftBP && typeof window.CraftBP.init === 'function') {
-            craftInitPromise = Promise.resolve(window.CraftBP.init({
+        const initStateKey = '__craftBpInitState';
+        const initState = window[initStateKey] || (window[initStateKey] = {
+            requested: false,
+            promise: null,
+            retriesScheduled: false,
+            retryCount: 0,
+        });
+
+        const runCraftInit = () => {
+            if (initState.requested) {
+                return initState.promise || Promise.resolve();
+            }
+            if (!window.CraftBP || typeof window.CraftBP.init !== 'function') {
+                return Promise.resolve();
+            }
+
+            initState.requested = true;
+            initState.promise = Promise.resolve(window.CraftBP.init({
                 productTypeId: String(window.BLUEPRINT_DATA?.product_type_id || 0),
                 fuzzworkPriceUrl: pageUrls.fuzzwork_price || window.BLUEPRINT_DATA?.fuzzwork_price_url,
-            }));
-        }
+            })).catch((error) => {
+                initState.requested = false;
+                initState.promise = null;
+                initState.lastError = String(error || 'CraftBP init failed');
+                reportCraftInitError(error);
+            });
+            return initState.promise;
+        };
+
+        const scheduleCraftInitRetries = () => {
+            if (initState.requested || initState.retriesScheduled) {
+                return;
+            }
+
+            initState.retriesScheduled = true;
+            const maxRetries = 40;
+            const retryDelayMs = 125;
+
+            const tick = () => {
+                if (initState.requested) {
+                    initState.retriesScheduled = false;
+                    return;
+                }
+
+                initState.retryCount += 1;
+                runCraftInit().catch((error) => reportCraftInitError(error));
+
+                if (!initState.requested && initState.retryCount < maxRetries) {
+                    window.setTimeout(tick, retryDelayMs);
+                    return;
+                }
+
+                initState.retriesScheduled = false;
+            };
+
+            window.setTimeout(tick, 0);
+        };
+
+        craftInitPromise = runCraftInit();
+        scheduleCraftInitRetries();
+
+        window.setTimeout(() => {
+            runCraftInit().catch((error) => reportCraftInitError(error));
+            scheduleCraftInitRetries();
+        }, 250);
+
+        window.addEventListener('load', () => {
+            runCraftInit().catch((error) => reportCraftInitError(error));
+            scheduleCraftInitRetries();
+        }, { once: true });
+
+        window.addEventListener('pageshow', () => {
+            runCraftInit().catch((error) => reportCraftInitError(error));
+            scheduleCraftInitRetries();
+        }, { once: true });
+
+        scheduleFinalOutputPriceHydrationFallback();
 
         document.getElementById('recalcNowBtn')?.addEventListener('click', function () {
             if (window.CraftBP && typeof window.CraftBP.recalculate === 'function') {

@@ -206,6 +206,7 @@ class ContractValidationTaskTest(TestCase):
         mock_get_char.return_value = 111111111
         mock_client.fetch_corporation_contracts.return_value = []
 
+        # AA Example App
         from indy_hub.tasks.material_exchange_contracts import sync_esi_contracts
 
         with patch.object(
@@ -220,6 +221,60 @@ class ContractValidationTaskTest(TestCase):
             character_id=111111111,
             force_refresh=True,
         )
+
+    @patch("indy_hub.tasks.material_exchange_contracts._get_character_for_scope")
+    @patch("indy_hub.tasks.material_exchange_contracts.shared_client")
+    @patch("indy_hub.tasks.material_exchange_contracts.notify_user")
+    def test_validate_sell_orders_fetches_live_contracts_when_cache_is_empty(
+        self, mock_notify_user, mock_client, mock_get_char
+    ):
+        """Pending sell orders should fall back to live ESI contracts when none are cached."""
+        seller_char_id = 111111111
+        mock_get_char.return_value = seller_char_id
+        mock_client.fetch_corporation_contracts.return_value = [
+            {
+                "contract_id": 42,
+                "type": "item_exchange",
+                "title": self.sell_order.order_reference,
+                "status": "outstanding",
+                "issuer_id": seller_char_id,
+                "issuer_corporation_id": self.config.corporation_id,
+                "assignee_id": self.config.corporation_id,
+                "acceptor_id": 0,
+                "start_location_id": self.config.structure_id,
+                "end_location_id": self.config.structure_id,
+                "price": self.sell_item.total_price,
+                "reward": 0,
+                "collateral": 0,
+                "date_issued": "2024-01-01T00:00:00Z",
+                "date_expired": "2024-12-31T23:59:59Z",
+                "date_accepted": None,
+                "date_completed": None,
+            }
+        ]
+        mock_client.fetch_corporation_contract_items.return_value = [
+            {
+                "record_id": 1,
+                "type_id": self.sell_item.type_id,
+                "quantity": self.sell_item.quantity,
+                "is_included": True,
+                "is_singleton": False,
+            }
+        ]
+
+        with patch(
+            "indy_hub.tasks.material_exchange_contracts._get_user_character_ids",
+            return_value=[seller_char_id],
+        ):
+            validate_material_exchange_sell_orders()
+
+        self.sell_order.refresh_from_db()
+        self.assertEqual(
+            self.sell_order.status,
+            MaterialExchangeSellOrder.Status.VALIDATED,
+        )
+        self.assertIn("Contract validated", self.sell_order.notes)
+        mock_notify_user.assert_called()
 
     @patch("indy_hub.tasks.material_exchange_contracts._get_character_for_scope")
     @patch("indy_hub.tasks.material_exchange_contracts.shared_client")

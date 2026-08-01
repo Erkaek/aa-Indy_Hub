@@ -14,11 +14,18 @@
     let isFetchingSimulations = false;
     let projectWorkspaceDirty = false;
     let projectWorkspaceStateInitialized = !isProjectWorkspace;
+    let projectWorkspaceDirtyBaselineSettled = !isProjectWorkspace;
+    let projectWorkspaceUserInteracted = false;
     let projectWorkspaceAutoSavePromise = null;
 
     function buildWorkspaceSignature(state) {
         const source = state && typeof state === 'object' ? { ...state } : {};
         delete source.updatedAt;
+        // Runtime/session-only fields should not mark the workspace as dirty.
+        delete source.fuzzworkPrices;
+        delete source.pendingWorkspaceRefresh;
+        delete source.pendingWorkspaceSourceTab;
+        delete source.activeBlueprintTab;
         return JSON.stringify(source);
     }
 
@@ -94,6 +101,9 @@
                         .filter(([typeId, quantity]) => typeId !== '0' && quantity > 0)
                 )
                 : {},
+            stockLocationFilters: Array.isArray(state.stockLocationFilters)
+                ? state.stockLocationFilters.map((value) => String(value || '').trim()).filter((value) => value)
+                : [],
             runs: Math.max(1, parseInt(state.runs, 10) || 1),
             activeBlueprintTab: String(state.activeBlueprintTab || state.active_tab || 'materials'),
             manualPrices: Array.isArray(state.manualPrices) && state.manualPrices.length > 0
@@ -225,6 +235,7 @@
             runs: normalizedState.runs,
             simulation_name: normalizedState.simulationName,
             active_tab: normalizedState.activeBlueprintTab,
+            stockLocationFilters: normalizedState.stockLocationFilters,
             decisionBuyTolerance: normalizedState.decisionBuyTolerance,
             cachedPayload: collectCachedProjectPayloadSnapshot(normalizedState),
             finalOutputQuantities: normalizedState.finalOutputQuantities,
@@ -917,6 +928,25 @@
         const sessionState = normalizeWorkspaceStateForSession(event.detail?.state || {});
         const signature = buildWorkspaceSignature(sessionState);
         blueprintData.workspace_state = sessionState;
+
+        // Suppress startup/system-driven diffs until the user actually edits.
+        if (!projectWorkspaceUserInteracted) {
+            lastSavedProjectStateSignature = signature;
+            projectWorkspaceDirtyBaselineSettled = true;
+            setProjectWorkspaceDirty(false);
+            return;
+        }
+
+        // First post-bootstrap state emission often contains runtime-only
+        // normalizations (hydrated prices, tab sync, etc.). Treat that one as
+        // baseline, then resume normal dirty tracking for user edits.
+        if (!projectWorkspaceDirtyBaselineSettled) {
+            lastSavedProjectStateSignature = signature;
+            projectWorkspaceDirtyBaselineSettled = true;
+            setProjectWorkspaceDirty(false);
+            return;
+        }
+
         setProjectWorkspaceDirty(signature !== lastSavedProjectStateSignature);
     });
 
@@ -931,6 +961,36 @@
                 || '';
         }
         attachEventHandlers();
+
+        const markUserInteraction = (event) => {
+            if (!isProjectWorkspace || !event?.isTrusted) {
+                return;
+            }
+            const target = event.target;
+            if (!(target instanceof Element)) {
+                return;
+            }
+
+            const withinWorkspace = target.closest('#craft-bp-workspace');
+            if (!withinWorkspace) {
+                return;
+            }
+
+            const editableTarget = target.closest(
+                '#runsInput, .mat-switch, .real-price, .sale-price-unit, .craft-final-output-quantity, '
+                + '.bp-me-input, .bp-te-input, #decisionBuyToleranceInput, '
+                + 'input[data-type-id], select[data-type-id], textarea[data-type-id]'
+            );
+            if (!editableTarget) {
+                return;
+            }
+
+            projectWorkspaceUserInteracted = true;
+        };
+
+        document.addEventListener('input', markUserInteraction, true);
+        document.addEventListener('change', markUserInteraction, true);
+
         if (isProjectWorkspace && blueprintData.workspace_state) {
             const normalizedState = normalizeWorkspaceStateForSession(blueprintData.workspace_state);
             // On a fresh project open (link navigation), always land on the
@@ -960,8 +1020,18 @@
                 });
             }
             lastSavedProjectStateSignature = buildWorkspaceSignature(normalizedState);
+            projectWorkspaceDirtyBaselineSettled = false;
+            projectWorkspaceUserInteracted = false;
             setProjectWorkspaceDirty(false);
         }
         projectWorkspaceStateInitialized = true;
+
+        if (isProjectWorkspace) {
+            // Safety net: if no session-state event arrives shortly after
+            // startup, do not keep baseline settlement open indefinitely.
+            window.setTimeout(() => {
+                projectWorkspaceDirtyBaselineSettled = true;
+            }, 2000);
+        }
     });
 })();

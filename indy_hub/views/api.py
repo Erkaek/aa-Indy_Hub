@@ -387,10 +387,14 @@ def temporary_production_project_payload(request, temp_project_ref: str):
     final_output_quantity_overrides = parse_project_final_output_quantity_overrides(
         request.GET
     )
+    include_full_structure_options = str(
+        request.GET.get("include_full_structure_options", "")
+    ).strip().lower() in {"1", "true", "yes"}
     use_cached_payload = (
         runs_override is None
         and not me_te_overrides
         and not final_output_quantity_overrides
+        and not include_full_structure_options
     )
 
     payload = None
@@ -410,7 +414,7 @@ def temporary_production_project_payload(request, temp_project_ref: str):
             me_te_overrides=me_te_overrides,
             final_output_quantity_overrides=final_output_quantity_overrides,
             runs_override=runs_override,
-            include_full_structure_options=False,
+            include_full_structure_options=include_full_structure_options,
         )
         if use_cached_payload:
             cached_state = dict(temp_state)
@@ -507,6 +511,10 @@ def production_project_payload(request, project_ref: str):
     else:
         runs_override = None
 
+    include_full_structure_options = str(
+        request.GET.get("include_full_structure_options", "")
+    ).strip().lower() in {"1", "true", "yes"}
+
     payload = build_project_workspace_payload(
         project,
         skill_cache_ttl=SKILL_CACHE_TTL,
@@ -515,9 +523,7 @@ def production_project_payload(request, project_ref: str):
             request.GET
         ),
         runs_override=runs_override,
-        # Keep this API path DB-only and fast; full structure options are computed
-        # lazily where needed.
-        include_full_structure_options=False,
+        include_full_structure_options=include_full_structure_options,
     )
     return JsonResponse(_to_serializable(payload))
 

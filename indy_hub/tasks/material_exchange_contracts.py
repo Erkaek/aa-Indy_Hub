@@ -387,7 +387,9 @@ def run_material_exchange_cycle():
     logger.info("Completed Material Exchange cycle")
 
 
-def _sync_contracts_for_corporation(corporation_id: int, *, force_refresh: bool = False):
+def _sync_contracts_for_corporation(
+    corporation_id: int, *, force_refresh: bool = False
+):
     """Sync ESI contracts for a single corporation."""
     logger.info("Syncing ESI contracts for corporation %s", corporation_id)
 
@@ -400,9 +402,10 @@ def _sync_contracts_for_corporation(corporation_id: int, *, force_refresh: bool 
 
         # Force a live ESI refresh whenever the cycle is actively looking for
         # newly created contracts for pending Material Exchange orders.
-        should_force_refresh = force_refresh or not ESIContract.objects.filter(
-            corporation_id=corporation_id
-        ).exists()
+        should_force_refresh = (
+            force_refresh
+            or not ESIContract.objects.filter(corporation_id=corporation_id).exists()
+        )
 
         # Fetch contracts from ESI
         contracts = shared_client.fetch_corporation_contracts(
@@ -611,6 +614,36 @@ def _sync_contracts_for_corporation(corporation_id: int, *, force_refresh: bool 
     )
 
 
+def _get_contracts_for_validation(corporation_id: int):
+    """Return cached contracts or trigger a live ESI refresh when none are cached."""
+    contracts_qs = ESIContract.objects.filter(
+        corporation_id=corporation_id,
+        contract_type="item_exchange",
+    ).prefetch_related("items")
+
+    if contracts_qs.exists():
+        return contracts_qs
+
+    logger.info(
+        "No cached item_exchange contracts for corporation %s; attempting live ESI fetch for pending orders",
+        corporation_id,
+    )
+
+    try:
+        _sync_contracts_for_corporation(corporation_id, force_refresh=True)
+    except Exception as exc:
+        logger.warning(
+            "Live contract refresh for corporation %s failed during validation: %s",
+            corporation_id,
+            exc,
+        )
+
+    return ESIContract.objects.filter(
+        corporation_id=corporation_id,
+        contract_type="item_exchange",
+    ).prefetch_related("items")
+
+
 @shared_task(
     autoretry_for=(Exception,),
     retry_kwargs={"max_retries": 3, "countdown": 10},
@@ -661,12 +694,7 @@ def validate_material_exchange_sell_orders():
         logger.debug("No pending sell orders to validate")
         return
 
-    # Get contracts from database instead of ESI
-    # Filter to item_exchange contracts for this corporation
-    contracts = ESIContract.objects.filter(
-        corporation_id=config.corporation_id,
-        contract_type="item_exchange",
-    ).prefetch_related("items")
+    contracts = _get_contracts_for_validation(config.corporation_id)
 
     if not contracts.exists():
         _log_contract_cache_status_for_validation_skip(config.corporation_id)
@@ -765,10 +793,7 @@ def validate_material_exchange_buy_orders():
             link=f"/indy_hub/material-exchange/my-orders/buy/{order.id}/",
         )
 
-    contracts = ESIContract.objects.filter(
-        corporation_id=config.corporation_id,
-        contract_type="item_exchange",
-    ).prefetch_related("items")
+    contracts = _get_contracts_for_validation(config.corporation_id)
 
     if not contracts.exists():
         _log_contract_cache_status_for_validation_skip(config.corporation_id)

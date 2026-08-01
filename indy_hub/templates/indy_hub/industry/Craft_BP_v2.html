@@ -8,7 +8,7 @@
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
 <link rel="stylesheet" href="{% static 'indy_hub/css/blueprints.css' %}">
-<link rel="stylesheet" href="{% static 'indy_hub/css/craft_bp.css' %}?v=20260602-review-fixes-v8">
+<link rel="stylesheet" href="{% static 'indy_hub/css/craft_bp.css' %}?v=20260801-output-price-sync">
 {% endblock extra_css %}
 
 {% block content %}
@@ -728,6 +728,19 @@
                         {% trans "Allocate cached character assets to reduce what still needs to be bought. Stock lowers cash investment, but the full material value remains part of production cost and profit." %}
                     </div>
 
+                    <div class="row g-2 align-items-start mb-3">
+                        <div class="col-lg-8">
+                            <label for="stockLocationFilterSelect" class="form-label form-label-sm text-uppercase small fw-semibold mb-1">{% trans "Locations" %}</label>
+                            <select id="stockLocationFilterSelect" class="form-select form-select-sm" multiple size="4" aria-describedby="stockLocationFilterSummary"></select>
+                            <div id="stockLocationFilterSummary" class="form-text mt-1">{% trans "Showing stock from all cached locations." %}</div>
+                        </div>
+                        <div class="col-lg-4 d-flex align-items-lg-end">
+                            <button type="button" class="btn btn-outline-secondary btn-sm mt-2 mt-lg-0" id="stockLocationFilterClearBtn">
+                                <i class="fas fa-filter-circle-xmark me-1"></i>{% trans "Clear locations" %}
+                            </button>
+                        </div>
+                    </div>
+
                     <div class="craft-stock-kpis mb-3">
                         <article class="craft-stock-kpi-card">
                             <span class="craft-stock-kpi-label">{% trans "Lines" %}</span>
@@ -763,7 +776,7 @@
 
                     <div class="table-responsive craft-stock-table-wrap craft-stack-container">
                         <table class="table table-sm table-hover align-middle mb-0 craft-stock-table craft-stackable-table"
-                            style="--craft-col-1: &quot;{% trans "Item" %}&quot;; --craft-col-2: &quot;{% trans "Required" %}&quot;; --craft-col-3: &quot;{% trans "In stock" %}&quot;; --craft-col-4: &quot;{% trans "Use" %}&quot;; --craft-col-5: &quot;{% trans "Still to buy" %}&quot;; --craft-col-6: &quot;{% trans "Value used" %}&quot;; --craft-col-7: &quot;{% trans "By character" %}&quot;;">
+                            style="--craft-col-1: &quot;{% trans "Item" %}&quot;; --craft-col-2: &quot;{% trans "Required" %}&quot;; --craft-col-3: &quot;{% trans "In stock" %}&quot;; --craft-col-4: &quot;{% trans "Use" %}&quot;; --craft-col-5: &quot;{% trans "Still to buy" %}&quot;; --craft-col-6: &quot;{% trans "Value used" %}&quot;; --craft-col-7: &quot;{% trans "Breakdown" %}&quot;;">
                             <thead class="table-light">
                                 <tr>
                                     <th>{% trans "Item" %}</th>
@@ -772,7 +785,7 @@
                                     <th class="text-center">{% trans "Use" %}</th>
                                     <th class="text-center">{% trans "Still to buy" %}</th>
                                     <th class="text-center">{% trans "Value used" %}</th>
-                                    <th class="text-center">{% trans "By character" %}</th>
+                                    <th class="text-center">{% trans "Breakdown" %}</th>
                                 </tr>
                             </thead>
                             <tbody id="stockManagementRows">
@@ -1271,18 +1284,52 @@
     </div>
 </div>
 
+<div class="modal fade" id="stockCharacterLocationBreakdownModal" tabindex="-1" aria-labelledby="stockCharacterLocationBreakdownModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="stockCharacterLocationBreakdownModalLabel">{% trans "Stock breakdown" %}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
+            </div>
+            <div class="modal-body">
+                <div class="craft-kpi-row mb-3">
+                    <div class="craft-kpi craft-kpi-sm">
+                        <span class="craft-kpi-label">{% trans "Total in selected scope" %}</span>
+                        <span class="craft-kpi-value" id="stockCharacterLocationBreakdownTotal">0</span>
+                    </div>
+                </div>
+                <div id="stockCharacterLocationBreakdownEmpty" class="alert alert-info d-none mb-3">
+                    <i class="fas fa-info-circle me-2"></i>{% trans "No cached stock details are available for this item." %}
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>{% trans "Character" %}</th>
+                                <th>{% trans "Location" %}</th>
+                                <th class="text-end">{% trans "Quantity" %}</th>
+                            </tr>
+                        </thead>
+                        <tbody id="stockCharacterLocationBreakdownRows"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endif %}
 {% endblock content %}
 
 {% block extra_javascript %}
 {{ blueprint_payload|json_script:"blueprint-payload" }}
-<script src="{% static 'indy_hub/js/craft_bp_page.js' %}?v=20260426-pending-refresh-fix"></script>
+<script src="{% static 'indy_hub/js/craft_bp_page.js' %}?v=20260801-functional-fixes-v1"></script>
 {% if not deferred_shell %}
 <script src="{% static 'indy_hub/js/craft_bp_simulation_api.js' %}?v=20260524-build-final-targets"></script>
 <script src="{% static 'indy_hub/js/craft_bp_active_tab.js' %}?v=20260505-deferred-tab-init"></script>
 <script src="{% static 'indy_hub/js/craft_bp_financial_planner.js' %}?v=20260428-no-output-override"></script>
-<script src="{% static 'indy_hub/js/craft_bp.js' %}?v=20260601-review-fixes-v7"></script>
-<script src="{% static 'indy_hub/js/craft_bp_inline.js' %}?v=20260524-tab-change-autosave"></script>
+<script src="{% static 'indy_hub/js/craft_bp.js' %}?v=20260801-stock-location-filter-v4"></script>
+<script src="{% static 'indy_hub/js/craft_bp_inline.js' %}?v=20260801-functional-fixes-v3"></script>
 <script src="{% static 'indy_hub/js/craft_bp_project_rename.js' %}?v=20260523-project-rename-status"></script>
 {% endif %}
 {% endblock extra_javascript %}

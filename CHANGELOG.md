@@ -54,7 +54,6 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 - Database indexing: added migration `0109_optimize_query_indexes` with new composite indexes for blueprint copy request state filters and Material Exchange buy/sell order state timelines.
 - Tests: extended project view coverage for bulk-delete UI/backend behavior and updated craft entrypoint tests to assert temporary-workspace redirect behavior.
-- Local test settings: lowered the `esi` logger in local settings to `INFO` to reduce callback-path debug noise during development.
 
 ## [1.17.2] - 2026-06-01
 

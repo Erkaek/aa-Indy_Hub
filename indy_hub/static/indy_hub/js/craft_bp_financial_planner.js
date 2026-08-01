@@ -829,32 +829,32 @@ function updateFinancialTabFromState() {
         }
     });
 
+    const buyRowTypeIds = Array.from(tableBody.querySelectorAll('tr[data-type-id]:not([data-final-output="true"])'))
+        .map((row) => Number(row.getAttribute('data-type-id')) || 0)
+        .filter((typeId) => typeId > 0);
     const outputTypeIds = getFinalOutputRows()
         .map((row) => Number(row.getAttribute('data-type-id')) || 0)
-        .filter((typeId) => typeId > 0)
-        .filter((typeId) => {
-            if (!window.SimulationAPI || typeof window.SimulationAPI.getPrice !== 'function') {
-                return true;
-            }
-            const priceInfo = window.SimulationAPI.getPrice(typeId, true) || { value: 0, source: 'default' };
-            return Number(priceInfo.value || 0) <= 0 || String(priceInfo.source || 'default') === 'default';
-        });
+        .filter((typeId) => typeId > 0);
     const fetchedTypeIds = [...new Set([
-        ...newRows.map((entry) => entry.typeId),
+        ...buyRowTypeIds,
         ...outputTypeIds,
     ])];
 
     if (fetchedTypeIds.length > 0) {
         return fetchAllPrices(fetchedTypeIds).then((prices) => {
-            newRows.forEach(({ typeId, fuzzInput }) => {
-                const priceValue = parseFloat(prices[typeId] ?? prices[String(typeId)]) || 0;
-                fuzzInput.value = priceValue.toFixed(2);
-                if (priceValue <= 0) {
-                    fuzzInput.classList.add('bg-warning', 'border-warning');
-                    fuzzInput.setAttribute('title', __('Price not available (Fuzzwork)'));
-                } else {
-                    fuzzInput.classList.remove('bg-warning', 'border-warning');
-                    fuzzInput.removeAttribute('title');
+            tableBody.querySelectorAll('tr[data-type-id]:not([data-final-output="true"])').forEach((row) => {
+                const typeId = Number(row.getAttribute('data-type-id')) || 0;
+                if (!typeId) {
+                    return;
+                }
+
+                const resolved = typeof getFuzzworkPriceFromResponse === 'function'
+                    ? getFuzzworkPriceFromResponse(prices, typeId)
+                    : { found: false, price: parseFloat(prices[typeId] ?? prices[String(typeId)]) || 0 };
+                const priceValue = resolved.found ? resolved.price : 0;
+                const fuzzInput = row.querySelector('.fuzzwork-price');
+                if (fuzzInput) {
+                    applyFuzzworkPriceInputState(fuzzInput, priceValue);
                 }
                 if (window.SimulationAPI && typeof window.SimulationAPI.setPrice === 'function') {
                     window.SimulationAPI.setPrice(typeId, 'fuzzwork', priceValue);
@@ -866,9 +866,16 @@ function updateFinancialTabFromState() {
                 if (!typeId) {
                     return;
                 }
-                const priceValue = parseFloat(prices[typeId] ?? prices[String(typeId)]) || 0;
+                const resolved = typeof getFuzzworkPriceFromResponse === 'function'
+                    ? getFuzzworkPriceFromResponse(prices, typeId)
+                    : { found: false, price: 0 };
+                const priceValue = resolved.found ? resolved.price : 0;
                 if (window.SimulationAPI && typeof window.SimulationAPI.setPrice === 'function') {
                     window.SimulationAPI.setPrice(typeId, 'fuzzwork', priceValue);
+                }
+                const fuzzworkInput = row.querySelector('.fuzzwork-price');
+                if (fuzzworkInput) {
+                    applyFuzzworkPriceInputState(fuzzworkInput, priceValue);
                 }
                 if (typeof syncFinalOutputRowPriceState === 'function') {
                     syncFinalOutputRowPriceState(row);

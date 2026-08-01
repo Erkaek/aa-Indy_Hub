@@ -524,6 +524,77 @@ function applyFuzzworkPriceInputState(input, price) {
     }
 }
 
+function applyFetchedPriceStateToRow(row, priceRecord = {}) {
+    if (!row || row.getAttribute('data-final-output') !== 'true') {
+        return;
+    }
+    const typeId = Number(row.getAttribute('data-type-id') || 0) || 0;
+    if (!(typeId > 0)) {
+        return;
+    }
+
+    const resolvedPriceRecord = priceRecord && typeof priceRecord === 'object' ? priceRecord : {};
+    const fuzzworkInput = row.querySelector('.fuzzwork-price');
+    const saleInput = row.querySelector('.sale-price-unit');
+    const fuzzworkPrice = Number(resolvedPriceRecord.fuzzwork || 0);
+    const salePrice = Number(resolvedPriceRecord.sale || 0);
+
+    applyFuzzworkPriceInputState(fuzzworkInput, fuzzworkPrice);
+    if (!saleInput) {
+        return;
+    }
+
+    if (salePrice > 0) {
+        saleInput.value = salePrice.toFixed(2);
+        updatePriceInputManualState(saleInput, true);
+        return;
+    }
+
+    if (saleInput.dataset.userModified !== 'true') {
+        saleInput.value = '0.00';
+        updatePriceInputManualState(saleInput, false);
+    }
+}
+
+function ensureFinalOutputRowPrice(row, priceRecord = {}) {
+    if (!row || row.getAttribute('data-final-output') !== 'true') {
+        return Promise.resolve(false);
+    }
+
+    const typeId = Number(row.getAttribute('data-type-id') || 0) || 0;
+    if (!(typeId > 0)) {
+        return Promise.resolve(false);
+    }
+
+    const resolvedPriceRecord = priceRecord && typeof priceRecord === 'object' ? priceRecord : {};
+    const currentFuzzworkPrice = Number(resolvedPriceRecord.fuzzwork || 0);
+    if (currentFuzzworkPrice > 0) {
+        applyFetchedPriceStateToRow(row, resolvedPriceRecord);
+        return Promise.resolve(true);
+    }
+
+    return fetchAllPrices([typeId]).then((prices) => {
+        const resolved = getFuzzworkPriceFromResponse(prices, typeId);
+        if (resolved.found && resolved.price > 0) {
+            if (window.SimulationAPI && typeof window.SimulationAPI.setPrice === 'function') {
+                window.SimulationAPI.setPrice(typeId, 'fuzzwork', resolved.price);
+            }
+            applyFetchedPriceStateToRow(row, {
+                ...resolvedPriceRecord,
+                fuzzwork: resolved.price,
+                sale: Number(resolvedPriceRecord.sale || 0),
+            });
+            return true;
+        }
+
+        applyFetchedPriceStateToRow(row, resolvedPriceRecord);
+        return false;
+    }).catch(() => {
+        applyFetchedPriceStateToRow(row, resolvedPriceRecord);
+        return false;
+    });
+}
+
 function syncFinalOutputRowPriceState(row) {
     if (!row || row.getAttribute('data-final-output') !== 'true') {
         return;
@@ -533,22 +604,7 @@ function syncFinalOutputRowPriceState(row) {
         return;
     }
     const priceRecord = getSimulationPriceRecord(typeId);
-    const fuzzworkInput = row.querySelector('.fuzzwork-price');
-    const saleInput = row.querySelector('.sale-price-unit');
-    applyFuzzworkPriceInputState(fuzzworkInput, Number(priceRecord.fuzzwork || 0));
-    if (!saleInput) {
-        return;
-    }
-    const salePrice = Number(priceRecord.sale || 0);
-    if (salePrice > 0) {
-        saleInput.value = salePrice.toFixed(2);
-        updatePriceInputManualState(saleInput, true);
-        return;
-    }
-    if (saleInput.dataset.userModified !== 'true') {
-        saleInput.value = '0.00';
-        updatePriceInputManualState(saleInput, false);
-    }
+    applyFetchedPriceStateToRow(row, priceRecord);
 }
 
 window.syncFinalOutputRowPriceState = syncFinalOutputRowPriceState;
@@ -845,34 +901,39 @@ function initializeDelegatedFinancialPriceInputs() {
 }
 
 function refreshTabsAfterStateChange(options = {}) {
+    const tasks = [];
+
     if (typeof updateMaterialsTabFromState === 'function') {
-        updateMaterialsTabFromState();
+        tasks.push(Promise.resolve(updateMaterialsTabFromState()));
     }
     if (typeof updateFinancialTabFromState === 'function') {
-        updateFinancialTabFromState();
+        tasks.push(Promise.resolve(updateFinancialTabFromState()));
     }
     if (typeof updateNeededTabFromState === 'function') {
-        updateNeededTabFromState(Boolean(options.forceNeeded));
+        tasks.push(Promise.resolve(updateNeededTabFromState(Boolean(options.forceNeeded))));
     }
     if (typeof updateStockManagementTabFromState === 'function') {
-        updateStockManagementTabFromState(Boolean(options.forceNeeded));
+        tasks.push(Promise.resolve(updateStockManagementTabFromState(Boolean(options.forceNeeded))));
     }
     if (typeof updateBuildTabFromState === 'function') {
-        updateBuildTabFromState();
+        tasks.push(Promise.resolve(updateBuildTabFromState()));
     }
     if (typeof renderStructurePlanner === 'function') {
-        renderStructurePlanner();
+        tasks.push(Promise.resolve(renderStructurePlanner()));
     }
     if (typeof renderDecisionStrategyPanel === 'function') {
-        renderDecisionStrategyPanel({ ensurePrices: false });
+        tasks.push(Promise.resolve(renderDecisionStrategyPanel({ ensurePrices: false })));
     }
     if (typeof updateTreeModeBadges === 'function') {
-        updateTreeModeBadges();
+        tasks.push(Promise.resolve(updateTreeModeBadges()));
     }
     if (typeof window.validateBlueprintRuns === 'function') {
-        window.validateBlueprintRuns();
+        tasks.push(Promise.resolve(window.validateBlueprintRuns()));
     }
-    persistCraftPageSessionState();
+
+    return Promise.allSettled(tasks).finally(() => {
+        persistCraftPageSessionState();
+    });
 }
 
 function updatePendingWorkspaceRefreshNotice() {
@@ -1693,11 +1754,11 @@ function updateFinalProductRowFromPayload(payload) {
         const priceRecord = getSimulationPriceRecord(typeId);
         const fuzzworkInput = row.querySelector('.fuzzwork-price');
         const saleInput = row.querySelector('.sale-price-unit');
-        applyFuzzworkPriceInputState(fuzzworkInput, Number(priceRecord.fuzzwork || 0));
+        const preserved = preservedSaleValues.get(typeId);
+        const preservedValue = Number.parseFloat(preserved?.value) || 0;
+        const salePrice = Number(priceRecord.sale || 0);
+
         if (saleInput) {
-            const salePrice = Number(priceRecord.sale || 0);
-            const preserved = preservedSaleValues.get(typeId);
-            const preservedValue = Number.parseFloat(preserved?.value) || 0;
             if (salePrice > 0) {
                 saleInput.value = salePrice.toFixed(2);
                 updatePriceInputManualState(saleInput, true);
@@ -1711,6 +1772,13 @@ function updateFinalProductRowFromPayload(payload) {
                 saleInput.value = '0.00';
                 updatePriceInputManualState(saleInput, false);
             }
+        }
+        applyFetchedPriceStateToRow(row, {
+            ...priceRecord,
+            sale: saleInput && saleInput.dataset.userModified === 'true' ? Number(saleInput.value) || 0 : salePrice,
+        });
+        if (typeof syncFinalOutputRowPriceState === 'function') {
+            syncFinalOutputRowPriceState(row);
         }
         attachPriceInputListener(fuzzworkInput);
         attachPriceInputListener(saleInput);
@@ -2435,7 +2503,75 @@ function getCraftCharacterStockSnapshot() {
     const snapshot = window.BLUEPRINT_DATA?.character_stock_snapshot;
     return snapshot && typeof snapshot === 'object'
         ? snapshot
-        : { totals_by_type: {}, characters: [], scope_missing: false, synced_at: '' };
+        : { totals_by_type: {}, characters: [], locations: [], scope_missing: false, synced_at: '' };
+}
+
+function normalizeCraftStockLocationFilters(rawFilters) {
+    return [...new Set(
+        (Array.isArray(rawFilters) ? rawFilters : [])
+            .map((value) => String(value || '').trim())
+            .filter((value) => value)
+    )];
+}
+
+function getCraftStockLocationEntries() {
+    const locations = getCraftCharacterStockSnapshot()?.locations;
+    return Array.isArray(locations) ? locations : [];
+}
+
+function getCraftSelectedStockLocationKeys() {
+    window.craftBPFlags = window.craftBPFlags || {};
+    const normalized = normalizeCraftStockLocationFilters(
+        window.craftBPFlags.stockLocationFilters
+        || window.craftBPFlags.restoredSessionState?.stockLocationFilters
+        || window.BLUEPRINT_DATA?.workspace_state?.stockLocationFilters
+    );
+    window.craftBPFlags.stockLocationFilters = normalized;
+    return normalized;
+}
+
+function setCraftSelectedStockLocationKeys(locationKeys, options = {}) {
+    const normalized = normalizeCraftStockLocationFilters(locationKeys);
+    window.craftBPFlags = window.craftBPFlags || {};
+    window.craftBPFlags.stockLocationFilters = normalized;
+
+    if (options.refresh !== false) {
+        renderCraftStockManagement();
+    }
+    if (options.persist !== false && typeof persistCraftPageSessionState === 'function') {
+        persistCraftPageSessionState();
+    }
+    return normalized;
+}
+
+function getCraftFilteredLocationEntries(locationKeys = []) {
+    const selectedKeys = normalizeCraftStockLocationFilters(locationKeys);
+    const allLocations = getCraftStockLocationEntries();
+    if (selectedKeys.length === 0) {
+        return allLocations;
+    }
+
+    const selectedSet = new Set(selectedKeys);
+    return allLocations.filter((entry) => selectedSet.has(String(entry?.location_key || '').trim()));
+}
+
+function getCraftRelevantStockLocationEntries(requiredTypeIds = []) {
+    const normalizedTypeIds = new Set(
+        (Array.isArray(requiredTypeIds) ? requiredTypeIds : [])
+            .map((typeId) => String(Number(typeId) || 0))
+            .filter((typeId) => typeId !== '0')
+    );
+    if (normalizedTypeIds.size === 0) {
+        return [];
+    }
+
+    return getCraftStockLocationEntries().filter((entry) => {
+        const itemsByType = entry?.items_by_type;
+        if (!itemsByType || typeof itemsByType !== 'object') {
+            return false;
+        }
+        return Array.from(normalizedTypeIds).some((typeId) => Math.max(0, Math.floor(Number(itemsByType[typeId] || 0))) > 0);
+    });
 }
 
 function getCraftStockRefreshState() {
@@ -2606,6 +2742,22 @@ function getCraftAvailableStockQty(typeId) {
     return Math.max(0, Math.floor(Number(totalsByType[String(Number(typeId) || 0)] || 0)));
 }
 
+function getCraftAvailableStockQtyForLocations(typeId, locationKeys = []) {
+    const normalizedFilters = normalizeCraftStockLocationFilters(locationKeys);
+    if (normalizedFilters.length === 0) {
+        return getCraftAvailableStockQty(typeId);
+    }
+
+    const normalizedTypeId = String(Number(typeId) || 0);
+    return getCraftFilteredLocationEntries(normalizedFilters).reduce((total, entry) => {
+        const itemsByType = entry?.items_by_type;
+        if (!itemsByType || typeof itemsByType !== 'object') {
+            return total;
+        }
+        return total + Math.max(0, Math.floor(Number(itemsByType[normalizedTypeId] || 0)));
+    }, 0);
+}
+
 function getCraftStockCharacterBreakdown(typeId) {
     const normalizedTypeId = String(Number(typeId) || 0);
     return (Array.isArray(getCraftCharacterStockSnapshot()?.characters) ? getCraftCharacterStockSnapshot().characters : [])
@@ -2615,6 +2767,139 @@ function getCraftStockCharacterBreakdown(typeId) {
             quantity: Math.max(0, Math.floor(Number(character?.items_by_type?.[normalizedTypeId] || 0))),
         }))
         .filter((entry) => entry.characterId > 0 && entry.quantity > 0);
+}
+
+function getCraftStockCharacterBreakdownForLocations(typeId, locationKeys = []) {
+    const normalizedFilters = normalizeCraftStockLocationFilters(locationKeys);
+    if (normalizedFilters.length === 0) {
+        return getCraftStockCharacterBreakdown(typeId);
+    }
+
+    const normalizedTypeId = String(Number(typeId) || 0);
+    const aggregated = new Map();
+    getCraftFilteredLocationEntries(normalizedFilters).forEach((locationEntry) => {
+        (Array.isArray(locationEntry?.characters) ? locationEntry.characters : []).forEach((character) => {
+            const characterId = Number(character?.character_id || 0) || 0;
+            const quantity = Math.max(0, Math.floor(Number(character?.items_by_type?.[normalizedTypeId] || 0)));
+            if (!(characterId > 0) || !(quantity > 0)) {
+                return;
+            }
+
+            const current = aggregated.get(characterId) || {
+                characterId,
+                characterName: String(character?.character_name || characterId),
+                quantity: 0,
+            };
+            current.quantity += quantity;
+            aggregated.set(characterId, current);
+        });
+    });
+
+    return Array.from(aggregated.values())
+        .filter((entry) => entry.quantity > 0)
+        .sort((left, right) => {
+            const leftName = String(left.characterName || '').toLowerCase();
+            const rightName = String(right.characterName || '').toLowerCase();
+            if (leftName !== rightName) {
+                return leftName.localeCompare(rightName);
+            }
+            return left.characterId - right.characterId;
+        });
+}
+
+function getCraftStockCharacterLocationBreakdownForLocations(typeId, locationKeys = []) {
+    const normalizedFilters = normalizeCraftStockLocationFilters(locationKeys);
+    const normalizedTypeId = String(Number(typeId) || 0);
+    const sourceLocations = normalizedFilters.length > 0
+        ? getCraftFilteredLocationEntries(normalizedFilters)
+        : getCraftStockLocationEntries();
+
+    const rows = [];
+    sourceLocations.forEach((locationEntry) => {
+        const locationName = String(locationEntry?.location_name || __('Unknown location')).trim() || __('Unknown location');
+        (Array.isArray(locationEntry?.characters) ? locationEntry.characters : []).forEach((character) => {
+            const quantity = Math.max(0, Math.floor(Number(character?.items_by_type?.[normalizedTypeId] || 0)));
+            if (!(quantity > 0)) {
+                return;
+            }
+            rows.push({
+                characterId: Number(character?.character_id || 0) || 0,
+                characterName: String(character?.character_name || character?.character_id || __('Unknown character')).trim() || __('Unknown character'),
+                locationKey: String(locationEntry?.location_key || '').trim(),
+                locationId: Number(locationEntry?.location_id || 0) || 0,
+                locationName,
+                quantity,
+            });
+        });
+    });
+
+    return rows.sort((left, right) => {
+        const leftCharacter = String(left.characterName || '').toLowerCase();
+        const rightCharacter = String(right.characterName || '').toLowerCase();
+        if (leftCharacter !== rightCharacter) {
+            return leftCharacter.localeCompare(rightCharacter);
+        }
+        const leftLocation = String(left.locationName || '').toLowerCase();
+        const rightLocation = String(right.locationName || '').toLowerCase();
+        if (leftLocation !== rightLocation) {
+            return leftLocation.localeCompare(rightLocation);
+        }
+        return right.quantity - left.quantity;
+    });
+}
+
+function openCraftStockBreakdownModal(typeId, itemName, locationKeys = []) {
+    const modalEl = document.getElementById('stockCharacterLocationBreakdownModal');
+    if (!modalEl || !(Number(typeId) > 0)) {
+        return;
+    }
+
+    const titleEl = document.getElementById('stockCharacterLocationBreakdownModalLabel');
+    const totalEl = document.getElementById('stockCharacterLocationBreakdownTotal');
+    const emptyEl = document.getElementById('stockCharacterLocationBreakdownEmpty');
+    const bodyEl = document.getElementById('stockCharacterLocationBreakdownRows');
+    const breakdown = getCraftStockCharacterLocationBreakdownForLocations(typeId, locationKeys);
+    const totalQty = breakdown.reduce((total, entry) => total + Math.max(0, Math.floor(Number(entry.quantity) || 0)), 0);
+
+    if (titleEl) {
+        titleEl.textContent = itemName
+            ? `${__('Stock breakdown')}: ${itemName}`
+            : __('Stock breakdown');
+    }
+    if (totalEl) {
+        totalEl.textContent = formatInteger(totalQty);
+    }
+    if (emptyEl) {
+        emptyEl.classList.toggle('d-none', breakdown.length > 0);
+    }
+    if (bodyEl) {
+        bodyEl.innerHTML = breakdown.map((entry) => `
+            <tr>
+                <td>${escapeHtml(entry.characterName)}</td>
+                <td>${escapeHtml(entry.locationName)}</td>
+                <td class="text-end">${formatInteger(entry.quantity)}</td>
+            </tr>
+        `).join('');
+    }
+
+    if (window.bootstrap?.Modal && typeof window.bootstrap.Modal.getOrCreateInstance === 'function') {
+        window.bootstrap.Modal.getOrCreateInstance(modalEl).show();
+    }
+}
+
+function getCraftFilteredStockAllocationSummary(typeId, requiredQty, locationKeys = []) {
+    const normalizedRequiredQty = Math.max(0, Math.ceil(Number(requiredQty) || 0));
+    const availableQty = getCraftAvailableStockQtyForLocations(typeId, locationKeys);
+    const requestedQty = Math.max(0, Math.floor(Number(getCraftNormalizedStockAllocationsForCurrentPlan()[String(Number(typeId) || 0)] || 0)));
+    const allocatedQty = Math.min(normalizedRequiredQty, availableQty, requestedQty);
+    return {
+        requiredQty: normalizedRequiredQty,
+        availableQty,
+        requestedQty,
+        allocatedQty,
+        remainingQty: Math.max(0, normalizedRequiredQty - allocatedQty),
+        characters: getCraftStockCharacterBreakdownForLocations(typeId, locationKeys),
+    };
 }
 
 function getCraftStockAllocationSummary(typeId, requiredQty) {
@@ -3099,6 +3384,7 @@ function collectCraftPageSessionState() {
         // getCraftStockAllocationSummary() so the visible allocated qty is
         // always coherent with the current plan.
         stockAllocations: normalizeCraftStockAllocations(getCraftStockAllocations()),
+        stockLocationFilters: normalizeCraftStockLocationFilters(getCraftSelectedStockLocationKeys()),
         runs: Math.max(1, parseInt(document.getElementById('runsInput')?.value || '1', 10) || 1),
         finalOutputQuantities: collectFinalOutputQuantityState(),
         activeBlueprintTab: getCurrentActiveBlueprintTab() || 'materials',
@@ -3138,6 +3424,7 @@ function applyCraftPageSessionState(parsedState) {
     window.craftBPFlags.pendingBuyTypeIds = buyTypeIds;
     window.craftBPFlags.pendingFinalOutputQuantities = normalizeFinalOutputQuantityEntries(parsedState?.finalOutputQuantities);
     window.craftBPFlags.stockAllocations = normalizeCraftStockAllocations(parsedState?.stockAllocations);
+    window.craftBPFlags.stockLocationFilters = normalizeCraftStockLocationFilters(parsedState?.stockLocationFilters);
     window.craftBPFlags.revenueMode = normalizeRevenueMode(parsedState?.revenueMode);
     window.craftBPFlags.revenueTotalOverride = normalizeRevenueTotalOverride(parsedState?.revenueTotalOverride);
     window.craftBPFlags.outputGroupRevenueOverrides = normalizeOutputGroupRevenueOverrides(parsedState?.outputGroupRevenueOverrides);
@@ -3282,7 +3569,7 @@ function applyBuyCraftStateFromBuyDecisions(buyDecisions, options = {}) {
         window.SimulationAPI.refreshFromDom();
     }
     if (shouldRefreshTabs) {
-        refreshTabsAfterStateChange(options.refreshTabOptions || {});
+        refreshTabsAfterStateChange(options.refreshTabOptions || {}).catch(() => {});
     }
 }
 
@@ -3610,7 +3897,7 @@ function handleTreeSwitchChange(event) {
         window.SimulationAPI.refreshFromDom();
     }
 
-    refreshTabsAfterStateChange();
+    refreshTabsAfterStateChange().catch(() => {});
 }
 
 function refreshTreeSwitchHierarchy() {
@@ -3766,7 +4053,7 @@ function setTreeModeForAll(mode) {
         window.SimulationAPI.refreshFromDom();
     }
 
-    refreshTabsAfterStateChange();
+    refreshTabsAfterStateChange().catch(() => {});
 }
 
 let decisionStrategyPanelPromise = null;
@@ -4645,7 +4932,7 @@ async function optimizeProfitabilityConfig() {
     if (window.SimulationAPI && typeof window.SimulationAPI.refreshFromDom === 'function') {
         window.SimulationAPI.refreshFromDom();
     }
-    refreshTabsAfterStateChange({ forceNeeded: true });
+    await refreshTabsAfterStateChange({ forceNeeded: true });
     if (typeof recalcFinancials === 'function') {
         recalcFinancials();
     }
@@ -4668,6 +4955,35 @@ function collectTypeIdsFromMaterialsTree(nodes, out = new Set()) {
         }
     });
     return out;
+}
+
+function collectStartupPriceTypeIds(options = {}) {
+    const visibleTypeIds = Array.isArray(options.visibleTypeIds) ? options.visibleTypeIds : [];
+    const payload = options.payload || window.BLUEPRINT_DATA || {};
+    const productTypeId = Number(options.productTypeId ?? CRAFT_BP.productTypeId ?? getProductTypeIdValue() ?? 0) || 0;
+    const typeIds = new Set();
+
+    visibleTypeIds.forEach((value) => {
+        const tid = String(Number(value) || '').trim();
+        if (tid && tid !== '0') {
+            typeIds.add(tid);
+        }
+    });
+
+    collectTypeIdsFromMaterialsTree(Array.isArray(payload?.materials_tree) ? payload.materials_tree : [], typeIds);
+
+    getFinalOutputEntries(payload).forEach((entry) => {
+        const tid = String(Number(entry?.type_id || 0) || '').trim();
+        if (tid && tid !== '0') {
+            typeIds.add(tid);
+        }
+    });
+
+    if (productTypeId > 0) {
+        typeIds.add(String(productTypeId));
+    }
+
+    return Array.from(typeIds);
 }
 
 function getCurrentDecisionsFromDom() {
@@ -4921,7 +5237,8 @@ function initializeFinancialCalculations() {
     updateFinalProductRowFromPayload(window.BLUEPRINT_DATA || {});
 
     const recalcNowBtn = document.getElementById('recalcNowBtn');
-    if (recalcNowBtn) {
+    const isProjectWorkspace = Boolean(window.BLUEPRINT_DATA?.project_ref || window.BLUEPRINT_DATA?.project_id || window.BLUEPRINT_DATA?.is_temporary_project || window.BLUEPRINT_DATA?.temp_project_ref);
+    if (recalcNowBtn && !isProjectWorkspace) {
         recalcNowBtn.addEventListener('click', () => {
             recalcNowBtn.classList.add('pulse');
             window.CraftBP.refreshFinancials();
@@ -4931,46 +5248,19 @@ function initializeFinancialCalculations() {
 
     bindFinalOutputQuantityControls();
 
-    // Batch fetch Fuzzwork prices for display (fuzzwork-price and sale-price-unit), only include valid positive type IDs.
-    // Keep startup lightweight: full-tree prices are fetched only on explicit user action.
-    const fetchInputs = Array.from(document.querySelectorAll('input.fuzzwork-price[data-type-id], input.sale-price-unit[data-type-id]'))
+    // Batch fetch Fuzzwork prices for display across the visible rows, the
+    // production tree, the final outputs, and the main product type.
+    const fetchInputs = Array.from(document.querySelectorAll('input.fuzzwork-price[data-type-id], input.sale-price-unit[data-type-id], input.real-price[data-type-id]'))
         .filter(inp => {
             const id = parseInt(inp.getAttribute('data-type-id'), 10);
             return id > 0;
         });
-    let startupTypeIds = fetchInputs.map(inp => inp.getAttribute('data-type-id')).filter(Boolean);
-
-    // Also fetch prices for *all* typeIds in the production tree so:
-    // - optimizer can always compare buy vs prod
-    // - surplus valuation can price any produced surplus item
-    const treeTypeIds = [];
-    try {
-        const tree = window.BLUEPRINT_DATA?.materials_tree;
-        const seen = new Set();
-        const walk = (nodes) => {
-            (Array.isArray(nodes) ? nodes : []).forEach(node => {
-                const tid = String(Number(node?.type_id || node?.typeId || 0) || '').trim();
-                if (tid && tid !== '0' && !seen.has(tid)) {
-                    seen.add(tid);
-                    treeTypeIds.push(tid);
-                }
-                const kids = node && (node.sub_materials || node.subMaterials);
-                if (Array.isArray(kids) && kids.length) {
-                    walk(kids);
-                }
-            });
-        };
-        walk(tree);
-    } catch (e) {
-        // ignore
-    }
-
-    // Include the final product type_id in both startup and full fetch scopes.
-    if (CRAFT_BP.productTypeId && !startupTypeIds.includes(CRAFT_BP.productTypeId)) {
-        startupTypeIds.push(CRAFT_BP.productTypeId);
-    }
-    startupTypeIds = [...new Set(startupTypeIds)];
-    const fullPriceTypeIds = [...new Set([...startupTypeIds, ...treeTypeIds])];
+    const startupTypeIds = collectStartupPriceTypeIds({
+        visibleTypeIds: fetchInputs.map(inp => inp.getAttribute('data-type-id')).filter(Boolean),
+        payload: window.BLUEPRINT_DATA,
+        productTypeId: CRAFT_BP.productTypeId || getProductTypeIdValue(),
+    });
+    const fullPriceTypeIds = [...new Set(startupTypeIds)];
 
     function stashFuzzworkPrices(prices, idsToStash = startupTypeIds) {
         if (!window.SimulationAPI || typeof window.SimulationAPI.setPrice !== 'function') {
@@ -5031,20 +5321,61 @@ function initializeFinancialCalculations() {
             populatePrices(fetchInputs, prices);
             applyManualPriceOverrides(window.craftBPFlags?.restoredSessionState?.manualPrices);
 
+            const syncFinalOutputRows = () => {
+                const fallbackPromises = [];
+                document.querySelectorAll('#financialItemsBody tr[data-final-output="true"]').forEach((row) => {
+                    const typeId = Number(row.getAttribute('data-type-id') || 0) || 0;
+                    const resolved = getFuzzworkPriceFromResponse(prices, typeId);
+                    if (resolved.found) {
+                        if (window.SimulationAPI && typeof window.SimulationAPI.setPrice === 'function') {
+                            window.SimulationAPI.setPrice(typeId, 'fuzzwork', resolved.price);
+                        }
+                        const fuzzworkInput = row.querySelector('.fuzzwork-price');
+                        if (fuzzworkInput) {
+                            applyFuzzworkPriceInputState(fuzzworkInput, resolved.price);
+                        }
+                    }
+                    if (typeof syncFinalOutputRowPriceState === 'function') {
+                        syncFinalOutputRowPriceState(row);
+                    }
+
+                    const currentDisplayedPrice = Number(row.querySelector('.fuzzwork-price')?.value || 0);
+                    if (currentDisplayedPrice <= 0 && typeof ensureFinalOutputRowPrice === 'function') {
+                        fallbackPromises.push(
+                            ensureFinalOutputRowPrice(row, getSimulationPriceRecord(typeId)).then(() => {
+                                if (typeof syncFinalOutputRowPriceState === 'function') {
+                                    syncFinalOutputRowPriceState(row);
+                                }
+                            })
+                        );
+                    }
+                });
+                return Promise.all(fallbackPromises);
+            };
+
+            syncFinalOutputRows();
+            if (typeof updateFinalProductRowFromPayload === 'function') {
+                updateFinalProductRowFromPayload(window.BLUEPRINT_DATA || {});
+            }
+
             // Schedule heavy work to idle callback to prevent startup freeze
             if (typeof window.requestIdleCallback === 'function') {
                 window.requestIdleCallback(() => {
                     if (typeof updateFinancialTabFromState === 'function') {
                         updateFinancialTabFromState();
                     }
-                    recalcFinancials();
+                    syncFinalOutputRows().then(() => {
+                        recalcFinancials();
+                    });
                 }, { timeout: 3000 });
             } else {
                 window.setTimeout(() => {
                     if (typeof updateFinancialTabFromState === 'function') {
                         updateFinancialTabFromState();
                     }
-                    recalcFinancials();
+                    syncFinalOutputRows().then(() => {
+                        recalcFinancials();
+                    });
                 }, 100);
             }
         });
@@ -5058,6 +5389,11 @@ function initializeFinancialCalculations() {
                 stashFuzzworkPrices(prices, CRAFT_BP.fullPriceTypeIds || startupTypeIds);
                 populatePrices(fetchInputs, prices);
                 applyManualPriceOverrides(window.craftBPFlags?.restoredSessionState?.manualPrices);
+                document.querySelectorAll('#financialItemsBody tr[data-final-output="true"]').forEach((row) => {
+                    if (typeof syncFinalOutputRowPriceState === 'function') {
+                        syncFinalOutputRowPriceState(row);
+                    }
+                });
                 // Explicit user button click: do recalc immediately without deferring
                 if (typeof updateFinancialTabFromState === 'function') {
                     updateFinancialTabFromState();
@@ -5910,6 +6246,12 @@ function buildCurrentCraftPayloadUrl(extraParams = {}) {
     }
 
     const url = new URL(base, window.location.origin);
+    const includeFullStructureOptions = extraParams.include_full_structure_options;
+    if (includeFullStructureOptions === undefined || includeFullStructureOptions === null || includeFullStructureOptions === '') {
+        url.searchParams.set('include_full_structure_options', '1');
+    } else {
+        url.searchParams.set('include_full_structure_options', String(includeFullStructureOptions));
+    }
     const currentParams = new URLSearchParams(window.location.search || '');
     currentParams.forEach((value, key) => {
         url.searchParams.set(key, value);
@@ -7630,6 +7972,12 @@ function populatePrices(allInputs, prices) {
             window.SimulationAPI.setPrice(tid, 'fuzzwork', price);
         }
     });
+
+    if (typeof syncFinalOutputRowPriceState === 'function') {
+        document.querySelectorAll('#financialItemsBody tr[data-final-output="true"]').forEach((row) => {
+            syncFinalOutputRowPriceState(row);
+        });
+    }
 }
 
 function updateMaterialsTabFromState() {
@@ -7775,6 +8123,8 @@ function updateStockManagementTabFromState(force = false) {
 function initializeStockManagementInteractions() {
     const rowsBody = document.getElementById('stockManagementRows');
     const resetButton = document.getElementById('stockResetAllocationsBtn');
+    const locationFilterSelect = document.getElementById('stockLocationFilterSelect');
+    const locationFilterClearButton = document.getElementById('stockLocationFilterClearBtn');
     if (rowsBody && rowsBody.dataset.stockBound !== 'true') {
         const readStockInputValue = (input) => {
             const typeId = Number(input.getAttribute('data-type-id')) || 0;
@@ -7833,9 +8183,22 @@ function initializeStockManagementInteractions() {
             scheduleCraftStockAllocationCommit(typeId, normalizedValue);
         };
 
+        const handleBreakdownClick = (event) => {
+            const trigger = event.target.closest('.craft-stock-breakdown-trigger[data-type-id]');
+            if (!trigger) {
+                return;
+            }
+
+            event.preventDefault();
+            const typeId = Number(trigger.getAttribute('data-type-id') || 0) || 0;
+            const itemName = String(trigger.getAttribute('data-item-name') || '').trim();
+            openCraftStockBreakdownModal(typeId, itemName, getCraftSelectedStockLocationKeys());
+        };
+
         rowsBody.addEventListener('input', handleStockInput);
         rowsBody.addEventListener('change', handleStockChange);
         rowsBody.addEventListener('keydown', handleStockKeydown);
+        rowsBody.addEventListener('click', handleBreakdownClick);
         rowsBody.dataset.stockBound = 'true';
     }
 
@@ -7850,6 +8213,26 @@ function initializeStockManagementInteractions() {
         });
         resetButton.dataset.stockBound = 'true';
     }
+
+    if (locationFilterSelect && locationFilterSelect.dataset.stockBound !== 'true') {
+        locationFilterSelect.addEventListener('change', () => {
+            const selected = Array.from(locationFilterSelect.selectedOptions || []).map((option) => option.value);
+            setCraftSelectedStockLocationKeys(selected, { refresh: true, persist: true });
+        });
+        locationFilterSelect.dataset.stockBound = 'true';
+    }
+
+    if (locationFilterClearButton && locationFilterClearButton.dataset.stockBound !== 'true') {
+        locationFilterClearButton.addEventListener('click', () => {
+            if (locationFilterSelect) {
+                Array.from(locationFilterSelect.options || []).forEach((option) => {
+                    option.selected = false;
+                });
+            }
+            setCraftSelectedStockLocationKeys([], { refresh: true, persist: true });
+        });
+        locationFilterClearButton.dataset.stockBound = 'true';
+    }
 }
 
 function renderCraftStockManagement() {
@@ -7859,9 +8242,43 @@ function renderCraftStockManagement() {
     }
 
     const rows = getCraftSourceRequirementRows();
+    const relevantLocationEntries = getCraftRelevantStockLocationEntries(rows.map((item) => item.typeId));
+    const relevantLocationKeySet = new Set(
+        relevantLocationEntries
+            .map((entry) => String(entry?.location_key || '').trim())
+            .filter((value) => value)
+    );
+    const selectedLocationKeys = getCraftSelectedStockLocationKeys()
+        .filter((value) => relevantLocationKeySet.has(String(value || '').trim()));
+    if (selectedLocationKeys.length !== getCraftSelectedStockLocationKeys().length) {
+        setCraftSelectedStockLocationKeys(selectedLocationKeys, { refresh: false, persist: false });
+    }
+    const selectedLocationSet = new Set(selectedLocationKeys);
+    const locationFilterSelect = document.getElementById('stockLocationFilterSelect');
+    const locationFilterSummary = document.getElementById('stockLocationFilterSummary');
+
+    if (locationFilterSelect) {
+        locationFilterSelect.innerHTML = relevantLocationEntries.map((entry) => {
+            const locationKey = String(entry?.location_key || '').trim();
+            const locationName = String(entry?.location_name || __('Unknown location')).trim();
+            const totalQty = Object.values(entry?.items_by_type || {}).reduce((total, value) => total + Math.max(0, Math.floor(Number(value) || 0)), 0);
+            return `<option value="${escapeHtml(locationKey)}"${selectedLocationSet.has(locationKey) ? ' selected' : ''}>${escapeHtml(locationName)} (${formatInteger(totalQty)})</option>`;
+        }).join('');
+    }
+
+    if (locationFilterSummary) {
+        if (relevantLocationEntries.length === 0) {
+            locationFilterSummary.textContent = __('No stock locations contain items required by the current plan.');
+        } else if (selectedLocationKeys.length === 0) {
+            locationFilterSummary.textContent = __('Showing stock from all relevant cached locations.');
+        } else {
+            locationFilterSummary.textContent = `${formatInteger(selectedLocationKeys.length)} ${selectedLocationKeys.length === 1 ? __('location selected') : __('locations selected')}`;
+        }
+    }
+
     const summarizedRows = rows.map((item) => ({
         item,
-        stockSummary: getCraftStockAllocationSummary(item.typeId, item.quantity),
+        stockSummary: getCraftFilteredStockAllocationSummary(item.typeId, item.quantity, selectedLocationKeys),
     }));
     const rowsWithStock = summarizedRows.filter(({ stockSummary }) => stockSummary.availableQty > 0);
     const hiddenZeroStockCount = Math.max(0, rows.length - rowsWithStock.length);
@@ -7886,11 +8303,20 @@ function renderCraftStockManagement() {
         const unitPrice = unitInfo && typeof unitInfo.value === 'number' ? unitInfo.value : 0;
         const stockValue = unitPrice * stockSummary.allocatedQty;
         const remainingValue = unitPrice * stockSummary.remainingQty;
+        const breakdownCount = stockSummary.characters.length;
 
-        const characterMarkup = stockSummary.characters.length > 0
-            ? stockSummary.characters.map((entry) => `
-                <span class="badge bg-secondary-subtle text-secondary-emphasis">${escapeHtml(entry.characterName)}: ${formatInteger(entry.quantity)}</span>
-            `).join('')
+        const characterMarkup = breakdownCount > 0
+            ? `
+                <button
+                    type="button"
+                    class="btn btn-link btn-sm p-0 text-start align-baseline text-decoration-none craft-stock-breakdown-trigger"
+                    data-type-id="${item.typeId}"
+                    data-item-name="${escapeHtml(item.typeName)}"
+                >
+                    <span class="d-block fw-semibold">${formatInteger(stockSummary.availableQty)} ${escapeHtml(__('total'))}</span>
+                    <span class="d-block small text-muted">${escapeHtml(__('View character / location details'))}</span>
+                </button>
+            `
             : `<span class="small text-muted">${escapeHtml(getCraftCharacterStockSnapshot().scope_missing ? __('Assets scope missing') : __('No cached stock'))}</span>`;
 
         return `
@@ -7942,10 +8368,13 @@ function renderCraftStockManagement() {
 
     const availableOnlyNotice = document.getElementById('stockAvailableOnlyNotice');
     if (availableOnlyNotice) {
+        const baseText = selectedLocationKeys.length > 0
+            ? __('Only required items with cached stock in the selected locations are shown.')
+            : __('Only required items with cached stock available are shown.');
         const hiddenText = hiddenZeroStockCount > 0
             ? ` ${formatInteger(hiddenZeroStockCount)} ${hiddenZeroStockCount === 1 ? __('line with 0 stock is hidden.') : __('lines with 0 stock are hidden.')}`
             : '';
-        availableOnlyNotice.textContent = `${__('Only required items with cached stock available are shown.')}${hiddenText}`;
+        availableOnlyNotice.textContent = `${baseText}${hiddenText}`;
     }
 
     const syncEl = document.getElementById('stockSummaryUpdated');

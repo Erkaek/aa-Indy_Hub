@@ -1549,6 +1549,16 @@ def build_user_asset_inventory_snapshot(
 ) -> dict[str, Any]:
     """Return a craft-friendly summary of cached user assets grouped by item and character."""
 
+    def _normalize_location_display_name(raw_name: object) -> str:
+        value = str(raw_name or "").strip()
+        if not value:
+            return ""
+        if value.isdigit():
+            return ""
+        if value.startswith(PLACEHOLDER_PREFIX):
+            return ""
+        return value
+
     assets, assets_scope_missing = get_user_assets_cached(
         user, allow_refresh=allow_refresh, max_age_minutes=max_age_minutes
     )
@@ -1564,7 +1574,39 @@ def build_user_asset_inventory_snapshot(
 
     totals_by_type: dict[int, int] = {}
     character_assets: dict[int, dict[int, int]] = {}
+    location_assets: dict[str, dict[str, Any]] = {}
     latest_synced_at = None
+    location_ids = {
+        int(asset.get("location_id") or 0)
+        for asset in assets
+        if int(asset.get("location_id") or 0) > 0
+    }
+    location_names_by_id = {
+        int(structure_id): str(name or "")
+        for structure_id, name in CachedStructureName.objects.filter(
+            structure_id__in=location_ids
+        ).values_list("structure_id", "name")
+        if structure_id
+    }
+
+    unresolved_location_ids = [
+        location_id
+        for location_id in sorted(location_ids)
+        if not location_names_by_id.get(location_id)
+    ]
+    lookup_budget = max(0, min(int(LOCATION_LOOKUP_BUDGET), 50))
+    for location_id in unresolved_location_ids[:lookup_budget]:
+        try:
+            resolved_name = resolve_location_name(
+                int(location_id),
+                force_refresh=False,
+                allow_public=True,
+            )
+        except Exception:
+            resolved_name = ""
+        normalized_resolved_name = _normalize_location_display_name(resolved_name)
+        if normalized_resolved_name:
+            location_names_by_id[int(location_id)] = normalized_resolved_name
 
     for asset in assets:
         if not include_blueprints and bool(asset.get("is_blueprint")):
@@ -1574,6 +1616,7 @@ def build_user_asset_inventory_snapshot(
             type_id = int(asset.get("type_id") or 0)
             quantity = int(asset.get("quantity") or 0)
             character_id = int(asset.get("character_id") or 0)
+            location_id = int(asset.get("location_id") or 0)
         except (TypeError, ValueError):
             continue
 
@@ -1584,6 +1627,40 @@ def build_user_asset_inventory_snapshot(
         if character_id > 0:
             per_character = character_assets.setdefault(character_id, {})
             per_character[type_id] = per_character.get(type_id, 0) + quantity
+
+        normalized_location_id = location_id if location_id > 0 else 0
+        location_name = _normalize_location_display_name(
+            asset.get("location_name")
+            or location_names_by_id.get(normalized_location_id, "")
+            or ""
+        )
+        location_label = location_name or ""
+        location_key = (
+            f"id:{normalized_location_id}"
+            if normalized_location_id > 0
+            else f"name:{location_label.casefold()}"
+        )
+        location_entry = location_assets.setdefault(
+            location_key,
+            {
+                "location_key": location_key,
+                "location_id": normalized_location_id,
+                "location_name": location_label,
+                "items_by_type": {},
+                "characters": {},
+            },
+        )
+        location_items_by_type = location_entry["items_by_type"]
+        location_items_by_type[type_id] = (
+            location_items_by_type.get(type_id, 0) + quantity
+        )
+        if character_id > 0:
+            location_character_assets = location_entry["characters"].setdefault(
+                character_id, {}
+            )
+            location_character_assets[type_id] = (
+                location_character_assets.get(type_id, 0) + quantity
+            )
 
     try:
         latest_synced_at = (
@@ -1618,6 +1695,48 @@ def build_user_asset_inventory_snapshot(
                 key=lambda entry: (
                     character_names.get(entry[0], "").lower(),
                     entry[0],
+                ),
+            )
+        ],
+        "locations": [
+            {
+                "location_key": str(entry.get("location_key") or ""),
+                "location_id": int(entry.get("location_id") or 0),
+                "location_name": str(entry.get("location_name") or ""),
+                "items_by_type": {
+                    str(type_id): quantity
+                    for type_id, quantity in sorted(
+                        (entry.get("items_by_type") or {}).items()
+                    )
+                    if quantity > 0
+                },
+                "characters": [
+                    {
+                        "character_id": character_id,
+                        "character_name": character_names.get(
+                            character_id, str(character_id)
+                        ),
+                        "items_by_type": {
+                            str(type_id): quantity
+                            for type_id, quantity in sorted(items_by_type.items())
+                            if quantity > 0
+                        },
+                    }
+                    for character_id, items_by_type in sorted(
+                        (entry.get("characters") or {}).items(),
+                        key=lambda character_entry: (
+                            character_names.get(character_entry[0], "").lower(),
+                            character_entry[0],
+                        ),
+                    )
+                ],
+            }
+            for entry in sorted(
+                location_assets.values(),
+                key=lambda value: (
+                    str(value.get("location_name") or "").casefold(),
+                    int(value.get("location_id") or 0),
+                    str(value.get("location_key") or ""),
                 ),
             )
         ],
