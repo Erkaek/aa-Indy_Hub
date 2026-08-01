@@ -9,7 +9,7 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 ## [Unreleased]
 
-## [1.18.1] - 2026-07-27
+## [1.18.2] - 2026-08-01
 
 ### Added.
 
