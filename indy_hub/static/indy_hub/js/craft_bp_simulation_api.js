@@ -807,6 +807,63 @@
         });
     }
 
+    function getProdStockAllocationMap() {
+        const raw = typeof window.getCraftProdStockAllocationsForCurrentPlan === 'function'
+            ? window.getCraftProdStockAllocationsForCurrentPlan()
+            : {};
+        const allocations = new Map();
+
+        Object.entries(raw || {}).forEach(([typeId, quantity]) => {
+            const numericTypeId = Number(typeId) || 0;
+            const normalizedQuantity = normalizeQuantity(quantity);
+            if (numericTypeId > 0 && normalizedQuantity > 0) {
+                allocations.set(numericTypeId, normalizedQuantity);
+            }
+        });
+
+        return allocations;
+    }
+
+    function consumeProdStockAllocation(allocations, typeId, quantity) {
+        const numericTypeId = Number(typeId) || 0;
+        const normalizedQuantity = normalizeQuantity(quantity);
+        if (!(numericTypeId > 0) || !(normalizedQuantity > 0) || !(allocations instanceof Map)) {
+            return normalizedQuantity;
+        }
+
+        const remainingAllocation = allocations.get(numericTypeId) || 0;
+        if (!(remainingAllocation > 0)) {
+            return normalizedQuantity;
+        }
+
+        const coveredQuantity = Math.min(normalizedQuantity, remainingAllocation);
+        const nextAllocation = Math.max(0, remainingAllocation - coveredQuantity);
+        if (nextAllocation > 0) {
+            allocations.set(numericTypeId, nextAllocation);
+        } else {
+            allocations.delete(numericTypeId);
+        }
+
+        return Math.max(0, normalizedQuantity - coveredQuantity);
+    }
+
+    function scaleChildrenQuantities(children, ratio) {
+        const normalizedRatio = Number(ratio);
+        if (!Array.isArray(children) || children.length === 0) {
+            return [];
+        }
+        if (!(normalizedRatio >= 0) || normalizedRatio === 1) {
+            return children;
+        }
+
+        return children
+            .map((child) => cloneNodeWithQuantity(
+                child,
+                normalizeQuantity(readValue(child, 'quantity', 'qty')) * normalizedRatio
+            ))
+            .filter((child) => normalizeQuantity(readValue(child, 'quantity', 'qty')) > 0);
+    }
+
     function computeDemandFromPayloadTree() {
         const leafNeeds = new Map();
         const buyCraftables = new Map();
@@ -818,6 +875,7 @@
         );
 
         const finalOutputQuantities = getFinalOutputQuantitiesByTypeId();
+        const remainingProdStockAllocations = getProdStockAllocationMap();
 
         const walk = (nodes, blockedByBuyAncestor = false, rootLevel = false) => {
             if (!Array.isArray(nodes) || nodes.length === 0) {
@@ -852,8 +910,14 @@
                         return;
                     }
                     // Produced craftable: we need its inputs.
-                    addToCounter(prodCraftables, typeId, qty);
-                    walk(adjustChildrenForStructure(children, typeId), false, false);
+                    const effectiveQty = consumeProdStockAllocation(remainingProdStockAllocations, typeId, qty);
+                    if (!(effectiveQty > 0)) {
+                        return;
+                    }
+                    addToCounter(prodCraftables, typeId, effectiveQty);
+                    const adjustedChildren = adjustChildrenForStructure(children, typeId);
+                    const scaledChildren = qty > 0 ? scaleChildrenQuantities(adjustedChildren, effectiveQty / qty) : adjustedChildren;
+                    walk(scaledChildren, false, false);
                     return;
                 }
 
@@ -864,12 +928,14 @@
 
         if (rootProductTypeId && rootNodes.length > 0) {
             if (!treeAlreadyIncludesRoot) {
-                addToCounter(
-                    prodCraftables,
-                    rootProductTypeId,
-                    finalOutputQuantities.get(rootProductTypeId) || normalizeQuantity(payload.final_product_qty || payload.finalProductQty || 0)
-                );
-                walk(adjustChildrenForStructure(rootNodes, rootProductTypeId), false, false);
+                const rootQty = finalOutputQuantities.get(rootProductTypeId) || normalizeQuantity(payload.final_product_qty || payload.finalProductQty || 0);
+                const effectiveRootQty = consumeProdStockAllocation(remainingProdStockAllocations, rootProductTypeId, rootQty);
+                if (effectiveRootQty > 0) {
+                    addToCounter(prodCraftables, rootProductTypeId, effectiveRootQty);
+                    const adjustedRootChildren = adjustChildrenForStructure(rootNodes, rootProductTypeId);
+                    const scaledRootChildren = rootQty > 0 ? scaleChildrenQuantities(adjustedRootChildren, effectiveRootQty / rootQty) : adjustedRootChildren;
+                    walk(scaledRootChildren, false, false);
+                }
             } else {
                 walk(rootNodes, false, true);
             }

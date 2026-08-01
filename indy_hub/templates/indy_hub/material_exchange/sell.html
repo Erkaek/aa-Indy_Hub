@@ -63,6 +63,7 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
         initToken: 0,
         activePollToken: 0,
         pollTimer: null,
+        cooldownTimer: null,
         swapTimer: null,
         swapRequestToken: 0,
         refreshCompleted: false
@@ -72,6 +73,10 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
     if (sellPageState.pollTimer) {
         clearTimeout(sellPageState.pollTimer);
         sellPageState.pollTimer = null;
+    }
+    if (sellPageState.cooldownTimer) {
+        clearInterval(sellPageState.cooldownTimer);
+        sellPageState.cooldownTimer = null;
     }
     if (sellPageState.swapTimer) {
         clearTimeout(sellPageState.swapTimer);
@@ -100,15 +105,22 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
     const sellPasteSubmitWrapper = query('#sellPasteSubmitWrapper');
     const sellPasteQuantitiesJson = query('#sellPasteQuantitiesJson');
     const sellPasteResults = query('#sellPasteResults');
+    const sellPasteTabs = query('#sellPasteTabs');
     const sellPasteCatalogNode = query('#sellPasteCatalogData');
     const sellCharacterSelect = query('#sellCharacterSelect');
+    const sellAssetsRefreshButton = query('#sellAssetsRefreshButton');
+    const sellAssetsRefreshButtonLabel = query('#sellAssetsRefreshButtonLabel');
+    const sellAssetsRefreshButtonIcon = query('#sellAssetsRefreshButtonIcon');
     const sellPasteCatalog = new Map();
     const sellPasteResolvedDbItems = new Map();
     const sellPasteResolveQueue = new Map();
     const sellPasteResolvePending = new Set();
+    let sellPasteAcceptedSummaryItems = [];
+    let sellPasteAcceptedSummaryTotalCents = 0;
     let sellPasteResolveTimer = null;
     let sellPasteResolveToken = 0;
     const sellPasteResolveUrl = '{% url "indy_hub:material_exchange_sell_resolve_paste_items" %}';
+    const sellAssetsRefreshStartUrl = '{% url "indy_hub:material_exchange_sell_assets_refresh_start" %}';
 
     function registerSellPasteCatalogItem(item) {
         if (!item || !item.type_name) {
@@ -161,7 +173,9 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
 
     const sellPasteMessages = {
         notBought: '{% trans "Not bought by the hub" %}',
+        noReliablePrice: '{% trans "No coherent price was found for this item. Contact the admins to discuss a sale through another path." %}',
         notOnCharacter: '{% trans "Not available on this character" %}',
+        contractOnly: '{% trans "Item not found on your characters: contract validation will verify the delivered items directly." %}',
         insufficient: '{% trans "Quantity exceeds what is available on the selected character" %}',
         unknown: '{% trans "Unknown item or unsupported line" %}',
         parseError: '{% trans "Could not read this line" %}'
@@ -518,31 +532,100 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
 
     function renderPasteList(containerId, emptyId, items, formatter) {
         const container = query('#' + containerId);
-        const emptyState = query('#' + emptyId);
-        if (!container || !emptyState) {
+        const emptyState = emptyId ? query('#' + emptyId) : null;
+        if (!container) {
             return;
         }
 
         if (!items.length) {
             container.innerHTML = '';
-            emptyState.classList.remove('d-none');
+            if (emptyState) {
+                emptyState.classList.remove('d-none');
+            }
             return;
         }
 
-        emptyState.classList.add('d-none');
+        if (emptyState) {
+            emptyState.classList.add('d-none');
+        }
         container.innerHTML = items.map(item => formatter(item)).join('');
     }
 
-    function syncPasteResultCard(cardId, itemCount) {
-        const card = query('#' + cardId);
-        if (!card) {
-            return false;
+    function activatePasteResultTab(tabName) {
+        if (!sellPasteTabs || !tabName) {
+            return;
         }
 
-        const hasItems = itemCount > 0;
-        card.classList.toggle('d-none', !hasItems);
-        return hasItems;
+        queryAll('[data-sell-paste-tab]').forEach(button => {
+            const isActive = button.dataset.sellPasteTab === tabName;
+            button.classList.toggle('is-active', isActive);
+            button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+        });
+
+        queryAll('[data-sell-paste-pane]').forEach(pane => {
+            const isActive = pane.dataset.sellPastePane === tabName;
+            pane.classList.toggle('d-none', !isActive);
+        });
+
+        sellPasteTabs.dataset.activeTab = tabName;
     }
+
+    function syncPasteResultTabs(counts) {
+        if (!sellPasteTabs) {
+            return 0;
+        }
+
+        const tabConfig = [
+            { key: 'accepted', tabId: 'sellPasteTabAccepted', paneId: 'sellPasteAcceptedCard' },
+            { key: 'rejected', tabId: 'sellPasteTabRejected', paneId: 'sellPasteRejectedCard' },
+            { key: 'unavailable', tabId: 'sellPasteTabUnavailable', paneId: 'sellPasteUnavailableCard' },
+            { key: 'unknown', tabId: 'sellPasteTabUnknown', paneId: 'sellPasteUnknownCard' }
+        ];
+
+        let firstVisibleTab = '';
+        let visibleCount = 0;
+
+        tabConfig.forEach(config => {
+            const hasItems = (counts[config.key] || 0) > 0;
+            const tab = query('#' + config.tabId);
+            const pane = query('#' + config.paneId);
+
+            if (tab) {
+                tab.classList.toggle('d-none', !hasItems);
+            }
+            if (pane) {
+                pane.classList.toggle('d-none', !hasItems);
+            }
+
+            if (hasItems) {
+                visibleCount += 1;
+                if (!firstVisibleTab) {
+                    firstVisibleTab = config.key;
+                }
+            }
+        });
+
+        if (!visibleCount) {
+            sellPasteTabs.classList.add('d-none');
+            sellPasteTabs.dataset.activeTab = '';
+            return 0;
+        }
+
+        sellPasteTabs.classList.remove('d-none');
+        const activeTab = sellPasteTabs.dataset.activeTab || '';
+        const canKeepActive = activeTab && (counts[activeTab] || 0) > 0;
+        activatePasteResultTab(canKeepActive ? activeTab : firstVisibleTab);
+        return visibleCount;
+    }
+
+    queryAll('[data-sell-paste-tab]').forEach(button => {
+        button.addEventListener('click', function() {
+            if (this.classList.contains('d-none')) {
+                return;
+            }
+            activatePasteResultTab(this.dataset.sellPasteTab || '');
+        });
+    });
 
     function applyPasteQuantities(quantitiesByType) {
         qtyInputs.forEach(input => {
@@ -570,6 +653,116 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
     function getSellPasteCsrfToken() {
         return query('input[name="csrfmiddlewaretoken"]')?.value || '';
     }
+
+    function formatCooldownDuration(seconds) {
+        const total = Math.max(0, Number.parseInt(seconds || '0', 10) || 0);
+        const minutes = Math.floor(total / 60);
+        const secs = total % 60;
+        return `${minutes}:${String(secs).padStart(2, '0')}`;
+    }
+
+    function initSellAssetsRefreshCooldown() {
+        if (!sellAssetsRefreshButton || !sellAssetsRefreshButtonLabel) {
+            return;
+        }
+
+        const isBlocked = sellAssetsRefreshButton.dataset.refreshBlocked === '1';
+        if (!isBlocked || sellAssetsRefreshButton.disabled === false) {
+            return;
+        }
+
+        let remainingSeconds = Number.parseInt(
+            sellAssetsRefreshButton.dataset.cooldownSeconds || '0',
+            10
+        ) || 0;
+        const defaultLabel = sellAssetsRefreshButton.dataset.labelDefault || 'Assets update';
+        const cooldownPrefix = sellAssetsRefreshButton.dataset.labelCooldownPrefix || 'Assets update in';
+        const blockedClass = sellAssetsRefreshButton.dataset.classBlocked || 'btn-warning';
+        const availableClass = sellAssetsRefreshButton.dataset.classAvailable || 'btn-success';
+        const blockedTextClass = sellAssetsRefreshButton.dataset.textBlocked || 'text-dark';
+        const availableTextClass = sellAssetsRefreshButton.dataset.textAvailable || 'text-white';
+
+        const render = () => {
+            if (remainingSeconds <= 0) {
+                sellAssetsRefreshButtonLabel.textContent = defaultLabel;
+                sellAssetsRefreshButton.disabled = false;
+                sellAssetsRefreshButton.dataset.refreshBlocked = '0';
+                sellAssetsRefreshButton.classList.remove(blockedClass, blockedTextClass);
+                sellAssetsRefreshButton.classList.add(availableClass, availableTextClass);
+                if (sellAssetsRefreshButtonIcon) {
+                    sellAssetsRefreshButtonIcon.classList.remove(blockedTextClass);
+                    sellAssetsRefreshButtonIcon.classList.add(availableTextClass);
+                }
+                if (sellPageState.cooldownTimer) {
+                    clearInterval(sellPageState.cooldownTimer);
+                    sellPageState.cooldownTimer = null;
+                }
+                return;
+            }
+            sellAssetsRefreshButton.classList.remove(availableClass, availableTextClass);
+            sellAssetsRefreshButton.classList.add(blockedClass, blockedTextClass);
+            if (sellAssetsRefreshButtonIcon) {
+                sellAssetsRefreshButtonIcon.classList.remove(availableTextClass);
+                sellAssetsRefreshButtonIcon.classList.add(blockedTextClass);
+            }
+            sellAssetsRefreshButtonLabel.textContent = `${cooldownPrefix} ${formatCooldownDuration(remainingSeconds)}`;
+            remainingSeconds -= 1;
+        };
+
+        render();
+        if (remainingSeconds > 0) {
+            sellPageState.cooldownTimer = window.setInterval(render, 1000);
+        }
+    }
+
+    async function startManualAssetsRefresh() {
+        if (!sellAssetsRefreshButton || sellAssetsRefreshButton.disabled) {
+            return;
+        }
+
+        // New manual refresh cycle: force polling to restart from scratch.
+        sellPageState.refreshCompleted = false;
+
+        sellAssetsRefreshButton.disabled = true;
+        const icon = sellAssetsRefreshButton.querySelector('i');
+        if (icon) {
+            icon.classList.add('fa-spin');
+        }
+
+        try {
+            const response = await fetch(sellAssetsRefreshStartUrl, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRFToken': getSellPasteCsrfToken()
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error('Sell assets refresh start failed');
+            }
+
+            await swapSellDynamicContent(window.location.href, {
+                inputMode: query('input[name="sellInputModeSelector"]:checked')?.value || 'manual',
+                pasteText: sellPasteTextarea ? sellPasteTextarea.value || '' : '',
+                searchQuery: sellSearchInput ? sellSearchInput.value || '' : '',
+                searchMode: query('input[name="sellSearchMode"]:checked')?.value || 'item'
+            });
+        } catch (error) {
+            console.error('Failed to start sell assets refresh:', error);
+            sellAssetsRefreshButton.disabled = false;
+            if (icon) {
+                icon.classList.remove('fa-spin');
+            }
+        }
+    }
+
+    if (sellAssetsRefreshButton) {
+        sellAssetsRefreshButton.addEventListener('click', startManualAssetsRefresh);
+    }
+
+    initSellAssetsRefreshCooldown();
 
     function getSelectedCharacterId() {
         const url = new URL(window.location.href);
@@ -673,9 +866,15 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
         const rawText = sellPasteTextarea.value || '';
         const collapsedText = collapseWhitespace(rawText);
         if (!collapsedText) {
+            sellPasteAcceptedSummaryItems = [];
+            sellPasteAcceptedSummaryTotalCents = 0;
             applyPasteQuantities({});
             if (sellPasteResults) {
                 sellPasteResults.classList.add('d-none');
+            }
+            if (sellPasteTabs) {
+                sellPasteTabs.classList.add('d-none');
+                sellPasteTabs.dataset.activeTab = '';
             }
             if (sellPasteSubmitWrapper) {
                 sellPasteSubmitWrapper.classList.add('d-none');
@@ -738,7 +937,9 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
             if (catalogItem.status === 'rejected') {
                 rejectedItems.push({
                     label: `${catalogItem.type_name} x ${entry.quantity.toLocaleString()}`,
-                    detail: sellPasteMessages.notBought
+                    detail: catalogItem.reason === 'no_reliable_price'
+                        ? sellPasteMessages.noReliablePrice
+                        : sellPasteMessages.notBought
                 });
                 return;
             }
@@ -755,10 +956,12 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
                 return;
             }
 
-            if (entry.quantity > Number.parseInt(catalogItem.available_qty, 10)) {
+            const enforceAvailableQty = catalogItem.enforce_available_qty !== false;
+            const availableQty = Number.parseInt(catalogItem.available_qty, 10) || 0;
+            if (enforceAvailableQty && entry.quantity > availableQty) {
                 rejectedItems.push({
                     label: `${catalogItem.type_name} x ${entry.quantity.toLocaleString()}`,
-                    detail: `${sellPasteMessages.insufficient} (${catalogItem.available_qty.toLocaleString()})`
+                    detail: `${sellPasteMessages.insufficient} (${availableQty.toLocaleString()})`
                 });
                 return;
             }
@@ -772,11 +975,20 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
                 quantity: entry.quantity,
                 unitPrice: Number.parseFloat(catalogItem.unit_price || '0'),
                 subtotalCents,
-                warning: ''
+                warning: enforceAvailableQty ? '' : sellPasteMessages.contractOnly
             });
         });
 
         scheduleSellPasteDbResolution(entriesNeedingDbResolution);
+
+        sellPasteAcceptedSummaryItems = acceptedItems.map(item => ({
+            name: item.label,
+            qty: item.quantity,
+            unitPrice: item.unitPrice,
+            subtotalCents: item.subtotalCents,
+            warning: item.warning || ''
+        }));
+        sellPasteAcceptedSummaryTotalCents = acceptedTotalCents;
 
         applyPasteQuantities(quantitiesByType);
 
@@ -793,7 +1005,6 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
         const unavailableBadgeNode = query('#sellPasteUnavailableBadge');
         const unknownBadgeNode = query('#sellPasteUnknownBadge');
         const acceptedValueNode = query('#sellPasteAcceptedValue');
-        const resultsGrid = query('#sellPasteResultsGrid');
 
         if (acceptedCountNode) {
             acceptedCountNode.textContent = acceptedItems.length.toLocaleString();
@@ -826,28 +1037,29 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
             sellPasteSubmitWrapper.classList.toggle('d-none', acceptedItems.length === 0);
         }
 
-        const visibleCardCount = [
-            syncPasteResultCard('sellPasteAcceptedCard', acceptedItems.length),
-            syncPasteResultCard('sellPasteRejectedCard', rejectedItems.length),
-            syncPasteResultCard('sellPasteUnavailableCard', unavailableItems.length),
-            syncPasteResultCard('sellPasteUnknownCard', unknownItems.length)
-        ].filter(Boolean).length;
-
-        if (resultsGrid) {
-            resultsGrid.classList.toggle('is-single-card', visibleCardCount <= 1);
+        const visibleCardCount = syncPasteResultTabs({
+            accepted: acceptedItems.length,
+            rejected: rejectedItems.length,
+            unavailable: unavailableItems.length,
+            unknown: unknownItems.length
+        });
+        if (sellPasteResults) {
+            sellPasteResults.classList.toggle('d-none', visibleCardCount <= 0);
         }
 
-        renderPasteList('sellPasteAcceptedList', 'sellPasteAcceptedEmpty', acceptedItems, item => `
+        renderPasteList('sellPasteAcceptedList', null, acceptedItems, item => `
             <article class="me-paste-line me-paste-line-accepted">
-                <div>
-                    <div class="me-paste-line-title">${item.label}</div>
-                    <div class="me-paste-line-meta">${item.quantity.toLocaleString()} × ${formatNumber(item.unitPrice)} ISK</div>
+                <div class="me-paste-line-main">
+                    <div class="me-paste-line-inline">
+                        <span class="me-paste-line-title">${item.label}</span>
+                        <span class="me-paste-line-meta me-paste-line-meta-inline">${item.quantity.toLocaleString()} × ${formatNumber(item.unitPrice)} ISK</span>
+                    </div>
                     ${item.warning ? `<div class="me-paste-line-meta text-info">${item.warning}</div>` : ''}
                 </div>
                 <div class="me-paste-line-value text-success">${formatNumber(item.subtotalCents / 100)} ISK</div>
             </article>
         `);
-        renderPasteList('sellPasteRejectedList', 'sellPasteRejectedEmpty', rejectedItems, item => `
+        renderPasteList('sellPasteRejectedList', null, rejectedItems, item => `
             <article class="me-paste-line me-paste-line-rejected">
                 <div>
                     <div class="me-paste-line-title">${item.label}</div>
@@ -855,15 +1067,15 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
                 </div>
             </article>
         `);
-        renderPasteList('sellPasteUnavailableList', 'sellPasteUnavailableEmpty', unavailableItems, item => `
-            <article class="me-paste-line me-paste-line-unknown">
+        renderPasteList('sellPasteUnavailableList', null, unavailableItems, item => `
+            <article class="me-paste-line me-paste-line-unavailable">
                 <div>
                     <div class="me-paste-line-title">${item.label}</div>
                     <div class="me-paste-line-meta">${item.detail}</div>
                 </div>
             </article>
         `);
-        renderPasteList('sellPasteUnknownList', 'sellPasteUnknownEmpty', unknownItems, item => `
+        renderPasteList('sellPasteUnknownList', null, unknownItems, item => `
             <article class="me-paste-line me-paste-line-unknown">
                 <div>
                     <div class="me-paste-line-title">${item.label}</div>
@@ -916,41 +1128,56 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
     }
 
     function updateInvoice() {
+        const selectedMode = sellInputModeField?.value || 'manual';
         const selectedItems = [];
         let totalCents = 0;
 
-        qtyInputs.forEach(input => {
-            const qty = parseInt(input.value) || 0;
-            const row = input.closest('tr');
-
-            // Check limit but don't auto-correct during typing
-            checkQuantityLimit(input);
-
-            if (qty > 0) {
-                const typeId = input.dataset.typeId;
-                const typeName = row.dataset.typeName;
-                const unitPrice = parseFloat(row.dataset.unitPrice);
-                const max = parseInt(input.dataset.max);
-
-                // Use actual qty or max, whichever is lower for calculation
-                const effectiveQty = Math.min(qty, max);
-                const unitPriceCents = toCents(row.dataset.unitPrice);
-                const subtotalCents = unitPriceCents * effectiveQty;
-                const subtotal = subtotalCents / 100;
-
+        if (selectedMode === 'paste' && sellPasteAcceptedSummaryItems.length > 0) {
+            sellPasteAcceptedSummaryItems.forEach(item => {
                 selectedItems.push({
-                    name: typeName,
-                    qty: effectiveQty,
-                    unitPrice: unitPrice,
-                    subtotal: subtotal
+                    name: item.name,
+                    qty: item.qty,
+                    unitPrice: item.unitPrice,
+                    subtotal: item.subtotalCents / 100,
+                    warning: item.warning
                 });
+            });
+            totalCents = sellPasteAcceptedSummaryTotalCents;
+        } else {
+            qtyInputs.forEach(input => {
+                const qty = parseInt(input.value) || 0;
+                const row = input.closest('tr');
 
-                totalCents += subtotalCents;
-                row.classList.add('selected');
-            } else {
-                row.classList.remove('selected');
-            }
-        });
+                // Check limit but don't auto-correct during typing
+                checkQuantityLimit(input);
+
+                if (qty > 0) {
+                    const typeId = input.dataset.typeId;
+                    const typeName = row.dataset.typeName;
+                    const unitPrice = parseFloat(row.dataset.unitPrice);
+                    const max = parseInt(input.dataset.max);
+
+                    // Use actual qty or max, whichever is lower for calculation
+                    const effectiveQty = Math.min(qty, max);
+                    const unitPriceCents = toCents(row.dataset.unitPrice);
+                    const subtotalCents = unitPriceCents * effectiveQty;
+                    const subtotal = subtotalCents / 100;
+
+                    selectedItems.push({
+                        name: typeName,
+                        qty: effectiveQty,
+                        unitPrice: unitPrice,
+                        subtotal: subtotal,
+                        warning: ''
+                    });
+
+                    totalCents += subtotalCents;
+                    row.classList.add('selected');
+                } else {
+                    row.classList.remove('selected');
+                }
+            });
+        }
 
         // Match server-side `MaterialExchangeSellOrder.total_price`: ceil to whole ISK.
         const total = Math.ceil(totalCents / 100);
@@ -1183,8 +1410,8 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
     formatLocalTimes(root);
 
     // Live asset refresh progress (per character)
-    {% if assets_refreshing %}
-    if (!sellPageState.refreshCompleted) {
+    const isAssetsRefreshing = Boolean(query('#sellAssetsLoadingState'));
+    if (isAssetsRefreshing) {
     sellPageState.activePollToken = initToken;
     const statusUrl = '{% url "indy_hub:material_exchange_sell_assets_refresh_status" %}';
     const lastUpdateNode = document.querySelector('.js-local-time[data-utc]');
@@ -1208,6 +1435,7 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
         try {
             const resp = await fetch(statusUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
             if (!resp.ok) {
+                schedulePoll(3000);
                 return;
             }
             const data = await resp.json();
@@ -1233,25 +1461,27 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
             if (data.finished && (!error || error === 'timeout' || error === 'no_assets_fetched')) {
                 sellPageState.refreshCompleted = true;
                 const url = new URL(window.location.href);
-                if (url.searchParams.get('refreshed') !== '1') {
-                    const initialTime = initialLastUpdate ? Date.parse(initialLastUpdate) : null;
-                    const serverTime = serverLastUpdate ? Date.parse(serverLastUpdate) : null;
-                    const hasNewTimestamp = serverTime && (!initialTime || serverTime > initialTime);
-                    url.searchParams.set('refreshed', '1');
-                    if (sellPageState.swapTimer) {
-                        clearTimeout(sellPageState.swapTimer);
-                    }
-                    sellPageState.swapTimer = window.setTimeout(() => {
-                        sellPageState.swapTimer = null;
-                        swapSellDynamicContent(url.toString());
-                    }, hasNewTimestamp ? 300 : 1200);
+                const initialTime = initialLastUpdate ? Date.parse(initialLastUpdate) : null;
+                const serverTime = serverLastUpdate ? Date.parse(serverLastUpdate) : null;
+                const hasNewTimestamp = serverTime && (!initialTime || serverTime > initialTime);
+                url.searchParams.delete('refreshed');
+                if (sellPageState.swapTimer) {
+                    clearTimeout(sellPageState.swapTimer);
                 }
+                sellPageState.swapTimer = window.setTimeout(() => {
+                    sellPageState.swapTimer = null;
+                    swapSellDynamicContent(url.toString());
+                }, hasNewTimestamp ? 250 : 800);
                 return;
             }
 
             if (error) {
                 console.warn('Sell asset refresh finished with error:', error, { total, done });
+                return;
             }
+
+            // Transitional state: keep polling until backend settles to a finished state.
+            schedulePoll(1000);
         } catch (e) {
             if (sellPageState.activePollToken === initToken) {
                 schedulePoll(3000);
@@ -1261,7 +1491,6 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
 
     pollAssetsProgress();
     }
-    {% endif %}
 };
 
 document.addEventListener('DOMContentLoaded', function() {

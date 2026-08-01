@@ -34,6 +34,8 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 - Blueprint sharing request filters: search, ME, and TE filtering now execute at query level with deduplicated result rows (`distinct`) instead of post-query Python filtering.
 - Material Exchange buy flow: stock queries now use `select_related("config")` across reservation and display paths to reduce repeated related-object lookups.
 - Material Exchange orders list: refactored listing to union lightweight sell/buy rows for pagination and hydrate only visible page IDs, improving large account order history responsiveness.
+- Material Exchange sell page: refreshed the paste-import workflow with a more compact result layout, dynamic category tabs, clearer refresh-button states, and manual-only asset refresh UX.
+- Craft stock planning: the Stock tab now separates buy-required and produce-mode items more clearly while keeping stock allocations manual and feeding those allocations back into planning demand.
 - User dashboard fulfill metrics: copy-request eligibility counting now intersects deduplicated blueprint key sets before expensive request filtering.
 - Test/dev workflow: `tox` now defaults to quieter output and accepts targeted test selectors; `make tox_tests` supports `TOX_ENV` and `TESTS` overrides.
 
@@ -46,6 +48,9 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 - Task scheduling reliability: improved task dedup/scheduling behavior to avoid intermittent update stalls.
 - Notifications: fixed duplicate Discord DM edge cases.
 - Blueprint Sharing and Material Exchange: fixed several contract/order validation and matching edge cases.
+- Material Exchange sell refresh flow: fixed stuck asset-loading states, removed sell-page auto-refresh, reduced refresh log noise, and blocked duplicate manual refresh launches during the ESI cooldown window.
+- Craft stock/decision coherence: items hidden by `Parent Buy` no longer leak into stock requirements, buy-mode items show in Stock when cached assets exist, and manual stock allocated to produce-mode items now reduces upstream production/material demand consistently.
+- Craft workspace plan quantities: final-output quantity inputs no longer trigger runaway native spinner increments on a single press.
 - Large-account responsiveness: reduced expensive repeated checks in dashboard/header paths.
 - Crafting Projects persistence semantics: opening and navigating craft tabs no longer writes project workspace updates implicitly.
 - Projects bulk deletion safety: bulk delete POST handling now normalizes refs, enforces ownership scope, and executes deletions inside an atomic transaction.

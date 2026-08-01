@@ -3,6 +3,7 @@
 # Standard Library
 import json
 import re
+from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -23,7 +24,11 @@ from allianceauth.authentication.models import CharacterOwnership, UserProfile
 from allianceauth.eveonline.models import EveCharacter
 
 # AA Example App
-from indy_hub.models import MaterialExchangeConfig, MaterialExchangeSellOrder
+from indy_hub.models import (
+    CachedCharacterAsset,
+    MaterialExchangeConfig,
+    MaterialExchangeSellOrder,
+)
 from indy_hub.services.material_exchange_assets import (
     SELL_ASSETS_REFRESH_PROGRESS_TTL_SECONDS,
     material_exchange_sell_assets_progress_key,
@@ -31,6 +36,7 @@ from indy_hub.services.material_exchange_assets import (
 from indy_hub.views.material_exchange import (
     _build_sell_paste_catalog,
     material_exchange_sell,
+    material_exchange_sell_assets_refresh_start,
     material_exchange_sell_resolve_paste_items,
 )
 
@@ -217,6 +223,159 @@ class MaterialExchangeSellPasteTests(TestCase):
             reverse("indy_hub:sell_order_detail", args=[order.id]),
         )
 
+    def test_post_creates_sell_order_from_paste_without_assets_scope(self) -> None:
+        request = self._prepare_request(
+            self.factory.post(
+                reverse("indy_hub:material_exchange_sell"),
+                {
+                    "sell_input_mode": "paste",
+                    "paste_quantities_json": json.dumps({"34": 4}),
+                    "order_reference": "INDY-PASTE-NOSCOPE",
+                },
+            )
+        )
+
+        with (
+            patch("indy_hub.views.material_exchange.emit_view_analytics_event"),
+            patch(
+                "indy_hub.views.material_exchange._is_material_exchange_enabled",
+                return_value=True,
+            ),
+            patch(
+                "indy_hub.views.material_exchange._get_material_exchange_config",
+                return_value=self.config,
+            ),
+            patch(
+                "indy_hub.views.material_exchange._fetch_user_assets_for_structure",
+                side_effect=AssertionError("paste mode should not require assets"),
+            ),
+            patch(
+                "indy_hub.views.material_exchange._get_allowed_type_ids_for_config",
+                return_value={34},
+            ),
+            patch(
+                "indy_hub.views.material_exchange._fetch_fuzzwork_prices",
+                return_value={34: {"buy": Decimal("5.00"), "sell": Decimal("6.00")}},
+            ),
+            patch(
+                "indy_hub.views.material_exchange.get_type_name",
+                return_value="Tritanium",
+            ),
+        ):
+            response = self.view(request)
+
+        self.assertEqual(response.status_code, 302)
+        order = MaterialExchangeSellOrder.objects.get(
+            order_reference="INDY-PASTE-NOSCOPE"
+        )
+        self.assertEqual(order.status, MaterialExchangeSellOrder.Status.DRAFT)
+        self.assertEqual(order.items.count(), 1)
+
+    def test_get_sell_page_renders_without_assets_scope_for_paste_mode(self) -> None:
+        self.client.force_login(self.user)
+
+        with (
+            patch("indy_hub.views.material_exchange.emit_view_analytics_event"),
+            patch(
+                "indy_hub.views.material_exchange._ensure_sell_assets_refresh_started",
+                return_value={
+                    "running": False,
+                    "finished": True,
+                    "error": "missing_assets_scope",
+                },
+            ),
+            patch(
+                "indy_hub.views.material_exchange._fetch_user_assets_for_structure_data",
+                return_value=({}, {}, True),
+            ),
+            patch(
+                "indy_hub.views.material_exchange._fetch_user_assets_for_structure",
+                return_value=({}, True),
+            ),
+        ):
+            response = self.client.get(reverse("indy_hub:material_exchange_sell"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Paste import")
+        self.assertContains(response, "Create Sell Order")
+        self.assertContains(response, "Assets update")
+
+    def test_get_stale_assets_does_not_auto_start_refresh(self) -> None:
+        stale_time = timezone.now() - timedelta(hours=2)
+        request = self._prepare_request(
+            self.factory.get(reverse("indy_hub:material_exchange_sell"))
+        )
+        CachedCharacterAsset.objects.create(
+            user=self.user,
+            character_id=self.character.character_id,
+            location_id=self.config.structure_id,
+            type_id=34,
+            quantity=5,
+            synced_at=stale_time,
+        )
+
+        captured: dict[str, object] = {}
+
+        def fake_render(_request, _template_name, context):
+            captured["context"] = context
+            return HttpResponse("ok")
+
+        with (
+            patch("indy_hub.views.material_exchange.emit_view_analytics_event"),
+            patch(
+                "indy_hub.views.material_exchange._is_material_exchange_enabled",
+                return_value=True,
+            ),
+            patch(
+                "indy_hub.views.material_exchange._get_material_exchange_config",
+                return_value=self.config,
+            ),
+            patch(
+                "indy_hub.views.material_exchange._ensure_sell_assets_refresh_started"
+            ) as ensure_refresh_started,
+            patch(
+                "indy_hub.views.material_exchange._fetch_user_assets_for_structure_data",
+                return_value=({}, {}, False),
+            ),
+            patch(
+                "indy_hub.views.material_exchange.render",
+                side_effect=fake_render,
+            ),
+        ):
+            response = self.view(request)
+
+        self.assertEqual(response.status_code, 200)
+        ensure_refresh_started.assert_not_called()
+        self.assertTrue(captured["context"]["sell_assets_stale"])
+
+    def test_manual_assets_refresh_start_endpoint_starts_refresh(self) -> None:
+        request = self._prepare_request(
+            self.factory.post(
+                reverse("indy_hub:material_exchange_sell_assets_refresh_start"),
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            )
+        )
+
+        with (
+            patch("indy_hub.views.material_exchange.emit_view_analytics_event"),
+            patch(
+                "indy_hub.views.material_exchange._is_material_exchange_enabled",
+                return_value=True,
+            ),
+            patch(
+                "indy_hub.views.material_exchange._ensure_sell_assets_refresh_started",
+                return_value={"running": True, "finished": False, "error": None},
+            ) as ensure_refresh_started,
+        ):
+            response = material_exchange_sell_assets_refresh_start(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            json.loads(response.content),
+            {"running": True, "finished": False, "error": None},
+        )
+        ensure_refresh_started.assert_called_once_with(self.user)
+
     def test_post_shows_specific_error_when_paste_mode_has_no_accepted_items(
         self,
     ) -> None:
@@ -347,7 +506,77 @@ class MaterialExchangeSellPasteTests(TestCase):
         self.assertGreater(len(rendered_catalog), 0)
         self.assertIn("Tritanium", {entry["type_name"] for entry in rendered_catalog})
 
-    def test_get_marks_known_item_on_other_character_as_unavailable(self) -> None:
+    def test_get_manual_sell_materials_are_paginated(self) -> None:
+        request = self._prepare_request(
+            self.factory.get(
+                reverse("indy_hub:material_exchange_sell"),
+                {"per_page": "25", "page": "2"},
+            )
+        )
+        captured: dict[str, object] = {}
+
+        asset_quantities = {type_id: 10 for type_id in range(1000, 1031)}
+        price_payload = {
+            type_id: {"buy": Decimal("5.00"), "sell": Decimal("6.00")}
+            for type_id in asset_quantities
+        }
+
+        def fake_render(_request, _template_name, context):
+            captured["context"] = context
+            return HttpResponse("ok")
+
+        with (
+            patch("indy_hub.views.material_exchange.emit_view_analytics_event"),
+            patch(
+                "indy_hub.views.material_exchange._is_material_exchange_enabled",
+                return_value=True,
+            ),
+            patch(
+                "indy_hub.views.material_exchange._get_material_exchange_config",
+                return_value=self.config,
+            ),
+            patch(
+                "indy_hub.views.material_exchange._fetch_user_assets_for_structure_data",
+                return_value=(
+                    asset_quantities,
+                    {self.character.character_id: asset_quantities},
+                    False,
+                ),
+            ),
+            patch(
+                "indy_hub.views.material_exchange._get_allowed_type_ids_for_config",
+                return_value=set(asset_quantities.keys()),
+            ),
+            patch(
+                "indy_hub.views.material_exchange._fetch_fuzzwork_prices",
+                return_value=price_payload,
+            ),
+            patch(
+                "indy_hub.views.material_exchange.get_type_name",
+                side_effect=lambda type_id: f"Item {type_id}",
+            ),
+            patch(
+                "indy_hub.views.material_exchange._get_group_map",
+                return_value={type_id: "Minerals" for type_id in asset_quantities},
+            ),
+            patch("indy_hub.views.material_exchange.batch_cache_type_names"),
+            patch(
+                "indy_hub.views.material_exchange.render",
+                side_effect=fake_render,
+            ),
+        ):
+            response = self.view(request)
+
+        self.assertEqual(response.status_code, 200)
+        context = captured["context"]
+        self.assertTrue(context["sell_is_paginated"])
+        self.assertEqual(context["sell_page_obj"].paginator.count, 31)
+        self.assertEqual(context["sell_page_obj"].number, 2)
+        self.assertEqual(len(context["materials"]), 6)
+
+    def test_get_marks_known_item_on_other_character_as_accepted_with_warning(
+        self,
+    ) -> None:
         request = self._prepare_request(
             self.factory.get(
                 reverse("indy_hub:material_exchange_sell"),
@@ -430,10 +659,11 @@ class MaterialExchangeSellPasteTests(TestCase):
         catalog = {entry["type_name"]: entry for entry in context["sell_paste_catalog"]}
 
         self.assertEqual(catalog["Tritanium"]["status"], "accepted")
-        self.assertEqual(catalog["Large Skill Injector"]["status"], "unavailable")
+        self.assertEqual(catalog["Large Skill Injector"]["status"], "accepted")
         self.assertEqual(catalog["Large Skill Injector"]["reason"], "not_on_character")
         self.assertEqual(catalog["Large Skill Injector"]["available_qty"], 0)
         self.assertEqual(catalog["Large Skill Injector"]["total_available_qty"], 3)
+        self.assertFalse(catalog["Large Skill Injector"]["enforce_available_qty"])
         self.assertEqual(catalog["Unrefined Goo"]["status"], "rejected")
         self.assertEqual(catalog["Unrefined Goo"]["reason"], "not_bought")
 
@@ -535,6 +765,72 @@ class MaterialExchangeSellPasteTests(TestCase):
         self.assertEqual(tritanium["item"]["type_name"], "Tritanium")
         self.assertEqual(tritanium["item"]["available_qty"], 2_500)
         self.assertEqual(tritanium["item"]["unit_price"], "5.25")
+
+    def test_resolve_paste_items_rejects_hub_item_with_unreliable_market_price(
+        self,
+    ) -> None:
+        request = self._prepare_request(
+            self.factory.post(
+                reverse("indy_hub:material_exchange_sell_resolve_paste_items"),
+                data=json.dumps(
+                    {
+                        "names": ["Azariel"],
+                        "character_id": self.character.character_id,
+                    }
+                ),
+                content_type="application/json",
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            )
+        )
+
+        with (
+            patch("indy_hub.views.material_exchange.emit_view_analytics_event"),
+            patch(
+                "indy_hub.views.material_exchange._is_material_exchange_enabled",
+                return_value=True,
+            ),
+            patch(
+                "indy_hub.views.material_exchange._get_material_exchange_config",
+                return_value=self.config,
+            ),
+            patch(
+                "indy_hub.views.material_exchange._get_material_exchange_location_ids",
+                return_value=[self.config.structure_id],
+            ),
+            patch(
+                "indy_hub.views.material_exchange._resolve_sde_item_types_by_name",
+                return_value={
+                    "azariel": {
+                        "type_id": 900001,
+                        "type_name": "Azariel",
+                        "group_name": "Ships",
+                    }
+                },
+            ),
+            patch(
+                "indy_hub.views.material_exchange._fetch_user_assets_for_structure_data",
+                return_value=({}, {}, False),
+            ),
+            patch(
+                "indy_hub.views.material_exchange._get_allowed_type_ids_for_config",
+                return_value={900001},
+            ),
+            patch(
+                "indy_hub.views.material_exchange._fetch_fuzzwork_prices",
+                return_value={
+                    900001: {"buy": Decimal("54890000"), "sell": Decimal("0")}
+                },
+            ),
+        ):
+            response = material_exchange_sell_resolve_paste_items(request)
+
+        self.assertEqual(response.status_code, 200)
+        payload = json.loads(response.content)
+        azariel = payload["items"]["azariel"]
+        self.assertTrue(azariel["found"])
+        self.assertEqual(azariel["item"]["status"], "rejected")
+        self.assertEqual(azariel["item"]["reason"], "no_reliable_price")
+        self.assertTrue(azariel["item"]["enforce_available_qty"])
 
     def test_resolve_paste_items_keeps_db_found_item_out_of_unknown(self) -> None:
         request = self._prepare_request(

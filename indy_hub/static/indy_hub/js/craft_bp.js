@@ -1562,9 +1562,7 @@ function buildMaterialsTreeMarkup(nodes, level = 0) {
                 <span class="ms-auto d-inline-flex align-items-center gap-2" onclick="event.stopPropagation()">
                     <label class="small text-muted mb-0" for="craftFinalOutputQty${index}">${escapeHtml(__('Qty'))}</label>
                     <input
-                        type="number"
-                        min="1"
-                        step="1"
+                        type="text"
                         class="form-control form-control-sm text-end craft-final-output-quantity"
                         id="craftFinalOutputQty${index}"
                         value="${quantity}"
@@ -1572,6 +1570,8 @@ function buildMaterialsTreeMarkup(nodes, level = 0) {
                         data-type-id="${typeId}"
                         onclick="event.stopPropagation()"
                         inputmode="numeric"
+                        pattern="[0-9]*"
+                        autocomplete="off"
                         style="width: 6rem;"
                     >
                     ${hasChildren ? `<span class="tree-mode-label mode-label badge px-2 py-1 fw-bold ${buildTreeModeBadgeClass(switchState)}" data-type-id="${typeId}" data-switch-state="${escapeHtml(switchState)}" style="font-size:0.85em;">${escapeHtml(modeLabel)}</span>` : ''}
@@ -2708,7 +2708,7 @@ function getCraftStockAllocations() {
 
 function getCraftNormalizedStockAllocationsForCurrentPlan() {
     const requirements = new Map(
-        getCraftSourceRequirementRows().map((row) => [String(Number(row.typeId) || 0), Math.max(0, Math.ceil(Number(row.quantity) || 0))])
+        getCraftStockPlanningRows().rows.map((row) => [String(Number(row.typeId) || 0), Math.max(0, Math.ceil(Number(row.quantity) || 0))])
     );
     const normalized = {};
 
@@ -2733,6 +2733,9 @@ function getCraftNormalizedStockAllocationsForCurrentPlan() {
     // explicit reset button.
     return normalized;
 }
+
+window.getCraftNormalizedStockAllocationsForCurrentPlan = getCraftNormalizedStockAllocationsForCurrentPlan;
+window.getCraftProdStockAllocationsForCurrentPlan = getCraftProdStockAllocationsForCurrentPlan;
 
 function getCraftAvailableStockQty(typeId) {
     const totalsByType = getCraftCharacterStockSnapshot()?.totals_by_type;
@@ -2981,17 +2984,21 @@ function updateFinancialStockRowsFromState() {
 
 function refreshCraftStockAllocationSurfaces(options = {}) {
     const force = options.force !== false;
-    const fullFinancialRefresh = options.fullFinancialRefresh !== false;
-    if (fullFinancialRefresh && typeof updateFinancialTabFromState === 'function') {
-        updateFinancialTabFromState();
+    if (typeof refreshTabsAfterStateChange === 'function') {
+        refreshTabsAfterStateChange({ forceNeeded: force }).catch(() => {});
     } else {
-        updateFinancialStockRowsFromState();
-    }
-    if (typeof updateStockManagementTabFromState === 'function') {
-        updateStockManagementTabFromState(force);
-    }
-    if (typeof updateNeededTabFromState === 'function') {
-        updateNeededTabFromState(force);
+        const fullFinancialRefresh = options.fullFinancialRefresh !== false;
+        if (fullFinancialRefresh && typeof updateFinancialTabFromState === 'function') {
+            updateFinancialTabFromState();
+        } else {
+            updateFinancialStockRowsFromState();
+        }
+        if (typeof updateStockManagementTabFromState === 'function') {
+            updateStockManagementTabFromState(force);
+        }
+        if (typeof updateNeededTabFromState === 'function') {
+            updateNeededTabFromState(force);
+        }
     }
     if (typeof recalcFinancials === 'function') {
         recalcFinancials();
@@ -3006,9 +3013,7 @@ function scheduleCraftStockAllocationSurfaceRefresh() {
     CRAFT_BP.stockAllocationRefreshScheduled = true;
 
     const tasks = [
-        () => updateFinancialStockRowsFromState(),
-        () => updateStockManagementTabFromState(false),
-        () => updateNeededTabFromState(false),
+        () => refreshCraftStockAllocationSurfaces({ force: true }),
         () => recalcFinancials(),
         () => persistCraftPageSessionState(),
     ];
@@ -3128,6 +3133,142 @@ function getCraftSourceRequirementRows() {
         }
         return String(a.typeName).localeCompare(String(b.typeName), undefined, { sensitivity: 'base' });
     });
+}
+
+function collectCraftStockDecisionModeSets() {
+    const parentLockedTypeIds = new Set();
+    const directBuyTypeIds = new Set();
+
+    document.querySelectorAll('input.mat-switch[data-type-id]').forEach((switchEl) => {
+        const typeId = Number(switchEl.getAttribute('data-type-id')) || 0;
+        if (!(typeId > 0)) {
+            return;
+        }
+
+        const isUseless = switchEl.dataset.fixedMode === 'useless' || switchEl.dataset.userState === 'useless';
+        if (isUseless) {
+            return;
+        }
+
+        const isLockedByParent = switchEl.dataset.lockedByParent === 'true' && switchEl.disabled;
+        if (isLockedByParent) {
+            parentLockedTypeIds.add(typeId);
+            return;
+        }
+
+        if (!switchEl.checked) {
+            directBuyTypeIds.add(typeId);
+        }
+    });
+
+    const explicitBuyTypeIds = new Set(
+        (typeof getCurrentBuyTypeIds === 'function' ? getCurrentBuyTypeIds() : [])
+            .map((typeId) => Number(typeId) || 0)
+            .filter((typeId) => typeId > 0)
+            .filter((typeId) => !parentLockedTypeIds.has(typeId))
+    );
+    directBuyTypeIds.forEach((typeId) => explicitBuyTypeIds.add(typeId));
+
+    return {
+        parentLockedTypeIds,
+        directBuyTypeIds,
+        explicitBuyTypeIds,
+    };
+}
+
+function getCraftStockPlanningRows() {
+    const cyclesSummary = getCraftProductionCyclesSummary();
+    const { parentLockedTypeIds, explicitBuyTypeIds } = collectCraftStockDecisionModeSets();
+
+    const buyRows = getCraftSourceRequirementRows().map((item) => ({
+        ...item,
+        rowKind: 'buy',
+    }));
+    const buyTypeIdSet = new Set(
+        buyRows
+            .map((item) => Number(item.typeId) || 0)
+            .filter((typeId) => typeId > 0)
+    );
+
+    explicitBuyTypeIds.forEach((typeId) => {
+        if (buyTypeIdSet.has(typeId)) {
+            return;
+        }
+
+        const entry = cyclesSummary[String(typeId)] || cyclesSummary[typeId] || null;
+        if (!entry) {
+            return;
+        }
+
+        const quantity = Math.max(0, Math.ceil(Number(entry.total_needed || entry.totalNeeded || 0))) || 0;
+        if (!(quantity > 0)) {
+            return;
+        }
+
+        buyRows.push({
+            typeId,
+            typeName: String(entry.type_name || entry.typeName || typeId),
+            quantity,
+            marketGroup: String(entry.market_group || entry.marketGroup || ''),
+            rowKind: 'buy',
+        });
+        buyTypeIdSet.add(typeId);
+    });
+
+    const prodRows = Object.values(cyclesSummary)
+        .map((entry) => {
+            const typeId = Number(entry?.type_id || entry?.typeId || 0) || 0;
+            if (!(typeId > 0)) {
+                return null;
+            }
+            if (parentLockedTypeIds.has(typeId) || explicitBuyTypeIds.has(typeId) || buyTypeIdSet.has(typeId)) {
+                return null;
+            }
+
+            const quantity = Math.max(0, Math.ceil(Number(entry?.total_needed || entry?.totalNeeded || 0))) || 0;
+            if (!(quantity > 0)) {
+                return null;
+            }
+
+            return {
+                typeId,
+                typeName: String(entry?.type_name || entry?.typeName || typeId),
+                quantity,
+                marketGroup: String(entry?.market_group || entry?.marketGroup || ''),
+                rowKind: 'prod',
+            };
+        })
+        .filter(Boolean);
+
+    return {
+        buyRows,
+        prodRows,
+        rows: [...buyRows, ...prodRows],
+        explicitBuyTypeIds,
+        parentLockedTypeIds,
+    };
+}
+
+function getCraftProdStockAllocationsForCurrentPlan() {
+    const { parentLockedTypeIds, explicitBuyTypeIds } = collectCraftStockDecisionModeSets();
+    const filtered = {};
+
+    Object.entries(getCraftStockAllocations()).forEach(([typeId, quantity]) => {
+        const numericTypeId = Number(typeId) || 0;
+        if (!(numericTypeId > 0)) {
+            return;
+        }
+        if (parentLockedTypeIds.has(numericTypeId) || explicitBuyTypeIds.has(numericTypeId)) {
+            return;
+        }
+        const availableQty = getCraftAvailableStockQty(typeId);
+        const clampedQty = Math.min(availableQty, Math.max(0, Math.floor(Number(quantity) || 0)));
+        if (typeId !== '0' && clampedQty > 0) {
+            filtered[typeId] = clampedQty;
+        }
+    });
+
+    return filtered;
 }
 
 function collectCraftStockAllocationsFromDom() {
@@ -4362,8 +4503,63 @@ async function computeCraftDecisionAnalysis(options = {}) {
         map.set(numericTypeId, (map.get(numericTypeId) || 0) + normalizedQty);
     }
 
+    function getRemainingProdStockAllocationMap() {
+        const raw = typeof getCraftProdStockAllocationsForCurrentPlan === 'function'
+            ? getCraftProdStockAllocationsForCurrentPlan()
+            : {};
+        const allocations = new Map();
+
+        Object.entries(raw || {}).forEach(([typeId, quantity]) => {
+            const numericTypeId = Number(typeId) || 0;
+            const normalizedQty = Number.isFinite(Number(quantity)) ? Math.max(0, Math.ceil(Number(quantity))) : 0;
+            if (numericTypeId > 0 && normalizedQty > 0) {
+                allocations.set(numericTypeId, normalizedQty);
+            }
+        });
+
+        return allocations;
+    }
+
+    function consumeProdStockAllocation(allocations, typeId, quantity) {
+        const numericTypeId = Number(typeId) || 0;
+        const normalizedQty = Number.isFinite(Number(quantity)) ? Math.max(0, Math.ceil(Number(quantity))) : 0;
+        if (!(numericTypeId > 0) || !(normalizedQty > 0) || !(allocations instanceof Map)) {
+            return normalizedQty;
+        }
+
+        const remainingQty = allocations.get(numericTypeId) || 0;
+        if (!(remainingQty > 0)) {
+            return normalizedQty;
+        }
+
+        const coveredQty = Math.min(normalizedQty, remainingQty);
+        const nextQty = Math.max(0, remainingQty - coveredQty);
+        if (nextQty > 0) {
+            allocations.set(numericTypeId, nextQty);
+        } else {
+            allocations.delete(numericTypeId);
+        }
+
+        return Math.max(0, normalizedQty - coveredQty);
+    }
+
+    function scaleDecisionChildren(children, ratio) {
+        const normalizedRatio = Number(ratio);
+        if (!Array.isArray(children) || children.length === 0) {
+            return [];
+        }
+        if (!(normalizedRatio >= 0) || normalizedRatio === 1) {
+            return children;
+        }
+
+        return children
+            .map((child) => cloneDecisionNodeWithQuantity(child, readQty(child) * normalizedRatio))
+            .filter((child) => readQty(child) > 0);
+    }
+
     function computeDemand(currentModes) {
         const demand = new Map();
+        const remainingProdStockAllocations = getRemainingProdStockAllocationMap();
 
         (function walk(nodes, blockedByBuyAncestor = false) {
             (Array.isArray(nodes) ? nodes : []).forEach((node) => {
@@ -4387,12 +4583,19 @@ async function computeCraftDecisionAnalysis(options = {}) {
                     return;
                 }
 
-                addDemandQuantity(demand, typeId, quantity);
                 if (state === 'buy') {
+                    addDemandQuantity(demand, typeId, quantity);
                     return;
                 }
 
-                walk(children, false);
+                const effectiveQuantity = consumeProdStockAllocation(remainingProdStockAllocations, typeId, quantity);
+                if (!(effectiveQuantity > 0)) {
+                    return;
+                }
+
+                addDemandQuantity(demand, typeId, effectiveQuantity);
+                const scaledChildren = quantity > 0 ? scaleDecisionChildren(children, effectiveQuantity / quantity) : children;
+                walk(scaledChildren, false);
             });
         })(analysisTree, false);
 
@@ -8241,7 +8444,10 @@ function renderCraftStockManagement() {
         return;
     }
 
-    const rows = getCraftSourceRequirementRows();
+    const api = window.SimulationAPI;
+    const stockPlan = getCraftStockPlanningRows();
+    const rows = stockPlan.rows;
+    const explicitBuyTypeIds = stockPlan.explicitBuyTypeIds;
     const relevantLocationEntries = getCraftRelevantStockLocationEntries(rows.map((item) => item.typeId));
     const relevantLocationKeySet = new Set(
         relevantLocationEntries
@@ -8280,15 +8486,17 @@ function renderCraftStockManagement() {
         item,
         stockSummary: getCraftFilteredStockAllocationSummary(item.typeId, item.quantity, selectedLocationKeys),
     }));
-    const rowsWithStock = summarizedRows.filter(({ stockSummary }) => stockSummary.availableQty > 0);
-    const hiddenZeroStockCount = Math.max(0, rows.length - rowsWithStock.length);
-    const api = window.SimulationAPI;
+    const summarizedBuyRows = summarizedRows.filter(({ item }) => item.rowKind !== 'prod');
+    const visibleRows = summarizedRows.filter(({ stockSummary }) => stockSummary.availableQty > 0);
+    const visibleBuyRows = visibleRows.filter(({ item }) => item.rowKind !== 'prod');
+    const visibleProdRows = visibleRows.filter(({ item }) => item.rowKind === 'prod');
+    const hiddenZeroStockCount = Math.max(0, rows.length - visibleRows.length);
     let totalRequiredQty = 0;
     let totalAllocatedQty = 0;
     let totalRemainingQty = 0;
     let totalStockValue = 0;
 
-    summarizedRows.forEach(({ item, stockSummary }) => {
+    summarizedBuyRows.forEach(({ item, stockSummary }) => {
         const unitInfo = api && typeof api.getPrice === 'function' ? api.getPrice(item.typeId, 'buy') : { value: 0 };
         const unitPrice = unitInfo && typeof unitInfo.value === 'number' ? unitInfo.value : 0;
         totalRequiredQty += stockSummary.requiredQty;
@@ -8297,13 +8505,14 @@ function renderCraftStockManagement() {
         totalStockValue += unitPrice * stockSummary.allocatedQty;
     });
 
-    const renderedRows = rowsWithStock.map(({ item, stockSummary }) => {
+    const renderStockRow = ({ item, stockSummary }) => {
         const maxAllocatable = Math.min(stockSummary.requiredQty, stockSummary.availableQty);
         const unitInfo = api && typeof api.getPrice === 'function' ? api.getPrice(item.typeId, 'buy') : { value: 0 };
         const unitPrice = unitInfo && typeof unitInfo.value === 'number' ? unitInfo.value : 0;
         const stockValue = unitPrice * stockSummary.allocatedQty;
         const remainingValue = unitPrice * stockSummary.remainingQty;
         const breakdownCount = stockSummary.characters.length;
+        const isProdRow = item.rowKind === 'prod';
 
         const characterMarkup = breakdownCount > 0
             ? `
@@ -8325,7 +8534,7 @@ function renderCraftStockManagement() {
                     <div class="d-flex align-items-start gap-2">
                         <img src="https://images.evetech.net/types/${item.typeId}/icon?size=32" alt="${escapeHtml(item.typeName)}" loading="lazy" decoding="async" fetchpriority="low" class="rounded eve-type-icon eve-type-icon--28" onerror="this.style.display='none';">
                         <div>
-                            <div class="fw-semibold">${escapeHtml(item.typeName)}</div>
+                            <div class="fw-semibold">${escapeHtml(item.typeName)}${isProdRow ? ` <span class="badge rounded-pill text-bg-secondary ms-1">${escapeHtml(__('Prod candidate'))}</span>` : ''}</div>
                             <div class="small text-muted">${escapeHtml(item.marketGroup || __('Other'))}</div>
                         </div>
                     </div>
@@ -8335,15 +8544,35 @@ function renderCraftStockManagement() {
                 <td class="text-end">
                     <input type="number" min="0" max="${maxAllocatable}" step="1" class="form-control form-control-sm text-end craft-stock-allocation-input" data-type-id="${item.typeId}" value="${stockSummary.allocatedQty}" ${maxAllocatable > 0 ? '' : 'disabled'}>
                 </td>
-                <td class="text-end">${formatInteger(stockSummary.remainingQty)}</td>
+                <td class="text-end">${isProdRow ? `${formatInteger(stockSummary.remainingQty)}<div class="small text-muted">${escapeHtml(__('to produce'))}</div>` : formatInteger(stockSummary.remainingQty)}</td>
                 <td class="text-end">${formatPrice(stockValue)}</td>
                 <td>
                     <div class="d-flex flex-wrap gap-1">${characterMarkup}</div>
-                    ${remainingValue > 0 ? `<div class="small text-muted mt-1">${escapeHtml(__('Still to buy'))}: ${escapeHtml(formatPrice(remainingValue))}</div>` : ''}
+                    ${isProdRow
+                        ? `<div class="small text-muted mt-1">${escapeHtml(__('Allocated stock reduces the quantity still to produce and its child-material demand.'))}</div>`
+                        : (remainingValue > 0 ? `<div class="small text-muted mt-1">${escapeHtml(__('Still to buy'))}: ${escapeHtml(formatPrice(remainingValue))}</div>` : '')}
                 </td>
             </tr>
         `;
-    });
+    };
+
+    const renderedRows = [];
+    if (visibleBuyRows.length > 0) {
+        renderedRows.push(`
+            <tr class="table-light">
+                <td colspan="7" class="small fw-semibold text-uppercase">${escapeHtml(__('Buy-required items'))}</td>
+            </tr>
+        `);
+        visibleBuyRows.forEach((entry) => renderedRows.push(renderStockRow(entry)));
+    }
+    if (visibleProdRows.length > 0) {
+        renderedRows.push(`
+            <tr class="table-light">
+                <td colspan="7" class="small fw-semibold text-uppercase">${escapeHtml(__('Prod items'))}</td>
+            </tr>
+        `);
+        visibleProdRows.forEach((entry) => renderedRows.push(renderStockRow(entry)));
+    }
 
     rowsBody.innerHTML = renderedRows.length > 0
         ? renderedRows.join('')
@@ -8360,7 +8589,7 @@ function renderCraftStockManagement() {
         }
     };
 
-    setText('stockSummaryLineCount', formatInteger(rowsWithStock.length));
+    setText('stockSummaryLineCount', formatInteger(visibleBuyRows.length));
     setText('stockSummaryRequiredQty', formatInteger(totalRequiredQty));
     setText('stockSummaryAllocatedQty', formatInteger(totalAllocatedQty));
     setText('stockSummaryRemainingQty', formatInteger(totalRemainingQty));
@@ -8369,8 +8598,8 @@ function renderCraftStockManagement() {
     const availableOnlyNotice = document.getElementById('stockAvailableOnlyNotice');
     if (availableOnlyNotice) {
         const baseText = selectedLocationKeys.length > 0
-            ? __('Only required items with cached stock in the selected locations are shown.')
-            : __('Only required items with cached stock available are shown.');
+            ? __('Showing only items with cached stock in the selected locations.')
+            : __('Showing only items with cached stock available.');
         const hiddenText = hiddenZeroStockCount > 0
             ? ` ${formatInteger(hiddenZeroStockCount)} ${hiddenZeroStockCount === 1 ? __('line with 0 stock is hidden.') : __('lines with 0 stock are hidden.')}`
             : '';

@@ -55,7 +55,7 @@ ______________________________________________________________________
 - **Python 3.12+**
 - **Django 5.2**
 - **django-esi 9.x**
-- **django-eveonline-sde 0.0.1b9+** (base SDE data)
+- **django-eveonline-sde 0.0.1+** (base SDE data)
 - **Celery** (for background sync and notifications)
 - *(Optional)* Director characters for corporate dashboards
 - *(Optional)* Corptools, to provide `corptools_characteraudit.last_known_login` for activity-aware refresh gating. If absent, Indy Hub falls back to permissive behavior.

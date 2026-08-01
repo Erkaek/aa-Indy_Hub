@@ -85,6 +85,7 @@ from .views.material_exchange import (
     material_exchange_reject_buy,
     material_exchange_reject_sell,
     material_exchange_sell,
+    material_exchange_sell_assets_refresh_start,
     material_exchange_sell_assets_refresh_status,
     material_exchange_sell_resolve_paste_items,
     material_exchange_stats_history,
@@ -540,6 +541,11 @@ urlpatterns = [
         "material-exchange/api/sell-assets-refresh-status/",
         material_exchange_sell_assets_refresh_status,
         name="material_exchange_sell_assets_refresh_status",
+    ),
+    path(
+        "material-exchange/api/sell-assets-refresh-start/",
+        material_exchange_sell_assets_refresh_start,
+        name="material_exchange_sell_assets_refresh_start",
     ),
     path(
         "material-exchange/api/sell-resolve-paste-items/",

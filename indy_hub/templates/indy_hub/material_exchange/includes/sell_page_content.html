@@ -3,7 +3,7 @@
 {% load tz %}
 
         {% if assets_refreshing %}
-        <div class="d-flex flex-column align-items-center justify-content-center py-5">
+        <div id="sellAssetsLoadingState" class="d-flex flex-column align-items-center justify-content-center py-5">
             <svg width="56" height="56" viewBox="0 0 24 24" aria-hidden="true" class="text-info">
                 <g stroke="currentColor" fill="none" stroke-width="1" stroke-linecap="round">
                     <circle cx="12" cy="12" r="10">
@@ -22,25 +22,56 @@
                 <i class="fas fa-clock" aria-hidden="true"></i>
                 <div class="me-info-bar-body">
                     <div class="me-info-bar-title">
-                        {% trans "Last update" %}:
-                        {% if sell_last_update %}
-                            {% with sell_utc=sell_last_update|timezone:"UTC" %}
-                                {{ sell_utc|date:"Y-m-d H:i" }} EVE
-                                <span class="text-muted">
-                                    / <span class="js-local-time" data-utc="{{ sell_utc|date:'c' }}">{{ sell_utc|date:"Y-m-d H:i" }}</span> {% trans "Local" %}
-                                </span>
-                            {% endwith %}
-                        {% else %}
-                            {% trans "Never" %}
-                        {% endif %}
+                        <div class="me-info-bar-title-main">
+                            {% trans "Last update" %}:
+                            {% if sell_last_update %}
+                                {% with sell_utc=sell_last_update|timezone:"UTC" %}
+                                    {{ sell_utc|date:"Y-m-d H:i" }} EVE
+                                    <span class="text-muted">
+                                        / <span class="js-local-time" data-utc="{{ sell_utc|date:'c' }}">{{ sell_utc|date:"Y-m-d H:i" }}</span> {% trans "Local" %}
+                                    </span>
+                                {% endwith %}
+                            {% else %}
+                                {% trans "Never" %}
+                            {% endif %}
+                            {% if sell_assets_stale or sell_assets_version_refresh %}
+                                <span class="badge rounded-pill text-bg-warning ms-2">{% trans "Update recommended" %}</span>
+                            {% else %}
+                                <span class="badge rounded-pill text-bg-success ms-2">{% trans "Up to date" %}</span>
+                            {% endif %}
+                        </div>
+                        <button
+                            type="button"
+                            class="btn {% if assets_refreshing or sell_assets_refresh_blocked %}btn-warning text-white{% else %}btn-success text-white{% endif %} btn-sm d-inline-flex align-items-center gap-1 me-info-bar-refresh-btn"
+                            id="sellAssetsRefreshButton"
+                            data-refresh-blocked="{% if sell_assets_refresh_blocked %}1{% else %}0{% endif %}"
+                            data-cooldown-seconds="{{ sell_assets_refresh_cooldown_seconds|default:0 }}"
+                            data-label-default="{% trans 'Assets update' %}"
+                            data-label-cooldown-prefix="{% trans 'Assets update in' %}"
+                            data-class-blocked="btn-warning"
+                            data-class-available="btn-success"
+                            data-text-blocked="text-white"
+                            data-text-available="text-white"
+                            {% if assets_refreshing or sell_assets_refresh_blocked %}disabled{% endif %}>
+                            <i id="sellAssetsRefreshButtonIcon" class="fas fa-sync-alt{% if assets_refreshing %} fa-spin{% endif %} text-white" aria-hidden="true"></i>
+                            <span id="sellAssetsRefreshButtonLabel">
+                                {% if sell_assets_refresh_blocked and sell_assets_refresh_cooldown_minutes %}
+                                    {% blocktrans with minutes=sell_assets_refresh_cooldown_minutes %}Assets update in {{ minutes }} min{% endblocktrans %}
+                                {% else %}
+                                    {% trans "Assets update" %}
+                                {% endif %}
+                            </span>
+                        </button>
                     </div>
                     <div class="me-info-bar-sub">
-                        {% if sell_next_refresh_minutes == 0 %}
-                            {% trans "Auto-refresh will run on the next page open." %}
-                        {% elif sell_next_refresh_minutes %}
-                            {% blocktrans with minutes=sell_next_refresh_minutes %}Auto-refresh runs on page open in about {{ minutes }} minute(s).{% endblocktrans %}
+                        {% if sell_assets_stale and sell_last_update %}
+                            {% trans "Asset data is older than 60 minutes. A manual update is recommended before relying on character-owned quantities." %}
+                        {% elif sell_assets_version_refresh %}
+                            {% trans "A manual assets update is recommended to refresh cached data for the current app version." %}
+                        {% elif not sell_last_update %}
+                            {% trans "No cached asset snapshot yet. Use Assets update if you want the manual character inventory view." %}
                         {% else %}
-                            {% trans "Auto-refresh runs on page open once data is older than 60 minutes." %}
+                            {% trans "Asset refresh is manual on this page. Use Paste import for the contract-first workflow, or update assets when you want the manual inventory view." %}
                         {% endif %}
                     </div>
                 </div>
@@ -95,7 +126,6 @@
             {% endif %}
         </div>
 
-        {% if materials or sell_paste_catalog %}
         <div class="row g-4">
             <div class="col-lg-8">
                 <div class="glass-panel p-4">
@@ -175,91 +205,100 @@
                         </div>
 
                         <div class="me-paste-panel d-none mb-4" data-sell-mode-panel="paste">
+                            <div class="me-paste-toolbar">
+                                <div class="me-paste-toolbar-title-wrap">
+                                    <div class="me-paste-toolbar-title">
+                                        <i class="fas fa-paste" aria-hidden="true"></i>
+                                        <span>{% trans "Paste Import" %}</span>
+                                    </div>
+                                    <div class="me-paste-toolbar-subtitle">{% trans "Paste an in-game copied list. The system classifies lines and prepares accepted items for contract validation." %}</div>
+                                </div>
+                                <div class="me-paste-toolbar-tags" aria-label="{% trans 'Supported formats' %}">
+                                    <span class="badge rounded-pill text-bg-light border">{% trans "Name x Quantity" %}</span>
+                                    <span class="badge rounded-pill text-bg-light border">{% trans "Name<TAB>Quantity" %}</span>
+                                    <span class="badge rounded-pill text-bg-light border">{% trans "Qty Name" %}</span>
+                                </div>
+                            </div>
+
                             <div class="row g-3">
-                                <div class="col-xl-7">
-                                    <label class="form-label fw-semibold" for="sellPasteTextarea">{% trans "Paste an in-game item list" %}</label>
+                                <div class="col-12">
+                                    <label class="form-label fw-semibold mb-2" for="sellPasteTextarea">{% trans "Pasted lines" %}</label>
                                     <textarea
                                         class="form-control me-paste-textarea"
                                         id="sellPasteTextarea"
-                                        rows="9"
+                                        rows="7"
                                         placeholder="{% trans 'Example: Tritanium x 25000 or Tritanium<TAB>25000' %}"></textarea>
-                                    <div class="form-text mt-2">
-                                        {% trans "Accepted items are added to the order automatically. Items known on another character are added with a warning. Not bought and unknown lines are ignored." %}
-                                    </div>
-                                    <div class="d-flex flex-wrap gap-2 mt-3">
+                                    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mt-2">
+                                        <div class="form-text me-0">
+                                            {% trans "Accepted items are added automatically. Not bought and unknown lines are ignored for order creation." %}
+                                        </div>
                                         <button type="button" class="btn btn-outline-light btn-sm me-paste-clear-btn" id="sellPasteClearButton">
-                                            <i class="fas fa-eraser me-1"></i>{% trans "Clear pasted text" %}
+                                            <i class="fas fa-eraser me-1"></i>{% trans "Clear" %}
                                         </button>
-                                    </div>
-                                </div>
-                                <div class="col-xl-5">
-                                    <div class="me-paste-summary-grid">
-                                        <div class="me-paste-summary-card is-accepted">
-                                            <div class="me-paste-summary-label">{% trans "Accepted" %}</div>
-                                            <div class="me-paste-summary-value" id="sellPasteAcceptedCount">0</div>
-                                        </div>
-                                        <div class="me-paste-summary-card is-rejected">
-                                            <div class="me-paste-summary-label">{% trans "Not Bought" %}</div>
-                                            <div class="me-paste-summary-value" id="sellPasteRejectedCount">0</div>
-                                        </div>
-                                        <div class="me-paste-summary-card is-warning">
-                                            <div class="me-paste-summary-label">{% trans "Other Character" %}</div>
-                                            <div class="me-paste-summary-value" id="sellPasteUnavailableCount">0</div>
-                                        </div>
-                                        <div class="me-paste-summary-card is-unknown">
-                                            <div class="me-paste-summary-label">{% trans "Unknown" %}</div>
-                                            <div class="me-paste-summary-value" id="sellPasteUnknownCount">0</div>
-                                        </div>
-                                        <div class="me-paste-summary-card is-total">
-                                            <div class="me-paste-summary-label">{% trans "Accepted payout" %}</div>
-                                            <div class="me-paste-summary-value" id="sellPasteAcceptedValue">0 ISK</div>
-                                        </div>
                                     </div>
                                 </div>
                             </div>
 
                             <div class="me-paste-results d-none" id="sellPasteResults">
+                                <div class="me-paste-tabs d-none" id="sellPasteTabs" role="tablist" aria-label="{% trans 'Paste result categories' %}">
+                                    <button
+                                        type="button"
+                                        class="me-paste-tab-btn"
+                                        id="sellPasteTabAccepted"
+                                        data-sell-paste-tab="accepted"
+                                        role="tab"
+                                        aria-selected="false">
+                                        <span>{% trans "Accepted items" %}</span>
+                                        <span class="badge rounded-pill text-bg-success me-paste-tab-count" id="sellPasteAcceptedBadge">0</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        class="me-paste-tab-btn"
+                                        id="sellPasteTabRejected"
+                                        data-sell-paste-tab="rejected"
+                                        role="tab"
+                                        aria-selected="false">
+                                        <span>{% trans "Not bought by the hub" %}</span>
+                                        <span class="badge rounded-pill text-bg-warning text-dark me-paste-tab-count" id="sellPasteRejectedBadge">0</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        class="me-paste-tab-btn"
+                                        id="sellPasteTabUnavailable"
+                                        data-sell-paste-tab="unavailable"
+                                        role="tab"
+                                        aria-selected="false">
+                                        <span>{% trans "Known but not on this character" %}</span>
+                                        <span class="badge rounded-pill text-bg-info me-paste-tab-count" id="sellPasteUnavailableBadge">0</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        class="me-paste-tab-btn"
+                                        id="sellPasteTabUnknown"
+                                        data-sell-paste-tab="unknown"
+                                        role="tab"
+                                        aria-selected="false">
+                                        <span>{% trans "Unknown items or lines" %}</span>
+                                        <span class="badge rounded-pill text-bg-secondary me-paste-tab-count" id="sellPasteUnknownBadge">0</span>
+                                    </button>
+                                </div>
+
                                 <div class="me-paste-results-grid" id="sellPasteResultsGrid">
-                                    <section class="me-paste-result-card" id="sellPasteAcceptedCard">
-                                        <div class="me-paste-result-header">
-                                            <h6 class="mb-0">{% trans "Accepted items" %}</h6>
-                                            <span class="badge text-bg-success" id="sellPasteAcceptedBadge">0</span>
-                                        </div>
-                                        <div class="me-paste-empty" id="sellPasteAcceptedEmpty">{% trans "No accepted items in the pasted text yet." %}</div>
+                                    <section class="me-paste-result-card me-paste-result-card-accepted d-none" id="sellPasteAcceptedCard" data-sell-paste-pane="accepted" role="tabpanel">
                                         <div class="me-paste-result-list" id="sellPasteAcceptedList"></div>
                                     </section>
-                                    <section class="me-paste-result-card" id="sellPasteRejectedCard">
-                                        <div class="me-paste-result-header">
-                                            <h6 class="mb-0">{% trans "Not bought by the hub" %}</h6>
-                                            <span class="badge text-bg-warning text-dark" id="sellPasteRejectedBadge">0</span>
-                                        </div>
-                                        <div class="me-paste-empty" id="sellPasteRejectedEmpty">{% trans "No rejected items in the pasted text." %}</div>
+                                    <section class="me-paste-result-card me-paste-result-card-rejected d-none" id="sellPasteRejectedCard" data-sell-paste-pane="rejected" role="tabpanel">
                                         <div class="me-paste-result-list" id="sellPasteRejectedList"></div>
                                     </section>
-                                    <section class="me-paste-result-card" id="sellPasteUnavailableCard">
-                                        <div class="me-paste-result-header">
-                                            <h6 class="mb-0">{% trans "Known but not on this character" %}</h6>
-                                            <span class="badge text-bg-info" id="sellPasteUnavailableBadge">0</span>
-                                        </div>
-                                        <div class="me-paste-empty" id="sellPasteUnavailableEmpty">{% trans "No items matched only on another character." %}</div>
+                                    <section class="me-paste-result-card me-paste-result-card-unavailable d-none" id="sellPasteUnavailableCard" data-sell-paste-pane="unavailable" role="tabpanel">
                                         <div class="me-paste-result-list" id="sellPasteUnavailableList"></div>
                                     </section>
-                                    <section class="me-paste-result-card" id="sellPasteUnknownCard">
-                                        <div class="me-paste-result-header">
-                                            <h6 class="mb-0">{% trans "Unknown items or lines" %}</h6>
-                                            <span class="badge text-bg-secondary" id="sellPasteUnknownBadge">0</span>
-                                        </div>
-                                        <div class="me-paste-empty" id="sellPasteUnknownEmpty">{% trans "No unknown lines in the pasted text." %}</div>
+                                    <section class="me-paste-result-card me-paste-result-card-unknown d-none" id="sellPasteUnknownCard" data-sell-paste-pane="unknown" role="tabpanel">
                                         <div class="me-paste-result-list" id="sellPasteUnknownList"></div>
                                     </section>
                                 </div>
                             </div>
 
-                            <div class="d-none mt-3" id="sellPasteSubmitWrapper">
-                                <button type="submit" form="sellForm" class="btn btn-success w-100">
-                                    <i class="fas fa-paper-plane me-2"></i>{% trans "Create Sell Order" %}
-                                </button>
-                            </div>
                         </div>
 
                         <div data-sell-mode-panel="manual">
@@ -379,6 +418,52 @@
                                     </tbody>
                                 </table>
                             </div>
+                            {% if sell_is_paginated %}
+                            <div class="d-flex flex-column flex-md-row justify-content-between align-items-center gap-3 mt-3">
+                                <div class="d-flex align-items-center gap-2 small text-body-secondary">
+                                    <span>
+                                        {% blocktrans with current=sell_page_obj.number total=sell_page_obj.paginator.num_pages count=sell_page_obj.paginator.count %}Page {{ current }} of {{ total }} · {{ count }} items{% endblocktrans %}
+                                    </span>
+                                    <form method="get" class="d-flex align-items-center gap-2 ms-md-2">
+                                        {% if active_character_tab %}
+                                        <input type="hidden" name="character" value="{{ active_character_tab }}">
+                                        {% endif %}
+                                        <input type="hidden" name="page" value="1">
+                                        <label for="sellPerPageSelect" class="small text-body-secondary mb-0">{% trans "Rows" %}</label>
+                                        <select
+                                            id="sellPerPageSelect"
+                                            name="per_page"
+                                            class="form-select form-select-sm"
+                                            onchange="this.form.submit()">
+                                            {% for option in sell_per_page_options %}
+                                            <option value="{{ option }}" {% if sell_per_page == option %}selected{% endif %}>{{ option }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </form>
+                                </div>
+                                <ul class="pagination pagination-sm mb-0">
+                                    {% if sell_page_obj.has_previous %}
+                                    <li class="page-item">
+                                        <a class="page-link" href="?page=1&per_page={{ sell_per_page }}{% if active_character_tab %}&character={{ active_character_tab }}{% endif %}">{% trans "First" %}</a>
+                                    </li>
+                                    <li class="page-item">
+                                        <a class="page-link" href="?page={{ sell_page_obj.previous_page_number }}&per_page={{ sell_per_page }}{% if active_character_tab %}&character={{ active_character_tab }}{% endif %}">{% trans "Previous" %}</a>
+                                    </li>
+                                    {% endif %}
+                                    <li class="page-item disabled">
+                                        <span class="page-link">{% trans "Page" %} {{ sell_page_obj.number }} / {{ sell_page_obj.paginator.num_pages }}</span>
+                                    </li>
+                                    {% if sell_page_obj.has_next %}
+                                    <li class="page-item">
+                                        <a class="page-link" href="?page={{ sell_page_obj.next_page_number }}&per_page={{ sell_per_page }}{% if active_character_tab %}&character={{ active_character_tab }}{% endif %}">{% trans "Next" %}</a>
+                                    </li>
+                                    <li class="page-item">
+                                        <a class="page-link" href="?page={{ sell_page_obj.paginator.num_pages }}&per_page={{ sell_per_page }}{% if active_character_tab %}&character={{ active_character_tab }}{% endif %}">{% trans "Last" %}</a>
+                                    </li>
+                                    {% endif %}
+                                </ul>
+                            </div>
+                            {% endif %}
                             <div id="sellSearchEmpty" class="alert alert-warning mt-3 d-none mb-0">
                                 <i class="fas fa-search me-2"></i>
                                 {% trans "No matching items for your search." %}
@@ -422,16 +507,5 @@
                 </div>
             </div>
         </div>
-
-        {% else %}
-        {% if not assets_refreshing %}
-        <div class="glass-panel p-4">
-            <div class="alert alert-warning mb-0">
-                <i class="fas fa-exclamation-triangle me-2"></i>
-                {% trans "No materials available for selling. Please contact an admin." %}
-            </div>
-        </div>
-        {% endif %}
-        {% endif %}
 
     {{ sell_paste_catalog|json_script:"sellPasteCatalogData" }}

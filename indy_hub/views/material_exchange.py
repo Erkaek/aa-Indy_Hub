@@ -45,7 +45,6 @@ from ..services.material_exchange_assets import (
     ensure_sell_assets_refresh_started,
     get_sell_assets_refresh_progress,
     material_exchange_sell_assets_progress_key,
-    sell_assets_refresh_finished_recently,
 )
 from ..tasks.material_exchange import (
     ESI_DOWN_COOLDOWN_SECONDS,
@@ -733,6 +732,111 @@ def _me_sell_assets_progress_key(user_id: int) -> str:
     return material_exchange_sell_assets_progress_key(int(user_id))
 
 
+def _finalize_sell_assets_progress_if_db_synced(user, state: dict) -> dict:
+    """Mark sell asset refresh as finished when DB cache was already updated.
+
+    This protects the UI against stale `running=True` progress states when the
+    cache backing the web process does not observe the task process update fast
+    enough.
+    """
+
+    if not state or not state.get("running"):
+        return state
+
+    try:
+        last_update = (
+            CachedCharacterAsset.objects.filter(user=user)
+            .order_by("-synced_at")
+            .values_list("synced_at", flat=True)
+            .first()
+        )
+    except Exception:
+        last_update = None
+
+    if not last_update:
+        return state
+
+    try:
+        started_at = float(
+            state.get("started_at") or state.get("last_progress_at") or 0
+        )
+    except (TypeError, ValueError):
+        started_at = 0
+
+    try:
+        last_update_ts = float(last_update.timestamp())
+    except Exception:
+        return state
+
+    if started_at > 0 and last_update_ts < started_at:
+        return state
+
+    finalized_state = dict(state)
+    finalized_state.update(
+        {
+            "running": False,
+            "finished": True,
+            "error": None,
+            "last_progress_at": timezone.now().timestamp(),
+        }
+    )
+    cache.set(
+        _me_sell_assets_progress_key(int(user.id)),
+        finalized_state,
+        10 * 60,
+    )
+    return finalized_state
+
+
+def _get_sell_assets_refresh_cooldown_minutes(user, *, last_update=None) -> int:
+    """Return remaining cooldown minutes for manual sell asset refresh."""
+
+    cooldown_seconds = _get_sell_assets_refresh_cooldown_seconds(
+        user,
+        last_update=last_update,
+    )
+    if cooldown_seconds <= 0:
+        return 0
+    return int((cooldown_seconds + 59) // 60)
+
+
+def _get_sell_assets_refresh_cooldown_seconds(user, *, last_update=None) -> int:
+    """Return remaining cooldown seconds for manual sell asset refresh."""
+
+    if last_update is None:
+        try:
+            last_update = (
+                CachedCharacterAsset.objects.filter(user=user)
+                .order_by("-synced_at")
+                .values_list("synced_at", flat=True)
+                .first()
+            )
+        except Exception:
+            last_update = None
+
+    if not last_update:
+        return 0
+
+    try:
+        current_user_assets_version = int(
+            cache.get(me_user_assets_cache_version_key(int(user.id))) or 0
+        )
+    except Exception:
+        current_user_assets_version = 0
+
+    # Allow immediate refresh when local cache schema changed.
+    if current_user_assets_version < int(ME_USER_ASSETS_CACHE_VERSION):
+        return 0
+
+    try:
+        elapsed_seconds = max(0, int((timezone.now() - last_update).total_seconds()))
+    except Exception:
+        return 0
+
+    cooldown_seconds = max(0, 3600 - elapsed_seconds)
+    return int(cooldown_seconds)
+
+
 def _ensure_sell_assets_refresh_started(user) -> dict:
     """Start (if needed) an async refresh of user assets and return the current progress state."""
     return ensure_sell_assets_refresh_started(user, log_context="asset")
@@ -750,6 +854,7 @@ def material_exchange_sell_assets_refresh_status(request):
         return JsonResponse({"running": False, "finished": True, "error": "disabled"})
 
     state = get_sell_assets_refresh_progress(int(request.user.id))
+    state = _finalize_sell_assets_progress_if_db_synced(request.user, state)
     response = dict(state)
     try:
         last_update = (
@@ -760,6 +865,63 @@ def material_exchange_sell_assets_refresh_status(request):
         )
     except Exception:
         last_update = None
+
+    if last_update:
+        try:
+            last_update_utc = timezone.localtime(last_update, dt_timezone.utc)
+        except Exception:
+            last_update_utc = last_update
+        response["last_update"] = last_update_utc.isoformat()
+
+    return JsonResponse(response)
+
+
+@login_required
+@indy_hub_permission_required("can_access_indy_hub")
+@require_http_methods(["POST"])
+def material_exchange_sell_assets_refresh_start(request):
+    """Start an async refresh of sell-page user assets on demand."""
+    emit_view_analytics_event(
+        view_name="material_exchange.sell_assets_refresh_start", request=request
+    )
+
+    if not _is_material_exchange_enabled():
+        return JsonResponse(
+            {"running": False, "finished": True, "error": "disabled"},
+            status=403,
+        )
+
+    try:
+        last_update = (
+            CachedCharacterAsset.objects.filter(user=request.user)
+            .order_by("-synced_at")
+            .values_list("synced_at", flat=True)
+            .first()
+        )
+    except Exception:
+        last_update = None
+
+    current_state = get_sell_assets_refresh_progress(int(request.user.id))
+    current_state = _finalize_sell_assets_progress_if_db_synced(
+        request.user,
+        current_state,
+    )
+    if current_state.get("running"):
+        response = dict(current_state)
+    else:
+        cooldown_minutes = _get_sell_assets_refresh_cooldown_minutes(
+            request.user,
+            last_update=last_update,
+        )
+        if cooldown_minutes > 0:
+            response = {
+                "running": False,
+                "finished": True,
+                "error": "assets_cache_fresh",
+                "retry_after_minutes": cooldown_minutes,
+            }
+        else:
+            response = dict(_ensure_sell_assets_refresh_started(request.user))
 
     if last_update:
         try:
@@ -812,7 +974,7 @@ def material_exchange_sell_resolve_paste_items(request):
     accepted_locations = _get_material_exchange_location_ids(config) or [
         int(config.structure_id)
     ]
-    raw_assets_by_type, assets_by_character, _scope_missing = (
+    raw_assets_by_type, assets_by_character, scope_missing = (
         _fetch_user_assets_for_structure_data(
             request.user,
             accepted_locations,
@@ -832,6 +994,7 @@ def material_exchange_sell_resolve_paste_items(request):
     )
 
     accepted_by_type_id: dict[int, dict] = {}
+    rejected_reason_by_type_id: dict[int, str] = {}
     allowed_type_ids = _get_allowed_type_ids_for_config(config, "sell")
     candidate_type_ids = [
         type_id
@@ -845,7 +1008,10 @@ def material_exchange_sell_resolve_paste_items(request):
         fuzz_prices = price_data.get(type_id, {})
         jita_buy = fuzz_prices.get("buy") or Decimal(0)
         jita_sell = fuzz_prices.get("sell") or Decimal(0)
-        if jita_buy <= 0 and jita_sell <= 0:
+        if not _has_reliable_sell_reference_price(
+            jita_buy=jita_buy, jita_sell=jita_sell
+        ):
+            rejected_reason_by_type_id[int(type_id)] = "no_reliable_price"
             continue
 
         buy_price = compute_buy_price_from_member(
@@ -878,6 +1044,8 @@ def material_exchange_sell_resolve_paste_items(request):
                 ),
                 total_available_qty=int(raw_assets_by_type.get(type_id, 0) or 0),
                 accepted_item=accepted_by_type_id.get(type_id),
+                scope_missing=bool(scope_missing),
+                rejected_reason=rejected_reason_by_type_id.get(type_id, "not_bought"),
             ),
         }
 
@@ -1048,6 +1216,18 @@ def _fetch_fuzzwork_prices(type_ids: list[int]) -> dict[int, dict[str, Decimal]]
         return {}
 
 
+def _has_reliable_sell_reference_price(
+    *, jita_buy: Decimal, jita_sell: Decimal
+) -> bool:
+    """Return True when market data looks reliable enough for sell-side pricing.
+
+    For manual/paste sell orders we reject items that only have a lone buy order and no
+    visible sell side, because that produces absurd values on thin/non-market items.
+    """
+
+    return Decimal(jita_buy or 0) > 0 and Decimal(jita_sell or 0) > 0
+
+
 def _extract_submitted_sell_quantities(request) -> dict[int, int]:
     """Return submitted sell quantities from manual inputs or paste-import JSON."""
 
@@ -1135,15 +1315,15 @@ def _build_sell_paste_catalog(
         status = "accepted"
         reason = ""
         unit_price = ""
-        if accepted_item and selected_available_qty > 0:
+        enforce_available_qty = False
+        if accepted_item:
             unit_price = format(Decimal(accepted_item["buy_price_from_member"]), ".2f")
-        elif accepted_item:
-            status = "unavailable"
-            reason = "not_on_character"
-            unit_price = format(Decimal(accepted_item["buy_price_from_member"]), ".2f")
+            if selected_available_qty <= 0 and available_qty > 0:
+                reason = "not_on_character"
         else:
             status = "rejected"
             reason = "not_bought"
+            enforce_available_qty = True
 
         catalog.append(
             {
@@ -1153,6 +1333,7 @@ def _build_sell_paste_catalog(
                 "group_name": group_map.get(type_id, "Other"),
                 "available_qty": selected_available_qty,
                 "total_available_qty": int(available_qty),
+                "enforce_available_qty": enforce_available_qty,
                 "status": status,
                 "reason": reason,
                 "unit_price": unit_price,
@@ -1212,6 +1393,8 @@ def _build_resolved_sell_paste_item(
     selected_available_qty: int,
     total_available_qty: int,
     accepted_item: dict | None,
+    scope_missing: bool = False,
+    rejected_reason: str = "not_bought",
 ) -> dict:
     type_id = int(type_info["type_id"])
     type_name = str(type_info["type_name"])
@@ -1220,15 +1403,17 @@ def _build_resolved_sell_paste_item(
     status = "accepted"
     reason = ""
     unit_price = ""
-    if accepted_item and selected_available_qty > 0:
+    enforce_available_qty = False
+    if accepted_item:
         unit_price = format(Decimal(accepted_item["buy_price_from_member"]), ".2f")
-    elif accepted_item:
-        status = "unavailable"
-        reason = "not_on_character"
-        unit_price = format(Decimal(accepted_item["buy_price_from_member"]), ".2f")
+        if scope_missing:
+            reason = "contract_only"
+        elif selected_available_qty <= 0 and total_available_qty > 0:
+            reason = "not_on_character"
     else:
         status = "rejected"
-        reason = "not_bought"
+        reason = rejected_reason
+        enforce_available_qty = True
 
     return {
         "type_id": type_id,
@@ -1237,6 +1422,7 @@ def _build_resolved_sell_paste_item(
         "group_name": group_name,
         "available_qty": selected_available_qty,
         "total_available_qty": total_available_qty,
+        "enforce_available_qty": enforce_available_qty,
         "status": status,
         "reason": reason,
         "unit_price": unit_price,
@@ -1492,8 +1678,7 @@ def material_exchange_history(request):
 
 @login_required
 @indy_hub_permission_required("can_access_indy_hub")
-@tokens_required(scopes="esi-assets.read_assets.v1")
-def material_exchange_sell(request, tokens):
+def material_exchange_sell(request, tokens=None):
     """
     Sell materials TO the hub.
     Member chooses materials + quantities, creates ONE order with multiple items.
@@ -1510,6 +1695,14 @@ def material_exchange_sell(request, tokens):
     materials_with_qty: list[dict] = []
     sell_paste_catalog: list[dict] = []
     assets_refreshing = False
+    sell_page_obj = None
+    sell_per_page_options = [25, 50, 75, 100]
+    try:
+        sell_per_page = int(request.GET.get("per_page", 25))
+    except (TypeError, ValueError):
+        sell_per_page = 25
+    if sell_per_page not in set(sell_per_page_options):
+        sell_per_page = 25
 
     sell_last_update = (
         CachedCharacterAsset.objects.filter(user=request.user)
@@ -1517,18 +1710,6 @@ def material_exchange_sell(request, tokens):
         .values_list("synced_at", flat=True)
         .first()
     )
-
-    user_assets_version_refresh = False
-    try:
-        if sell_last_update:
-            current_version = int(
-                cache.get(me_user_assets_cache_version_key(int(request.user.id))) or 0
-            )
-            user_assets_version_refresh = current_version < int(
-                ME_USER_ASSETS_CACHE_VERSION
-            )
-    except Exception:
-        user_assets_version_refresh = False
 
     try:
         user_assets_stale = (
@@ -1538,18 +1719,12 @@ def material_exchange_sell(request, tokens):
     except Exception:
         user_assets_stale = True
 
-    # Start async refresh of the user's assets on page open (GET only).
     progress_key = _me_sell_assets_progress_key(request.user.id)
     sell_assets_progress = get_sell_assets_refresh_progress(int(request.user.id))
-    recent_refresh_finished = sell_assets_refresh_finished_recently(
-        sell_assets_progress
+    sell_assets_progress = _finalize_sell_assets_progress_if_db_synced(
+        request.user,
+        sell_assets_progress,
     )
-    if request.method == "GET" and (user_assets_stale or user_assets_version_refresh):
-        # The refreshed=1 guard prevents loops, but version migrations should override it.
-        if (request.GET.get("refreshed") != "1" or user_assets_version_refresh) and (
-            user_assets_version_refresh or not recent_refresh_finished
-        ):
-            sell_assets_progress = _ensure_sell_assets_refresh_started(request.user)
     assets_refreshing = bool(sell_assets_progress.get("running"))
 
     if sell_assets_progress.get("error") == "esi_down" and not sell_assets_progress.get(
@@ -1575,48 +1750,57 @@ def material_exchange_sell(request, tokens):
         accepted_location_summary = _get_material_exchange_location_summary(
             config
         ) or str(config.structure_name or config.structure_id)
-        user_assets, scope_missing = _fetch_user_assets_for_structure(
-            request.user,
-            accepted_location_ids or [int(config.structure_id)],
-        )
-        if scope_missing:
-            # Avoid transient flash messaging for missing scopes; the page already
-            # renders a persistent on-page warning based on `sell_assets_progress`.
-            _ensure_sell_assets_refresh_started(request.user)
-            return redirect("indy_hub:material_exchange_sell")
-
-        if not user_assets:
-            messages.error(
-                request,
-                _("No items available to sell at the accepted locations."),
+        user_assets: dict[int, int] = {}
+        allowed_type_ids = None
+        if not is_paste_mode:
+            user_assets, scope_missing = _fetch_user_assets_for_structure(
+                request.user,
+                accepted_location_ids or [int(config.structure_id)],
             )
-            return redirect("indy_hub:material_exchange_sell")
+            if scope_missing:
+                # Avoid transient flash messaging for missing scopes; the page already
+                # renders a persistent on-page warning based on `sell_assets_progress`.
+                _ensure_sell_assets_refresh_started(request.user)
+                return redirect("indy_hub:material_exchange_sell")
 
-        pre_filter_count = len(user_assets)
-
-        # Apply market group filter strictly (empty config means no allowed items)
-        try:
-            allowed_type_ids = _get_allowed_type_ids_for_config(config, "sell")
-            if allowed_type_ids is not None:
-                user_assets = {
-                    tid: qty
-                    for tid, qty in user_assets.items()
-                    if tid in allowed_type_ids
-                }
-        except Exception as exc:
-            logger.warning("Failed to apply market group filter: %s", exc)
-
-        if not user_assets:
-            if pre_filter_count > 0:
+            if not user_assets:
                 messages.error(
                     request,
-                    _("No accepted items available to sell at this location."),
+                    _("No items available to sell at the accepted locations."),
                 )
-            else:
-                messages.error(
-                    request, _("You have no items to sell at this location.")
-                )
-            return redirect("indy_hub:material_exchange_sell")
+                return redirect("indy_hub:material_exchange_sell")
+
+            pre_filter_count = len(user_assets)
+
+            # Apply market group filter strictly (empty config means no allowed items)
+            try:
+                allowed_type_ids = _get_allowed_type_ids_for_config(config, "sell")
+                if allowed_type_ids is not None:
+                    user_assets = {
+                        tid: qty
+                        for tid, qty in user_assets.items()
+                        if tid in allowed_type_ids
+                    }
+            except Exception as exc:
+                logger.warning("Failed to apply market group filter: %s", exc)
+
+            if not user_assets:
+                if pre_filter_count > 0:
+                    messages.error(
+                        request,
+                        _("No accepted items available to sell at this location."),
+                    )
+                else:
+                    messages.error(
+                        request, _("You have no items to sell at this location.")
+                    )
+                return redirect("indy_hub:material_exchange_sell")
+        else:
+            try:
+                allowed_type_ids = _get_allowed_type_ids_for_config(config, "sell")
+            except Exception as exc:
+                logger.warning("Failed to load allowed sell type ids: %s", exc)
+                allowed_type_ids = None
 
         submitted_quantities = _extract_submitted_sell_quantities(request)
 
@@ -1659,13 +1843,19 @@ def material_exchange_sell(request, tokens):
                         )
                     )
                     continue
+            elif allowed_type_ids is not None and type_id not in allowed_type_ids:
+                type_name = get_type_name(type_id)
+                errors.append(_(f"{type_name} is not accepted by this hub."))
+                continue
 
             fuzz_prices = price_data.get(type_id, {})
             jita_buy = fuzz_prices.get("buy") or Decimal(0)
             jita_sell = fuzz_prices.get("sell") or Decimal(0)
-            if jita_buy <= 0 and jita_sell <= 0:
+            if not _has_reliable_sell_reference_price(
+                jita_buy=jita_buy, jita_sell=jita_sell
+            ):
                 type_name = get_type_name(type_id)
-                errors.append(_(f"{type_name} has no valid market price."))
+                errors.append(_(f"{type_name} has no reliable market price."))
                 continue
 
             unit_price = compute_buy_price_from_member(
@@ -1741,54 +1931,8 @@ def material_exchange_sell(request, tokens):
         and request.headers.get("X-Requested-With") == "XMLHttpRequest"
     )
 
-    # GET branch: trigger stock sync only if stale (> 1h) or never synced
-    message_shown = False
-    try:
-        last_sync = config.last_stock_sync
-        needs_refresh = (
-            not last_sync or (timezone.now() - last_sync).total_seconds() > 3600
-        )
-    except Exception:
-        needs_refresh = True
+    # Sell page uses manual refresh only. Do not auto-trigger ESI/stock sync on GET.
 
-    stock_version_refresh = False
-    try:
-        # Only trigger the version refresh if there is already synced data.
-        if config.last_stock_sync:
-            current_version = int(
-                cache.get(me_stock_sync_cache_version_key(int(config.corporation_id)))
-                or 0
-            )
-            stock_version_refresh = current_version < int(ME_STOCK_SYNC_CACHE_VERSION)
-    except Exception:
-        stock_version_refresh = False
-
-    if needs_refresh or stock_version_refresh:
-        if not is_fragment_request:
-            messages.info(
-                request,
-                _(
-                    "Refreshing via ESI. Make sure you have granted the assets scope to at least one character."
-                ),
-            )
-            message_shown = True
-        try:
-            logger.info(
-                "Starting stock sync for sell page (last_sync=%s)",
-                config.last_stock_sync,
-            )
-            sync_material_exchange_stock()
-            config.refresh_from_db()
-            logger.info(
-                "Stock sync completed successfully (last_sync=%s)",
-                config.last_stock_sync,
-            )
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.warning("Stock auto-sync failed (sell page): %s", exc, exc_info=True)
-
-    # Avoid blocking GET requests: if a background refresh is running, don't do a synchronous refresh.
-    # If we're on ?refreshed=1 and nothing is cached yet, allow a one-time sync refresh so the list
-    # can still render even if the background job didn't populate anything.
     has_cached_assets = CachedCharacterAsset.objects.filter(user=request.user).exists()
 
     current_user_assets_version = 0
@@ -1801,20 +1945,20 @@ def material_exchange_sell(request, tokens):
     needs_user_assets_version_refresh = has_cached_assets and (
         current_user_assets_version < int(ME_USER_ASSETS_CACHE_VERSION)
     )
-
-    allow_refresh = (
-        not bool(sell_assets_progress.get("running"))
-        or sell_assets_progress.get("error") == "task_start_failed"
-    ) and (
-        request.GET.get("refreshed") != "1"
-        or not has_cached_assets
-        or needs_user_assets_version_refresh
+    sell_assets_refresh_cooldown_minutes = _get_sell_assets_refresh_cooldown_minutes(
+        request.user,
+        last_update=sell_last_update,
     )
+    sell_assets_refresh_cooldown_seconds = _get_sell_assets_refresh_cooldown_seconds(
+        request.user,
+        last_update=sell_last_update,
+    )
+
     user_assets, user_assets_by_character, scope_missing = (
         _fetch_user_assets_for_structure_data(
             request.user,
             _get_material_exchange_location_ids(config) or [int(config.structure_id)],
-            allow_refresh=allow_refresh,
+            allow_refresh=False,
         )
     )
     raw_user_assets_by_character = {
@@ -1834,8 +1978,9 @@ def material_exchange_sell(request, tokens):
     if user_assets:
         pre_filter_count = len(user_assets)
         raw_user_assets_aggregated = dict(user_assets)
-        logger.info(
-            f"SELL DEBUG: Found {len(user_assets)} unique items in assets before production filter (filter disabled)"
+        logger.debug(
+            "Sell assets before filter: %s unique item types",
+            len(user_assets),
         )
 
         # Apply market group filter strictly (same as POST + Index)
@@ -1855,29 +2000,34 @@ def material_exchange_sell(request, tokens):
                     }
                     for character_id, char_assets in user_assets_by_character.items()
                 }
-                logger.info(
-                    f"SELL DEBUG: {len(user_assets)} items after market group filter"
+                logger.debug(
+                    "Sell assets after market group filter: %s item types",
+                    len(user_assets),
                 )
         except Exception as exc:
             logger.warning("Failed to apply market group filter (GET): %s", exc)
 
         price_data = _fetch_fuzzwork_prices(list(user_assets.keys()))
-        logger.info(f"SELL DEBUG: Got prices for {len(price_data)} items from Fuzzwork")
+        logger.debug(
+            "Sell price payload fetched for %s item types",
+            len(price_data),
+        )
 
         accepted_group_map = _get_group_map(list(user_assets.keys()))
         batch_cache_type_names(user_assets.keys())
         accepted_catalog_by_type: dict[int, dict] = {}
+        no_reliable_price_count = 0
+        no_reliable_price_samples: list[int] = []
         for type_id in user_assets.keys():
             fuzz_prices = price_data.get(type_id, {})
             jita_buy = fuzz_prices.get("buy") or Decimal(0)
             jita_sell = fuzz_prices.get("sell") or Decimal(0)
-            if jita_buy <= 0 and jita_sell <= 0:
-                logger.debug(
-                    "SELL DEBUG: Skipping type_id %s in paste catalog - no valid price (buy=%s, sell=%s)",
-                    type_id,
-                    jita_buy,
-                    jita_sell,
-                )
+            if not _has_reliable_sell_reference_price(
+                jita_buy=jita_buy, jita_sell=jita_sell
+            ):
+                no_reliable_price_count += 1
+                if len(no_reliable_price_samples) < 10:
+                    no_reliable_price_samples.append(int(type_id))
                 continue
 
             buy_price = compute_buy_price_from_member(
@@ -1895,6 +2045,13 @@ def material_exchange_sell(request, tokens):
                 "group_name": accepted_group_map.get(type_id, "Other"),
                 "buy_price_from_member": buy_price,
             }
+
+        if no_reliable_price_count:
+            logger.debug(
+                "Sell paste catalog skipped %s item types with no reliable price (sample type_ids=%s)",
+                no_reliable_price_count,
+                no_reliable_price_samples,
+            )
 
         def _is_sellable_type(type_id: int) -> bool:
             return int(type_id) in accepted_catalog_by_type
@@ -2006,35 +2163,27 @@ def material_exchange_sell(request, tokens):
                 }
             )
 
-        logger.info(
-            f"SELL DEBUG: Final materials_with_qty count: {len(materials_with_qty)}"
+        logger.debug(
+            "Sell materials with quantity prepared: %s entries",
+            len(materials_with_qty),
         )
         materials_with_qty.sort(key=lambda x: x["type_name"])
+        sell_paginator = Paginator(materials_with_qty, sell_per_page)
+        sell_page_obj = sell_paginator.get_page(request.GET.get("page"))
+        materials_with_qty = list(sell_page_obj.object_list)
         sell_paste_catalog = _build_sell_paste_catalog(
             raw_user_assets_aggregated,
             raw_assets_for_display,
             accepted_catalog_by_type,
         )
 
-        if (
-            pre_filter_count > 0
-            and not materials_with_qty
-            and not message_shown
-            and not is_fragment_request
-        ):
+        if pre_filter_count > 0 and not materials_with_qty and not is_fragment_request:
             messages.info(
                 request,
                 _("No accepted items available to sell at the accepted locations."),
             )
     else:
-        if scope_missing and not message_shown and not is_fragment_request:
-            messages.info(
-                request,
-                _(
-                    "Refreshing via ESI. Make sure you have granted the assets scope to at least one character."
-                ),
-            )
-        elif not message_shown and not is_fragment_request:
+        if not scope_missing and not is_fragment_request:
             messages.info(
                 request,
                 _("No items available to sell at the accepted locations."),
@@ -2057,9 +2206,24 @@ def material_exchange_sell(request, tokens):
         "corporation_name": corporation_name,
         "assets_refreshing": assets_refreshing,
         "sell_assets_progress": sell_assets_progress,
+        "sell_assets_stale": bool(user_assets_stale),
+        "sell_assets_version_refresh": bool(needs_user_assets_version_refresh),
+        "sell_assets_refresh_cooldown_minutes": int(
+            sell_assets_refresh_cooldown_minutes
+        ),
+        "sell_assets_refresh_cooldown_seconds": int(
+            sell_assets_refresh_cooldown_seconds
+        ),
+        "sell_assets_refresh_blocked": bool(
+            (sell_assets_refresh_cooldown_minutes or 0) > 0 and not assets_refreshing
+        ),
         "sell_paste_catalog": sell_paste_catalog,
         "sell_last_update": sell_last_update,
         "sell_next_refresh_minutes": _minutes_until_refresh(sell_last_update),
+        "sell_page_obj": sell_page_obj,
+        "sell_is_paginated": bool(sell_page_obj and sell_page_obj.has_other_pages()),
+        "sell_per_page": sell_per_page,
+        "sell_per_page_options": sell_per_page_options,
         "nav_context": _build_nav_context(request.user),
     }
 
