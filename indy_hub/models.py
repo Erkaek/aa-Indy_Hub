@@ -1673,8 +1673,14 @@ class ProductionProject(models.Model):
         default_permissions = ()
         ordering = ["-updated_at"]
         indexes = [
-            models.Index(fields=["user", "status", "-updated_at"]),
-            models.Index(fields=["user", "source_kind", "-updated_at"]),
+            models.Index(
+                fields=["user", "status", "-updated_at"],
+                name="ind_prj_user_state_upd_idx",
+            ),
+            models.Index(
+                fields=["user", "source_kind", "-updated_at"],
+                name="ind_prj_user_source_upd_idx",
+            ),
         ]
 
     def __str__(self):
@@ -1746,9 +1752,18 @@ class ProductionProjectItem(models.Model):
         default_permissions = ()
         ordering = ["category_order", "type_name", "id"]
         indexes = [
-            models.Index(fields=["project", "is_selected"]),
-            models.Index(fields=["project", "inclusion_mode"]),
-            models.Index(fields=["project", "type_id"]),
+            models.Index(
+                fields=["project", "is_selected"],
+                name="ind_prj_item_proj_sel_idx",
+            ),
+            models.Index(
+                fields=["project", "inclusion_mode"],
+                name="ind_prj_item_proj_mode_idx",
+            ),
+            models.Index(
+                fields=["project", "type_id"],
+                name="ind_prj_item_proj_type_idx",
+            ),
         ]
 
     def __str__(self):
@@ -2080,8 +2095,8 @@ class MaterialExchangeStock(models.Model):
         default_permissions = ()
         unique_together = ("config", "type_id")
         indexes = [
-            models.Index(fields=["type_id"]),
-            models.Index(fields=["config", "type_id"]),
+            models.Index(fields=["type_id"], name="mes_type_idx"),
+            models.Index(fields=["config", "type_id"], name="mes_cfg_type_idx"),
             models.Index(fields=["config", "quantity"], name="mes_config_qty_idx"),
             models.Index(fields=["config", "updated_at"], name="mes_config_upd_idx"),
             models.Index(fields=["type_name"], name="mes_typename_idx"),
@@ -2224,9 +2239,15 @@ class MaterialExchangeSellOrder(models.Model):
         default_permissions = ()
         ordering = ["-created_at"]
         indexes = [
-            models.Index(fields=["status", "-created_at"]),
-            models.Index(fields=["seller", "-created_at"]),
-            models.Index(fields=["esi_contract_id"]),
+            models.Index(
+                fields=["status", "-created_at"],
+                name="mes_sell_state_created_idx",
+            ),
+            models.Index(
+                fields=["seller", "-created_at"],
+                name="mes_sell_seller_created_idx",
+            ),
+            models.Index(fields=["esi_contract_id"], name="mes_sell_contract_idx"),
             models.Index(
                 fields=["seller", "status", "-created_at"],
                 name="indy_me_sell_user_state_idx",
@@ -2355,8 +2376,8 @@ class MaterialExchangeSellOrderItem(models.Model):
         default_permissions = ()
         ordering = ["created_at"]
         indexes = [
-            models.Index(fields=["type_id"]),
-            models.Index(fields=["order"]),
+            models.Index(fields=["type_id"], name="mes_sell_item_type_idx"),
+            models.Index(fields=["order"], name="mes_sell_item_order_idx"),
         ]
 
     def __str__(self):
@@ -2464,9 +2485,15 @@ class MaterialExchangeBuyOrder(models.Model):
         default_permissions = ()
         ordering = ["-created_at"]
         indexes = [
-            models.Index(fields=["status", "-created_at"]),
-            models.Index(fields=["buyer", "-created_at"]),
-            models.Index(fields=["esi_contract_id"]),
+            models.Index(
+                fields=["status", "-created_at"],
+                name="mes_buy_state_created_idx",
+            ),
+            models.Index(
+                fields=["buyer", "-created_at"],
+                name="mes_buy_buyer_created_idx",
+            ),
+            models.Index(fields=["esi_contract_id"], name="mes_buy_contract_idx"),
             models.Index(
                 fields=["buyer", "status", "-created_at"],
                 name="indy_me_buy_user_state_idx",
@@ -2598,8 +2625,8 @@ class MaterialExchangeBuyOrderItem(models.Model):
         default_permissions = ()
         ordering = ["created_at"]
         indexes = [
-            models.Index(fields=["type_id"]),
-            models.Index(fields=["order"]),
+            models.Index(fields=["type_id"], name="mes_buy_item_type_idx"),
+            models.Index(fields=["order"], name="mes_buy_item_order_idx"),
         ]
 
     def __str__(self):
@@ -2656,9 +2683,18 @@ class MaterialExchangeTransaction(models.Model):
         default_permissions = ()
         ordering = ["-completed_at"]
         indexes = [
-            models.Index(fields=["transaction_type", "-completed_at"]),
-            models.Index(fields=["user", "-completed_at"]),
-            models.Index(fields=["type_id", "-completed_at"]),
+            models.Index(
+                fields=["transaction_type", "-completed_at"],
+                name="mes_tx_type_completed_idx",
+            ),
+            models.Index(
+                fields=["user", "-completed_at"],
+                name="mes_tx_user_completed_idx",
+            ),
+            models.Index(
+                fields=["type_id", "-completed_at"],
+                name="mes_tx_item_completed_idx",
+            ),
         ]
 
     def __str__(self):
@@ -2711,10 +2747,19 @@ class ESIContract(models.Model):
         default_permissions = ()
         ordering = ["-date_issued"]
         indexes = [
-            models.Index(fields=["corporation_id", "status", "contract_type"]),
-            models.Index(fields=["issuer_id", "status"]),
-            models.Index(fields=["acceptor_id", "contract_type"]),
-            models.Index(fields=["-date_issued"]),
+            models.Index(
+                fields=["corporation_id", "status", "contract_type"],
+                name="esi_ct_corp_state_type_idx",
+            ),
+            models.Index(
+                fields=["issuer_id", "status"],
+                name="esi_ct_issuer_state_idx",
+            ),
+            models.Index(
+                fields=["acceptor_id", "contract_type"],
+                name="esi_ct_acceptor_type_idx",
+            ),
+            models.Index(fields=["-date_issued"], name="esi_ct_issued_desc_idx"),
         ]
 
     def __str__(self):
@@ -2748,8 +2793,14 @@ class ESIContractItem(models.Model):
         default_permissions = ()
         unique_together = [["contract", "record_id"]]
         indexes = [
-            models.Index(fields=["contract", "type_id"]),
-            models.Index(fields=["type_id", "is_included"]),
+            models.Index(
+                fields=["contract", "type_id"],
+                name="esi_ct_item_contract_type_idx",
+            ),
+            models.Index(
+                fields=["type_id", "is_included"],
+                name="esi_ct_item_type_included_idx",
+            ),
         ]
 
     def __str__(self):
@@ -2801,8 +2852,14 @@ class IndustrySystemCostIndex(models.Model, IndustryActivityMixin):
         db_table = "indy_hub_industrysystemcostindex"
         unique_together = (("solar_system_id", "activity_id"),)
         indexes = [
-            models.Index(fields=["solar_system_id", "activity_id"]),
-            models.Index(fields=["solar_system_name", "activity_id"]),
+            models.Index(
+                fields=["solar_system_id", "activity_id"],
+                name="ind_sci_system_activity_idx",
+            ),
+            models.Index(
+                fields=["solar_system_name", "activity_id"],
+                name="ind_sci_name_activity_idx",
+            ),
         ]
 
     def __str__(self) -> str:
@@ -3015,13 +3072,23 @@ class IndustryStructure(models.Model):
         default_permissions = ()
         db_table = "indy_hub_industrystructure"
         indexes = [
-            models.Index(fields=["structure_type_id"]),
-            models.Index(fields=["owner_corporation_id", "sync_source"]),
-            models.Index(fields=["external_structure_id"]),
-            models.Index(fields=["constellation_name"]),
-            models.Index(fields=["region_name"]),
-            models.Index(fields=["visibility_scope", "owner_user"]),
-            models.Index(fields=["source_structure"]),
+            models.Index(
+                fields=["structure_type_id"], name="indy_hub_in_struct_type_idx"
+            ),
+            models.Index(
+                fields=["owner_corporation_id", "sync_source"],
+                name="indy_hub_in_owner_sync_idx",
+            ),
+            models.Index(
+                fields=["external_structure_id"], name="indy_hub_in_external_idx"
+            ),
+            models.Index(fields=["constellation_name"], name="indy_hub_in_constel_idx"),
+            models.Index(fields=["region_name"], name="indy_hub_in_region_idx"),
+            models.Index(
+                fields=["visibility_scope", "owner_user"],
+                name="indy_hub_in_vis_owner_idx",
+            ),
+            models.Index(fields=["source_structure"], name="indy_hub_in_source_idx"),
         ]
 
     def __str__(self) -> str:
@@ -3586,8 +3653,11 @@ class IndustryStructureRig(models.Model):
         db_table = "indy_hub_industrystructurerig"
         unique_together = (("structure", "slot_index"),)
         indexes = [
-            models.Index(fields=["structure", "slot_index"]),
-            models.Index(fields=["rig_type_id"]),
+            models.Index(
+                fields=["structure", "slot_index"],
+                name="ind_struct_rig_slot_idx",
+            ),
+            models.Index(fields=["rig_type_id"], name="ind_struct_rig_type_idx"),
         ]
 
     def __str__(self) -> str:
