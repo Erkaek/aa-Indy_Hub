@@ -304,7 +304,10 @@ def sync_esi_contracts():
 
     for config in configs:
         try:
-            _sync_contracts_for_corporation(config.corporation_id)
+            _sync_contracts_for_corporation(
+                config.corporation_id,
+                force_refresh=True,
+            )
         except (ESIErrorLimitException, ESIBucketLimitException) as exc:
             delay = get_rate_limit_reset_seconds(exc)
             logger.warning(
@@ -384,7 +387,7 @@ def run_material_exchange_cycle():
     logger.info("Completed Material Exchange cycle")
 
 
-def _sync_contracts_for_corporation(corporation_id: int):
+def _sync_contracts_for_corporation(corporation_id: int, *, force_refresh: bool = False):
     """Sync ESI contracts for a single corporation."""
     logger.info("Syncing ESI contracts for corporation %s", corporation_id)
 
@@ -395,7 +398,9 @@ def _sync_contracts_for_corporation(corporation_id: int):
             "esi-contracts.read_corporation_contracts.v1",
         )
 
-        has_cached_contracts = ESIContract.objects.filter(
+        # Force a live ESI refresh whenever the cycle is actively looking for
+        # newly created contracts for pending Material Exchange orders.
+        should_force_refresh = force_refresh or not ESIContract.objects.filter(
             corporation_id=corporation_id
         ).exists()
 
@@ -403,7 +408,7 @@ def _sync_contracts_for_corporation(corporation_id: int):
         contracts = shared_client.fetch_corporation_contracts(
             corporation_id=corporation_id,
             character_id=character_id,
-            force_refresh=not has_cached_contracts,
+            force_refresh=should_force_refresh,
         )
         if not isinstance(contracts, list):
             logger.warning(

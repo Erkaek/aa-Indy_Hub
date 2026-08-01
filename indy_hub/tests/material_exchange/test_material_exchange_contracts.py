@@ -199,6 +199,30 @@ class ContractValidationTaskTest(TestCase):
 
     @patch("indy_hub.tasks.material_exchange_contracts._get_character_for_scope")
     @patch("indy_hub.tasks.material_exchange_contracts.shared_client")
+    def test_sync_esi_contracts_forces_refresh_for_pending_orders(
+        self, mock_client, mock_get_char
+    ):
+        """Pending Material Exchange orders should trigger a live contract refresh."""
+        mock_get_char.return_value = 111111111
+        mock_client.fetch_corporation_contracts.return_value = []
+
+        from indy_hub.tasks.material_exchange_contracts import sync_esi_contracts
+
+        with patch.object(
+            self.config.__class__.objects,
+            "all",
+            return_value=self.config.__class__.objects.filter(pk=self.config.pk),
+        ):
+            sync_esi_contracts()
+
+        mock_client.fetch_corporation_contracts.assert_called_once_with(
+            corporation_id=self.config.corporation_id,
+            character_id=111111111,
+            force_refresh=True,
+        )
+
+    @patch("indy_hub.tasks.material_exchange_contracts._get_character_for_scope")
+    @patch("indy_hub.tasks.material_exchange_contracts.shared_client")
     @patch("indy_hub.tasks.material_exchange_contracts.notify_user")
     def test_validate_sell_orders_no_contract(
         self, mock_notify_user, mock_client, mock_get_char
