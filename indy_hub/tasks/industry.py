@@ -14,7 +14,7 @@ from celery.exceptions import MaxRetriesExceededError, Retry
 # Django
 from django.contrib.auth.models import User
 from django.core.cache import cache
-from django.db import connection, transaction
+from django.db import transaction
 from django.db.models import Q
 from django.db.utils import OperationalError
 from django.utils import timezone
@@ -69,6 +69,16 @@ from ..services.industry_skills import (
 from ..services.industry_skills import (
     skill_snapshot_stale as industry_skill_snapshot_stale,
 )
+from ..services.industry_task_helpers import (
+    build_skill_level_map,
+    coerce_mapping,
+    coerce_online_datetime,
+    extract_role_payload,
+    fetch_corptools_activity_rows,
+    is_deadlock_error,
+    normalized_roles,
+    roles_from_snapshot,
+)
 from ..services.location_population import populate_location_names
 from ..utils.analytics import emit_analytics_event
 from ..utils.db_retry import update_or_create_with_mysql_retry
@@ -120,13 +130,7 @@ MATERIAL_EXCHANGE_SCOPE_SET = [
 ]
 
 
-def _is_deadlock_error(exc: Exception) -> bool:
-    if getattr(exc, "args", None):
-        code = exc.args[0]
-        if code in {1205, 1213}:
-            return True
-    message = str(exc)
-    return "Deadlock found" in message or "Lock wait timeout exceeded" in message
+_is_deadlock_error = is_deadlock_error
 
 
 def _is_user_active(user: User, *, now: datetime | None = None) -> bool:
@@ -204,37 +208,10 @@ def _is_user_active_from_corptools(
 def _fetch_corptools_activity_rows(
     character_ids: list[int],
 ) -> list[tuple[int, object]] | None:
-    placeholders = ", ".join(["%s"] * len(character_ids))
-    query = f"""
-        SELECT ec.character_id, cca.last_known_login
-        FROM corptools_characteraudit cca
-        JOIN eveonline_evecharacter ec ON ec.id = cca.character_id
-        WHERE ec.character_id IN ({placeholders})
-    """
-
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute(query, character_ids)
-            return list(cursor.fetchall())
-    except Exception as exc:  # pragma: no cover - optional integration
-        logger.debug("Corptools activity lookup unavailable: %s", exc)
-        return None
+    return fetch_corptools_activity_rows(character_ids, logger=logger)
 
 
-def _coerce_online_datetime(value):
-    if not value:
-        return None
-    if isinstance(value, datetime):
-        dt = value
-    elif isinstance(value, str):
-        dt = parse_datetime(value)
-        if dt is None:
-            return None
-    else:
-        return None
-    if timezone.is_naive(dt):
-        dt = timezone.make_aware(dt, dt_timezone.utc)
-    return dt
+_coerce_online_datetime = coerce_online_datetime
 
 
 def _user_recent_blueprint_sync(user: User, *, now: datetime | None = None) -> bool:
@@ -298,44 +275,13 @@ _CORPORATION_ROLE_CACHE: dict[int, set[str]] = {}
 _SKILLS_OPERATION_UNAVAILABLE = False
 
 
-def _normalized_roles(roles: list[str] | tuple[str, ...] | None) -> set[str]:
-    if not roles:
-        return set()
-    return {str(role).upper() for role in roles if role}
+_normalized_roles = normalized_roles
 
 
-def _coerce_mapping(payload: object) -> dict:
-    if payload is None:
-        return {}
-    if isinstance(payload, dict):
-        return payload
-    for attr_name in ("model_dump", "dict", "to_dict"):
-        func = getattr(payload, attr_name, None)
-        if callable(func):
-            try:
-                data = func()
-            except TypeError:
-                data = func
-            if isinstance(data, dict):
-                return data
-    try:
-        return dict(payload)
-    except Exception:
-        return {}
+_coerce_mapping = coerce_mapping
 
 
-def _build_skill_level_map(skills: list[dict]) -> dict[int, dict[str, int]]:
-    levels: dict[int, dict[str, int]] = {}
-    for skill in skills:
-        if not isinstance(skill, dict):
-            continue
-        skill_id = skill.get("skill_id")
-        if not skill_id:
-            continue
-        active_level = int(skill.get("active_skill_level") or 0)
-        trained_level = int(skill.get("trained_skill_level") or 0)
-        levels[int(skill_id)] = {"active": active_level, "trained": trained_level}
-    return levels
+_build_skill_level_map = build_skill_level_map
 
 
 def _fetch_character_skill_levels_with_token(
@@ -363,25 +309,10 @@ def _fetch_character_skill_levels_with_token(
     return _build_skill_level_map(skills)
 
 
-def _extract_role_payload(payload: dict) -> dict[str, list[str]]:
-    def _coerce_list(value: object) -> list[str]:
-        if isinstance(value, (list, tuple)):
-            return [str(item) for item in value if item]
-        return []
-
-    return {
-        "roles": _coerce_list(payload.get("roles")),
-        "roles_at_hq": _coerce_list(payload.get("roles_at_hq")),
-        "roles_at_base": _coerce_list(payload.get("roles_at_base")),
-        "roles_at_other": _coerce_list(payload.get("roles_at_other")),
-    }
+_extract_role_payload = extract_role_payload
 
 
-def _roles_from_snapshot(snapshot: CharacterRoles) -> set[str]:
-    collected: set[str] = set()
-    for key in ("roles", "roles_at_hq", "roles_at_base", "roles_at_other"):
-        collected.update(_normalized_roles(getattr(snapshot, key, None)))
-    return collected
+_roles_from_snapshot = roles_from_snapshot
 
 
 def get_character_corporation_roles(character_id: int) -> set[str]:

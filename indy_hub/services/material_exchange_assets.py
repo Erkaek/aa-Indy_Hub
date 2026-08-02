@@ -9,9 +9,26 @@ from allianceauth.services.hooks import get_extension_logger
 
 logger = get_extension_logger(__name__)
 
+__all__ = [
+    "CRAFT_PROJECT_STOCK_CACHE_MAX_AGE_MINUTES",
+    "CRAFT_PROJECT_STOCK_REFRESH_PROGRESS_TTL_SECONDS",
+    "SELL_ASSETS_REFRESH_PROGRESS_TTL_SECONDS",
+    "ensure_craft_project_stock_refresh_started",
+    "ensure_sell_assets_refresh_started",
+    "get_craft_project_stock_refresh_progress",
+    "get_latest_character_asset_sync",
+    "get_sell_assets_refresh_progress",
+    "material_exchange_sell_assets_progress_key",
+    "sell_assets_refresh_finished_recently",
+]
+
 SELL_ASSETS_REFRESH_PROGRESS_TTL_SECONDS = 10 * 60
 SELL_ASSETS_REFRESH_STALE_PROGRESS_SECONDS = 180
 SELL_ASSETS_REFRESH_RECENT_FINISH_SECONDS = SELL_ASSETS_REFRESH_PROGRESS_TTL_SECONDS
+CRAFT_PROJECT_STOCK_CACHE_MAX_AGE_MINUTES = 60
+CRAFT_PROJECT_STOCK_REFRESH_PROGRESS_TTL_SECONDS = (
+    SELL_ASSETS_REFRESH_PROGRESS_TTL_SECONDS
+)
 
 
 def material_exchange_sell_assets_progress_key(user_id: int) -> str:
@@ -177,3 +194,43 @@ def ensure_sell_assets_refresh_started(user, *, log_context: str = "asset") -> d
         cache.set(progress_key, state, SELL_ASSETS_REFRESH_PROGRESS_TTL_SECONDS)
 
     return state
+
+
+def craft_project_stock_refresh_progress_key(user_id: int) -> str:
+    return material_exchange_sell_assets_progress_key(int(user_id))
+
+
+def ensure_craft_project_stock_refresh_started(user) -> dict:
+    """Start an async character asset refresh for Craft stock when needed."""
+
+    return ensure_sell_assets_refresh_started(user, log_context="Craft stock asset")
+
+
+def get_latest_character_asset_sync(user):
+    from ..models import CachedCharacterAsset
+
+    return (
+        CachedCharacterAsset.objects.filter(user=user)
+        .order_by("-synced_at")
+        .values_list("synced_at", flat=True)
+        .first()
+    )
+
+
+def get_craft_project_stock_refresh_progress(user) -> dict:
+    latest_update = get_latest_character_asset_sync(user)
+    try:
+        stock_is_stale = (
+            not latest_update
+            or (timezone.now() - latest_update).total_seconds()
+            > CRAFT_PROJECT_STOCK_CACHE_MAX_AGE_MINUTES * 60
+        )
+    except Exception:
+        stock_is_stale = True
+
+    progress_key = craft_project_stock_refresh_progress_key(int(user.id))
+    cached_progress = cache.get(progress_key)
+    progress = get_sell_assets_refresh_progress(int(user.id)) if cached_progress else {}
+    if stock_is_stale:
+        progress = ensure_craft_project_stock_refresh_started(user)
+    return progress
