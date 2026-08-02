@@ -11,7 +11,6 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
-# AA Example App
 from ..models import BlueprintCopyChat, BlueprintCopyMessage, BlueprintCopyOffer
 
 __all__ = [
@@ -288,7 +287,9 @@ def process_offer_action(
         if normalized_scope:
             update_fields.append("source_scope")
         offer.save(update_fields=[*update_fields])
-        close_offer_chat_if_exists_fn(offer, BlueprintCopyChat.CloseReason.OFFER_ACCEPTED)
+        close_offer_chat_if_exists_fn(
+            offer, BlueprintCopyChat.CloseReason.OFFER_ACCEPTED
+        )
         notify_user_fn(
             req.requested_by,
             "Blueprint Copy Request Accepted",
@@ -369,12 +370,7 @@ def process_offer_action(
                     "me": req.material_efficiency,
                     "te": req.time_efficiency,
                 }
-            )
-            % {
-                "type": get_type_name_fn(req.type_id),
-                "me": req.material_efficiency,
-                "te": req.time_efficiency,
-            },
+            ),
             "info",
             link=my_requests_url,
             link_label=_("Review your requests"),
@@ -406,7 +402,9 @@ def process_offer_action(
         if normalized_scope:
             update_fields.append("source_scope")
         offer.save(update_fields=[*update_fields])
-        close_offer_chat_if_exists_fn(offer, BlueprintCopyChat.CloseReason.OFFER_REJECTED)
+        close_offer_chat_if_exists_fn(
+            offer, BlueprintCopyChat.CloseReason.OFFER_REJECTED
+        )
         if finalize_all_rejected_fn(req):
             messages_api.success(
                 request_obj,

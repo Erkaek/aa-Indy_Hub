@@ -1,12 +1,8 @@
 """Shared helper functions for material exchange contract workflows."""
 
-# Standard Library
-from decimal import Decimal
-
 # Alliance Auth
 from allianceauth.services.hooks import get_extension_logger
 
-# AA Example App
 from ..models import MaterialExchangeBuyOrder, MaterialExchangeStock
 from ..utils.eve import PLACEHOLDER_PREFIX, resolve_location_name
 from ..utils.material_exchange_transactions import upsert_material_exchange_transaction

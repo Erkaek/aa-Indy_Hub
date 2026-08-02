@@ -16,7 +16,6 @@ from django.db.models import Q
 # Alliance Auth
 from allianceauth.authentication.models import CharacterOwnership, UserProfile
 
-# AA Example App
 from ..models import (
     Blueprint,
     BlueprintCopyRequest,

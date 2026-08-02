@@ -6,7 +6,6 @@ from __future__ import annotations
 import re
 from decimal import Decimal, InvalidOperation
 
-# AA Example App
 from ..models import BlueprintCopyMessage
 
 NEGOTIATION_BAR_MESSAGE_RE = re.compile(

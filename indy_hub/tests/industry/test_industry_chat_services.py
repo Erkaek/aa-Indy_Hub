@@ -1,12 +1,17 @@
+# Standard Library
 from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+# Django
 from django.test import SimpleTestCase
 from django.utils import timezone
 
-from indy_hub.services.industry_chat_helpers import build_bp_chat_history_payload
-from indy_hub.services.industry_chat_helpers import execute_bp_chat_decision
+# AA Example App
+from indy_hub.services.industry_chat_helpers import (
+    build_bp_chat_history_payload,
+    execute_bp_chat_decision,
+)
 from indy_hub.services.industry_offer_actions import (
     OfferFlowDeps,
     mark_buyer_accept_with_deps,

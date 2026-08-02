@@ -3,7 +3,6 @@
 # Standard Library
 from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal
 
-# AA Example App
 from ..models import IndustryStructure
 
 ISK_QUANTUM = Decimal("1")

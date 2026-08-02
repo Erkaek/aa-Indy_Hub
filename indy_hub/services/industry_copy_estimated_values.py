@@ -9,7 +9,6 @@ from typing import Any
 # Django
 from django.utils.translation import gettext_lazy as _
 
-# AA Example App
 from .craft_times import compute_effective_cycle_seconds
 from .industry_offer_helpers import format_duration_compact, format_percent_compact
 
@@ -54,12 +53,8 @@ def copy_estimate_cost_rate(
     system_cost_rate = (
         copy_estimate_decimal(breakdown.system_cost_index_percent) / percent_factor
     ) * job_cost_multiplier
-    tax_rate = (
-        copy_estimate_decimal(breakdown.facility_tax_percent) / percent_factor
-    )
-    scc_rate = (
-        copy_estimate_decimal(breakdown.scc_surcharge_percent) / percent_factor
-    )
+    tax_rate = copy_estimate_decimal(breakdown.facility_tax_percent) / percent_factor
+    scc_rate = copy_estimate_decimal(breakdown.scc_surcharge_percent) / percent_factor
     return job_cost_base_rate * (system_cost_rate + tax_rate + scc_rate)
 
 

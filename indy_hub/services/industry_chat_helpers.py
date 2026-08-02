@@ -7,7 +7,6 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
-# AA Example App
 from ..models import BlueprintCopyChat, BlueprintCopyMessage
 
 __all__ = [

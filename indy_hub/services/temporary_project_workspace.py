@@ -9,7 +9,6 @@ from collections.abc import Sequence
 # Django
 from django.core.cache import cache
 
-# AA Example App
 from ..models import PROJECT_REF_BASE36_ALPHABET, ProductionProject
 
 TEMP_PROJECT_CACHE_TIMEOUT_SECONDS = 60 * 60 * 24
