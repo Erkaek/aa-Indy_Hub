@@ -64,6 +64,9 @@ def _character_name(character_id: int) -> str:
 def _character_scope_coverage_queryset(*, scope_names: list[str], character_id_ref):
     # Group by token pk (not character_id) so EXISTS + GROUP BY don't collide on
     # the correlated column, which causes Django to silently return no rows.
+    # require_valid() is intentionally omitted: the listing page shows whether a
+    # character has been linked (has the scopes), not whether the token is
+    # currently active. django-esi auto-refreshes via refresh_token on next use.
     return (
         Token.objects.filter(character_id=character_id_ref)
         .filter(scopes__name__in=scope_names)

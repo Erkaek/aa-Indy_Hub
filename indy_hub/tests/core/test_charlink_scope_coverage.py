@@ -1,5 +1,4 @@
 # Standard Library
-import importlib
 import importlib.util
 from unittest import skipUnless
 
