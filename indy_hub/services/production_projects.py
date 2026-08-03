@@ -36,6 +36,7 @@ from ..utils.eve import (
     get_type_name,
     is_reaction_blueprint,
 )
+from .corporation_blueprint_visibility import get_viewable_corporation_ids
 from .craft_materials import (
     compute_job_material_quantity,
     is_base_item_material_efficiency_exempt,
@@ -3303,8 +3304,32 @@ def _resolve_user_blueprint_inventory(
         .order_by("type_id", "-material_efficiency", "-time_efficiency")
     )
 
+    # Also include corp blueprints from corporations the user can access
+    viewable_corp_ids = get_viewable_corporation_ids(user)
+    corp_blueprints = (
+        Blueprint.objects.filter(
+            owner_kind=Blueprint.OwnerKind.CORPORATION,
+            corporation_id__in=viewable_corp_ids,
+            type_id__in=numeric_ids,
+        )
+        .values_list(
+            "type_id",
+            "material_efficiency",
+            "time_efficiency",
+            "bp_type",
+            "runs",
+        )
+        .order_by("type_id", "-material_efficiency", "-time_efficiency")
+        if viewable_corp_ids
+        else Blueprint.objects.none().values_list(
+            "type_id", "material_efficiency", "time_efficiency", "bp_type", "runs"
+        )
+    )
+
     user_bp_map: dict[int, dict[str, object]] = {}
-    for bp_type_id, bp_me, bp_te, bp_type, runs in user_blueprints:
+    for bp_type_id, bp_me, bp_te, bp_type, runs in list(user_blueprints) + list(
+        corp_blueprints
+    ):
         entry = user_bp_map.setdefault(
             int(bp_type_id),
             {
