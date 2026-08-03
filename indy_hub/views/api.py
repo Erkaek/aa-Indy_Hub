@@ -147,6 +147,11 @@ def _sanitize_production_workspace_state(
         or existing_workspace_state.get("blueprint_name")
         or ""
     )
+    use_corp_blueprints = bool(
+        data.get("use_corp_blueprints")
+        if "use_corp_blueprints" in data
+        else existing_workspace_state.get("use_corp_blueprints", False)
+    )
 
     return {
         "blueprint_type_id": blueprint_type_id,
@@ -156,6 +161,7 @@ def _sanitize_production_workspace_state(
         "simulationName": simulation_name,
         "active_tab": active_blueprint_tab,
         "activeBlueprintTab": active_blueprint_tab,
+        "use_corp_blueprints": use_corp_blueprints,
         "buyTypeIds": sanitize_list(data.get("buyTypeIds")),
         "stockAllocations": sanitize_dict(data.get("stockAllocations")),
         "manualPrices": sanitize_list(data.get("manualPrices")),
