@@ -123,7 +123,7 @@ class CharacterScopeCoverageAnnotationTests(TestCase):
         annotation = Exists(
             self._queryset_fn(
                 scope_names=scope_names,
-                character_id_ref=OuterRef("pk"),
+                character_id_ref=OuterRef("character_id"),
             )
         )
         return (

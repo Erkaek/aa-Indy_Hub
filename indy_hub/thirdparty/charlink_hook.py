@@ -150,7 +150,7 @@ def _add_material_exchange_character(request, token: Token) -> None:
         request,
         token,
         _(
-            "Indy Hub Material Exchange scopes linked for %(character)s. Structure, asset, and contract access will refresh automatically."
+            "Indy Hub Mat Exchange scopes linked for %(character)s. Structure, asset, and contract access will refresh automatically."
         ),
     )
 
@@ -173,7 +173,7 @@ app_import = AppImport(
             is_character_added_annotation=Exists(
                 _character_scope_coverage_queryset(
                     scope_names=PERSONAL_SCOPE_SET,
-                    character_id_ref=OuterRef("pk"),
+                    character_id_ref=OuterRef("character_id"),
                 )
             ),
             get_users_with_perms=lambda: _users_with_permission("can_access_indy_hub"),
@@ -194,7 +194,7 @@ app_import = AppImport(
             is_character_added_annotation=Exists(
                 _character_scope_coverage_queryset(
                     scope_names=CORPORATION_SCOPE_SET,
-                    character_id_ref=OuterRef("pk"),
+                    character_id_ref=OuterRef("character_id"),
                 )
             ),
             get_users_with_perms=lambda: _users_with_permission(
@@ -218,7 +218,7 @@ app_import = AppImport(
             is_character_added_annotation=Exists(
                 _character_scope_coverage_queryset(
                     scope_names=MATERIAL_HUB_SCOPE_SET,
-                    character_id_ref=OuterRef("pk"),
+                    character_id_ref=OuterRef("character_id"),
                 )
             ),
             get_users_with_perms=lambda: _users_with_permission(
