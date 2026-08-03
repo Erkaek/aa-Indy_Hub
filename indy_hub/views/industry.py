@@ -6548,7 +6548,16 @@ def _build_structure_registry_page_context(
         "incomplete_structure_count": sum(
             1 for row in structure_rows if row["is_profile_incomplete"]
         ),
+        "toggle_favorite_structure_url": reverse("indy_hub:toggle_favorite_structure"),
     }
+    # Annotate each row with the current user's favorite state
+    favorite_ids = frozenset(
+        UserFavoriteStructure.objects.filter(user=request.user).values_list(
+            "structure_id", flat=True
+        )
+    )
+    for row in structure_rows:
+        row["is_favorite"] = row["structure"].id in favorite_ids
     context.update(build_nav_context(request.user, active_tab="industry"))
     return context
 

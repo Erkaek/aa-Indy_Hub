@@ -7007,14 +7007,13 @@ function renderStructurePlanner(options = {}) {
         return;
     }
 
-    // Sync favorite state from server-provided structure data
+    // Sync favorite state from server-provided structure data so dropdowns stay current
     const plannerData = window.SimulationAPI && typeof window.SimulationAPI.getStructurePlanner === 'function'
         ? window.SimulationAPI.getStructurePlanner()
         : null;
     if (plannerData?.structures) {
         initFavoriteStructureIds(plannerData.structures);
     }
-    renderStructureFavoritesPanel();
 
     const needsFullStructureOptions = !hasFullStructurePlannerOptions();
 
