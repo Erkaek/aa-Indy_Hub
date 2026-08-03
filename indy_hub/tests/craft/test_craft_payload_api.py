@@ -47,6 +47,9 @@ class _CursorStub:
     def fetchmany(self, size=None):
         return []
 
+    def __iter__(self):
+        return iter(self._fetchall_result)
+
     def close(self):
         return None
 
@@ -164,6 +167,7 @@ class CraftBlueprintPayloadApiTests(TestCase):
             _CursorStub(fetchone_result=(2000, 2)),
             _CursorStub(fetchall_result=[]),
             _CursorStub(fetchone_result=(2,), fetchall_result=[]),
+            _CursorStub(fetchall_result=[]),  # UserFavoriteStructure ORM query
         ]
 
         with patch(
@@ -228,6 +232,7 @@ class CraftBlueprintPayloadApiTests(TestCase):
                 _CursorStub(
                     fetchone_result=(2,), fetchall_result=[(3001, 10), (3002, 1)]
                 ),
+                _CursorStub(fetchall_result=[]),  # UserFavoriteStructure ORM query
             ]
         )
 
@@ -275,6 +280,7 @@ class CraftBlueprintPayloadApiTests(TestCase):
             product_type_name="",
             product_output_per_cycle=2,
             craft_cycles_summary={},
+            favorite_structure_ids=frozenset(),
         )
         mock_build_craft_time_map.assert_called_once_with(
             recipe_map={

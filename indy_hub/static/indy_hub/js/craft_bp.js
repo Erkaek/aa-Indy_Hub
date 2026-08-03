@@ -6214,8 +6214,14 @@ function getAlphabetizedStructureOptions(item, typeId) {
             option,
             index,
             sortText: getStructureOptionDisplaySortText(option, typeId),
+            isFav: isStructureFavorite(Number(option.structure_id || option.structureId || 0)),
         }))
         .sort((left, right) => {
+            // Favorites first
+            if (left.isFav !== right.isFav) {
+                return left.isFav ? -1 : 1;
+            }
+
             const nameCmp = left.sortText.name.localeCompare(right.sortText.name, undefined, { sensitivity: 'base', numeric: true });
             if (nameCmp !== 0) {
                 return nameCmp;
@@ -6244,6 +6250,57 @@ function chooseNearestStructureOption(item) {
     const rankedOptions = getRankedStructureOptions(item);
     return rankedOptions.length > 0 ? rankedOptions[0] : null;
 }
+
+// ---------------------------------------------------------------------------
+// Favorite structures
+// ---------------------------------------------------------------------------
+
+let _favoriteStructureIds = new Set();
+let _favoriteStructureIdsInitialized = false;
+
+function initFavoriteStructureIds(structures) {
+    _favoriteStructureIds = new Set(
+        (structures || [])
+            .filter((s) => s.is_favorite || s.isFavorite)
+            .map((s) => Number(s.structure_id || s.structureId || 0))
+            .filter((id) => id > 0)
+    );
+    _favoriteStructureIdsInitialized = true;
+}
+
+function isStructureFavorite(structureId) {
+    return _favoriteStructureIds.has(Number(structureId || 0));
+}
+
+async function toggleStructureFavorite(structureId) {
+    const urls = getCraftBlueprintUrls();
+    if (!urls.toggle_favorite_structure) {
+        return;
+    }
+    try {
+        const response = await fetch(urls.toggle_favorite_structure, {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': getCsrfToken() || '',
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: `structure_id=${encodeURIComponent(Number(structureId || 0))}`,
+        });
+        if (!response.ok) {
+            return;
+        }
+        const data = await response.json();
+        if (data.is_favorite) {
+            _favoriteStructureIds.add(Number(structureId));
+        } else {
+            _favoriteStructureIds.delete(Number(structureId));
+        }
+        renderStructurePlanner({ force: true });
+    } catch (_err) {
+        // silently ignore network errors
+    }
+}
+
 
 async function applyStructureMotherSystemDistances() {
     const urls = getCraftBlueprintUrls();
@@ -6702,7 +6759,9 @@ function buildStructureOptionLabel(option) {
     const materialBonus = formatPercent(option.material_bonus_percent || option.materialBonusPercent || option.rig_material_bonus_percent || option.rigMaterialBonusPercent || 0, 2);
     const timeBonus = formatPercent(option.time_bonus_percent || option.timeBonusPercent || option.rig_time_bonus_percent || option.rigTimeBonusPercent || 0, 2);
     const jobCost = formatPercent(option.total_installation_cost_percent || option.totalInstallationCostPercent || 0, 2);
-    return `${option.name} · ${systemName} · ${distanceLabel || __('Standalone')} · ME ${materialBonus} · TE ${timeBonus} · Job ${jobCost}`;
+    const structureId = Number(option.structure_id || option.structureId || 0);
+    const favPrefix = isStructureFavorite(structureId) ? '★ ' : '';
+    return `${favPrefix}${option.name} · ${systemName} · ${distanceLabel || __('Standalone')} · ME ${materialBonus} · TE ${timeBonus} · Job ${jobCost}`;
 }
 
 function readStructureOptionNumber(option, snakeName, camelName, fallback = 0) {
@@ -6889,6 +6948,14 @@ function renderStructurePlanner(options = {}) {
 
     if (!summaryContainer || !rowsContainer || !emptyContainer) {
         return;
+    }
+
+    // Sync favorite state from server-provided structure data so dropdowns stay current
+    const plannerData = window.SimulationAPI && typeof window.SimulationAPI.getStructurePlanner === 'function'
+        ? window.SimulationAPI.getStructurePlanner()
+        : null;
+    if (!_favoriteStructureIdsInitialized && plannerData?.structures) {
+        initFavoriteStructureIds(plannerData.structures);
     }
 
     const needsFullStructureOptions = !hasFullStructurePlannerOptions();

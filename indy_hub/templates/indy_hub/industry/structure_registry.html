@@ -251,17 +251,25 @@
                                     {% endif %}
                                 </td>
                                 <td class="py-3 align-top text-end">
-                                    <div class="dropdown">
-                                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                                            {% trans "Actions" %}
+                                    <div class="d-flex align-items-center justify-content-end gap-2">
+                                        <button type="button"
+                                            class="btn btn-sm structure-fav-btn {% if row.is_favorite %}btn-warning{% else %}btn-outline-secondary{% endif %}"
+                                            data-structure-id="{{ row.structure.id }}"
+                                            title="{% if row.is_favorite %}{% trans 'Remove from favorites' %}{% else %}{% trans 'Add to favorites' %}{% endif %}">
+                                            <i class="fas fa-star"></i>
                                         </button>
-                                        <ul class="dropdown-menu dropdown-menu-end">
-                                            <li><button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#structureDetailModal{{ forloop.counter }}"><i class="fas fa-eye me-2"></i>{% trans "View" %}</button></li>
-                                            <li><a class="dropdown-item" href="{% url 'indy_hub:industry_structure_edit' row.structure.id %}"><i class="fas fa-pen me-2"></i>{% if row.structure.is_personal_copy %}{% trans "Edit Taxes" %}{% else %}{% trans "Edit" %}{% endif %}</a></li>
-                                            <li><a class="dropdown-item" href="{% url 'indy_hub:industry_structure_duplicate' row.structure.id %}"><i class="fas fa-clone me-2"></i>{% trans "Duplicate" %}</a></li>
-                                            <li><hr class="dropdown-divider"></li>
-                                            <li><a class="dropdown-item text-danger" href="{% url 'indy_hub:industry_structure_delete' row.structure.id %}"><i class="fas fa-trash me-2"></i>{% trans "Delete" %}</a></li>
-                                        </ul>
+                                        <div class="dropdown">
+                                            <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                                {% trans "Actions" %}
+                                            </button>
+                                            <ul class="dropdown-menu dropdown-menu-end">
+                                                <li><button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#structureDetailModal{{ forloop.counter }}"><i class="fas fa-eye me-2"></i>{% trans "View" %}</button></li>
+                                                <li><a class="dropdown-item" href="{% url 'indy_hub:industry_structure_edit' row.structure.id %}"><i class="fas fa-pen me-2"></i>{% if row.structure.is_personal_copy %}{% trans "Edit Taxes" %}{% else %}{% trans "Edit" %}{% endif %}</a></li>
+                                                <li><a class="dropdown-item" href="{% url 'indy_hub:industry_structure_duplicate' row.structure.id %}"><i class="fas fa-clone me-2"></i>{% trans "Duplicate" %}</a></li>
+                                                <li><hr class="dropdown-divider"></li>
+                                                <li><a class="dropdown-item text-danger" href="{% url 'indy_hub:industry_structure_delete' row.structure.id %}"><i class="fas fa-trash me-2"></i>{% trans "Delete" %}</a></li>
+                                            </ul>
+                                        </div>
                                     </div>
                                 </td>
                             </tr>
@@ -808,5 +816,39 @@ document.addEventListener("DOMContentLoaded", function () {
 
     fetchPreview();
 });
+</script>
+
+<script>
+(function () {
+    const toggleUrl = "{{ toggle_favorite_structure_url }}";
+    const csrfToken = document.cookie.match(/csrftoken=([^;]+)/)?.[1] ?? "";
+
+    document.querySelectorAll(".structure-fav-btn").forEach(function (btn) {
+        btn.addEventListener("click", async function () {
+            const structureId = btn.getAttribute("data-structure-id");
+            try {
+                const resp = await fetch(toggleUrl, {
+                    method: "POST",
+                    headers: {
+                        "X-CSRFToken": csrfToken,
+                        "Content-Type": "application/x-www-form-urlencoded",
+                    },
+                    body: "structure_id=" + encodeURIComponent(structureId),
+                });
+                if (!resp.ok) return;
+                const data = await resp.json();
+                if (data.is_favorite) {
+                    btn.classList.remove("btn-outline-secondary");
+                    btn.classList.add("btn-warning");
+                    btn.title = "{% trans 'Remove from favorites' %}";
+                } else {
+                    btn.classList.remove("btn-warning");
+                    btn.classList.add("btn-outline-secondary");
+                    btn.title = "{% trans 'Add to favorites' %}";
+                }
+            } catch (_) {}
+        });
+    });
+}());
 </script>
 {% endblock extra_javascript %}

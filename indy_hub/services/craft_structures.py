@@ -773,6 +773,7 @@ def build_craft_structure_planner(
     craft_cycles_summary: dict[int, dict[str, object]],
     include_all_options: bool = True,
     selected_structure_assignments: dict[int, int] | None = None,
+    favorite_structure_ids: frozenset[int] = frozenset(),
 ) -> dict[str, object]:
     selected_assignments: dict[int, int] = {}
     for type_id, structure_id in (selected_structure_assignments or {}).items():
@@ -817,6 +818,15 @@ def build_craft_structure_planner(
             "id",
         )
     )
+    if favorite_structure_ids:
+        structures.sort(
+            key=lambda s: (
+                0 if s.id in favorite_structure_ids else 1,
+                s.solar_system_name,
+                s.name,
+                s.id,
+            )
+        )
 
     serialized_structures = [
         {
@@ -829,6 +839,7 @@ def build_craft_structure_planner(
             "constellation_id": int(structure.constellation_id or 0),
             "region_id": int(structure.region_id or 0),
             "structure_type_name": structure.structure_type_name,
+            "is_favorite": structure.id in favorite_structure_ids,
         }
         for structure in structures
     ]
@@ -979,6 +990,7 @@ def build_craft_structure_planner(
                         installation_cost_percent["total_installation_cost_percent"]
                     ),
                     "service_category": service_category,
+                    "is_favorite": int(structure.id) in favorite_structure_ids,
                 }
             )
 
@@ -1044,6 +1056,18 @@ def build_craft_structure_planner(
             else None
         )
         user_selected_structure_id = selected_assignments.get(int(item["type_id"]))
+        # Prefer the best favorite structure when the user hasn't made an explicit choice.
+        if user_selected_structure_id is None and favorite_structure_ids:
+            best_fav = next(
+                (
+                    opt
+                    for opt in sorted(item["options"], key=_standalone_sort_key)
+                    if int(opt["structure_id"]) in favorite_structure_ids
+                ),
+                None,
+            )
+            if best_fav is not None:
+                user_selected_structure_id = int(best_fav["structure_id"])
 
         for option in item["options"]:
             distance_penalty, distance_band = _structure_distance_penalty(

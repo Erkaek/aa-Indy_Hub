@@ -27,8 +27,10 @@ from ..decorators import indy_hub_access_required, indy_hub_permission_required
 
 # Local
 from ..models import (
+    IndustryStructure,
     ProductionProject,
     ProductionProjectItem,
+    UserFavoriteStructure,
 )
 from ..services.craft_materials import (
     compute_job_material_quantity,
@@ -1196,6 +1198,11 @@ def craft_bp_payload(request, type_id: int):
                 product_type_name="",
                 product_output_per_cycle=output_qty_per_run,
                 craft_cycles_summary={},
+                favorite_structure_ids=frozenset(
+                    UserFavoriteStructure.objects.filter(user=request.user).values_list(
+                        "structure_id", flat=True
+                    )
+                ),
             )
         ),
     }
@@ -1386,3 +1393,29 @@ def load_production_config(request):
         },
         status=410,
     )
+
+
+@indy_hub_access_required
+@indy_hub_permission_required("can_access_indy_hub")
+@login_required
+@require_http_methods(["POST"])
+def toggle_favorite_structure(request):
+    try:
+        structure_id = int(request.POST.get("structure_id") or 0)
+    except (TypeError, ValueError):
+        return JsonResponse({"error": "invalid_structure_id"}, status=400)
+    if structure_id <= 0:
+        return JsonResponse({"error": "invalid_structure_id"}, status=400)
+
+    structure = get_object_or_404(IndustryStructure, pk=structure_id)
+    obj, created = UserFavoriteStructure.objects.get_or_create(
+        user=request.user,
+        structure=structure,
+    )
+    if not created:
+        obj.delete()
+        is_favorite = False
+    else:
+        is_favorite = True
+
+    return JsonResponse({"is_favorite": is_favorite, "structure_id": structure_id})
