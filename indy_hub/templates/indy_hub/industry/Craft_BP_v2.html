@@ -1344,7 +1344,7 @@
 
 {% block extra_javascript %}
 {{ blueprint_payload|json_script:"blueprint-payload" }}
-<script src="{% static 'indy_hub/js/craft_bp_page.js' %}?v=20260801-functional-fixes-v1"></script>
+<script src="{% static 'indy_hub/js/craft_bp_page.js' %}?v=20260804-corp-bp-toggle-fix"></script>
 {% if not deferred_shell %}
 <script src="{% static 'indy_hub/js/craft_bp_simulation_api.js' %}?v=20260524-build-final-targets"></script>
 <script src="{% static 'indy_hub/js/craft_bp_active_tab.js' %}?v=20260505-deferred-tab-init"></script>
