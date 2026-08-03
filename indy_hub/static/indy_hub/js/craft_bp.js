@@ -6256,6 +6256,7 @@ function chooseNearestStructureOption(item) {
 // ---------------------------------------------------------------------------
 
 let _favoriteStructureIds = new Set();
+let _favoriteStructureIdsInitialized = false;
 
 function initFavoriteStructureIds(structures) {
     _favoriteStructureIds = new Set(
@@ -6264,6 +6265,7 @@ function initFavoriteStructureIds(structures) {
             .map((s) => Number(s.structure_id || s.structureId || 0))
             .filter((id) => id > 0)
     );
+    _favoriteStructureIdsInitialized = true;
 }
 
 function isStructureFavorite(structureId) {
@@ -6297,65 +6299,6 @@ async function toggleStructureFavorite(structureId) {
     } catch (_err) {
         // silently ignore network errors
     }
-}
-
-function renderStructureFavoritesPanel() {
-    const listEl = document.getElementById('structureFavoritesList');
-    const subtitleEl = document.getElementById('structureFavoritesSubtitle');
-    if (!listEl) {
-        return;
-    }
-
-    const planner = window.SimulationAPI && typeof window.SimulationAPI.getStructurePlanner === 'function'
-        ? window.SimulationAPI.getStructurePlanner()
-        : null;
-    const structures = Array.isArray(planner?.structures) ? planner.structures : [];
-
-    if (structures.length === 0) {
-        listEl.innerHTML = `<span class="text-muted small">${escapeHtml(__('No structures registered.'))}</span>`;
-        if (subtitleEl) {
-            subtitleEl.textContent = '';
-        }
-        return;
-    }
-
-    const favoriteCount = structures.filter((s) => isStructureFavorite(Number(s.structure_id || s.structureId || 0))).length;
-    if (subtitleEl) {
-        subtitleEl.textContent = favoriteCount > 0
-            ? `${favoriteCount} / ${structures.length}`
-            : __('Click ★ to prioritize a structure in the dropdowns below');
-    }
-
-    listEl.innerHTML = structures.map((structure) => {
-        const structureId = Number(structure.structure_id || structure.structureId || 0);
-        const isFav = isStructureFavorite(structureId);
-        const name = escapeHtml(structure.name || String(structureId));
-        const system = escapeHtml(structure.system_name || structure.systemName || '');
-        const btnClass = isFav ? 'btn-warning' : 'btn-outline-secondary';
-        const btnTitle = isFav ? __('Remove from favorites') : __('Add to favorites');
-        return `<span class="badge bg-light border text-dark d-inline-flex align-items-center gap-1 px-2 py-1">
-            <button type="button"
-                class="btn btn-xs ${btnClass} py-0 px-1 structure-fav-toggle"
-                data-structure-id="${structureId}"
-                title="${escapeHtml(btnTitle)}"
-                style="font-size:0.75rem;line-height:1.2;">★</button>
-            <span>${name}</span>
-            ${system ? `<span class="text-muted">(${system})</span>` : ''}
-        </span>`;
-    }).join('');
-
-    listEl.querySelectorAll('.structure-fav-toggle').forEach((btn) => {
-        if (btn.dataset.boundClick === 'true') {
-            return;
-        }
-        btn.addEventListener('click', () => {
-            const id = Number(btn.getAttribute('data-structure-id') || 0);
-            if (id > 0) {
-                toggleStructureFavorite(id);
-            }
-        });
-        btn.dataset.boundClick = 'true';
-    });
 }
 
 
@@ -7011,7 +6954,7 @@ function renderStructurePlanner(options = {}) {
     const plannerData = window.SimulationAPI && typeof window.SimulationAPI.getStructurePlanner === 'function'
         ? window.SimulationAPI.getStructurePlanner()
         : null;
-    if (plannerData?.structures) {
+    if (!_favoriteStructureIdsInitialized && plannerData?.structures) {
         initFavoriteStructureIds(plannerData.structures);
     }
 

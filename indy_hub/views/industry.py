@@ -2149,6 +2149,11 @@ def craft_project(request, project_ref):
     )
     payload = None
     sde_has_changed = False
+    favorite_ids = frozenset(
+        UserFavoriteStructure.objects.filter(user=request.user).values_list(
+            "structure_id", flat=True
+        )
+    )
     if runs_override is None and not refresh_from_current_sde:
         payload, sde_has_changed = get_cached_project_workspace_payload(project)
     if payload is None:
@@ -2161,13 +2166,11 @@ def craft_project(request, project_ref):
             ),
             runs_override=runs_override,
             include_full_structure_options=False,
-            favorite_structure_ids=frozenset(
-                UserFavoriteStructure.objects.filter(user=request.user).values_list(
-                    "structure_id", flat=True
-                )
-            ),
+            favorite_structure_ids=favorite_ids,
         )
         sde_has_changed = False
+    # Always patch so cached payloads reflect current favorite state
+    _patch_payload_structure_planner_favorites(payload, favorite_ids)
 
     sde_refresh_url = ""
     if sde_has_changed:
@@ -2342,6 +2345,11 @@ def craft_temp_project(request, temp_project_ref):
         (temp_state.get("workspace_state") or {}).get("active_tab") or "materials"
     )
     payload = None
+    favorite_ids = frozenset(
+        UserFavoriteStructure.objects.filter(user=request.user).values_list(
+            "structure_id", flat=True
+        )
+    )
     if use_cached_payload:
         cached_payload = (temp_state.get("workspace_state") or {}).get(
             PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY
@@ -2359,11 +2367,7 @@ def craft_temp_project(request, temp_project_ref):
             final_output_quantity_overrides=final_output_quantity_overrides,
             runs_override=runs_override,
             include_full_structure_options=False,
-            favorite_structure_ids=frozenset(
-                UserFavoriteStructure.objects.filter(user=request.user).values_list(
-                    "structure_id", flat=True
-                )
-            ),
+            favorite_structure_ids=favorite_ids,
         )
         if use_cached_payload:
             cached_state = dict(temp_state)
@@ -2373,6 +2377,8 @@ def craft_temp_project(request, temp_project_ref):
             cached_workspace_state[PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY] = payload
             cached_state["workspace_state"] = cached_workspace_state
             set_temporary_project_workspace(temp_project_ref, cached_state)
+    # Always patch so cached payloads reflect current favorite state
+    _patch_payload_structure_planner_favorites(payload, favorite_ids)
 
     payload["temp_project_ref"] = str(temp_project_ref or "")
     payload["project_ref"] = str(payload.get("project_ref") or temp_project_ref or "")
@@ -5693,6 +5699,21 @@ def edit_simulation_name(request, simulation_id):
         ),
     )
     return redirect("indy_hub:production_simulations_list")
+
+
+def _patch_payload_structure_planner_favorites(
+    payload: dict, favorite_structure_ids: frozenset[int]
+) -> None:
+    """Patch is_favorite in structure_planner.structures; keeps cached payloads current."""
+    sp = payload.get("structure_planner")
+    if not isinstance(sp, dict):
+        return
+    structures = sp.get("structures")
+    if not isinstance(structures, list):
+        return
+    for structure in structures:
+        sid = int(structure.get("structure_id") or 0)
+        structure["is_favorite"] = sid in favorite_structure_ids
 
 
 def _get_industry_structure_rows():
