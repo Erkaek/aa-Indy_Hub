@@ -1,11 +1,14 @@
 """Tests for the toggle_favorite_structure API endpoint."""
 
+# Standard Library
 import json
 
+# Django
 from django.contrib.auth.models import User
 from django.http import Http404
 from django.test import RequestFactory, TestCase
 
+# AA Example App
 from indy_hub.models import IndustryStructure, UserFavoriteStructure
 from indy_hub.views.api import toggle_favorite_structure
 
