@@ -5,7 +5,7 @@ from __future__ import annotations
 # Standard Library
 import re
 from dataclasses import dataclass
-from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal
+from decimal import Decimal
 from functools import lru_cache
 
 # Django
@@ -18,8 +18,23 @@ from indy_hub.models import (
     IndustryStructure,
     IndustrySystemCostIndex,
 )
+from indy_hub.services.industry_structure_primitives import (
+    normalize_decimal as _normalize_decimal,
+)
+from indy_hub.services.industry_structure_primitives import (
+    normalize_int as _normalize_int,
+)
+from indy_hub.services.industry_structure_primitives import round_isk as _round_isk
+from indy_hub.services.industry_structure_primitives import (
+    round_security_status as _round_security_status,
+)
+from indy_hub.services.industry_structure_primitives import (
+    security_status_to_band,
+)
 
-ISK_QUANTUM = Decimal("1")
+# Backward-compatible export used by tests and callers importing from this module.
+round_security_status = _round_security_status
+
 PERCENT_FACTOR = Decimal("100")
 DEFAULT_SCC_SURCHARGE_PERCENT = Decimal("4")
 ALPHA_CLONE_TAX_PERCENT = Decimal("0.25")
@@ -496,28 +511,6 @@ class IndustryStructureRigAdvisorRow:
     job_cost_percent: Decimal = Decimal("0")
 
 
-def _round_isk(value: Decimal) -> Decimal:
-    return value.quantize(ISK_QUANTUM, rounding=ROUND_CEILING)
-
-
-def _normalize_decimal(value: Decimal | int | float | str | None) -> Decimal:
-    if value is None:
-        return Decimal("0")
-    if isinstance(value, Decimal):
-        return value
-    return Decimal(str(value))
-
-
-def _normalize_int(value: Decimal | int | float | str | None) -> int | None:
-    normalized = _normalize_decimal(value)
-    if normalized == 0 and value in {None, ""}:
-        return None
-    try:
-        return int(normalized)
-    except (TypeError, ValueError, ArithmeticError):
-        return None
-
-
 def _job_cost_base_multiplier(activity_id: int) -> Decimal:
     if int(activity_id or 0) == IndustryActivityMixin.ACTIVITY_COPYING:
         return COPYING_JOB_COST_BASE_PERCENT / PERCENT_FACTOR
@@ -529,32 +522,6 @@ def sde_item_types_loaded() -> bool:
         cursor.execute("SELECT COUNT(*) FROM eve_sde_itemtype")
         row = cursor.fetchone()
     return bool(row and row[0])
-
-
-def round_security_status(
-    security_status: Decimal | int | float | str | None,
-) -> Decimal:
-    """Round security status to in-game display precision.
-
-    EVE uses one decimal place with a special case: any positive value below
-    0.05 displays as 0.1 rather than 0.0.
-    """
-
-    value = _normalize_decimal(security_status)
-    if value == Decimal("0"):
-        return Decimal("0.0")
-    if Decimal("0") < value < Decimal("0.05"):
-        return Decimal("0.1")
-    return value.quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
-
-
-def security_status_to_band(security_status: Decimal | int | float | str | None) -> str:
-    value = _normalize_decimal(security_status)
-    if value >= Decimal("0.45"):
-        return IndustryStructure.SecurityBand.HIGHSEC
-    if value > Decimal("0"):
-        return IndustryStructure.SecurityBand.LOWSEC
-    return IndustryStructure.SecurityBand.NULLSEC
 
 
 @lru_cache(maxsize=1)

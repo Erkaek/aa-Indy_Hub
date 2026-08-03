@@ -6,11 +6,9 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import secrets
 from collections import OrderedDict
 from collections.abc import Iterable, Sequence
 from copy import copy
-from dataclasses import dataclass
 from datetime import timedelta
 from functools import lru_cache
 from math import ceil
@@ -45,6 +43,40 @@ from .craft_materials import (
 from .craft_structures import build_craft_structure_planner
 from .craft_times import build_craft_time_map
 from .industry_skills import build_craft_character_advisor
+from .temporary_project_models import TemporaryItemsQuerySet as _TemporaryItemsQuerySet
+from .temporary_project_models import (
+    TemporaryProductionProject,
+)
+from .temporary_project_workspace import (
+    build_temporary_project_workspace_state as _build_temporary_project_workspace_state,
+)
+from .temporary_project_workspace import (
+    create_temporary_project_workspace as _create_temporary_project_workspace,
+)
+from .temporary_project_workspace import (
+    delete_temporary_project_workspace as _delete_temporary_project_workspace,
+)
+from .temporary_project_workspace import (
+    generate_temporary_project_ref as _generate_temporary_project_ref,
+)
+from .temporary_project_workspace import (
+    get_temporary_project_workspace as _get_temporary_project_workspace,
+)
+from .temporary_project_workspace import (
+    set_temporary_project_workspace as _set_temporary_project_workspace,
+)
+from .temporary_project_workspace import (
+    temporary_project_cache_key as _temporary_project_cache_key,
+)
+
+# Re-export temporary workspace helpers for stable imports from this module.
+build_temporary_project_workspace_state = _build_temporary_project_workspace_state
+create_temporary_project_workspace = _create_temporary_project_workspace
+delete_temporary_project_workspace = _delete_temporary_project_workspace
+generate_temporary_project_ref = _generate_temporary_project_ref
+get_temporary_project_workspace = _get_temporary_project_workspace
+set_temporary_project_workspace = _set_temporary_project_workspace
+temporary_project_cache_key = _temporary_project_cache_key
 
 logger = get_extension_logger(__name__)
 
@@ -93,8 +125,6 @@ PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_CACHE_TIMEOUT_SECONDS = 60 * 60 * 6
 LEGACY_SINGLE_BLUEPRINT_PROJECT_NOTE = (
     "Migrated from legacy single-blueprint craft flow."
 )
-TEMP_PROJECT_CACHE_TIMEOUT_SECONDS = 60 * 60 * 24
-TEMP_PROJECT_REF_LENGTH = 20
 
 _SDE_ACTIVITY_NAME_BY_ID = {
     1: "manufacturing",
@@ -105,152 +135,6 @@ _SDE_ACTIVITY_ID_BY_NAME = {
     "manufacturing": 1,
     "reaction": 9,
 }
-
-
-class _TemporaryItemsQuerySet:
-    def __init__(self, items: Sequence[ProductionProjectItem]):
-        self._items = list(items)
-
-    def filter(self, **kwargs):
-        items = self._items
-        for field_name, expected_value in kwargs.items():
-            items = [
-                item for item in items if getattr(item, field_name) == expected_value
-            ]
-        return _TemporaryItemsQuerySet(items)
-
-    def exclude(self, **kwargs):
-        items = self._items
-        for field_name, expected_value in kwargs.items():
-            items = [
-                item for item in items if getattr(item, field_name) != expected_value
-            ]
-        return _TemporaryItemsQuerySet(items)
-
-    def order_by(self, *fields):
-        items = list(self._items)
-        for field_name in reversed(fields):
-            reverse = field_name.startswith("-")
-            normalized_name = field_name[1:] if reverse else field_name
-            items.sort(
-                key=lambda item: getattr(item, normalized_name, None), reverse=reverse
-            )
-        return _TemporaryItemsQuerySet(items)
-
-    def __iter__(self):
-        return iter(self._items)
-
-
-@dataclass
-class TemporaryProductionProject:
-    user: object
-    name: str
-    status: str
-    source_kind: str
-    source_text: str
-    source_name: str
-    notes: str
-    workspace_state: dict[str, object]
-    project_ref: str
-    temp_project_ref: str
-    items: _TemporaryItemsQuerySet
-    id: int | None = None
-
-
-def generate_temporary_project_ref() -> str:
-    return "".join(
-        secrets.choice(PROJECT_REF_BASE36_ALPHABET)
-        for _ in range(TEMP_PROJECT_REF_LENGTH)
-    )
-
-
-def temporary_project_cache_key(temp_project_ref: str) -> str:
-    return f"indy_hub:temp_project:{str(temp_project_ref or '').strip().lower()}"
-
-
-def create_temporary_project_workspace(
-    *,
-    user,
-    name: str,
-    status: str,
-    source_kind: str,
-    source_text: str,
-    source_name: str,
-    selected_entries: Sequence[dict[str, object]],
-    workspace_state: dict[str, object] | None = None,
-    notes: str = "",
-) -> str:
-    temp_project_ref = generate_temporary_project_ref()
-    payload = {
-        "user_id": int(user.id),
-        "name": str(name or source_name or "New production project").strip()[:255],
-        "status": str(status or ProductionProject.Status.DRAFT),
-        "source_kind": str(source_kind or ProductionProject.SourceKind.MANUAL),
-        "source_text": str(source_text or ""),
-        "source_name": str(source_name or "").strip()[:255],
-        "selected_entries": [dict(entry) for entry in selected_entries],
-        "workspace_state": dict(workspace_state or {}),
-        "notes": str(notes or ""),
-    }
-    cache.set(
-        temporary_project_cache_key(temp_project_ref),
-        payload,
-        TEMP_PROJECT_CACHE_TIMEOUT_SECONDS,
-    )
-    return temp_project_ref
-
-
-def get_temporary_project_workspace(
-    user, temp_project_ref: str
-) -> dict[str, object] | None:
-    state = cache.get(temporary_project_cache_key(temp_project_ref))
-    if not isinstance(state, dict):
-        return None
-    if int(state.get("user_id") or 0) != int(user.id):
-        return None
-    return state
-
-
-def set_temporary_project_workspace(
-    temp_project_ref: str,
-    state: dict[str, object],
-) -> None:
-    cache.set(
-        temporary_project_cache_key(temp_project_ref),
-        state,
-        TEMP_PROJECT_CACHE_TIMEOUT_SECONDS,
-    )
-
-
-def delete_temporary_project_workspace(temp_project_ref: str) -> None:
-    cache.delete(temporary_project_cache_key(temp_project_ref))
-
-
-def build_temporary_project_workspace_state(
-    *,
-    source_kind: str,
-    source_name: str,
-    fit_quantities: Sequence[dict[str, object]] | None = None,
-) -> dict[str, object]:
-    state: dict[str, object] = {
-        "simulation_name": str(source_name or ""),
-        "simulationName": str(source_name or ""),
-        "active_tab": "materials",
-        "activeBlueprintTab": "materials",
-        "runs": 1,
-    }
-    if str(source_kind) == ProductionProject.SourceKind.EFT and fit_quantities:
-        state["finalOutputQuantities"] = [
-            {
-                "index": index,
-                "fitGroup": str(entry.get("fitGroup") or ""),
-                "label": str(entry.get("label") or ""),
-                "quantity": max(1, int(entry.get("quantity") or 1)),
-            }
-            for index, entry in enumerate(fit_quantities)
-            if isinstance(entry, dict)
-        ]
-    return state
 
 
 def build_temporary_project_items(

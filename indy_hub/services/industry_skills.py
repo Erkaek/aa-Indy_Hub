@@ -201,6 +201,40 @@ def _slots_payload(total_value: int | None, used_value: int) -> dict[str, int | 
     }
 
 
+def build_slot_overview_summary(
+    rows: list[dict[str, object]],
+) -> dict[str, dict[str, int] | int]:
+    """Aggregate slot availability/usage from per-character row payloads."""
+
+    summary = {
+        "characters": len(rows),
+        "manufacturing": {"available": 0, "total": 0, "used": 0, "percent_used": 0},
+        "research": {"available": 0, "total": 0, "used": 0, "percent_used": 0},
+        "reactions": {"available": 0, "total": 0, "used": 0, "percent_used": 0},
+    }
+
+    for row in rows:
+        for key in ("manufacturing", "research", "reactions"):
+            payload = row.get(key) if isinstance(row, dict) else None
+            if not isinstance(payload, dict):
+                continue
+            total = payload.get("total")
+            available = payload.get("available")
+            used = payload.get("used")
+            if total is None or available is None or used is None:
+                continue
+            summary[key]["total"] += int(total)
+            summary[key]["available"] += int(available)
+            summary[key]["used"] += int(used)
+
+    for key in ("manufacturing", "research", "reactions"):
+        total = summary[key]["total"]
+        used = summary[key]["used"]
+        summary[key]["percent_used"] = int(round((used / total) * 100)) if total else 0
+
+    return summary
+
+
 def build_user_character_skill_contexts(
     user,
     *,
