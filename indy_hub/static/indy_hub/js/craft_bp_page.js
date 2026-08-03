@@ -847,16 +847,34 @@
                         }
                     }
                 });
-                // Persist and trigger payload rebuild so calculations update
-                if (window.SimulationAPI && typeof window.SimulationAPI.getState === 'function') {
-                    const state = window.SimulationAPI.getState() || {};
-                    state.use_corp_blueprints = useCorpBps;
-                }
-                if (typeof markPendingWorkspaceRefresh === 'function') {
-                    markPendingWorkspaceRefresh({ sourceTabName: 'configure' });
-                }
+                // Persist and trigger page reload for accurate calculations
                 if (typeof persistCraftPageSessionState === 'function') {
                     persistCraftPageSessionState();
+                }
+
+                const isTemporaryProject = Boolean(
+                    window.BLUEPRINT_DATA?.is_temporary_project || window.BLUEPRINT_DATA?.temp_project_ref
+                );
+
+                const handleReload = () => {
+                    if (typeof window.location !== 'undefined') {
+                        window.location.reload();
+                    }
+                };
+
+                if (isTemporaryProject) {
+                    // Temp projects persist in cache, reload immediately
+                    setTimeout(handleReload, 300);
+                } else {
+                    // Permanent projects need explicit user confirmation
+                    const msg = __('Changing Corp BP usage requires recalculating materials and financials. Unsaved changes will be lost. Continue?') ||
+                                'Changing Corp BP usage requires recalculating materials and financials. Unsaved changes will be lost. Continue?';
+                    if (window.confirm(msg)) {
+                        setTimeout(handleReload, 300);
+                    } else {
+                        // Revert toggle on cancel
+                        corpToggle.checked = !useCorpBps;
+                    }
                 }
             });
         }
