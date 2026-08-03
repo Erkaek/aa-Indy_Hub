@@ -62,10 +62,15 @@ def _character_name(character_id: int) -> str:
 
 
 def _character_scope_coverage_queryset(*, scope_names: list[str], character_id_ref):
+    # Group by token pk (not character_id) so EXISTS + GROUP BY don't collide on
+    # the correlated column, which causes Django to silently return no rows.
+    # require_valid() is intentionally omitted: the listing page shows whether a
+    # character has been linked (has the scopes), not whether the token is
+    # currently active. django-esi auto-refreshes via refresh_token on next use.
     return (
         Token.objects.filter(character_id=character_id_ref)
         .filter(scopes__name__in=scope_names)
-        .values("character_id")
+        .values("pk")
         .annotate(scope_count=Count("scopes__name", distinct=True))
         .filter(scope_count=len(scope_names))
     )
@@ -87,7 +92,7 @@ def _has_scope_coverage(character: EveCharacter, scope_names: list[str]) -> bool
         )
         .require_valid()
         .filter(scopes__name__in=scope_names)
-        .values("character_id")
+        .values("pk")
         .annotate(scope_count=Count("scopes__name", distinct=True))
         .filter(scope_count=len(scope_names))
         .exists()
@@ -148,7 +153,7 @@ def _add_material_exchange_character(request, token: Token) -> None:
         request,
         token,
         _(
-            "Indy Hub Material Exchange scopes linked for %(character)s. Structure, asset, and contract access will refresh automatically."
+            "Indy Hub Mat Exchange scopes linked for %(character)s. Structure, asset, and contract access will refresh automatically."
         ),
     )
 
@@ -171,7 +176,7 @@ app_import = AppImport(
             is_character_added_annotation=Exists(
                 _character_scope_coverage_queryset(
                     scope_names=PERSONAL_SCOPE_SET,
-                    character_id_ref=OuterRef("pk"),
+                    character_id_ref=OuterRef("character_id"),
                 )
             ),
             get_users_with_perms=lambda: _users_with_permission("can_access_indy_hub"),
@@ -179,7 +184,7 @@ app_import = AppImport(
         LoginImport(
             app_label="indy_hub",
             unique_id="corporation",
-            field_label=_("Indy Hub Corporation Admin"),
+            field_label=_("Indy Hub Corp Admin"),
             add_character=_add_corporation_character,
             scopes=CORPORATION_SCOPE_SET,
             check_permissions=lambda user: user.has_perm(
@@ -192,7 +197,7 @@ app_import = AppImport(
             is_character_added_annotation=Exists(
                 _character_scope_coverage_queryset(
                     scope_names=CORPORATION_SCOPE_SET,
-                    character_id_ref=OuterRef("pk"),
+                    character_id_ref=OuterRef("character_id"),
                 )
             ),
             get_users_with_perms=lambda: _users_with_permission(
@@ -203,7 +208,7 @@ app_import = AppImport(
         LoginImport(
             app_label="indy_hub",
             unique_id="materialhub",
-            field_label=_("Indy Hub Material Exchange"),
+            field_label=_("Indy Hub Mat Exchange"),
             add_character=_add_material_exchange_character,
             scopes=MATERIAL_HUB_SCOPE_SET,
             check_permissions=lambda user: user.has_perm(
@@ -216,7 +221,7 @@ app_import = AppImport(
             is_character_added_annotation=Exists(
                 _character_scope_coverage_queryset(
                     scope_names=MATERIAL_HUB_SCOPE_SET,
-                    character_id_ref=OuterRef("pk"),
+                    character_id_ref=OuterRef("character_id"),
                 )
             ),
             get_users_with_perms=lambda: _users_with_permission(
