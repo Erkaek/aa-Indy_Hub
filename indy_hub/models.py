@@ -995,6 +995,28 @@ class UserOnboardingProgress(models.Model):
         self.manual_steps = manual
 
 
+class UserFavoriteStructure(models.Model):
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="favorite_structures",
+    )
+    structure = models.ForeignKey(
+        "IndustryStructure",
+        on_delete=models.CASCADE,
+        related_name="favorited_by",
+    )
+
+    class Meta:
+        unique_together = [("user", "structure")]
+        default_permissions = ()
+        verbose_name = _("Favorite structure")
+        verbose_name_plural = _("Favorite structures")
+
+    def __str__(self):
+        return f"{self.user.username} → {self.structure_id}"
+
+
 class CharacterSettings(models.Model):
     """
     Collect user preferences for job notifications and blueprint copy sharing.

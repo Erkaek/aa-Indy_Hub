@@ -194,6 +194,7 @@ def build_temporary_project_payload(
     runs_override: int | None = None,
     final_output_quantity_overrides: dict[int, int] | None = None,
     include_full_structure_options: bool = True,
+    favorite_structure_ids: frozenset[int] = frozenset(),
 ) -> dict[str, object]:
     project = TemporaryProductionProject(
         user=user,
@@ -223,6 +224,7 @@ def build_temporary_project_payload(
         runs_override=runs_override,
         final_output_quantity_overrides=final_output_quantity_overrides,
         include_full_structure_options=include_full_structure_options,
+        favorite_structure_ids=favorite_structure_ids,
     )
     payload["temp_project_ref"] = temp_project_ref
     payload["is_temporary_project"] = True
@@ -1651,6 +1653,7 @@ def build_project_workspace_payload(
     runs_override: int | None = None,
     final_output_quantity_overrides: dict[int, int] | None = None,
     include_full_structure_options: bool = True,
+    favorite_structure_ids: frozenset[int] = frozenset(),
 ) -> dict[str, object]:
     """Build a craft workspace payload for a multi-product project."""
 
@@ -2652,6 +2655,7 @@ def build_project_workspace_payload(
         selected_structure_assignments=_extract_workspace_structure_assignments(
             workspace_state
         ),
+        favorite_structure_ids=favorite_structure_ids,
     )
     record_timing_step(
         "structure-planner", "Build structure planner", structure_planner_started_at

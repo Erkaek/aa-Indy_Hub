@@ -773,6 +773,7 @@ def build_craft_structure_planner(
     craft_cycles_summary: dict[int, dict[str, object]],
     include_all_options: bool = True,
     selected_structure_assignments: dict[int, int] | None = None,
+    favorite_structure_ids: frozenset[int] = frozenset(),
 ) -> dict[str, object]:
     selected_assignments: dict[int, int] = {}
     for type_id, structure_id in (selected_structure_assignments or {}).items():
@@ -817,6 +818,15 @@ def build_craft_structure_planner(
             "id",
         )
     )
+    if favorite_structure_ids:
+        structures.sort(
+            key=lambda s: (
+                0 if s.id in favorite_structure_ids else 1,
+                s.solar_system_name,
+                s.name,
+                s.id,
+            )
+        )
 
     serialized_structures = [
         {
@@ -829,6 +839,7 @@ def build_craft_structure_planner(
             "constellation_id": int(structure.constellation_id or 0),
             "region_id": int(structure.region_id or 0),
             "structure_type_name": structure.structure_type_name,
+            "is_favorite": structure.id in favorite_structure_ids,
         }
         for structure in structures
     ]
@@ -979,6 +990,7 @@ def build_craft_structure_planner(
                         installation_cost_percent["total_installation_cost_percent"]
                     ),
                     "service_category": service_category,
+                    "is_favorite": int(structure.id) in favorite_structure_ids,
                 }
             )
 

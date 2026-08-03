@@ -17,6 +17,7 @@ from .views.api import (
     save_temporary_production_project_workspace,
     set_production_project_status,
     temporary_production_project_payload,
+    toggle_favorite_structure,
 )
 from .views.hubs import (
     settings_hub,
@@ -247,6 +248,11 @@ urlpatterns = [
         "api/craft-structures/jump-distances/",
         craft_structure_jump_distances,
         name="craft_structure_jump_distances",
+    ),
+    path(
+        "api/craft-structures/favorite/",
+        toggle_favorite_structure,
+        name="toggle_favorite_structure",
     ),
     path("authorize/blueprints/", authorize_blueprints, name="authorize_blueprints"),
     path("authorize/jobs/", authorize_jobs, name="authorize_jobs"),

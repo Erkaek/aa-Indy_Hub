@@ -60,6 +60,7 @@ from ..models import (
     NotificationWebhookMessage,
     ProductionProject,
     ProductionProjectItem,
+    UserFavoriteStructure,
 )
 from ..notifications import (
     build_site_url,
@@ -2160,6 +2161,11 @@ def craft_project(request, project_ref):
             ),
             runs_override=runs_override,
             include_full_structure_options=False,
+            favorite_structure_ids=frozenset(
+                UserFavoriteStructure.objects.filter(user=request.user).values_list(
+                    "structure_id", flat=True
+                )
+            ),
         )
         sde_has_changed = False
 
@@ -2206,6 +2212,9 @@ def craft_project(request, project_ref):
                 ),
                 "craft_structure_jump_distances": reverse(
                     "indy_hub:craft_structure_jump_distances"
+                ),
+                "toggle_favorite_structure": reverse(
+                    "indy_hub:toggle_favorite_structure"
                 ),
             },
         }
@@ -2350,6 +2359,11 @@ def craft_temp_project(request, temp_project_ref):
             final_output_quantity_overrides=final_output_quantity_overrides,
             runs_override=runs_override,
             include_full_structure_options=False,
+            favorite_structure_ids=frozenset(
+                UserFavoriteStructure.objects.filter(user=request.user).values_list(
+                    "structure_id", flat=True
+                )
+            ),
         )
         if use_cached_payload:
             cached_state = dict(temp_state)
@@ -2396,6 +2410,9 @@ def craft_temp_project(request, temp_project_ref):
                 ),
                 "craft_structure_jump_distances": reverse(
                     "indy_hub:craft_structure_jump_distances"
+                ),
+                "toggle_favorite_structure": reverse(
+                    "indy_hub:toggle_favorite_structure"
                 ),
             },
         }
