@@ -1695,6 +1695,7 @@ def build_project_workspace_payload(
         _extract_workspace_final_output_quantity_overrides(workspace_state),
         final_output_quantity_overrides,
     )
+    use_corp_blueprints = bool(workspace_state.get("use_corp_blueprints", True))
     is_eft_project = project.source_kind == ProductionProject.SourceKind.EFT
     owned_blueprint_inventory_map: dict[int, dict[str, object]] = {}
     owned_blueprint_efficiency_cache: dict[int, dict[str, int]] = {}
@@ -2283,6 +2284,7 @@ def build_project_workspace_payload(
     owned_blueprint_inventory_map = _resolve_user_blueprint_inventory(
         user=project.user,
         blueprint_type_ids=all_blueprint_type_ids,
+        include_corp=use_corp_blueprints,
     )
     record_timing_step(
         "blueprint-inventory",
@@ -3281,6 +3283,7 @@ def _resolve_user_blueprint_inventory(
     *,
     user,
     blueprint_type_ids: Iterable[int | None],
+    include_corp: bool = True,
 ) -> dict[int, dict[str, object]]:
     numeric_ids = sorted(
         {int(type_id) for type_id in blueprint_type_ids if int(type_id or 0) > 0}
@@ -3326,40 +3329,67 @@ def _resolve_user_blueprint_inventory(
         )
     )
 
+    def _accumulate(entry, bp_me, bp_te, bp_type, runs, *, prefix=""):
+        """Merge one BP row into the entry dict under the given prefix."""
+        orig_key = f"{prefix}original" if prefix else "original"
+        copy_key = f"{prefix}best_copy" if prefix else "best_copy"
+        runs_key = f"{prefix}copy_runs_total" if prefix else "copy_runs_total"
+        if bp_type == Blueprint.BPType.ORIGINAL:
+            existing = entry.get(orig_key)
+            if not existing:
+                entry[orig_key] = {"me": int(bp_me or 0), "te": int(bp_te or 0)}
+            elif bp_me > existing["me"] or (
+                bp_me == existing["me"] and bp_te > existing["te"]
+            ):
+                entry[orig_key] = {"me": int(bp_me or 0), "te": int(bp_te or 0)}
+        else:
+            entry[runs_key] = int(entry.get(runs_key) or 0) + int(runs or 0)
+            existing = entry.get(copy_key)
+            if not existing:
+                entry[copy_key] = {"me": int(bp_me or 0), "te": int(bp_te or 0)}
+            elif bp_me > existing["me"] or (
+                bp_me == existing["me"] and bp_te > existing["te"]
+            ):
+                entry[copy_key] = {"me": int(bp_me or 0), "te": int(bp_te or 0)}
+
     user_bp_map: dict[int, dict[str, object]] = {}
-    for bp_type_id, bp_me, bp_te, bp_type, runs in list(user_blueprints) + list(
-        corp_blueprints
-    ):
+    personal_type_ids: set[int] = set()
+    for bp_type_id, bp_me, bp_te, bp_type, runs in user_blueprints:
         entry = user_bp_map.setdefault(
             int(bp_type_id),
             {
                 "original": None,
                 "best_copy": None,
                 "copy_runs_total": 0,
+                # Corp-specific fields (populated below if include_corp)
+                "corp_original": None,
+                "corp_best_copy": None,
+                "corp_copy_runs_total": 0,
+                "corp_source": False,
             },
         )
+        _accumulate(entry, bp_me, bp_te, bp_type, runs)
+        personal_type_ids.add(int(bp_type_id))
 
-        if bp_type == Blueprint.BPType.ORIGINAL:
-            if not entry["original"]:
-                entry["original"] = {"me": int(bp_me or 0), "te": int(bp_te or 0)}
-            else:
-                current = entry["original"]
-                if bp_me > current["me"] or (
-                    bp_me == current["me"] and bp_te > current["te"]
-                ):
-                    entry["original"] = {"me": int(bp_me or 0), "te": int(bp_te or 0)}
-        else:
-            entry["copy_runs_total"] = int(entry.get("copy_runs_total") or 0) + int(
-                runs or 0
+    if include_corp:
+        for bp_type_id, bp_me, bp_te, bp_type, runs in corp_blueprints:
+            tid = int(bp_type_id)
+            entry = user_bp_map.setdefault(
+                tid,
+                {
+                    "original": None,
+                    "best_copy": None,
+                    "copy_runs_total": 0,
+                    "corp_original": None,
+                    "corp_best_copy": None,
+                    "corp_copy_runs_total": 0,
+                    "corp_source": tid not in personal_type_ids,
+                },
             )
-            if not entry["best_copy"]:
-                entry["best_copy"] = {"me": int(bp_me or 0), "te": int(bp_te or 0)}
-            else:
-                current = entry["best_copy"]
-                if bp_me > current["me"] or (
-                    bp_me == current["me"] and bp_te > current["te"]
-                ):
-                    entry["best_copy"] = {"me": int(bp_me or 0), "te": int(bp_te or 0)}
+            _accumulate(entry, bp_me, bp_te, bp_type, runs, prefix="corp_")
+            # Merge corp into the "best available" fields when no personal BP exists
+            if tid not in personal_type_ids:
+                _accumulate(entry, bp_me, bp_te, bp_type, runs)
 
     return user_bp_map
 
@@ -3454,6 +3484,25 @@ def _build_project_blueprint_configs_grouped(
                 "product_type_name": str(entry.get("type_name") or ""),
                 "total_needed": int(entry.get("total_needed") or 0),
                 "category_name": category_name,
+                # Corp-source fields for client-side toggle
+                "corp_source": bool(user_entry.get("corp_source")),
+                "corp_me": int(
+                    (
+                        user_entry.get("corp_original")
+                        or user_entry.get("corp_best_copy")
+                        or {}
+                    ).get("me")
+                    or 0
+                ),
+                "corp_te": int(
+                    (
+                        user_entry.get("corp_original")
+                        or user_entry.get("corp_best_copy")
+                        or {}
+                    ).get("te")
+                    or 0
+                ),
+                "corp_runs": int(user_entry.get("corp_copy_runs_total") or 0),
             }
         )
 

@@ -3547,6 +3547,10 @@ function collectCraftPageSessionState() {
         },
         pendingWorkspaceRefresh: Boolean(window.craftBPFlags?.hasPendingWorkspaceRefresh || window.craftBPFlags?.hasPendingMETEChanges),
         pendingWorkspaceSourceTab: String(window.craftBPFlags?.pendingWorkspaceSourceTab || ''),
+        use_corp_blueprints: (() => {
+            const toggle = document.getElementById('useCorpBlueprintsToggle');
+            return toggle ? toggle.checked : true;
+        })(),
         updatedAt: Date.now(),
     };
 }

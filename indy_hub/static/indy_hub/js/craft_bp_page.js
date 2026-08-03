@@ -827,6 +827,39 @@
                 showToast(`${getMessage('reset', 'Reset')} ${count} ${getMessage('blueprints_default_values', 'blueprints to default values')}`, true);
             });
         }
+
+        const corpToggle = document.getElementById('useCorpBlueprintsToggle');
+        if (corpToggle) {
+            corpToggle.addEventListener('change', function () {
+                const useCorpBps = corpToggle.checked;
+                // Visual instant feedback: show/hide corp badges and swap ownership display
+                document.querySelectorAll('.craft-bp-card[data-corp-source="true"]').forEach(function (card) {
+                    const badge = card.querySelector('[data-corp-badge]');
+                    if (useCorpBps) {
+                        card.removeAttribute('data-blueprint-not-owned');
+                        if (badge) {
+                            badge.style.display = '';
+                        }
+                    } else {
+                        card.setAttribute('data-blueprint-not-owned', 'true');
+                        if (badge) {
+                            badge.style.display = 'none';
+                        }
+                    }
+                });
+                // Persist and trigger payload rebuild so calculations update
+                if (window.SimulationAPI && typeof window.SimulationAPI.getState === 'function') {
+                    const state = window.SimulationAPI.getState() || {};
+                    state.use_corp_blueprints = useCorpBps;
+                }
+                if (typeof markPendingWorkspaceRefresh === 'function') {
+                    markPendingWorkspaceRefresh({ sourceTabName: 'configure' });
+                }
+                if (typeof persistCraftPageSessionState === 'function') {
+                    persistCraftPageSessionState();
+                }
+            });
+        }
     }
 
     function bindConfigAccordion() {
