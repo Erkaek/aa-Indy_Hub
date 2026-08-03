@@ -2420,6 +2420,10 @@ def craft_temp_project(request, temp_project_ref):
                 "toggle_favorite_structure": reverse(
                     "indy_hub:toggle_favorite_structure"
                 ),
+                "update_workspace_state": reverse(
+                    "indy_hub:update_temporary_project_workspace_state",
+                    args=[temp_project_ref],
+                ),
             },
         }
     )

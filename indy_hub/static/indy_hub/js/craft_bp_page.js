@@ -861,14 +861,8 @@
                     // For temporary projects only: save to cache before reload
                     if (isTemporaryProject) {
                         try {
-                            const tempProjectRef = window.BLUEPRINT_DATA?.temp_project_ref;
-                            const sessionState = typeof collectCraftPageSessionState === 'function'
-                                ? collectCraftPageSessionState()
-                                : {};
-
-                            if (tempProjectRef) {
-                                // Use the temporary workspace state update endpoint
-                                const updateUrl = `/api/temp-production-projects/${tempProjectRef}/update-workspace-state/`;
+                            const updateUrl = window.BLUEPRINT_DATA?.urls?.update_workspace_state;
+                            if (updateUrl) {
                                 // Silent save (no await, just fire and forget)
                                 fetch(updateUrl, {
                                     method: 'POST',
@@ -877,7 +871,7 @@
                                         'X-CSRFToken': document.querySelector('[name="csrfmiddlewaretoken"]')?.value || '',
                                     },
                                     credentials: 'same-origin',
-                                    body: JSON.stringify(sessionState),
+                                    body: JSON.stringify({ use_corp_blueprints: useCorpBps }),
                                 }).catch((error) => {
                                     craftBPDebugLog('[CorpBPToggle] Cache save error:', error);
                                 });

@@ -497,7 +497,7 @@ def save_temporary_production_project_workspace(request, temp_project_ref: str):
 @login_required
 @require_http_methods(["POST"])
 def update_temporary_project_workspace_state(request, temp_project_ref: str):
-    """Update workspace_state of a temporary project cache without finalizing it."""
+    """Patch specific fields in a temporary project workspace_state cache entry."""
     emit_view_analytics_event(
         view_name="api.update_temporary_project_workspace_state",
         request=request,
@@ -512,12 +512,13 @@ def update_temporary_project_workspace_state(request, temp_project_ref: str):
     except json.JSONDecodeError:
         return JsonResponse({"error": "Invalid JSON data"}, status=400)
 
-    # Update only the workspace_state in the temporary cache
-    workspace_state = _sanitize_production_workspace_state(
-        project=None,
-        data=data,
+    # Patch only allowed fields into the existing workspace_state, stripping cached payload
+    workspace_state = strip_project_workspace_cache(
+        dict(temp_state.get("workspace_state") or {})
     )
-    temp_state.update({"workspace_state": workspace_state})
+    if "use_corp_blueprints" in data:
+        workspace_state["use_corp_blueprints"] = bool(data["use_corp_blueprints"])
+    temp_state["workspace_state"] = workspace_state
     set_temporary_project_workspace(temp_project_ref, temp_state)
 
     return JsonResponse(
