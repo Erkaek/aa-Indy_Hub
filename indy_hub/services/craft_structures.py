@@ -1034,6 +1034,23 @@ def build_craft_structure_planner(
         planner_items
     )
 
+    # Prefer best compatible favorite for items without an explicit user override.
+    # The user can still change the selection via the dropdown.
+    if favorite_structure_ids:
+        for item in planner_items:
+            type_id = int(item["type_id"])
+            if type_id in selected_assignments:
+                continue
+            fav_options = [
+                opt
+                for opt in item["options"]
+                if int(opt["structure_id"]) in favorite_structure_ids
+            ]
+            if fav_options:
+                assignment_by_type_id[type_id] = min(
+                    fav_options, key=_standalone_sort_key
+                )
+
     anchor_option = None
     for item in planner_items:
         if item["is_final_product"] and int(item["type_id"]) in assignment_by_type_id:
