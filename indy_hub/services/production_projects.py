@@ -1695,7 +1695,7 @@ def build_project_workspace_payload(
         _extract_workspace_final_output_quantity_overrides(workspace_state),
         final_output_quantity_overrides,
     )
-    use_corp_blueprints = bool(workspace_state.get("use_corp_blueprints", True))
+    use_corp_blueprints = bool(workspace_state.get("use_corp_blueprints", False))
     is_eft_project = project.source_kind == ProductionProject.SourceKind.EFT
     owned_blueprint_inventory_map: dict[int, dict[str, object]] = {}
     owned_blueprint_efficiency_cache: dict[int, dict[str, int]] = {}

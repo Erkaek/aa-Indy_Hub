@@ -988,7 +988,7 @@
                         <div class="d-flex gap-2 align-items-center flex-wrap">
                             <div class="form-check form-switch mb-0 d-flex align-items-center gap-2">
                                 <input class="form-check-input" type="checkbox" id="useCorpBlueprintsToggle" role="switch"
-                                    {% if workspace_state.use_corp_blueprints != False %}checked{% endif %}>
+                                    {% if workspace_state.use_corp_blueprints %}checked{% endif %}>
                                 <label class="form-check-label small text-muted" for="useCorpBlueprintsToggle">
                                     <i class="fas fa-building me-1"></i>{% trans "Corp BPs" %}
                                 </label>

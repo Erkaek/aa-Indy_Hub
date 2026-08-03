@@ -3549,7 +3549,7 @@ function collectCraftPageSessionState() {
         pendingWorkspaceSourceTab: String(window.craftBPFlags?.pendingWorkspaceSourceTab || ''),
         use_corp_blueprints: (() => {
             const toggle = document.getElementById('useCorpBlueprintsToggle');
-            return toggle ? toggle.checked : true;
+            return toggle ? toggle.checked : false;
         })(),
         updatedAt: Date.now(),
     };
