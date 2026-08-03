@@ -489,6 +489,42 @@ def save_temporary_production_project_workspace(request, temp_project_ref: str):
 @indy_hub_access_required
 @indy_hub_permission_required("can_access_indy_hub")
 @login_required
+@require_http_methods(["POST"])
+def update_temporary_project_workspace_state(request, temp_project_ref: str):
+    """Update workspace_state of a temporary project cache without finalizing it."""
+    emit_view_analytics_event(
+        view_name="api.update_temporary_project_workspace_state",
+        request=request,
+    )
+
+    temp_state = get_temporary_project_workspace(request.user, temp_project_ref)
+    if not temp_state:
+        return JsonResponse({"error": "Temporary craft table not found"}, status=404)
+
+    try:
+        data = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON data"}, status=400)
+
+    # Update only the workspace_state in the temporary cache
+    workspace_state = _sanitize_production_workspace_state(
+        project=None,
+        data=data,
+    )
+    temp_state.update({"workspace_state": workspace_state})
+    set_temporary_project_workspace(temp_project_ref, temp_state)
+
+    return JsonResponse(
+        {
+            "success": True,
+            "message": "Temporary project workspace state updated successfully",
+        }
+    )
+
+
+@indy_hub_access_required
+@indy_hub_permission_required("can_access_indy_hub")
+@login_required
 @require_http_methods(["GET"])
 def production_project_payload(request, project_ref: str):
     emit_view_analytics_event(

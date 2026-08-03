@@ -847,30 +847,61 @@
                         }
                     }
                 });
-                // Persist toggle state in session storage before reload
-                if (typeof persistCraftPageSessionState === 'function') {
-                    persistCraftPageSessionState();
-                }
 
                 const isTemporaryProject = Boolean(
                     window.BLUEPRINT_DATA?.is_temporary_project || window.BLUEPRINT_DATA?.temp_project_ref
                 );
 
-                const handleReload = () => {
-                    if (typeof window.location !== 'undefined') {
-                        window.location.reload();
+                const doReload = () => {
+                    // Persist toggle state in session storage
+                    if (typeof persistCraftPageSessionState === 'function') {
+                        persistCraftPageSessionState();
                     }
+
+                    // For temporary projects only: save to cache before reload
+                    if (isTemporaryProject) {
+                        try {
+                            const tempProjectRef = window.BLUEPRINT_DATA?.temp_project_ref;
+                            const sessionState = typeof collectCraftPageSessionState === 'function'
+                                ? collectCraftPageSessionState()
+                                : {};
+
+                            if (tempProjectRef) {
+                                // Use the temporary workspace state update endpoint
+                                const updateUrl = `/api/temp-production-projects/${tempProjectRef}/update-workspace-state/`;
+                                // Silent save (no await, just fire and forget)
+                                fetch(updateUrl, {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json',
+                                        'X-CSRFToken': document.querySelector('[name="csrfmiddlewaretoken"]')?.value || '',
+                                    },
+                                    credentials: 'same-origin',
+                                    body: JSON.stringify(sessionState),
+                                }).catch((error) => {
+                                    craftBPDebugLog('[CorpBPToggle] Cache save error:', error);
+                                });
+                            }
+                        } catch (error) {
+                            craftBPDebugLog('[CorpBPToggle] Cache save preparation error:', error);
+                        }
+                    }
+
+                    // Reload after a short delay
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 300);
                 };
 
                 if (isTemporaryProject) {
-                    // Temp projects persist in cache, reload immediately
-                    setTimeout(handleReload, 300);
+                    // Temp projects: reload immediately (with cache save)
+                    doReload();
                 } else {
-                    // Permanent projects need explicit user confirmation
+                    // Permanent projects: show confirmation before reload (no cache save)
                     const msg = __('Changing Corp BP usage requires recalculating materials and financials. Unsaved changes will be lost. Continue?') ||
                                 'Changing Corp BP usage requires recalculating materials and financials. Unsaved changes will be lost. Continue?';
                     if (window.confirm(msg)) {
-                        setTimeout(handleReload, 300);
+                        doReload();
                     } else {
                         // Revert toggle on cancel
                         corpToggle.checked = !useCorpBps;
