@@ -3650,6 +3650,14 @@ function applyCraftPageSessionState(parsedState) {
     }
     updatePendingWorkspaceRefreshNotice();
 
+    // Restore corp BP toggle state
+    if (parsedState?.use_corp_blueprints != null) {
+        const corpToggle = document.getElementById('useCorpBlueprintsToggle');
+        if (corpToggle) {
+            corpToggle.checked = Boolean(parsedState.use_corp_blueprints);
+        }
+    }
+
     window.craftBPFlags.restoringSessionState = false;
     return true;
 }

@@ -847,67 +847,30 @@
                         }
                     }
                 });
+                // Persist toggle state in session storage before reload
+                if (typeof persistCraftPageSessionState === 'function') {
+                    persistCraftPageSessionState();
+                }
 
                 const isTemporaryProject = Boolean(
                     window.BLUEPRINT_DATA?.is_temporary_project || window.BLUEPRINT_DATA?.temp_project_ref
                 );
 
-                const saveAndReload = async (useNewCorpSetting) => {
-                    try {
-                        // Get current workspace state
-                        const sessionState = typeof collectCraftPageSessionState === 'function'
-                            ? collectCraftPageSessionState()
-                            : {};
-
-                        // Update use_corp_blueprints
-                        sessionState.use_corp_blueprints = useNewCorpSetting;
-
-                        const saveUrl = window.BLUEPRINT_DATA?.save_url
-                            || window.BLUEPRINT_DATA?.urls?.save;
-                        if (!saveUrl) {
-                            throw new Error('Save URL not available');
-                        }
-
-                        // Save to server
-                        const response = await fetch(saveUrl, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'X-CSRFToken': document.querySelector('[name="csrfmiddlewaretoken"]')?.value || '',
-                            },
-                            credentials: 'same-origin',
-                            body: JSON.stringify(sessionState),
-                        });
-
-                        if (!response.ok) {
-                            throw new Error(`Save failed: ${response.status}`);
-                        }
-
-                        // Reload page after successful save
-                        setTimeout(() => {
-                            window.location.reload();
-                        }, 300);
-                    } catch (error) {
-                        craftBPDebugLog('[CorpBPToggle] Save error:', error);
-                        // Revert toggle on error
-                        corpToggle.checked = !useCorpBps;
-                        showToast(
-                            __('Failed to save workspace state. Please try again.')
-                            || 'Failed to save workspace state. Please try again.',
-                            false
-                        );
+                const handleReload = () => {
+                    if (typeof window.location !== 'undefined') {
+                        window.location.reload();
                     }
                 };
 
                 if (isTemporaryProject) {
-                    // Temp projects: save and reload immediately
-                    saveAndReload(useCorpBps);
+                    // Temp projects persist in cache, reload immediately
+                    setTimeout(handleReload, 300);
                 } else {
-                    // Permanent projects: show confirmation before reload
+                    // Permanent projects need explicit user confirmation
                     const msg = __('Changing Corp BP usage requires recalculating materials and financials. Unsaved changes will be lost. Continue?') ||
                                 'Changing Corp BP usage requires recalculating materials and financials. Unsaved changes will be lost. Continue?';
                     if (window.confirm(msg)) {
-                        saveAndReload(useCorpBps);
+                        setTimeout(handleReload, 300);
                     } else {
                         // Revert toggle on cancel
                         corpToggle.checked = !useCorpBps;
