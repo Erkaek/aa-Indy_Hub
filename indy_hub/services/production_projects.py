@@ -3387,9 +3387,19 @@ def _resolve_user_blueprint_inventory(
                 },
             )
             _accumulate(entry, bp_me, bp_te, bp_type, runs, prefix="corp_")
-            # Merge corp into the "best available" fields when no personal BP exists
             if tid not in personal_type_ids:
+                # No personal BP: use corp directly
                 _accumulate(entry, bp_me, bp_te, bp_type, runs)
+            else:
+                # Personal BP exists: use corp only if it improves ME (or same ME + better TE)
+                personal_best, _ = _select_best_owned_blueprint_entry(entry)
+                p_me = int(personal_best.get("me") or 0) if personal_best else 0
+                p_te = int(personal_best.get("te") or 0) if personal_best else 0
+                c_me = int(bp_me or 0)
+                c_te = int(bp_te or 0)
+                if c_me > p_me or (c_me == p_me and c_te > p_te):
+                    _accumulate(entry, bp_me, bp_te, bp_type, runs)
+                    entry["corp_source"] = True
 
     return user_bp_map
 
