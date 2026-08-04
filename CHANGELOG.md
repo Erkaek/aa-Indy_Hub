@@ -16,6 +16,7 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 - Crafting Projects: new **Corp BP toggle** in the Blueprint tab lets users switch between personal and corporation blueprints. When enabled, corp BPs with better ME/TE than personal are used automatically in material calculations, with a blue "CORP BP" badge on affected blueprint cards.
 - Crafting Projects: temporary projects now persist the Corp BP toggle state across page reloads via a dedicated cache endpoint, so the choice survives without saving the project.
 - Structure tab: new **Category Assignments** section lets users apply a structure to all items of the same craft group (e.g. "Construction Components", "Fuel Block") at once.
+- Management command: `populate_location_names --repair-stations` scans `CachedStructureName` for placeholder entries in the NPC station ID range and re-resolves them via the corrected endpoint. Supports `--dry-run`.
 
 ### Fixed
 
@@ -23,6 +24,8 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 - Crafting Projects: corp BPs were excluded from temporary project inventory; they are now included when the toggle is enabled and the user has access to the relevant corporation.
 - Crafting Projects: corp BPs with better ME than the user's personal BP were not used in calculations (they only acted as fallback when no personal BP existed at all).
 - Crafting Projects: `workspace_state` was missing from the temporary project template context, so the Corp BP toggle always rendered unchecked after reload regardless of saved state.
+- Structure tab: Category Assignments rows were grouped by broad service category (`manufacturing`, `composite_reactions`) instead of the more useful craft group name (`Construction Components`, `Fuel Block`, etc.).
+- Locations: NPC station names (IDs 60 000 000–69 999 999) were stored as `Structure <id>` placeholders instead of their real names. The dedicated public `GET /universe/stations/{station_id}/` endpoint is now used for this ID range rather than the generic `POST /universe/names/` batch endpoint.
 - Structure tab: Category Assignments rows were grouped by broad service category (`manufacturing`, `composite_reactions`) instead of the more useful craft group name (`Construction Components`, `Fuel Block`, etc.).
 
 ## [1.18.2] - 2026-08-01
