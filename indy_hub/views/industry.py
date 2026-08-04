@@ -2468,6 +2468,7 @@ def craft_temp_project(request, temp_project_ref):
         "craft_header_controls": craft_header_controls,
         "deferred_shell": False,
         "active_tab": active_tab,
+        "workspace_state": render_workspace_state,
         "num_runs": payload.get("num_runs") or 1,
         "final_product_qty": payload.get("final_product_qty")
         or total_requested_quantity,
