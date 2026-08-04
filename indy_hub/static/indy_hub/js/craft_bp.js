@@ -6990,20 +6990,32 @@ function renderStructureCategoryAssignments(items) {
     }
     section.classList.remove('d-none');
 
-    // Build a union of compatible structures per category
+    // Build an intersection of compatible structures per category (only structures valid for every item)
     const categoryStructures = new Map();
     categoriesMap.forEach((catItems, cat) => {
-        const structureMap = new Map();
+        let structureMap = null;
         catItems.forEach((item) => {
-            const opts = Array.isArray(item.options) ? item.options : [];
-            opts.forEach((opt) => {
-                const sid = Number(opt.structure_id || opt.structureId || 0);
-                if (sid > 0 && !structureMap.has(sid)) {
-                    structureMap.set(sid, opt);
+            const itemIds = new Set(
+                (Array.isArray(item.options) ? item.options : [])
+                    .map((opt) => Number(opt.structure_id || opt.structureId || 0))
+                    .filter((sid) => sid > 0)
+            );
+            if (structureMap === null) {
+                // Seed with first item's structures
+                const opts = Array.isArray(item.options) ? item.options : [];
+                structureMap = new Map();
+                opts.forEach((opt) => {
+                    const sid = Number(opt.structure_id || opt.structureId || 0);
+                    if (sid > 0) structureMap.set(sid, opt);
+                });
+            } else {
+                // Keep only structures present in this item too
+                for (const sid of structureMap.keys()) {
+                    if (!itemIds.has(sid)) structureMap.delete(sid);
                 }
-            });
+            }
         });
-        categoryStructures.set(cat, structureMap);
+        categoryStructures.set(cat, structureMap || new Map());
     });
 
     container.innerHTML = Array.from(categoriesMap.entries()).map(([cat, catItems]) => {

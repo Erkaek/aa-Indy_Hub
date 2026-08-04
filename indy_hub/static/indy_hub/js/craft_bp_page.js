@@ -832,21 +832,22 @@
         if (corpToggle) {
             corpToggle.addEventListener('change', function () {
                 const useCorpBps = corpToggle.checked;
-                // Visual instant feedback: show/hide corp badges and swap ownership display
-                document.querySelectorAll('.craft-bp-card[data-corp-source="true"]').forEach(function (card) {
-                    const badge = card.querySelector('[data-corp-badge]');
-                    if (useCorpBps) {
-                        card.removeAttribute('data-blueprint-not-owned');
-                        if (badge) {
-                            badge.style.display = '';
+
+                function applyCorpBPVisualState(enabled) {
+                    document.querySelectorAll('.craft-bp-card[data-corp-source="true"]').forEach(function (card) {
+                        const badge = card.querySelector('[data-corp-badge]');
+                        if (enabled) {
+                            card.removeAttribute('data-blueprint-not-owned');
+                            if (badge) { badge.style.display = ''; }
+                        } else {
+                            card.setAttribute('data-blueprint-not-owned', 'true');
+                            if (badge) { badge.style.display = 'none'; }
                         }
-                    } else {
-                        card.setAttribute('data-blueprint-not-owned', 'true');
-                        if (badge) {
-                            badge.style.display = 'none';
-                        }
-                    }
-                });
+                    });
+                }
+
+                // Visual instant feedback
+                applyCorpBPVisualState(useCorpBps);
 
                 const isTemporaryProject = Boolean(
                     window.BLUEPRINT_DATA?.is_temporary_project || window.BLUEPRINT_DATA?.temp_project_ref
@@ -863,9 +864,9 @@
                         try {
                             const updateUrl = window.BLUEPRINT_DATA?.urls?.update_workspace_state;
                             if (updateUrl) {
-                                // Silent save (no await, just fire and forget)
                                 fetch(updateUrl, {
                                     method: 'POST',
+                                    keepalive: true,
                                     headers: {
                                         'Content-Type': 'application/json',
                                         'X-CSRFToken': document.querySelector('[name="csrfmiddlewaretoken"]')?.value || '',
@@ -897,8 +898,9 @@
                     if (window.confirm(msg)) {
                         doReload();
                     } else {
-                        // Revert toggle on cancel
+                        // Revert both the checkbox and the visual state on cancel
                         corpToggle.checked = !useCorpBps;
+                        applyCorpBPVisualState(!useCorpBps);
                     }
                 }
             });

@@ -147,11 +147,13 @@ def _sanitize_production_workspace_state(
         or existing_workspace_state.get("blueprint_name")
         or ""
     )
-    use_corp_blueprints = bool(
+    raw_corp = (
         data.get("use_corp_blueprints")
         if "use_corp_blueprints" in data
         else existing_workspace_state.get("use_corp_blueprints", False)
     )
+    # Explicit parse: reject truthy strings like "false" or "0"
+    use_corp_blueprints = raw_corp is True or raw_corp == 1
 
     return {
         "blueprint_type_id": blueprint_type_id,
@@ -517,7 +519,8 @@ def update_temporary_project_workspace_state(request, temp_project_ref: str):
         dict(temp_state.get("workspace_state") or {})
     )
     if "use_corp_blueprints" in data:
-        workspace_state["use_corp_blueprints"] = bool(data["use_corp_blueprints"])
+        raw = data["use_corp_blueprints"]
+        workspace_state["use_corp_blueprints"] = raw is True or raw == 1
     temp_state["workspace_state"] = workspace_state
     set_temporary_project_workspace(temp_project_ref, temp_state)
 

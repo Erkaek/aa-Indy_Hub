@@ -1341,12 +1341,12 @@
 
 {% block extra_javascript %}
 {{ blueprint_payload|json_script:"blueprint-payload" }}
-<script src="{% static 'indy_hub/js/craft_bp_page.js' %}?v=20260804-corp-bp-toggle-fix"></script>
+<script src="{% static 'indy_hub/js/craft_bp_page.js' %}?v=20260804-pr154-review-fixes"></script>
 {% if not deferred_shell %}
 <script src="{% static 'indy_hub/js/craft_bp_simulation_api.js' %}?v=20260524-build-final-targets"></script>
 <script src="{% static 'indy_hub/js/craft_bp_active_tab.js' %}?v=20260505-deferred-tab-init"></script>
 <script src="{% static 'indy_hub/js/craft_bp_financial_planner.js' %}?v=20260428-no-output-override"></script>
-<script src="{% static 'indy_hub/js/craft_bp.js' %}?v=20260804-compact-category-rows-v3"></script>
+<script src="{% static 'indy_hub/js/craft_bp.js' %}?v=20260804-pr154-review-fixes"></script>
 <script src="{% static 'indy_hub/js/craft_bp_inline.js' %}?v=20260801-functional-fixes-v3"></script>
 <script src="{% static 'indy_hub/js/craft_bp_project_rename.js' %}?v=20260523-project-rename-status"></script>
 {% endif %}

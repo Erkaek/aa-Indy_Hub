@@ -3307,27 +3307,32 @@ def _resolve_user_blueprint_inventory(
         .order_by("type_id", "-material_efficiency", "-time_efficiency")
     )
 
-    # Also include corp blueprints from corporations the user can access
-    viewable_corp_ids = get_viewable_corporation_ids(user)
-    corp_blueprints = (
-        Blueprint.objects.filter(
-            owner_kind=Blueprint.OwnerKind.CORPORATION,
-            corporation_id__in=viewable_corp_ids,
-            type_id__in=numeric_ids,
+    # Corp blueprints are only queried when the caller explicitly requests them
+    if include_corp:
+        viewable_corp_ids = get_viewable_corporation_ids(user)
+        corp_blueprints = (
+            Blueprint.objects.filter(
+                owner_kind=Blueprint.OwnerKind.CORPORATION,
+                corporation_id__in=viewable_corp_ids,
+                type_id__in=numeric_ids,
+            )
+            .values_list(
+                "type_id",
+                "material_efficiency",
+                "time_efficiency",
+                "bp_type",
+                "runs",
+            )
+            .order_by("type_id", "-material_efficiency", "-time_efficiency")
+            if viewable_corp_ids
+            else Blueprint.objects.none().values_list(
+                "type_id", "material_efficiency", "time_efficiency", "bp_type", "runs"
+            )
         )
-        .values_list(
-            "type_id",
-            "material_efficiency",
-            "time_efficiency",
-            "bp_type",
-            "runs",
-        )
-        .order_by("type_id", "-material_efficiency", "-time_efficiency")
-        if viewable_corp_ids
-        else Blueprint.objects.none().values_list(
+    else:
+        corp_blueprints = Blueprint.objects.none().values_list(
             "type_id", "material_efficiency", "time_efficiency", "bp_type", "runs"
         )
-    )
 
     def _accumulate(entry, bp_me, bp_te, bp_type, runs, *, prefix=""):
         """Merge one BP row into the entry dict under the given prefix."""
