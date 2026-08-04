@@ -1070,7 +1070,7 @@ def resolve_location_name(
     if (
         allow_authenticated
         and not is_station
-        and structure_id > 2_147_483_647
+        and structure_id >= 1_000_000_000_000
         and global_rate_limit_pause <= 0
     ):
         name = try_structure_lookup(character_id)

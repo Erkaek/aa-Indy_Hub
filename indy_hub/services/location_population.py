@@ -252,7 +252,7 @@ def populate_location_names(
             schedule_async
             and not force_refresh
             and not is_station_id(location_id)
-            and location_id > 2_147_483_647
+            and location_id >= 1_000_000_000_000
             and _is_placeholder(resolved_name)
             and location_id not in queued_structures
         ):
