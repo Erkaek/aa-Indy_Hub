@@ -7025,15 +7025,14 @@ function renderStructureCategoryAssignments(items) {
             return '';
         }
 
-        return `<div class="d-flex align-items-center gap-2 flex-wrap" data-category="${escapeHtml(cat)}">
-            <span class="badge bg-secondary-subtle text-secondary-emphasis" style="min-width:10rem;">${label}</span>
-            <span class="small text-muted">(${count} ${count === 1 ? __('item') : __('items')})</span>
-            <select class="form-select form-select-sm category-structure-select" style="max-width:420px;">
+        return `<div class="d-flex align-items-center gap-2" data-category="${escapeHtml(cat)}">
+            <span class="small" style="min-width:11rem;">${label} <span class="text-muted">(${count})</span></span>
+            <select class="form-select form-select-sm category-structure-select" style="max-width:340px;">
                 <option value="">${escapeHtml(__('Select a structure…'))}</option>
                 ${optionMarkup}
             </select>
-            <button type="button" class="btn btn-sm btn-primary category-apply-btn">
-                <i class="fas fa-check me-1"></i>${escapeHtml(__('Apply to all'))}
+            <button type="button" class="btn btn-sm btn-outline-primary category-apply-btn" title="${escapeHtml(__('Apply to all'))}">
+                <i class="fas fa-check"></i>
             </button>
         </div>`;
     }).join('');
