@@ -1317,6 +1317,31 @@ class ESIClient:
             force_refresh=force_refresh,
         )
 
+    def fetch_station_name(self, station_id: int) -> str | None:
+        """Resolve an NPC station name via the public /universe/stations/ endpoint (no auth)."""
+        if not station_id:
+            return None
+        try:
+            operation_fn = self._resolve_operation(
+                "Universe", "get_universe_stations_station_id"
+            )
+        except AttributeError:
+            return None
+        try:
+            payload = operation_fn(station_id=int(station_id)).results()
+        except _DJANGO_ESI_RATE_LIMIT_ERRORS as exc:
+            logger.warning(
+                "fetch_station_name rate limited for %s: %s", station_id, exc
+            )
+            return None
+        except _HTTP_ERROR_TYPES as exc:
+            logger.debug("fetch_station_name HTTP error for %s: %s", station_id, exc)
+            return None
+        except Exception as exc:
+            logger.debug("fetch_station_name failed for %s: %s", station_id, exc)
+            return None
+        return str(payload.get("name") or "") or None
+
     def resolve_ids_to_names(self, ids: list[int]) -> dict[int, str]:
         """Resolve a list of IDs to names via the public /universe/names/ endpoint.
 

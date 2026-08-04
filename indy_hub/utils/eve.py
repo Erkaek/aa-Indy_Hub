@@ -1072,7 +1072,10 @@ def resolve_location_name(
                     break
 
     if allow_public and not name:
-        if structure_id <= 2_147_483_647:
+        if is_station:
+            # NPC stations: dedicated public endpoint, no auth required
+            name = shared_client.fetch_station_name(structure_id)
+        if not name and structure_id <= 2_147_483_647:
             public_names = shared_client.resolve_ids_to_names([structure_id])
             name = public_names.get(structure_id)
 

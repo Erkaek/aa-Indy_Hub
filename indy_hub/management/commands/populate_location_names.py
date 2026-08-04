@@ -6,6 +6,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 # Django
+from django.apps import apps
 from django.core.management.base import BaseCommand
 
 # Alliance Auth
@@ -13,6 +14,12 @@ from allianceauth.services.hooks import get_extension_logger
 
 # AA Example App
 from indy_hub.services.location_population import populate_location_names
+from indy_hub.utils.eve import (
+    _STATION_ID_MAX,
+    _STATION_ID_MIN,
+    PLACEHOLDER_PREFIX,
+    resolve_location_name,
+)
 
 logger = get_extension_logger(__name__)
 
@@ -49,12 +56,28 @@ class Command(BaseCommand):
             action="store_true",
             help="Queue the job asynchronously via Celery instead of running inline.",
         )
+        parser.add_argument(
+            "--repair-stations",
+            dest="repair_stations",
+            action="store_true",
+            help=(
+                "Find all CachedStructureName rows whose name is a placeholder "
+                "(Structure <id>) for NPC station IDs (60 000 000–69 999 999) "
+                "and re-resolve them using the public /universe/stations/ endpoint. "
+                "Combine with --dry-run to only report without writing."
+            ),
+        )
 
     def handle(self, *args, **options):
         location_ids: Iterable[int] | None = options.get("location_ids")
         force_refresh: bool = options.get("force_refresh", False)
         dry_run: bool = options.get("dry_run", False)
         enqueue: bool = options.get("enqueue", False)
+        repair_stations: bool = options.get("repair_stations", False)
+
+        if repair_stations:
+            self._repair_station_names(dry_run=dry_run)
+            return
 
         logger.info(
             "populate_location_names invoked (enqueue=%s, force_refresh=%s, dry_run=%s, location_ids=%s)",
@@ -130,3 +153,55 @@ class Command(BaseCommand):
             self.stdout.write(
                 self.style.WARNING("Dry-run mode: no records were updated.")
             )
+
+    def _repair_station_names(self, *, dry_run: bool) -> None:
+        """Re-resolve all CachedStructureName placeholders for NPC station IDs."""
+        try:
+            cached_model = apps.get_model("indy_hub", "CachedStructureName")
+        except Exception as exc:
+            self.stdout.write(
+                self.style.ERROR(f"CachedStructureName model not found: {exc}")
+            )
+            return
+
+        placeholder_rows = list(
+            cached_model.objects.filter(
+                structure_id__gte=_STATION_ID_MIN,
+                structure_id__lte=_STATION_ID_MAX,
+                name__startswith=PLACEHOLDER_PREFIX,
+            ).values_list("structure_id", flat=True)
+        )
+
+        if not placeholder_rows:
+            self.stdout.write(self.style.SUCCESS("No placeholder station names found."))
+            return
+
+        self.stdout.write(
+            f"Found {len(placeholder_rows)} station(s) with placeholder names "
+            f"(IDs {_STATION_ID_MIN:,}–{_STATION_ID_MAX:,})."
+        )
+
+        if dry_run:
+            self.stdout.write(
+                self.style.WARNING("Dry-run: would repair the above stations.")
+            )
+            return
+
+        fixed = 0
+        failed = 0
+        for station_id in placeholder_rows:
+            name = resolve_location_name(int(station_id), force_refresh=True)
+            if name and not name.startswith(PLACEHOLDER_PREFIX):
+                fixed += 1
+                logger.info("Repaired station %s → %s", station_id, name)
+            else:
+                failed += 1
+                logger.warning(
+                    "Could not resolve station %s (got: %s)", station_id, name
+                )
+
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"Station name repair: {fixed} fixed, {failed} unresolved."
+            )
+        )
