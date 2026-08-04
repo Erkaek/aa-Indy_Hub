@@ -6968,10 +6968,10 @@ function renderStructureCategoryAssignments(items) {
         return;
     }
 
-    // Group items by service_category; skip items with no options
+    // Group items by group_name (e.g. "Construction Components", "Fuel Block"); skip items with no options
     const categoriesMap = new Map();
     items.forEach((item) => {
-        const cat = String(item.serviceCategory || item.service_category || '');
+        const cat = String(item.group_name || item.serviceCategory || item.service_category || '');
         if (!cat) {
             return;
         }
