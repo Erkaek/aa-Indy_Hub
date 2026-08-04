@@ -20,6 +20,7 @@ from indy_hub.views.api import (
     fuzzwork_price,
     production_project_payload,
     temporary_production_project_payload,
+    update_temporary_project_workspace_state,
 )
 
 
@@ -513,3 +514,80 @@ class CraftBlueprintPayloadApiTests(TestCase):
             json.loads(response.content), {"error": "solar_system_not_found"}
         )
         mock_resolve_solar_system_reference.assert_called_once()
+
+
+class UpdateTemporaryProjectWorkspaceStateTests(TestCase):
+    def setUp(self) -> None:
+        self.factory = RequestFactory()
+        self.user = User.objects.create_user(username="builder2", password="secret")
+        permission = Permission.objects.get(codename="can_access_indy_hub")
+        self.user.user_permissions.add(permission)
+
+    def _call(self, ref, body, user=None):
+        request = self.factory.post(
+            f"/indy_hub/api/temp-production-projects/{ref}/update-workspace-state/",
+            data=json.dumps(body),
+            content_type="application/json",
+        )
+        request.user = user or self.user
+        view = update_temporary_project_workspace_state
+        while hasattr(view, "__wrapped__"):
+            view = view.__wrapped__
+        return view(request, ref)
+
+    @patch("indy_hub.views.api.set_temporary_project_workspace")
+    @patch("indy_hub.views.api.get_temporary_project_workspace")
+    @patch("indy_hub.views.api.emit_view_analytics_event")
+    def test_sets_use_corp_blueprints_true(self, mock_emit, mock_get, mock_set):
+        mock_emit.return_value = None
+        mock_get.return_value = {"user_id": self.user.id, "workspace_state": {}}
+
+        response = self._call("abc123", {"use_corp_blueprints": True})
+
+        self.assertEqual(response.status_code, 200)
+        saved = mock_set.call_args[0][1]
+        self.assertIs(saved["workspace_state"]["use_corp_blueprints"], True)
+
+    @patch("indy_hub.views.api.set_temporary_project_workspace")
+    @patch("indy_hub.views.api.get_temporary_project_workspace")
+    @patch("indy_hub.views.api.emit_view_analytics_event")
+    def test_string_false_does_not_enable_corp_blueprints(
+        self, mock_emit, mock_get, mock_set
+    ):
+        """bool('false') == True; the endpoint must reject truthy strings."""
+        mock_emit.return_value = None
+        mock_get.return_value = {"user_id": self.user.id, "workspace_state": {}}
+
+        response = self._call("abc123", {"use_corp_blueprints": "false"})
+
+        self.assertEqual(response.status_code, 200)
+        saved = mock_set.call_args[0][1]
+        self.assertIs(saved["workspace_state"]["use_corp_blueprints"], False)
+
+    @patch("indy_hub.views.api.get_temporary_project_workspace")
+    @patch("indy_hub.views.api.emit_view_analytics_event")
+    def test_returns_404_when_temp_project_not_found(self, mock_emit, mock_get):
+        mock_emit.return_value = None
+        mock_get.return_value = None
+
+        response = self._call("missing", {"use_corp_blueprints": True})
+
+        self.assertEqual(response.status_code, 404)
+
+    @patch("indy_hub.views.api.set_temporary_project_workspace")
+    @patch("indy_hub.views.api.get_temporary_project_workspace")
+    @patch("indy_hub.views.api.emit_view_analytics_event")
+    def test_strips_cached_payload_on_update(self, mock_emit, mock_get, mock_set):
+        """Cached payload must be cleared so the next load rebuilds with new settings."""
+        mock_emit.return_value = None
+        mock_get.return_value = {
+            "user_id": self.user.id,
+            "workspace_state": {"cachedProjectPayload": {"some": "data"}, "runs": 5},
+        }
+
+        response = self._call("abc123", {"use_corp_blueprints": True})
+
+        self.assertEqual(response.status_code, 200)
+        saved = mock_set.call_args[0][1]
+        self.assertNotIn("cachedProjectPayload", saved["workspace_state"])
+        self.assertEqual(saved["workspace_state"]["runs"], 5)

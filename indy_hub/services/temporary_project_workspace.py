@@ -96,6 +96,7 @@ def build_temporary_project_workspace_state(
         "active_tab": "materials",
         "activeBlueprintTab": "materials",
         "runs": 1,
+        "use_corp_blueprints": False,
     }
     if str(source_kind) == ProductionProject.SourceKind.EFT and fit_quantities:
         state["finalOutputQuantities"] = [

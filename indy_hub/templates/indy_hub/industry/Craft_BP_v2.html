@@ -920,6 +920,13 @@
                     <div id="structurePlannerSummary" class="craft-structure-summary-grid"></div>
                 </section>
 
+                <section class="d-none mb-2" id="structureCategorySection">
+                    <p class="small text-muted mb-1">
+                        <i class="fas fa-layer-group me-1"></i><strong>{% trans "Category Assignments" %}</strong>
+                    </p>
+                    <div id="structureCategoryRows" class="d-flex flex-column gap-1"></div>
+                </section>
+
                 <section class="craft-section">
                     <div class="craft-section-header-with-actions">
                         <h3 class="craft-section-title">
@@ -975,7 +982,14 @@
                         <h3 class="craft-section-title mb-0">
                             <i class="fas fa-sliders-h text-danger"></i> {% trans "Blueprint Configuration" %}
                         </h3>
-                        <div class="d-flex gap-2 align-items-center">
+                        <div class="d-flex gap-2 align-items-center flex-wrap">
+                            <div class="form-check form-switch mb-0 d-flex align-items-center gap-2">
+                                <input class="form-check-input" type="checkbox" id="useCorpBlueprintsToggle" role="switch"
+                                    {% if workspace_state.use_corp_blueprints %}checked{% endif %}>
+                                <label class="form-check-label small text-muted" for="useCorpBlueprintsToggle">
+                                    <i class="fas fa-building me-1"></i>{% trans "Corp BPs" %}
+                                </label>
+                            </div>
                             <div class="input-group input-group-sm" style="max-width: 250px;">
                                 <span class="input-group-text bg-white"><i class="fas fa-search text-muted"></i></span>
                                 <input type="text" class="form-control" id="blueprintSearchInput" placeholder="{% trans 'Search blueprints...' %}">
@@ -1009,7 +1023,7 @@
                                     <div class="craft-config-level">
                                         <div class="craft-config-items-grid">
                                             {% for bc in level.blueprints %}
-                                            <div class="craft-bp-card card h-100" data-blueprint-type-id="{{ bc.type_id }}" {% if not bc.user_owns %}data-blueprint-not-owned="true"{% endif %} {% if bc.is_reaction %}data-blueprint-is-reaction="true"{% endif %}>
+                                            <div class="craft-bp-card card h-100" data-blueprint-type-id="{{ bc.type_id }}" {% if not bc.user_owns %}data-blueprint-not-owned="true"{% endif %} {% if bc.is_reaction %}data-blueprint-is-reaction="true"{% endif %} data-corp-source="{{ bc.corp_source|yesno:'true,false' }}" data-corp-me="{{ bc.corp_me }}" data-corp-te="{{ bc.corp_te }}" data-corp-runs="{{ bc.corp_runs }}">
                                                 <div class="card-header text-center py-1 {% if bc.user_owns %}bg-success bg-opacity-10{% elif not bc.user_owns and not bc.is_reaction %}bg-warning bg-opacity-10{% else %}bg-danger bg-opacity-10{% endif %}">
                                                     <img
                                                         src="https://images.evetech.net/types/{{ bc.type_id }}/bp?size=128"
@@ -1018,7 +1032,11 @@
                                                         onerror="this.style.display='none';"
                                                     >
                                                     {% if bc.user_owns %}
-                                                        {% if bc.is_copy %}
+                                                        {% if bc.corp_source %}
+                                                        <span class="badge bg-primary w-100 mb-1" style="font-size:0.7rem;" data-corp-badge>
+                                                            <i class="fas fa-building me-1"></i>CORP BP{% if not bc.is_reaction %} - {{ bc.corp_runs|default:"0" }} runs{% endif %}
+                                                        </span>
+                                                        {% elif bc.is_copy %}
                                                         <span class="badge bg-info w-100 mb-1" style="font-size: 0.7rem;">
                                                             <i class="fas fa-copy me-1"></i>COPY OWNED{% if not bc.is_reaction %} - {{ bc.runs_available|default:"0" }} runs{% endif %}
                                                         </span>
@@ -1323,12 +1341,12 @@
 
 {% block extra_javascript %}
 {{ blueprint_payload|json_script:"blueprint-payload" }}
-<script src="{% static 'indy_hub/js/craft_bp_page.js' %}?v=20260801-functional-fixes-v1"></script>
+<script src="{% static 'indy_hub/js/craft_bp_page.js' %}?v=20260804-pr154-review-fixes"></script>
 {% if not deferred_shell %}
 <script src="{% static 'indy_hub/js/craft_bp_simulation_api.js' %}?v=20260524-build-final-targets"></script>
 <script src="{% static 'indy_hub/js/craft_bp_active_tab.js' %}?v=20260505-deferred-tab-init"></script>
 <script src="{% static 'indy_hub/js/craft_bp_financial_planner.js' %}?v=20260428-no-output-override"></script>
-<script src="{% static 'indy_hub/js/craft_bp.js' %}?v=20260801-stock-location-filter-v4"></script>
+<script src="{% static 'indy_hub/js/craft_bp.js' %}?v=20260804-pr154-review-fixes"></script>
 <script src="{% static 'indy_hub/js/craft_bp_inline.js' %}?v=20260801-functional-fixes-v3"></script>
 <script src="{% static 'indy_hub/js/craft_bp_project_rename.js' %}?v=20260523-project-rename-status"></script>
 {% endif %}

@@ -3547,6 +3547,10 @@ function collectCraftPageSessionState() {
         },
         pendingWorkspaceRefresh: Boolean(window.craftBPFlags?.hasPendingWorkspaceRefresh || window.craftBPFlags?.hasPendingMETEChanges),
         pendingWorkspaceSourceTab: String(window.craftBPFlags?.pendingWorkspaceSourceTab || ''),
+        use_corp_blueprints: (() => {
+            const toggle = document.getElementById('useCorpBlueprintsToggle');
+            return toggle ? toggle.checked : false;
+        })(),
         updatedAt: Date.now(),
     };
 }
@@ -3645,6 +3649,14 @@ function applyCraftPageSessionState(parsedState) {
         delete window.craftBPFlags.pendingWorkspaceTargetTab;
     }
     updatePendingWorkspaceRefreshNotice();
+
+    // Restore corp BP toggle state
+    if (parsedState?.use_corp_blueprints != null) {
+        const corpToggle = document.getElementById('useCorpBlueprintsToggle');
+        if (corpToggle) {
+            corpToggle.checked = Boolean(parsedState.use_corp_blueprints);
+        }
+    }
 
     window.craftBPFlags.restoringSessionState = false;
     return true;
@@ -6936,6 +6948,144 @@ function renderStructureMetricCell(option, metric, context = {}) {
     return `<span class="craft-structure-metric" tabindex="0" title="${title}" aria-label="${title}">${formatPercent(spec.value, 2)}</span>`;
 }
 
+// ---------------------------------------------------------------------------
+// Category-level structure assignments
+// ---------------------------------------------------------------------------
+
+const _CATEGORY_LABELS = {
+    manufacturing: 'Manufacturing',
+    manufacturing_capitals: 'Capital Manufacturing',
+    manufacturing_super_capitals: 'Super-capital Manufacturing',
+    biochemical_reactions: 'Biochemical Reactions',
+    hybrid_reactions: 'Hybrid Reactions',
+    composite_reactions: 'Composite Reactions',
+};
+
+function renderStructureCategoryAssignments(items) {
+    const section = document.getElementById('structureCategorySection');
+    const container = document.getElementById('structureCategoryRows');
+    if (!section || !container) {
+        return;
+    }
+
+    // Group items by group_name (e.g. "Construction Components", "Fuel Block"); skip items with no options
+    const categoriesMap = new Map();
+    items.forEach((item) => {
+        const cat = String(item.group_name || item.serviceCategory || item.service_category || '');
+        if (!cat) {
+            return;
+        }
+        if (!categoriesMap.has(cat)) {
+            categoriesMap.set(cat, []);
+        }
+        categoriesMap.get(cat).push(item);
+    });
+
+    // Hide the section when there's only one item total (no batch value)
+    const totalItems = items.length;
+    if (categoriesMap.size === 0 || totalItems < 2) {
+        section.classList.add('d-none');
+        container.innerHTML = '';
+        return;
+    }
+    section.classList.remove('d-none');
+
+    // Build an intersection of compatible structures per category (only structures valid for every item)
+    const categoryStructures = new Map();
+    categoriesMap.forEach((catItems, cat) => {
+        let structureMap = null;
+        catItems.forEach((item) => {
+            const itemIds = new Set(
+                (Array.isArray(item.options) ? item.options : [])
+                    .map((opt) => Number(opt.structure_id || opt.structureId || 0))
+                    .filter((sid) => sid > 0)
+            );
+            if (structureMap === null) {
+                // Seed with first item's structures
+                const opts = Array.isArray(item.options) ? item.options : [];
+                structureMap = new Map();
+                opts.forEach((opt) => {
+                    const sid = Number(opt.structure_id || opt.structureId || 0);
+                    if (sid > 0) structureMap.set(sid, opt);
+                });
+            } else {
+                // Keep only structures present in this item too
+                for (const sid of structureMap.keys()) {
+                    if (!itemIds.has(sid)) structureMap.delete(sid);
+                }
+            }
+        });
+        categoryStructures.set(cat, structureMap || new Map());
+    });
+
+    container.innerHTML = Array.from(categoriesMap.entries()).map(([cat, catItems]) => {
+        const label = escapeHtml(_CATEGORY_LABELS[cat] || cat);
+        const count = catItems.length;
+        const structures = categoryStructures.get(cat) || new Map();
+        const optionMarkup = Array.from(structures.values())
+            .sort((a, b) => {
+                const nameA = String(a.name || '');
+                const nameB = String(b.name || '');
+                return nameA.localeCompare(nameB, undefined, { sensitivity: 'base', numeric: true });
+            })
+            .map((opt) => {
+                const sid = Number(opt.structure_id || opt.structureId || 0);
+                return `<option value="${sid}">${escapeHtml(opt.name || String(sid))}</option>`;
+            }).join('');
+
+        if (!optionMarkup) {
+            return '';
+        }
+
+        return `<div class="d-flex align-items-center gap-2" data-category="${escapeHtml(cat)}">
+            <div style="min-width:11rem;">
+                <span class="fw-semibold small">${label}</span>
+                <span class="small text-muted ms-1">(${count})</span>
+            </div>
+            <select class="form-select form-select-sm structure-assignment-select category-structure-select" style="max-width:340px;">
+                <option value="">${escapeHtml(__('Select a structure\u2026'))}</option>
+                ${optionMarkup}
+            </select>
+            <button type="button" class="btn btn-sm btn-primary category-apply-btn">
+                ${escapeHtml(__('Apply'))}
+            </button>
+        </div>`;
+    }).join('');
+
+    // Bind Apply buttons
+    container.querySelectorAll('[data-category]').forEach((row) => {
+        const applyBtn = row.querySelector('.category-apply-btn');
+        const select = row.querySelector('.category-structure-select');
+        if (!applyBtn || !select) {
+            return;
+        }
+        applyBtn.addEventListener('click', () => {
+            const structureId = Number(select.value) || 0;
+            if (!structureId || !window.SimulationAPI || typeof window.SimulationAPI.setStructureAssignment !== 'function') {
+                return;
+            }
+            const cat = row.getAttribute('data-category');
+            const catItems = categoriesMap.get(cat) || [];
+            let applied = 0;
+            catItems.forEach((item) => {
+                const typeId = Number(item.type_id || item.typeId || 0);
+                if (typeId > 0) {
+                    const ok = window.SimulationAPI.setStructureAssignment(typeId, structureId);
+                    if (ok) {
+                        applied += 1;
+                    }
+                }
+            });
+            if (applied > 0) {
+                refreshPlanTreeAfterStructureAssignment();
+                renderStructurePlanner();
+                markPendingWorkspaceRefresh({ sourceTabName: 'structure' });
+                persistCraftPageSessionState();
+            }
+        });
+    });
+}
+
 function renderStructurePlanner(options = {}) {
     const summaryContainer = document.getElementById('structurePlannerSummary');
     const rowsContainer = document.getElementById('structurePlannerRows');
@@ -6974,9 +7124,11 @@ function renderStructurePlanner(options = {}) {
         summaryContainer.innerHTML = '';
         rowsContainer.innerHTML = '';
         emptyContainer.classList.remove('d-none');
+        renderStructureCategoryAssignments([]);
         return;
     }
 
+    renderStructureCategoryAssignments(items);
     emptyContainer.classList.add('d-none');
     const uniqueStructureNames = new Set();
     let weightedMaterialBonus = 0;

@@ -827,6 +827,84 @@
                 showToast(`${getMessage('reset', 'Reset')} ${count} ${getMessage('blueprints_default_values', 'blueprints to default values')}`, true);
             });
         }
+
+        const corpToggle = document.getElementById('useCorpBlueprintsToggle');
+        if (corpToggle) {
+            corpToggle.addEventListener('change', function () {
+                const useCorpBps = corpToggle.checked;
+
+                function applyCorpBPVisualState(enabled) {
+                    document.querySelectorAll('.craft-bp-card[data-corp-source="true"]').forEach(function (card) {
+                        const badge = card.querySelector('[data-corp-badge]');
+                        if (enabled) {
+                            card.removeAttribute('data-blueprint-not-owned');
+                            if (badge) { badge.style.display = ''; }
+                        } else {
+                            card.setAttribute('data-blueprint-not-owned', 'true');
+                            if (badge) { badge.style.display = 'none'; }
+                        }
+                    });
+                }
+
+                // Visual instant feedback
+                applyCorpBPVisualState(useCorpBps);
+
+                const isTemporaryProject = Boolean(
+                    window.BLUEPRINT_DATA?.is_temporary_project || window.BLUEPRINT_DATA?.temp_project_ref
+                );
+
+                const doReload = () => {
+                    // Persist toggle state in session storage
+                    if (typeof persistCraftPageSessionState === 'function') {
+                        persistCraftPageSessionState();
+                    }
+
+                    // For temporary projects only: save to cache before reload
+                    if (isTemporaryProject) {
+                        try {
+                            const updateUrl = window.BLUEPRINT_DATA?.urls?.update_workspace_state;
+                            if (updateUrl) {
+                                fetch(updateUrl, {
+                                    method: 'POST',
+                                    keepalive: true,
+                                    headers: {
+                                        'Content-Type': 'application/json',
+                                        'X-CSRFToken': document.querySelector('[name="csrfmiddlewaretoken"]')?.value || '',
+                                    },
+                                    credentials: 'same-origin',
+                                    body: JSON.stringify({ use_corp_blueprints: useCorpBps }),
+                                }).catch((error) => {
+                                    craftBPDebugLog('[CorpBPToggle] Cache save error:', error);
+                                });
+                            }
+                        } catch (error) {
+                            craftBPDebugLog('[CorpBPToggle] Cache save preparation error:', error);
+                        }
+                    }
+
+                    // Reload after a short delay
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 300);
+                };
+
+                if (isTemporaryProject) {
+                    // Temp projects: reload immediately (with cache save)
+                    doReload();
+                } else {
+                    // Permanent projects: show confirmation before reload (no cache save)
+                    const msg = __('Changing Corp BP usage requires recalculating materials and financials. Unsaved changes will be lost. Continue?') ||
+                                'Changing Corp BP usage requires recalculating materials and financials. Unsaved changes will be lost. Continue?';
+                    if (window.confirm(msg)) {
+                        doReload();
+                    } else {
+                        // Revert both the checkbox and the visual state on cancel
+                        corpToggle.checked = !useCorpBps;
+                        applyCorpBPVisualState(!useCorpBps);
+                    }
+                }
+            });
+        }
     }
 
     function bindConfigAccordion() {

@@ -13,6 +13,16 @@ def _get_accessible_corporation_ids_for_scope(user, scope_field_name: str) -> se
     if not getattr(user, "is_authenticated", False):
         return set()
 
+    # Superusers see all configured corporations regardless of scope
+    if getattr(user, "is_superuser", False):
+        return {
+            int(corp_id)
+            for corp_id in CorporationSharingSetting.objects.values_list(
+                "corporation_id", flat=True
+            )
+            if corp_id
+        }
+
     accessible_ids: set[int] = set()
     if user.has_perm("indy_hub.can_manage_corp_bp_requests"):
         accessible_ids.update(get_managed_corporation_ids(user))

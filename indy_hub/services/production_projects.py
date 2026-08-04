@@ -36,6 +36,7 @@ from ..utils.eve import (
     get_type_name,
     is_reaction_blueprint,
 )
+from .corporation_blueprint_visibility import get_viewable_corporation_ids
 from .craft_materials import (
     compute_job_material_quantity,
     is_base_item_material_efficiency_exempt,
@@ -1694,6 +1695,7 @@ def build_project_workspace_payload(
         _extract_workspace_final_output_quantity_overrides(workspace_state),
         final_output_quantity_overrides,
     )
+    use_corp_blueprints = bool(workspace_state.get("use_corp_blueprints", False))
     is_eft_project = project.source_kind == ProductionProject.SourceKind.EFT
     owned_blueprint_inventory_map: dict[int, dict[str, object]] = {}
     owned_blueprint_efficiency_cache: dict[int, dict[str, int]] = {}
@@ -2282,6 +2284,7 @@ def build_project_workspace_payload(
     owned_blueprint_inventory_map = _resolve_user_blueprint_inventory(
         user=project.user,
         blueprint_type_ids=all_blueprint_type_ids,
+        include_corp=use_corp_blueprints,
     )
     record_timing_step(
         "blueprint-inventory",
@@ -3280,6 +3283,7 @@ def _resolve_user_blueprint_inventory(
     *,
     user,
     blueprint_type_ids: Iterable[int | None],
+    include_corp: bool = True,
 ) -> dict[int, dict[str, object]]:
     numeric_ids = sorted(
         {int(type_id) for type_id in blueprint_type_ids if int(type_id or 0) > 0}
@@ -3303,7 +3307,58 @@ def _resolve_user_blueprint_inventory(
         .order_by("type_id", "-material_efficiency", "-time_efficiency")
     )
 
+    # Corp blueprints are only queried when the caller explicitly requests them
+    if include_corp:
+        viewable_corp_ids = get_viewable_corporation_ids(user)
+        corp_blueprints = (
+            Blueprint.objects.filter(
+                owner_kind=Blueprint.OwnerKind.CORPORATION,
+                corporation_id__in=viewable_corp_ids,
+                type_id__in=numeric_ids,
+            )
+            .values_list(
+                "type_id",
+                "material_efficiency",
+                "time_efficiency",
+                "bp_type",
+                "runs",
+            )
+            .order_by("type_id", "-material_efficiency", "-time_efficiency")
+            if viewable_corp_ids
+            else Blueprint.objects.none().values_list(
+                "type_id", "material_efficiency", "time_efficiency", "bp_type", "runs"
+            )
+        )
+    else:
+        corp_blueprints = Blueprint.objects.none().values_list(
+            "type_id", "material_efficiency", "time_efficiency", "bp_type", "runs"
+        )
+
+    def _accumulate(entry, bp_me, bp_te, bp_type, runs, *, prefix=""):
+        """Merge one BP row into the entry dict under the given prefix."""
+        orig_key = f"{prefix}original" if prefix else "original"
+        copy_key = f"{prefix}best_copy" if prefix else "best_copy"
+        runs_key = f"{prefix}copy_runs_total" if prefix else "copy_runs_total"
+        if bp_type == Blueprint.BPType.ORIGINAL:
+            existing = entry.get(orig_key)
+            if not existing:
+                entry[orig_key] = {"me": int(bp_me or 0), "te": int(bp_te or 0)}
+            elif bp_me > existing["me"] or (
+                bp_me == existing["me"] and bp_te > existing["te"]
+            ):
+                entry[orig_key] = {"me": int(bp_me or 0), "te": int(bp_te or 0)}
+        else:
+            entry[runs_key] = int(entry.get(runs_key) or 0) + int(runs or 0)
+            existing = entry.get(copy_key)
+            if not existing:
+                entry[copy_key] = {"me": int(bp_me or 0), "te": int(bp_te or 0)}
+            elif bp_me > existing["me"] or (
+                bp_me == existing["me"] and bp_te > existing["te"]
+            ):
+                entry[copy_key] = {"me": int(bp_me or 0), "te": int(bp_te or 0)}
+
     user_bp_map: dict[int, dict[str, object]] = {}
+    personal_type_ids: set[int] = set()
     for bp_type_id, bp_me, bp_te, bp_type, runs in user_blueprints:
         entry = user_bp_map.setdefault(
             int(bp_type_id),
@@ -3311,30 +3366,45 @@ def _resolve_user_blueprint_inventory(
                 "original": None,
                 "best_copy": None,
                 "copy_runs_total": 0,
+                # Corp-specific fields (populated below if include_corp)
+                "corp_original": None,
+                "corp_best_copy": None,
+                "corp_copy_runs_total": 0,
+                "corp_source": False,
             },
         )
+        _accumulate(entry, bp_me, bp_te, bp_type, runs)
+        personal_type_ids.add(int(bp_type_id))
 
-        if bp_type == Blueprint.BPType.ORIGINAL:
-            if not entry["original"]:
-                entry["original"] = {"me": int(bp_me or 0), "te": int(bp_te or 0)}
-            else:
-                current = entry["original"]
-                if bp_me > current["me"] or (
-                    bp_me == current["me"] and bp_te > current["te"]
-                ):
-                    entry["original"] = {"me": int(bp_me or 0), "te": int(bp_te or 0)}
-        else:
-            entry["copy_runs_total"] = int(entry.get("copy_runs_total") or 0) + int(
-                runs or 0
+    if include_corp:
+        for bp_type_id, bp_me, bp_te, bp_type, runs in corp_blueprints:
+            tid = int(bp_type_id)
+            entry = user_bp_map.setdefault(
+                tid,
+                {
+                    "original": None,
+                    "best_copy": None,
+                    "copy_runs_total": 0,
+                    "corp_original": None,
+                    "corp_best_copy": None,
+                    "corp_copy_runs_total": 0,
+                    "corp_source": tid not in personal_type_ids,
+                },
             )
-            if not entry["best_copy"]:
-                entry["best_copy"] = {"me": int(bp_me or 0), "te": int(bp_te or 0)}
+            _accumulate(entry, bp_me, bp_te, bp_type, runs, prefix="corp_")
+            if tid not in personal_type_ids:
+                # No personal BP: use corp directly
+                _accumulate(entry, bp_me, bp_te, bp_type, runs)
             else:
-                current = entry["best_copy"]
-                if bp_me > current["me"] or (
-                    bp_me == current["me"] and bp_te > current["te"]
-                ):
-                    entry["best_copy"] = {"me": int(bp_me or 0), "te": int(bp_te or 0)}
+                # Personal BP exists: use corp only if it improves ME (or same ME + better TE)
+                personal_best, _ = _select_best_owned_blueprint_entry(entry)
+                p_me = int(personal_best.get("me") or 0) if personal_best else 0
+                p_te = int(personal_best.get("te") or 0) if personal_best else 0
+                c_me = int(bp_me or 0)
+                c_te = int(bp_te or 0)
+                if c_me > p_me or (c_me == p_me and c_te > p_te):
+                    _accumulate(entry, bp_me, bp_te, bp_type, runs)
+                    entry["corp_source"] = True
 
     return user_bp_map
 
@@ -3429,6 +3499,25 @@ def _build_project_blueprint_configs_grouped(
                 "product_type_name": str(entry.get("type_name") or ""),
                 "total_needed": int(entry.get("total_needed") or 0),
                 "category_name": category_name,
+                # Corp-source fields for client-side toggle
+                "corp_source": bool(user_entry.get("corp_source")),
+                "corp_me": int(
+                    (
+                        user_entry.get("corp_original")
+                        or user_entry.get("corp_best_copy")
+                        or {}
+                    ).get("me")
+                    or 0
+                ),
+                "corp_te": int(
+                    (
+                        user_entry.get("corp_original")
+                        or user_entry.get("corp_best_copy")
+                        or {}
+                    ).get("te")
+                    or 0
+                ),
+                "corp_runs": int(user_entry.get("corp_copy_runs_total") or 0),
             }
         )
 

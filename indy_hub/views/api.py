@@ -147,6 +147,13 @@ def _sanitize_production_workspace_state(
         or existing_workspace_state.get("blueprint_name")
         or ""
     )
+    raw_corp = (
+        data.get("use_corp_blueprints")
+        if "use_corp_blueprints" in data
+        else existing_workspace_state.get("use_corp_blueprints", False)
+    )
+    # Explicit parse: reject truthy strings like "false" or "0"
+    use_corp_blueprints = raw_corp is True or raw_corp == 1
 
     return {
         "blueprint_type_id": blueprint_type_id,
@@ -156,6 +163,7 @@ def _sanitize_production_workspace_state(
         "simulationName": simulation_name,
         "active_tab": active_blueprint_tab,
         "activeBlueprintTab": active_blueprint_tab,
+        "use_corp_blueprints": use_corp_blueprints,
         "buyTypeIds": sanitize_list(data.get("buyTypeIds")),
         "stockAllocations": sanitize_dict(data.get("stockAllocations")),
         "manualPrices": sanitize_list(data.get("manualPrices")),
@@ -482,6 +490,44 @@ def save_temporary_production_project_workspace(request, temp_project_ref: str):
                 reverse("indy_hub:craft_project", args=[project.project_ref])
             ),
             "message": "Production project workspace saved successfully",
+        }
+    )
+
+
+@indy_hub_access_required
+@indy_hub_permission_required("can_access_indy_hub")
+@login_required
+@require_http_methods(["POST"])
+def update_temporary_project_workspace_state(request, temp_project_ref: str):
+    """Patch specific fields in a temporary project workspace_state cache entry."""
+    emit_view_analytics_event(
+        view_name="api.update_temporary_project_workspace_state",
+        request=request,
+    )
+
+    temp_state = get_temporary_project_workspace(request.user, temp_project_ref)
+    if not temp_state:
+        return JsonResponse({"error": "Temporary craft table not found"}, status=404)
+
+    try:
+        data = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON data"}, status=400)
+
+    # Patch only allowed fields into the existing workspace_state, stripping cached payload
+    workspace_state = strip_project_workspace_cache(
+        dict(temp_state.get("workspace_state") or {})
+    )
+    if "use_corp_blueprints" in data:
+        raw = data["use_corp_blueprints"]
+        workspace_state["use_corp_blueprints"] = raw is True or raw == 1
+    temp_state["workspace_state"] = workspace_state
+    set_temporary_project_workspace(temp_project_ref, temp_state)
+
+    return JsonResponse(
+        {
+            "success": True,
+            "message": "Temporary project workspace state updated successfully",
         }
     )
 
