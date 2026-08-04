@@ -1073,9 +1073,10 @@ def resolve_location_name(
 
     if allow_public and not name:
         if is_station:
-            # NPC stations: dedicated public endpoint, no auth required
+            # NPC stations (60 000 000–69 999 999): public endpoint, no auth required
             name = shared_client.fetch_station_name(structure_id)
-        if not name and structure_id <= 2_147_483_647:
+        elif structure_id < 1_000_000_000_000:
+            # Misc public IDs (celestials, solar systems, etc.) — not stations, not player structures
             public_names = shared_client.resolve_ids_to_names([structure_id])
             name = public_names.get(structure_id)
 
