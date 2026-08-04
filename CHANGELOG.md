@@ -11,15 +11,18 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 ### Added
 
+- Structure Registry: users can now **star (★) production structures** as favorites directly on the `/indy_hub/industry/structures/` page.
+- Structure tab: favorite structures appear first in all assignment dropdowns with a ★ prefix and are pre-selected as the default recommendation when no explicit structure has been chosen.
 - Crafting Projects: new **Corp BP toggle** in the Blueprint tab lets users switch between personal and corporation blueprints. When enabled, corp BPs with better ME/TE than personal are used automatically in material calculations, with a blue "CORP BP" badge on affected blueprint cards.
 - Crafting Projects: temporary projects now persist the Corp BP toggle state across page reloads via a dedicated cache endpoint, so the choice survives without saving the project.
 - Structure tab: new **Category Assignments** section lets users apply a structure to all items of the same craft group (e.g. "Construction Components", "Fuel Block") at once.
 
 ### Fixed
 
-- Crafting Projects: corp BPs were previously excluded from temporary project inventory; they are now included when the Corp BP toggle is enabled and the user has access to the relevant corporation.
-- Crafting Projects: corp BPs that have better ME than the user's personal BP are now used in calculations when the toggle is on. Previously, corp BPs were only used as a fallback when no personal BP existed at all.
-- Crafting Projects: the `workspace_state` context variable was missing from temporary project template rendering, causing the Corp BP toggle to always render unchecked after reload regardless of the saved state.
+- Structure tab: favorite structure was not pre-selected when the user had no explicit prior assignment for a given item.
+- Crafting Projects: corp BPs were excluded from temporary project inventory; they are now included when the toggle is enabled and the user has access to the relevant corporation.
+- Crafting Projects: corp BPs with better ME than the user's personal BP were not used in calculations (they only acted as fallback when no personal BP existed at all).
+- Crafting Projects: `workspace_state` was missing from the temporary project template context, so the Corp BP toggle always rendered unchecked after reload regardless of saved state.
 - Structure tab: Category Assignments rows were grouped by broad service category (`manufacturing`, `composite_reactions`) instead of the more useful craft group name (`Construction Components`, `Fuel Block`, etc.).
 
 ## [1.18.2] - 2026-08-01
