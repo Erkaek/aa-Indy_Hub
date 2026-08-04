@@ -1321,19 +1321,37 @@ class ESIClient:
         """Resolve an NPC station name via the public /universe/stations/ endpoint (no auth)."""
         if not station_id:
             return None
+        endpoint = f"/universe/stations/{int(station_id)}/"
+        throttle_key = "public-station"
         try:
             operation_fn = self._resolve_operation(
                 "Universe", "get_universe_stations_station_id"
             )
         except AttributeError:
             return None
+        self._enforce_task_scope_budget(None, endpoint, throttle_key=throttle_key)
         try:
-            payload = operation_fn(station_id=int(station_id)).results(use_etag=False)
+            payload, response = operation_fn(station_id=int(station_id)).results(
+                return_response=True,
+                use_etag=False,
+            )
+            self._update_rate_limit_state_from_response(
+                response=response,
+                endpoint=endpoint,
+                throttle_key=throttle_key,
+            )
         except HTTPNotModified:
             # django-esi cache was stale; retry bypassing ETags entirely
             try:
-                payload = operation_fn(station_id=int(station_id)).results(
-                    use_etag=False, force_refresh=True
+                payload, response = operation_fn(station_id=int(station_id)).results(
+                    return_response=True,
+                    use_etag=False,
+                    force_refresh=True,
+                )
+                self._update_rate_limit_state_from_response(
+                    response=response,
+                    endpoint=endpoint,
+                    throttle_key=throttle_key,
                 )
             except Exception as exc:
                 logger.debug(
