@@ -2732,7 +2732,17 @@ def update_type_names():
     )
 
 
-@shared_task(bind=True, max_retries=0)
+@shared_task(
+    bind=True,
+    base=QueueOnce,
+    max_retries=0,
+    once={
+        "graceful": True,
+        "keys": ["location_ids", "force_refresh", "dry_run"],
+    },
+    # This task can fan out into many location lookups; keep starts conservative.
+    rate_limit="2/m",
+)
 @rate_limit_retry_task
 def populate_location_names_async(
     self, location_ids=None, force_refresh=False, dry_run=False
