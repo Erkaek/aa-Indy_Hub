@@ -954,6 +954,36 @@ def resolve_location_name(
     remaining_attempts = _MAX_STRUCTURE_LOOKUPS
     structure_forbidden_hit = False
 
+    # Skip ESI for large IDs that appear in the asset cache as non-deployed items
+    # (e.g. items in a station or inside another item).  Only IDs located directly
+    # in a solar system (location_id < 60 000 000) are deployed structures worth
+    # querying ESI for.
+    if structure_id >= 1_000_000_000_000:
+        try:
+            corp_asset_model = apps.get_model("indy_hub", "CachedCorporationAsset")
+            corp_loc = (
+                corp_asset_model.objects.filter(item_id=structure_id)
+                .values_list("location_id", flat=True)
+                .first()
+            )
+            if corp_loc is not None and int(corp_loc) >= _STATION_ID_MIN:
+                allow_authenticated = False
+        except Exception:
+            pass
+
+        if allow_authenticated:
+            try:
+                char_asset_model = apps.get_model("indy_hub", "CachedCharacterAsset")
+                char_loc = (
+                    char_asset_model.objects.filter(item_id=structure_id)
+                    .values_list("location_id", flat=True)
+                    .first()
+                )
+                if char_loc is not None and int(char_loc) >= _STATION_ID_MIN:
+                    allow_authenticated = False
+            except Exception:
+                pass
+
     def try_structure_lookup(
         candidate_character_id: int | None,
         *,
