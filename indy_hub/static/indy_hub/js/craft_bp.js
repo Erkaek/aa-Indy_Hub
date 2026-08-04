@@ -7026,8 +7026,11 @@ function renderStructureCategoryAssignments(items) {
         }
 
         return `<div class="d-flex align-items-center gap-2" data-category="${escapeHtml(cat)}">
-            <span class="badge bg-light text-dark border fw-normal" style="min-width:11rem;text-align:left;">${label} <span class="text-muted">(${count})</span></span>
-            <select class="form-select form-select-sm category-structure-select" style="max-width:340px;">
+            <div style="min-width:11rem;">
+                <span class="fw-semibold small">${label}</span>
+                <span class="small text-muted ms-1">(${count})</span>
+            </div>
+            <select class="form-select form-select-sm structure-assignment-select category-structure-select" style="max-width:340px;">
                 <option value="">${escapeHtml(__('Select a structure\u2026'))}</option>
                 ${optionMarkup}
             </select>
