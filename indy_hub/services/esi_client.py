@@ -1328,7 +1328,20 @@ class ESIClient:
         except AttributeError:
             return None
         try:
-            payload = operation_fn(station_id=int(station_id)).results()
+            payload = operation_fn(station_id=int(station_id)).results(use_etag=False)
+        except HTTPNotModified:
+            # django-esi cache was stale; retry bypassing ETags entirely
+            try:
+                payload = operation_fn(station_id=int(station_id)).results(
+                    use_etag=False, force_refresh=True
+                )
+            except Exception as exc:
+                logger.debug(
+                    "fetch_station_name retry after 304 failed for %s: %s",
+                    station_id,
+                    exc,
+                )
+                return None
         except _DJANGO_ESI_RATE_LIMIT_ERRORS as exc:
             logger.warning(
                 "fetch_station_name rate limited for %s: %s", station_id, exc
