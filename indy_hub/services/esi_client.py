@@ -1340,7 +1340,18 @@ class ESIClient:
         except Exception as exc:
             logger.debug("fetch_station_name failed for %s: %s", station_id, exc)
             return None
-        return str(payload.get("name") or "") or None
+        if isinstance(payload, list):
+            payload = payload[0] if payload else None
+        if isinstance(payload, dict):
+            return str(payload.get("name") or "") or None
+        coerced = self._coerce_mapping(payload) if payload is not None else None
+        if isinstance(coerced, dict):
+            return str(coerced.get("name") or "") or None
+        if payload is not None:
+            name = getattr(payload, "name", None)
+            if name:
+                return str(name)
+        return None
 
     def resolve_ids_to_names(self, ids: list[int]) -> dict[int, str]:
         """Resolve a list of IDs to names via the public /universe/names/ endpoint.
