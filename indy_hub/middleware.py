@@ -5,6 +5,7 @@ from __future__ import annotations
 # Django
 from django.utils.deprecation import MiddlewareMixin
 
+# AA Example App
 # Local
 from indy_hub.services.user_usage import (
     is_usage_tracking_path_excluded,

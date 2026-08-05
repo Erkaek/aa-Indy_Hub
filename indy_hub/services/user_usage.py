@@ -123,7 +123,11 @@ def build_usage_timeline(
     for index, item in enumerate(timeline):
         angle = (-math.pi / 2) + ((2 * math.pi) * (index / timeline_length))
         scaled = (int(item["count"]) / max_count) if max_count else 0
-        radius = int(round(inner_radius + (outer_radius - inner_radius) * scaled)) if max_count else inner_radius
+        radius = (
+            int(round(inner_radius + (outer_radius - inner_radius) * scaled))
+            if max_count
+            else inner_radius
+        )
         x = int(round(center_x + math.cos(angle) * radius))
         y = int(round(center_y + math.sin(angle) * radius))
         base_x = int(round(center_x + math.cos(angle) * outer_radius))
@@ -188,7 +192,9 @@ def build_indy_hub_usage_detail(usage) -> dict[str, object]:
     overall_timeline = overall_timeline_data["timeline"]
     active_days_total = len(overall_daily_usage)
     active_days_30d = sum(
-        1 for day_key in overall_daily_usage if date.fromisoformat(day_key) >= reference_day - timedelta(days=29)
+        1
+        for day_key in overall_daily_usage
+        if date.fromisoformat(day_key) >= reference_day - timedelta(days=29)
     )
 
     raw_page_usage = getattr(usage, "page_usage", {})
@@ -211,17 +217,21 @@ def build_indy_hub_usage_detail(usage) -> dict[str, object]:
                     "path": str(page_path),
                     "label": str(page_data.get("label") or page_path),
                     "total_usage_count": int(page_data.get("total_usage_count") or 0),
-                    "first_used_at": _parse_iso_datetime(page_data.get("first_used_at")),
+                    "first_used_at": _parse_iso_datetime(
+                        page_data.get("first_used_at")
+                    ),
                     "last_used_at": _parse_iso_datetime(page_data.get("last_used_at")),
                     "recent_30d_count": sum(
                         count
                         for day_key, count in page_daily_usage.items()
-                        if date.fromisoformat(day_key) >= reference_day - timedelta(days=29)
+                        if date.fromisoformat(day_key)
+                        >= reference_day - timedelta(days=29)
                     ),
                     "recent_7d_count": sum(
                         count
                         for day_key, count in page_daily_usage.items()
-                        if date.fromisoformat(day_key) >= reference_day - timedelta(days=6)
+                        if date.fromisoformat(day_key)
+                        >= reference_day - timedelta(days=6)
                     ),
                     "timeline": page_timeline,
                     "peak_day_label": page_timeline_data["peak_day_label"],
@@ -247,9 +257,7 @@ def build_indy_hub_usage_detail(usage) -> dict[str, object]:
         inner_radius = 46
 
         ring_rows = [
-            row
-            for row in page_rows
-            if int(row.get("recent_30d_count") or 0) > 0
+            row for row in page_rows if int(row.get("recent_30d_count") or 0) > 0
         ]
         ring_rows.sort(
             key=lambda row: int(row.get("recent_30d_count") or 0),
@@ -257,8 +265,7 @@ def build_indy_hub_usage_detail(usage) -> dict[str, object]:
         )
         primary_ring_rows = [dict(row) for row in ring_rows[:12]]
         remaining_count = sum(
-            int(row.get("recent_30d_count") or 0)
-            for row in ring_rows[12:]
+            int(row.get("recent_30d_count") or 0) for row in ring_rows[12:]
         )
         if remaining_count > 0:
             primary_ring_rows.append(
@@ -267,11 +274,11 @@ def build_indy_hub_usage_detail(usage) -> dict[str, object]:
                     "path": "(grouped)",
                     "recent_30d_count": remaining_count,
                     "total_usage_count": remaining_count,
-                    "page_share_percent": int(
-                        round((remaining_count / page_total_30d) * 100)
-                    )
-                    if page_total_30d
-                    else 0,
+                    "page_share_percent": (
+                        int(round((remaining_count / page_total_30d) * 100))
+                        if page_total_30d
+                        else 0
+                    ),
                 }
             )
 
@@ -285,12 +292,24 @@ def build_indy_hub_usage_detail(usage) -> dict[str, object]:
             end_angle = current_angle + sweep
             mid_angle = current_angle + (sweep / 2.0)
             label_radius = outer_radius + 18
-            label_x = int(round(center_x + math.cos(math.radians(mid_angle)) * label_radius))
-            label_y = int(round(center_y + math.sin(math.radians(mid_angle)) * label_radius))
-            start_x = int(round(center_x + math.cos(math.radians(start_angle)) * outer_radius))
-            start_y = int(round(center_y + math.sin(math.radians(start_angle)) * outer_radius))
-            end_x = int(round(center_x + math.cos(math.radians(end_angle)) * outer_radius))
-            end_y = int(round(center_y + math.sin(math.radians(end_angle)) * outer_radius))
+            label_x = int(
+                round(center_x + math.cos(math.radians(mid_angle)) * label_radius)
+            )
+            label_y = int(
+                round(center_y + math.sin(math.radians(mid_angle)) * label_radius)
+            )
+            start_x = int(
+                round(center_x + math.cos(math.radians(start_angle)) * outer_radius)
+            )
+            start_y = int(
+                round(center_y + math.sin(math.radians(start_angle)) * outer_radius)
+            )
+            end_x = int(
+                round(center_x + math.cos(math.radians(end_angle)) * outer_radius)
+            )
+            end_y = int(
+                round(center_y + math.sin(math.radians(end_angle)) * outer_radius)
+            )
             large_arc = 1 if sweep > 180 else 0
             row["page_arc_path"] = (
                 f"M {int(round(center_x + math.cos(math.radians(start_angle)) * inner_radius))} "
@@ -308,20 +327,28 @@ def build_indy_hub_usage_detail(usage) -> dict[str, object]:
             normalized_mid_angle = (mid_angle + 360.0) % 360.0
             on_left_side = 90.0 < normalized_mid_angle < 270.0
             row["page_label_anchor"] = "end" if on_left_side else "start"
-            row["page_label_rotation"] = int(round(mid_angle + (180.0 if on_left_side else 0.0)))
+            row["page_label_rotation"] = int(
+                round(mid_angle + (180.0 if on_left_side else 0.0))
+            )
             row["page_label_short"] = (
                 f"{str(row.get('label') or '')[:25]}..."
                 if len(str(row.get("label") or "")) > 28
                 else str(row.get("label") or "")
             )
             row["page_label_x"] = int(
-                round(center_x + math.cos(math.radians(mid_angle)) * (outer_radius + 24))
+                round(
+                    center_x + math.cos(math.radians(mid_angle)) * (outer_radius + 24)
+                )
             )
             row["page_label_y"] = int(
-                round(center_y + math.sin(math.radians(mid_angle)) * (outer_radius + 24))
+                round(
+                    center_y + math.sin(math.radians(mid_angle)) * (outer_radius + 24)
+                )
             )
             row["page_color"] = _PAGE_RING_PALETTE[index % len(_PAGE_RING_PALETTE)]
-            row["page_share_percent"] = int(round((count / page_total_30d) * 100)) if page_total_30d else 0
+            row["page_share_percent"] = (
+                int(round((count / page_total_30d) * 100)) if page_total_30d else 0
+            )
             page_rings.append(row)
             current_angle = end_angle
 
@@ -375,8 +402,12 @@ def build_indy_hub_global_usage_detail(usages) -> dict[str, object]:
         if raw_last and (last_used_at is None or raw_last > last_used_at):
             last_used_at = raw_last
 
-        for day_key, count in _normalize_daily_counts(getattr(usage, "daily_usage", {})).items():
-            aggregated_daily_usage[day_key] = aggregated_daily_usage.get(day_key, 0) + int(count)
+        for day_key, count in _normalize_daily_counts(
+            getattr(usage, "daily_usage", {})
+        ).items():
+            aggregated_daily_usage[day_key] = aggregated_daily_usage.get(
+                day_key, 0
+            ) + int(count)
 
         raw_page_usage = getattr(usage, "page_usage", {})
         if not isinstance(raw_page_usage, dict):
@@ -397,22 +428,34 @@ def build_indy_hub_global_usage_detail(usages) -> dict[str, object]:
                 "last_used_at": None,
                 "daily_usage": {},
             }
-            page_entry["total_usage_count"] = int(page_entry.get("total_usage_count") or 0) + int(
-                page_data.get("total_usage_count") or 0
-            )
+            page_entry["total_usage_count"] = int(
+                page_entry.get("total_usage_count") or 0
+            ) + int(page_data.get("total_usage_count") or 0)
 
             page_first = _parse_iso_datetime(page_data.get("first_used_at"))
             page_last = _parse_iso_datetime(page_data.get("last_used_at"))
             current_first = _parse_iso_datetime(page_entry.get("first_used_at"))
             current_last = _parse_iso_datetime(page_entry.get("last_used_at"))
             if page_first and (current_first is None or page_first < current_first):
-                page_entry["first_used_at"] = page_first.isoformat() if hasattr(page_first, "isoformat") else page_first
+                page_entry["first_used_at"] = (
+                    page_first.isoformat()
+                    if hasattr(page_first, "isoformat")
+                    else page_first
+                )
             if page_last and (current_last is None or page_last > current_last):
-                page_entry["last_used_at"] = page_last.isoformat() if hasattr(page_last, "isoformat") else page_last
+                page_entry["last_used_at"] = (
+                    page_last.isoformat()
+                    if hasattr(page_last, "isoformat")
+                    else page_last
+                )
 
             merged_daily_usage = dict(page_entry.get("daily_usage") or {})
-            for day_key, count in _normalize_daily_counts(page_data.get("daily_usage")).items():
-                merged_daily_usage[day_key] = merged_daily_usage.get(day_key, 0) + int(count)
+            for day_key, count in _normalize_daily_counts(
+                page_data.get("daily_usage")
+            ).items():
+                merged_daily_usage[day_key] = merged_daily_usage.get(day_key, 0) + int(
+                    count
+                )
             page_entry["daily_usage"] = merged_daily_usage
 
             aggregated_page_usage[page_key] = page_entry
@@ -520,7 +563,9 @@ def track_indy_hub_usage_once_per_request(request) -> None:
         or getattr(resolver_match, "route", None)
         or getattr(request, "path", "")
     )
-    page_label = str(page_label).replace("_", " ").strip() or str(getattr(request, "path", ""))
+    page_label = str(page_label).replace("_", " ").strip() or str(
+        getattr(request, "path", "")
+    )
 
     track_indy_hub_usage_for_user(
         user,
