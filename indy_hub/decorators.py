@@ -6,6 +6,10 @@ from functools import wraps
 from django.contrib import messages
 from django.shortcuts import redirect
 
+# AA Example App
+# Local
+from indy_hub.services.user_usage import track_indy_hub_usage_once_per_request
+
 
 def indy_hub_access_required(view_func):
     @wraps(view_func)
@@ -15,6 +19,7 @@ def indy_hub_access_required(view_func):
         if not request.user.has_perm("indy_hub.can_access_indy_hub"):
             messages.error(request, "You do not have permission to access Indy Hub.")
             return redirect("indy_hub:index")
+        track_indy_hub_usage_once_per_request(request)
         return view_func(request, *args, **kwargs)
 
     return _wrapped_view
@@ -34,6 +39,7 @@ def indy_hub_permission_required(permission_codename):
                     request, "You do not have the required Indy Hub permission."
                 )
                 return redirect("indy_hub:index")
+            track_indy_hub_usage_once_per_request(request)
             return view_func(request, *args, **kwargs)
 
         return _wrapped_view

@@ -17,6 +17,7 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 - Crafting Projects: temporary projects now persist the Corp BP toggle state across page reloads via a dedicated cache endpoint, so the choice survives without saving the project.
 - Structure tab: new **Category Assignments** section lets users apply a structure to all items of the same craft group (e.g. "Construction Components", "Fuel Block") at once.
 - Management command: `populate_location_names --repair-stations` repairs placeholder location names by re-resolving NPC station IDs via the corrected public endpoint and relabelling non-deployed asset-item IDs as `<type name> [asset]`. Supports `--dry-run`.
+- Settings: added a private `Settings > User admin` page for superusers and corp blueprint admins, with visibility-scoped user review, scope or usage filters, health scoring, and usage analytics.
 
 ### Fixed
 
@@ -27,6 +28,7 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 - Structure tab: Category Assignments rows were grouped by broad service category (`manufacturing`, `composite_reactions`) instead of the more useful craft group name (`Construction Components`, `Fuel Block`, etc.).
 - Locations: NPC station names (IDs 60 000 000–69 999 999) were stored as `Structure <id>` placeholders instead of their real names. Indy Hub now uses the dedicated public `GET /universe/stations/{station_id}/` endpoint for this range, bypasses stale ETag-driven `304 Not Modified` failures during repair runs, and reuses local ESI cooldown state to avoid hammering the station endpoint when rate-limit headers indicate low remaining budget.
 - Locations: large IDs (`>= 1 000 000 000 000`) that are only non-deployed asset item IDs are no longer sent to the authenticated structure endpoint. Repair flows now relabel them locally as asset items instead of wasting ESI calls on lookups that can never resolve.
+- Settings: private user-admin scope checks now batch token-scope coverage lookups across visible users instead of repeating per-user scope queries during page render.
 
 ## [1.18.2] - 2026-08-01
 

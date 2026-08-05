@@ -21,6 +21,7 @@ from .views.api import (
     update_temporary_project_workspace_state,
 )
 from .views.hubs import (
+    settings_admin_users,
     settings_hub,
     test_darkly_theme,
 )
@@ -151,6 +152,7 @@ urlpatterns = [
     path("test-darkly/", test_darkly_theme, name="test_darkly_theme"),
     path("esi/", token_management, name="esi_hub"),
     path("settings/", settings_hub, name="settings_hub"),
+    path("settings/admin-users/", settings_admin_users, name="settings_admin_users"),
     path("personnal-bp/", personnal_bp_list, name="personnal_bp_list"),
     path(
         "corporation-bp/",

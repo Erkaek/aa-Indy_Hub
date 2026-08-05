@@ -1,7 +1,7 @@
 # Standard Library
 import random
 import secrets
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import ROUND_CEILING, Decimal
 
 # Django
@@ -993,6 +993,106 @@ class UserOnboardingProgress(models.Model):
         else:
             manual.pop(key, None)
         self.manual_steps = manual
+
+
+class IndyHubUserUsage(models.Model):
+    """Simple usage history and rolling activity counters per user."""
+
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name="indy_hub_usage",
+    )
+    first_used_at = models.DateTimeField(null=True, blank=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    total_usage_count = models.PositiveIntegerField(default=0)
+    activity_7d_count = models.PositiveIntegerField(default=0)
+    activity_30d_count = models.PositiveIntegerField(default=0)
+    daily_usage = models.JSONField(default=dict, blank=True)
+    page_usage = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        default_permissions = ()
+        verbose_name = _("Indy Hub usage")
+        verbose_name_plural = _("Indy Hub usage")
+        indexes = [
+            models.Index(fields=["last_used_at"], name="indy_usage_last_used_idx"),
+            models.Index(fields=["activity_30d_count"], name="indy_usage_30d_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"Indy usage for {self.user.username}"
+
+    def register_usage(
+        self,
+        at=None,
+        *,
+        page_path: str | None = None,
+        page_label: str | None = None,
+    ) -> None:
+        """Record a usage hit and refresh rolling activity windows."""
+        moment = at or timezone.now()
+        today = moment.date()
+        start_7d = today - timedelta(days=6)
+        start_30d = today - timedelta(days=29)
+
+        def _normalize_daily_counts(raw_counts) -> dict[str, int]:
+            normalized_counts: dict[str, int] = {}
+            for day_key, count in (raw_counts or {}).items():
+                try:
+                    day = date.fromisoformat(str(day_key))
+                    normalized_count = int(count)
+                except (TypeError, ValueError):
+                    continue
+                if normalized_count <= 0 or day < start_30d:
+                    continue
+                normalized_counts[day.isoformat()] = normalized_count
+            return normalized_counts
+
+        normalized_daily = _normalize_daily_counts(self.daily_usage)
+
+        today_key = today.isoformat()
+        normalized_daily[today_key] = normalized_daily.get(today_key, 0) + 1
+
+        activity_7d = 0
+        activity_30d = 0
+        for day_key, count in normalized_daily.items():
+            day = date.fromisoformat(day_key)
+            if day >= start_30d:
+                activity_30d += count
+            if day >= start_7d:
+                activity_7d += count
+
+        if not self.first_used_at:
+            self.first_used_at = moment
+        self.last_used_at = moment
+        self.total_usage_count = int(self.total_usage_count or 0) + 1
+        self.activity_7d_count = activity_7d
+        self.activity_30d_count = activity_30d
+        self.daily_usage = normalized_daily
+
+        if page_path:
+            page_key = str(page_path).strip() or "unknown"
+            normalized_page_usage = dict(self.page_usage or {})
+            page_entry = normalized_page_usage.get(page_key) or {}
+            page_daily_usage = _normalize_daily_counts(page_entry.get("daily_usage"))
+            page_daily_usage[today_key] = page_daily_usage.get(today_key, 0) + 1
+            normalized_page_usage[page_key] = {
+                "label": (
+                    str(page_label).strip()
+                    if page_label
+                    else str(page_entry.get("label") or page_key).strip()
+                )
+                or page_key,
+                "path": page_key,
+                "total_usage_count": int(page_entry.get("total_usage_count") or 0) + 1,
+                "first_used_at": page_entry.get("first_used_at") or moment.isoformat(),
+                "last_used_at": moment.isoformat(),
+                "daily_usage": page_daily_usage,
+            }
+            self.page_usage = normalized_page_usage
 
 
 class UserFavoriteStructure(models.Model):
