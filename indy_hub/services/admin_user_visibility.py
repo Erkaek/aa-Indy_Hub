@@ -14,8 +14,6 @@ from allianceauth.authentication.models import CharacterOwnership
 
 User = get_user_model()
 
-INDY_HUB_CORP_ADMIN_PERMISSION = "indy_hub.can_manage_corp_bp_requests"
-
 
 def can_access_indy_hub_user_admin_scope(user) -> bool:
     """Return whether the user can access Indy Hub user-admin scope data."""
