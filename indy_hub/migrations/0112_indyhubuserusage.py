@@ -30,6 +30,7 @@ class Migration(migrations.Migration):
                 ("activity_7d_count", models.PositiveIntegerField(default=0)),
                 ("activity_30d_count", models.PositiveIntegerField(default=0)),
                 ("daily_usage", models.JSONField(blank=True, default=dict)),
+                ("page_usage", models.JSONField(blank=True, default=dict)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 (
