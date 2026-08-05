@@ -300,7 +300,7 @@ class SettingsAdminUsersViewTests(TestCase):
         users_html = self._users_section_html(response)
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn("Détail", users_html)
+        self.assertIn("Details", users_html)
         self.assertIn("Usage detail", users_html)
         self.assertIn("Pages visited", users_html)
         self.assertIn("Overview", users_html)

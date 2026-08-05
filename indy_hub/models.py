@@ -1040,6 +1040,8 @@ class IndyHubUserUsage(models.Model):
 
         def _normalize_daily_counts(raw_counts) -> dict[str, int]:
             normalized_counts: dict[str, int] = {}
+            if not isinstance(raw_counts, dict):
+                return normalized_counts
             for day_key, count in (raw_counts or {}).items():
                 try:
                     day = date.fromisoformat(str(day_key))
@@ -1065,9 +1067,10 @@ class IndyHubUserUsage(models.Model):
             if day >= start_7d:
                 activity_7d += count
 
-        if not self.first_used_at:
+        if not self.first_used_at or moment < self.first_used_at:
             self.first_used_at = moment
-        self.last_used_at = moment
+        if not self.last_used_at or moment > self.last_used_at:
+            self.last_used_at = moment
         self.total_usage_count = int(self.total_usage_count or 0) + 1
         self.activity_7d_count = activity_7d
         self.activity_30d_count = activity_30d

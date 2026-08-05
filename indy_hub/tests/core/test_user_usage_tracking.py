@@ -79,18 +79,18 @@ class IndyHubUserUsageModelTests(TestCase):
 
         usage = IndyHubUserUsage.objects.get(user=self.user)
 
-        self.assertIn("/indy_hub/index/", usage.page_usage)
-        self.assertIn("/indy_hub/settings/admin-users/", usage.page_usage)
+        self.assertIn("/indy_hub/index", usage.page_usage)
+        self.assertIn("/indy_hub/settings/admin-users", usage.page_usage)
         self.assertEqual(
-            usage.page_usage["/indy_hub/index/"]["total_usage_count"],
+            usage.page_usage["/indy_hub/index"]["total_usage_count"],
             1,
         )
         self.assertEqual(
-            usage.page_usage["/indy_hub/settings/admin-users/"]["total_usage_count"],
+            usage.page_usage["/indy_hub/settings/admin-users"]["total_usage_count"],
             2,
         )
         self.assertEqual(
-            usage.page_usage["/indy_hub/settings/admin-users/"]["label"],
+            usage.page_usage["/indy_hub/settings/admin-users"]["label"],
             "User admin",
         )
 

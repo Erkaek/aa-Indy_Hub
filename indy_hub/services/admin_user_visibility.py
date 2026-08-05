@@ -23,7 +23,7 @@ def can_access_indy_hub_user_admin_scope(user) -> bool:
 
 
 def get_managed_corporation_ids_for_user_admin_scope(user) -> set[int]:
-    """Return corporation IDs managed by a non-superuser Indy Hub admin."""
+    """Return corporation IDs linked to a superuser for scope filtering helpers."""
     if not can_access_indy_hub_user_admin_scope(user):
         return set()
 

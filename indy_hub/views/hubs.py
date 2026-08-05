@@ -198,7 +198,7 @@ def _build_settings_admin_users_state(user, params) -> dict[str, object]:
         usage_detail = build_indy_hub_usage_detail(user_usage)
         problems = detect_admin_user_reminder_problems(
             missing_scopes=missing_scopes,
-            notifications_off=False,
+            notifications_off=(notify_frequency == CharacterSettings.NOTIFY_DISABLED),
             is_inactive=is_inactive,
             health_level=str(health.get("level") or "critical"),
         )
@@ -259,6 +259,10 @@ def _build_settings_admin_users_state(user, params) -> dict[str, object]:
         }
     )
     global_usage_detail = build_indy_hub_global_usage_detail(rows_usage_objects)
+    global_usage_detail["visible_user_count"] = len(rows)
+    global_usage_detail["active_user_count_30d"] = sum(
+        1 for row in rows if int(row.get("activity_30d_count") or 0) > 0
+    )
 
     return {
         "all_rows": rows,

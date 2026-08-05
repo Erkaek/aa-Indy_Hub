@@ -77,7 +77,7 @@ def _parse_iso_datetime(raw_value):
     try:
         return datetime.fromisoformat(str(raw_value))
     except (TypeError, ValueError):
-        return raw_value
+        return None
 
 
 def build_usage_timeline(
@@ -146,7 +146,7 @@ def build_usage_timeline(
             }
         )
         item["svg_x"] = x
-        item["svg_y"] = y
+        item["svg_point_y"] = y
         item["svg_bar_x"] = x - 5
         item["svg_bar_width"] = 10
         item["radial_x"] = x
@@ -383,7 +383,20 @@ def build_indy_hub_global_usage_detail(usages) -> dict[str, object]:
             "has_usage": False,
             "visible_user_count": 0,
             "active_user_count_30d": 0,
+            "total_usage_count": 0,
+            "activity_7d_count": 0,
+            "activity_30d_count": 0,
             "timeline_30d": [],
+            "timeline_30d_peak_day_label": "",
+            "timeline_30d_peak_day_count": 0,
+            "page_rows": [],
+            "page_rings": [],
+            "page_total_30d": 0,
+            "page_count": 0,
+            "page_ring_center_x": 110,
+            "page_ring_center_y": 110,
+            "page_ring_inner_radius": 46,
+            "page_ring_outer_radius": 72,
         }
 
     aggregated_daily_usage: dict[str, int] = {}
@@ -521,11 +534,26 @@ def track_indy_hub_usage_for_user(
     if not getattr(user, "is_authenticated", False):
         return
 
+    normalized_page_path = None
+    if page_path is not None:
+        normalized_page_path = urlsplit(str(page_path).strip()).path.strip()
+        if normalized_page_path and normalized_page_path != "/":
+            normalized_page_path = normalized_page_path.rstrip("/")
+        normalized_page_path = normalized_page_path or "/"
+        if not normalized_page_path.startswith("/"):
+            normalized_page_path = f"/{normalized_page_path}"
+        if is_usage_tracking_path_excluded(normalized_page_path):
+            return
+
     with transaction.atomic():
         usage, _created = IndyHubUserUsage.objects.select_for_update().get_or_create(
             user=user
         )
-        usage.register_usage(at=at, page_path=page_path, page_label=page_label)
+        usage.register_usage(
+            at=at,
+            page_path=normalized_page_path,
+            page_label=page_label,
+        )
         usage.save(
             update_fields=[
                 "first_used_at",
